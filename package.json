@@ -29,7 +29,7 @@
     "@types/node": "^22.10.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^3.0.0",
+    "vitest": "^4.1.12",
     "@reelforge/project-schema": "workspace:*",
     "@reelforge/media-pipeline": "workspace:*",
     "@reelforge/engine-motion-canvas": "workspace:*",
