@@ -19,7 +19,7 @@ import { z } from 'zod';
 
 export type SettingScope = 'startup' | 'runtime';
 /** How an environment variable's text is turned into a value. */
-export type SettingKind = 'string' | 'integer' | 'boolean' | 'list' | 'enum' | 'path' | 'url';
+export type SettingKind = 'string' | 'integer' | 'number' | 'boolean' | 'list' | 'enum' | 'path' | 'url';
 
 export interface SettingMeta {
   kind: SettingKind;
@@ -312,8 +312,112 @@ export const ConfigSchema = z.object({
       kind: 'enum',
       scope: 'startup',
       env: 'REELFORGE_LOG_FORMAT',
-      default: 'text',
-      description: '`text` (`[reelforge] ...` lines) or `json` (one object per line).',
+      default: 'json',
+      description:
+        'Older name for the stdout log format, kept for existing deployments: `text` selects `observability.logs.exporter: pretty` when that is not set. Prefer `observability.logs.exporter`.',
+    }),
+  }),
+  observability: z.object({
+    serviceName: setting(z.string().min(1).max(100).regex(/^[\w.-]+$/, 'letters, digits, ".", "_" and "-" only'), {
+      kind: 'string',
+      scope: 'startup',
+      env: 'REELFORGE_OTEL_SERVICE_NAME',
+      aliases: ['OTEL_SERVICE_NAME'],
+      default: 'reelforge-studio',
+      description: 'OpenTelemetry `service.name` of traces, metrics and logs (also `service.version` and `reelforge.edition` are sent).',
+    }),
+    logs: z.object({
+      exporter: setting(z.enum(['stdout', 'pretty', 'otlp']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_LOGS_EXPORTER',
+        default: (get: Getter) => (get('logging.format') === 'text' ? 'pretty' : 'stdout'),
+        defaultText: '`stdout` (`pretty` when `logging.format` is `text`)',
+        description:
+          '`stdout`: one JSON object per line (request id, key id, route, status, duration; secrets redacted). `pretty`: readable `[reelforge] ...` lines for development. `otlp`: JSON lines on stdout and OpenTelemetry log records to `observability.otlp.endpoint` (Grafana Loki, Datadog, Honeycomb, Elastic, ...).',
+      }),
+    }),
+    metrics: z.object({
+      exporter: setting(z.enum(['prometheus', 'otlp', 'off']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_METRICS_EXPORTER',
+        default: 'prometheus',
+        description: '`prometheus`: text format on `GET /metrics` for scraping. `otlp`: pushed to `observability.otlp.endpoint` every `observability.metrics.exportIntervalSeconds`. `off`: neither (`/metrics` answers 404).',
+      }),
+      bearerToken: setting(z.string().min(16, 'at least 16 characters (e.g. `openssl rand -hex 24`)').max(500).regex(/^[\x21-\x7e]+$/, 'printable characters without spaces').optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_METRICS_TOKEN',
+        secret: true,
+        description:
+          'When set, `GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` is open like `/healthz`; keep it off the public internet (docs/OBSERVABILITY.md).',
+      }),
+      exportIntervalSeconds: setting(z.number().int().min(5).max(3600), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_METRICS_EXPORT_INTERVAL_SECONDS',
+        default: 60,
+        description: 'How often metrics are pushed with the `otlp` exporter.',
+      }),
+    }),
+    tracing: z.object({
+      exporter: setting(z.enum(['otlp', 'off']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_TRACING_EXPORTER',
+        default: (get: Getter) => (get('observability.otlp.endpoint') ? 'otlp' : 'off'),
+        defaultText: '`off` (`otlp` when `observability.otlp.endpoint` is set)',
+        description: '`otlp`: spans for HTTP requests, jobs, engine renders and FFmpeg steps to `observability.otlp.endpoint` (Jaeger, Grafana Tempo, Honeycomb, Datadog, ...). `off`: no spans.',
+      }),
+      sampleRatio: setting(z.number().min(0).max(1), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_TRACING_SAMPLE_RATIO',
+        default: 1,
+        description: 'Share of new traces kept (0 to 1). A request that arrives with a W3C `traceparent` follows the caller\'s sampling decision.',
+      }),
+    }),
+    otlp: z.object({
+      endpoint: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'runtime',
+        env: 'REELFORGE_OTLP_ENDPOINT',
+        aliases: ['OTEL_EXPORTER_OTLP_ENDPOINT'],
+        example: 'http://otel-collector:4318',
+        description: 'OTLP/HTTP base URL; `/v1/traces`, `/v1/metrics` and `/v1/logs` are appended. Nothing is sent anywhere unless this is set (docs/PRIVACY.md).',
+      }),
+      headers: setting(
+        z
+          .string()
+          .max(4000)
+          .regex(/^\s*[^\s=,]+\s*=[^,\r\n]*(,\s*[^\s=,]+\s*=[^,\r\n]*)*$/, 'comma-separated name=value pairs, e.g. "x-honeycomb-team=<key>"')
+          .optional(),
+        {
+          kind: 'string',
+          scope: 'runtime',
+          env: 'REELFORGE_OTLP_HEADERS',
+          aliases: ['OTEL_EXPORTER_OTLP_HEADERS'],
+          secret: true,
+          example: 'authorization=Basic <base64 instance:token>',
+          description: 'Headers sent with every OTLP request, as `name=value,name2=value2` (values may be URL-encoded). Usually holds the vendor API key, so it is a secret.',
+        }
+      ),
+      protocol: setting(z.enum(['http/protobuf', 'http/json']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_OTLP_PROTOCOL',
+        aliases: ['OTEL_EXPORTER_OTLP_PROTOCOL'],
+        default: 'http/protobuf',
+        description: 'OTLP encoding over HTTP. gRPC is not shipped (it would add a large dependency); point this at an OpenTelemetry Collector to reach a gRPC-only backend.',
+      }),
+      timeoutSeconds: setting(z.number().int().min(1).max(60), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_OTLP_TIMEOUT_SECONDS',
+        default: 10,
+        description: 'Longest time one OTLP export may take, retries included (429/502/503/504 are retried with exponential backoff inside this time). Then the batch is dropped and the server carries on.',
+      }),
     }),
   }),
   licence: z.object({

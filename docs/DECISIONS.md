@@ -787,3 +787,95 @@ cache) and the Trivy DB are cached. Verified on GitHub (manual run
 44921945693): every heavy job on amd64 and arm64. Not run yet: publish and
 cosign (main/tags only). Distribution of the image to buyers (pull access by
 licence, update channel) is still open (#11).
+
+### D-050 --- Observability on OpenTelemetry: the API in core, the SDK and exporters in the server, OTLP over HTTP
+
+**Status:** DECIDED (issue #64; reversible).\
+One instrumentation for every signal: the core (`packages/core/src/telemetry.ts`)
+depends only on `@opentelemetry/api` (no dependencies) and records spans and
+metrics through a `Telemetry` (tracer + meter) the server hands to
+`ReelforgeService`; without one everything is a no-op (tests, CLI, spike). The
+server (`apps/server/src/observability/`) owns the SDK (`sdk-trace`,
+`sdk-metrics`, `sdk-logs` 3.1.1), the Prometheus serializer and the OTLP
+exporters (0.301.2), all pinned. Exporters: OTLP over HTTP, `http/protobuf`
+(default, the OTLP spec default) or `http/json`. **gRPC is not shipped**: it
+would add `@grpc/grpc-js` to the image for a transport any OpenTelemetry
+Collector translates; the setting refuses `grpc` with that hint. No
+auto-instrumentation packages (they monkey-patch Node modules): HTTP spans
+come from our Hono middleware, job/engine/FFmpeg spans from the core. Spans
+form one trace per request: `HTTP <route>` → `job <type>` (child of the
+request that submitted it, also when it runs later) → `engine.render
+<engine>` → `ffprobe clip`, `ffmpeg assemble`, `ffprobe output`, `ffmpeg
+decode check`, `ffmpeg poster`; an incoming W3C `traceparent` is continued.
+The release image grows by 9 MB (1845 → 1854 MB uncompressed, budget 2000;
+no protobuf runtime: the 3.x transformer encodes itself).
+
+### D-051 --- Logs: JSON lines by default, redacted on the way out
+
+**Status:** DECIDED (issue #64, founder: the issue's recommended defaults; reversible).\
+`observability.logs.exporter`: `stdout` (default: one JSON object per line
+with `time`, `level`, `msg`, `service`, fields, and `trace_id`/`span_id` when a
+span is active), `pretty` (the old `[reelforge] ...` lines, for development;
+`pnpm dev` selects it) or `otlp` (JSON lines **and** OpenTelemetry log records,
+so `docker logs` keeps working). `logging.format` stays as the older name
+(`text` → `pretty` when the exporter is not set); its default is now `json`,
+a visible change for anyone parsing the text lines. One access log line per
+request: `request_id` (a caller's `X-Request-Id` if it is 1-128 plain
+characters, else a UUID; echoed in the response), `key_id` (never the key),
+`method`, `route` (the template), `status`, `duration_ms`; never the query
+string (it carries download signatures). `/healthz`, `/readyz` and `/metrics`
+log at `debug`. Redaction runs in the logger for every message and field
+(`apps/server/src/observability/redact.ts`): `rf_` keys, `Bearer`/`Basic`
+credentials, URL passwords, `sig=`/`token=`/`key=` query values, the current
+value of every secret setting and provider key (refreshed on every config
+change), and fields named like secrets.
+
+### D-052 --- Metrics: Prometheus on /metrics by default, OTLP push or off; templates, never ids
+
+**Status:** DECIDED (issue #64; reversible).\
+`observability.metrics.exporter`: `prometheus` (default; `GET /metrics` on
+the normal port, text format 0.0.4, `promtool check metrics` clean),
+`otlp` (pushed every `exportIntervalSeconds`, default 60) or `off` (404).
+`/metrics` is open like `/healthz` unless `observability.metrics.bearerToken`
+is set (constant-time compare); operators keep it off the public internet or
+set the token. Names follow OpenTelemetry (`http.server.request.duration`,
+`reelforge.jobs.finished`, ...); the Prometheus names add the `_seconds` unit
+suffix our serializer wrapper puts back, `_total` for counters, and
+`target_info` with `service.name`, `service.version`, `reelforge.edition`.
+Labels are bounded by construction: HTTP route **templates** (`unmatched` for
+unknown paths), method, status, job type and status, engine, provider,
+outcome, licence state. No project, job, render or key ids, no paths, no user
+input (tested: OBS-05).
+
+### D-053 --- /readyz reports each dependency; only database, storage and FFmpeg decide readiness
+
+**Status:** DECIDED (issue #64; reversible).\
+`GET /readyz` keeps `ok` and the v0.1 `checks` map and adds `dependencies`:
+`database`, `storage` (driver, path, free bytes), `ffmpeg` (path, version),
+`browser` (path, version) and `telemetry` (selected exporters, and per OTLP
+signal: last success, last error, failure counts), each with `status`
+(`ok` / `error` / `not_configured`), `required` and `latencyMs`. Database,
+storage and FFmpeg are required (503 without them, as before). The browser and
+telemetry are reported but never take the instance out of rotation: the API,
+settings and downloads work without them, and a telemetry backend outage must
+not cascade into the studio.
+
+### D-054 --- Exporters are runtime settings and never break the server
+
+**Status:** DECIDED (founder: providers selectable by file, env or API/MCP; reversible).\
+Every `observability.*` setting except `serviceName` is `runtime`:
+`update_config` / `PATCH /v1/config` switches exporters, endpoint, headers,
+protocol, sampling and timeouts live (the MeterProvider lives as long as the
+server with a pull reader and a swappable push reader; the service's tracer
+delegates to the current TracerProvider; the logger gets an OTLP logger while
+selected). Tracing defaults to `otlp` as soon as `observability.otlp.endpoint`
+is set, `off` otherwise (the issue's recommendation). OTLP headers and the
+metrics token are secrets (encrypted at rest when set at runtime, D-033). A
+failing receiver is contained: every export is bounded by
+`observability.otlp.timeoutSeconds` (default 10) with the SDK's retries and
+exponential backoff for 429/502/503/504 inside it, then the batch is dropped;
+failures are counted per signal, shown in `/readyz`, and logged at most once a
+minute per signal (plus once on recovery). Shutdown (`SIGTERM`) flushes the
+batched spans and logs and pushes metrics one last time. OTEL_* environment
+names (`OTEL_EXPORTER_OTLP_ENDPOINT`, `_HEADERS`, `_PROTOCOL`,
+`OTEL_SERVICE_NAME`) are accepted as aliases.

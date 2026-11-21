@@ -38,6 +38,7 @@ import { createLicenceManager, type LicenceApi, type LicenceManager } from './li
 import type { ResolvedConfig } from './config/load';
 import { ProjectStore } from './store';
 import { ThemeStore } from './themes';
+import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
 
 export interface ServiceConfig {
   /**
@@ -90,6 +91,8 @@ export interface ServiceConfig {
     start?: boolean;
   };
   log?: (level: 'info' | 'warn' | 'error', line: string) => void;
+  /** Where traces and metrics go (the server's observability settings, D-050). Default: nowhere. */
+  telemetry?: Telemetry;
 }
 
 /** Who made a change (audit log). */
@@ -171,6 +174,7 @@ export class ReelforgeService {
   private activatingLicence = false;
   private renderIndex = new Map<string, string>();
   private readonly fetchImpl: typeof fetch;
+  readonly telemetry: Telemetry;
 
   private constructor(
     readonly registry: PluginRegistry,
@@ -179,6 +183,7 @@ export class ReelforgeService {
     this.dataDir = resolve(config.dataDir);
     this.cacheDir = resolve(config.cacheDir ?? join(this.dataDir, 'cache'));
     this.repos = config.repositories;
+    this.telemetry = config.telemetry ?? NOOP_TELEMETRY;
     this.projects = new ProjectStore(this.repos.projects, this.dataDir);
     this.themes = new ThemeStore(this.repos.themes);
     this.assets = new AssetStore(this.repos.assets, this.dataDir, {
@@ -206,6 +211,7 @@ export class ReelforgeService {
       repo: this.repos.jobs,
       concurrency: config.renderConcurrency ?? 1,
       handlers: { render: (ctx) => this.runRenderJob(ctx), preview: (ctx) => this.runRenderJob(ctx) },
+      telemetry: this.telemetry,
     });
     if (!registry.listBackends().some((b) => b.id === 'local')) {
       registry.registerBackend(new LocalBackend((req, ctx) => this.renderLocally(req, ctx)));
@@ -707,6 +713,7 @@ export class ReelforgeService {
       signal: ctx.signal,
       log: ctx.log,
       progress: ctx.progress,
+      telemetry: this.telemetry,
     });
     return { runId: res.runId, dir: res.dir, outputFile: res.outputFile, manifestFile: res.manifestFile };
   }
@@ -902,7 +909,10 @@ export class ReelforgeService {
     if (cacheFile) {
       const hit = await readJson<{ assetId: string; data?: Record<string, unknown> }>(cacheFile);
       const asset = hit ? await this.assets.find(hit.assetId) : undefined;
-      if (hit && asset) result = { asset, data: hit.data, cached: true };
+      if (hit && asset) {
+        result = { asset, data: hit.data, cached: true };
+        coreInstruments(this.telemetry.meter).providerCalls.add(1, { 'reelforge.provider': providerId, 'reelforge.provider.kind': provider.kind, 'reelforge.outcome': 'cached' });
+      }
     }
     if (!result) {
       if (!provider.configured()) {
@@ -914,12 +924,22 @@ export class ReelforgeService {
         });
       }
       const controller = new AbortController();
-      result = await provider.run(parsed.data, {
-        signal: controller.signal,
-        log: () => undefined,
-        putAsset: (input) => this.assets.put(input),
-        fetch: this.fetchImpl,
-      });
+      const calls = coreInstruments(this.telemetry.meter).providerCalls;
+      const attrs = { 'reelforge.provider': providerId, 'reelforge.provider.kind': provider.kind };
+      try {
+        result = await withSpan(this.telemetry.tracer, `provider.run ${providerId}`, attrs, () =>
+          provider.run(parsed.data, {
+            signal: controller.signal,
+            log: () => undefined,
+            putAsset: (input) => this.assets.put(input),
+            fetch: this.fetchImpl,
+          })
+        );
+      } catch (e) {
+        calls.add(1, { ...attrs, 'reelforge.outcome': 'error' });
+        throw e;
+      }
+      calls.add(1, { ...attrs, 'reelforge.outcome': 'ok' });
       if (cacheFile) await writeJsonAtomic(cacheFile, { assetId: result.asset.id, data: result.data });
     }
     let projectAssetId: string | undefined;

@@ -1,5 +1,5 @@
+import { timingSafeEqual } from 'node:crypto';
 import { createReadStream, statSync } from 'node:fs';
-import { access, constants } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { ApiError, TERMINAL, hasScope, type AuthContext, type ReelforgeService, type Scope } from '@reelforge/core';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
@@ -7,13 +7,19 @@ import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
 import type { ServerConfig } from './config';
 import { handleMcp, serverCard } from './mcp';
+import { httpTelemetry } from './observability/http';
+import { StructuredLogger } from './observability/logger';
+import { Observability, observabilitySettings } from './observability/telemetry';
 import { RateLimiter } from './rateLimit';
+import { readiness } from './readiness';
 
-export type Env = { Variables: { auth: AuthContext } };
+export type Env = { Variables: { auth: AuthContext; requestId: string } };
 
 export interface AppDeps {
   service: ReelforgeService;
   config: ServerConfig;
+  /** Logs, metrics and traces (startServer makes one from the observability settings; default: metrics only, no log output). */
+  observability?: Observability;
 }
 
 export function errorBody(code: string, message: string, details?: unknown) {
@@ -34,8 +40,14 @@ export function hostName(hostHeader: string | undefined): string {
   return h.split(':')[0]!;
 }
 
-export function createApp({ service, config }: AppDeps) {
+export function createApp({ service, config, observability }: AppDeps) {
   const app = new Hono<Env>();
+  const obs =
+    observability ??
+    new Observability(
+      observabilitySettings(config.resolved.config, service.serverVersion ?? '0.1.0', config.resolved.build.edition),
+      new StructuredLogger({ level: () => config.logLevel, quiet: true })
+    );
   // config is the live object: runtime settings (PATCH /v1/config) change it while the server runs.
   const limiter = new RateLimiter(() => config.rateLimitPerMinute);
 
@@ -43,11 +55,12 @@ export function createApp({ service, config }: AppDeps) {
     if (err instanceof ApiError) return c.json(errorBody(err.code, err.message, err.details), err.status as 400);
     const status = (err as { status?: number }).status;
     if (status === 413) return c.json(errorBody('too_large', 'request body is too large'), 413);
-    console.error('[reelforge] unhandled error', err);
+    obs.logger.log('error', `unhandled error on ${c.req.method} ${c.req.path}`, { error: err, request_id: c.get('requestId') });
     return c.json(errorBody('internal', 'internal server error'), 500);
   });
   app.notFound((c) => c.json(errorBody('not_found', `no route for ${c.req.method} ${c.req.path}`), 404));
 
+  app.use('*', httpTelemetry(obs));
   app.use('*', async (c, next) => {
     await next();
     c.header('X-Content-Type-Options', 'nosniff');
@@ -116,28 +129,24 @@ export function createApp({ service, config }: AppDeps) {
   // ---- health (no auth) -------------------------------------------------------
   app.get('/healthz', (c) => c.json({ ok: true, version: service.serverVersion }));
   app.get('/readyz', async (c) => {
-    const checks: Record<string, string> = {};
-    try {
-      await access(service.dataDir, constants.W_OK);
-      checks.dataDir = 'ok';
-    } catch {
-      checks.dataDir = `not writable: ${service.dataDir}`;
+    const r = await readiness(service, obs);
+    return c.json(r, r.ok ? 200 : 503);
+  });
+  // Prometheus scrape endpoint (observability.metrics.exporter "prometheus"); optional bearer token (D-052).
+  app.get('/metrics', async (c) => {
+    const s = obs.settings;
+    if (s.metricsExporter !== 'prometheus') {
+      return c.json(errorBody('not_found', `metrics are not served on /metrics: observability.metrics.exporter is "${s.metricsExporter}"`), 404);
     }
-    try {
-      await service.repos.keys.count();
-      checks.database = 'ok';
-    } catch {
-      checks.database = 'unreachable (see the server log)';
+    if (s.metricsToken) {
+      const given = Buffer.from(bearer(c) ?? '');
+      const want = Buffer.from(s.metricsToken);
+      if (given.length !== want.length || !timingSafeEqual(given, want)) {
+        c.header('WWW-Authenticate', 'Bearer realm="reelforge-metrics"');
+        return c.json(errorBody('unauthorized', 'send "Authorization: Bearer <observability.metrics.bearerToken>"'), 401);
+      }
     }
-    try {
-      service.tools();
-      checks.ffmpeg = 'ok';
-    } catch (e) {
-      checks.ffmpeg = (e as Error).message;
-    }
-    const engines = service.registry.listEngines().map((e) => ({ id: e.id, ...e.availability() }));
-    const ok = Object.values(checks).every((v) => v === 'ok');
-    return c.json({ ok, checks, engines }, ok ? 200 : 503);
+    return c.body(await obs.prometheus(), 200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8', 'Cache-Control': 'no-store' });
   });
   app.get('/.well-known/mcp.json', (c) => c.json(serverCard(service, config)));
 
@@ -171,6 +180,7 @@ export function createApp({ service, config }: AppDeps) {
       c.header('Retry-After', String(wait));
       return c.json(errorBody('rate_limited', `too many requests for this key; retry in ${wait}s`), 429);
     }
+    c.set('auth', auth);
     return handleMcp(c.req.raw, auth, service, config);
   });
 

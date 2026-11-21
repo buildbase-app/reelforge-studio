@@ -78,7 +78,7 @@ export const REST_ROUTES: RouteEntry[] = [
 ];
 
 /** Routes outside /v1 that are infrastructure, not product capabilities. */
-export const INFRA_ROUTES = ['GET /healthz', 'GET /readyz', 'GET /.well-known/mcp.json', 'ALL /mcp'];
+export const INFRA_ROUTES = ['GET /healthz', 'GET /readyz', 'GET /metrics', 'GET /.well-known/mcp.json', 'ALL /mcp'];
 
 /** MCP tools whose REST counterpart is a variant of a route above. */
 export const TOOL_ALIASES: Record<string, string> = {

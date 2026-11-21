@@ -429,6 +429,17 @@ app = "reelforge-studio"
 REELFORGE_BOOTSTRAP_KEY=rf_...`, `fly deploy`. One machine only (the volume
 attaches to one machine).
 
+## Observability
+
+Logs are JSON lines on stdout by default (request id, key id, route, status,
+duration; secrets redacted), Prometheus scrapes `GET /metrics` on the normal
+port, and traces, logs or metrics go to any OpenTelemetry (OTLP/HTTP) endpoint
+once you set `REELFORGE_OTLP_ENDPOINT`. `GET /readyz` reports the database,
+storage, FFmpeg, the browser and the telemetry exporters. Providers, settings,
+Prometheus/Grafana/Grafana Cloud/Datadog/Honeycomb examples, tested cases and
+troubleshooting: [providers/observability.md](providers/observability.md).
+Keep `/metrics` on the internal network or set `REELFORGE_METRICS_TOKEN`.
+
 ## Database
 
 ReelForge picks the database from the `DATABASE_URL` scheme. Nothing to set up

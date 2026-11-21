@@ -21,3 +21,4 @@ export * from './secrets';
 export * from './import-v01';
 export * from './config/index';
 export * from './licence';
+export * from './telemetry';

@@ -106,7 +106,23 @@ logging:
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
 | `logging.level` | `REELFORGE_LOG_LEVEL` | `debug` \| `info` \| `warn` \| `error` | `info` | runtime |  | Server log level. |
-| `logging.format` | `REELFORGE_LOG_FORMAT` | `text` \| `json` | `text` | startup |  | `text` (`[reelforge] ...` lines) or `json` (one object per line). |
+| `logging.format` | `REELFORGE_LOG_FORMAT` | `text` \| `json` | `json` | startup |  | Older name for the stdout log format, kept for existing deployments: `text` selects `observability.logs.exporter: pretty` when that is not set. Prefer `observability.logs.exporter`. |
+
+## observability
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `observability.serviceName` | `REELFORGE_OTEL_SERVICE_NAME`, `OTEL_SERVICE_NAME` | string | `reelforge-studio` | startup |  | OpenTelemetry `service.name` of traces, metrics and logs (also `service.version` and `reelforge.edition` are sent). |
+| `observability.logs.exporter` | `REELFORGE_LOGS_EXPORTER` | `stdout` \| `pretty` \| `otlp` | `stdout` (`pretty` when `logging.format` is `text`) | runtime |  | `stdout`: one JSON object per line (request id, key id, route, status, duration; secrets redacted). `pretty`: readable `[reelforge] ...` lines for development. `otlp`: JSON lines on stdout and OpenTelemetry log records to `observability.otlp.endpoint` (Grafana Loki, Datadog, Honeycomb, Elastic, ...). |
+| `observability.metrics.exporter` | `REELFORGE_METRICS_EXPORTER` | `prometheus` \| `otlp` \| `off` | `prometheus` | runtime |  | `prometheus`: text format on `GET /metrics` for scraping. `otlp`: pushed to `observability.otlp.endpoint` every `observability.metrics.exportIntervalSeconds`. `off`: neither (`/metrics` answers 404). |
+| `observability.metrics.bearerToken` | `REELFORGE_METRICS_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | When set, `GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` is open like `/healthz`; keep it off the public internet (docs/OBSERVABILITY.md). |
+| `observability.metrics.exportIntervalSeconds` | `REELFORGE_METRICS_EXPORT_INTERVAL_SECONDS` | integer | `60` | runtime |  | How often metrics are pushed with the `otlp` exporter. |
+| `observability.tracing.exporter` | `REELFORGE_TRACING_EXPORTER` | `otlp` \| `off` | `off` (`otlp` when `observability.otlp.endpoint` is set) | runtime |  | `otlp`: spans for HTTP requests, jobs, engine renders and FFmpeg steps to `observability.otlp.endpoint` (Jaeger, Grafana Tempo, Honeycomb, Datadog, ...). `off`: no spans. |
+| `observability.tracing.sampleRatio` | `REELFORGE_TRACING_SAMPLE_RATIO` | number | `1` | runtime |  | Share of new traces kept (0 to 1). A request that arrives with a W3C `traceparent` follows the caller's sampling decision. |
+| `observability.otlp.endpoint` | `REELFORGE_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_ENDPOINT` | url | (none) | runtime |  | OTLP/HTTP base URL; `/v1/traces`, `/v1/metrics` and `/v1/logs` are appended. Nothing is sent anywhere unless this is set (docs/PRIVACY.md). Example: `http://otel-collector:4318`. |
+| `observability.otlp.headers` | `REELFORGE_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_HEADERS` (each also as `_FILE`) | string | (none) | runtime | yes | Headers sent with every OTLP request, as `name=value,name2=value2` (values may be URL-encoded). Usually holds the vendor API key, so it is a secret. Example: `authorization=Basic <base64 instance:token>`. |
+| `observability.otlp.protocol` | `REELFORGE_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` \| `http/json` | `http/protobuf` | runtime |  | OTLP encoding over HTTP. gRPC is not shipped (it would add a large dependency); point this at an OpenTelemetry Collector to reach a gRPC-only backend. |
+| `observability.otlp.timeoutSeconds` | `REELFORGE_OTLP_TIMEOUT_SECONDS` | integer | `10` | runtime |  | Longest time one OTLP export may take, retries included (429/502/503/504 are retried with exponential backoff inside this time). Then the batch is dropped and the server carries on. |
 
 ## licence
 

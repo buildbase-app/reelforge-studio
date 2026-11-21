@@ -88,6 +88,10 @@ function fromEnvText(def: SettingDef, text: string, origin: string, issues: Conf
       if (/^-?\d+$/.test(text)) return Number(text);
       issues.push({ key: def.key, source: 'env', origin, message: `must be an integer${shown}` });
       return undefined;
+    case 'number':
+      if (/^-?(\d+\.?\d*|\.\d+)$/.test(text)) return Number(text);
+      issues.push({ key: def.key, source: 'env', origin, message: `must be a number${shown}` });
+      return undefined;
     case 'boolean': {
       const t = text.toLowerCase();
       if (['1', 'true', 'yes', 'on'].includes(t)) return true;
