@@ -13,8 +13,10 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@reelforge/project-schema';
 import {
+  AuditLog,
   JobRunner,
   KeyStore,
+  withIdempotency,
   RuntimeConfig,
   ProjectStore,
   createMemoryRepositories,
@@ -160,6 +162,69 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
     });
   });
 
+  describe('API key lifecycle (#65)', () => {
+    it('round-trips every lifecycle field, updates atomically, clears with null and finds the previous secret by prefix', async () => {
+      const t = now();
+      await repos.keys.insert({
+        id: 'key_life', name: 'life', scopes: ['read'], prefix: 'rf_life', salt: 's1', hash: 'h1', createdAt: t,
+        expiresAt: later(3_600_000), rateLimitPerMinute: 7, rendersPerDay: 2, rendersPerMonth: 30, ipAllowlist: ['10.0.0.0/8', '2001:db8::/32'],
+      });
+      const got = await repos.keys.get('key_life');
+      expect(got).toMatchObject({ rateLimitPerMinute: 7, rendersPerDay: 2, rendersPerMonth: 30, ipAllowlist: ['10.0.0.0/8', '2001:db8::/32'] });
+      expect(got!.expiresAt).toMatch(/Z$/);
+      const exp = later(7_200_000);
+      const rotated = await repos.keys.update('key_life', {
+        secret: { prefix: 'rf_new1', salt: 's2', hash: 'h2' },
+        prev: { prefix: 'rf_life', salt: 's1', hash: 'h1', expiresAt: exp },
+        rotatedAt: t,
+        rateLimitPerMinute: null,
+        ipAllowlist: null,
+      });
+      expect(rotated).toMatchObject({ prefix: 'rf_new1', hash: 'h2', prev: { prefix: 'rf_life', salt: 's1', hash: 'h1', expiresAt: exp }, rotatedAt: t, rendersPerDay: 2 });
+      expect(rotated!.rateLimitPerMinute).toBeUndefined();
+      expect(rotated!.ipAllowlist).toBeUndefined();
+      expect((await repos.keys.findByPrefix('rf_life')).map((k) => k.id)).toEqual(['key_life']);
+      expect((await repos.keys.findByPrefix('rf_new1')).map((k) => k.id)).toEqual(['key_life']);
+      const revoked = await repos.keys.update('key_life', { revokedAt: later(10), prev: null, expiresAt: null });
+      expect(revoked!.prev).toBeUndefined();
+      expect(revoked!.expiresAt).toBeUndefined();
+      expect(revoked!.revokedAt).toBeDefined();
+      expect(await repos.keys.findByPrefix('rf_life')).toEqual([]);
+      expect(await repos.keys.update('missing', { name: 'x' })).toBeNull();
+      expect(await repos.keys.get('missing')).toBeNull();
+      expect(await repos.keys.delete('key_life')).toBe(true);
+    });
+
+    it('KeyStore: expiry, rotation grace (injected clock), revocation and IP allowlist on this database', async () => {
+      let clock = Date.now();
+      const audit = new AuditLog(repos.audit);
+      const store = new KeyStore(repos.keys, { now: () => clock, audit: (e) => audit.write(e), rotationGraceHours: () => 2 });
+      const { key, record } = await store.create('lifecycle', ['read'], { expiresAt: new Date(clock + 86_400_000).toISOString(), ipAllowlist: ['192.0.2.0/24'] }, { actorType: 'cli' });
+      expect((await store.authenticate(key, { ip: '192.0.2.7' })).ok).toBe(true);
+      expect((await store.authenticate(key, { ip: '::ffff:192.0.2.9' })).ok).toBe(true);
+      expect(await store.authenticate(key, { ip: '198.51.100.1' })).toMatchObject({ ok: false, reason: 'ip_not_allowed', key: { id: record.id } });
+      expect(await store.authenticate(key)).toMatchObject({ ok: false, reason: 'ip_not_allowed' });
+      await store.update(record.id, { ipAllowlist: null });
+      const { key: fresh } = await store.rotate(record.id);
+      expect((await store.verify(fresh))?.keyId).toBe(record.id);
+      expect((await store.authenticate(key)).ok && (await store.verify(key))?.previousSecret).toBe(true);
+      clock += 2 * 3_600_000 + 1;
+      expect(await store.verify(key)).toBeNull();
+      expect(await store.verify(fresh)).not.toBeNull();
+      clock += 86_400_000;
+      expect(await store.authenticate(fresh)).toMatchObject({ ok: false, reason: 'expired' });
+      expect((await store.get(record.id)).status).toBe('expired');
+      await store.update(record.id, { expiresAt: null });
+      await store.revoke(record.id);
+      expect(await store.authenticate(fresh)).toMatchObject({ ok: false, reason: 'revoked' });
+      expect((await store.get(record.id)).status).toBe('revoked');
+      const trail = (await repos.audit.list({ targetId: record.id, limit: 20 })).map((e) => e.action).reverse();
+      expect(trail).toEqual(['key.create', 'key.update', 'key.rotate', 'key.update', 'key.revoke']);
+      expect(JSON.stringify(await repos.audit.list({ targetId: record.id }))).not.toContain(key.slice(3));
+      expect(JSON.stringify(await repos.audit.list({ targetId: record.id }))).not.toContain(fresh.slice(3));
+    });
+  });
+
   describe('jobs + events', () => {
     const job = (id: string, extra: Partial<JobRecord> = {}): JobRecord => ({
       id,
@@ -194,6 +259,17 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
       expect((await repos.jobs.list({ type: 'preview' })).map((j) => j.id)).toEqual(['job_b']);
       expect((await repos.jobs.list({ status: 'failed' })).map((j) => j.id)).toEqual(['job_a']);
       expect((await repos.jobs.listUnfinished()).map((j) => j.id).sort()).toEqual(['job_b', 'job_c']);
+    });
+
+    it('counts the jobs an API key started since a time, by type (render quotas)', async () => {
+      const t0 = later(-60_000);
+      await repos.jobs.insert(job('job_q1', { apiKeyId: 'key_q', type: 'render', status: 'succeeded', createdAt: later(1) }), now());
+      await repos.jobs.insert(job('job_q2', { apiKeyId: 'key_q', type: 'preview', status: 'succeeded', createdAt: later(2) }), now());
+      await repos.jobs.insert(job('job_q3', { apiKeyId: 'key_q', type: 'other', status: 'succeeded', createdAt: later(3) }), now());
+      await repos.jobs.insert(job('job_q4', { apiKeyId: 'key_other', type: 'render', status: 'succeeded', createdAt: later(4) }), now());
+      expect(await repos.jobs.countByApiKey('key_q', t0, ['render', 'preview'])).toBe(2);
+      expect(await repos.jobs.countByApiKey('key_q', later(100_000), ['render', 'preview'])).toBe(0);
+      expect((await repos.jobs.get('job_q1'))?.apiKeyId).toBe('key_q');
     });
 
     it('keeps log lines in order, with tail and long lines', async () => {
@@ -365,6 +441,96 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
       expect(e1.id).not.toBe(e2.id);
       const list = await repos.audit.list({ limit: 10 });
       expect(list.slice(0, 2)).toEqual([e2, e1]);
+      expect(e1.result).toBe('success');
+    });
+
+    it('round-trips who, result, IP, user agent and request id; times are UTC ISO strings', async () => {
+      const e = await repos.audit.write({
+        actorType: 'api_key', actorId: 'key_rt', actorName: 'agent ü', action: 'project.create', targetType: 'project', targetId: 'p-rt',
+        result: 'failure', ip: '2001:db8::1', userAgent: 'agent/1.0 '.repeat(40), requestId: 'req_abc', data: { error: 'invalid_manifest', via: 'mcp' },
+      });
+      const [got] = await repos.audit.list({ actorId: 'key_rt' });
+      expect(got).toEqual(e);
+      expect(got!.at).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+    });
+
+    it('filters by time, actor, action (exact and prefix), target and result, and pages with a cursor', async () => {
+      await sleep(5);
+      const t0 = now();
+      await sleep(5);
+      const made = [];
+      for (let i = 0; i < 7; i++) {
+        made.push(await repos.audit.write({ actorType: 'api_key', actorId: i % 2 ? 'key_f1' : 'key_f2', action: i % 3 ? 'key.rotate' : 'project.render', targetType: 'key', targetId: `t${i % 2}`, result: i === 6 ? 'denied' : 'success' }));
+      }
+      const since = { from: t0 };
+      expect(await repos.audit.list({ ...since, actorId: 'key_f1' })).toHaveLength(3);
+      expect(await repos.audit.list({ ...since, action: 'key.*' })).toHaveLength(4);
+      expect(await repos.audit.list({ ...since, action: 'key.rotate', targetId: 't1' })).toHaveLength(2);
+      expect(await repos.audit.list({ ...since, result: 'denied' })).toHaveLength(1);
+      expect(await repos.audit.list({ ...since, targetType: 'key' })).toHaveLength(7);
+      expect(await repos.audit.list({ from: later(60_000) })).toEqual([]);
+      expect((await repos.audit.list({ ...since, to: t0 }))).toEqual([]);
+      const pages: string[][] = [];
+      let before: { at: string; id: string } | undefined;
+      for (;;) {
+        const page = await repos.audit.list({ ...since, before, limit: 3 });
+        pages.push(page.map((e) => e.id));
+        if (page.length < 3) break;
+        before = { at: page[2]!.at, id: page[2]!.id };
+      }
+      expect(pages.flat()).toEqual([...made].reverse().map((e) => e.id));
+    });
+
+    it('is append-only: the repository can insert, list and apply retention, nothing else', async () => {
+      expect(Object.keys(repos.audit).sort()).toEqual(['deleteOlderThan', 'list', 'write']);
+      const old = await repos.audit.write({ actorType: 'system', action: 'test.old' });
+      const cutoff = later(10);
+      await sleep(20);
+      const keep = await repos.audit.write({ actorType: 'system', action: 'test.new' });
+      const deleted = await repos.audit.deleteOlderThan(cutoff);
+      expect(deleted).toBeGreaterThanOrEqual(1);
+      const ids = (await repos.audit.list({ limit: 1000 })).map((e) => e.id);
+      expect(ids).not.toContain(old.id);
+      expect(ids).toContain(keep.id);
+    });
+  });
+
+  describe('idempotency keys (#65)', () => {
+    const rec = (key: string, extra: Record<string, unknown> = {}) => ({
+      actorId: 'key_i', key, operation: 'render_project', requestHash: 'h1', status: 'pending' as const, createdAt: now(), expiresAt: later(3_600_000), ...extra,
+    });
+
+    it('begins once per (actor, key), completes, deletes and sweeps expired records', async () => {
+      expect(await repos.idempotency.begin(rec('k1'))).toBe(true);
+      expect(await repos.idempotency.begin(rec('k1', { requestHash: 'h2' }))).toBe(false);
+      expect(await repos.idempotency.begin(rec('k1', { actorId: 'key_other' }))).toBe(true);
+      expect(await repos.idempotency.get('key_i', 'k1')).toMatchObject({ status: 'pending', requestHash: 'h1' });
+      await repos.idempotency.complete('key_i', 'k1', { job: { id: 'job_1' }, nested: { ü: [1, 2] } });
+      expect(await repos.idempotency.get('key_i', 'k1')).toMatchObject({ status: 'done', response: { job: { id: 'job_1' }, nested: { ü: [1, 2] } } });
+      await repos.idempotency.delete('key_i', 'k1');
+      expect(await repos.idempotency.get('key_i', 'k1')).toBeNull();
+      await repos.idempotency.begin(rec('k-old', { expiresAt: later(-1000) }));
+      expect(await repos.idempotency.deleteExpired(now())).toBeGreaterThanOrEqual(1);
+      expect(await repos.idempotency.get('key_i', 'k-old')).toBeNull();
+      expect(await repos.idempotency.get('key_other', 'k1')).not.toBeNull();
+    });
+
+    it('lets exactly one of several concurrent first calls win', async () => {
+      const results = await Promise.all(Array.from({ length: 6 }, () => repos.idempotency.begin(rec('k-race'))));
+      expect(results.filter(Boolean)).toHaveLength(1);
+    });
+
+    it('withIdempotency: one run per key, a replay, a conflict, and expiry after the TTL (injected clock)', async () => {
+      let clock = Date.now();
+      let runs = 0;
+      const call = (request: unknown) =>
+        withIdempotency(repos.idempotency, { key: 'idem-1', actorId: 'key_w', operation: 'render_project', request, ttlHours: 24, now: () => clock }, async () => ({ job: { id: `job_${++runs}` } }));
+      expect(await call({ projectId: 'p', backend: undefined })).toEqual({ result: { job: { id: 'job_1' } }, replayed: false });
+      expect(await call({ projectId: 'p' })).toEqual({ result: { job: { id: 'job_1' } }, replayed: true });
+      await expect(call({ projectId: 'other' })).rejects.toMatchObject({ code: 'idempotency_conflict', status: 422 });
+      clock += 24 * 3_600_000 + 1;
+      expect(await call({ projectId: 'other' })).toEqual({ result: { job: { id: 'job_2' } }, replayed: false });
+      expect(runs).toBe(2);
     });
   });
 
@@ -424,7 +590,7 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
           // other's event loop, so SQLite migrates one after the other here (separate
           // processes, like the server and the CLI, wait on SQLite's lock instead).
           const ran = kind === 'sqlite' ? [await a.migrate(), await b.migrate()] : await Promise.all([a.migrate(), b.migrate()]);
-          expect(ran.flat()).toEqual(['0001_init', '0002_runtime_settings', '0003_licence_state']);
+          expect(ran.flat()).toEqual(['0001_init', '0002_runtime_settings', '0003_licence_state', '0004_audit_keys_idempotency']);
           const first = await a.importFilesystemOnce(legacy);
           expect(first?.projects).toBe(1);
           expect(await b.importFilesystemOnce(legacy)).toBeNull();

@@ -1,0 +1,43 @@
+name: Bug report
+description: Something does not work as documented.
+title: 'bug: '
+labels: ['type: bug', 'status: triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Search existing issues first. **Security problems: do not file here**, use a private advisory (see SECURITY.md). Never paste secrets, licence keys or API keys.
+  - type: textarea
+    id: what-happened
+    attributes: { label: What happened, description: 'What you did, what you expected, what happened instead.' }
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes: { label: Steps to reproduce, description: 'Exact steps, commands or the MCP/REST calls, so we can reproduce it.', placeholder: "1. ...\n2. ...\n3. ..." }
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes: { label: Logs or error output, description: 'Paste relevant output. Remove secrets first.', render: shell }
+  - type: input
+    id: version
+    attributes: { label: Version, description: 'Image tag, commit or package version.', placeholder: 'e.g. 0.1.0 / commit abc1234' }
+    validations: { required: true }
+  - type: textarea
+    id: environment
+    attributes: { label: Environment, description: 'OS, Docker version, database, browser, cloud. For agent issues: which AI agent and client.' }
+    validations: { required: true }
+  - type: dropdown
+    id: ai
+    attributes:
+      label: Was this report written with AI help?
+      options: ['No', 'Yes, AI-assisted and I checked it', 'Yes, mostly AI-generated and I checked it']
+    validations: { required: true }
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I removed secrets, licence keys and personal data from this report.
+          required: true

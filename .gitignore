@@ -15,3 +15,6 @@ data/
 
 # Prisma tooling placeholder database (packages/db/prisma.config.ts)
 packages/db/tooling.db*
+
+# Engine bundles pre-built at image build time (apps/server/src/prebuild.ts)
+.prebuilt/

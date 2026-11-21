@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { browserVersion, packageVersion, type EnginePlugin } from '@reelforge/core';
+import { browserVersion, chromiumSandbox, packageVersion, type EnginePlugin } from '@reelforge/core';
 import { PipelineError } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
@@ -160,7 +160,14 @@ export function hyperframesEnv(browser: string, cacheDir: string, base: NodeJS.P
     HYPERFRAMES_NO_AUTO_INSTALL: '1',
     HYPERFRAMES_SKIP_SKILLS: '1',
     HYPERFRAMES_RENDER_LOCK: 'off', // ReelForge's job runner limits concurrency itself
+    // Same sandbox rule as every engine. "1" makes a sandbox that cannot start an
+    // error instead of HyperFrames' silent fallback to --no-sandbox.
+    HYPERFRAMES_CHROME_SANDBOX: chromiumSandbox(base) ? '1' : '0',
     XDG_CACHE_HOME: join(cacheDir, 'hyperframes'),
+    // Its temp files go to the cache directory (the data volume), not /tmp: in the
+    // hardened container /tmp is a small tmpfs, and HyperFrames refuses to render
+    // with less than 1 GB free in its temp directory.
+    TMPDIR: join(cacheDir, 'hyperframes', 'tmp'),
     CI: '1',
   };
 }
@@ -175,6 +182,7 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   const doc = buildComposition(scene, output, theme);
   const project = join(opts.workDir, 'hyperframes');
   await mkdir(project, { recursive: true });
+  await mkdir(join(opts.cacheDir, 'hyperframes', 'tmp'), { recursive: true });
   await writeFile(join(project, 'index.html'), doc);
   await mkdir(dirname(opts.out), { recursive: true });
 
@@ -261,6 +269,7 @@ export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?
       Object.entries(TEMPLATES)
         .filter(([, t]) => t.engine === 'hyperframes')
         .map(([id, t]) => ({ ...t, id })),
+    browserSandbox: () => chromiumSandbox(),
     availability() {
       const b = browser();
       if (!b || !existsSync(b)) return { ok: false, reason: 'no browser: set REELFORGE_CHROMIUM_PATH to a Chrome Headless Shell binary' };

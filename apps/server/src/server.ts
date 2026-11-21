@@ -7,6 +7,8 @@ import { ReelforgeService, type PluginRegistry, type ServiceConfig } from '@reel
 import { defaultDatabaseUrl, prepareDatabase, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
+import { secretValues } from './observability/logger';
+import { Observability, observabilitySettings } from './observability/telemetry';
 import { createDefaultRegistry } from './registry';
 
 export const SERVER_VERSION = '0.1.0';
@@ -17,6 +19,7 @@ export interface StartedServer {
   service: ReelforgeService;
   config: ServerConfig;
   db: Database;
+  observability: Observability;
   close(): Promise<void>;
 }
 
@@ -28,8 +31,15 @@ export async function startServer(
     registry?: PluginRegistry | ((providerEnv: NodeJS.ProcessEnv) => PluginRegistry);
     env?: NodeJS.ProcessEnv;
     quiet?: boolean;
+    /** Where log lines go instead of stdout/stderr (tests). */
+    logWrite?: (level: 'debug' | 'info' | 'warn' | 'error', line: string) => void;
     /** Licence checks: tests inject the licence API, fetch or clock (ServiceConfig.licence). */
     licence?: ServiceConfig['licence'];
+    /** Storage driver factory / sweep (tests; ServiceConfig.storage). */
+    storage?: ServiceConfig['storage'];
+    /** Audit sink plugins (selected by audit.sinks) and the clock (tests). */
+    auditSinks?: ServiceConfig['auditSinks'];
+    now?: ServiceConfig['now'];
   } = {}
 ): Promise<StartedServer> {
   const env = opts.env ?? process.env;
@@ -40,10 +50,13 @@ export async function startServer(
   }
   exportProcessEnv(config.resolved);
   await mkdir(config.dataDir, { recursive: true });
-  const logger = createLogger(config, opts.quiet);
-  const log = (line: string) => logger('info', line);
+  const logger = createLogger(config, opts.quiet, opts.logWrite);
+  const log = (line: string) => logger.log('info', line);
   if (config.sources.file) log(`config file: ${config.sources.file.path}`);
-  for (const w of config.resolved.warnings) logger('warn', w);
+  for (const w of config.resolved.warnings) logger.log('warn', w);
+  const edition = config.resolved.build.edition;
+  // Exporters from the file and env now; runtime settings from the database are applied once it is open.
+  const obs = new Observability(observabilitySettings(config.resolved.config, SERVER_VERSION, edition), logger);
   const { db, imported } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds, log });
   if (imported) {
     const { warnings, ...counts } = imported;
@@ -65,22 +78,34 @@ export async function startServer(
       maxUploadBytes: config.maxUploadBytes,
       configSources: config.sources,
       licence: opts.licence,
-      log: logger,
+      storage: opts.storage,
+      auditSinks: opts.auditSinks,
+      now: opts.now,
+      log: logger.log,
+      telemetry: obs.telemetry,
     });
   } catch (e) {
+    await obs.shutdown();
     await db.close().catch(() => undefined);
     throw e;
   }
   // Runtime settings stored in the database win over the file and environment; changes apply at once.
   applyServerSettings(config, service.settings.current, null);
+  const applyObservability = (resolved: typeof service.settings.current) => {
+    logger.redactor.setSecrets(secretValues(resolved, service.settings.providerEnvOverlay()));
+    obs.apply(observabilitySettings(resolved.config, SERVER_VERSION, edition));
+  };
+  applyObservability(service.settings.current);
+  obs.observe(service);
   service.settings.onChange((resolved, keys) => {
     applyServerSettings(config, resolved, keys);
-    logger('info', `configuration changed at runtime: ${keys.join(', ')}`);
+    applyObservability(resolved);
+    logger.log('info', `configuration changed at runtime: ${keys.join(', ')}`);
   });
   if (await service.keys.bootstrap(config.bootstrapKey)) {
     log('stored REELFORGE_BOOTSTRAP_KEY as admin key "bootstrap"');
   }
-  const app = createApp({ service, config });
+  const app = createApp({ service, config, observability: obs });
   const server: ServerType = await new Promise((resolve) => {
     const s = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, () => resolve(s));
   });
@@ -95,8 +120,9 @@ export async function startServer(
   log(`ReelForge Studio ${SERVER_VERSION} listening on ${url} (data: ${config.dataDir})`);
   log(`REST ${url}/v1  MCP ${url}/mcp`);
   log(`database: ${db.kind} ${db.displayUrl}`);
+  log(`storage: ${service.storage.driver.id} ${JSON.stringify(service.storage.driver.describe())}`);
   if (existsSync(join(config.dataDir, 'secrets.json'))) {
-    logger('warn', `${join(config.dataDir, 'secrets.json')} (v0.1) still holds provider keys in plain text; they are in the database now${service.settings.cipher ? ' (encrypted)' : ''}: delete the file once you have checked them`);
+    logger.log('warn', `${join(config.dataDir, 'secrets.json')} (v0.1) still holds provider keys in plain text; they are in the database now${service.settings.cipher ? ' (encrypted)' : ''}: delete the file once you have checked them`);
   }
   if (!service.settings.cipher) log('REELFORGE_SECRET_KEY is not set: provider keys and other secrets cannot be stored through the API (see docs/CONFIG.md)');
   if ((await service.keys.count()) === 0) {
@@ -108,13 +134,15 @@ export async function startServer(
     service,
     config,
     db,
+    observability: obs,
     close: async () => {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
         (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
       });
-      service.licence.stop();
+      await service.stop();
       await service.jobs.flush();
+      await obs.shutdown();
       await db.close();
     },
   };

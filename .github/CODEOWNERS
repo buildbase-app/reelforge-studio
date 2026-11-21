@@ -1,0 +1,15 @@
+# Every change needs a code-owner review before it reaches `main` (ruleset).
+*                                   @buildappbase
+
+# Legal and governance: always maintainer-owned.
+/LICENSE.md                         @buildappbase
+/NOTICE                             @buildappbase
+/COMMERCIAL-LICENSE.md              @buildappbase
+/TRADEMARK.md                       @buildappbase
+/LICENSING.md                       @buildappbase
+/CONTRIBUTING.md                    @buildappbase
+/AGENTS.md                          @buildappbase
+/CLAUDE.md                          @buildappbase
+/SECURITY.md                        @buildappbase
+/.github/                           @buildappbase
+/scripts/github/                    @buildappbase

@@ -72,13 +72,26 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'GET', path: '/v1/licence', scope: 'read', tool: 'get_licence' },
   { method: 'POST', path: '/v1/licence', scope: 'admin', tool: 'activate_licence' },
   { method: 'DELETE', path: '/v1/licence', scope: 'admin', tool: 'deactivate_licence' },
+  { method: 'GET', path: '/v1/storage', scope: 'admin', tool: 'get_storage' },
+  { method: 'POST', path: '/v1/storage/cleanup', scope: 'admin', tool: 'run_storage_cleanup' },
   { method: 'GET', path: '/v1/keys', scope: 'admin', tool: 'list_keys' },
   { method: 'POST', path: '/v1/keys', scope: 'admin', tool: 'create_key' },
+  { method: 'GET', path: '/v1/keys/:id', scope: 'admin', tool: 'get_key' },
+  { method: 'PATCH', path: '/v1/keys/:id', scope: 'admin', tool: 'update_key' },
+  { method: 'POST', path: '/v1/keys/:id/rotate', scope: 'admin', tool: 'rotate_key' },
+  { method: 'POST', path: '/v1/keys/:id/revoke', scope: 'admin', tool: 'revoke_key' },
   { method: 'DELETE', path: '/v1/keys/:id', scope: 'admin', tool: 'delete_key' },
+  {
+    method: 'GET',
+    path: '/v1/audit',
+    scope: 'admin',
+    tool: 'list_audit_events',
+    note: 'REST ?format=jsonl|csv streams an export (up to 100 000 entries); the MCP tool returns up to 10 000 in one result.',
+  },
 ];
 
 /** Routes outside /v1 that are infrastructure, not product capabilities. */
-export const INFRA_ROUTES = ['GET /healthz', 'GET /readyz', 'GET /.well-known/mcp.json', 'ALL /mcp'];
+export const INFRA_ROUTES = ['GET /healthz', 'GET /readyz', 'GET /metrics', 'GET /.well-known/mcp.json', 'ALL /mcp'];
 
 /** MCP tools whose REST counterpart is a variant of a route above. */
 export const TOOL_ALIASES: Record<string, string> = {

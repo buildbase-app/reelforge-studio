@@ -35,6 +35,9 @@ export type ProjectVersion = Prisma.ProjectVersionModel
 /**
  * Model ApiKey
  * API keys: salted SHA-256 hashes only; the key itself is never stored.
+ * Lifecycle (#65, D-055): optional expiry, rotation with a grace window for
+ * the previous secret, revocation (the row stays for the audit trail),
+ * per-key rate limit, render quotas and IP allowlist.
  */
 export type ApiKey = Prisma.ApiKeyModel
 /**
@@ -76,9 +79,18 @@ export type Setting = Prisma.SettingModel
 export type Asset = Prisma.AssetModel
 /**
  * Model AuditLog
- * Audit trail (schema and write helper now; the feature is issue #17).
+ * Audit trail (#65, D-055): append-only, one row per admin or write action.
+ * Rows are only ever inserted, and deleted by the retention sweep
+ * (audit.retentionDays). Never holds secret values.
  */
 export type AuditLog = Prisma.AuditLogModel
+/**
+ * Model IdempotencyKey
+ * Idempotency keys (#65, D-057): the stored result of a create or render call
+ * made with an Idempotency-Key header (REST) or idempotencyKey argument (MCP),
+ * per API key. Kept until expiresAt (24 h), then swept.
+ */
+export type IdempotencyKey = Prisma.IdempotencyKeyModel
 /**
  * Model LicenceState
  * Licence activation state (#25, D-028, D-035): one row per workspace (the

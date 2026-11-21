@@ -1,11 +1,14 @@
 import type { Project, Theme } from '@reelforge/project-schema';
 import { conflict } from './errors';
-import { newId } from './fsutil';
+import { newId, newSequentialId } from './fsutil';
 import {
   DEFAULT_WORKSPACE_ID,
+  type ApiKeyPatch,
   type ApiKeyRecord,
   type AssetRecord,
   type AuditEntry,
+  type AuditFilter,
+  type IdempotencyRecord,
   type JobRecord,
   type ProjectMeta,
   type LicenceStateRecord,
@@ -17,6 +20,42 @@ import {
 } from './repositories';
 
 const clone = <T>(v: T): T => structuredClone(v);
+
+/** Apply an ApiKeyPatch to a record (null clears an optional field). */
+export function applyKeyPatch(k: ApiKeyRecord, patch: ApiKeyPatch): ApiKeyRecord {
+  const next: ApiKeyRecord = { ...k };
+  if (patch.name !== undefined) next.name = patch.name;
+  if (patch.secret) Object.assign(next, patch.secret);
+  if (patch.rotatedAt !== undefined) next.rotatedAt = patch.rotatedAt;
+  if (patch.revokedAt !== undefined) next.revokedAt = patch.revokedAt;
+  const opt = <K extends 'prev' | 'expiresAt' | 'rateLimitPerMinute' | 'rendersPerDay' | 'rendersPerMonth' | 'ipAllowlist'>(f: K) => {
+    const v = patch[f];
+    if (v === undefined) return;
+    if (v === null) delete next[f];
+    else next[f] = v as ApiKeyRecord[K];
+  };
+  opt('prev');
+  opt('expiresAt');
+  opt('rateLimitPerMinute');
+  opt('rendersPerDay');
+  opt('rendersPerMonth');
+  opt('ipAllowlist');
+  return next;
+}
+
+/** Whether an audit entry passes a filter (cursor excluded). */
+export function auditMatches(e: AuditEntry, f: AuditFilter): boolean {
+  if (f.from && e.at < f.from) return false;
+  if (f.to && e.at >= f.to) return false;
+  if (f.actorId && e.actorId !== f.actorId) return false;
+  if (f.action) {
+    if (f.action.endsWith('*') ? !e.action.startsWith(f.action.slice(0, -1)) : e.action !== f.action) return false;
+  }
+  if (f.targetType && e.targetType !== f.targetType) return false;
+  if (f.targetId && e.targetId !== f.targetId) return false;
+  if (f.result && e.result !== f.result) return false;
+  return true;
+}
 const byNewest = (a: { createdAt: string; id: string }, b: { createdAt: string; id: string }) =>
   b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
 
@@ -34,6 +73,8 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
   const runtimeSettings = new Map<string, StoredSetting>();
   const assets = new Map<string, AssetRecord>();
   const audit: AuditEntry[] = [];
+  const idempotency = new Map<string, IdempotencyRecord>();
+  const idem = (actorId: string, key: string) => `${actorId}\u0000${key}`;
   let licence: LicenceStateRecord | null = null;
 
   return {
@@ -74,6 +115,10 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
       async list() {
         return [...keys.values()].map(clone).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
       },
+      async get(id) {
+        const k = keys.get(id);
+        return k ? clone(k) : null;
+      },
       async count() {
         return keys.size;
       },
@@ -81,11 +126,18 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         if (keys.has(record.id)) throw conflict(`key "${record.id}" already exists`);
         keys.set(record.id, clone(record));
       },
+      async update(id, patch) {
+        const k = keys.get(id);
+        if (!k) return null;
+        const next = applyKeyPatch(k, clone(patch));
+        keys.set(id, next);
+        return clone(next);
+      },
       async delete(id) {
         return keys.delete(id);
       },
       async findByPrefix(prefix) {
-        return [...keys.values()].filter((k) => k.prefix === prefix).map(clone);
+        return [...keys.values()].filter((k) => k.prefix === prefix || k.prev?.prefix === prefix).map(clone);
       },
       async touch(id, lastUsedAt) {
         const k = keys.get(id);
@@ -115,6 +167,9 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
       },
       async listUnfinished() {
         return [...jobs.values()].filter((j) => j.status === 'queued' || j.status === 'running').map(clone);
+      },
+      async countByApiKey(apiKeyId, since, types) {
+        return [...jobs.values()].filter((j) => j.apiKeyId === apiKeyId && j.createdAt >= since && types.includes(j.type)).length;
       },
       async appendLog(jobId, at, line) {
         if (!jobs.has(jobId)) return;
@@ -208,12 +263,50 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
     },
     audit: {
       async write(entry) {
-        const e: AuditEntry = { id: newId('aud'), at: new Date().toISOString(), ...clone(entry) };
+        const e: AuditEntry = { id: newSequentialId('aud'), at: new Date().toISOString(), ...clone(entry), result: entry.result ?? 'success' };
         audit.push(e);
         return clone(e);
       },
-      async list(opts = {}) {
-        return [...audit].reverse().slice(0, opts.limit ?? 100).map(clone);
+      async list(f = {}) {
+        return audit
+          .filter((e) => auditMatches(e, f) && (!f.before || e.at < f.before.at || (e.at === f.before.at && e.id < f.before.id)))
+          .sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id))
+          .slice(0, f.limit ?? 100)
+          .map(clone);
+      },
+      async deleteOlderThan(cutoff) {
+        const keep = audit.filter((e) => e.at >= cutoff);
+        const n = audit.length - keep.length;
+        audit.splice(0, audit.length, ...keep);
+        return n;
+      },
+    },
+    idempotency: {
+      async begin(r) {
+        if (idempotency.has(idem(r.actorId, r.key))) return false;
+        idempotency.set(idem(r.actorId, r.key), clone(r));
+        return true;
+      },
+      async get(actorId, key) {
+        const r = idempotency.get(idem(actorId, key));
+        return r ? clone(r) : null;
+      },
+      async complete(actorId, key, response) {
+        const r = idempotency.get(idem(actorId, key));
+        if (r) idempotency.set(idem(actorId, key), { ...r, status: 'done', response: clone(response) });
+      },
+      async delete(actorId, key) {
+        idempotency.delete(idem(actorId, key));
+      },
+      async deleteExpired(now) {
+        let n = 0;
+        for (const [k, r] of idempotency) {
+          if (r.expiresAt < now) {
+            idempotency.delete(k);
+            n++;
+          }
+        }
+        return n;
       },
     },
   };

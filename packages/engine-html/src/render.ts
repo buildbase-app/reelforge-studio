@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { browserVersion, packageVersion, type EnginePlugin } from '@reelforge/core';
+import { browserVersion, chromiumSandbox as coreChromiumSandbox, packageVersion, type EnginePlugin } from '@reelforge/core';
 import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
@@ -41,15 +41,8 @@ export function htmlEngineVersion(): string {
   return `reelforge-html/0.1.0 (playwright-core ${packageVersion('playwright-core', import.meta.url)})`;
 }
 
-/**
- * Chromium's own sandbox stays on unless we run as root (Chromium refuses) or
- * the operator sets REELFORGE_CHROMIUM_NO_SANDBOX=1 (containers, where the
- * container is the isolation boundary).
- */
-export function chromiumSandbox(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.REELFORGE_CHROMIUM_NO_SANDBOX === '1') return false;
-  return typeof process.getuid !== 'function' || process.getuid() !== 0;
-}
+/** Chromium's own sandbox (shared rule, @reelforge/core). Re-exported for compatibility. */
+export const chromiumSandbox = coreChromiumSandbox;
 
 export function resolveHtmlBrowser(explicit?: string): string {
   const p = explicit ?? process.env.REELFORGE_CHROMIUM_PATH;
@@ -181,6 +174,7 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
       Object.entries(TEMPLATES)
         .filter(([, t]) => t.engine === 'html')
         .map(([id, t]) => ({ ...t, id })),
+    browserSandbox: () => chromiumSandbox(),
     availability() {
       try {
         resolveHtmlBrowser(opts.browserExecutable);

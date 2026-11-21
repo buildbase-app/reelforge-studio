@@ -655,3 +655,471 @@ with a public key built into the image; (2) in the sold image, refuse `off`
 and a non-default `serverUrl` unless a build flag allows them (the e2e image
 would set it). Neither is needed for the first sale; both are cheap once
 BuildBase signs answers.
+
+## L. Production image, hardening and supply chain (2026-11-21, issue #26)
+
+Founder input during the work: the code becomes public and source-available
+(LICENSE.md, LICENSING.md); source hiding (minifying, a "no .ts in the image"
+check) was dropped; the licence requirement stays the default for every
+release image. D-027's "locked image" is therefore an image whose *licence
+settings* are locked, not its code.
+
+### D-039 --- Editions: release images fix the licence settings at build time
+
+**Status:** DECIDED (founder, reversible in mechanism).\
+The Dockerfile's `REELFORGE_EDITION` build arg is `release` by default. A
+release build writes `/app/packages/core/build-info.json` (root-owned, at a
+fixed path no environment variable can change) with `licence.mode: required`,
+`licence.serverUrl` and `licence.orgId` (build args `LICENCE_SERVER_URL`,
+default `https://api.console.buildbase.app`; `LICENCE_ORG_ID`, default the
+production organisation `6b01478bb42d2c444e99fcd8`). The config loader gives
+these the source `build`; a config file, environment or runtime value that
+differs is refused (the server does not start, `reelforge config check` exits
+1); `update_config` answers `409 build_locked_setting`. `get_config` and
+`get_capabilities` report the `edition`. In a release build the licence calls
+refuse HTTP redirects. A missing file means a dev build (`pnpm dev`, tests,
+`--build-arg REELFORGE_EDITION=dev`), where `licence.mode: off` is allowed for
+noncommercial development only (LICENSING.md). The file is validated at start
+and at image build: only those three keys may be fixed, a release build must
+fix all three and `mode` only to `required`.
+**Testing the release edition:** the e2e builds it with the mock licence
+server baked in (`LICENCE_SERVER_URL=http://licence:8080`, a mock org id);
+that image and the published one share every layer except the edition step's
+20 kB layer (checked by `e2e/docker/run.sh` with `RELEASE_IMAGE=`). Chosen
+over overriding DNS for the baked host, which would have needed a TLS
+certificate the image trusts, i.e. a second bypass to test the first.
+**Clock:** the "highest time seen" marker (D-037) is now also checked and
+moved forward at every start and hourly while running, not only at licence
+checks, so a restart with the clock set back gets no grace.
+**Honest limits (updates D-038):** with public source, anyone can build an
+image with `off`, edit `build-info.json` in a derived image, or answer from a
+fake server behind DNS plus their own CA in `NODE_EXTRA_CA_CERTS` (answers are
+still unsigned; request drafted in
+`docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md`, not filed). TLS pinning
+to bundled roots was not added: it would only close the last of these, while
+breaking TLS-intercepting corporate proxies. The lock makes the published
+image behave like a licensed product; the licence terms are the protection.
+
+### D-040 --- The production image: multi-stage, production dependencies, pre-built bundles, not minified
+
+**Status:** DECIDED (reversible).\
+Stages: `os` (Debian packages incl. Chrome's libraries, `apt-get upgrade`),
+`deps` (pnpm, all dependencies), `chrome` (Remotion's `ensureBrowser()`),
+`build` (the Remotion and Motion Canvas browser bundles are pre-built with
+`apps/server/src/prebuild.ts` into each engine's `.prebuilt/`; the runtime tree
+without tests, Prisma tooling or docs), `prod-deps` (`pnpm install --prod`;
+source maps, type declarations and changelogs deleted), `dev` (the whole repo
+for `docker build --target dev`) and `release` (default: no npm/npx/corepack/
+yarn/pnpm; `LICENSE.md`, `NOTICE`, `LICENSES/` in `/app`). `@remotion/bundler`,
+Vite and the Motion Canvas build plugins became devDependencies, and the
+engines import them only when they must build (a bundle is used when its
+`.source-hash` matches the sources, so a production container never runs a
+bundler and needs no writable bundle directory). Optional native packages are
+limited to glibc (`supportedArchitectures` in pnpm-workspace.yaml). The server
+still runs TypeScript through tsx: with public source, an esbuild bundle would
+only save start-up time, and keeping dependencies unbundled keeps LGPL modules
+(mariadb) separately replaceable. The base image is pinned by digest
+(`BASE_DIGEST`); `BASE_IMAGE` may name a mirror. Result: 2.50 GB to 1.85 GB
+uncompressed (compressed content 642 to 519 MB), `node_modules` 665 to 274 MB.
+
+### D-041 --- Hardened runtime; Chromium's sandbox with a seccomp profile, except Remotion
+
+**Status:** DECIDED (reversible).\
+The release image runs as UID:GID 10001:10001 with root-owned application
+files, tini as PID 1, a healthcheck, `HOME`/XDG directories in `/tmp`, and
+works with `--read-only`, a tmpfs `/tmp`, `--cap-drop ALL` and
+`no-new-privileges` (compose default; the Docker e2e runs the whole suite so;
+Kubernetes `securityContext` in docs/DEPLOY.md). Chromium's namespace sandbox
+cannot start under Docker's default seccomp profile (it allows `clone`/
+`unshare` with namespace flags only with `CAP_SYS_ADMIN`; verified "No usable
+sandbox"). `deployment/seccomp/chrome.json` = Docker's default profile (moby
+profiles v0.3.0) + `clone`, `unshare`, `setns`, `chroot` without capabilities;
+with it and `REELFORGE_CHROMIUM_NO_SANDBOX=0` the html, hyperframes and
+motion-canvas engines run sandboxed (verified: renderers in a nested PID
+namespace, full render passes). One rule (`chromiumSandbox()` in core) now
+decides for those three (Motion Canvas used to pass `--no-sandbox` always;
+HyperFrames gets `HYPERFRAMES_CHROME_SANDBOX` so it cannot silently fall
+back). **Remotion hard-codes `--no-sandbox` and `--single-process`** in
+`@remotion/renderer` on Linux; patching it was rejected, and it renders only
+ReelForge's own templates. `get_capabilities.security` reports the sandbox per
+engine with a warning. The image default stays `NO_SANDBOX=1` so a plain
+`docker run` works. HyperFrames' temp files go to the cache directory on
+`/data` (it refuses to render with < 1 GB free in its temp directory).
+
+### D-042 --- Image checks: contents, no secrets, size budget 2000 MB
+
+**Status:** DECIDED (reversible).\
+`scripts/image/check-contents.sh` lists every file of the image (`docker
+export`) and fails on repository docs/tests/e2e/scripts, Prisma tooling,
+source maps, type declarations in `node_modules`, build-only dependencies,
+musl builds, package managers, `.git`/`.env`/`.npmrc`, a missing licence
+file, pre-built bundle, Chrome, tini or ffprobe, a wrong user, entrypoint or
+healthcheck, a release build without `build-info.json` (or a dev build with
+one), or a size over the budget: **2000 MB uncompressed** (1845 MB on
+2026-11-21; Chrome 243 MB, `/usr/lib` 470 MB, fonts 112 MB, `node_modules`
+274 MB). `scripts/image/check-secrets.sh` checks `docker history`, the image
+config and the files (private keys with key material, GitHub/AWS/Anthropic/
+OpenAI/Slack tokens, `rf_` API keys, credential files, and, given `EXTRA_CA`,
+that none of the build-only CA certificates is in a layer). Proxy settings
+are passed as Docker's predefined proxy build args and never declared, so they
+stay out of the history; the build CA is a `--secret` mount.
+
+### D-043 --- CI tiers and supply chain
+
+**Status:** DECIDED (founder asked for the cost controls; reversible).\
+FAST on every push to any branch: typecheck, unit tests, SQLite server tests
+with the MCP/REST e2e. HEAVY on pull requests to main, pushes to main, `v*`
+tags, nightly and manual runs: PostgreSQL/MySQL, the spike, and the `image`
+job per architecture (native `ubuntu-24.04` and `ubuntu-24.04-arm` runners
+instead of QEMU): contents, secrets, Trivy 0.76.2 (fixable HIGH/CRITICAL fail;
+0 found on 2026-11-21, the previous image had 71, mostly in the bundled npm
+and an old esbuild), CycloneDX SBOM artifact, Docker e2e hardened (amd64: three
+databases; arm64: SQLite). On main and `v*` tags only, `publish` merges the
+per-arch digests into one manifest on `ghcr.io/buildbase-app/reelforge-studio`,
+signs it with cosign keyless (GitHub OIDC) and attaches the SBOM attestation;
+branches never push or sign. `concurrency` cancels superseded runs,
+docs-only changes skip the jobs (pushes: `paths-ignore`; pull requests and the
+merge queue, `merge_group`: a `changes` job), and the `required` job aggregates
+every job (success or skipped) so branch protection can require it (#62);
+`docs/CONFIG.md` drift has its own small workflow;
+every job has `timeout-minutes`, and pnpm, Chrome, the buildx layers (GHA
+cache) and the Trivy DB are cached. Verified on GitHub (manual run
+44921945693): every heavy job on amd64 and arm64. Not run yet: publish and
+cosign (main/tags only). Distribution of the image to buyers (pull access by
+licence, update channel) is still open (#11).
+
+### D-050 --- Observability on OpenTelemetry: the API in core, the SDK and exporters in the server, OTLP over HTTP
+
+**Status:** DECIDED (issue #64; reversible).\
+One instrumentation for every signal: the core (`packages/core/src/telemetry.ts`)
+depends only on `@opentelemetry/api` (no dependencies) and records spans and
+metrics through a `Telemetry` (tracer + meter) the server hands to
+`ReelforgeService`; without one everything is a no-op (tests, CLI, spike). The
+server (`apps/server/src/observability/`) owns the SDK (`sdk-trace`,
+`sdk-metrics`, `sdk-logs` 3.1.1), the Prometheus serializer and the OTLP
+exporters (0.301.2), all pinned. Exporters: OTLP over HTTP, `http/protobuf`
+(default, the OTLP spec default) or `http/json`. **gRPC is not shipped**: it
+would add `@grpc/grpc-js` to the image for a transport any OpenTelemetry
+Collector translates; the setting refuses `grpc` with that hint. No
+auto-instrumentation packages (they monkey-patch Node modules): HTTP spans
+come from our Hono middleware, job/engine/FFmpeg spans from the core. Spans
+form one trace per request: `HTTP <route>` → `job <type>` (child of the
+request that submitted it, also when it runs later) → `engine.render
+<engine>` → `ffprobe clip`, `ffmpeg assemble`, `ffprobe output`, `ffmpeg
+decode check`, `ffmpeg poster`; an incoming W3C `traceparent` is continued.
+The release image grows by 9 MB (1845 → 1854 MB uncompressed, budget 2000;
+no protobuf runtime: the 3.x transformer encodes itself).
+
+### D-051 --- Logs: JSON lines by default, redacted on the way out
+
+**Status:** DECIDED (issue #64, founder: the issue's recommended defaults; reversible).\
+`observability.logs.exporter`: `stdout` (default: one JSON object per line
+with `time`, `level`, `msg`, `service`, fields, and `trace_id`/`span_id` when a
+span is active), `pretty` (the old `[reelforge] ...` lines, for development;
+`pnpm dev` selects it) or `otlp` (JSON lines **and** OpenTelemetry log records,
+so `docker logs` keeps working). `logging.format` stays as the older name
+(`text` → `pretty` when the exporter is not set); its default is now `json`,
+a visible change for anyone parsing the text lines. One access log line per
+request: `request_id` (a caller's `X-Request-Id` if it is 1-128 plain
+characters, else a UUID; echoed in the response), `key_id` (never the key),
+`method`, `route` (the template), `status`, `duration_ms`; never the query
+string (it carries download signatures). `/healthz`, `/readyz` and `/metrics`
+log at `debug`. Redaction runs in the logger for every message and field
+(`apps/server/src/observability/redact.ts`): `rf_` keys, `Bearer`/`Basic`
+credentials, URL passwords, `sig=`/`token=`/`key=` query values, the current
+value of every secret setting and provider key (refreshed on every config
+change), and fields named like secrets.
+
+### D-052 --- Metrics: Prometheus on /metrics by default, OTLP push or off; templates, never ids
+
+**Status:** DECIDED (issue #64; reversible).\
+`observability.metrics.exporter`: `prometheus` (default; `GET /metrics` on
+the normal port, text format 0.0.4, `promtool check metrics` clean),
+`otlp` (pushed every `exportIntervalSeconds`, default 60) or `off` (404).
+`/metrics` is open like `/healthz` unless `observability.metrics.bearerToken`
+is set (constant-time compare); operators keep it off the public internet or
+set the token. Names follow OpenTelemetry (`http.server.request.duration`,
+`reelforge.jobs.finished`, ...); the Prometheus names add the `_seconds` unit
+suffix our serializer wrapper puts back, `_total` for counters, and
+`target_info` with `service.name`, `service.version`, `reelforge.edition`.
+Labels are bounded by construction: HTTP route **templates** (`unmatched` for
+unknown paths), method, status, job type and status, engine, provider,
+outcome, licence state. No project, job, render or key ids, no paths, no user
+input (tested: OBS-05).
+
+### D-053 --- /readyz reports each dependency; only database, storage and FFmpeg decide readiness
+
+**Status:** DECIDED (issue #64; reversible).\
+`GET /readyz` keeps `ok` and the v0.1 `checks` map and adds `dependencies`:
+`database`, `storage` (driver, path, free bytes), `ffmpeg` (path, version),
+`browser` (path, version) and `telemetry` (selected exporters, and per OTLP
+signal: last success, last error, failure counts), each with `status`
+(`ok` / `error` / `not_configured`), `required` and `latencyMs`. Database,
+storage and FFmpeg are required (503 without them, as before). The browser and
+telemetry are reported but never take the instance out of rotation: the API,
+settings and downloads work without them, and a telemetry backend outage must
+not cascade into the studio.
+
+### D-054 --- Exporters are runtime settings and never break the server
+
+**Status:** DECIDED (founder: providers selectable by file, env or API/MCP; reversible).\
+Every `observability.*` setting except `serviceName` is `runtime`:
+`update_config` / `PATCH /v1/config` switches exporters, endpoint, headers,
+protocol, sampling and timeouts live (the MeterProvider lives as long as the
+server with a pull reader and a swappable push reader; the service's tracer
+delegates to the current TracerProvider; the logger gets an OTLP logger while
+selected). Tracing defaults to `otlp` as soon as `observability.otlp.endpoint`
+is set, `off` otherwise (the issue's recommendation). OTLP headers and the
+metrics token are secrets (encrypted at rest when set at runtime, D-033). A
+failing receiver is contained: every export is bounded by
+`observability.otlp.timeoutSeconds` (default 10) with the SDK's retries and
+exponential backoff for 429/502/503/504 inside it, then the batch is dropped;
+failures are counted per signal, shown in `/readyz`, and logged at most once a
+minute per signal (plus once on recovery). Shutdown (`SIGTERM`) flushes the
+batched spans and logs and pushes metrics one last time. OTEL_* environment
+names (`OTEL_EXPORTER_OTLP_ENDPOINT`, `_HEADERS`, `_PROTOCOL`,
+`OTEL_SERVICE_NAME`) are accepted as aliases.
+
+## M. Storage drivers, retention and migration (2026-11-21, issue #27)
+
+Founder direction: several providers for everything, chosen by configuration;
+where there is no clear winner, a recommended default. Provider matrix, test
+cases and results: [docs/providers/storage.md](providers/storage.md).
+
+### D-065 --- Four storage drivers behind one interface; one S3 driver for every S3-compatible service
+
+**Status:** DECIDED (reversible).\
+`storage.driver` picks `local` (default: the data directory), `s3`, `azure`
+or `gcs`. The `StorageDriver` interface (`packages/core/src/plugins.ts`)
+grew from five methods to put/putFile/get with a byte range/stat/list with
+sizes/copy/delete/signedUrl/localPath/health/describe, and every driver passes
+the same contract suite (`packages/core/test/storage.contract.test.ts`).
+**One S3 driver** (endpoint, region, bucket, path-style, prefix) covers AWS S3,
+Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, MinIO and GCS
+through its XML API with HMAC keys: they speak the same protocol, and one
+driver tested well beats seven tested thinly. It uses the official
+`@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner` 3.1164.0 (Apache-2.0)
+rather than a hand-written SigV4 client: retries, the credential chain
+(IRSA, ECS, instance roles), multipart and presigning are what an enterprise
+deployment needs and what a small client would get wrong. Checksums are sent
+only when required (`WHEN_REQUIRED`), because newer SDK defaults break several
+S3-compatible services. **Azure Blob** uses `@azure/storage-blob` 12.34.0 and
+`@azure/identity` 4.14.1 (MIT); **GCS native** `@google-cloud/storage` 8.4.0
+(Apache-2.0; 9.0.0 was 9 days old). The SDKs are dependencies of
+`@reelforge/core`, but each driver imports its SDK with `import()` only when
+it is selected, so a local-storage server never loads them (the files are in
+the image, about +40 MB of `node_modules`; no LGPL module among them).
+**Key layout** is the same everywhere: `assets/<assetId>/file.<ext>` and
+`projects/<projectId>/renders/<runId>/...`, under an optional prefix, so a
+migration is a copy and the local layout did not change. `project://` asset
+folders stay local (a v0.1 feature; see storage.md, limits).
+
+### D-066 --- Credentials: secrets of the config system, or the cloud's ambient identity
+
+**Status:** DECIDED (reversible).\
+Keys are secret settings (`storage.s3.accessKeyId` / `secretAccessKey` /
+`sessionToken`, `storage.azure.connectionString`, `storage.gcs.credentialsJson`),
+so they come from the config file, the environment, `<NAME>_FILE`, or the
+database encrypted with `REELFORGE_SECRET_KEY` (D-033). They are **runtime**
+settings: `update_config` rotates them and the driver is rebuilt without a
+restart (operations in flight finish on the old one). With no keys the driver
+uses the ambient identity: the AWS default credential chain (instance/task
+role, IRSA/web identity, `AWS_*`), Azure `DefaultAzureCredential` (managed
+identity, workload identity, optional `managedIdentityClientId`), Google
+Application Default Credentials (workload identity). Everything that says
+*where* (driver, bucket, endpoint, prefix, encryption, timeouts) is start-up
+only, so no API key can point the server at another endpoint (an SSRF or
+exfiltration path). Endpoints are also validated: http(s) only, no
+credentials, query or fragment in the URL, and plain `http://` only for
+internal hosts (loopback, private addresses, single-label names, `*.local`,
+`*.internal`, `*.svc`). Keys come in pairs (`accessKeyId` needs
+`secretAccessKey`). Encryption at rest on the provider side is passed through:
+`storage.s3.serverSideEncryption` (`AES256`, `aws:kms`, `aws:kms:dsse`) with
+`kmsKeyId`, `storage.azure.encryptionScope`, `storage.gcs.kmsKeyName`.
+Timeouts and retries: connect timeout, a socket-inactivity timeout (not a
+total timeout, so large uploads are not cut off) and `storage.maxAttempts`
+with each SDK's exponential backoff with jitter. `get_storage`, logs, errors
+and `describe()` never contain keys (tested, STO-24).
+
+### D-067 --- Renders on remote storage: local staging, upload to temporary keys, commit with the manifest last; downloads signed by the bucket
+
+**Status:** DECIDED (reversible).\
+Engines and FFmpeg need files, so a render for remote storage runs in
+`<cacheDir>/render-staging/<project>/` exactly as before (every check passes
+first), then `RenderStore.commit` uploads every file under
+`projects/<id>/renders/.tmp-<runId>/`, copies them to `<runId>/` (server-side
+copy on S3 and GCS; download and upload on Azure, which works with every
+credential type) with `render-manifest.json` last, and deletes the temporary
+keys. A render exists when its manifest exists, so readers never see half a
+render; a failure deletes everything the commit wrote; an existing render is
+never overwritten (checked before the upload and again before the manifest).
+Local storage keeps the atomic directory rename. Assets that engines need are
+copied once into `<cacheDir>/storage/` (content-addressed, so a copy never
+goes stale; its mtime marks the last use). **Downloads:** `storage.downloads`
+`auto` (default) gives a `downloadUrl` signed by the bucket (SigV4 presigned,
+Azure service or user delegation SAS, GCS V4) when the driver can sign, else a
+server-signed link; `proxy` always uses the server. `RenderSummary.downloadVia`
+says which. `GET /v1/renders/:id/output` (Bearer key or server signature)
+always streams through the server from the driver, with Range; it does not
+redirect, because clients forward or drop the `Authorization` header on
+cross-host redirects inconsistently and S3 rejects a request with two
+authorisations. A presigned URL made with temporary ambient credentials stops
+working when those credentials expire (documented).
+
+### D-068 --- Retention: keep the newest N per project, delete older than D days; scheduled sweep and an admin API
+
+**Status:** DECIDED (reversible).\
+Runtime settings `storage.retention.renderDays` (0 = keep),
+`keepLastRendersPerProject` (0 = no minimum), `tempHours` (default 24) and
+`cacheDays` (default 30), and `sweepIntervalMinutes` (default 60, 0 = off).
+A render (or preview) is **kept** when it is among the newest
+`keepLastRendersPerProject` of its project or belongs to a queued or running
+job; otherwise it is deleted when it is older than `renderDays`, or, with
+`renderDays` 0 and keep-last set, because it is beyond the newest N. Age is the
+commit time (the manifest object's write time). Both default to 0, so no
+render is ever deleted until an operator sets a policy. The sweep also removes
+unfinished uploads (`.tmp-*`) and incomplete render directories older than
+`tempHours`, stale staging directories, and cached copies unused for
+`cacheDays`; it never touches assets (a project may reference them) or the
+provider result cache (re-creating it costs money). Renders are deleted
+manifest first. `POST /v1/storage/cleanup` / MCP `run_storage_cleanup`
+(admin, `dryRun`, one-off `renderDays` / `keepLastRendersPerProject`) and
+`GET /v1/storage` / `get_storage` (admin, like `get_config`, D-034: it shows
+bucket names) are in the route table, so the parity test covers them; a real
+run and every sweep that removed something are audit-logged
+(`storage.cleanup`). One cleanup runs at a time. `/readyz` reports the
+driver's health (cached 10 s).
+
+### D-069 --- Migration by copy, idempotent and resumable; tests on emulators, and MinIO built from source
+
+**Status:** DECIDED (reversible).\
+`reelforge storage migrate --to <driver> [--from local] [--dry-run]` copies
+`assets/` and finished renders (not `.tmp-*`, not `project://` folders) from
+one driver to another using the target's settings from the configuration,
+including encrypted credentials in the database. An object that exists in the
+target with the same size is skipped, so a second run copies nothing and an
+interrupted run continues where it stopped; manifests are copied last and only
+for renders whose files all arrived. Nothing is deleted from the source; the
+operator then switches `storage.driver` and restarts. Audit-logged
+(`storage.migrate`). **Tests:** the contract suite runs on local always and on
+MinIO, Azurite and fake-gcs-server when `TEST_S3_*`, `TEST_AZURE_CONNECTION_STRING`
+and `TEST_GCS_ENDPOINT` are set (`REELFORGE_REQUIRE_STORAGE` makes a missing
+one fail); Azure managed identity and GCS workload identity, SSE-KMS and the
+retry/timeout behaviour are unit-tested with mocked SDKs and stub servers.
+**MinIO images:** MinIO stopped publishing images in late 2025;
+`mirror.gcr.io/minio/minio` and `quay.io/minio/minio` were not available here
+(not found / not reachable on 2026-11-21), so `e2e/minio/build-image.sh`
+builds the server from MinIO's official source (Go module, last upstream
+commit 2026-02-12, AGPL-3.0, a test fixture only) when `MINIO_IMAGE` cannot be
+pulled. `STORAGE=s3 e2e/docker/run.sh` adds the MinIO phase to the Docker e2e;
+adding it, and the emulator service containers, to CI is a change to
+`.github/workflows/` for a maintainer.
+
+## N. Enterprise E2: audit log, API key lifecycle, idempotency (2026-11-21, issue #65)
+
+Founder direction for this work: every provider selectable by configuration,
+several at once where that makes sense; the recommended default where there is
+no clear winner; every supported provider backed by a passing test case
+(docs/providers/audit-and-keys.md lists them with results).
+
+### D-055 --- One append-only audit log, written by the transport and the service
+
+**Status:** DECIDED (reversible in mechanism; "never secrets" is not).\
+Every admin-scope call (reads included: `get_config`, `list_keys`,
+`list_audit_events`) and every write/render-scope call over REST or MCP writes
+one `AuditLog` row: actor (key id **and** the key's name at that time), action
+(dotted, from the MCP tool: `create_project` → `project.create`, exceptions in
+`apps/server/src/audit.ts`), target (type + id, from the arguments or the
+created object), result (`success`, `failure`, `denied`), client IP, user
+agent, request id (`X-Request-Id` when the caller sends a safe one, else
+`req_<random>`; echoed in the response) and `data` (status, error code,
+`via: rest|mcp`, replay flag). Read-scope calls are not logged. When the
+service already wrote a more detailed entry for the call (`config.update` with
+the changed keys, `key.rotate` with the grace window, `licence.activate`, ...),
+the transport writes none, so there is one entry per call. Keys that exist but
+may not be used (revoked, expired, wrong address) are logged as `auth.denied`;
+unknown keys are not (that would let anyone fill the log). The request
+context travels in `AsyncLocalStorage` (`runWithRequest` / `currentRequest`),
+so service code needs no extra parameters. The CLI writes the same entries
+with `actorType: cli` and `actorName: cli:<os user>`.
+**Never secret values:** callers pass only names and `set`/`cleared`
+markers; `AuditLog.write` also runs `redactSecrets` (properties named like a
+secret, `rf_` keys, bearer tokens, PEM private keys) as a second line of
+defence. **Append-only:** `AuditRepository` has `write`, `list` and
+`deleteOlderThan` (retention) only; there is no REST route or MCP tool that
+changes or deletes an entry (tested). Times are UTC (`DateTime(3)`, ISO with
+`Z`). Columns added by migration `0004_audit_keys_idempotency`: `actorName`,
+`result`, `ip`, `userAgent`, `requestId`, indexes on action and actor.
+
+### D-056 --- API key lifecycle: expiry, rotation with one grace secret, revoke keeps the row
+
+**Status:** DECIDED (reversible).\
+`ApiKey` gains `expiresAt`, `revokedAt`, `rotatedAt`, the previous secret
+(`prevPrefix`, `prevSalt`, `prevHash`, `prevExpiresAt`), `rateLimitPerMinute`,
+`rendersPerDay`, `rendersPerMonth` and `ipAllowlist` (JSON). **Rotation** gives
+a new secret (shown once) and keeps the old one for `graceHours` (default
+`keys.rotationGraceHours`, 24; 0 ends it at once). One previous secret per key:
+rotating again inside the window ends the older one (simpler than a secrets
+table; enough for "switch clients, then rotate again"). **Revoke** sets
+`revokedAt`, drops the previous secret and keeps the row, so the audit trail
+still names the key; `delete_key` still removes it. Neither may target the key
+making the request. **Per-key rate limit** replaces `limits.rateLimitPerMinute`
+for that key (0: none); **render quotas** count `render` and `preview` jobs the
+key started in the current UTC day / calendar month (`Job.apiKeyId`, indexed),
+refused with `429 quota_exceeded` and `details {period, limit, used,
+resetsAt}`; check and insert are serialised per key in the process (another
+process may overshoot by its in-flight renders). **IP allowlist** (IPv4/IPv6
+CIDR, `node:net` `BlockList`, IPv4-mapped addresses normalised) refuses other
+addresses with `403 ip_not_allowed`; the address is the TCP peer, or the last
+`X-Forwarded-For` entry when `server.trustProxy` is on (off by default, so a
+forged header changes nothing). Every lifecycle action exists as REST route,
+MCP tool (parity test) and CLI command. Scopes cannot change after creation.
+
+### D-057 --- Idempotency keys in the database, per API key, 24 hours
+
+**Status:** DECIDED (reversible).\
+`create_project`, `create_theme`, `add_scene`, `render_project`,
+`preview_scene`, `retry_job`, `run_provider` / `generate_voice` and
+`add_asset_from_url` take an `Idempotency-Key` header (REST) or
+`idempotencyKey` argument (MCP). Rows in `IdempotencyKey` are keyed by
+(workspace, API key, idempotency key), so callers never collide; the hash is
+SHA-256 of the operation and its canonical arguments (sorted keys, undefined
+dropped), built the same way by REST and MCP, so the two share keys. Same key
+and arguments: the stored result (`Idempotent-Replayed: true` in REST); other
+arguments: `422 idempotency_conflict`; while the first call runs: `409
+idempotency_in_progress`. A failed first call stores nothing, so it can be
+retried. Records expire after `idempotency.ttlHours` (24) and are swept
+hourly; an expired one no longer counts even before the sweep. Not offered
+for `create_key` / `rotate_key`: storing their result would store a secret.
+Upload (multipart) is content-addressed already and takes no key.
+
+### D-058 --- Audit sinks: database always, plus stdout, OTLP and plugins, several at once
+
+**Status:** DECIDED (reversible).\
+`audit.sinks` (runtime) selects extra sinks: `stdout` (one `{"type":"audit",
+...}` JSON line per entry, for container log collectors), `otlp` (OTLP/HTTP
+JSON logs to `audit.otlpEndpoint`, batched up to 100 entries or 1 s, 5 s
+timeout) and the id of any `AuditSink` plugin passed as
+`ServiceConfig.auditSinks` (the interface for the signed webhook of E3 and the
+S3 export of #27). The database is always written first and is the record of
+truth; sinks are best-effort: a failing sink never fails or delays the request
+and is reported in the server log (at most once a minute per sink). **Why our
+own 120-line OTLP exporter and not the OpenTelemetry SDK:** it needs no new
+dependency and works today; verified against OpenTelemetry Collector 0.140.1
+in the Docker e2e. When observability (#64) brings a shared OTLP
+configuration, the sink can read it instead of `audit.otlpEndpoint`.
+Sending audit entries is new network egress and is opt-in (docs/PRIVACY.md).
+
+### D-059 --- Retention, sweeps and exports
+
+**Status:** DECIDED (reversible).\
+`audit.retentionDays` (default 365, 0 keeps everything) and expired
+idempotency keys are swept hourly (first run 5 s after start; `reelforge audit
+sweep` on demand); a sweep that deleted entries writes `audit.sweep`.
+`GET /v1/audit` returns pages (newest first, `nextCursor`, max 1000) with
+filters (time, actor, action or `prefix.*`, target, result); with
+`?format=jsonl|csv` it **streams** an export one database page at a time (up
+to 100 000 entries per request, so memory stays flat); `list_audit_events`
+with `format` returns up to 10 000 entries in one MCP result; `reelforge audit
+export` streams any range to a file. CSV cells starting with `= + - @` are
+prefixed with `'` (spreadsheet formula injection).

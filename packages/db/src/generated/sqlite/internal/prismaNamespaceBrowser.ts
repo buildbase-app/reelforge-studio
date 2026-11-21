@@ -62,6 +62,7 @@ export const ModelName = {
   Setting: 'Setting',
   Asset: 'Asset',
   AuditLog: 'AuditLog',
+  IdempotencyKey: 'IdempotencyKey',
   LicenceState: 'LicenceState',
   SystemState: 'SystemState'
 } as const
@@ -120,7 +121,18 @@ export const ApiKeyScalarFieldEnum = {
   salt: 'salt',
   hash: 'hash',
   createdAt: 'createdAt',
-  lastUsedAt: 'lastUsedAt'
+  lastUsedAt: 'lastUsedAt',
+  expiresAt: 'expiresAt',
+  revokedAt: 'revokedAt',
+  prevPrefix: 'prevPrefix',
+  prevSalt: 'prevSalt',
+  prevHash: 'prevHash',
+  prevExpiresAt: 'prevExpiresAt',
+  rotatedAt: 'rotatedAt',
+  rateLimitPerMinute: 'rateLimitPerMinute',
+  rendersPerDay: 'rendersPerDay',
+  rendersPerMonth: 'rendersPerMonth',
+  ipAllowlist: 'ipAllowlist'
 } as const
 
 export type ApiKeyScalarFieldEnum = (typeof ApiKeyScalarFieldEnum)[keyof typeof ApiKeyScalarFieldEnum]
@@ -137,6 +149,7 @@ export const JobScalarFieldEnum = {
   result: 'result',
   error: 'error',
   retryOf: 'retryOf',
+  apiKeyId: 'apiKeyId',
   createdAt: 'createdAt',
   startedAt: 'startedAt',
   finishedAt: 'finishedAt'
@@ -217,13 +230,33 @@ export const AuditLogScalarFieldEnum = {
   at: 'at',
   actorType: 'actorType',
   actorId: 'actorId',
+  actorName: 'actorName',
   action: 'action',
   targetType: 'targetType',
   targetId: 'targetId',
+  result: 'result',
+  ip: 'ip',
+  userAgent: 'userAgent',
+  requestId: 'requestId',
   data: 'data'
 } as const
 
 export type AuditLogScalarFieldEnum = (typeof AuditLogScalarFieldEnum)[keyof typeof AuditLogScalarFieldEnum]
+
+
+export const IdempotencyKeyScalarFieldEnum = {
+  workspaceId: 'workspaceId',
+  actorId: 'actorId',
+  key: 'key',
+  operation: 'operation',
+  requestHash: 'requestHash',
+  status: 'status',
+  response: 'response',
+  createdAt: 'createdAt',
+  expiresAt: 'expiresAt'
+} as const
+
+export type IdempotencyKeyScalarFieldEnum = (typeof IdempotencyKeyScalarFieldEnum)[keyof typeof IdempotencyKeyScalarFieldEnum]
 
 
 export const LicenceStateScalarFieldEnum = {

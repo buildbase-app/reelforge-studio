@@ -1,4 +1,4 @@
-import type { EnginePlugin } from '@reelforge/core';
+import { chromiumSandbox, type EnginePlugin } from '@reelforge/core';
 import { PipelineError } from '@reelforge/media-pipeline';
 import { TEMPLATES } from '@reelforge/project-schema';
 import { motionCanvasVersion, renderMotionCanvasScene, resolveBrowser } from './render';
@@ -19,6 +19,7 @@ export function motionCanvasEngine(opts: MotionCanvasEngineOptions = {}): Engine
       Object.entries(TEMPLATES)
         .filter(([, t]) => t.engine === 'motion-canvas')
         .map(([id, t]) => ({ ...t, id })),
+    browserSandbox: () => chromiumSandbox(),
     availability() {
       try {
         resolveBrowser(opts.browserExecutable);

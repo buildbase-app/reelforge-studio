@@ -19,7 +19,7 @@ import { z } from 'zod';
 
 export type SettingScope = 'startup' | 'runtime';
 /** How an environment variable's text is turned into a value. */
-export type SettingKind = 'string' | 'integer' | 'boolean' | 'list' | 'enum' | 'path' | 'url';
+export type SettingKind = 'string' | 'integer' | 'number' | 'boolean' | 'list' | 'enum' | 'path' | 'url';
 
 export interface SettingMeta {
   kind: SettingKind;
@@ -93,6 +93,14 @@ export const ConfigSchema = z.object({
       example: 'reelforge,studio.internal',
       description: 'Extra host names accepted on `/mcp` (DNS-rebinding protection), besides localhost and the public URL host. Comma-separated in the environment.',
     }),
+    trustProxy: setting(z.boolean(), {
+      kind: 'boolean',
+      scope: 'runtime',
+      env: 'REELFORGE_TRUST_PROXY',
+      default: false,
+      description:
+        'Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists. Only turn it on behind a proxy that sets that header.',
+    }),
   }),
   limits: z.object({
     rateLimitPerMinute: setting(nonNegative(), {
@@ -141,38 +149,193 @@ export const ConfigSchema = z.object({
       defaultText: '`<dataDir>/cache`',
       description: 'Engine bundle and provider result cache.',
     }),
-    driver: setting(z.enum(['local', 's3']), {
+    driver: setting(z.enum(['local', 's3', 'azure', 'gcs']), {
       kind: 'enum',
       scope: 'startup',
       env: 'REELFORGE_STORAGE_DRIVER',
       default: 'local',
-      description: 'Where asset and render files are kept. Only `local` works today; `s3` is refused until #27 is built.',
+      description:
+        'Where asset and render files are kept (D-065): `local` (the data directory), `s3` (any S3-compatible API: AWS S3, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, MinIO, GCS with HMAC keys), `azure` (Azure Blob Storage) or `gcs` (Google Cloud Storage, native). Move existing files with `reelforge storage migrate --to <driver>`.',
+    }),
+    downloads: setting(z.enum(['auto', 'presigned', 'proxy']), {
+      kind: 'enum',
+      scope: 'runtime',
+      env: 'REELFORGE_STORAGE_DOWNLOADS',
+      default: 'auto',
+      description:
+        'How `downloadUrl` links are made. `auto`/`presigned`: a time-limited URL signed by the bucket when the driver can sign (falls back to the server otherwise); `proxy`: always a signed link to this server, which streams the file (with Range support).',
+    }),
+    requestTimeoutSeconds: setting(z.number().int().min(1).max(3600), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_STORAGE_REQUEST_TIMEOUT_SECONDS',
+      default: 120,
+      description: 'Remote storage: a request whose connection stays silent this long (a stalled transfer) is aborted and retried. Not a limit on the total transfer time.',
+    }),
+    connectTimeoutSeconds: setting(z.number().int().min(1).max(300), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_STORAGE_CONNECT_TIMEOUT_SECONDS',
+      default: 10,
+      description: 'Remote storage: connection timeout in seconds.',
+    }),
+    maxAttempts: setting(z.number().int().min(1).max(10), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_STORAGE_MAX_ATTEMPTS',
+      default: 4,
+      description: 'Remote storage: attempts per request (the first plus retries with exponential backoff and jitter) on throttling, 5xx and network errors.',
     }),
     s3: z.object({
-      bucket: setting(nonEmpty().optional(), { kind: 'string', scope: 'startup', env: 'REELFORGE_S3_BUCKET', placeholder: '#27', description: 'S3 bucket.' }),
-      region: setting(nonEmpty().optional(), { kind: 'string', scope: 'startup', env: 'REELFORGE_S3_REGION', placeholder: '#27', description: 'S3 region.' }),
+      bucket: setting(nonEmpty().optional(), { kind: 'string', scope: 'startup', env: 'REELFORGE_S3_BUCKET', description: 'Bucket (required for `s3`).' }),
+      region: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_S3_REGION',
+        defaultText: '`us-east-1`',
+        description: 'Region (`auto` for Cloudflare R2; any value for MinIO).',
+      }),
       endpoint: setting(httpUrl().optional(), {
         kind: 'url',
         scope: 'startup',
         env: 'REELFORGE_S3_ENDPOINT',
-        placeholder: '#27',
-        description: 'S3-compatible endpoint (MinIO, R2, ...). Empty for AWS.',
+        example: 'https://<account>.r2.cloudflarestorage.com',
+        description: 'S3-compatible endpoint (R2, B2, Wasabi, Spaces, MinIO, `https://storage.googleapis.com` for GCS interop). Empty for AWS.',
       }),
-      accessKeyId: setting(nonEmpty().optional(), {
+      publicEndpoint: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_S3_PUBLIC_ENDPOINT',
+        description: 'Endpoint used only in signed download URLs, when clients reach the bucket under another name than the server does. Default: `endpoint`.',
+      }),
+      forcePathStyle: setting(z.boolean(), {
+        kind: 'boolean',
+        scope: 'startup',
+        env: 'REELFORGE_S3_FORCE_PATH_STYLE',
+        default: false,
+        description: 'Path-style URLs (`https://host/bucket/key`); needed for MinIO and most self-hosted endpoints.',
+      }),
+      serverSideEncryption: setting(z.enum(['AES256', 'aws:kms', 'aws:kms:dsse']).optional(), {
+        kind: 'enum',
+        scope: 'startup',
+        env: 'REELFORGE_S3_SSE',
+        description: 'Server-side encryption sent with every write: `AES256` (SSE-S3), `aws:kms` (SSE-KMS) or `aws:kms:dsse`. Unset: the bucket default. Not every S3-compatible service supports KMS.',
+      }),
+      kmsKeyId: setting(nonEmpty().optional(), {
         kind: 'string',
         scope: 'startup',
+        env: 'REELFORGE_S3_KMS_KEY_ID',
+        description: 'KMS key id or ARN for `aws:kms` / `aws:kms:dsse` (optional: the account\'s AWS managed key otherwise).',
+      }),
+      prefix: setting(nonEmpty().optional(), { kind: 'string', scope: 'startup', env: 'REELFORGE_S3_PREFIX', example: 'studio', description: 'Key prefix inside the bucket (share a bucket).' }),
+      accessKeyId: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'runtime',
         env: 'REELFORGE_S3_ACCESS_KEY_ID',
         secret: true,
-        placeholder: '#27',
-        description: 'S3 access key id.',
+        description: 'Access key id. Leave unset to use the ambient identity (IAM role, IRSA / web identity, `AWS_*` variables).',
       }),
       secretAccessKey: setting(nonEmpty().optional(), {
         kind: 'string',
-        scope: 'startup',
+        scope: 'runtime',
         env: 'REELFORGE_S3_SECRET_ACCESS_KEY',
         secret: true,
-        placeholder: '#27',
-        description: 'S3 secret access key.',
+        description: 'Secret access key (with `accessKeyId`).',
+      }),
+      sessionToken: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_S3_SESSION_TOKEN',
+        secret: true,
+        description: 'Session token for temporary keys (optional).',
+      }),
+    }),
+    azure: z.object({
+      container: setting(nonEmpty().optional(), { kind: 'string', scope: 'startup', env: 'REELFORGE_AZURE_STORAGE_CONTAINER', description: 'Blob container (required for `azure`).' }),
+      connectionString: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_AZURE_STORAGE_CONNECTION_STRING',
+        aliases: ['AZURE_STORAGE_CONNECTION_STRING'],
+        secret: true,
+        description: 'Connection string (with an account key for signed URLs). Leave unset to use managed identity with `accountUrl`.',
+      }),
+      accountUrl: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_AZURE_STORAGE_ACCOUNT_URL',
+        example: 'https://<account>.blob.core.windows.net',
+        description: 'Account URL, used with the ambient identity (managed identity, workload identity) when there is no connection string.',
+      }),
+      managedIdentityClientId: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_AZURE_MANAGED_IDENTITY_CLIENT_ID',
+        description: 'Client id of a user-assigned managed identity (optional).',
+      }),
+      prefix: setting(nonEmpty().optional(), { kind: 'string', scope: 'startup', env: 'REELFORGE_AZURE_STORAGE_PREFIX', description: 'Blob name prefix inside the container.' }),
+      encryptionScope: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_AZURE_STORAGE_ENCRYPTION_SCOPE',
+        description: 'Encryption scope for every write (customer-managed keys). Unset: the container default.',
+      }),
+    }),
+    gcs: z.object({
+      bucket: setting(nonEmpty().optional(), { kind: 'string', scope: 'startup', env: 'REELFORGE_GCS_BUCKET', description: 'Bucket (required for `gcs`).' }),
+      projectId: setting(nonEmpty().optional(), { kind: 'string', scope: 'startup', env: 'REELFORGE_GCS_PROJECT_ID', description: 'Google Cloud project (optional; detected from the credentials).' }),
+      prefix: setting(nonEmpty().optional(), { kind: 'string', scope: 'startup', env: 'REELFORGE_GCS_PREFIX', description: 'Object name prefix inside the bucket.' }),
+      kmsKeyName: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_GCS_KMS_KEY_NAME',
+        example: 'projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>',
+        description: 'Cloud KMS key for every write (CMEK). Unset: the bucket default.',
+      }),
+      credentialsJson: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_GCS_CREDENTIALS_JSON',
+        secret: true,
+        description: 'Service-account key (the JSON file\'s contents; `_FILE` takes the file). Leave unset to use workload identity / Application Default Credentials.',
+      }),
+      apiEndpoint: setting(httpUrl().optional(), { kind: 'url', scope: 'startup', env: 'REELFORGE_GCS_API_ENDPOINT', description: 'Another API endpoint (an emulator); empty for Google Cloud.' }),
+    }),
+    retention: z.object({
+      renderDays: setting(z.number().int().min(0).max(36500), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_STORAGE_RETENTION_RENDER_DAYS',
+        default: 0,
+        description: 'Delete renders and previews older than this many days (`0`: keep). The newest `keepLastRendersPerProject` of each project are always kept (D-068).',
+      }),
+      keepLastRendersPerProject: setting(z.number().int().min(0).max(10000), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_STORAGE_RETENTION_KEEP_LAST',
+        default: 0,
+        description: 'Always keep the newest N renders of each project (`0`: no minimum). Without `renderDays`, everything older than the newest N is deleted.',
+      }),
+      tempHours: setting(z.number().int().min(1).max(8760), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_STORAGE_RETENTION_TEMP_HOURS',
+        default: 24,
+        description: 'Remove unfinished render uploads and staging directories (crashed or killed renders) older than this many hours.',
+      }),
+      cacheDays: setting(z.number().int().min(0).max(3650), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_STORAGE_RETENTION_CACHE_DAYS',
+        default: 30,
+        description: 'Remove local copies of remote assets and renders (`<cacheDir>/storage`) unused for this many days (`0`: keep).',
+      }),
+      sweepIntervalMinutes: setting(z.number().int().min(0).max(10080), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_STORAGE_SWEEP_INTERVAL_MINUTES',
+        default: 60,
+        description: 'Run the storage cleanup on this schedule (`0`: only on demand with `run_storage_cleanup` / `POST /v1/storage/cleanup`).',
       }),
     }),
   }),
@@ -218,6 +381,49 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_BOOTSTRAP_KEY',
       secret: true,
       description: 'First admin API key (`rf_` + 20 or more URL-safe characters). Stored hashed as key "bootstrap" on start if no key exists.',
+    }),
+  }),
+  audit: z.object({
+    retentionDays: setting(z.number().int().min(0).max(36500), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_AUDIT_RETENTION_DAYS',
+      default: 365,
+      description: 'Days audit entries are kept in the database; older ones are deleted by the hourly sweep. `0` keeps them forever.',
+    }),
+    sinks: setting(z.array(z.string().regex(/^[a-z][a-z0-9-]{0,40}$/, 'a sink id such as stdout or otlp')).max(10), {
+      kind: 'list',
+      scope: 'runtime',
+      env: 'REELFORGE_AUDIT_SINKS',
+      default: [],
+      example: 'stdout,otlp',
+      description:
+        'Where audit entries go besides the database (always on): `stdout` (one JSON line per entry, `{"type":"audit",...}`), `otlp` (OTLP/HTTP logs to `audit.otlpEndpoint`), or the id of a sink plugin. Several at once; comma-separated in the environment.',
+    }),
+    otlpEndpoint: setting(httpUrl().optional(), {
+      kind: 'url',
+      scope: 'runtime',
+      env: 'REELFORGE_AUDIT_OTLP_ENDPOINT',
+      example: 'http://otel-collector:4318/v1/logs',
+      description: 'OTLP/HTTP logs endpoint for the `otlp` audit sink (JSON encoding). Sends audit entries to that host only when `otlp` is in `audit.sinks` (docs/PRIVACY.md).',
+    }),
+  }),
+  keys: z.object({
+    rotationGraceHours: setting(z.number().int().min(0).max(720), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_KEY_ROTATION_GRACE_HOURS',
+      default: 24,
+      description: 'After `rotate_key`, the old secret keeps working this many hours so clients can switch. `0` ends it at once; a rotation may pass its own `graceHours`.',
+    }),
+  }),
+  idempotency: z.object({
+    ttlHours: setting(z.number().int().min(1).max(168), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_IDEMPOTENCY_TTL_HOURS',
+      default: 24,
+      description: 'How long an `Idempotency-Key` (REST) / `idempotencyKey` (MCP) and its stored result are kept; expired ones are swept hourly.',
     }),
   }),
   render: z.object({
@@ -312,8 +518,112 @@ export const ConfigSchema = z.object({
       kind: 'enum',
       scope: 'startup',
       env: 'REELFORGE_LOG_FORMAT',
-      default: 'text',
-      description: '`text` (`[reelforge] ...` lines) or `json` (one object per line).',
+      default: 'json',
+      description:
+        'Older name for the stdout log format, kept for existing deployments: `text` selects `observability.logs.exporter: pretty` when that is not set. Prefer `observability.logs.exporter`.',
+    }),
+  }),
+  observability: z.object({
+    serviceName: setting(z.string().min(1).max(100).regex(/^[\w.-]+$/, 'letters, digits, ".", "_" and "-" only'), {
+      kind: 'string',
+      scope: 'startup',
+      env: 'REELFORGE_OTEL_SERVICE_NAME',
+      aliases: ['OTEL_SERVICE_NAME'],
+      default: 'reelforge-studio',
+      description: 'OpenTelemetry `service.name` of traces, metrics and logs (also `service.version` and `reelforge.edition` are sent).',
+    }),
+    logs: z.object({
+      exporter: setting(z.enum(['stdout', 'pretty', 'otlp']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_LOGS_EXPORTER',
+        default: (get: Getter) => (get('logging.format') === 'text' ? 'pretty' : 'stdout'),
+        defaultText: '`stdout` (`pretty` when `logging.format` is `text`)',
+        description:
+          '`stdout`: one JSON object per line (request id, key id, route, status, duration; secrets redacted). `pretty`: readable `[reelforge] ...` lines for development. `otlp`: JSON lines on stdout and OpenTelemetry log records to `observability.otlp.endpoint` (Grafana Loki, Datadog, Honeycomb, Elastic, ...).',
+      }),
+    }),
+    metrics: z.object({
+      exporter: setting(z.enum(['prometheus', 'otlp', 'off']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_METRICS_EXPORTER',
+        default: 'prometheus',
+        description: '`prometheus`: text format on `GET /metrics` for scraping. `otlp`: pushed to `observability.otlp.endpoint` every `observability.metrics.exportIntervalSeconds`. `off`: neither (`/metrics` answers 404).',
+      }),
+      bearerToken: setting(z.string().min(16, 'at least 16 characters (e.g. `openssl rand -hex 24`)').max(500).regex(/^[\x21-\x7e]+$/, 'printable characters without spaces').optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_METRICS_TOKEN',
+        secret: true,
+        description:
+          'When set, `GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` is open like `/healthz`; keep it off the public internet (docs/OBSERVABILITY.md).',
+      }),
+      exportIntervalSeconds: setting(z.number().int().min(5).max(3600), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_METRICS_EXPORT_INTERVAL_SECONDS',
+        default: 60,
+        description: 'How often metrics are pushed with the `otlp` exporter.',
+      }),
+    }),
+    tracing: z.object({
+      exporter: setting(z.enum(['otlp', 'off']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_TRACING_EXPORTER',
+        default: (get: Getter) => (get('observability.otlp.endpoint') ? 'otlp' : 'off'),
+        defaultText: '`off` (`otlp` when `observability.otlp.endpoint` is set)',
+        description: '`otlp`: spans for HTTP requests, jobs, engine renders and FFmpeg steps to `observability.otlp.endpoint` (Jaeger, Grafana Tempo, Honeycomb, Datadog, ...). `off`: no spans.',
+      }),
+      sampleRatio: setting(z.number().min(0).max(1), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_TRACING_SAMPLE_RATIO',
+        default: 1,
+        description: 'Share of new traces kept (0 to 1). A request that arrives with a W3C `traceparent` follows the caller\'s sampling decision.',
+      }),
+    }),
+    otlp: z.object({
+      endpoint: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'runtime',
+        env: 'REELFORGE_OTLP_ENDPOINT',
+        aliases: ['OTEL_EXPORTER_OTLP_ENDPOINT'],
+        example: 'http://otel-collector:4318',
+        description: 'OTLP/HTTP base URL; `/v1/traces`, `/v1/metrics` and `/v1/logs` are appended. Nothing is sent anywhere unless this is set (docs/PRIVACY.md).',
+      }),
+      headers: setting(
+        z
+          .string()
+          .max(4000)
+          .regex(/^\s*[^\s=,]+\s*=[^,\r\n]*(,\s*[^\s=,]+\s*=[^,\r\n]*)*$/, 'comma-separated name=value pairs, e.g. "x-honeycomb-team=<key>"')
+          .optional(),
+        {
+          kind: 'string',
+          scope: 'runtime',
+          env: 'REELFORGE_OTLP_HEADERS',
+          aliases: ['OTEL_EXPORTER_OTLP_HEADERS'],
+          secret: true,
+          example: 'authorization=Basic <base64 instance:token>',
+          description: 'Headers sent with every OTLP request, as `name=value,name2=value2` (values may be URL-encoded). Usually holds the vendor API key, so it is a secret.',
+        }
+      ),
+      protocol: setting(z.enum(['http/protobuf', 'http/json']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_OTLP_PROTOCOL',
+        aliases: ['OTEL_EXPORTER_OTLP_PROTOCOL'],
+        default: 'http/protobuf',
+        description: 'OTLP encoding over HTTP. gRPC is not shipped (it would add a large dependency); point this at an OpenTelemetry Collector to reach a gRPC-only backend.',
+      }),
+      timeoutSeconds: setting(z.number().int().min(1).max(60), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_OTLP_TIMEOUT_SECONDS',
+        default: 10,
+        description: 'Longest time one OTLP export may take, retries included (429/502/503/504 are retried with exponential backoff inside this time). Then the batch is dropped and the server carries on.',
+      }),
     }),
   }),
   licence: z.object({

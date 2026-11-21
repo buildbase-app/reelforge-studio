@@ -44,3 +44,15 @@ export function browserVersion(binary: string | undefined): string | undefined {
   if (v) browserVersions.set(binary, v);
   return v;
 }
+
+/**
+ * Whether engines start Chromium with its own sandbox: on, unless the operator
+ * sets REELFORGE_CHROMIUM_NO_SANDBOX=1 or we run as root (Chromium refuses).
+ * In Docker the sandbox needs user namespaces, which Docker's default seccomp
+ * profile blocks: run with deployment/seccomp/chrome.json (docs/DEPLOY.md).
+ * Remotion always passes --no-sandbox itself, so it is unsandboxed either way.
+ */
+export function chromiumSandbox(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.REELFORGE_CHROMIUM_NO_SANDBOX === '1') return false;
+  return typeof process.getuid !== 'function' || process.getuid() !== 0;
+}

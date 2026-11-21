@@ -115,16 +115,25 @@ the limit; the key is shown as its first group only.
   until a check succeeds; `POST /v1/licence` with an empty body (or
   `activate_licence {}`) checks at once. `REELFORGE_LICENCE_OFFLINE_GRACE_DAYS`
   can only shorten the period. Setting the system clock back does not extend
-  it.
+  it: the server records the latest time it has seen (at every start, every
+  check and hourly while running), and a clock more than 10 minutes behind
+  that gets no grace (`clock_skew`) until it is correct or a check succeeds.
+  It cannot see time that passes while the server is stopped.
 - **Moving to another server.** The activation belongs to the database (the
   instance id is stored there), so moving the data volume / database moves the
   activation. For a new installation, free the old one first:
   `deactivate_licence` / `DELETE /v1/licence` / `reelforge licence deactivate`,
   then activate on the new server. A key over its activation limit answers
   `limit_reached`.
-- **Development and CI.** `REELFORGE_LICENCE_MODE=off` lets renders run without
-  a licence (`pnpm dev` sets it). `required` is the default. Do not use `off`
-  in production; it is not a licence.
+- **Release image.** The published image fixes `licence.mode: required` and the
+  BuildBase licence server and organisation at build time (`get_config` shows
+  source `build`). It refuses to start when the config file or environment
+  tries to change them, and `update_config` refuses them
+  (`build_locked_setting`). See "Release image and editions" below.
+- **Development and CI.** In a build from source (`pnpm dev`, which sets it,
+  or `--build-arg REELFORGE_EDITION=dev`) `REELFORGE_LICENCE_MODE=off` lets
+  renders run without a licence. That is for noncommercial development only
+  (LICENSING.md); commercial use always needs a Commercial key.
 - **CLI and a running server.** `reelforge licence ...` works on the database
   directly; a running server reads a key stored by the CLI after a restart
   (use the API to change a running server).
@@ -164,23 +173,29 @@ pnpm dev                            # http://127.0.0.1:4321 (restarts on code ch
 ```bash
 docker build -t reelforge-studio .
 docker run -d --name reelforge -p 127.0.0.1:4321:4321 --shm-size=1g \
+  --read-only --tmpfs /tmp:size=1g --cap-drop ALL --security-opt no-new-privileges \
+  --security-opt seccomp=deployment/seccomp/chrome.json -e REELFORGE_CHROMIUM_NO_SANDBOX=0 \
   -v reelforge-data:/data \
   -e REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) \
   reelforge-studio
 docker exec reelforge reelforge keys create --name agent   # a non-admin key for the agent
 ```
 
-The image: `node:22-bookworm-slim`, Debian bookworm's FFmpeg 5.1.9 (the
-four-engine render above passed with it; the test suite runs with FFmpeg 6.1
-outside Docker), fonts (DejaVu, Liberation, Noto, Noto Color Emoji), Chrome
-Headless Shell 158.0.8127.2 from Remotion's `ensureBrowser()` at `/usr/local/bin/chrome-headless-shell`, runs as the
-non-root user `reelforge` (uid 10001), data in the `/data` volume, `HEALTHCHECK`
-on `/healthz`, `tini` as PID 1. About 2.4 GB.
+The image (the Dockerfile's default `release` target, see "Release image and
+editions"): `node:22-bookworm-slim` pinned by digest, Debian bookworm's FFmpeg
+5.1 with security updates applied at build time, fonts (DejaVu, Liberation,
+Noto, Noto Color Emoji), Chrome Headless Shell from Remotion's
+`ensureBrowser()` at `/usr/local/bin/chrome-headless-shell`, production
+dependencies only, the Remotion and Motion Canvas bundles pre-built; runs as
+UID:GID 10001:10001, data in the `/data` volume, `HEALTHCHECK` on `/healthz`,
+`tini` as PID 1. 1.85 GB (budget 2000 MB, D-042).
 
-Building needs network access to Docker Hub, `deb.debian.org`,
-`registry.npmjs.org` and `remotion.media` (Chrome download). **Running needs
-none**: a container started with `--network none` rendered a four-engine
-project (Remotion, Motion Canvas, html, HyperFrames) to a valid MP4 here.
+Building needs network access to Docker Hub (or a mirror via `BASE_IMAGE`),
+`deb.debian.org`, `registry.npmjs.org` and `remotion.media` (Chrome download).
+**Rendering needs none**: a dev-edition container with `--network none`
+rendered a four-engine project here. A release image needs outbound HTTPS to
+the licence server once to activate, then works offline for up to 14 days at a
+time (see "Licence").
 
 Behind an HTTPS proxy that re-signs TLS, pass the proxy and its CA (the CA is a
 build secret, not stored in the image):
@@ -200,6 +215,141 @@ docker compose up -d --build
 docker compose ps                                          # reelforge ... (healthy)
 # Tested here with a prebuilt image: REELFORGE_IMAGE=reelforge-studio:latest docker compose up -d --no-build
 ```
+
+## Release image and editions
+
+`docker build .` builds the **release** image: the Dockerfile's default
+target with `REELFORGE_EDITION=release` (D-039). It writes
+`/app/packages/core/build-info.json` (root-owned, read-only), which fixes:
+
+| Setting | Value in the release image |
+| --- | --- |
+| `licence.mode` | `required` |
+| `licence.serverUrl` | `https://api.console.buildbase.app` (build arg `LICENCE_SERVER_URL`) |
+| `licence.orgId` | `6b01478bb42d2c444e99fcd8`, the ReelForge production organisation (build arg `LICENCE_ORG_ID`) |
+
+`get_config` shows them with source `build` (`reelforge config show` too, and
+`reelforge config check` prints `edition: release`). A config file or
+environment variable that sets a different value stops the server at start
+with an error naming the key; `update_config` / `PATCH /v1/config` refuse them
+with `409 build_locked_setting`. In the release image the licence calls also
+refuse HTTP redirects, so they only reach the fixed host. Every other setting
+works as documented in docs/CONFIG.md.
+
+| Build | How | Licence settings |
+| --- | --- | --- |
+| Release (published) | `docker build .` | fixed: `required`, BuildBase production |
+| Dev image | `docker build --build-arg REELFORGE_EDITION=dev .` | configurable; `off` for noncommercial development only (LICENSING.md) |
+| Source image | `docker build --target dev .` (whole repo, dev dependencies, `pnpm dev`) | configurable, as `pnpm dev` |
+| Test build of the release edition | `--build-arg LICENCE_SERVER_URL=http://licence:8080 --build-arg LICENCE_ORG_ID=...-mocklice` (e2e/docker/run.sh) | fixed, pointing at the mock licence server |
+
+**What this does and does not stop (honest limits, D-038/D-039).** The code
+is source-available, so anyone can read how the check works. The lock makes
+the published image behave like a licensed product: turning the check off,
+pointing it at another server or changing the organisation needs a modified
+image or a build from source, not a config line. It does not stop someone who
+builds their own image, edits `build-info.json` in a derived image, patches
+the code, answers with a fake server behind DNS plus their own CA in
+`NODE_EXTRA_CA_CERTS` (BuildBase's answers are not signed yet; the request is
+drafted in docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md), or freezes the
+clock while the server is stopped. Doing any of that for commercial use breaks
+the licence (LICENSING.md, COMMERCIAL-LICENSE.md); the real protection is the
+licence terms plus updates and support for licensed keys only.
+
+## Hardening
+
+The image is built for a locked-down runtime; `docker-compose.yml` uses all of
+this by default, and e2e/docker/run.sh runs the whole suite with it.
+
+| Flag | Why |
+| --- | --- |
+| `--read-only` | The root filesystem never changes. The application files are root-owned and not writable by the server user anyway |
+| `--tmpfs /tmp:size=1g` | Temporary files: tsx's compile cache, Chrome profiles. `HOME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME` point into `/tmp`. Large render temp files go to `/data` |
+| `-v reelforge-data:/data` | The only persistent, writable path |
+| `--shm-size=1g` | Chromium's shared memory (Docker's default is 64 MB) |
+| `--cap-drop ALL` | The server needs no Linux capabilities |
+| `--security-opt no-new-privileges` | Nothing can gain privileges (no setuid) |
+| `--security-opt seccomp=deployment/seccomp/chrome.json` with `REELFORGE_CHROMIUM_NO_SANDBOX=0` | Turns on Chromium's own sandbox for the `html`, `hyperframes` and `motion-canvas` engines (below) |
+| UID:GID 10001:10001 (the image's `USER`) | Non-root; `*_FILE` secrets must be readable by UID 10001 |
+
+**Chromium's sandbox.** Chromium sandboxes its renderers with user, PID and
+network namespaces. Docker's default seccomp profile only allows those with
+`CAP_SYS_ADMIN`, so in a default container the sandbox cannot start ("No usable
+sandbox") and the image defaults to `REELFORGE_CHROMIUM_NO_SANDBOX=1`.
+`deployment/seccomp/chrome.json` is Docker's default profile (moby/profiles
+seccomp v0.3.0) plus one rule allowing `clone`, `unshare`, `setns` and `chroot`
+without capabilities. With it, `--cap-drop ALL` and `no-new-privileges` stay
+on and the sandbox runs (verified in the e2e: the renderer processes sit in a
+nested PID namespace). The trade-off: unprivileged user namespaces expose more
+kernel surface to the container, in exchange for isolating the renderers that
+run agent-sent HTML. **Remotion always starts Chrome with `--no-sandbox`**
+(hard-coded in `@remotion/renderer` on Linux), so Remotion scenes, which render
+only ReelForge's own templates with agent-supplied props, run without it
+whatever you set. `get_capabilities` reports `security.chromiumSandbox` per
+engine and a warning. Hosts whose kernel or AppArmor policy blocks
+unprivileged user namespaces (Ubuntu 23.10+ hosts restrict them for
+unconfined programs) need `REELFORGE_CHROMIUM_NO_SANDBOX=1` instead.
+
+**Kubernetes.** The same, as a pod spec (the seccomp profile must be on each
+node under the kubelet's `seccomp/` directory, e.g. `/var/lib/kubelet/seccomp/reelforge-chrome.json`):
+
+```yaml
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: Localhost
+      localhostProfile: reelforge-chrome.json   # or RuntimeDefault, with REELFORGE_CHROMIUM_NO_SANDBOX=1
+  containers:
+    - name: reelforge
+      image: ghcr.io/buildbase-app/reelforge-studio:<version>
+      env:
+        - { name: REELFORGE_CHROMIUM_NO_SANDBOX, value: "0" }
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: ["ALL"] }
+      volumeMounts:
+        - { name: data, mountPath: /data }
+        - { name: tmp, mountPath: /tmp }
+        - { name: shm, mountPath: /dev/shm }
+      livenessProbe: { httpGet: { path: /healthz, port: 4321 } }
+      readinessProbe: { httpGet: { path: /readyz, port: 4321 } }
+  volumes:
+    - { name: data, persistentVolumeClaim: { claimName: reelforge-data } }
+    - { name: tmp, emptyDir: { medium: Memory, sizeLimit: 1Gi } }
+    - { name: shm, emptyDir: { medium: Memory, sizeLimit: 1Gi } }
+```
+
+(VERIFY: the Kubernetes spec is not tested here; the same flags are tested
+with Docker.)
+
+## Supply chain
+
+CI (`.github/workflows/ci.yml`, heavy tier) builds the release image natively
+for **linux/amd64 and linux/arm64**, and for each: checks its contents and
+size (`scripts/image/check-contents.sh`), checks that no secret is in the
+build history, the image config or the files (`scripts/image/check-secrets.sh`),
+scans it with **Trivy** (fails on fixable HIGH or CRITICAL findings), writes a
+**CycloneDX SBOM** (workflow artifact `sbom-<arch>`), and runs the Docker e2e
+with the hardened flags. On `main` and `v*` tags it pushes one multi-arch image
+to `ghcr.io/buildbase-app/reelforge-studio` (`edge`, `sha-<commit>`, and the
+version for tags), **signs it with cosign** (keyless, GitHub OIDC) and attaches
+the SBOM as an attestation. Branches build and test but never push or sign.
+
+```bash
+cosign verify ghcr.io/buildbase-app/reelforge-studio:<version> \
+  --certificate-identity-regexp '^https://github.com/buildbase-app/reelforge-studio/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+cosign verify-attestation --type cyclonedx ...same flags... ghcr.io/buildbase-app/reelforge-studio:<version>
+```
+
+The amd64 and arm64 image jobs passed on GitHub (run 44921945693, 2026-11-21).
+(VERIFY: the publish job and cosign run only on `main` and `v*` tags and have
+not run yet.)
 
 ## 3. VPS with Caddy (automatic HTTPS)
 
@@ -278,6 +428,29 @@ app = "reelforge-studio"
 `fly volumes create reelforge_data --size 50`, `fly secrets set
 REELFORGE_BOOTSTRAP_KEY=rf_...`, `fly deploy`. One machine only (the volume
 attaches to one machine).
+
+## Observability
+
+Logs are JSON lines on stdout by default (request id, key id, route, status,
+duration; secrets redacted), Prometheus scrapes `GET /metrics` on the normal
+port, and traces, logs or metrics go to any OpenTelemetry (OTLP/HTTP) endpoint
+once you set `REELFORGE_OTLP_ENDPOINT`. `GET /readyz` reports the database,
+storage, FFmpeg, the browser and the telemetry exporters. Providers, settings,
+Prometheus/Grafana/Grafana Cloud/Datadog/Honeycomb examples, tested cases and
+troubleshooting: [providers/observability.md](providers/observability.md).
+Keep `/metrics` on the internal network or set `REELFORGE_METRICS_TOKEN`.
+
+## Storage
+
+Asset and render files live in the data directory by default. For a cluster,
+or to keep files out of the server, set `storage.driver` to `s3` (AWS S3, R2,
+B2, Wasabi, DigitalOcean Spaces, MinIO, GCS via HMAC), `azure` or `gcs`, with
+keys as `_FILE` secrets or the cloud's identity (IAM role, workload or managed
+identity). Move existing files with `reelforge storage migrate --to <driver>`
+(idempotent; run it until it copies nothing), then switch and restart. The
+data volume is still needed for the SQLite database (unless PostgreSQL/MySQL),
+the URL signing key, render staging and caches. Provider matrix, permissions,
+examples, retention and troubleshooting: [providers/storage.md](providers/storage.md).
 
 ## Database
 

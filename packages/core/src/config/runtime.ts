@@ -1,13 +1,16 @@
 import { ApiError } from '../errors';
 import type { Repositories, StoredValue } from '../repositories';
 import { ENCRYPTED_SCHEME, PLAIN_SCHEME, SECRET_KEY_HELP, SecretCipher, SecretDecryptError } from './crypto';
-import { ConfigError, formatIssue, parseSettingValue, resolveConfig, type ConfigFile, type ConfigSource, type ResolvedConfig, type ResolvedSetting } from './load';
+import type { BuildInfo } from './build';
+import { ConfigError, buildLockedMessage, formatIssue, parseSettingValue, resolveConfig, type ConfigFile, type ConfigSource, type ResolvedConfig, type ResolvedSetting } from './load';
 import { SETTINGS, SETTINGS_BY_KEY, type Config, type SettingDef, type SettingScope } from './schema';
 
 /** Where configuration comes from besides the database. */
 export interface ConfigSources {
   env: NodeJS.ProcessEnv;
   file?: ConfigFile;
+  /** Default: this process's build (currentBuild()). */
+  build?: BuildInfo;
 }
 
 /** One row of GET /v1/config / get_config. Secret values are only "set" / "not set". */
@@ -33,6 +36,8 @@ export interface ConfigEntry {
 }
 
 export interface ConfigReport {
+  /** `release` images fix the licence settings (source `build`); `dev` is a build from source. */
+  edition: BuildInfo['edition'];
   configFile: string | null;
   /** Whether REELFORGE_SECRET_KEY is set, i.e. secrets can be stored (encrypted). */
   secretKey: 'set' | 'not set';
@@ -262,6 +267,7 @@ export class RuntimeConfig {
   report(opts: { prefix?: string } = {}): ConfigReport {
     const settings = SETTINGS.filter((d) => !opts.prefix || d.key === opts.prefix || d.key.startsWith(`${opts.prefix}.`)).map((d) => this.entry(this.resolved.settings.get(d.key)!));
     return {
+      edition: this.resolved.build.edition,
       configFile: this.sources.file?.path ?? null,
       secretKey: this.cipher ? 'set' : 'not set',
       settings,
@@ -287,6 +293,10 @@ export class RuntimeConfig {
       const def = SETTINGS_BY_KEY.get(key);
       if (!def) {
         issues.push({ key, code: 'unknown_setting', message: `"${key}" is not a setting; call get_config (GET /v1/config) for the keys` });
+        continue;
+      }
+      if (Object.hasOwn(this.resolved.build.locked, key)) {
+        issues.push({ key, code: 'build_locked', message: buildLockedMessage(key, this.resolved.build) });
         continue;
       }
       if (def.scope !== 'runtime') {
@@ -321,7 +331,14 @@ export class RuntimeConfig {
     }
     if (issues.length) {
       const codes = new Set(issues.map((i) => i.code));
-      const [code, status] = codes.has('unknown_setting') || codes.has('invalid_value') ? ['invalid_setting', 422] : codes.has('startup_only') ? ['startup_only_setting', 409] : ['secret_key_required', 409];
+      const [code, status] =
+        codes.has('unknown_setting') || codes.has('invalid_value')
+          ? ['invalid_setting', 422]
+          : codes.has('build_locked')
+            ? ['build_locked_setting', 409]
+            : codes.has('startup_only')
+              ? ['startup_only_setting', 409]
+              : ['secret_key_required', 409];
       const message = issues.length === 1 ? issues[0]!.message : `${issues.length} settings were refused (nothing was changed): ${issues.map((i) => i.message).join(' | ')}`;
       throw new ApiError(code!, status as number, message, { issues });
     }

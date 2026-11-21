@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, stat } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { resolveTools, toolVersion, type Tools } from '@reelforge/media-pipeline';
 import {
@@ -26,8 +26,20 @@ import { JobRunner, type JobContext, type JobRecord } from './jobs';
 
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
-import { KeyStore, type Scope } from './keys';
-import type { AuditEntryInput, Repositories } from './repositories';
+import { KeyStore, quotaWindows, type KeyOptions, type PublicKey, type Scope } from './keys';
+import type { AuditEntryInput, AuditFilter, Repositories } from './repositories';
+import {
+  AuditLog,
+  MAX_AUDIT_EXPORT,
+  OtlpLogsAuditSink,
+  StdoutAuditSink,
+  auditToCsv,
+  auditToJsonl,
+  currentRequest,
+  parseAuditQuery,
+  type AuditSink,
+} from './audit';
+import { withIdempotency, type IdempotentOperation } from './idempotency';
 import { applyMergePatch, isPlainObject } from './mergePatch';
 import type { BackendContext, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
 import { PluginRegistry } from './registry';
@@ -37,7 +49,11 @@ import { RuntimeConfig, type ConfigSources } from './config/runtime';
 import { createLicenceManager, type LicenceApi, type LicenceManager } from './licence';
 import type { ResolvedConfig } from './config/load';
 import { ProjectStore } from './store';
+import { createStorageDriver, type StorageFactory } from './storage/factory';
+import { contentTypeFor, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix } from './storage/keys';
+import { StorageManager, type CleanupReport, type RetentionPolicy } from './storage/manager';
 import { ThemeStore } from './themes';
+import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
 
 export interface ServiceConfig {
   /**
@@ -89,8 +105,32 @@ export interface ServiceConfig {
     /** Run the first check and the daily schedule (default true). */
     start?: boolean;
   };
+  /**
+   * Storage driver (D-065): built from storage.* by `factory` (default
+   * createStorageDriver; tests pass fakes). `sweep: false` turns the
+   * scheduled retention sweep off.
+   */
+  storage?: { factory?: StorageFactory; sweep?: boolean };
   log?: (level: 'info' | 'warn' | 'error', line: string) => void;
+  /** Where traces and metrics go (the server's observability settings, D-050). Default: nowhere. */
+  telemetry?: Telemetry;
+  /**
+   * Audit sink plugins (a signed webhook, S3 export, ...). Built in: stdout and
+   * otlp. `audit.sinks` selects which ones run; the database always does.
+   */
+  auditSinks?: AuditSink[];
+  /** Run the hourly sweep (audit retention, expired idempotency keys). Default true. */
+  maintenance?: boolean;
+  /** Clock for key expiry, rotation grace, quotas and idempotency (tests inject one). Default Date.now. */
+  now?: () => number;
 }
+
+/** Most audit entries one MCP export returns (REST streams up to MAX_AUDIT_EXPORT). */
+export const MAX_MCP_EXPORT = 10_000;
+
+/** Render and preview jobs count towards a key's render quota. */
+const QUOTA_JOB_TYPES = ['render', 'preview'];
+const SWEEP_INTERVAL_MS = 3_600_000;
 
 /** Who made a change (audit log). */
 export interface Actor {
@@ -102,7 +142,7 @@ export interface ProviderSetting {
   name: string;
   set: boolean;
   /** Where the value comes from; the value itself is never returned. */
-  source: 'api' | 'env' | 'file' | 'unset';
+  source: 'api' | 'env' | 'file' | 'build' | 'unset';
   /** A stored value that cannot be used (e.g. it cannot be decrypted with the current REELFORGE_SECRET_KEY). */
   error?: string;
 }
@@ -141,6 +181,8 @@ export interface RenderSummary {
   /** Works without a key until downloadUrlExpiresAt (signed, read-only, this file only). */
   downloadUrl: string;
   downloadUrlExpiresAt: string;
+  /** "bucket": signed by the storage bucket (D-067); "server": a signed link to this server. */
+  downloadVia: 'bucket' | 'server';
 }
 
 const DEFAULT_MAX_UPLOAD = 200 * 1024 * 1024;
@@ -166,11 +208,21 @@ export class ReelforgeService {
   readonly licence: LicenceManager;
   readonly providerEnv: NodeJS.ProcessEnv;
   readonly repos: Repositories;
+  /** The storage driver, local copies, retention and the sweep (D-065..D-068). */
+  readonly storage: StorageManager;
+  /** Append-only audit log: database plus the sinks selected by audit.sinks (D-055). */
+  readonly auditLog: AuditLog;
   private readonly baseEnv: NodeJS.ProcessEnv;
+  private sweepTimer: NodeJS.Timeout | null = null;
+  private quotaLocks = new Map<string, Promise<unknown>>();
+  private builtinSinks = new Map<string, AuditSink>();
+  /** The clock (ServiceConfig.now). */
+  readonly now: () => number;
   private toolsCache: Tools | null = null;
   private activatingLicence = false;
   private renderIndex = new Map<string, string>();
   private readonly fetchImpl: typeof fetch;
+  readonly telemetry: Telemetry;
 
   private constructor(
     readonly registry: PluginRegistry,
@@ -179,21 +231,37 @@ export class ReelforgeService {
     this.dataDir = resolve(config.dataDir);
     this.cacheDir = resolve(config.cacheDir ?? join(this.dataDir, 'cache'));
     this.repos = config.repositories;
+    this.telemetry = config.telemetry ?? NOOP_TELEMETRY;
+    this.providerEnv = config.providerEnv ?? { ...process.env };
+    this.baseEnv = { ...this.providerEnv };
+    this.settings = new RuntimeConfig(this.repos, config.configSources ?? { env: { ...this.providerEnv } }, config.log);
+    this.storage = new StorageManager({
+      factory: config.storage?.factory ?? createStorageDriver,
+      settings: this.settings,
+      dataDir: this.dataDir,
+      cacheDir: this.cacheDir,
+      activeRunIds: () => this.activeRunIds(),
+      onSweep: (r) => this.auditCleanup(r, { actorType: 'system' }).then(() => undefined),
+      log: config.log,
+    });
     this.projects = new ProjectStore(this.repos.projects, this.dataDir);
     this.themes = new ThemeStore(this.repos.themes);
-    this.assets = new AssetStore(this.repos.assets, this.dataDir, {
+    this.assets = new AssetStore(this.repos.assets, this.storage, {
       maxBytes: config.maxUploadBytes ?? DEFAULT_MAX_UPLOAD,
       timeoutMs: config.fetchTimeoutMs ?? 30_000,
       maxRedirects: 3,
       allowInsecureForTests: config.allowInsecureFetchForTests,
     });
-    this.keys = new KeyStore(this.repos.keys);
+    this.now = config.now ?? Date.now;
+    this.auditLog = new AuditLog(this.repos.audit, { log: config.log });
+    this.keys = new KeyStore(this.repos.keys, {
+      now: this.now,
+      audit: (e) => this.audit(e),
+      rotationGraceHours: () => this.settings.current.config.keys.rotationGraceHours,
+    });
     this.serverVersion = config.serverVersion ?? '0.1.0';
     this.publicUrl = (config.publicUrl ?? '').replace(/\/+$/, '');
     this.fetchImpl = config.fetch ?? fetch;
-    this.providerEnv = config.providerEnv ?? { ...process.env };
-    this.baseEnv = { ...this.providerEnv };
-    this.settings = new RuntimeConfig(this.repos, config.configSources ?? { env: { ...this.providerEnv } }, config.log);
     this.signer = new UrlSigner(this.dataDir);
     this.licence = createLicenceManager(this.settings, this.repos, {
       api: config.licence?.api,
@@ -206,6 +274,7 @@ export class ReelforgeService {
       repo: this.repos.jobs,
       concurrency: config.renderConcurrency ?? 1,
       handlers: { render: (ctx) => this.runRenderJob(ctx), preview: (ctx) => this.runRenderJob(ctx) },
+      telemetry: this.telemetry,
     });
     if (!registry.listBackends().some((b) => b.id === 'local')) {
       registry.registerBackend(new LocalBackend((req, ctx) => this.renderLocally(req, ctx)));
@@ -224,6 +293,15 @@ export class ReelforgeService {
       await s.audit({ actorType: 'system', action: 'config.secrets.encrypt', data: { names: encrypted } });
     }
     for (const w of s.settings.warnings()) config.log?.('warn', w);
+    // Storage needs the runtime layer: credentials may be encrypted settings in the database (D-066).
+    await s.storage.init();
+    s.settings.onChange((_r, keys) => {
+      if (keys.some((k) => /^storage\.(s3|azure|gcs)\./.test(k))) {
+        s.storage.reload().catch((e) => config.log?.('error', `storage: could not apply the new credentials: ${(e as Error).message}`));
+      }
+      if (keys.includes('storage.retention.sweepIntervalMinutes') && config.storage?.sweep !== false) s.storage.startSweeper();
+    });
+    if (config.storage?.sweep !== false) s.storage.startSweeper();
     s.applySettings(s.settings.current, null);
     s.settings.onChange((resolved, keys) => s.applySettings(resolved, keys));
     // The licence state is read now; the network check runs in the background (start-up never waits for it).
@@ -232,7 +310,87 @@ export class ReelforgeService {
       if (keys.includes('licence.key') && !s.activatingLicence) s.licence.keyChanged();
     });
     if (config.licence?.start !== false) s.licence.start();
+    s.applyAuditSinks();
+    s.settings.onChange((_r, keys) => {
+      if (keys.some((k) => k.startsWith('audit.'))) s.applyAuditSinks();
+    });
+    if (config.maintenance !== false) {
+      // First sweep shortly after start (never delays it), then hourly.
+      const run = () => void s.sweep().catch((e) => config.log?.('warn', `maintenance sweep failed: ${(e as Error).message}`));
+      setTimeout(run, 5_000).unref();
+      s.sweepTimer = setInterval(run, SWEEP_INTERVAL_MS);
+      s.sweepTimer.unref();
+    }
     return s;
+  }
+
+  /** Select the audit sinks named in audit.sinks (built-in stdout/otlp or plugins). */
+  private applyAuditSinks() {
+    const cfg = this.settings.current.config.audit;
+    const plugins = new Map((this.config.auditSinks ?? []).map((p) => [p.id, p]));
+    const sinks: AuditSink[] = [];
+    for (const id of new Set(cfg.sinks)) {
+      if (id === 'database') continue;
+      let sink = plugins.get(id) ?? this.builtinSinks.get(id);
+      if (!sink && id === 'stdout') sink = new StdoutAuditSink();
+      if (!sink && id === 'otlp') {
+        if (!cfg.otlpEndpoint) {
+          this.config.log?.('warn', 'audit sink "otlp" is selected but audit.otlpEndpoint is not set; it is skipped');
+          continue;
+        }
+        sink = new OtlpLogsAuditSink({ endpoint: cfg.otlpEndpoint, serviceVersion: this.serverVersion, fetch: this.fetchImpl, log: this.config.log });
+      }
+      if (!sink) {
+        this.config.log?.('warn', `audit sink "${id}" is not installed (built in: stdout, otlp); it is skipped`);
+        continue;
+      }
+      // A changed OTLP endpoint needs a new sink.
+      if (sink instanceof OtlpLogsAuditSink && (sink as unknown as { opts: { endpoint: string } }).opts.endpoint !== cfg.otlpEndpoint) {
+        sink = new OtlpLogsAuditSink({ endpoint: cfg.otlpEndpoint!, serviceVersion: this.serverVersion, fetch: this.fetchImpl, log: this.config.log });
+      }
+      if (!plugins.has(id)) this.builtinSinks.set(id, sink);
+      sinks.push(sink);
+    }
+    this.auditLog.setSinks(sinks);
+  }
+
+  /**
+   * Maintenance: delete audit entries past audit.retentionDays and expired
+   * idempotency keys. Runs hourly; `reelforge audit sweep` runs it on demand.
+   */
+  async sweep(now = this.now()) {
+    const auditDeleted = await this.auditLog.sweep(this.settings.current.config.audit.retentionDays, now);
+    const idempotencyDeleted = await this.repos.idempotency.deleteExpired(new Date(now).toISOString());
+    if (auditDeleted) {
+      await this.audit({ actorType: 'system', action: 'audit.sweep', data: { deleted: auditDeleted, retentionDays: this.settings.current.config.audit.retentionDays } });
+    }
+    return { auditDeleted, idempotencyDeleted };
+  }
+
+  /** Stop timers and flush the audit sinks (server shutdown). */
+  async stop() {
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
+    this.sweepTimer = null;
+    this.licence.stop();
+    this.storage.stopSweeper();
+    await this.auditLog.close();
+  }
+
+  /**
+   * Run a create or render call at most once per idempotency key (D-057).
+   * `request` is the operation's normalised arguments; REST and MCP pass the
+   * same object, so they share keys. Without a key the call just runs.
+   */
+  async idempotent<T>(key: string | undefined, operation: IdempotentOperation, request: unknown, fn: () => Promise<T>): Promise<T> {
+    if (key === undefined || key === null || key === '') return fn();
+    const req = currentRequest();
+    const { result, replayed } = await withIdempotency(
+      this.repos.idempotency,
+      { key, actorId: req?.auth?.keyId ?? 'anonymous', operation, request, ttlHours: this.settings.current.config.idempotency.ttlHours, now: this.now },
+      fn
+    );
+    if (replayed && req) req.idempotentReplay = true;
+    return result;
   }
 
   /**
@@ -268,11 +426,13 @@ export class ReelforgeService {
 
   capabilities() {
     const tools = this.toolsOrNull();
+    const engines = this.registry.listEngines();
+    const sandboxOff = engines.filter((e) => e.browserSandbox?.() === false).map((e) => e.id);
     return {
-      server: { name: 'reelforge-studio', version: this.serverVersion, mcpToolsStatus: 'experimental' },
+      server: { name: 'reelforge-studio', version: this.serverVersion, edition: this.settings.current.build.edition, mcpToolsStatus: 'experimental' },
       schemaVersion: SCHEMA_VERSION,
       supportedSchemaVersions: SUPPORTED_SCHEMA_VERSIONS,
-      engines: this.registry.listEngines().map((e) => {
+      engines: engines.map((e) => {
         const a = e.availability();
         return {
           id: e.id,
@@ -280,6 +440,7 @@ export class ReelforgeService {
           version: e.version(),
           available: a.ok,
           ...(a.reason ? { reason: a.reason } : {}),
+          ...(e.browserSandbox ? { browserSandbox: e.browserSandbox() } : {}),
           acceptsSource: e.acceptsSource,
           templates: e.templates().map((t) => t.id),
         };
@@ -294,7 +455,7 @@ export class ReelforgeService {
         default: b.id === 'local',
         env: b.env,
       })),
-      storage: this.registry.listStorages().map((s) => ({ id: s.id })).concat(this.registry.listStorages().length ? [] : [{ id: 'local' }]),
+      storage: [{ id: this.storage.driver.id, active: true, downloads: this.storage.downloads }],
       limits: {
         maxProjectSeconds: MAX_PROJECT_SECONDS,
         maxScenes: 50,
@@ -305,6 +466,19 @@ export class ReelforgeService {
         renderConcurrency: this.jobs.concurrency,
       },
       licence: this.licence.summary(),
+      security: {
+        chromiumSandbox: Object.fromEntries(engines.filter((e) => e.browserSandbox).map((e) => [e.id, e.browserSandbox!()])),
+        ...(sandboxOff.length
+          ? {
+              warning:
+                `Chromium runs without its own sandbox for: ${sandboxOff.join(', ')}. The container (non-root, read-only, no capabilities) is the isolation boundary.` +
+                (sandboxOff.includes('remotion') ? ' Remotion always passes --no-sandbox.' : '') +
+                (sandboxOff.some((id) => id !== 'remotion')
+                  ? ' To sandbox html, hyperframes and motion-canvas, run the container with the seccomp profile deployment/seccomp/chrome.json and REELFORGE_CHROMIUM_NO_SANDBOX=0 (docs/DEPLOY.md).'
+                  : ''),
+            }
+          : {}),
+      },
       versions: {
         node: process.version,
         ffmpeg: tools ? toolVersion(tools.ffmpeg) : null,
@@ -398,6 +572,12 @@ export class ReelforgeService {
   async deleteProject(id: string) {
     await this.projects.delete(id);
     for (const [run, pid] of this.renderIndex) if (pid === id) this.renderIndex.delete(run);
+    if (!this.storage.isLocal) {
+      // The local folder is gone; remove the project's renders from the bucket too (manifests first).
+      const objects = await this.storage.driver.list(`${PROJECTS_PREFIX}${id}/`);
+      const order = [...objects.filter((o) => o.key.endsWith(`/${RENDER_MANIFEST}`)), ...objects.filter((o) => !o.key.endsWith(`/${RENDER_MANIFEST}`))];
+      for (const o of order) await this.storage.driver.delete(o.key);
+    }
   }
 
   async listProjectVersions(id: string) {
@@ -629,11 +809,50 @@ export class ReelforgeService {
     const blocking = report.errors.filter((e) => !(backendOverride && e.path === 'render.backend'));
     if (blocking.length) throw new ApiError('validation_failed', 422, 'fix these problems before rendering (see details.errors)', { errors: blocking, warnings: report.warnings });
     const runId = newId(kind === 'preview' ? 'prv' : 'run');
-    return this.jobs.submit(
-      kind,
-      { projectId: id, version: meta.version, backend: backendId, runId, ...(sceneIds ? { sceneIds } : {}), ...(scale ? { scale } : {}) },
-      { projectId: id }
+    return this.withRenderQuota((apiKeyId) =>
+      this.jobs.submit(
+        kind,
+        { projectId: id, version: meta.version, backend: backendId, runId, ...(sceneIds ? { sceneIds } : {}), ...(scale ? { scale } : {}) },
+        { projectId: id, ...(apiKeyId ? { apiKeyId } : {}) }
+      )
     );
+  }
+
+  /**
+   * Start a render or preview job under the calling key's render quota
+   * (rendersPerDay / rendersPerMonth, UTC). The check and the insert are
+   * serialised per key in this process, so parallel calls cannot overshoot.
+   */
+  private async withRenderQuota<T>(submit: (apiKeyId?: string) => Promise<T>): Promise<T> {
+    const auth = currentRequest()?.auth;
+    if (!auth || auth.keyId === 'signed-url') return submit();
+    if (auth.rendersPerDay === undefined && auth.rendersPerMonth === undefined) return submit(auth.keyId);
+    const previous = this.quotaLocks.get(auth.keyId) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(async () => {
+      const w = quotaWindows(this.now());
+      for (const [period, limit, since, resetsAt] of [
+        ['day', auth.rendersPerDay, w.dayStart, w.dayEnd],
+        ['month', auth.rendersPerMonth, w.monthStart, w.monthEnd],
+      ] as const) {
+        if (limit === undefined) continue;
+        const used = await this.repos.jobs.countByApiKey(auth.keyId, since, QUOTA_JOB_TYPES);
+        if (used >= limit) {
+          throw new ApiError('quota_exceeded', 429, `this API key may start ${limit} render${limit === 1 ? '' : 's'} per ${period} (renders and previews, UTC); ${used} used. The quota resets at ${resetsAt}.`, {
+            period,
+            limit,
+            used,
+            resetsAt,
+          });
+        }
+      }
+      return submit(auth.keyId);
+    });
+    this.quotaLocks.set(auth.keyId, run);
+    try {
+      return await run;
+    } finally {
+      if (this.quotaLocks.get(auth.keyId) === run) this.quotaLocks.delete(auth.keyId);
+    }
   }
 
   private async runRenderJob(ctx: JobContext): Promise<Record<string, unknown>> {
@@ -674,6 +893,11 @@ export class ReelforgeService {
   private async renderLocally(req: RenderRequest, ctx: BackendContext): Promise<RenderOutcome> {
     const theme = await this.themes.resolve(req.project.theme);
     const assets = await this.resolveAssets(req.project, req.project.projectId);
+    const pid = req.project.projectId;
+    // Local storage: rendered in place and renamed (atomic). Remote: rendered in a staging
+    // directory, then committed to the bucket through temporary keys (D-067).
+    const local = this.storage.isLocal;
+    const rendersDir = local ? this.projects.rendersDir(pid) : join(this.storage.stagingRoot, pid);
     const res = await runRenderPipeline({
       runId: req.runId,
       kind: req.kind,
@@ -683,7 +907,7 @@ export class ReelforgeService {
       assets,
       registry: this.registry,
       tools: this.tools(),
-      rendersDir: this.projects.rendersDir(req.project.projectId),
+      rendersDir,
       cacheDir: this.cacheDir,
       sceneIds: req.sceneIds,
       scale: req.scale,
@@ -691,8 +915,29 @@ export class ReelforgeService {
       signal: ctx.signal,
       log: ctx.log,
       progress: ctx.progress,
+      telemetry: this.telemetry,
     });
-    return { runId: res.runId, dir: res.dir, outputFile: res.outputFile, manifestFile: res.manifestFile };
+    if (!local) {
+      try {
+        const up = await this.storage.renders.commit(res.dir, pid, res.runId);
+        ctx.log(`stored: ${up.objects} files, ${up.bytes} bytes in ${this.storage.driver.id} storage`);
+      } finally {
+        await rm(res.dir, { recursive: true, force: true });
+      }
+    }
+    return { runId: res.runId, dir: local ? res.dir : renderPrefix(pid, res.runId), outputFile: res.outputFile, manifestFile: res.manifestFile };
+  }
+
+  /** Run ids of queued and running renders (the retention sweep never touches them). */
+  private async activeRunIds(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    for (const status of ['queued', 'running'] as const) {
+      for (const j of await this.jobs.list({ status })) {
+        const runId = (j.params as { runId?: unknown } | undefined)?.runId;
+        if (typeof runId === 'string') ids.add(runId);
+      }
+    }
+    return ids;
   }
 
   async getJob(id: string) {
@@ -718,8 +963,12 @@ export class ReelforgeService {
   }
   async retryJob(id: string) {
     const job = await this.getJob(id);
-    if (job.type === 'render' || job.type === 'preview') await this.licence.assertRenderAllowed();
-    return this.jobs.retry(id);
+    if (job.type === 'render' || job.type === 'preview') {
+      await this.licence.assertRenderAllowed();
+      return this.withRenderQuota((apiKeyId) => this.jobs.retry(id, apiKeyId ? { apiKeyId } : {}));
+    }
+    const apiKeyId = currentRequest()?.auth?.keyId;
+    return this.jobs.retry(id, apiKeyId ? { apiKeyId } : {});
   }
   jobLogs(id: string, tail?: number) {
     return this.jobs.logs(id, tail);
@@ -729,28 +978,27 @@ export class ReelforgeService {
     return `${this.publicUrl}${path}`;
   }
 
-  private async findRenderDir(runId: string): Promise<{ projectId: string; dir: string }> {
+  private async findRender(runId: string): Promise<{ projectId: string }> {
     if (!/^(run|prv)_[a-z0-9]+$/.test(runId)) throw notFound('render', runId);
     const known = this.renderIndex.get(runId);
     const candidates = known ? [known] : (await this.projects.list()).map((m) => m.id);
     for (const pid of candidates) {
-      const dir = join(this.projects.rendersDir(pid), runId);
-      if (await stat(join(dir, 'render-manifest.json')).then(() => true, () => false)) {
+      if (await this.storage.renders.exists(pid, runId)) {
         this.renderIndex.set(runId, pid);
-        return { projectId: pid, dir };
+        return { projectId: pid };
       }
     }
     throw notFound('render', runId);
   }
 
   async getRender(runId: string): Promise<RenderSummary> {
-    const { projectId, dir } = await this.findRenderDir(runId);
-    const m = await readJson<{
+    const { projectId } = await this.findRender(runId);
+    const m = await this.storage.renders.readManifest<{
       kind: string;
       createdAt: string;
       output: { durationSeconds: number; frames: number; width: number; height: number; fps: number };
       scenes: Array<{ file: string }>;
-    }>(join(dir, 'render-manifest.json'));
+    }>(projectId, runId);
     if (!m) throw notFound('render', runId);
     const base = `/v1/renders/${runId}/output`;
     return {
@@ -767,11 +1015,22 @@ export class ReelforgeService {
       outputUrl: this.url(base),
       posterUrl: this.url(`${base}?file=poster.png`),
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
-      ...this.signedDownload(runId),
+      ...(await this.downloadLink(projectId, runId)),
     };
   }
 
-  /** A time-limited link to one render file that needs no API key. */
+  /**
+   * downloadUrl for a render file: signed by the bucket when the driver can
+   * and storage.downloads allows it, else a signed link to this server (D-067).
+   */
+  private async downloadLink(projectId: string, runId: string, file = 'final.mp4') {
+    const ttl = this.config.signedUrlTtlSeconds ?? 3600;
+    const url = await this.storage.bucketUrl(renderPrefix(projectId, runId) + file, ttl, { filename: file.split('/').pop(), contentType: contentTypeFor(file) });
+    if (url) return { downloadUrl: url, downloadUrlExpiresAt: new Date(Date.now() + Math.min(ttl, 7 * 24 * 3600) * 1000).toISOString(), downloadVia: 'bucket' as const };
+    return { ...this.signedDownload(runId, file, ttl), downloadVia: 'server' as const };
+  }
+
+  /** A time-limited link to one render file on this server that needs no API key. */
   signedDownload(runId: string, file = 'final.mp4', ttlSeconds = this.config.signedUrlTtlSeconds ?? 3600) {
     const { expires, sig } = this.signer.sign([runId, file], ttlSeconds);
     const q = new URLSearchParams({ ...(file !== 'final.mp4' ? { file } : {}), expires: String(expires), sig });
@@ -783,23 +1042,17 @@ export class ReelforgeService {
   }
 
   async getRenderManifest(runId: string): Promise<unknown> {
-    const { dir } = await this.findRenderDir(runId);
-    return readJson(join(dir, 'render-manifest.json'));
+    const { projectId } = await this.findRender(runId);
+    return this.storage.renders.readManifest(projectId, runId);
   }
 
   async listRenders(projectId: string): Promise<RenderSummary[]> {
     await this.projects.get(projectId);
-    let entries: string[] = [];
-    try {
-      entries = await readdir(this.projects.rendersDir(projectId));
-    } catch {
-      return [];
-    }
     const out: RenderSummary[] = [];
-    for (const e of entries.filter((x) => !x.startsWith('.'))) {
-      this.renderIndex.set(e, projectId);
+    for (const run of (await this.storage.renders.listRuns(projectId)).filter((r) => r.complete)) {
+      this.renderIndex.set(run.runId, projectId);
       try {
-        out.push(await this.getRender(e));
+        out.push(await this.getRender(run.runId));
       } catch {
         // incomplete or foreign directory
       }
@@ -807,16 +1060,68 @@ export class ReelforgeService {
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  /** Absolute path of a file inside a render (final.mp4 by default). */
-  async renderFile(runId: string, file = 'final.mp4'): Promise<{ path: string; contentType: string }> {
+  /** A file of a render in storage (final.mp4 by default): its key, type and size, for streaming. */
+  async renderObject(runId: string, file = 'final.mp4'): Promise<{ key: string; contentType: string; bytes: number }> {
     if (!isSafeRelativePath(file) || !/^(final\.mp4|poster\.png|render-manifest\.json|clips\/[\w.-]+\.mp4)$/.test(file)) {
       throw badRequest('file must be final.mp4, poster.png, render-manifest.json or clips/<name>.mp4');
     }
-    const { dir } = await this.findRenderDir(runId);
-    const path = join(dir, file);
-    if (!existsSync(path)) throw notFound('render file', `${runId}/${file}`);
-    const contentType = file.endsWith('.mp4') ? 'video/mp4' : file.endsWith('.png') ? 'image/png' : 'application/json';
-    return { path, contentType };
+    const { projectId } = await this.findRender(runId);
+    const key = renderPrefix(projectId, runId) + file;
+    const s = await this.storage.driver.stat(key);
+    if (!s) throw notFound('render file', `${runId}/${file}`);
+    return { key, contentType: contentTypeFor(file), bytes: s.bytes };
+  }
+
+  /** A local file with a render file's bytes (remote storage: a cached copy). */
+  async renderFile(runId: string, file = 'final.mp4'): Promise<{ path: string; contentType: string }> {
+    const o = await this.renderObject(runId, file);
+    return { path: await this.storage.localFile(o.key, o.bytes), contentType: o.contentType };
+  }
+
+  // ---- storage --------------------------------------------------------------
+
+  /** Driver, where the bytes go (no secrets), health, usage, retention policy and the last sweep. */
+  getStorage() {
+    return this.storage.status();
+  }
+
+  /**
+   * Apply the retention policy now (admin). `dryRun` lists what would be
+   * deleted; overrides try another policy for this run only. A real run is
+   * audit-logged.
+   */
+  async runStorageCleanup(opts: { dryRun?: unknown; renderDays?: unknown; keepLastRendersPerProject?: unknown } = {}, actor?: Actor): Promise<CleanupReport> {
+    if (opts.dryRun !== undefined && typeof opts.dryRun !== 'boolean') throw badRequest('dryRun must be true or false');
+    const overrides: Partial<RetentionPolicy> = {};
+    for (const k of ['renderDays', 'keepLastRendersPerProject'] as const) {
+      const v = opts[k];
+      if (v === undefined || v === null) continue;
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 36500) throw badRequest(`${k} must be a whole number from 0 to 36500`);
+      overrides[k] = v;
+    }
+    const report = await this.storage.cleanup({ dryRun: opts.dryRun === true, overrides });
+    if (!report.dryRun) await this.auditCleanup(report, actor ?? { actorType: 'system' });
+    for (const r of report.renders) if (!report.dryRun) this.renderIndex.delete(r.renderId);
+    return report;
+  }
+
+  private auditCleanup(r: CleanupReport, actor: Actor) {
+    return this.audit({
+      actorType: actor.actorType,
+      ...(actor.actorId ? { actorId: actor.actorId } : {}),
+      action: 'storage.cleanup',
+      targetType: 'storage',
+      targetId: this.storage.driver.id,
+      data: {
+        policy: r.policy,
+        totals: r.totals,
+        renders: r.renders.slice(0, 100).map((x) => `${x.projectId}/${x.renderId}`),
+        temp: r.temp.length,
+        staging: r.staging.length,
+        cache: r.cache,
+        errors: r.errors.length,
+      },
+    });
   }
 
   // ---- assets ---------------------------------------------------------------
@@ -886,7 +1191,10 @@ export class ReelforgeService {
     if (cacheFile) {
       const hit = await readJson<{ assetId: string; data?: Record<string, unknown> }>(cacheFile);
       const asset = hit ? await this.assets.find(hit.assetId) : undefined;
-      if (hit && asset) result = { asset, data: hit.data, cached: true };
+      if (hit && asset) {
+        result = { asset, data: hit.data, cached: true };
+        coreInstruments(this.telemetry.meter).providerCalls.add(1, { 'reelforge.provider': providerId, 'reelforge.provider.kind': provider.kind, 'reelforge.outcome': 'cached' });
+      }
     }
     if (!result) {
       if (!provider.configured()) {
@@ -898,12 +1206,22 @@ export class ReelforgeService {
         });
       }
       const controller = new AbortController();
-      result = await provider.run(parsed.data, {
-        signal: controller.signal,
-        log: () => undefined,
-        putAsset: (input) => this.assets.put(input),
-        fetch: this.fetchImpl,
-      });
+      const calls = coreInstruments(this.telemetry.meter).providerCalls;
+      const attrs = { 'reelforge.provider': providerId, 'reelforge.provider.kind': provider.kind };
+      try {
+        result = await withSpan(this.telemetry.tracer, `provider.run ${providerId}`, attrs, () =>
+          provider.run(parsed.data, {
+            signal: controller.signal,
+            log: () => undefined,
+            putAsset: (input) => this.assets.put(input),
+            fetch: this.fetchImpl,
+          })
+        );
+      } catch (e) {
+        calls.add(1, { ...attrs, 'reelforge.outcome': 'error' });
+        throw e;
+      }
+      calls.add(1, { ...attrs, 'reelforge.outcome': 'ok' });
       if (cacheFile) await writeJsonAtomic(cacheFile, { assetId: result.asset.id, data: result.data });
     }
     let projectAssetId: string | undefined;
@@ -1066,9 +1384,61 @@ export class ReelforgeService {
 
   // ---- audit ----------------------------------------------------------------
 
-  /** Append to the audit log (helper for issue #17; never pass secrets in `data`). */
+  /** Append to the audit log (never pass secrets in `data`; the request context is added). */
   audit(entry: AuditEntryInput) {
-    return this.repos.audit.write(entry);
+    return this.auditLog.write(entry);
+  }
+
+  /** A page of audit entries, newest first, filtered (list_audit_events / GET /v1/audit). */
+  async listAuditEvents(query: Record<string, unknown> = {}) {
+    const filter = parseAuditQuery(query);
+    const r = await this.auditLog.list(filter);
+    return { ...r, retentionDays: this.settings.current.config.audit.retentionDays, sinks: this.auditLog.activeSinks() };
+  }
+
+  /**
+   * Matching entries as JSON lines or CSV, streamed one database page (1000
+   * entries) at a time, newest first, up to `limit` (default and maximum
+   * 100 000 per export; narrow the time range for more).
+   */
+  streamAuditEvents(query: Record<string, unknown> = {}, format: unknown = 'jsonl'): { format: 'jsonl' | 'csv'; contentType: string; filename: string; chunks: AsyncGenerator<string> } {
+    if (format !== 'jsonl' && format !== 'csv') throw badRequest('format must be jsonl or csv');
+    const { cursor: _c, limit, format: _f, ...rest } = query;
+    const filter: AuditFilter = parseAuditQuery(rest);
+    const max = limit === undefined || limit === null || limit === '' ? MAX_AUDIT_EXPORT : Number(limit);
+    if (!Number.isInteger(max) || max < 1 || max > MAX_AUDIT_EXPORT) throw badRequest(`limit must be an integer from 1 to ${MAX_AUDIT_EXPORT}`);
+    const pages = this.auditLog.pages(filter, max);
+    async function* chunks() {
+      if (format === 'csv') yield auditToCsv([]);
+      for await (const page of pages) yield format === 'csv' ? auditToCsv(page, false) : auditToJsonl(page);
+    }
+    const stamp = new Date(this.now()).toISOString().slice(0, 19).replace(/[-:]/g, '');
+    return {
+      format,
+      contentType: format === 'csv' ? 'text/csv; charset=utf-8' : 'application/x-ndjson; charset=utf-8',
+      filename: `reelforge-audit-${stamp}Z.${format}`,
+      chunks: chunks(),
+    };
+  }
+
+  /** The same export in one string (MCP results are one message): at most MAX_MCP_EXPORT entries. */
+  async exportAuditEvents(query: Record<string, unknown> = {}, format: unknown = 'jsonl') {
+    const { limit, ...rest } = query;
+    const max = limit === undefined || limit === null || limit === '' ? MAX_MCP_EXPORT : Number(limit);
+    if (!Number.isInteger(max) || max < 1 || max > MAX_MCP_EXPORT) throw badRequest(`limit must be an integer from 1 to ${MAX_MCP_EXPORT} (REST GET /v1/audit?format= streams up to ${MAX_AUDIT_EXPORT})`);
+    const s = this.streamAuditEvents({ ...rest, limit: max + 1 }, format);
+    let content = '';
+    let count = 0;
+    for await (const chunk of s.chunks) content += chunk;
+    const lines = content.split(/\r?\n/).filter(Boolean);
+    count = s.format === 'csv' ? lines.length - 1 : lines.length;
+    const truncated = count > max;
+    if (truncated) {
+      const keep = s.format === 'csv' ? lines.slice(0, max + 1) : lines.slice(0, max);
+      content = keep.join(s.format === 'csv' ? '\r\n' : '\n') + (s.format === 'csv' ? '\r\n' : '\n');
+      count = max;
+    }
+    return { format: s.format, contentType: s.contentType, count, truncated, content };
   }
 
   // ---- keys -----------------------------------------------------------------
@@ -1076,11 +1446,33 @@ export class ReelforgeService {
   listKeys() {
     return this.keys.list();
   }
-  createKey(name: string, scopes: Scope[]) {
-    return this.keys.create(name, scopes);
+
+  /** A key with its render usage today and this month (UTC). */
+  async getKey(id: string): Promise<PublicKey & { usage: { rendersToday: number; rendersThisMonth: number } }> {
+    const k = await this.keys.get(id);
+    const w = quotaWindows(this.now());
+    const [rendersToday, rendersThisMonth] = await Promise.all([
+      this.repos.jobs.countByApiKey(id, w.dayStart, QUOTA_JOB_TYPES),
+      this.repos.jobs.countByApiKey(id, w.monthStart, QUOTA_JOB_TYPES),
+    ]);
+    return { ...k, usage: { rendersToday, rendersThisMonth } };
   }
-  deleteKey(id: string) {
-    return this.keys.delete(id);
+  createKey(name: string, scopes: Scope[], opts: KeyOptions = {}, actor?: Actor) {
+    return this.keys.create(name, scopes, opts, actor);
+  }
+  updateKey(id: string, patch: KeyOptions & { name?: string }, actor?: Actor) {
+    return this.keys.update(id, patch, actor);
+  }
+  rotateKey(id: string, opts: { graceHours?: number } = {}, actor?: Actor) {
+    return this.keys.rotate(id, opts, actor);
+  }
+  revokeKey(id: string, actor?: Actor) {
+    if (actor?.actorId === id) throw new ApiError('conflict', 409, 'refusing to revoke the key used for this request; use another admin key');
+    return this.keys.revoke(id, actor);
+  }
+  deleteKey(id: string, actor?: Actor) {
+    if (actor?.actorId === id) throw new ApiError('conflict', 409, 'refusing to delete the key used for this request');
+    return this.keys.delete(id, actor);
   }
 
   /** Frames of every scene, for agents planning exact timing. */

@@ -5,20 +5,54 @@
  *   reelforge migrate [--status]       apply database migrations (and import v0.1 data once)
  *   reelforge import-v01 [--data-dir DIR]  import a v0.1 filesystem data directory again (existing rows are kept)
  *   reelforge backup <file>            SQLite: consistent copy of the live database
- *   reelforge keys create [--name NAME] [--scopes read,write,render,admin]
- *   reelforge keys list
+ *   reelforge keys create [--name NAME] [--scopes read,write,render,admin] [limits]
+ *   reelforge keys list | show <keyId>
+ *   reelforge keys update <keyId> [--name NAME] [limits]
+ *   reelforge keys rotate <keyId> [--grace-hours N]
+ *   reelforge keys revoke <keyId>
  *   reelforge keys delete <keyId>
+ *     limits: --expires-in 30d|12h | --expires-at ISO | --rate-limit N | --renders-per-day N
+ *             --renders-per-month N | --ip-allow CIDR,CIDR   ("none" clears one in update)
+ *   reelforge audit list [--from ISO] [--to ISO] [--actor KEYID] [--action key.*] [--target ID] [--result R] [--limit N] [--json]
+ *   reelforge audit export [--format jsonl|csv] [--out FILE] [same filters]   (streamed)
+ *   reelforge audit sweep              delete entries past audit.retentionDays and expired idempotency keys
  *   reelforge config check [--file PATH]   validate the config file and environment (no server, no database)
  *   reelforge config show [--json] [--offline]   effective configuration, secrets redacted
  *   reelforge licence status [--json] [--check]   licence status (exit 2 when renders are refused)
  *   reelforge licence activate [KEY] [--json]     store the key (encrypted) and activate it now
  *   reelforge licence deactivate [--json]         give this server's activation back
+ *   reelforge storage status [--json]             driver, health, usage, retention
+ *   reelforge storage migrate --to <driver> [--from local] [--dry-run]   copy assets and renders (idempotent)
+ *   reelforge storage cleanup [--dry-run] [--json]   apply the retention policy now
  *
  * Uses DATABASE_URL (default: SQLite in REELFORGE_DATA_DIR, ./data) like the
  * server. The key is printed once.
  */
-import { existsSync } from 'node:fs';
-import { ConfigError, KeyStore, RuntimeConfig, SCOPES, createLicenceManager, formatIssue, type ConfigReport, type LicenceReport, type Scope } from '@reelforge/core';
+import { createWriteStream, existsSync } from 'node:fs';
+import { userInfo } from 'node:os';
+import {
+  AuditLog,
+  ConfigError,
+  KeyStore,
+  RuntimeConfig,
+  SCOPES,
+  STORAGE_DRIVERS,
+  StorageManager,
+  auditToCsv,
+  auditToJsonl,
+  createLicenceManager,
+  createStorageDriver,
+  formatIssue,
+  migrateStorage,
+  parseAuditQuery,
+  type ConfigReport,
+  type KeyOptions,
+  type LicenceReport,
+  type PublicKey,
+  type Repositories,
+  type Scope,
+  type StorageDriverId,
+} from '@reelforge/core';
 import { Database, parseDatabaseUrl, prepareDatabase } from '@reelforge/db';
 import { resolve } from 'node:path';
 import { loadConfig, type ServerConfig } from './config';
@@ -34,14 +68,107 @@ const USAGE = `usage:
   reelforge migrate [--status]
   reelforge import-v01 [--data-dir DIR]
   reelforge backup <file>   (SQLite; use pg_dump / mysqldump for the others)
-  reelforge keys create [--name NAME] [--scopes ${SCOPES.join(',')}]
+  reelforge keys create [--name NAME] [--scopes ${SCOPES.join(',')}] [LIMITS]
   reelforge keys list
+  reelforge keys show <keyId>
+  reelforge keys update <keyId> [--name NAME] [LIMITS]   ("none" clears a limit)
+  reelforge keys rotate <keyId> [--grace-hours N]
+  reelforge keys revoke <keyId>
   reelforge keys delete <keyId>
+    LIMITS: --expires-in 30d|12h  --expires-at ISO  --rate-limit N  --renders-per-day N  --renders-per-month N  --ip-allow CIDR,CIDR
+  reelforge audit list [--from ISO] [--to ISO] [--actor KEYID] [--action ACTION|prefix.*] [--target-type T] [--target ID] [--result success|failure|denied] [--limit N] [--json]
+  reelforge audit export [--format jsonl|csv] [--out FILE] [same filters]
+  reelforge audit sweep
   reelforge config check [--file PATH]
   reelforge config show [--json] [--offline]
   reelforge licence status [--json] [--check]
   reelforge licence activate [KEY] [--json]   (KEY also from REELFORGE_LICENCE_KEY_INPUT; omit to re-activate the configured key)
-  reelforge licence deactivate [--json]`;
+  reelforge licence deactivate [--json]
+  reelforge storage status [--json]
+  reelforge storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]
+  reelforge storage cleanup [--dry-run] [--json]`;
+
+/**
+ * \`reelforge storage ...\` (D-069): works on the configuration (file, env and
+ * the database's runtime settings, so encrypted credentials are used) without
+ * a running server.
+ */
+async function storage(cmd: string | undefined, argv: string[], config: ServerConfig): Promise<void> {
+  if (!['status', 'migrate', 'cleanup'].includes(cmd ?? '')) {
+    console.log(USAGE);
+    process.exitCode = 1;
+    return;
+  }
+  const json = argv.includes('--json');
+  const dryRun = argv.includes('--dry-run');
+  const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds });
+  try {
+    const repos = db.repositories();
+    const settings = new RuntimeConfig(repos, config.sources);
+    await settings.load();
+    const cacheDir = config.cacheDir ?? `${config.dataDir}/cache`;
+    if (cmd === 'migrate') {
+      const to = arg('to', argv) as StorageDriverId | undefined;
+      const fromId = (arg('from', argv) ?? 'local') as StorageDriverId;
+      if (!to || !STORAGE_DRIVERS.includes(to) || !STORAGE_DRIVERS.includes(fromId) || to === fromId) {
+        console.error(`usage: reelforge storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]  (--to and --from must differ)`);
+        process.exitCode = 1;
+        return;
+      }
+      const storageCfg = settings.config.storage;
+      const from = await createStorageDriver(storageCfg, { dataDir: config.dataDir, driver: fromId });
+      const target = await createStorageDriver(storageCfg, { dataDir: config.dataDir, driver: to });
+      const health = await target.health();
+      if (!health.ok) {
+        console.error(`the target storage is not usable: ${health.message}`);
+        process.exitCode = 1;
+        return;
+      }
+      console.log(`${dryRun ? 'dry run: ' : ''}copying assets and renders from ${fromId} to ${to} ${JSON.stringify(target.describe())}`);
+      const r = await migrateStorage(from, target, { dryRun, log: (l) => console.log(l) });
+      await repos.audit.write({ actorType: 'cli', action: 'storage.migrate', targetType: 'storage', targetId: to, data: { from: fromId, dryRun, copied: r.copied, skipped: r.skipped, failed: r.failed.length } });
+      if (json) console.log(JSON.stringify(r, null, 2));
+      else {
+        console.log(`${dryRun ? 'would copy' : 'copied'}: ${r.copied.objects} objects (${r.copied.bytes} bytes); already there: ${r.skipped.objects} (${r.skipped.bytes} bytes); failed: ${r.failed.length}`);
+        for (const f of r.failed.slice(0, 20)) console.log(`  ✘ ${f.key}: ${f.error}`);
+        if (!dryRun && !r.failed.length && settings.config.storage.driver !== to) console.log(`next: set storage.driver to "${to}" (REELFORGE_STORAGE_DRIVER=${to}) and restart; run this command again first if renders were made meanwhile`);
+      }
+      if (r.failed.length) process.exitCode = 1;
+      return;
+    }
+    const manager = new StorageManager({ factory: createStorageDriver, settings, dataDir: config.dataDir, cacheDir, activeRunIds: async () => {
+      const ids = new Set<string>();
+      for (const status of ['queued', 'running'] as const) for (const j of await repos.jobs.list({ status })) {
+        const runId = (j.params as { runId?: unknown } | undefined)?.runId;
+        if (typeof runId === 'string') ids.add(runId);
+      }
+      return ids;
+    } });
+    await manager.init();
+    if (cmd === 'status') {
+      const st = await manager.status();
+      if (json) console.log(JSON.stringify(st, null, 2));
+      else {
+        console.log(`driver:     ${st.driver}  ${JSON.stringify(st.location)}`);
+        console.log(`health:     ${st.health.ok ? 'ok' : `NOT OK: ${st.health.message}`}`);
+        if (st.usage) console.log(`usage:      assets ${st.usage.assets.objects} (${st.usage.assets.bytes} B), renders ${st.usage.renders.count} (${st.usage.renders.bytes} B), unfinished ${st.usage.temp.objects} objects`);
+        console.log(`retention:  ${JSON.stringify(st.retention)}`);
+      }
+      if (!st.health.ok) process.exitCode = 2;
+      return;
+    }
+    const r = await manager.cleanup({ dryRun });
+    if (!dryRun) await repos.audit.write({ actorType: 'cli', action: 'storage.cleanup', targetType: 'storage', targetId: manager.driver.id, data: { policy: r.policy, totals: r.totals } });
+    if (json) console.log(JSON.stringify(r, null, 2));
+    else {
+      console.log(`${dryRun ? 'would delete' : 'deleted'}: ${r.totals.renders} render(s), ${r.temp.length} unfinished upload(s), ${r.staging.length} staging dir(s), ${r.cache.files} cached file(s); ${r.totals.bytes + r.cache.bytes} bytes`);
+      for (const x of r.renders) console.log(`  ${x.projectId}/${x.renderId}  ${x.createdAt}  ${x.bytes} B  (${x.reason})`);
+    }
+    if (r.errors.length) process.exitCode = 1;
+  } finally {
+    await db.close();
+  }
+}
 
 function printLicence(r: LicenceReport, json: boolean) {
   if (json) {
@@ -142,11 +269,12 @@ function configCheck(argv: string[]): void {
   }
   console.log(`configuration is valid${config.sources.file ? ` (config file ${config.sources.file.path})` : ' (no config file; REELFORGE_CONFIG is not set)'}`);
   console.log(`  ${Object.entries(counts).map(([k, v]) => `${v} from ${k}`).join(', ')}`);
+  console.log(`  edition: ${config.resolved.build.edition}${config.resolved.build.edition === 'release' ? ' (licence.mode, licence.serverUrl and licence.orgId are fixed by the build)' : ''}`);
   for (const w of warnings) console.log(`  ! ${w}`);
 }
 
 function printReport(r: ConfigReport, note?: string) {
-  console.log(`config file: ${r.configFile ?? '(none)'}    secret key: ${r.secretKey}${note ? `    ${note}` : ''}`);
+  console.log(`edition: ${r.edition}    config file: ${r.configFile ?? '(none)'}    secret key: ${r.secretKey}${note ? `    ${note}` : ''}`);
   const width = Math.max(...r.settings.map((s) => s.key.length));
   for (const s of r.settings) {
     const where = s.source === 'default' ? 'default' : `${s.source}${s.origin && s.origin !== 'database' ? `: ${s.origin}` : ''}`;
@@ -195,6 +323,7 @@ async function main(argv: string[]) {
   if (group === 'config' && cmd === 'show') return configShow(rest, config);
   const log = (line: string) => console.log(line);
   if (group === 'licence' || group === 'license') return licence(cmd, rest, config);
+  if (group === 'storage') return storage(cmd, rest, config);
 
   if (group === 'migrate' && argv.includes('--status')) {
     const db = await Database.open({ url: config.databaseUrl });
@@ -238,32 +367,173 @@ async function main(argv: string[]) {
     }
     return;
   }
-  if (group !== 'keys' || !['create', 'list', 'delete'].includes(cmd ?? '')) {
+  if (group === 'audit') return audit(cmd, rest, config);
+  if (group !== 'keys' || !['create', 'list', 'show', 'update', 'rotate', 'revoke', 'delete'].includes(cmd ?? '')) {
     console.log(USAGE);
     process.exitCode = group ? 1 : 0;
     return;
   }
+  return keys(cmd!, rest, config);
+}
 
+/** The CLI as an audit actor: actorType "cli", named after the OS user. */
+function cliAuditLog(repos: Repositories) {
+  const log = new AuditLog(repos.audit);
+  let who = 'cli';
+  try {
+    who = `cli:${userInfo().username}`;
+  } catch {
+    // no passwd entry (container with an arbitrary UID)
+  }
+  return { log, write: (e: Parameters<AuditLog['write']>[0]) => log.write({ ...e, actorType: 'cli', actorName: who }) };
+}
+
+/** --expires-in 30d / 12h / 90m -> ISO time. */
+function expiresIn(v: string): string {
+  const m = /^(\d+(?:\.\d+)?)([dhm])$/.exec(v.trim());
+  if (!m) throw new Error('--expires-in must look like 30d, 12h or 90m');
+  const ms = Number(m[1]) * (m[2] === 'd' ? 86_400_000 : m[2] === 'h' ? 3_600_000 : 60_000);
+  return new Date(Date.now() + ms).toISOString();
+}
+
+function keyLimits(args: string[]): KeyOptions {
+  const o: KeyOptions = {};
+  const num = (name: string): number | null | undefined => {
+    const v = arg(name, args);
+    if (v === undefined) return undefined;
+    if (v === 'none') return null;
+    const n = Number(v);
+    if (!Number.isInteger(n)) throw new Error(`--${name} must be an integer or "none"`);
+    return n;
+  };
+  const exp = arg('expires-in', args);
+  const at = arg('expires-at', args);
+  if (exp !== undefined) o.expiresAt = exp === 'none' ? null : expiresIn(exp);
+  else if (at !== undefined) o.expiresAt = at === 'none' ? null : at;
+  const rl = num('rate-limit');
+  if (rl !== undefined) o.rateLimitPerMinute = rl;
+  const d = num('renders-per-day');
+  if (d !== undefined) o.rendersPerDay = d;
+  const mo = num('renders-per-month');
+  if (mo !== undefined) o.rendersPerMonth = mo;
+  const ip = arg('ip-allow', args);
+  if (ip !== undefined) o.ipAllowlist = ip === 'none' ? null : ip.split(',').map((s) => s.trim()).filter(Boolean);
+  return o;
+}
+
+function describeKey(k: PublicKey): string {
+  const limits = [
+    k.expiresAt ? `expires ${k.expiresAt}` : '',
+    k.rateLimitPerMinute !== undefined ? `${k.rateLimitPerMinute}/min` : '',
+    k.rendersPerDay !== undefined ? `${k.rendersPerDay} renders/day` : '',
+    k.rendersPerMonth !== undefined ? `${k.rendersPerMonth} renders/month` : '',
+    k.ipAllowlist?.length ? `from ${k.ipAllowlist.join(',')}` : '',
+    k.previousSecretExpiresAt ? `old secret valid until ${k.previousSecretExpiresAt}` : '',
+  ].filter(Boolean);
+  return `${k.id}  ${k.prefix}…  ${k.name.padEnd(20)} ${k.status.padEnd(8)} ${k.scopes.join(',').padEnd(24)} created ${k.createdAt}${k.lastUsedAt ? `, last used ${k.lastUsedAt}` : ''}${limits.length ? `  [${limits.join('; ')}]` : ''}`;
+}
+
+/** `reelforge keys ...`: the same lifecycle as create_key / rotate_key / revoke_key, audit-logged as the CLI. */
+async function keys(cmd: string, rest: string[], config: ServerConfig): Promise<void> {
   const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds });
   try {
-    const keys = new KeyStore(db.repositories().keys);
+    const repos = db.repositories();
+    const settings = new RuntimeConfig(repos, config.sources);
+    await settings.load();
+    const audit = cliAuditLog(repos);
+    const store = new KeyStore(repos.keys, { audit: audit.write, rotationGraceHours: () => settings.current.config.keys.rotationGraceHours });
+    const actor = { actorType: 'cli' as const };
+    const id = rest.find((a, i) => !a.startsWith('--') && !(i > 0 && rest[i - 1]!.startsWith('--') && !rest[i - 1]!.includes('=')));
     if (cmd === 'create') {
       const name = arg('name', rest) ?? 'default';
       const scopes = (arg('scopes', rest) ?? 'read,write,render').split(',').map((s) => s.trim()) as Scope[];
-      const { key, record } = await keys.create(name, scopes);
-      await db.repositories().audit.write({ actorType: 'cli', action: 'key.create', targetType: 'key', targetId: record.id, data: { name: record.name, scopes: record.scopes } });
+      const { key, record } = await store.create(name, scopes, keyLimits(rest), actor);
       console.log(`Created API key "${record.name}" (${record.id}) with scopes ${record.scopes.join(', ')}.`);
+      console.log(describeKey(record));
       console.log('Store it now; it is not shown again:\n');
       console.log(key);
     } else if (cmd === 'list') {
-      for (const k of await keys.list()) console.log(`${k.id}  ${k.prefix}…  ${k.name.padEnd(20)} ${k.scopes.join(',').padEnd(24)} created ${k.createdAt}${k.lastUsedAt ? `, last used ${k.lastUsedAt}` : ''}`);
-    } else if (cmd === 'delete' && rest[0]) {
-      await keys.delete(rest[0]);
-      await db.repositories().audit.write({ actorType: 'cli', action: 'key.delete', targetType: 'key', targetId: rest[0] });
-      console.log(`Deleted ${rest[0]}`);
-    } else {
+      for (const k of await store.list()) console.log(describeKey(k));
+    } else if (!id) {
       console.log(USAGE);
       process.exitCode = 1;
+    } else if (cmd === 'show') {
+      console.log(JSON.stringify(await store.get(id), null, 2));
+    } else if (cmd === 'update') {
+      const name = arg('name', rest);
+      console.log(describeKey(await store.update(id, { ...keyLimits(rest), ...(name !== undefined ? { name } : {}) }, actor)));
+    } else if (cmd === 'rotate') {
+      const g = arg('grace-hours', rest);
+      const { key, record } = await store.rotate(id, g === undefined ? {} : { graceHours: Number(g) }, actor);
+      console.log(`Rotated ${record.id}. ${record.previousSecretExpiresAt ? `The old key works until ${record.previousSecretExpiresAt}.` : 'The old key stopped working.'}`);
+      console.log('Store the new key now; it is not shown again:\n');
+      console.log(key);
+    } else if (cmd === 'revoke') {
+      const k = await store.revoke(id, actor);
+      console.log(`Revoked ${k.id} (${k.name}) at ${k.revokedAt}`);
+    } else if (cmd === 'delete') {
+      await store.delete(id, actor);
+      console.log(`Deleted ${id}`);
+    }
+  } finally {
+    await db.close();
+  }
+}
+
+/** `reelforge audit list|export|sweep`. */
+async function audit(cmd: string | undefined, rest: string[], config: ServerConfig): Promise<void> {
+  if (!['list', 'export', 'sweep'].includes(cmd ?? '')) {
+    console.log(USAGE);
+    process.exitCode = 1;
+    return;
+  }
+  const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds });
+  try {
+    const repos = db.repositories();
+    const { log, write } = cliAuditLog(repos);
+    const query = {
+      from: arg('from', rest),
+      to: arg('to', rest),
+      actorId: arg('actor', rest),
+      action: arg('action', rest),
+      targetType: arg('target-type', rest),
+      targetId: arg('target', rest),
+      result: arg('result', rest),
+    };
+    if (cmd === 'sweep') {
+      const settings = new RuntimeConfig(repos, config.sources);
+      await settings.load();
+      const days = settings.current.config.audit.retentionDays;
+      const auditDeleted = await log.sweep(days);
+      const idempotencyDeleted = await repos.idempotency.deleteExpired(new Date().toISOString());
+      if (auditDeleted) await write({ actorType: 'cli', action: 'audit.sweep', data: { deleted: auditDeleted, retentionDays: days } });
+      console.log(`deleted ${auditDeleted} audit entr${auditDeleted === 1 ? 'y' : 'ies'} older than ${days} days${days ? '' : ' (retention 0: kept forever)'} and ${idempotencyDeleted} expired idempotency key(s)`);
+    } else if (cmd === 'list') {
+      const limit = arg('limit', rest);
+      const { events, nextCursor } = await log.list(parseAuditQuery({ ...query, limit: limit ?? 50 }));
+      if (rest.includes('--json')) console.log(JSON.stringify({ events, nextCursor }, null, 2));
+      else {
+        for (const e of events) {
+          console.log(`${e.at}  ${e.result.padEnd(7)} ${e.action.padEnd(22)} ${(e.actorName ?? e.actorId ?? e.actorType).padEnd(20)} ${e.targetType ? `${e.targetType}:${e.targetId ?? ''}` : ''}${e.ip ? `  ip ${e.ip}` : ''}${e.requestId ? `  ${e.requestId}` : ''}`);
+        }
+      }
+    } else {
+      const format = arg('format', rest) ?? 'jsonl';
+      if (format !== 'jsonl' && format !== 'csv') throw new Error('--format must be jsonl or csv');
+      const out = arg('out', rest);
+      const sink = out ? createWriteStream(resolve(out), { mode: 0o600 }) : process.stdout;
+      const write = (s: string) => new Promise<void>((ok) => (sink.write(s) ? ok() : sink.once('drain', () => ok())));
+      let n = 0;
+      if (format === 'csv') await write(auditToCsv([]));
+      // One database page at a time: memory stays flat for any range.
+      for await (const page of log.pages(parseAuditQuery(query), Number(arg('limit', rest) ?? Number.MAX_SAFE_INTEGER))) {
+        await write(format === 'csv' ? auditToCsv(page, false) : auditToJsonl(page));
+        n += page.length;
+      }
+      if (out) {
+        await new Promise<void>((ok) => (sink as ReturnType<typeof createWriteStream>).end(ok));
+        console.error(`wrote ${n} entries to ${resolve(out)}`);
+      }
     }
   } finally {
     await db.close();

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/buildbase-app/reelforge-studio/security/advisories/new
+    about: Never open a public issue for a security problem. Use a private advisory (see SECURITY.md).
+  - name: Commercial licence, sales or partnership questions
+    url: https://reelforge.buildbase.app/contact
+    about: Licensing and purchases are handled through the ReelForge store.
+  - name: Help and FAQ
+    url: https://reelforge.buildbase.app/help
+    about: How-to questions and answers before you open an issue.

@@ -10,7 +10,10 @@ import {
   RuntimeConfig,
   SETTINGS,
   SecretCipher,
+  DEV_BUILD,
   createMemoryRepositories,
+  currentBuild,
+  parseBuildInfo,
   readConfigFile,
   resolveConfig,
   type ConfigIssue,
@@ -158,8 +161,26 @@ describe('sources and precedence', () => {
     expect(text).not.toContain('SECRETVALUE');
   });
 
-  it('refuses storage.driver s3 until #27 is built', () => {
-    expect(issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3' } }))[0]!.message).toMatch(/#27/);
+  it('storage drivers need their settings; keys come in pairs (STO-15)', () => {
+    expect(issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3' } })).map((i) => i.key)).toEqual(['storage.s3.bucket']);
+    expect(issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 'azure' } })).map((i) => i.key)).toEqual(['storage.azure.container', 'storage.azure.accountUrl']);
+    expect(issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 'gcs' } })).map((i) => i.key)).toEqual(['storage.gcs.bucket']);
+    const pair = issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3', REELFORGE_S3_BUCKET: 'b', REELFORGE_S3_ACCESS_KEY_ID: 'AKIAEXAMPLE' } }));
+    expect(pair.map((i) => i.key)).toEqual(['storage.s3.secretAccessKey']);
+    expect(JSON.stringify(pair)).not.toContain('AKIAEXAMPLE');
+    expect(issues(() => resolveConfig({ env: { REELFORGE_S3_KMS_KEY_ID: 'k' } }))[0]!.key).toBe('storage.s3.kmsKeyId');
+    const ok = resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3', REELFORGE_S3_BUCKET: 'b', REELFORGE_S3_SSE: 'aws:kms', REELFORGE_S3_KMS_KEY_ID: 'arn:aws:kms:eu-west-1:1:key/x' } });
+    expect(ok.config.storage.s3).toMatchObject({ bucket: 'b', serverSideEncryption: 'aws:kms', forcePathStyle: false });
+  });
+
+  it('storage endpoints are SSRF-safe: http only to internal hosts, no credentials or query (STO-16)', () => {
+    const bad = (url: string) => issues(() => resolveConfig({ env: { REELFORGE_S3_ENDPOINT: url } }))[0]?.message ?? '';
+    expect(bad('http://s3.example.com')).toMatch(/only allowed for internal hosts/);
+    expect(bad('https://user:pw@s3.example.com')).toMatch(/must not contain credentials/);
+    expect(bad('https://s3.example.com/?x=1')).toMatch(/query/);
+    for (const ok of ['https://s3.example.com', 'http://minio:9000', 'http://127.0.0.1:9000', 'http://10.1.2.3:9000', 'http://minio.storage.svc:9000', 'http://[::1]:9000']) {
+      expect(() => resolveConfig({ env: { REELFORGE_S3_ENDPOINT: ok } }), ok).not.toThrow();
+    }
   });
 
   it('reads YAML and JSON config files; a broken file never echoes its content', () => {
@@ -179,6 +200,75 @@ describe('sources and precedence', () => {
     expect(e[0]!.message).toMatch(/not valid YAML/);
     expect(JSON.stringify(e)).not.toContain('hunter2');
     expect(issues(() => readConfigFile(join(dir, 'nope.yaml')))[0]!.message).toMatch(/cannot read the config file.*ENOENT/);
+  });
+});
+
+describe('release build: licence settings fixed by the image (D-039)', () => {
+  const release = parseBuildInfo({
+    edition: 'release',
+    version: '0.1.0',
+    locked: { 'licence.mode': 'required', 'licence.serverUrl': 'https://api.console.buildbase.app', 'licence.orgId': '6b01478bb42d2c444e99fcd8' },
+  });
+
+  it('a build from source is a dev build: nothing is fixed', () => {
+    expect(currentBuild()).toEqual(DEV_BUILD);
+    const r = resolveConfig({ env: { REELFORGE_LICENCE_MODE: 'off' } });
+    expect(r.settings.get('licence.mode')).toMatchObject({ value: 'off', source: 'env' });
+    expect(r.build.edition).toBe('dev');
+  });
+
+  it('fixed values have source "build"; the same value again is accepted', () => {
+    const r = resolveConfig({ env: { REELFORGE_LICENCE_MODE: 'required' }, build: release });
+    expect(r.settings.get('licence.mode')).toMatchObject({ value: 'required', source: 'build', origin: 'release build 0.1.0' });
+    expect(r.settings.get('licence.serverUrl')).toMatchObject({ value: 'https://api.console.buildbase.app', source: 'build' });
+    expect(r.config.licence.orgId).toBe('6b01478bb42d2c444e99fcd8');
+    // Other licence settings stay configurable.
+    expect(resolveConfig({ env: { REELFORGE_LICENCE_OFFLINE_GRACE_DAYS: '3' }, build: release }).config.licence.offlineGraceDays).toBe(3);
+  });
+
+  it('the config file or env cannot change them: every attempt is refused at start with a clear error', () => {
+    const found = issues(() =>
+      resolveConfig({
+        env: { REELFORGE_LICENCE_MODE: 'off', REELFORGE_LICENCE_SERVER_URL: 'http://fake-licence.local' },
+        file: file({ licence: { orgId: 'aaaaaaaaaaaaaaaaaaaaaaaa' } }),
+        build: release,
+      })
+    );
+    expect(found.map((i) => [i.key, i.source, i.origin])).toEqual([
+      ['licence.mode', 'env', 'REELFORGE_LICENCE_MODE'],
+      ['licence.serverUrl', 'env', 'REELFORGE_LICENCE_SERVER_URL'],
+      ['licence.orgId', 'file', '/etc/reelforge.yaml'],
+    ]);
+    expect(found[0]!.message).toMatch(/fixed by this release build to "required".*noncommercial development only \(LICENSING\.md\)/);
+  });
+
+  it('update_config refuses them with build_locked_setting; get_config shows the source and the edition', async () => {
+    const repos = createMemoryRepositories();
+    const rc = new RuntimeConfig(repos, { env: { REELFORGE_SECRET_KEY: KEY }, build: release });
+    await rc.load();
+    const err = await rc.update({ 'licence.mode': 'off', 'licence.serverUrl': 'http://fake.local' }).catch((e) => e);
+    expect(err).toMatchObject({ code: 'build_locked_setting', status: 409 });
+    expect(err.details.issues.map((i: { key: string; code: string }) => [i.key, i.code])).toEqual([
+      ['licence.mode', 'build_locked'],
+      ['licence.serverUrl', 'build_locked'],
+    ]);
+    expect(await repos.settings.list()).toEqual([]);
+    const report = rc.report({ prefix: 'licence' });
+    expect(report.edition).toBe('release');
+    expect(report.settings.find((s) => s.key === 'licence.mode')).toMatchObject({ value: 'required', source: 'build', origin: 'release build 0.1.0' });
+    // The licence key itself stays a runtime setting.
+    await rc.update({ 'licence.key': 'ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2' });
+    expect(rc.report({ prefix: 'licence.key' }).settings[0]).toMatchObject({ value: 'set', source: 'runtime' });
+  });
+
+  it('build-info.json is checked: a release build must fix all three, mode only to "required", and nothing else', () => {
+    expect(() => parseBuildInfo({ edition: 'release', locked: { 'licence.mode': 'required' } })).toThrow(/must fix "licence.serverUrl".*must fix "licence.orgId"/);
+    expect(() =>
+      parseBuildInfo({ edition: 'release', locked: { 'licence.mode': 'off', 'licence.serverUrl': 'https://a.example', 'licence.orgId': 'aaaaaaaa' } })
+    ).toThrow(/to "required"/);
+    expect(() => parseBuildInfo({ edition: 'dev', locked: { 'server.port': 1 } })).toThrow(/cannot be fixed by a build/);
+    expect(() => parseBuildInfo({ edition: 'release', locked: {}, extra: 1 })).toThrow();
+    expect(parseBuildInfo({ edition: 'dev' })).toMatchObject({ edition: 'dev', locked: {} });
   });
 });
 

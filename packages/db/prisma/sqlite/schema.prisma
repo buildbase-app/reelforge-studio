@@ -24,6 +24,7 @@ model Workspace {
   assets           Asset[]
   auditLogs        AuditLog[]
   licenceStates    LicenceState[]
+  idempotencyKeys  IdempotencyKey[]
 }
 
 /// A project; its manifests live in ProjectVersion (one row per saved version).
@@ -57,23 +58,44 @@ model ProjectVersion {
 }
 
 /// API keys: salted SHA-256 hashes only; the key itself is never stored.
+/// Lifecycle (#65, D-055): optional expiry, rotation with a grace window for
+/// the previous secret, revocation (the row stays for the audit trail),
+/// per-key rate limit, render quotas and IP allowlist.
 model ApiKey {
-  id          String    @id
-  workspaceId String
-  name        String
+  id                 String    @id
+  workspaceId        String
+  name               String
   /// JSON array of scopes.
-  scopes      String
+  scopes             String
   /// First characters of the key (lookup index; not secret on its own).
-  prefix      String
-  salt        String
-  hash        String
-  createdAt   DateTime
-  lastUsedAt  DateTime?
+  prefix             String
+  salt               String
+  hash               String
+  createdAt          DateTime
+  lastUsedAt         DateTime?
+  /// The key stops working after this time (null: never expires).
+  expiresAt          DateTime?
+  /// Revoked keys never authenticate again; the row stays for the audit trail.
+  revokedAt          DateTime?
+  /// The secret before the last rotation: prefix, salt and hash, valid until prevExpiresAt.
+  prevPrefix         String?
+  prevSalt           String?
+  prevHash           String?
+  prevExpiresAt      DateTime?
+  rotatedAt          DateTime?
+  /// Requests per minute for this key (null: limits.rateLimitPerMinute).
+  rateLimitPerMinute Int?
+  /// Render and preview jobs per UTC day / month (null: unlimited).
+  rendersPerDay      Int?
+  rendersPerMonth    Int?
+  /// JSON array of CIDR blocks the key may be used from (null: anywhere).
+  ipAllowlist        String?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
   @@index([prefix])
+  @@index([prevPrefix])
 }
 
 model Job {
@@ -88,6 +110,8 @@ model Job {
   result      String?
   error       String?
   retryOf     String?
+  /// The API key that started the job (render quotas, #65).
+  apiKeyId    String?
   createdAt   DateTime
   startedAt   DateTime?
   finishedAt  DateTime?
@@ -98,6 +122,7 @@ model Job {
   @@index([workspaceId, createdAt])
   @@index([workspaceId, projectId])
   @@index([status])
+  @@index([workspaceId, apiKeyId, createdAt])
 }
 
 /// Status changes and log lines of a job, in order (id is monotonic).
@@ -185,7 +210,9 @@ model Asset {
   @@index([workspaceId, createdAt])
 }
 
-/// Audit trail (schema and write helper now; the feature is issue #17).
+/// Audit trail (#65, D-055): append-only, one row per admin or write action.
+/// Rows are only ever inserted, and deleted by the retention sweep
+/// (audit.retentionDays). Never holds secret values.
 model AuditLog {
   id          String   @id
   workspaceId String
@@ -193,14 +220,48 @@ model AuditLog {
   /// "api_key" | "cli" | "system"
   actorType   String
   actorId     String?
+  /// The key's name at the time of the action.
+  actorName   String?
   action      String
   targetType  String?
   targetId    String?
+  /// "success" | "failure" | "denied"
+  result      String   @default("success")
+  ip          String?
+  userAgent   String?
+  requestId   String?
   data        String?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, at])
+  @@index([workspaceId, action, at])
+  @@index([workspaceId, actorId, at])
+}
+
+/// Idempotency keys (#65, D-057): the stored result of a create or render call
+/// made with an Idempotency-Key header (REST) or idempotencyKey argument (MCP),
+/// per API key. Kept until expiresAt (24 h), then swept.
+model IdempotencyKey {
+  workspaceId String
+  /// The API key (or "cli") that sent it: keys of different callers never collide.
+  actorId     String
+  key         String
+  /// The operation (MCP tool name, e.g. "render_project").
+  operation   String
+  /// SHA-256 of the operation and its canonical arguments.
+  requestHash String
+  /// "pending" while the first call runs, then "done".
+  status      String
+  /// The result as JSON text (never a secret: calls that return one are not idempotent).
+  response    String?
+  createdAt   DateTime
+  expiresAt   DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, actorId, key])
+  @@index([workspaceId, expiresAt])
 }
 
 /// Licence activation state (#25, D-028, D-035): one row per workspace (the

@@ -4,6 +4,38 @@ You are building **ReelForge**, a self-hosted, AI-assisted video
 production application. This file is the shared agent contract. Read it
 before editing code.
 
+## Contribution rules for AI agents (mandatory, every task)
+
+These rules are enforced by the required `pr-policy` check and branch
+protection on `main`. A pull request that breaks them cannot be merged. They
+apply to this project's own agents and to anyone else's. Full rules:
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+1. **Work from an issue.** Every task has a GitHub issue; link it in the PR
+   (`Closes #N` or `Refs #N`). No issue? Ask for one, or open it first with the
+   *Task* form.
+2. **Branch:** never commit to `main`. Use `claude/<short-description>` (or your
+   tool's prefix: `codex/`, `copilot/`, `cursor/`, `devin/`, `agent/`), or the
+   branch your operator assigned.
+3. **Pull request:** target `main`; open it as a **draft**; title is a
+   Conventional Commit (`fix(render): …`); fill every template section; tick only
+   checklist items that are true; under *AI assistance* tick "AI-generated" or
+   "AI-assisted", give `Tool:` and `model:`, and say what was checked on
+   `Human checked:` (write "Not yet checked by a human" if nobody has).
+4. **Before marking a PR ready:** run the project's checks locally (`pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test`)
+   and report the real result. Never claim a test, build or manual check you did
+   not run.
+5. **Never** delete, skip or weaken tests to go green; never commit secrets,
+   keys, `.env` files or personal data; never force-push to a shared branch.
+6. **Stay out of maintainer-only files** unless the task explicitly says so:
+   `LICENSE*`, `NOTICE`, `*LICENSE*.md`, `TRADEMARK.md`, `CONTRIBUTING.md`,
+   `AGENTS.md`, `CLAUDE.md`, `.github/`, and licence-enforcement code.
+7. **Never merge or approve** a pull request, and never change repository
+   settings, branch protection or rulesets. A human merges.
+8. **Keep PRs small** (about 500 changed lines, generated files excluded) and to
+   one purpose; split larger work into several PRs on the same issue.
+9. **Commit attribution:** keep your tool's `Co-Authored-By:` trailer.
+
 ## 1. Read the product documents
 
 Before implementation, read: - `docs/PRODUCT_BRIEF.md` -
@@ -151,7 +183,32 @@ pnpm reelforge licence status|activate|deactivate   # licence (docs/DEPLOY.md#li
 pnpm docs:config                         # regenerate docs/CONFIG.md after changing the config schema
 TEST_POSTGRES_URL=... TEST_MYSQL_URL=... pnpm --filter @reelforge/db test   # contract tests on every DB
 REELFORGE_TEST_DB=postgres pnpm --filter @reelforge/server test             # server e2e on PostgreSQL
+pnpm prebuild:engines                    # pre-build the Remotion/Motion Canvas bundles (the Dockerfile does this)
+docker build -t reelforge-studio:release .                  # release image (licence settings fixed, D-039)
+docker build --build-arg REELFORGE_EDITION=dev -t reelforge-studio:dev .   # same image, settings configurable
+scripts/image/check-contents.sh reelforge-studio:release    # files, size budget (D-042)
+scripts/image/check-secrets.sh reelforge-studio:release     # no secrets in history, config or files
+e2e/docker/run.sh                        # Docker e2e: release edition (mock licence baked in), hardened flags
+DB=postgres CLAUDE=1 RELEASE_IMAGE=reelforge-studio:release e2e/docker/run.sh   # + PostgreSQL, Claude, published image
 ```
+
+### What CI runs when
+
+`.github/workflows/ci.yml` has two tiers (D-043); keep new jobs in the right one.
+
+| Tier | When | What |
+| --- | --- | --- |
+| FAST | every push to any branch | typecheck, unit tests of every package, the SQLite server tests incl. the MCP and REST end-to-end journeys with real engines |
+| HEAVY | pull request to `main`, merge queue (`merge_group`), push to `main`, `v*` tags, nightly (03:23 UTC), manual (`workflow_dispatch`) | PostgreSQL/MySQL contract tests and server e2e, the spike render, the release image per architecture (amd64 + arm64, native runners): contents/size, secrets, Trivy (fixable HIGH/CRITICAL fail), CycloneDX SBOM, Docker e2e with the hardened flags (amd64 on three databases) |
+| publish | push to `main` and `v*` tags only | multi-arch image on ghcr.io, cosign keyless signature, SBOM attestation |
+
+Docs-only changes (`docs/**`, `**/*.md`, `research/**`) skip the jobs (pushes
+through `paths-ignore`, pull requests through the `changes` job); the `required`
+job aggregates the rest and always reports, so it can be a required check
+(#62). A change to the config schema or `docs/CONFIG.md` runs the small
+`config-docs.yml` check. A newer push cancels the older run of the same ref; every job has a
+timeout. On a branch, run the heavy checks you touched locally (the commands
+above) before asking for a PR; push at milestones, not every commit.
 
 ### Conventions
 
@@ -180,6 +237,11 @@ REELFORGE_TEST_DB=postgres pnpm --filter @reelforge/server test             # se
   a direct `process.env` read; then `pnpm docs:config`. A runtime setting must
   take effect without a restart (see `applySettings` / `applyServerSettings`).
 - No telemetry, no new network egress without listing it in docs/PRIVACY.md.
+- Image: anything the runtime needs must be under a package's `src/` (or the
+  engines' scene folders); tests, docs and tooling stay out of the release
+  image (`scripts/image/check-contents.sh`). Build-only tools are
+  devDependencies. The release edition fixes `licence.mode/serverUrl/orgId`
+  (`packages/core/src/config/build.ts`); never add an env or config way around it.
 - Licence: tests never call the real licence server. Use `REELFORGE_LICENCE_MODE=off`,
   a mock `LicenceApi` (packages/core/test/licence.test.ts) or the mock licence
   server `e2e/mock-licence/server.mjs` (`REELFORGE_LICENCE_SERVER_URL`).

@@ -21,6 +21,7 @@ import {
 import { writeJsonAtomic } from './fsutil';
 import type { Logger, ResolvedAsset } from './plugins';
 import type { PluginRegistry } from './registry';
+import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
 
 export interface RenderPipelineInput {
   runId: string;
@@ -40,6 +41,8 @@ export interface RenderPipelineInput {
   signal: AbortSignal;
   log: Logger;
   progress(stage: string, fraction: number, detail?: string): void;
+  /** Spans for each engine render and FFmpeg step, render metrics (D-050). Default: none. */
+  telemetry?: Telemetry;
 }
 
 export interface RenderPipelineResult {
@@ -72,6 +75,9 @@ export function scaledOutput(o: OutputSettings, scale = 1): OutputSettings {
  */
 export async function runRenderPipeline(input: RenderPipelineInput): Promise<RenderPipelineResult> {
   const { project, tools, signal, log } = input;
+  const { tracer, meter } = input.telemetry ?? NOOP_TELEMETRY;
+  const metrics = coreInstruments(meter);
+  const ffmpegSpan = <T>(name: string, fn: () => Promise<T>) => withSpan(tracer, name, { 'reelforge.render.id': input.runId }, fn);
   const output = scaledOutput(project.output, input.scale);
   const all = timeline(project);
   const scenes = input.sceneIds?.length ? all.filter((s) => input.sceneIds!.includes(s.id)) : all;
@@ -107,20 +113,44 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
       await mkdir(workDir, { recursive: true });
       log(`${stage}: ${scene.engine}/${scene.template ?? 'html'} ${scene.durationFrames} frames at ${output.width}x${output.height}`);
       input.progress(stage, (0.85 * framesBefore) / totalSceneFrames, `scene ${i + 1}/${scenes.length}`);
-      const res = await engine.render(toRenderScene(scene), {
-        output,
-        theme: input.theme,
-        out,
-        workDir,
-        cacheDir: input.cacheDir,
-        tools,
-        assets: input.assets,
-        signal,
-        log,
-        progress: (done, total) =>
-          input.progress(stage, (0.85 * (framesBefore + Math.min(done, total))) / totalSceneFrames, `scene ${i + 1}/${scenes.length}: ${done}/${total} frames`),
+      const engineAttrs = { 'reelforge.engine': scene.engine };
+      const sceneStarted = Date.now();
+      const res = await withSpan(
+        tracer,
+        `engine.render ${scene.engine}`,
+        {
+          ...engineAttrs,
+          'reelforge.render.id': input.runId,
+          'reelforge.scene.id': scene.id,
+          'reelforge.scene.template': scene.template ?? 'html',
+          'reelforge.scene.frames': scene.durationFrames,
+          'reelforge.output.width': output.width,
+          'reelforge.output.height': output.height,
+          'reelforge.output.fps': output.fps,
+        },
+        () =>
+          engine.render(toRenderScene(scene), {
+            output,
+            theme: input.theme,
+            out,
+            workDir,
+            cacheDir: input.cacheDir,
+            tools,
+            assets: input.assets,
+            signal,
+            log,
+            progress: (done, total) =>
+              input.progress(stage, (0.85 * (framesBefore + Math.min(done, total))) / totalSceneFrames, `scene ${i + 1}/${scenes.length}: ${done}/${total} frames`),
+          })
+      ).catch((e) => {
+        metrics.sceneDuration.record((Date.now() - sceneStarted) / 1000, { ...engineAttrs, 'reelforge.outcome': 'error' });
+        throw e;
       });
-      const info = await probe(tools.ffprobe, out);
+      const sceneSeconds = (Date.now() - sceneStarted) / 1000;
+      metrics.sceneDuration.record(sceneSeconds, { ...engineAttrs, 'reelforge.outcome': 'ok' });
+      metrics.framesRendered.add(scene.durationFrames, engineAttrs);
+      if (sceneSeconds > 0) metrics.renderFps.record(scene.durationFrames / sceneSeconds, engineAttrs);
+      const info = await ffmpegSpan('ffprobe clip', () => probe(tools.ffprobe, out));
       const problems = checkExpectation(info, {
         width: output.width,
         height: output.height,
@@ -166,7 +196,7 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
     input.progress('assemble', 0.87);
     const finalTmp = join(tmp, 'final.mp4');
     log(`assemble: ${clips.length} clips${music ? ' + music' : ''}${voice ? ' + voice' : ''}${sfx.length ? ` + ${sfx.length} sfx` : ''}`);
-    const assembled = await assemble({
+    const assembled = await ffmpegSpan('ffmpeg assemble', () => assemble({
       ffmpeg: tools.ffmpeg,
       ffprobe: tools.ffprobe,
       clips,
@@ -178,10 +208,10 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
       voice,
       sfx,
       signal,
-    });
+    }));
 
     input.progress('validate', 0.93);
-    const info = await probe(tools.ffprobe, finalTmp);
+    const info = await ffmpegSpan('ffprobe output', () => probe(tools.ffprobe, finalTmp));
     const problems = checkExpectation(info, {
       width: output.width,
       height: output.height,
@@ -194,12 +224,14 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
       problems.push(`duration is ${info.durationSeconds}s, expected ${expectedSeconds}s`);
     }
     if (info.audioCodec !== 'aac') problems.push(`audio codec is ${info.audioCodec}, expected aac`);
-    await assertDecodable(tools.ffmpeg, finalTmp);
+    await ffmpegSpan('ffmpeg decode check', () => assertDecodable(tools.ffmpeg, finalTmp));
     if (problems.length) throw new PipelineError('validate:output', problems.join('; '));
 
     // A small poster from the first frame (for agents and thumbnails).
     const poster = join(tmp, 'poster.png');
-    await run(tools.ffmpeg, ['-hide_banner', '-v', 'error', '-y', '-i', finalTmp, '-vf', 'select=eq(n\\,0),scale=270:-2', '-frames:v', '1', poster], 'poster');
+    await ffmpegSpan('ffmpeg poster', () =>
+      run(tools.ffmpeg, ['-hide_banner', '-v', 'error', '-y', '-i', finalTmp, '-vf', 'select=eq(n\\,0),scale=270:-2', '-frames:v', '1', poster], 'poster')
+    );
 
     const engineVersions: Record<string, string> = {};
     for (const c of clips) engineVersions[c.engine] = c.engineVersion;

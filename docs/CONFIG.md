@@ -13,6 +13,12 @@ Precedence, lowest to highest (D-029):
 4. **runtime**: values set over the API (`PATCH /v1/config`, MCP `update_config`, admin scope), stored in the
    database; only settings with scope **runtime**. `null` clears a runtime value.
 
+**Release images** (the published Docker image, D-039) fix `licence.mode` (`required`), `licence.serverUrl` and
+`licence.orgId` at build time: their source is **build**, and a config file, environment variable or
+`update_config` that tries to change them is refused (`build_locked_setting`). Builds from source (`pnpm dev`,
+`--build-arg REELFORGE_EDITION=dev`) keep every setting configurable; `licence.mode: off` there is for
+noncommercial development only (LICENSING.md).
+
 Scope **startup** settings are read once at start; changing them at runtime is refused with an error that says
 where to set them. `GET /v1/config` / MCP `get_config` show each effective value and its source; secrets show
 only `set` / `not set`. Secrets set at runtime are stored encrypted (AES-256-GCM) with `REELFORGE_SECRET_KEY`;
@@ -39,6 +45,7 @@ logging:
 | `server.port` | `REELFORGE_PORT` | integer | `4321` | startup |  | TCP port (`0` picks a free one). |
 | `server.publicUrl` | `REELFORGE_PUBLIC_URL` | url | (none) | startup |  | Public base URL: used in output links and allowed as Host on `/mcp`. Example: `https://studio.example.com`. |
 | `server.allowedHosts` | `REELFORGE_ALLOWED_HOSTS` | list (comma-separated in env) | (empty) | runtime |  | Extra host names accepted on `/mcp` (DNS-rebinding protection), besides localhost and the public URL host. Comma-separated in the environment. Example: `reelforge,studio.internal`. |
+| `server.trustProxy` | `REELFORGE_TRUST_PROXY` | boolean | `false` | runtime |  | Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists. Only turn it on behind a proxy that sets that header. |
 
 ## limits
 
@@ -55,12 +62,39 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `storage.dataDir` | `REELFORGE_DATA_DIR` | path | `./data` (`/data` in Docker) | startup |  | Asset and render files, caches, the URL signing key, and the SQLite database by default. |
 | `storage.cacheDir` | `REELFORGE_CACHE_DIR` | path | `<dataDir>/cache` | startup |  | Engine bundle and provider result cache. |
-| `storage.driver` | `REELFORGE_STORAGE_DRIVER` | `local` \| `s3` | `local` | startup |  | Where asset and render files are kept. Only `local` works today; `s3` is refused until #27 is built. |
-| `storage.s3.bucket` | `REELFORGE_S3_BUCKET` | string | (none) | startup |  | S3 bucket. _(Reserved for #27.)_ |
-| `storage.s3.region` | `REELFORGE_S3_REGION` | string | (none) | startup |  | S3 region. _(Reserved for #27.)_ |
-| `storage.s3.endpoint` | `REELFORGE_S3_ENDPOINT` | url | (none) | startup |  | S3-compatible endpoint (MinIO, R2, ...). Empty for AWS. _(Reserved for #27.)_ |
-| `storage.s3.accessKeyId` | `REELFORGE_S3_ACCESS_KEY_ID` (each also as `_FILE`) | string | (none) | startup | yes | S3 access key id. _(Reserved for #27.)_ |
-| `storage.s3.secretAccessKey` | `REELFORGE_S3_SECRET_ACCESS_KEY` (each also as `_FILE`) | string | (none) | startup | yes | S3 secret access key. _(Reserved for #27.)_ |
+| `storage.driver` | `REELFORGE_STORAGE_DRIVER` | `local` \| `s3` \| `azure` \| `gcs` | `local` | startup |  | Where asset and render files are kept (D-065): `local` (the data directory), `s3` (any S3-compatible API: AWS S3, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, MinIO, GCS with HMAC keys), `azure` (Azure Blob Storage) or `gcs` (Google Cloud Storage, native). Move existing files with `reelforge storage migrate --to <driver>`. |
+| `storage.downloads` | `REELFORGE_STORAGE_DOWNLOADS` | `auto` \| `presigned` \| `proxy` | `auto` | runtime |  | How `downloadUrl` links are made. `auto`/`presigned`: a time-limited URL signed by the bucket when the driver can sign (falls back to the server otherwise); `proxy`: always a signed link to this server, which streams the file (with Range support). |
+| `storage.requestTimeoutSeconds` | `REELFORGE_STORAGE_REQUEST_TIMEOUT_SECONDS` | integer | `120` | startup |  | Remote storage: a request whose connection stays silent this long (a stalled transfer) is aborted and retried. Not a limit on the total transfer time. |
+| `storage.connectTimeoutSeconds` | `REELFORGE_STORAGE_CONNECT_TIMEOUT_SECONDS` | integer | `10` | startup |  | Remote storage: connection timeout in seconds. |
+| `storage.maxAttempts` | `REELFORGE_STORAGE_MAX_ATTEMPTS` | integer | `4` | startup |  | Remote storage: attempts per request (the first plus retries with exponential backoff and jitter) on throttling, 5xx and network errors. |
+| `storage.s3.bucket` | `REELFORGE_S3_BUCKET` | string | (none) | startup |  | Bucket (required for `s3`). |
+| `storage.s3.region` | `REELFORGE_S3_REGION` | string | `us-east-1` | startup |  | Region (`auto` for Cloudflare R2; any value for MinIO). |
+| `storage.s3.endpoint` | `REELFORGE_S3_ENDPOINT` | url | (none) | startup |  | S3-compatible endpoint (R2, B2, Wasabi, Spaces, MinIO, `https://storage.googleapis.com` for GCS interop). Empty for AWS. Example: `https://<account>.r2.cloudflarestorage.com`. |
+| `storage.s3.publicEndpoint` | `REELFORGE_S3_PUBLIC_ENDPOINT` | url | (none) | startup |  | Endpoint used only in signed download URLs, when clients reach the bucket under another name than the server does. Default: `endpoint`. |
+| `storage.s3.forcePathStyle` | `REELFORGE_S3_FORCE_PATH_STYLE` | boolean | `false` | startup |  | Path-style URLs (`https://host/bucket/key`); needed for MinIO and most self-hosted endpoints. |
+| `storage.s3.serverSideEncryption` | `REELFORGE_S3_SSE` | enum | (none) | startup |  | Server-side encryption sent with every write: `AES256` (SSE-S3), `aws:kms` (SSE-KMS) or `aws:kms:dsse`. Unset: the bucket default. Not every S3-compatible service supports KMS. |
+| `storage.s3.kmsKeyId` | `REELFORGE_S3_KMS_KEY_ID` | string | (none) | startup |  | KMS key id or ARN for `aws:kms` / `aws:kms:dsse` (optional: the account's AWS managed key otherwise). |
+| `storage.s3.prefix` | `REELFORGE_S3_PREFIX` | string | (none) | startup |  | Key prefix inside the bucket (share a bucket). Example: `studio`. |
+| `storage.s3.accessKeyId` | `REELFORGE_S3_ACCESS_KEY_ID` (each also as `_FILE`) | string | (none) | runtime | yes | Access key id. Leave unset to use the ambient identity (IAM role, IRSA / web identity, `AWS_*` variables). |
+| `storage.s3.secretAccessKey` | `REELFORGE_S3_SECRET_ACCESS_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Secret access key (with `accessKeyId`). |
+| `storage.s3.sessionToken` | `REELFORGE_S3_SESSION_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | Session token for temporary keys (optional). |
+| `storage.azure.container` | `REELFORGE_AZURE_STORAGE_CONTAINER` | string | (none) | startup |  | Blob container (required for `azure`). |
+| `storage.azure.connectionString` | `REELFORGE_AZURE_STORAGE_CONNECTION_STRING`, `AZURE_STORAGE_CONNECTION_STRING` (each also as `_FILE`) | string | (none) | runtime | yes | Connection string (with an account key for signed URLs). Leave unset to use managed identity with `accountUrl`. |
+| `storage.azure.accountUrl` | `REELFORGE_AZURE_STORAGE_ACCOUNT_URL` | url | (none) | startup |  | Account URL, used with the ambient identity (managed identity, workload identity) when there is no connection string. Example: `https://<account>.blob.core.windows.net`. |
+| `storage.azure.managedIdentityClientId` | `REELFORGE_AZURE_MANAGED_IDENTITY_CLIENT_ID` | string | (none) | startup |  | Client id of a user-assigned managed identity (optional). |
+| `storage.azure.prefix` | `REELFORGE_AZURE_STORAGE_PREFIX` | string | (none) | startup |  | Blob name prefix inside the container. |
+| `storage.azure.encryptionScope` | `REELFORGE_AZURE_STORAGE_ENCRYPTION_SCOPE` | string | (none) | startup |  | Encryption scope for every write (customer-managed keys). Unset: the container default. |
+| `storage.gcs.bucket` | `REELFORGE_GCS_BUCKET` | string | (none) | startup |  | Bucket (required for `gcs`). |
+| `storage.gcs.projectId` | `REELFORGE_GCS_PROJECT_ID` | string | (none) | startup |  | Google Cloud project (optional; detected from the credentials). |
+| `storage.gcs.prefix` | `REELFORGE_GCS_PREFIX` | string | (none) | startup |  | Object name prefix inside the bucket. |
+| `storage.gcs.kmsKeyName` | `REELFORGE_GCS_KMS_KEY_NAME` | string | (none) | startup |  | Cloud KMS key for every write (CMEK). Unset: the bucket default. Example: `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>`. |
+| `storage.gcs.credentialsJson` | `REELFORGE_GCS_CREDENTIALS_JSON` (each also as `_FILE`) | string | (none) | runtime | yes | Service-account key (the JSON file's contents; `_FILE` takes the file). Leave unset to use workload identity / Application Default Credentials. |
+| `storage.gcs.apiEndpoint` | `REELFORGE_GCS_API_ENDPOINT` | url | (none) | startup |  | Another API endpoint (an emulator); empty for Google Cloud. |
+| `storage.retention.renderDays` | `REELFORGE_STORAGE_RETENTION_RENDER_DAYS` | integer | `0` | runtime |  | Delete renders and previews older than this many days (`0`: keep). The newest `keepLastRendersPerProject` of each project are always kept (D-068). |
+| `storage.retention.keepLastRendersPerProject` | `REELFORGE_STORAGE_RETENTION_KEEP_LAST` | integer | `0` | runtime |  | Always keep the newest N renders of each project (`0`: no minimum). Without `renderDays`, everything older than the newest N is deleted. |
+| `storage.retention.tempHours` | `REELFORGE_STORAGE_RETENTION_TEMP_HOURS` | integer | `24` | runtime |  | Remove unfinished render uploads and staging directories (crashed or killed renders) older than this many hours. |
+| `storage.retention.cacheDays` | `REELFORGE_STORAGE_RETENTION_CACHE_DAYS` | integer | `30` | runtime |  | Remove local copies of remote assets and renders (`<cacheDir>/storage`) unused for this many days (`0`: keep). |
+| `storage.retention.sweepIntervalMinutes` | `REELFORGE_STORAGE_SWEEP_INTERVAL_MINUTES` | integer | `60` | runtime |  | Run the storage cleanup on this schedule (`0`: only on demand with `run_storage_cleanup` / `POST /v1/storage/cleanup`). |
 
 ## database
 
@@ -76,6 +110,26 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `security.secretKey` | `REELFORGE_SECRET_KEY` (each also as `_FILE`) | string | (none) | startup | yes | Encrypts secrets stored in the database (provider keys, licence key) with AES-256-GCM. At least 32 characters: `openssl rand -base64 32`. Without it the server refuses to store secrets. Keep it safe: losing it makes stored secrets unreadable. |
 | `security.bootstrapKey` | `REELFORGE_BOOTSTRAP_KEY` (each also as `_FILE`) | string | (none) | startup | yes | First admin API key (`rf_` + 20 or more URL-safe characters). Stored hashed as key "bootstrap" on start if no key exists. |
+
+## audit
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `audit.retentionDays` | `REELFORGE_AUDIT_RETENTION_DAYS` | integer | `365` | runtime |  | Days audit entries are kept in the database; older ones are deleted by the hourly sweep. `0` keeps them forever. |
+| `audit.sinks` | `REELFORGE_AUDIT_SINKS` | list (comma-separated in env) | (empty) | runtime |  | Where audit entries go besides the database (always on): `stdout` (one JSON line per entry, `{"type":"audit",...}`), `otlp` (OTLP/HTTP logs to `audit.otlpEndpoint`), or the id of a sink plugin. Several at once; comma-separated in the environment. Example: `stdout,otlp`. |
+| `audit.otlpEndpoint` | `REELFORGE_AUDIT_OTLP_ENDPOINT` | url | (none) | runtime |  | OTLP/HTTP logs endpoint for the `otlp` audit sink (JSON encoding). Sends audit entries to that host only when `otlp` is in `audit.sinks` (docs/PRIVACY.md). Example: `http://otel-collector:4318/v1/logs`. |
+
+## keys
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `keys.rotationGraceHours` | `REELFORGE_KEY_ROTATION_GRACE_HOURS` | integer | `24` | runtime |  | After `rotate_key`, the old secret keeps working this many hours so clients can switch. `0` ends it at once; a rotation may pass its own `graceHours`. |
+
+## idempotency
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `idempotency.ttlHours` | `REELFORGE_IDEMPOTENCY_TTL_HOURS` | integer | `24` | runtime |  | How long an `Idempotency-Key` (REST) / `idempotencyKey` (MCP) and its stored result are kept; expired ones are swept hourly. |
 
 ## render
 
@@ -100,7 +154,23 @@ logging:
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
 | `logging.level` | `REELFORGE_LOG_LEVEL` | `debug` \| `info` \| `warn` \| `error` | `info` | runtime |  | Server log level. |
-| `logging.format` | `REELFORGE_LOG_FORMAT` | `text` \| `json` | `text` | startup |  | `text` (`[reelforge] ...` lines) or `json` (one object per line). |
+| `logging.format` | `REELFORGE_LOG_FORMAT` | `text` \| `json` | `json` | startup |  | Older name for the stdout log format, kept for existing deployments: `text` selects `observability.logs.exporter: pretty` when that is not set. Prefer `observability.logs.exporter`. |
+
+## observability
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `observability.serviceName` | `REELFORGE_OTEL_SERVICE_NAME`, `OTEL_SERVICE_NAME` | string | `reelforge-studio` | startup |  | OpenTelemetry `service.name` of traces, metrics and logs (also `service.version` and `reelforge.edition` are sent). |
+| `observability.logs.exporter` | `REELFORGE_LOGS_EXPORTER` | `stdout` \| `pretty` \| `otlp` | `stdout` (`pretty` when `logging.format` is `text`) | runtime |  | `stdout`: one JSON object per line (request id, key id, route, status, duration; secrets redacted). `pretty`: readable `[reelforge] ...` lines for development. `otlp`: JSON lines on stdout and OpenTelemetry log records to `observability.otlp.endpoint` (Grafana Loki, Datadog, Honeycomb, Elastic, ...). |
+| `observability.metrics.exporter` | `REELFORGE_METRICS_EXPORTER` | `prometheus` \| `otlp` \| `off` | `prometheus` | runtime |  | `prometheus`: text format on `GET /metrics` for scraping. `otlp`: pushed to `observability.otlp.endpoint` every `observability.metrics.exportIntervalSeconds`. `off`: neither (`/metrics` answers 404). |
+| `observability.metrics.bearerToken` | `REELFORGE_METRICS_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | When set, `GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` is open like `/healthz`; keep it off the public internet (docs/OBSERVABILITY.md). |
+| `observability.metrics.exportIntervalSeconds` | `REELFORGE_METRICS_EXPORT_INTERVAL_SECONDS` | integer | `60` | runtime |  | How often metrics are pushed with the `otlp` exporter. |
+| `observability.tracing.exporter` | `REELFORGE_TRACING_EXPORTER` | `otlp` \| `off` | `off` (`otlp` when `observability.otlp.endpoint` is set) | runtime |  | `otlp`: spans for HTTP requests, jobs, engine renders and FFmpeg steps to `observability.otlp.endpoint` (Jaeger, Grafana Tempo, Honeycomb, Datadog, ...). `off`: no spans. |
+| `observability.tracing.sampleRatio` | `REELFORGE_TRACING_SAMPLE_RATIO` | number | `1` | runtime |  | Share of new traces kept (0 to 1). A request that arrives with a W3C `traceparent` follows the caller's sampling decision. |
+| `observability.otlp.endpoint` | `REELFORGE_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_ENDPOINT` | url | (none) | runtime |  | OTLP/HTTP base URL; `/v1/traces`, `/v1/metrics` and `/v1/logs` are appended. Nothing is sent anywhere unless this is set (docs/PRIVACY.md). Example: `http://otel-collector:4318`. |
+| `observability.otlp.headers` | `REELFORGE_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_HEADERS` (each also as `_FILE`) | string | (none) | runtime | yes | Headers sent with every OTLP request, as `name=value,name2=value2` (values may be URL-encoded). Usually holds the vendor API key, so it is a secret. Example: `authorization=Basic <base64 instance:token>`. |
+| `observability.otlp.protocol` | `REELFORGE_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` \| `http/json` | `http/protobuf` | runtime |  | OTLP encoding over HTTP. gRPC is not shipped (it would add a large dependency); point this at an OpenTelemetry Collector to reach a gRPC-only backend. |
+| `observability.otlp.timeoutSeconds` | `REELFORGE_OTLP_TIMEOUT_SECONDS` | integer | `10` | runtime |  | Longest time one OTLP export may take, retries included (429/502/503/504 are retried with exponential backoff inside this time). Then the batch is dropped and the server carries on. |
 
 ## licence
 

@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { loadConfigFile, resolveConfig, type ConfigSources, type ResolvedConfig } from '@reelforge/core';
+import { StructuredLogger, secretValues, type StructuredLoggerOptions } from './observability/logger';
 
 /**
  * The server's view of the configuration. Every value comes from the one
@@ -114,14 +115,15 @@ export function exportProcessEnv(resolved: ResolvedConfig, target: NodeJS.Proces
 }
 
 export type LogLevel = ServerConfig['logLevel'];
-const LEVELS: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
-/** `[reelforge] ...` lines or JSON lines, filtered by the (runtime) log level. Never pass secrets. */
-export function createLogger(config: Pick<ServerConfig, 'logLevel' | 'logFormat'>, quiet = false) {
-  return (level: LogLevel, line: string) => {
-    if (quiet || LEVELS[level] < LEVELS[config.logLevel]) return;
-    const out = level === 'error' || level === 'warn' ? console.error : console.log;
-    if (config.logFormat === 'json') out(JSON.stringify({ time: new Date().toISOString(), level, msg: line }));
-    else out(`[reelforge] ${level === 'info' ? '' : `${level}: `}${line}`);
-  };
+/**
+ * The server logger for this configuration: JSON lines or readable lines
+ * (observability.logs.exporter), filtered by the runtime log level, secrets
+ * redacted (D-051). The OTLP part is attached by Observability.
+ */
+export function createLogger(config: Pick<ServerConfig, 'logLevel' | 'resolved'>, quiet = false, write?: StructuredLoggerOptions['write']): StructuredLogger {
+  const o = config.resolved.config.observability;
+  const logger = new StructuredLogger({ level: () => config.logLevel, exporter: o.logs.exporter, service: o.serviceName, quiet, write });
+  logger.redactor.setSecrets(secretValues(config.resolved));
+  return logger;
 }
