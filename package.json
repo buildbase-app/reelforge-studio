@@ -16,7 +16,7 @@
     "spike": "tsx scripts/spike.ts",
     "prebuild:engines": "tsx apps/server/src/prebuild.ts",
     "check": "pnpm typecheck && pnpm test",
-    "dev": "REELFORGE_LICENCE_MODE=${REELFORGE_LICENCE_MODE:-off} tsx watch --clear-screen=false apps/server/src/main.ts",
+    "dev": "REELFORGE_LICENCE_MODE=${REELFORGE_LICENCE_MODE:-off} REELFORGE_LOGS_EXPORTER=${REELFORGE_LOGS_EXPORTER:-pretty} tsx watch --clear-screen=false apps/server/src/main.ts",
     "start": "tsx apps/server/src/main.ts",
     "keys:create": "tsx apps/server/src/cli.ts keys create",
     "reelforge": "tsx apps/server/src/cli.ts",

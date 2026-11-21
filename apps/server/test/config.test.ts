@@ -161,7 +161,7 @@ describe('configuration over MCP', () => {
     const all = toolJson(await client.callTool({ name: 'get_config', arguments: { prefix: 'logging' } }));
     expect(all.settings.map((s: any) => [s.key, s.value, s.source])).toEqual([
       ['logging.level', 'warn', 'file'],
-      ['logging.format', 'text', 'default'],
+      ['logging.format', 'json', 'default'],
     ]);
     const changed = toolJson(await client.callTool({ name: 'update_config', arguments: { settings: { 'logging.level': 'error', 'limits.renderConcurrency': 2 } } }));
     expect(changed.settings.map((s: any) => [s.key, s.value, s.source])).toEqual([

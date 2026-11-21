@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events';
+import { SpanStatusCode, context, trace, type Context, type Span } from '@opentelemetry/api';
 import { ApiError, notFound } from './errors';
+import { NOOP_TELEMETRY, coreInstruments, type Telemetry } from './telemetry';
 import { newId } from './fsutil';
 import type { JobFilter, JobProgress, JobRecord, JobRepository, JobStatus } from './repositories';
 
@@ -30,6 +32,8 @@ export interface JobRunnerOptions {
   /** Jobs that run at the same time. Renders are CPU and memory heavy: default 1. */
   concurrency?: number;
   handlers: Record<string, JobHandler>;
+  /** Traces (a span per job, child of the request that submitted it) and job metrics (D-050). */
+  telemetry?: Telemetry;
 }
 
 /**
@@ -59,9 +63,14 @@ export class JobRunner {
   private idleWaiters: Array<() => void> = [];
   /** Per-job write chains so state and log writes land in order. */
   private chains = new Map<string, Promise<void>>();
+  /** The trace context each queued job was submitted in (in memory only). */
+  private origins = new Map<string, Context>();
+  private spans = new Map<string, Span>();
+  private readonly telemetry: Telemetry;
 
   constructor(opts: JobRunnerOptions) {
     this.repo = opts.repo;
+    this.telemetry = opts.telemetry ?? NOOP_TELEMETRY;
     this._concurrency = Math.max(1, opts.concurrency ?? 1);
     this.handlers = opts.handlers;
     this.events.setMaxListeners(0);
@@ -104,6 +113,7 @@ export class JobRunner {
     // Durable before anyone sees the id.
     await this.repo.insert(structuredClone(job), job.createdAt);
     this.active.set(job.id, job);
+    this.origins.set(job.id, context.active());
     this.queue.push(job.id);
     this.emit({ jobId: job.id, type: 'status', job });
     queueMicrotask(() => this.pump());
@@ -124,6 +134,11 @@ export class JobRunner {
       const a = this.active.get(j.id);
       return a ? structuredClone(a) : j;
     });
+  }
+
+  /** Jobs of this process waiting and running (queue depth, metrics). */
+  stats(): { queued: number; running: number } {
+    return { queued: this.queue.length, running: this.running.size };
   }
 
   /** Position in the queue (0 = next), or null if not queued. */
@@ -216,6 +231,21 @@ export class JobRunner {
     job.status = 'running';
     job.startedAt = new Date().toISOString();
     job.progress = { stage: 'starting', fraction: 0 };
+    const parent = this.origins.get(job.id) ?? context.active();
+    this.origins.delete(job.id);
+    const span = this.telemetry.tracer.startSpan(
+      `job ${job.type}`,
+      {
+        attributes: {
+          'reelforge.job.id': job.id,
+          'reelforge.job.type': job.type,
+          'reelforge.job.queue_ms': Date.parse(job.startedAt) - Date.parse(job.createdAt),
+          ...(job.projectId ? { 'reelforge.project.id': job.projectId } : {}),
+        },
+      },
+      parent
+    );
+    this.spans.set(job.id, span);
     await this.transition(job);
     this.emit({ jobId: job.id, type: 'status', job });
     this.log(job, `started ${job.type}`);
@@ -230,7 +260,7 @@ export class JobRunner {
       },
     };
     try {
-      const result = await this.handlers[job.type]!(ctx);
+      const result = await context.with(trace.setSpan(parent, span), () => this.handlers[job.type]!(ctx));
       if (controller.signal.aborted) throw new Error('cancelled');
       this.finish(job, 'succeeded', { result });
     } catch (e) {
@@ -254,6 +284,7 @@ export class JobRunner {
     job.finishedAt = new Date().toISOString();
     if (status === 'succeeded') job.progress = { stage: 'done', fraction: 1 };
     Object.assign(job, extra);
+    this.record(job);
     this.log(job, `finished: ${status}${extra.error ? ` (${extra.error.message})` : ''}`);
     const written = this.transition(job);
     // Readers fall back to the database once the final state is stored.
@@ -262,6 +293,21 @@ export class JobRunner {
       this.lastPersist.delete(job.id);
     });
     this.emit({ jobId: job.id, type: 'status', job });
+  }
+
+  /** Metrics and the job's span for a final state. */
+  private record(job: JobRecord) {
+    this.origins.delete(job.id);
+    const attrs = { 'reelforge.job.type': job.type, 'reelforge.job.status': job.status };
+    const m = coreInstruments(this.telemetry.meter);
+    m.jobsFinished.add(1, attrs);
+    if (job.startedAt && job.finishedAt) m.jobDuration.record((Date.parse(job.finishedAt) - Date.parse(job.startedAt)) / 1000, attrs);
+    const span = this.spans.get(job.id);
+    if (!span) return;
+    this.spans.delete(job.id);
+    span.setAttribute('reelforge.job.status', job.status);
+    if (job.status === 'failed') span.setStatus({ code: SpanStatusCode.ERROR, message: `${job.error?.code ?? 'failed'}: ${job.error?.message ?? ''}`.slice(0, 500) });
+    span.end();
   }
 
   private log(job: JobRecord, line: string) {

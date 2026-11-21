@@ -186,3 +186,33 @@ implementation or licensing decisions.
     observed 2026-11-21 on Node 22.23.5: the live licence check went through
     the sandbox proxy only with it, with the warning "EnvHttpProxyAgent is
     experimental"). https://nodejs.org/api/cli.html#node_use_env_proxy1
+30. **OpenTelemetry JS 3.x / exporters 0.301.x** (npm registry, read
+    2026-11-21): `@opentelemetry/api` 1.10.0, `sdk-trace` / `sdk-metrics` /
+    `sdk-logs` / `core` / `resources` / `context-async-hooks` 3.1.1 (3.0.0
+    released 2026-10-20; 3.x replaces `sdk-trace-base` with `sdk-trace` and
+    folds the logs API into `@opentelemetry/api`), `exporter-prometheus` and
+    `exporter-{trace,metrics,logs}-otlp-{http,proto}` 0.301.2 (2026-11-12).
+    Behaviour read from the installed code: the OTLP exporters retry
+    429/502/503/504 and network errors up to 5 times with exponential backoff
+    (1 s initial, ×1.5, max 5 s, ±20 % jitter) inside `timeoutMillis`
+    (`otlp-exporter-base/dist/retrying-transport.mjs`); `PrometheusSerializer`
+    adds `_total` to monotonic sums but no unit suffix (we add `_seconds`).
+    OTLP/HTTP paths `/v1/traces`, `/v1/metrics`, `/v1/logs` and the
+    `OTEL_EXPORTER_OTLP_*` variable names: https://opentelemetry.io/docs/specs/otel/protocol/exporter/
+    HTTP semantic conventions (`http.server.request.duration`, `http.route`,
+    `http.request.method`, `http.response.status_code`):
+    https://opentelemetry.io/docs/specs/semconv/http/http-metrics/
+31. **OpenTelemetry Collector contrib 0.140.0** (`mirror.gcr.io/otel/opentelemetry-collector-contrib:0.140.0`,
+    pulled 2026-11-21) and **Prometheus v3.7.3** `promtool check metrics`
+    (`mirror.gcr.io/prom/prometheus:v3.7.3`): the receivers used by the
+    Docker e2e (OTLP/HTTP on 4318 with `http/protobuf`, the Prometheus
+    receiver scraping `/metrics`, the file exporter).
+32. **Vendor OTLP endpoints** (documentation, read 2026-11-21; not tested
+    against the vendors): Grafana Cloud OTLP gateway
+    `https://otlp-gateway-<zone>.grafana.net/otlp` with
+    `Authorization=Basic <base64 instance-id:token>`
+    (https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/);
+    Honeycomb `https://api.honeycomb.io` with `x-honeycomb-team=<key>`
+    (https://docs.honeycomb.io/send-data/opentelemetry/); Datadog through the
+    Datadog Agent's OTLP receiver on `http://<agent>:4318`
+    (https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest_in_the_agent/).

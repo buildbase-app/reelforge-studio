@@ -25,6 +25,11 @@
 #   HARDENED=0 e2e/docker/run.sh      # plain `docker run` flags (no read-only, capabilities, seccomp profile)
 #   RELEASE_IMAGE=reelforge-studio:release e2e/docker/run.sh   # also check the published release image:
 #                                     # production licence settings fixed, same layers as the tested image but one
+#   E2E_PREFIX=obs PORT=4331 e2e/docker/run.sh   # other container/network/volume names and host port (parallel runs)
+#
+# Issue #64 (observability): JSON logs, GET /metrics checked with promtool and scraped by an OpenTelemetry
+# Collector container ("otel", OTEL_IMAGE), OTLP traces/logs/metrics selected at runtime over MCP and
+# received by that collector, then the collector stopped: the studio must keep serving.
 #
 # The data volume starts as a v0.1 filesystem data directory (seed-v01.mjs): the
 # server must import it once into the database, and the e2e key is that imported
@@ -38,9 +43,12 @@ CLIENT_IMAGE=${CLIENT_IMAGE:-node:22-bookworm-slim}
 DB=${DB:-sqlite}
 EDITION=${EDITION:-release}
 HARDENED=${HARDENED:-1}
-NET=rf-e2e-net VOL=rf-e2e-data NAME=rf-e2e-server PORT=${PORT:-4321} PROJECT=rf-e2e
+P=${E2E_PREFIX:-rf-e2e}
+NET=$P-net VOL=$P-data NAME=$P-server PORT=${PORT:-4321} PROJECT=$P
 # Licence (#25): a mock of the BuildBase licence API in its own container; the server only knows its URL.
-LIC=rf-e2e-licence LIC_ORG=6b01478bb42d2c444e99fcd8-mocklice
+LIC=$P-licence LIC_ORG=6b01478bb42d2c444e99fcd8-mocklice
+# Observability (#64): an OpenTelemetry Collector and promtool (Prometheus image).
+OTEL=$P-otel OTEL_IMAGE=${OTEL_IMAGE:-mirror.gcr.io/otel/opentelemetry-collector-contrib:0.140.0} PROM_IMAGE=${PROM_IMAGE:-mirror.gcr.io/prom/prometheus:v3.7.3}
 lkey() { openssl rand -hex 13 | cut -c1-25 | tr 'a-f01' 'A-FGH' | sed 's/.\{5\}/&-/g;s/-$//'; }
 KEY_A=$(lkey) KEY_B=$(lkey) KEY_C=$(lkey)
 LICENCE_KEYS="[\"$KEY_A\",\"$KEY_B\",\"$KEY_C\"]"
@@ -49,7 +57,7 @@ case "$EDITION" in release|dev) ;; *) echo "EDITION must be release or dev"; exi
 [ "$DB" = sqlite ] || NET=${PROJECT}_default
 WORK=$(mktemp -d); chmod 755 "$WORK"
 cleanup() {
-  docker rm -f $NAME $LIC >/dev/null 2>&1 || true
+  docker rm -f $NAME $LIC $OTEL >/dev/null 2>&1 || true
   [ "$DB" = sqlite ] && { docker network rm $NET >/dev/null 2>&1 || true; } || docker compose -p $PROJECT --profile "$DB" down -v >/dev/null 2>&1 || true
   docker volume rm $VOL >/dev/null 2>&1 || true; rm -rf "$WORK"
 }
@@ -77,7 +85,7 @@ LIC_ENV=()
 
 KEY=rf_$(openssl rand -hex 24)
 PLAIN_V01=sk_v01_plaintext_$(openssl rand -hex 8)
-mkdir -p "$WORK/secret" "$WORK/out" "$WORK/client" "$WORK/config" "$WORK/mock"
+mkdir -p "$WORK/secret" "$WORK/out" "$WORK/client" "$WORK/config" "$WORK/mock" "$WORK/otel"
 printf %s "$KEY" > "$WORK/secret/key"
 openssl rand -base64 32 > "$WORK/secret/secretkey"
 # The config file (REELFORGE_CONFIG): one source of settings; env and runtime settings override it.
@@ -90,7 +98,8 @@ case "$DB" in
 esac
 # The server runs as UID 10001: a *_FILE secret must be readable by it.
 for f in key dburl secretkey; do chown 10001 "$WORK/secret/$f" 2>/dev/null || chmod 644 "$WORK/secret/$f"; done
-chmod 777 "$WORK/out"
+chmod 777 "$WORK/out" "$WORK/otel"
+cp e2e/otel/collector.yaml "$WORK/config/collector.yaml"; chmod 644 "$WORK/config/collector.yaml"
 cp e2e/docker/*.mjs examples/sample-reel.json "$WORK/client/"
 cp e2e/mock-licence/server.mjs "$WORK/mock/"; chmod -R a+rX "$WORK/mock"
 (cd "$WORK/client" && npm init -y >/dev/null && npm i -q --no-audit --no-fund @modelcontextprotocol/sdk@1.32.2 >/dev/null)
@@ -107,7 +116,7 @@ start() {
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && return; sleep 2; done
   docker logs $NAME; echo "server did not become healthy"; exit 1
 }
-client() { docker run --rm --network $NET -v "$WORK/client:/c:ro" -v "$WORK/out:/out" -w /c \
+client() { docker run --rm --network $NET -v "$WORK/client:/c:ro" -v "$WORK/out:/out" -v "$WORK/otel:/otel:ro" -w /c \
   -e URL=http://reelforge:4321/mcp -e KEY="$KEY" -e SAMPLE=sample-reel.json -e PLAIN_V01="$PLAIN_V01" -e PHASE="${PHASE:-before}" -e LICENCE_KEYS="$LICENCE_KEYS" \
   -e EDITION="$EDITION" -e SANDBOX="$HARDENED" "$CLIENT_IMAGE" node "$@"; }
 licence_server() {
@@ -131,7 +140,7 @@ docker run --rm -v $VOL:/data -v "$WORK/client:/c:ro" -w /c -e KEY="$KEY" -e PLA
   sh -c 'node seed-v01.mjs && chown -R 10001:10001 /data'
 start
 echo "== database and one-time v0.1 import"
-docker logs $NAME 2>&1 | grep -E '\[reelforge\] (database|imported|applying)' | sed 's/^/   /'
+docker logs $NAME 2>&1 | grep -oE '"msg":"(database|imported|applying)[^"]*' | sed 's/^"msg":"/   /'
 logs_have $NAME "database: ${DB/postgres/postgresql} " && echo "✔ server uses $DB" || { echo "✘ server is not on $DB"; docker logs $NAME; exit 1; }
 if [ "$DB" = sqlite ]; then docker exec $NAME test -s /data/reelforge.db && echo "✔ /data/reelforge.db exists"
 else docker exec $NAME test ! -e /data/reelforge.db && echo "✔ no SQLite file on the volume"; fi
@@ -170,6 +179,28 @@ echo "== MCP journey (separate container)"; client journey.mjs
 echo "== ffprobe"; docker run --rm -v "$WORK/out:/o:ro" --entrypoint ffprobe "$IMAGE" -v error -count_frames \
   -show_entries stream=codec_name,width,height,r_frame_rate,nb_read_frames:format=duration -of compact /o/docker-e2e.mp4
 echo "== auth, scopes, validation"; client neg.mjs
+echo "== observability (#64): JSON logs, Prometheus /metrics, OTLP to an OpenTelemetry Collector (container \"otel\")"
+docker logs $NAME > "$WORK/container.log" 2>&1 || true
+grep -m1 '"route":"/mcp".*"status":200' "$WORK/container.log" | grep -q '"request_id":"[^"]\+".*"key_id":"[^"]\+".*"status":200,"duration_ms":' \
+  && echo "✔ JSON access log lines: request id, key id, route template, status, duration ($(grep -c '"route":' "$WORK/container.log") lines)" || { echo "✘ no JSON access log"; tail -5 "$WORK/container.log"; exit 1; }
+grep -q -- "$KEY" "$WORK/container.log" && { echo "✘ the server log contains the API key"; exit 1; } || echo "✔ no API key in the server log"
+curl -s -D "$WORK/metrics.h" "http://127.0.0.1:$PORT/metrics" > "$WORK/metrics.txt"
+grep -qi '^content-type: text/plain; version=0.0.4' "$WORK/metrics.h" && docker run --rm -i --entrypoint promtool "$PROM_IMAGE" check metrics < "$WORK/metrics.txt" \
+  && echo "✔ GET /metrics passes promtool check metrics ($(grep -c '^[a-z]' "$WORK/metrics.txt") samples)" || { echo "✘ /metrics is not valid Prometheus text"; head -20 "$WORK/metrics.txt"; exit 1; }
+for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'reelforge_jobs_finished_total{.*reelforge_job_status="succeeded"' 'reelforge_render_frames_total{.*reelforge_engine="html"' 'reelforge_licence_state{reelforge_licence_state="valid"} 1' 'reelforge_jobs_queued 0'; do
+  grep -q "^$m" "$WORK/metrics.txt" || { echo "✘ /metrics lacks $m"; exit 1; }; done; echo "✔ /metrics has HTTP, job, render, licence and queue metrics"
+grep -Eq "(job|run|prv|key)_[a-z0-9]{8,}|$KEY" "$WORK/metrics.txt" && { echo "✘ ids or keys in metric labels"; exit 1; } || echo "✔ no ids or keys in metric labels (bounded cardinality)"
+docker run -d --name $OTEL --network $NET --network-alias otel --user 10001 -v "$WORK/config/collector.yaml:/etc/otelcol/config.yaml:ro" -v "$WORK/otel:/out" \
+  "$OTEL_IMAGE" --config /etc/otelcol/config.yaml >/dev/null
+for _ in $(seq 1 30); do logs_have $OTEL 'Everything is ready' && break; sleep 1; done
+logs_have $OTEL 'Everything is ready' && echo "✔ collector $OTEL_IMAGE is up" || { docker logs $OTEL | tail -20; echo "✘ collector did not start"; exit 1; }
+PHASE=on client obs.mjs
+PHASE=check client obs.mjs || { docker logs $OTEL 2>&1 | tail -20; exit 1; }
+PHASE=metrics-otlp client obs.mjs
+docker stop $OTEL >/dev/null
+PHASE=down client obs.mjs
+logs_have $NAME 'OTLP .* export to http://otel:4318 failed' && echo "✔ the failing export is a warning in the server log: $(grep -o 'OTLP [a-z]* export to http://otel:4318 failed[^:]*' "$WORK/container.log" | head -1)" || { echo "✘ no export warning in the log"; exit 1; }
+[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/healthz")" = 200 ] && echo "✔ the server kept running" || { echo "✘ server down"; exit 1; }
 echo "== Host/Origin checks"
 mcp() { curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:$PORT/mcp" -H "Authorization: Bearer $KEY" \
   -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' "$@" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'; }
