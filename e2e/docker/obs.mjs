@@ -57,7 +57,8 @@ if (PHASE === 'on') {
     check('resource attributes: service.name, service.version, edition', job.resource['service.name'] === 'reelforge-studio' && Boolean(job.resource['service.version']) && job.resource['reelforge.edition'] === EDITION, JSON.stringify(job.resource));
     console.log(`   trace ${job.traceId}: ${s.filter((x) => x.traceId === job.traceId).length} spans`);
   }
-  const logOk = await until(() => logs().find((l) => l.body === 'POST /mcp 200' && l.attributes.route === '/mcp' && l.attributes.request_id));
+  // (The update_config call that switched OTLP on started before tracing was on: its own log record has no trace id.)
+  const logOk = await until(() => logs().find((l) => l.body === 'POST /mcp 200' && l.attributes.route === '/mcp' && l.attributes.request_id && l.traceId));
   check('the collector received OTLP log records (access log with request id, route, status, trace id)', Boolean(logOk && logOk.traceId), logOk ? JSON.stringify({ body: logOk.body, severity: logOk.severityText, key_id: logOk.attributes.key_id, trace: logOk.traceId }) : '');
   const scraped = await until(() => { const n = metricNames(); return [...n].some((x) => x.startsWith('http_server_request_duration')) && [...n].some((x) => x.startsWith('reelforge_jobs_finished')) ? n : null; });
   check('the collector\'s Prometheus receiver scraped /metrics (http_server_request_duration*, reelforge_jobs_finished*)', Boolean(scraped), scraped ? [...scraped].filter((x) => /^(http_|reelforge_)/.test(x)).slice(0, 8).join(', ') : '');

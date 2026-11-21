@@ -189,7 +189,10 @@ grep -qi '^content-type: text/plain; version=0.0.4' "$WORK/metrics.h" && docker 
   && echo "✔ GET /metrics passes promtool check metrics ($(grep -c '^[a-z]' "$WORK/metrics.txt") samples)" || { echo "✘ /metrics is not valid Prometheus text"; head -20 "$WORK/metrics.txt"; exit 1; }
 for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'reelforge_jobs_finished_total{.*reelforge_job_status="succeeded"' 'reelforge_render_frames_total{.*reelforge_engine="html"' 'reelforge_licence_state{reelforge_licence_state="valid"} 1' 'reelforge_jobs_queued 0'; do
   grep -q "^$m" "$WORK/metrics.txt" || { echo "✘ /metrics lacks $m"; exit 1; }; done; echo "✔ /metrics has HTTP, job, render, licence and queue metrics"
-grep -Eq "(job|run|prv|key)_[a-z0-9]{8,}|$KEY" "$WORK/metrics.txt" && { echo "✘ ids or keys in metric labels"; exit 1; } || echo "✔ no ids or keys in metric labels (bounded cardinality)"
+# Label values only (metric names such as reelforge_job_duration_seconds contain "job_").
+grep -o '="[^"]*"' "$WORK/metrics.txt" | sort -u > "$WORK/labels.txt"
+grep -Eq "(job|run|prv|key|ast)_[a-z0-9]{8,}|rf_|e2e-docker-" "$WORK/labels.txt" && { echo "✘ ids or keys in metric labels: $(grep -E '(job|run|prv|key|ast)_[a-z0-9]{8,}|rf_|e2e-docker-' "$WORK/labels.txt" | head -3)"; exit 1; } \
+  || echo "✔ no ids or keys in metric labels ($(wc -l < "$WORK/labels.txt") distinct label values, bounded cardinality)"
 docker run -d --name $OTEL --network $NET --network-alias otel --user 10001 -v "$WORK/config/collector.yaml:/etc/otelcol/config.yaml:ro" -v "$WORK/otel:/out" \
   "$OTEL_IMAGE" --config /etc/otelcol/config.yaml >/dev/null
 for _ in $(seq 1 30); do logs_have $OTEL 'Everything is ready' && break; sleep 1; done

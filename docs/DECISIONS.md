@@ -807,8 +807,8 @@ form one trace per request: `HTTP <route>` → `job <type>` (child of the
 request that submitted it, also when it runs later) → `engine.render
 <engine>` → `ffprobe clip`, `ffmpeg assemble`, `ffprobe output`, `ffmpeg
 decode check`, `ffmpeg poster`; an incoming W3C `traceparent` is continued.
-The SDK adds about 20 MB of production `node_modules` (no protobuf runtime:
-the 3.x transformer encodes itself).
+The release image grows by 9 MB (1845 → 1854 MB uncompressed, budget 2000;
+no protobuf runtime: the 3.x transformer encodes itself).
 
 ### D-051 --- Logs: JSON lines by default, redacted on the way out
 
