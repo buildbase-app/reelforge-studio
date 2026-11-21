@@ -76,11 +76,11 @@ another on a Docker network (agent "on another machine").
 
 | Check | Result |
 | --- | --- |
-| Image builds; container healthy; non-root (UID 10001) | pass |
+| Image builds; container healthy; non-root (UID 10001) | pass (321 tests in the repo with `REELFORGE_REQUIRE_BROWSER=1`) |
 | MCP journey (official SDK client, other container): capabilities, themes, templates, create (v0.1 migrated), add/update scenes with timing, set theme, validate, render, long-poll, signed download | pass: 1080×1920, 30 fps, H.264 + AAC, 330 frames (= sum of scene frames), 4 engines |
 | No key / wrong key / revoked key | 401 |
 | Read-only key: write or key admin | 403 |
-| Keys created and revoked by an agent over the API | pass |
+| Keys created and revoked by an agent over the API | pass (321 tests in the repo with `REELFORGE_REQUIRE_BROWSER=1`) |
 | Invalid manifest | 422 `invalid_manifest` with paths |
 | Forged `Host` / foreign `Origin` on `/mcp` | 403 (DNS-rebinding protection) |
 | New container on the same volume | projects, keys, renders kept |
@@ -179,6 +179,29 @@ Found and fixed: HyperFrames refuses to render with less than 1 GB free in its
 temp directory, which a 1 GB tmpfs `/tmp` is not (its temp files now go to
 `/data`); `docker logs | grep -q` under `pipefail` made the Docker e2e flaky
 (9b287c5, CI run 44916484714).
+
+### Observability (2026-11-21, issue #64)
+
+Structured logs, metrics and traces with selectable providers (D-050..D-054,
+[providers/observability.md](providers/observability.md)): JSON log lines by
+default (`pretty`, `otlp`), request id / key id / route / status / duration,
+secrets redacted; `GET /metrics` in the Prometheus format (optional bearer
+token), OTLP push, or off; OpenTelemetry traces over OTLP/HTTP (protobuf or
+JSON) from the HTTP request through the job and each engine render to the
+FFmpeg steps; every `observability.*` setting changeable at runtime over
+`update_config`. `/readyz` reports database, storage, FFmpeg, browser and
+telemetry exporters. A failing receiver never breaks the server (bounded
+timeouts with retries and backoff, `/readyz` and a rate-limited warning).
+
+| Check | Result |
+| --- | --- |
+| Server tests (`apps/server/test/observability.test.ts`, OBS-01..17: format, redaction, access log, Prometheus parse, cardinality, token, OTLP traces/logs/metrics to a test receiver, runtime switch, receiver down, 503 backoff, hanging receiver, shutdown flush, settings) | pass (321 tests in the repo with `REELFORGE_REQUIRE_BROWSER=1`) |
+| Docker e2e, release image, hardened flags: JSON `docker logs`, `promtool check metrics`, an OpenTelemetry Collector 0.140.0 container receiving the trace `POST /mcp` → `job preview` → `engine.render html` → FFmpeg spans, OTLP log records and OTLP metrics (http/protobuf) and scraping `/metrics`, then stopped: the studio keeps serving and `/readyz` reports it | **ALL DOCKER E2E CHECKS PASSED** on SQLite (125 checks) and PostgreSQL 17 (128), image built from this branch |
+| Release image size | 1845 → 1854 MB (budget 2000); contents and secrets checks pass |
+
+Not done: OTLP/gRPC (use a collector), vendor backends (Grafana Cloud,
+Honeycomb, Datadog: documented, untested), the Grafana dashboard loaded in
+Grafana, process metrics.
 
 ## 4. Infrastructure inventory (no secrets)
 

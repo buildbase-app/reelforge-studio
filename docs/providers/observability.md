@@ -231,31 +231,31 @@ release image, the hardened run flags, an OpenTelemetry Collector container
 
 | ID | What it checks | How | Latest result |
 | --- | --- | --- | --- |
-| OBS-01 | `stdout` JSON line format, fields, runtime log level, `pretty` lines | observability.test.ts | RESULT_UNIT |
-| OBS-02 | Redaction of API keys, bearer/basic credentials, URL passwords, signatures, secret values and secret-named fields; secret values collected from settings | observability.test.ts | RESULT_UNIT |
-| OBS-03 | Access log: request id (given, generated, invalid replaced, echoed), key id never the key, route template, status, duration, no query string | observability.test.ts | RESULT_UNIT |
-| OBS-04 | `/metrics` is valid Prometheus text (parsed) with HTTP, job, render, fps, queue, licence, build metrics after a render | observability.test.ts | RESULT_UNIT |
-| OBS-05 | Bounded cardinality: unknown paths → `unmatched`, only route templates, no ids/keys in any label, series count bounded | observability.test.ts | RESULT_UNIT |
-| OBS-06 | Metrics bearer token (401 without/wrong, 200 right, never logged) and exporter `off` (404), set at runtime over the config API | observability.test.ts | RESULT_UNIT |
-| OBS-07 | OTLP traces: HTTP → job → engine render → FFmpeg in one trace, parent links, caller's `traceparent` continued, resource attributes | observability.test.ts (http/json test receiver) | RESULT_UNIT |
-| OBS-08 | OTLP logs: records with severity, attributes and trace id; JSON still on stdout | observability.test.ts | RESULT_UNIT |
-| OBS-09 | OTLP metrics push (last push on shutdown) | observability.test.ts | RESULT_UNIT |
-| OBS-10 | Tracing switched on and off at runtime with `PATCH /v1/config`; tracing defaults to `otlp` once an endpoint is set | observability.test.ts | RESULT_UNIT |
-| OBS-11 | Receiver down: requests keep working, `/readyz` stays 200 with `telemetry.status: error`, exactly one warning (rate-limited) | observability.test.ts | RESULT_UNIT |
-| OBS-12 | Timeouts and backoff: 503 retried after ~1 s backoff within the timeout; a hanging receiver cut off at the timeout without slowing requests; recovery logged and shown | observability.test.ts | RESULT_UNIT |
-| OBS-13 | Graceful shutdown flushes batched spans and logs and pushes metrics once more | observability.test.ts (OBS-07..09 read only what `close()` flushed) | RESULT_UNIT |
-| OBS-14 | No secret (API keys, provider key, secret key, OTLP headers) in metrics, `/readyz`, logs or OTLP payloads; OTLP headers reach the receiver | observability.test.ts | RESULT_UNIT |
-| OBS-15 | `/readyz` dependencies: database, storage (free bytes), ffmpeg (version), browser, telemetry with status, required, latency; probes not logged at info | observability.test.ts | RESULT_UNIT |
-| OBS-16 | Settings: defaults, env names, `OTEL_*` aliases, computed defaults; invalid values refused naming the variable, without secrets | observability.test.ts | RESULT_UNIT |
-| OBS-17 | OTLP selected without an endpoint: server starts and serves, warning says why, `/readyz` says `not_configured` | observability.test.ts | RESULT_UNIT |
-| OBS-E2E-01 | `docker logs` of the release container are JSON access lines with request id, key id, route, status, duration; no API key | e2e/docker/run.sh | RESULT_E2E |
-| OBS-E2E-02 | `GET /metrics` from the host passes `promtool check metrics`; has HTTP, job, render, licence, queue series; no ids or keys in labels | e2e/docker/run.sh | RESULT_E2E |
-| OBS-E2E-03 | The collector's Prometheus receiver scrapes `/metrics` over the Docker network | obs.mjs `check` | RESULT_E2E |
-| OBS-E2E-04 | `update_config` over MCP selects OTLP; the collector receives (http/protobuf) the trace `POST /mcp` → `job preview` → `engine.render html` → FFmpeg spans, with resource attributes | obs.mjs `on` + `check` | RESULT_E2E |
-| OBS-E2E-05 | The collector receives OTLP log records (access log with request id, route, trace id) | obs.mjs `check` | RESULT_E2E |
-| OBS-E2E-06 | Metrics switched to OTLP push at runtime: `/metrics` 404, the collector receives `reelforge.jobs.finished`, `http.server.request.duration`, `reelforge.licence.state` | obs.mjs `metrics-otlp` | RESULT_E2E |
-| OBS-E2E-07 | Collector stopped: MCP calls keep working, `/readyz` stays ok and reports the failing export, a warning is in the log, settings reset over MCP | obs.mjs `down` + run.sh | RESULT_E2E |
-| OBS-E2E-08 | No API key in anything the collector received | obs.mjs `check` | RESULT_E2E |
+| OBS-01 | `stdout` JSON line format, fields, runtime log level, `pretty` lines | observability.test.ts | pass, 2026-11-21 |
+| OBS-02 | Redaction of API keys, bearer/basic credentials, URL passwords, signatures, secret values and secret-named fields; secret values collected from settings | observability.test.ts | pass, 2026-11-21 |
+| OBS-03 | Access log: request id (given, generated, invalid replaced, echoed), key id never the key, route template, status, duration, no query string | observability.test.ts | pass, 2026-11-21 |
+| OBS-04 | `/metrics` is valid Prometheus text (parsed) with HTTP, job, render, fps, queue, licence, build metrics after a render | observability.test.ts | pass, 2026-11-21 |
+| OBS-05 | Bounded cardinality: unknown paths → `unmatched`, only route templates, no ids/keys in any label, series count bounded | observability.test.ts | pass, 2026-11-21 |
+| OBS-06 | Metrics bearer token (401 without/wrong, 200 right, never logged) and exporter `off` (404), set at runtime over the config API | observability.test.ts | pass, 2026-11-21 |
+| OBS-07 | OTLP traces: HTTP → job → engine render → FFmpeg in one trace, parent links, caller's `traceparent` continued, resource attributes | observability.test.ts (http/json test receiver) | pass, 2026-11-21 |
+| OBS-08 | OTLP logs: records with severity, attributes and trace id; JSON still on stdout | observability.test.ts | pass, 2026-11-21 |
+| OBS-09 | OTLP metrics push (last push on shutdown) | observability.test.ts | pass, 2026-11-21 |
+| OBS-10 | Tracing switched on and off at runtime with `PATCH /v1/config`; tracing defaults to `otlp` once an endpoint is set | observability.test.ts | pass, 2026-11-21 |
+| OBS-11 | Receiver down: requests keep working, `/readyz` stays 200 with `telemetry.status: error`, exactly one warning (rate-limited) | observability.test.ts | pass, 2026-11-21 |
+| OBS-12 | Timeouts and backoff: 503 retried after ~1 s backoff within the timeout; a hanging receiver cut off at the timeout without slowing requests; recovery logged and shown | observability.test.ts | pass, 2026-11-21 |
+| OBS-13 | Graceful shutdown flushes batched spans and logs and pushes metrics once more | observability.test.ts (OBS-07..09 read only what `close()` flushed) | pass, 2026-11-21 |
+| OBS-14 | No secret (API keys, provider key, secret key, OTLP headers) in metrics, `/readyz`, logs or OTLP payloads; OTLP headers reach the receiver | observability.test.ts | pass, 2026-11-21 |
+| OBS-15 | `/readyz` dependencies: database, storage (free bytes), ffmpeg (version), browser, telemetry with status, required, latency; probes not logged at info | observability.test.ts | pass, 2026-11-21 |
+| OBS-16 | Settings: defaults, env names, `OTEL_*` aliases, computed defaults; invalid values refused naming the variable, without secrets | observability.test.ts | pass, 2026-11-21 |
+| OBS-17 | OTLP selected without an endpoint: server starts and serves, warning says why, `/readyz` says `not_configured` | observability.test.ts | pass, 2026-11-21 |
+| OBS-E2E-01 | `docker logs` of the release container are JSON access lines with request id, key id, route, status, duration; no API key | e2e/docker/run.sh | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
+| OBS-E2E-02 | `GET /metrics` from the host passes `promtool check metrics`; has HTTP, job, render, licence, queue series; no ids or keys in labels | e2e/docker/run.sh | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
+| OBS-E2E-03 | The collector's Prometheus receiver scrapes `/metrics` over the Docker network | obs.mjs `check` | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
+| OBS-E2E-04 | `update_config` over MCP selects OTLP; the collector receives (http/protobuf) the trace `POST /mcp` → `job preview` → `engine.render html` → FFmpeg spans, with resource attributes | obs.mjs `on` + `check` | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
+| OBS-E2E-05 | The collector receives OTLP log records (access log with request id, route, trace id) | obs.mjs `check` | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
+| OBS-E2E-06 | Metrics switched to OTLP push at runtime: `/metrics` 404, the collector receives `reelforge.jobs.finished`, `http.server.request.duration`, `reelforge.licence.state` | obs.mjs `metrics-otlp` | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
+| OBS-E2E-07 | Collector stopped: MCP calls keep working, `/readyz` stays ok and reports the failing export, a warning is in the log, settings reset over MCP | obs.mjs `down` + run.sh | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
+| OBS-E2E-08 | No API key in anything the collector received | obs.mjs `check` | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
 
 ## Troubleshooting
 
