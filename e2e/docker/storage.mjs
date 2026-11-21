@@ -33,9 +33,13 @@ const render = async (projectId) => {
   return j.result.renderId;
 };
 
+// An asset uploaded now goes to MinIO (a 1x1 PNG).
+const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const up = await call('upload_asset', { dataBase64: png, filename: 'dot.png', license: { name: 'CC0-1.0', redistributable: true } });
+check('STO-36 an uploaded asset is stored in MinIO', (await keys(`assets/${up.asset.id}/`)).includes(`assets/${up.asset.id}/file.png`), up.asset.id);
 const st = await call('get_storage');
 check('STO-30 get_storage: driver s3, MinIO bucket, health ok', st.driver === 's3' && st.location.bucket === BUCKET && st.health.ok === true, JSON.stringify({ driver: st.driver, location: st.location, health: st.health }));
-check('STO-30 get_storage: usage counts the migrated files', st.usage.assets.objects >= 1 && st.usage.renders.count >= 1, JSON.stringify(st.usage));
+check('STO-30 get_storage: usage counts the asset and the migrated renders', st.usage.assets.objects >= 1 && st.usage.renders.count >= 1, JSON.stringify(st.usage));
 check('STO-30 get_storage: credentials are the configured key, never shown', /access key/.test(st.location.credentials));
 
 // A render made on local storage before the migration is listed and downloads from MinIO.

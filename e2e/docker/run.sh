@@ -140,7 +140,7 @@ docker volume create $VOL >/dev/null
 echo "== mock licence server (container \"licence\")"; licence_server
 if [ "$STORAGE" = s3 ]; then
   echo "== MinIO (container \"minio\")"
-  if ! docker pull -q "$MINIO_IMAGE" >/dev/null 2>&1; then
+  if ! docker image inspect "$MINIO_IMAGE" >/dev/null 2>&1 && ! docker pull -q "$MINIO_IMAGE" >/dev/null 2>&1; then
     echo "   $MINIO_IMAGE cannot be pulled (MinIO stopped publishing images in 2025): building MinIO from its official source"
     MINIO_IMAGE=$(e2e/minio/build-image.sh)
   fi

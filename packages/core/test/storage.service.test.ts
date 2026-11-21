@@ -2,10 +2,11 @@
  * The service on remote storage (docs/providers/storage.md STO-18..STO-21):
  * assets and renders through the driver, atomic commit, bucket-signed or
  * proxied downloads, retention with audit, credentials changed at runtime.
- * Runs on an in-memory "remote" driver always, and on MinIO when TEST_S3_* is set.
+ * Runs on an in-memory "remote" driver always, and on MinIO / Azurite / fake-gcs-server
+ * when TEST_S3_* / TEST_AZURE_CONNECTION_STRING / TEST_GCS_ENDPOINT are set.
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
@@ -28,6 +29,38 @@ const s3Env = process.env.TEST_S3_ENDPOINT
       REELFORGE_S3_SECRET_ACCESS_KEY: process.env.TEST_S3_SECRET_ACCESS_KEY!,
     }
   : null;
+const azureEnv = process.env.TEST_AZURE_CONNECTION_STRING
+  ? { REELFORGE_STORAGE_DRIVER: 'azure', REELFORGE_AZURE_STORAGE_CONTAINER: 'reelforge-test', REELFORGE_AZURE_STORAGE_CONNECTION_STRING: process.env.TEST_AZURE_CONNECTION_STRING, REELFORGE_AZURE_STORAGE_PREFIX: `service-${run}` }
+  : null;
+const gcsEnv = process.env.TEST_GCS_ENDPOINT
+  ? {
+      REELFORGE_STORAGE_DRIVER: 'gcs',
+      REELFORGE_GCS_BUCKET: 'reelforge-test',
+      REELFORGE_GCS_API_ENDPOINT: process.env.TEST_GCS_ENDPOINT,
+      REELFORGE_GCS_PROJECT_ID: 'reelforge-test',
+      REELFORGE_GCS_PREFIX: `service-${run}`,
+      REELFORGE_GCS_CREDENTIALS_JSON: JSON.stringify({
+        type: 'service_account',
+        project_id: 'reelforge-test',
+        client_email: 'test@reelforge-test.iam.gserviceaccount.com',
+        private_key: generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      }),
+    }
+  : null;
+
+beforeAll(async () => {
+  // The emulators' bucket / container (the contract suite creates them too).
+  if (azureEnv) {
+    const { BlobServiceClient } = await import('@azure/storage-blob');
+    await BlobServiceClient.fromConnectionString(azureEnv.REELFORGE_AZURE_STORAGE_CONNECTION_STRING).getContainerClient('reelforge-test').createIfNotExists();
+  }
+  if (gcsEnv) await fetch(`${gcsEnv.REELFORGE_GCS_API_ENDPOINT}/storage/v1/b?project=reelforge-test`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'reelforge-test' }) });
+  if (s3Env) {
+    const sdk = await import('@aws-sdk/client-s3');
+    const c = new sdk.S3Client({ endpoint: s3Env.REELFORGE_S3_ENDPOINT, region: 'us-east-1', forcePathStyle: true, credentials: { accessKeyId: s3Env.REELFORGE_S3_ACCESS_KEY_ID, secretAccessKey: s3Env.REELFORGE_S3_SECRET_ACCESS_KEY } });
+    await c.send(new sdk.CreateBucketCommand({ Bucket: s3Env.REELFORGE_S3_BUCKET })).catch(() => undefined);
+  }
+});
 
 beforeAll(() => makeTone(join(dir, 'tone.mp3'), 2));
 
@@ -44,6 +77,8 @@ const variants: Array<{ name: string; available: boolean; env: Record<string, st
     },
   },
   { name: 's3 (MinIO)', available: Boolean(s3Env), env: s3Env ?? {} },
+  { name: 'azure (Azurite)', available: Boolean(azureEnv), env: azureEnv ?? {} },
+  { name: 'gcs (fake-gcs-server)', available: Boolean(gcsEnv), env: gcsEnv ?? {} },
 ];
 
 for (const v of variants) {
@@ -85,8 +120,8 @@ for (const v of variants) {
       const file = await svc.renderFile(renderId);
       const info = await probe(resolveTools().ffprobe, file.path);
       expect(checkExpectation(info, { width: 1080, height: 1920, fps: 30, frames: 210, audio: true })).toEqual([]);
-      if (v.name.startsWith('s3')) {
-        // The presigned URL from MinIO serves the same bytes, also as a Range.
+      if (!v.name.startsWith('memory')) {
+        // The URL signed by the bucket (MinIO, Azurite, fake-gcs-server) serves the same bytes.
         const res = await fetch(summary.downloadUrl);
         expect(res.status).toBe(200);
         expect(Buffer.from(await res.arrayBuffer()).equals(readFileSync(file.path))).toBe(true);
@@ -132,6 +167,8 @@ for (const v of variants) {
     it('STO-24 no credentials in logs, get_storage or get_config', async () => {
       const text = JSON.stringify([logs, await svc.getStorage(), svc.getConfig({ prefix: 'storage' })]);
       if (s3Env) expect(text).not.toContain(s3Env.REELFORGE_S3_SECRET_ACCESS_KEY);
+      if (azureEnv) expect(text).not.toContain(/AccountKey=([^;]+)/.exec(azureEnv.REELFORGE_AZURE_STORAGE_CONNECTION_STRING)![1]!);
+      if (gcsEnv) expect(text).not.toContain('PRIVATE KEY');
       expect(text).not.toContain(SECRET_KEY);
     });
   });

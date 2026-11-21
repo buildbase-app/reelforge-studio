@@ -36,8 +36,8 @@ No service is called "supported" without a passing case below.
 | Wasabi | `s3` | Compatible via the S3 API, untested | endpoint `https://s3.<region>.wasabisys.com`, region, bucket, keys |
 | DigitalOcean Spaces | `s3` | Compatible via the S3 API, untested | endpoint `https://<region>.digitaloceanspaces.com`, region, bucket, Spaces key |
 | Google Cloud Storage via S3 interop (HMAC) | `s3` | Compatible via the S3 API, untested | endpoint `https://storage.googleapis.com`, region `auto`, bucket, HMAC key |
-| Google Cloud Storage, native | `gcs` | **Contract-tested via emulator** (fake-gcs-server: STO-01..07, 09, 10); workload identity, CMEK and retries unit-tested with a mocked SDK (STO-14). Wrong-credential behaviour untested (the emulator accepts any credentials) | bucket; workload identity or a service-account key |
-| Azure Blob Storage | `azure` | **Contract-tested via emulator** (Azurite: STO-01..10); managed identity, user delegation SAS and encryption scope unit-tested with mocked clients (STO-14) | container; connection string, or account URL + managed identity |
+| Google Cloud Storage, native | `gcs` | **Contract-tested via emulator** (fake-gcs-server: STO-01..07, 09, 10; service render → stored → V4-signed download → ffprobe: STO-18..20); workload identity, CMEK and retries unit-tested with a mocked SDK (STO-14). Wrong-credential behaviour untested (the emulator accepts any credentials) | bucket; workload identity or a service-account key |
+| Azure Blob Storage | `azure` | **Contract-tested via emulator** (Azurite: STO-01..10; service render → stored → SAS download → ffprobe: STO-18..20); managed identity, user delegation SAS and encryption scope unit-tested with mocked clients (STO-14) | container; connection string, or account URL + managed identity |
 
 ### Example configurations
 
@@ -190,25 +190,31 @@ fake-gcs-server latest; see "How the emulators ran").
 | STO-15 | config: each driver's required settings, key pairs, `kmsKeyId` needs `aws:kms` | config tests | | | | | pass |
 | STO-16 | SSRF-safe endpoints: http only to internal hosts, no credentials/query in URLs | config tests | | | | | pass |
 | STO-17 | driver factory builds each driver from settings; migration target by name | unit | | | | | pass |
-| STO-18 | service on remote storage: asset in the bucket, render committed, staging cleaned, ffprobe of the stored render, bucket-signed `downloadUrl` (MinIO: downloaded), `storage.downloads: proxy` | service test (in-memory driver and MinIO) | | ✔ | | | pass |
-| STO-19 | retention over the service API: dry run, real run audit-logged, parameters validated | service test (in-memory, MinIO) | | ✔ | | | pass |
-| STO-20 | deleting a project removes its renders from the bucket | service test (in-memory, MinIO) | | ✔ | | | pass |
+| STO-18 | service on remote storage: asset in the bucket, render committed, staging cleaned, ffprobe of the stored render, bucket-signed `downloadUrl` downloaded (emulators), `storage.downloads: proxy` | service test (in-memory driver, MinIO, Azurite, fake-gcs-server) | | ✔ | ✔ | ✔ | pass |
+| STO-19 | retention over the service API: dry run, real run audit-logged, parameters validated | service test (in-memory, MinIO, Azurite, fake-gcs-server) | | ✔ | ✔ | ✔ | pass |
+| STO-20 | deleting a project removes its renders from the bucket | service test (in-memory, MinIO, Azurite, fake-gcs-server) | | ✔ | ✔ | ✔ | pass |
 | STO-21 | a failed commit fails the job and leaves no partial render | service test, injected failure | | | | | pass |
 | STO-22 | `GET /v1/storage`, `POST /v1/storage/cleanup` (admin only, dry run, real, 400 on bad input) | REST test | | | | | pass |
 | STO-23 | `GET /v1/renders/:id/output` from remote storage: 200, Range 206, 416; server-signed link without key in proxy mode | REST test | | | | | pass |
-| STO-24 | no storage secret in logs, `get_storage`, `get_config`, errors | server start-up log, service test, Docker e2e | | ✔ | | | pass |
+| STO-24 | no storage secret in logs, `get_storage`, `get_config`, errors | server start-up log, service test, Docker e2e | | ✔ | ✔ | ✔ | pass |
 | STO-25 | `/readyz` 503 with a clear message when the bucket is missing or unreachable | REST test; Docker e2e (missing MinIO bucket) | | ✔ | | | pass |
 | STO-26 | credentials as runtime settings: encrypted in the database, driver rebuilt without restart; endpoint and driver refused at runtime | service test | | | | | pass |
 | STO-27 | scheduled sweep applies the policy, audit-logged as the system, `lastSweep` reported | service test | | | | | pass |
-| STO-30 | release image on MinIO: `get_storage` driver s3, health ok, usage | Docker e2e (`storage.mjs`) | | ✔ | | | see PR |
-| STO-31 | release image: render → objects in MinIO (S3 API) → MinIO-signed `downloadUrl` → download → ffprobe 1080×1920 H.264 | Docker e2e | | ✔ | | | see PR |
-| STO-32 | Range on the signed URL (206) and through `GET /v1/renders/:id/output` (206) | Docker e2e | | ✔ | | | see PR |
-| STO-33 | `reelforge storage migrate --to s3` in the container: first run copies, second copies 0; a pre-migration render downloads from MinIO | Docker e2e | | ✔ | | | see PR |
-| STO-34 | `run_storage_cleanup` dry run then real run; objects gone from MinIO; newest kept | Docker e2e | | ✔ | | | see PR |
-| STO-35 | release image on local storage: the full MCP journey (render, signed download, ffprobe) | Docker e2e (existing journey) | ✔ | | | | see PR |
+| STO-30 | release image on MinIO: `get_storage` driver s3, health ok, usage | Docker e2e (`storage.mjs`) | | ✔ | | | pass |
+| STO-31 | release image: render → objects in MinIO (S3 API) → MinIO-signed `downloadUrl` → download → ffprobe 1080×1920 H.264 | Docker e2e | | ✔ | | | pass |
+| STO-32 | Range on the signed URL (206) and through `GET /v1/renders/:id/output` (206) | Docker e2e | | ✔ | | | pass |
+| STO-33 | `reelforge storage migrate --to s3` in the container: first run copies, second copies 0; a pre-migration render downloads from MinIO | Docker e2e | | ✔ | | | pass |
+| STO-34 | `run_storage_cleanup` dry run then real run; objects gone from MinIO; newest kept | Docker e2e | | ✔ | | | pass |
+| STO-36 | release image on MinIO: an asset uploaded over MCP is stored in the bucket | Docker e2e | | ✔ | | | pass |
+| STO-35 | release image on local storage: the full MCP journey (render, signed download, ffprobe) | Docker e2e (existing journey) | ✔ | | | | pass |
 
-"see PR": the Docker results and the exact command output are in the pull
-request for #27 (they depend on the image build).
+Docker cases: `STORAGE=s3 E2E_PREFIX=sto PORT=4332 e2e/docker/run.sh` on the
+release edition with the hardened flags (read-only root, no capabilities,
+seccomp profile, UID 10001), SQLite, ended with `ALL DOCKER E2E CHECKS PASSED
+(DB=sqlite, EDITION=release, HARDENED=1, STORAGE=s3)` on 2026-11-21: migrate
+copied 19 objects then 0; the render in MinIO probed as H.264 1080×1920, 30 fps,
+45 frames + AAC; `/readyz` 503 `bucket "missing-bucket-sto" is not reachable
+(HTTP 404)`. Image size 1905 MB (budget 2000 MB; 1845 MB before the SDKs).
 
 ### How the emulators ran
 
