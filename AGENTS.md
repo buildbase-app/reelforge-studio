@@ -104,3 +104,84 @@ slice that can render one short 9:16 video using Remotion and one
 independently rendered Motion Canvas scene, then combine them into a
 final MP4 and test the output. Do not begin with a full multi-agent
 system.
+
+## 8. Working in this repo
+
+### Layout
+
+```
+apps/server/              REST /v1 + MCP /mcp (Hono), CLI (keys), config
+  src/app.ts              REST routes, auth, rate limit, /mcp Host/Origin checks
+  src/mcp.ts              MCP tools/resources/prompts (thin wrappers over the service)
+  src/routes.ts           REST route table <-> MCP tool map (checked by test/parity.test.ts)
+  src/registry.ts         which plugins this server ships with
+packages/core/            plugin interfaces + registry, ReelforgeService (every capability),
+                          project/theme/asset/key stores, job runner, render pipeline,
+                          ElevenLabs provider, remotion-lambda skeleton
+packages/project-schema/  manifest v0.2 (+ v0.1 migration), template catalog, themes
+packages/media-pipeline/  FFmpeg/ffprobe: encode, assemble (music/voice/sfx), probe, checks
+packages/engine-remotion/ engine-motion-canvas/ engine-html/ engine-hyperframes/
+                          one package per render engine, each exporting an EnginePlugin
+scripts/spike.ts          standalone two-engine render (no server)
+docs/                     spec (AGENT_PLATFORM.md), decisions, deploy, agents, privacy
+```
+
+### Commands
+
+```bash
+pnpm i                                   # install (Node 22, pnpm 10)
+export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell   # engines and engine tests
+pnpm typecheck                           # root tsconfig (scripts/) + every package
+pnpm test                                # all packages; engine tests skip without a browser
+REELFORGE_REQUIRE_BROWSER=1 pnpm test    # CI mode: a missing browser fails instead of skipping
+pnpm spike                               # renders out/sample-reel/final.mp4
+pnpm keys:create --name me               # API key (printed once), REELFORGE_DATA_DIR=./data
+pnpm dev                                 # server with watch on 127.0.0.1:4321
+pnpm start                               # server without watch
+pnpm reelforge keys list|delete <id>     # other CLI commands
+```
+
+### Conventions
+
+- TypeScript run directly with tsx/vitest (no build step). Zod 4 for every
+  external input. ESM only.
+- Every capability is a method on `ReelforgeService` first; REST routes and
+  MCP tools only translate. A new REST route needs a matching MCP tool and an
+  entry in `apps/server/src/routes.ts`, or `test/parity.test.ts` fails.
+- Errors: throw `ApiError(code, status, message, details)`; never return ad hoc
+  error shapes. Manifest problems are `invalid_manifest` with `details.issues`
+  (`path` + `message`), all at once.
+- Files: write with `writeFileAtomic`/`writeJsonAtomic`; renders go to a temp
+  directory and are renamed when every check passed. Never overwrite outputs.
+- Tests: fast unit tests use the fake engine in `packages/core/test/helpers.ts`;
+  real-engine tests skip without a browser unless `REELFORGE_REQUIRE_BROWSER=1`.
+  Check media with `probe`/`checkExpectation`/`assertDecodable`/`frameStats`,
+  not by file size.
+- No telemetry, no new network egress without listing it in docs/PRIVACY.md.
+- Pin new runtime dependencies to versions you checked on the registry and add
+  them to LICENSES/THIRD_PARTY.md.
+
+### How to add a plugin
+
+- **Engine:** new package `packages/engine-<id>` exporting a function that
+  returns an `EnginePlugin` (`packages/core/src/plugins.ts`): `id`,
+  `templates()` (definitions live in `packages/project-schema/src/templates.ts`
+  with a strict Zod props schema, duration range and theme tokens; add the
+  engine id to `ENGINES` there, and to `SOURCE_ENGINES` if scenes may bring
+  their own html), `availability()` (say how to fix it), and
+  `render(scene, ctx)` that writes an H.264 MP4 with exactly
+  `scene.durationFrames` frames at `ctx.output` size/fps to `ctx.out`, honours
+  `ctx.signal` and reports `ctx.progress`. Register it in
+  `apps/server/src/registry.ts`, add a render test (skip without a browser) and
+  extend the e2e test. See `packages/engine-html` for a compact example.
+- **Provider:** implement `ProviderPlugin` (`kind`, `configured()` from env,
+  `costNote`, Zod `params`, `cacheKey()` for the content-hash cache,
+  `run()` that stores the result with `ctx.putAsset` and uses `ctx.fetch`).
+  Register it; test with a mocked fetch; list its host in docs/PRIVACY.md.
+  `packages/core/src/providers/elevenlabs.ts` is the template.
+- **Render backend:** implement `RenderBackend` (`configured()`,
+  `implemented`, `submit()`, `cancel()`). Until it really works keep
+  `implemented: false` so capabilities stay honest
+  (`packages/core/src/backends/remotion-lambda.ts`).
+- **Storage:** implement `StorageDriver` (`packages/core/src/storage.ts` has
+  the local one). Only local storage is wired in v0.1.

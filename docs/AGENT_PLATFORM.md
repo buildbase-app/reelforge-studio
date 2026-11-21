@@ -1,7 +1,8 @@
 # ReelForge Agent Platform: architecture and contract
 
-**Status:** DECIDED direction (founder, 2026-11-21). Proposed design below;
-nothing in this document is implemented until the STATUS table says so.
+**Status:** DECIDED direction (founder, 2026-11-21). v0.1 implemented on
+2026-11-21; the STATUS table (§10) says exactly what is done, partial or
+missing.
 
 ## 1. Goal
 
@@ -136,6 +137,13 @@ All JSON; `Authorization: Bearer rf_<key>`. Errors: `{ error: { code, message, d
 | `GET/POST/DELETE /v1/keys` | API keys (admin scope) |
 | `GET /healthz`, `GET /readyz` | health |
 
+Implemented extras (v0.1): `GET /v1/templates`, `GET /v1/projects/:id/versions`,
+`PUT /v1/projects/:id/theme`, `PATCH /v1/projects/:id/audio`, `GET /v1/jobs`,
+`POST /v1/jobs/:id/retry`, `GET /v1/renders/:id`, `GET /v1/assets`,
+`GET /v1/providers`. The machine-readable table with the matching MCP tool and
+scope of every route is `apps/server/src/routes.ts`; `test/parity.test.ts`
+fails if REST and MCP drift apart.
+
 ## 7. MCP server
 
 Endpoint `/mcp`, Streamable HTTP (stateless JSON responses supported), same API
@@ -148,6 +156,12 @@ REST handlers, with descriptions written for agents:
 `reorder_scenes`, `set_theme`, `set_audio`, `generate_voice` (provider),
 `add_asset_from_url`, `list_assets`, `preview_scene`, `render_project`,
 `get_job`, `cancel_job`, `get_job_logs`, `get_render_output`.
+
+Implemented extras (v0.1), so every REST route has a tool: `list_projects`,
+`delete_project`, `list_project_versions`, `get_theme`, `update_theme`,
+`delete_theme`, `list_renders`, `list_jobs`, `retry_job`, `upload_asset`,
+`get_asset`, `list_providers`, `run_provider`, `list_keys`, `create_key`,
+`delete_key` (40 tools in total).
 
 Resources: `reelforge://schema/project`, `reelforge://templates`,
 `reelforge://projects/{id}`. Prompts: `plan_reel` (turn a brief into a
@@ -185,3 +199,55 @@ http_headers = { Authorization = "Bearer rf_..." }
 Multi-tenant SaaS, billing inside the studio, a built-in LLM, a template
 marketplace, collaborative editing. The server is single-tenant (one operator,
 many keys).
+
+## 10. STATUS (2026-11-21)
+
+Evidence: `pnpm typecheck` and `REELFORGE_REQUIRE_BROWSER=1 pnpm test` on Linux
+x64 with Chrome Headless Shell 157 and FFmpeg 6.1; Docker image built and run
+with Docker 29.10. "Done" means implemented and covered by a test or a command
+that was run; "partial" says what is missing.
+
+| Spec item | Status | Notes / evidence |
+| --- | --- | --- |
+| §2.1 API first, MCP and REST over the same handlers | done | `ReelforgeService`; `test/parity.test.ts` checks every REST route has an MCP tool with the same scope |
+| §2.2 Plugin interfaces + registry (`packages/core/src/plugins.ts`) | done | EnginePlugin, ProviderPlugin, RenderBackend, StorageDriver; unknown ids rejected with the installed list |
+| §2.4 No telemetry; egress documented | done | docs/PRIVACY.md; HyperFrames telemetry disabled by env (env construction tested, CLI silence not independently verified) |
+| §2.5 Deterministic core | partial | Same inputs give the same frames for html/hyperframes (seeked time) and Remotion/MC; provider results cached by content hash. No bit-exact repeat-render test yet |
+| §2.6 Honest capabilities | done | engines report availability (browser), providers `configured`, backends `implemented` |
+| §3 Engine: remotion | done | `kinetic-title`; render tests + e2e |
+| §3 Engine: motion-canvas | done | `animated-explainer`, layout scales with size, text wraps; render tests + e2e |
+| §3 Engine: html | done | `html-title` + agent HTML/CSS; Web Animations seeked per frame; sandbox (CSP, all requests aborted, offline, timeout); tests incl. network blocking |
+| §3 Engine: hyperframes | done (v0.1 scope) | `hyperframes-title` + agent compositions via the local `hyperframes render` (0.9.77); CSP sandbox; no progress reporting during a scene; external scripts (e.g. GSAP CDN) rejected, GSAP not bundled |
+| §3 Provider: tts/elevenlabs | partial | Implemented with word timestamps, cost acknowledgement, cache; tested with a mocked API only. **Live API untested** |
+| §3 Providers: avatar (HeyGen), stock, music | missing | Interfaces exist |
+| §3 Backend: local | done | in-process, job runner concurrency 1 by default |
+| §3 Backend: remotion-lambda | partial (skeleton) | Configuration check only; submitting returns `not_implemented` (501). Nothing faked |
+| §3 Storage: local fs | done | `LocalStorageDriver` for assets; projects/renders on the filesystem |
+| §3 Storage: S3-compatible, signed URLs | missing | `signedUrl` returns null |
+| §3 Docker image + compose | done | Built and run here: healthy, four-engine render via REST, MCP tools/list. Cloud recipes in docs/DEPLOY.md untested |
+| §4 Templates expose props JSON Schema, durations, theme tokens | done | `list_templates` |
+| §5 Manifest v0.2 + automatic v0.1 migration | done | 44 schema tests |
+| §5 brief, theme (id or inline tokens), durationSeconds/Frames, assets with uri, render.backend | done | |
+| §5 transitionIn | partial | Only `cut` accepted (placeholder, D-009) |
+| §5 audio voice/music/sfx | done | Mixed by the media pipeline (test with music + delayed voice + sfx) |
+| §5 music ducking | missing | Stored; validation warns it is not applied |
+| §5 captions (per scene / from voice timestamps) | missing (stored only) | Accepted by the schema; validation warns they are not rendered |
+| §5 licence metadata on assets | done | Missing licence = warning |
+| §6 REST table | done | Every route implemented (`apps/server/src/routes.ts`); REST tests + REST e2e against a real server process |
+| §6 Preview (one scene or frame range, low res) | partial | One scene or the whole project at a scale (default 1/3); frame ranges not supported |
+| §6 Errors `{ error: { code, message, details } }` | done | |
+| §6 SSE job events | done | `GET /v1/jobs/:id/events` |
+| §6 Outputs: MP4, render manifest, poster; signed URL when remote | partial | Local download with Range; no remote storage |
+| §6 Assets: upload or URL, licence, checksum | done | Content-addressed store, byte sniffing, https only, SSRF guard at connect time, size limit |
+| §7 MCP tools (24 in the spec) | done | All 24 + 16 extras; official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 Resources and prompts `plan_reel`, `review_reel` | done | MCP tests |
+| §7 Server card `/.well-known/mcp.json` | done | |
+| §7 Tool names marked experimental | done | Server card and capabilities |
+| §8 API keys: random 32 bytes, hashed, scopes, CLI, admin API, bootstrap key | done | CLI is `pnpm keys:create` (not `reelforge keys create`; also `pnpm reelforge keys ...`) |
+| §8 Bind 127.0.0.1 by default; Host/Origin checks on /mcp | done | REST tests |
+| §8 Rate limits per key | done (basic) | In-memory token bucket, single instance |
+| §8 Provider keys only in env; never in logs/manifests | done | HyperFrames child gets a filtered env (tested) |
+| §8 Chromium sandbox on outside containers | partial | html engine: on unless root or `REELFORGE_CHROMIUM_NO_SANDBOX=1`; Motion Canvas harness still always passes `--no-sandbox`; Remotion uses its own defaults |
+| §9 Single tenant | done | |
+| Web UI | missing (optional by design) | |
+| Audit log, metrics, multi-instance | missing | Planned "enterprise hardening" pass |

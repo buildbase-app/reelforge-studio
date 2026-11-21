@@ -1,80 +1,91 @@
 # ReelForge Studio
 
-Self-hosted, AI-assisted short-form video production. A project is one
-versioned JSON manifest; each scene is rendered by **Remotion** or **Motion
-Canvas**, and the clips are assembled into one MP4 with FFmpeg and validated.
+Self-hosted, AI-agent-driven short-form video studio. You run the server on
+your own machine or cloud; any AI agent (Claude Code, Codex, Cursor, any MCP
+client) drives it through **MCP** (`/mcp`) or **REST** (`/v1`) with API keys
+you create. The agent decides the scenes; the server validates, renders with
+**Remotion**, **Motion Canvas**, **HTML/CSS** or **HyperFrames**, assembles
+one MP4 with FFmpeg and checks it. No AI provider is required.
 
-> **Status: feasibility spike (Phase 0).** The render pipeline below works and
-> is tested on Linux. There is no UI, job runner, AI planning or Docker image
-> yet. See `docs/ROADMAP.md`. Not production-ready.
+> **Status: agent platform v0.1 (experimental).** Tested on Linux x64 only.
+> MCP tool names and manifest v0.2 may change before v1.0. Not
+> production-hardened. What is done, partial and missing:
+> `docs/AGENT_PLATFORM.md` (STATUS) and `docs/STATUS.md`.
+
+## Quick start (server first)
+
+Requirements: Node 22, pnpm 10 (`corepack enable`), FFmpeg (6.1 tested), and
+Chrome Headless Shell (`npx playwright-core install chromium-headless-shell`
+or `npx remotion browser ensure`).
+
+```bash
+pnpm install
+export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
+pnpm keys:create --name me        # prints an rf_... key once
+pnpm dev                          # REST http://127.0.0.1:4321/v1, MCP http://127.0.0.1:4321/mcp
+```
+
+Connect an agent (more in `docs/CONNECT_AGENTS.md`):
+
+```bash
+claude mcp add --transport http reelforge http://127.0.0.1:4321/mcp \
+  --header "Authorization: Bearer rf_..."
+```
+
+Or with Docker (`docs/DEPLOY.md`):
+
+```bash
+export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+docker compose up -d --build      # then use $REELFORGE_BOOTSTRAP_KEY as the admin key
+```
+
+Developers: `pnpm typecheck`, `pnpm test` (`REELFORGE_REQUIRE_BROWSER=1` in
+CI), `pnpm spike` (standalone two-engine render). See `AGENTS.md`, "Working in
+this repo".
 
 ## What works today
 
-- `packages/project-schema`: the manifest format (v0.1), validated with Zod:
-  timing, engines, template props, asset paths and licenses. Exports a JSON
-  Schema for external agents.
-- `packages/engine-remotion`: renders the `kinetic-title` template.
-- `packages/engine-motion-canvas`: renders the `animated-explainer` template
-  **headlessly**. Motion Canvas only renders from its editor UI out of the box;
-  this package drives its `Renderer` in headless Chromium with a custom
-  exporter and pipes frames to FFmpeg.
-- `packages/media-pipeline`: normalises clips (size, fps, pixel format, exact
-  frame count), concatenates them with an audio track, and validates the output
-  with ffprobe plus a full decode.
-- `pnpm spike`: renders `examples/sample-reel.json` (one scene per engine) into
-  `out/sample-reel/final.mp4`, with review frames around each cut and a
-  `render-manifest.json`. **No AI API key is needed.**
-
-## Requirements
-
-| Tool | Version tested | Notes |
-| --- | --- | --- |
-| Node.js | 22.23 | `.nvmrc` |
-| pnpm | 10.28 | `corepack enable` |
-| FFmpeg + ffprobe | 6.1.1 | On `PATH`, or set `FFMPEG_PATH` / `FFPROBE_PATH` |
-| Chromium | Chrome Headless Shell 153 | Set `REELFORGE_CHROMIUM_PATH`; see below |
-
-Tested on Linux x64 only. macOS and Windows are **untested** (NFR-009).
-
-**Browser.** Both engines render in Chromium. Point `REELFORGE_CHROMIUM_PATH`
-at a Chrome Headless Shell binary, for example one installed with
-`npx playwright-core install chromium-headless-shell`. If it is unset, Remotion
-downloads its own pinned browser on first render (a network call), and Motion
-Canvas falls back to Playwright's default browser path.
-
-## Quick start
-
-```bash
-corepack enable
-pnpm install
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
-pnpm test        # unit, pipeline and engine contract tests
-pnpm typecheck
-pnpm spike       # renders out/sample-reel/final.mp4
-```
+- **Server** (`apps/server`): REST `/v1` and MCP `/mcp` (official MCP SDK,
+  Streamable HTTP) over the same handlers; 40 MCP tools, resources, prompts
+  `plan_reel`/`review_reel`; API keys with scopes; per-key rate limit; jobs
+  with progress (SSE), logs, cancel and retry; output download with Range.
+- **Manifest v0.2** (`packages/project-schema`): brief, theme, per-scene
+  `durationSeconds` or `durationFrames`, voice/music/sfx, assets, captions
+  (stored, not rendered yet); v0.1 files are migrated automatically.
+- **Engines**: Remotion (`kinetic-title`), Motion Canvas (`animated-explainer`,
+  headless via its own Renderer), HTML (`html-title` or agent HTML/CSS, seeked
+  per frame in a network-blocked sandbox), HyperFrames (`hyperframes-title` or
+  agent compositions, local renderer only). Themes `default`, `midnight` and
+  custom ones drive colours and fonts in every template.
+- **Pipeline**: per-scene renders → exact-frame assembly with music, voice and
+  sound effects → ffprobe + full decode checks → render manifest with tool
+  versions. Outputs are never overwritten.
+- **Providers/backends**: ElevenLabs TTS (word timestamps, cost
+  acknowledgement, content-hash cache; tested with a mocked API only);
+  remotion-lambda reports its configuration but does not render in v0.1.
+- **Deployment**: Dockerfile and compose (built and run here), deploy guides.
 
 ## Licensing: read before you sell or deploy
 
 - **Remotion is not free for every company.** Free for individuals and teams of
   up to 3 people; larger companies need a paid Remotion license. Every user of
   ReelForge needs their own. See `research/LICENSING_AND_COSTS.md`.
-- Motion Canvas is MIT. FFmpeg is LGPL/GPL depending on the build (we use the
-  system FFmpeg; Remotion also bundles its own build).
-- No fonts, music or footage are bundled. The templates use system fonts.
-- Full inventory: `LICENSES/THIRD_PARTY.md`.
+- Motion Canvas is MIT; HyperFrames is Apache-2.0. FFmpeg is LGPL/GPL
+  depending on the build (we use the system FFmpeg).
+- No fonts, music or footage are bundled. Templates use system fonts.
+- Full inventory: `LICENSES/THIRD_PARTY.md`. Network egress: `docs/PRIVACY.md`.
 
 This repository is proprietary; see `LICENSE.md`.
 
 ## Layout
 
 ```
-docs/, research/        product brief, decisions, architecture, test plan (start here)
-AGENTS.md               rules for coding agents working in this repo
-examples/               sample project manifests
-packages/
-  project-schema/       manifest schema + validation + JSON Schema export
-  engine-remotion/      Remotion compositions + render adapter
-  engine-motion-canvas/ Motion Canvas scenes + headless render harness
-  media-pipeline/       FFmpeg/ffprobe: encode, assemble, probe, decode check
-scripts/spike.ts        end-to-end feasibility run
+apps/server/            REST + MCP server, CLI
+packages/core/          plugins, service, stores, jobs, render pipeline, providers
+packages/project-schema manifest v0.2 + migration, templates, themes
+packages/media-pipeline FFmpeg/ffprobe
+packages/engine-*       remotion, motion-canvas, html, hyperframes
+docs/                   spec, decisions, status, deploy, agents, privacy
+examples/               sample manifests
+scripts/spike.ts        standalone render
 ```
