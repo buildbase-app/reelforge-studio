@@ -17,28 +17,65 @@ behaviour, marked VERIFY), macOS, Windows, ARM.
 
 ## Configuration
 
+Every setting, with its environment variable, default, scope and whether it is
+secret, is in **[CONFIG.md](CONFIG.md)** (generated from the schema, so it
+cannot drift). Sources, lowest to highest precedence (D-029):
+
+1. defaults;
+2. a config file: `REELFORGE_CONFIG=/etc/reelforge/reelforge.yaml` (YAML or
+   JSON, nested by key; unknown keys are refused, so typos fail at start);
+3. environment variables `REELFORGE_*`; existing names (`DATABASE_URL`,
+   `ELEVENLABS_API_KEY`, `FFMPEG_PATH`, `FFPROBE_PATH`, `REMOTION_LAMBDA_*`)
+   keep working as aliases. **Every secret also as `<NAME>_FILE`** (Docker /
+   Kubernetes secrets; the file must be readable by UID 10001);
+4. runtime settings an admin agent sets with `update_config` /
+   `PATCH /v1/config`, stored in the database. Only settings with scope
+   `runtime` (limits, allowed hosts, log level, provider keys, ...); start-up
+   settings (port, host, database URL, data directory, ...) are refused with an
+   error that says where to set them.
+
+The ones most deployments set:
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `REELFORGE_DATA_DIR` | `./data` (`/data` in Docker) | Asset and render files, caches, the URL signing key, and the SQLite database by default |
-| `DATABASE_URL` | `file:<data>/reelforge.db` (SQLite) | `postgresql://...` or `mysql://...` (MariaDB too). See [Database](#database) |
-| `DATABASE_URL_FILE` | (none) | Same, read from a file (the URL usually holds a password). `DATABASE_URL` wins if both are set |
-| `REELFORGE_MIGRATE_ON_START` | `1` | Apply pending database migrations on start. `0`: refuse to start while migrations are pending (run `reelforge migrate` yourself) |
-| `REELFORGE_DB_CONNECT_TIMEOUT_SECONDS` | `30` | Keep retrying the first database connection this long (a database container may still be starting) |
-| `REELFORGE_HOST` | `127.0.0.1` (`0.0.0.0` in Docker) | Bind address. Keep loopback unless a TLS proxy is in front |
-| `REELFORGE_PORT` | `4321` | Port (`0` picks a free one) |
-| `REELFORGE_PUBLIC_URL` | (none) | `https://studio.example.com`: used in output links and allowed as Host on `/mcp` |
-| `REELFORGE_ALLOWED_HOSTS` | (none) | Extra comma-separated host names accepted on `/mcp` |
-| `REELFORGE_BOOTSTRAP_KEY` | (none) | `rf_` + 20 or more URL-safe characters. Stored (hashed) as an admin key named `bootstrap` on first start if no key exists |
-| `REELFORGE_BOOTSTRAP_KEY_FILE` | (none) | Same, read from a file (Docker/Kubernetes secrets). The variable wins if both are set. The file must be readable by the container user (UID 10001): Compose/Kubernetes secrets are by default; for a bind mount use `chown 10001` or mode 0444 |
-| `REELFORGE_CHROMIUM_PATH` | (none; set in Docker) | Chrome Headless Shell binary used by every engine |
-| `REELFORGE_CHROMIUM_NO_SANDBOX` | (unset; `1` in Docker) | Turn Chromium's own sandbox off (containers) |
-| `REELFORGE_RENDER_CONCURRENCY` | `1` | Renders at the same time. Each uses several CPU cores and 1-2 GB RAM |
-| `REELFORGE_RATE_LIMIT_PER_MINUTE` | `300` | Requests per minute per API key (`0` disables) |
-| `REELFORGE_MAX_UPLOAD_BYTES` | `209715200` | Asset upload / URL import limit |
-| `REELFORGE_CACHE_DIR` | `<data>/cache` | Engine bundle cache |
-| `FFMPEG_PATH`, `FFPROBE_PATH` | `ffmpeg`, `ffprobe` on PATH | System FFmpeg (6.1 and 5.1.9 tested) |
-| `ELEVENLABS_API_KEY` | (none) | Enables the ElevenLabs TTS provider. Can also be set by an admin agent with `configure_provider` / `PUT /v1/providers/elevenlabs/config` (stored in the database table `ProviderSetting`, plain text at rest for now (encryption: D-018 of #22); the SQLite file is mode 0600; never returned by the API) |
-| `REMOTION_LAMBDA_REGION`, `REMOTION_LAMBDA_FUNCTION_NAME`, `REMOTION_LAMBDA_SERVE_URL` | (none) | Marks the remotion-lambda backend configured. Rendering on it is **not implemented in v0.1** |
+| `DATABASE_URL` / `REELFORGE_DATABASE_URL` (`_FILE`) | `file:<data>/reelforge.db` (SQLite) | `postgresql://...` or `mysql://...` (MariaDB too). See [Database](#database) |
+| `REELFORGE_SECRET_KEY` (`_FILE`) | (none) | **Set it.** Encrypts provider keys and other secrets stored in the database (AES-256-GCM). `openssl rand -base64 32`. Without it the server refuses to store secrets over the API. Back it up: stored secrets cannot be read without it |
+| `REELFORGE_BOOTSTRAP_KEY` (`_FILE`) | (none) | First admin API key (`rf_` + 20 or more URL-safe characters), stored hashed on first start if no key exists |
+| `REELFORGE_HOST`, `REELFORGE_PORT` | `127.0.0.1` (`0.0.0.0` in Docker), `4321` | Bind address and port |
+| `REELFORGE_PUBLIC_URL` | (none) | `https://studio.example.com`: output links; allowed as Host on `/mcp` |
+| `REELFORGE_ALLOWED_HOSTS` | (none) | Extra host names accepted on `/mcp` (runtime-changeable) |
+| `REELFORGE_RENDER_CONCURRENCY` | `1` | Renders at the same time (runtime-changeable) |
+| `ELEVENLABS_API_KEY` (`_FILE`) | (none) | ElevenLabs TTS; or set by an admin agent with `configure_provider` / `update_config` (`providers.elevenlabs.apiKey`), stored encrypted |
+
+Check a configuration without starting the server, and print the effective one
+(secrets redacted, runtime values from the database included):
+
+```bash
+reelforge config check [--file /etc/reelforge/reelforge.yaml]   # exit 1 with every problem
+reelforge config show [--json] [--offline]
+# Docker: docker exec <container> reelforge config check
+```
+
+Example with a config file and secrets in Docker:
+
+```bash
+openssl rand -base64 32 > secret_key && chmod 444 secret_key   # readable by UID 10001
+docker run -d -p 127.0.0.1:4321:4321 -v reelforge-data:/data \
+  -v $PWD/reelforge.yaml:/config/reelforge.yaml:ro -e REELFORGE_CONFIG=/config/reelforge.yaml \
+  -v $PWD/secret_key:/run/secrets/secret_key:ro -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secret_key \
+  -e REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) reelforge-studio
+```
+
+**Secrets at rest.** With `REELFORGE_SECRET_KEY` set, provider keys and other
+secrets stored in the database are AES-256-GCM ciphertext (key derived with
+HKDF-SHA256; each value bound to its setting name). Plain-text provider
+settings from earlier versions (or a v0.1 `secrets.json`) are encrypted once
+on the first start with the key; delete a leftover v0.1 `secrets.json`
+afterwards (the server warns while it exists). Starting with a different or no
+key leaves stored secrets unreadable: the server still starts, and
+`get_config` / `list_providers` show the error. Secrets are never returned by
+the API, logged, or put in error messages.
 
 ### The first key, then everything from the agent
 
@@ -52,7 +89,8 @@ The only step outside an agent is the first admin key. Either:
 
 After that an agent with the admin key can create, list and revoke keys
 (`create_key`/`list_keys`/`delete_key`, `/v1/keys`), configure providers, and
-do everything else. Give day-to-day agents a key without `admin`
+read and change the runtime configuration (`get_config` / `update_config`,
+`/v1/config`), and do everything else. Give day-to-day agents a key without `admin`
 (`read,write,render`). Scopes: `read`, `write`, `render`, `admin` (implies all).
 
 ## 1. Local (pnpm)

@@ -2,7 +2,9 @@
 # Docker end-to-end acceptance (issue #16): builds the image, runs the server,
 # then drives it from a SEPARATE container on a Docker network (an agent on
 # "another machine"): MCP journey, auth/scope/validation negatives, Host/Origin
-# checks, and a restart that must keep projects, keys and renders.
+# checks, configuration over MCP (#24: sources, a runtime change, a refused
+# start-up-only key, encrypted secrets), and a restart that must keep projects,
+# keys, renders and runtime settings.
 #
 #   e2e/docker/run.sh                 # build + test
 #   IMAGE=reelforge-studio:dev SKIP_BUILD=1 e2e/docker/run.sh
@@ -33,8 +35,12 @@ trap cleanup EXIT
 [ "${SKIP_BUILD:-}" = 1 ] || docker build ${BUILD_ARGS:-} -t "$IMAGE" .
 
 KEY=rf_$(openssl rand -hex 24)
-mkdir -p "$WORK/secret" "$WORK/out" "$WORK/client"
+PLAIN_V01=sk_v01_plaintext_$(openssl rand -hex 8)
+mkdir -p "$WORK/secret" "$WORK/out" "$WORK/client" "$WORK/config"
 printf %s "$KEY" > "$WORK/secret/key"
+openssl rand -base64 32 > "$WORK/secret/secretkey"
+# The config file (REELFORGE_CONFIG): one source of settings; env and runtime settings override it.
+printf 'limits:\n  maxJsonBytes: 4194304\nlogging:\n  level: info\n' > "$WORK/config/reelforge.yaml"; chmod 644 "$WORK/config/reelforge.yaml"
 DBPASS=$(openssl rand -hex 16)
 case "$DB" in
   postgres) printf %s "postgresql://reelforge:$DBPASS@postgres:5432/reelforge" > "$WORK/secret/dburl" ;;
@@ -42,7 +48,7 @@ case "$DB" in
   *) : > "$WORK/secret/dburl" ;;
 esac
 # The server runs as UID 10001: a *_FILE secret must be readable by it.
-for f in key dburl; do chown 10001 "$WORK/secret/$f" 2>/dev/null || chmod 644 "$WORK/secret/$f"; done
+for f in key dburl secretkey; do chown 10001 "$WORK/secret/$f" 2>/dev/null || chmod 644 "$WORK/secret/$f"; done
 chmod 777 "$WORK/out"
 cp e2e/docker/*.mjs examples/sample-reel.json "$WORK/client/"
 (cd "$WORK/client" && npm init -y >/dev/null && npm i -q --no-audit --no-fund @modelcontextprotocol/sdk@1.32.2 >/dev/null)
@@ -52,12 +58,14 @@ start() {
   local dbenv=(); [ "$DB" = sqlite ] || dbenv=(-v "$WORK/secret/dburl:/run/secrets/dburl:ro" -e DATABASE_URL_FILE=/run/secrets/dburl)
   docker run -d --name $NAME --network $NET --network-alias reelforge -p 127.0.0.1:$PORT:4321 --shm-size=1g \
     -v $VOL:/data -v "$WORK/secret/key:/run/secrets/key:ro" -e REELFORGE_BOOTSTRAP_KEY_FILE=/run/secrets/key "${dbenv[@]}" \
+    -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secretkey \
+    -v "$WORK/config/reelforge.yaml:/config/reelforge.yaml:ro" -e REELFORGE_CONFIG=/config/reelforge.yaml \
     -e REELFORGE_ALLOWED_HOSTS=reelforge,reelforge:4321 "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && return; sleep 2; done
   docker logs $NAME; echo "server did not become healthy"; exit 1
 }
 client() { docker run --rm --network $NET -v "$WORK/client:/c:ro" -v "$WORK/out:/out" -w /c \
-  -e URL=http://reelforge:4321/mcp -e KEY="$KEY" -e SAMPLE=sample-reel.json "$CLIENT_IMAGE" node "$@"; }
+  -e URL=http://reelforge:4321/mcp -e KEY="$KEY" -e SAMPLE=sample-reel.json -e PLAIN_V01="$PLAIN_V01" -e PHASE="${PHASE:-before}" "$CLIENT_IMAGE" node "$@"; }
 
 if [ "$DB" = sqlite ]; then
   docker network create $NET >/dev/null
@@ -68,7 +76,7 @@ else
 fi
 docker volume create $VOL >/dev/null
 echo "== seed a v0.1 data directory"
-docker run --rm -v $VOL:/data -v "$WORK/client:/c:ro" -w /c -e KEY="$KEY" -e SAMPLE=sample-reel.json "$CLIENT_IMAGE" \
+docker run --rm -v $VOL:/data -v "$WORK/client:/c:ro" -w /c -e KEY="$KEY" -e PLAIN_V01="$PLAIN_V01" -e SAMPLE=sample-reel.json "$CLIENT_IMAGE" \
   sh -c 'node seed-v01.mjs && chown -R 10001:10001 /data'
 start
 echo "== database and one-time v0.1 import"
@@ -89,18 +97,39 @@ mcp() { curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:$PORT/m
   -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' "$@" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'; }
 [ "$(mcp -H 'Host: evil.example')" = 403 ] && echo "✔ forged Host → 403" || { echo "✘ forged Host not refused"; exit 1; }
 [ "$(mcp -H 'Origin: https://evil.example')" = 403 ] && echo "✔ foreign Origin → 403" || { echo "✘ foreign Origin not refused"; exit 1; }
+echo "== configuration over MCP (separate container)"
+docker logs $NAME 2>&1 | grep -q 'encrypted 1 stored secret(s) with REELFORGE_SECRET_KEY: ELEVENLABS_API_KEY' && echo "✔ v0.1 plaintext provider key encrypted once on start" || { echo "✘ plaintext provider key not encrypted"; docker logs $NAME; exit 1; }
+docker logs $NAME 2>&1 | grep -q 'config file: /config/reelforge.yaml' && echo "✔ config file read (REELFORGE_CONFIG)" || { echo "✘ config file not read"; exit 1; }
+docker logs $NAME 2>&1 | grep -q "$PLAIN_V01" && { echo "✘ the server log contains a secret"; exit 1; } || echo "✔ no secret in the server log"
+PHASE=before client config.mjs
+docker exec $NAME reelforge config check | sed 's/^/   /'
+docker exec $NAME reelforge config show > "$WORK/show.txt"
+grep -E '^(limits.rateLimitPerMinute|licence.key|providers.elevenlabs.apiKey) ' "$WORK/show.txt" | sed 's/^/   /'
+grep -q "$PLAIN_V01\|LIC-E2E" "$WORK/show.txt" && { echo "✘ config show printed a secret"; exit 1; } || echo "✔ reelforge config show (CLI in the container) redacts secrets and shows the runtime value"
+grep -Eq '^limits.rateLimitPerMinute +600 +\(runtime' "$WORK/show.txt" || { echo "✘ config show does not show the runtime value"; cat "$WORK/show.txt"; exit 1; }
 echo "== restart keeps data"
 before=$(curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/v1/projects" | md5sum)
 docker rm -f $NAME >/dev/null; start
 after=$(curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/v1/projects" | md5sum)
 [ "$before" = "$after" ] && echo "✔ projects survive a new container on the same volume" || { echo "✘ projects changed after restart"; exit 1; }
 docker logs $NAME 2>&1 | grep -q 'imported v0.1' && { echo "✘ v0.1 data imported a second time"; exit 1; } || echo "✔ no second import after the restart"
+docker logs $NAME 2>&1 | grep -q 'encrypted .* stored secret' && { echo "✘ secrets encrypted a second time"; exit 1; } || echo "✔ no second encryption pass after the restart"
+echo "== configuration after the restart"; PHASE=after client config.mjs
 case "$DB" in
   postgres) n=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT count(*) FROM "Project"') ;;
   mysql) n=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT count(*) FROM Project') ;;
   *) n=skip ;;
 esac
 [ "$n" = skip ] || { [ "$n" -ge 2 ] && echo "✔ $n projects are rows in $DB" || { echo "✘ expected projects in $DB, got $n"; exit 1; }; }
+case "$DB" in
+  postgres) rows=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT name, scheme, value FROM "ProviderSetting" UNION ALL SELECT key, scheme, value FROM "Setting"') ;;
+  mysql) rows=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT name, scheme, value FROM ProviderSetting UNION ALL SELECT `key`, scheme, value FROM Setting') ;;
+  *) rows=skip ;;
+esac
+if [ "$rows" != skip ]; then
+  echo "$rows" | grep -E 'ELEVENLABS_API_KEY.aes-256-gcm' >/dev/null && echo "$rows" | grep -E 'licence.key.aes-256-gcm' >/dev/null && echo "$rows" | grep -E 'limits.rateLimitPerMinute.plain.600' >/dev/null \
+    && ! echo "$rows" | grep -q "$PLAIN_V01\|LIC-E2E" && echo "✔ secrets are AES-256-GCM ciphertext in $DB; the runtime rate limit is a row" || { echo "✘ unexpected settings rows in $DB"; echo "$rows" | cut -c1-60; exit 1; }
+fi
 
 if [ "${CLAUDE:-}" = 1 ]; then
   echo "== headless Claude Code, MCP only"

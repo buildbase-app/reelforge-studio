@@ -31,6 +31,11 @@ services:
     environment:
       # rf_ followed by 20+ URL-safe characters; stored hashed on first start if no key exists.
       REELFORGE_BOOTSTRAP_KEY: ${REELFORGE_BOOTSTRAP_KEY:-}
+      # Encrypts provider keys stored in the database; without it secrets cannot be stored over the API.
+      # export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)   (and keep a copy)
+      REELFORGE_SECRET_KEY: ${REELFORGE_SECRET_KEY:-}
+      # Optional config file (YAML/JSON, docs/CONFIG.md); mount it and point to it:
+      REELFORGE_CONFIG: ${REELFORGE_CONFIG:-}
       REELFORGE_PUBLIC_URL: ${REELFORGE_PUBLIC_URL:-}
       REELFORGE_ALLOWED_HOSTS: ${REELFORGE_ALLOWED_HOSTS:-}
       REELFORGE_RENDER_CONCURRENCY: ${REELFORGE_RENDER_CONCURRENCY:-1}

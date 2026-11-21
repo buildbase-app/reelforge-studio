@@ -148,3 +148,11 @@ implementation or licensing decisions.
     online copy): https://www.sqlite.org/lang_altertable.html,
     https://www.sqlite.org/lang_vacuum.html (from documentation knowledge;
     VERIFY wording).
+25. **npm registry, `yaml`** (eemeli/yaml): `pnpm view yaml` on 2026-11-21:
+    latest 2.9.1 (published 2026-09-11), ISC licence, no dependencies; used to
+    parse `REELFORGE_CONFIG` (D-031). https://www.npmjs.com/package/yaml
+26. **Node.js `crypto`**: `createCipheriv('aes-256-gcm')` with a 12-byte IV,
+    `setAAD`, `getAuthTag`/`setAuthTag`, and `hkdfSync('sha256', ...)`, as used
+    for secrets at rest (D-033). https://nodejs.org/api/crypto.html (Node 22;
+    from documentation knowledge, behaviour verified by the round-trip,
+    wrong-key and tamper tests in packages/core/test/config.test.ts).

@@ -26,7 +26,7 @@ HTML, HyperFrames) and providers (TTS such as ElevenLabs, ...). The
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, branch `claude/eloquent-wright-tm3cs7`):
-REST `/v1` + MCP `/mcp` server (41 MCP tools, every REST route has one,
+REST `/v1` + MCP `/mcp` server (43 MCP tools, every REST route has one,
 checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -37,7 +37,15 @@ default, PostgreSQL or MySQL/MariaDB by `DATABASE_URL`, behind repository
 interfaces; migrations on start / `reelforge migrate`; one-time import of v0.1
 filesystem data; repository contract tests on all three databases; Docker e2e
 passes on SQLite and the `postgres`/`mysql` compose profiles. MongoDB waits for
-Prisma 7. 233 tests pass locally with `REELFORGE_REQUIRE_BROWSER=1`, including
+Prisma 7. **Configuration (#24, D-029, D-031..D-034):** one schema for every
+setting (docs/CONFIG.md, generated, CI drift check); defaults <
+`REELFORGE_CONFIG` file (YAML/JSON) < env (`REELFORGE_*`, old names as aliases,
+`_FILE` for every secret) < runtime settings in the database (`Setting` table);
+`get_config` / `update_config`, `GET`/`PATCH /v1/config` (admin, audit-logged),
+start-up-only keys refused with where to set them, runtime changes applied
+live; secrets in the database AES-256-GCM with `REELFORGE_SECRET_KEY` (refused
+without it; plaintext rows encrypted once); `reelforge config check` / `show`.
+268 tests pass locally with `REELFORGE_REQUIRE_BROWSER=1`, including
 MCP and REST journeys against a real server process. GitHub CI green on 9f62297 (run 44901451314: tests with
 `REELFORGE_REQUIRE_BROWSER=1` incl. MCP/REST e2e, spike, Docker build + smoke).
 Per-item status: `docs/AGENT_PLATFORM.md` §10.
@@ -93,6 +101,26 @@ ran out of turns (first Claude run: 61 turns, render actually succeeded).
 `get_job` now takes `waitSeconds` (≤ 50) and REST `GET /v1/jobs/:id?wait=N`
 long-polls; tool descriptions say so. Found and documented: a
 `*_FILE` secret must be readable by UID 10001.
+
+### Docker E2E: configuration (2026-11-21, issue #24)
+
+`e2e/docker/run.sh` now also mounts a config file (`REELFORGE_CONFIG`), gives
+the server `REELFORGE_SECRET_KEY_FILE`, and seeds a v0.1 `secrets.json` with a
+plain-text ElevenLabs key. From the client container an agent (MCP SDK) reads
+`get_config` (33 settings; `limits.maxJsonBytes` from the file,
+`server.allowedHosts` from env, `database.url` only "set"), sees the v0.1 key
+`source: runtime, atRest: aes-256-gcm` (encrypted once on start, logged by
+name only, no secret in the log), changes `limits.rateLimitPerMinute` to 600
+(source becomes `runtime`) and stores `licence.key` (not echoed), and is
+refused for `server.port` (`startup_only_setting`, naming `REELFORGE_CONFIG`
+and `REELFORGE_PORT`). `reelforge config check` / `config show` run in the
+container (secrets redacted, runtime value shown). After a new container on
+the same volume: the rate limit is still 600 from `runtime`, the licence key
+still decrypts, no second import or encryption pass, ElevenLabs configured
+from the encrypted key. PostgreSQL/MySQL: the secret rows are `aes-256-gcm`
+ciphertext without the plaintext; the rate limit is a `Setting` row.
+**ALL DOCKER E2E CHECKS PASSED** for `DB=sqlite`, `DB=postgres` and
+`DB=mysql` on 2026-11-21 with the image built from this branch (d3eef01 + e2e changes).
 
 ## 4. Infrastructure inventory (no secrets)
 
@@ -180,6 +208,7 @@ used for tests.
 | 15 | studio | Optional web UI |
 | 22 | studio | Product packaging v1: locked image, licence, config, pluggable database (tracking) |
 | 23 | studio | Database layer: repository interfaces + Prisma (done on the branch; see §3) |
+| 24 | studio | Configuration system: defaults < file < env < API/MCP runtime settings (done on the branch; see §3) |
 
 Upstream issues filed for BuildBase gaps met along the way: saas-os/os#2737–#2742,
 saas-os/sdk#389, comment on saas-os/os#2735, buildbase-app/nextjs-starter#18.

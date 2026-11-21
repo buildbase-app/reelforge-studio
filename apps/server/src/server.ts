@@ -1,4 +1,6 @@
+import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
 import { ReelforgeService, type PluginRegistry } from '@reelforge/core';
@@ -90,6 +92,9 @@ export async function startServer(
   log(`ReelForge Studio ${SERVER_VERSION} listening on ${url} (data: ${config.dataDir})`);
   log(`REST ${url}/v1  MCP ${url}/mcp`);
   log(`database: ${db.kind} ${db.displayUrl}`);
+  if (existsSync(join(config.dataDir, 'secrets.json'))) {
+    logger('warn', `${join(config.dataDir, 'secrets.json')} (v0.1) still holds provider keys in plain text; they are in the database now${service.settings.cipher ? ' (encrypted)' : ''}: delete the file once you have checked them`);
+  }
   if (!service.settings.cipher) log('REELFORGE_SECRET_KEY is not set: provider keys and other secrets cannot be stored through the API (see docs/CONFIG.md)');
   if ((await service.keys.count()) === 0) {
     log('no API keys yet: run `pnpm keys:create --name me` or set REELFORGE_BOOTSTRAP_KEY');

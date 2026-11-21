@@ -110,15 +110,17 @@ system.
 ### Layout
 
 ```
-apps/server/              REST /v1 + MCP /mcp (Hono), CLI (keys), config
+apps/server/              REST /v1 + MCP /mcp (Hono), CLI (keys, migrate, config check|show)
   src/app.ts              REST routes, auth, rate limit, /mcp Host/Origin checks
   src/mcp.ts              MCP tools/resources/prompts (thin wrappers over the service)
   src/routes.ts           REST route table <-> MCP tool map (checked by test/parity.test.ts)
   src/registry.ts         which plugins this server ships with
+  src/config.ts           ServerConfig from the core config schema; live runtime changes
 packages/core/            plugin interfaces + registry, ReelforgeService (every capability),
                           repository interfaces (src/repositories.ts) + in-memory impl,
                           project/theme/asset/key stores, job runner, render pipeline,
-                          v0.1 filesystem importer, ElevenLabs provider, remotion-lambda skeleton
+                          v0.1 filesystem importer, ElevenLabs provider, remotion-lambda skeleton,
+                          src/config/ (THE settings schema, sources, AES-GCM secrets, runtime layer)
 packages/db/              Prisma 7 repositories (SQLite default, PostgreSQL, MySQL by DATABASE_URL),
                           migrator, prisma/base.prisma (the one schema source), migrations/
 packages/project-schema/  manifest v0.2 (+ v0.1 migration), template catalog, themes
@@ -143,6 +145,8 @@ pnpm dev                                 # server with watch on 127.0.0.1:4321
 pnpm start                               # server without watch
 pnpm reelforge keys list|delete <id>     # other CLI commands
 pnpm reelforge migrate [--status]        # database migrations (also run on start)
+pnpm reelforge config check|show         # validate / print the configuration (docs/CONFIG.md)
+pnpm docs:config                         # regenerate docs/CONFIG.md after changing the config schema
 TEST_POSTGRES_URL=... TEST_MYSQL_URL=... pnpm --filter @reelforge/db test   # contract tests on every DB
 REELFORGE_TEST_DB=postgres pnpm --filter @reelforge/server test             # server e2e on PostgreSQL
 ```
@@ -169,6 +173,10 @@ REELFORGE_TEST_DB=postgres pnpm --filter @reelforge/server test             # se
   real-engine tests skip without a browser unless `REELFORGE_REQUIRE_BROWSER=1`.
   Check media with `probe`/`checkExpectation`/`assertDecodable`/`frameStats`,
   not by file size.
+- Settings: every new setting goes into `packages/core/src/config/schema.ts`
+  (env name, scope `startup`/`runtime`, `secret`, default, description), never
+  a direct `process.env` read; then `pnpm docs:config`. A runtime setting must
+  take effect without a restart (see `applySettings` / `applyServerSettings`).
 - No telemetry, no new network egress without listing it in docs/PRIVACY.md.
 - Pin new runtime dependencies to versions you checked on the registry and add
   them to LICENSES/THIRD_PARTY.md.
@@ -186,7 +194,7 @@ REELFORGE_TEST_DB=postgres pnpm --filter @reelforge/server test             # se
   `ctx.signal` and reports `ctx.progress`. Register it in
   `apps/server/src/registry.ts`, add a render test (skip without a browser) and
   extend the e2e test. See `packages/engine-html` for a compact example.
-- **Provider:** implement `ProviderPlugin` (`kind`, `configured()` from env,
+- **Provider:** implement `ProviderPlugin` (`kind`, `configured()` from the env object it is given,
   `costNote`, Zod `params`, `cacheKey()` for the content-hash cache,
   `run()` that stores the result with `ctx.putAsset` and uses `ctx.fetch`).
   Register it; test with a mocked fetch; list its host in docs/PRIVACY.md.

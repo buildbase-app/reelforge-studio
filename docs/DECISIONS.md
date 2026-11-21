@@ -303,7 +303,9 @@ and 158). The server never downloads a browser at render time.
 
 ### D-021 --- Provider keys can be set by an admin agent
 
-**Status:** DECIDED (founder requirement: no UI after first start).\
+**Status:** DECIDED (founder requirement: no UI after first start). Storage
+superseded by D-022 (database) and D-033 (encrypted at rest; storing needs
+`REELFORGE_SECRET_KEY`).\
 `configure_provider` stores declared provider settings in
 `<data>/secrets.json` (mode 0600, plain text at rest), applied immediately,
 never returned. Environment variables still work; API-set values override
@@ -459,7 +461,7 @@ stored in the database. Start-up-only settings are refused at runtime with an
 error naming where to set them. `GET /v1/config` / MCP `get_config` show each
 effective value and its source; secrets only as set/not set. Provider keys
 stored in the database are encrypted at rest with `REELFORGE_SECRET_KEY`.
-Built in #24.
+Built in #24: D-031..D-034.
 
 ### D-030 --- All end-to-end testing in the production org's development environment
 
@@ -473,3 +475,92 @@ API directly sends `environmentId(orgId, environment)` (`<orgId>-fsyqdskf`).
 Note: items cannot be promoted between environments (`env push` moves only
 templates, workflows, plans and unsubscribe groups), so production items are
 created in production when selling goes live.
+
+## J. Configuration system (2026-11-21, issue #24, built from D-029)
+
+### D-031 --- One configuration schema in core; generated reference; old names as aliases
+
+**Status:** DECIDED (reversible).\
+Every setting is a leaf of one Zod object in
+`packages/core/src/config/schema.ts`, with metadata per key: primary env
+variable (`REELFORGE_*`), aliases, `scope` (`startup` | `runtime`), `secret`,
+default (static or computed from other effective values, e.g. the SQLite file
+in the data directory), description and, for settings other code reads from an
+environment object, the name it reads (`providerEnv`, `processEnv`).
+`docs/CONFIG.md` is generated from it (`pnpm docs:config`; CI fails on drift).
+**Names:** `REELFORGE_*` is primary; the names already in use (`DATABASE_URL`,
+`ELEVENLABS_API_KEY`, `FFMPEG_PATH`, `FFPROBE_PATH`, `REMOTION_LAMBDA_*`) keep
+working as aliases with lower precedence (a warning when both differ). Every
+secret is also read from `<NAME>_FILE`. Empty variables count as unset
+(Compose passes `${X:-}` as ""). **File:** `REELFORGE_CONFIG` names a YAML or
+JSON file with the same nesting; unknown keys are refused (typos fail at
+start), and parser errors report a position, never the line (it may hold a
+secret). An invalid configuration stops the server (and `reelforge config
+check` exits 1) with every problem at once; secret values never appear in
+messages. Placeholders: `storage.s3.*` (#27; `storage.driver: s3` is refused
+until then) and `licence.*` (#25). Engines and FFmpeg still read
+`process.env`; values from the file or a `REELFORGE_*` name are exported to the
+names they read at start. Plugin-declared provider settings outside the schema
+stay reachable through `configure_provider`. YAML parsing uses `yaml` 2.9.1
+(ISC, no dependencies).
+
+### D-032 --- Runtime settings: a Setting table, highest precedence, applied live
+
+**Status:** DECIDED (reversible).\
+Runtime values set with `update_config` / `PATCH /v1/config` are rows of a new
+`Setting` table (dotted key, JSON text value, `scheme`, `updatedAt`,
+`updatedBy`; migration `0002_runtime_settings` for SQLite, PostgreSQL and
+MySQL; `SettingRepository` with contract tests on all three). Provider-backed
+secrets (`providers.elevenlabs.apiKey`) stay in `ProviderSetting` under their
+env name, so `configure_provider` and `update_config` change the same value.
+Rows carry `workspaceId` (D-025); instance-wide settings live in the default
+workspace, so per-workspace overrides later need no schema change. Runtime
+values win over the file and env (D-029); `null` clears one. A PATCH is all or
+nothing; it is validated per key and then as a whole configuration. Runtime
+keys today: `server.allowedHosts`, `limits.*`, `logging.level`,
+`providers.*`, `render.backends.remotionLambda.*`, `licence.key`. They take
+effect without a restart (rate limiter, body limits and Host check read the
+live config; `JobRunner.setConcurrency`; provider env object). Everything that
+binds a socket, opens the database or picks directories is start-up only and is
+refused with an error naming the config file key and env variable(s). A stored
+value that no longer validates (after an upgrade) is ignored with a warning
+rather than blocking the start. **Limit:** a change reaches the process that
+made it; other processes on the same database see it after a restart (one
+instance per data directory today; polling or notifications are a later step).
+
+### D-033 --- Secrets at rest: AES-256-GCM with REELFORGE_SECRET_KEY; refuse without it
+
+**Status:** DECIDED (reversible in mechanism, not in the requirement).\
+Secrets stored in the database (provider settings, secret runtime settings)
+are encrypted with AES-256-GCM. The 256-bit key is HKDF-SHA256 of
+`REELFORGE_SECRET_KEY` (or `_FILE`; at least 32 characters, `openssl rand
+-base64 32`). Stored form `v1.<kid>.<iv>.<tag>.<ciphertext>` in the existing
+`scheme` columns (`aes-256-gcm`): `kid` (an HMAC of a constant, reveals nothing)
+reports a wrong key as such and allows key rotation later without a schema
+change; the setting name is authenticated data, so a value copied to another
+setting does not decrypt. **Without the key the server refuses to store
+secrets** (`secret_key_required`, 409, with how to set it); this changes
+`configure_provider`, which stored plain text before (D-021). Plain-text rows
+(v0.1 import, earlier versions) are encrypted once at the first start with the
+key (audit `config.secrets.encrypt`); without the key they keep working and
+the server warns. A missing or wrong key does not stop the server: the stored
+secret is unusable and `get_config` / `list_providers` show why. Secrets are
+never returned, logged, audit-logged or put in errors; the API shows
+`set` / `not set` and, for runtime secrets, `atRest`. Rotation (re-encrypt with
+a new key) is not built yet.
+
+### D-034 --- Config API: admin scope for reading too; every change audit-logged
+
+**Status:** DECIDED (reversible).\
+`GET /v1/config` / `get_config` and `PATCH /v1/config` / `update_config` need
+the `admin` scope. Reading needs it too because the report shows paths, hosts
+and which secrets exist; relaxing that later is not a breaking change,
+tightening would be. Each entry has `key`, `value` (secrets `set` / `not set`),
+`source` (`default` | `file` | `env` | `runtime`), `origin` (env variable,
+file path or `database`), `scope`, `secret`, env names and description. Every
+change writes an audit entry through `service.audit()` (`config.update` with
+`{key, from, to}` per change, secrets as set / not set; `provider.configure`
+with the names set or cleared). Errors: `invalid_setting` (422, unknown key or
+invalid value), `startup_only_setting` (409), `secret_key_required` (409), with
+`details.issues` listing every problem.
+

@@ -140,7 +140,8 @@ All JSON; `Authorization: Bearer rf_<key>`. Errors: `{ error: { code, message, d
 Implemented extras (v0.1): `GET /v1/templates`, `GET /v1/projects/:id/versions`,
 `PUT /v1/projects/:id/theme`, `PATCH /v1/projects/:id/audio`, `GET /v1/jobs`,
 `POST /v1/jobs/:id/retry`, `GET /v1/renders/:id`, `GET /v1/assets`,
-`GET /v1/providers`, `PUT /v1/providers/:id/config` (admin). The machine-readable table with the matching MCP tool and
+`GET /v1/providers`, `PUT /v1/providers/:id/config` (admin), `GET /v1/config` and
+`PATCH /v1/config` (admin; configuration, see docs/CONFIG.md). The machine-readable table with the matching MCP tool and
 scope of every route is `apps/server/src/routes.ts`; `test/parity.test.ts`
 fails if REST and MCP drift apart.
 
@@ -161,7 +162,7 @@ Implemented extras (v0.1), so every REST route has a tool: `list_projects`,
 `delete_project`, `list_project_versions`, `get_theme`, `update_theme`,
 `delete_theme`, `list_renders`, `list_jobs`, `retry_job`, `upload_asset`,
 `get_asset`, `list_providers`, `configure_provider`, `run_provider`,
-`list_keys`, `create_key`, `delete_key` (41 tools in total). Resource
+`list_keys`, `create_key`, `delete_key`, `get_config`, `update_config` (43 tools in total). Resource
 `reelforge://guide/workflow` and prompt `make_reel` explain the workflow to an
 agent with no other docs.
 
@@ -241,16 +242,17 @@ that was run; "partial" says what is missing.
 | §6 Errors `{ error: { code, message, details } }` | done | |
 | §6 SSE job events | done | `GET /v1/jobs/:id/events` |
 | §6 Outputs: MP4, render manifest, poster; signed URL when remote | done (local) | Download with Range and Bearer key, or a signed time-limited `downloadUrl` (HMAC, one file, 1 h) that needs no key; no remote storage yet |
-| Provider configuration over the API (agent-only operation) | done | `configure_provider` / `PUT /v1/providers/:id/config` (admin); values stored 0600 and never returned; `list_providers` reports set/source |
+| Provider configuration over the API (agent-only operation) | done | `configure_provider` / `PUT /v1/providers/:id/config` (admin); values stored encrypted (AES-256-GCM, `REELFORGE_SECRET_KEY`, D-033) and never returned; `list_providers` reports set/source |
+| Configuration everywhere (#24, D-029, D-031..D-034) | done | One schema (docs/CONFIG.md); defaults < `REELFORGE_CONFIG` file < env (`_FILE` for secrets) < runtime settings in the database; `get_config` / `update_config`, `GET`/`PATCH /v1/config` (admin, audit-logged); start-up-only keys refused with where to set them; `reelforge config check` / `show`; Docker e2e on SQLite and PostgreSQL |
 | Workflow guide for agents without docs | done | MCP resource `reelforge://guide/workflow` and prompt `make_reel`; the guide's manifest is validated by a test |
 | §6 Assets: upload or URL, licence, checksum | done | Content-addressed store, byte sniffing, https only, SSRF guard at connect time, size limit |
-| §7 MCP tools (24 in the spec) | done | All 24 + 17 extras; official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 MCP tools (24 in the spec) | done | All 24 + 19 extras; official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 Resources and prompts `plan_reel`, `review_reel` | done | MCP tests |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |
 | §8 API keys: random 32 bytes, hashed, scopes, CLI, admin API, bootstrap key | done | `REELFORGE_BOOTSTRAP_KEY` or `_FILE`; CLI `pnpm keys:create` / `reelforge keys create` in Docker (picked up without restart); admin tools create/list/revoke |
 | §8 Bind 127.0.0.1 by default; Host/Origin checks on /mcp | done | REST tests |
-| §8 Rate limits per key | done (basic) | In-memory token bucket, single instance |
+| §8 Rate limits per key | done (basic) | In-memory token bucket, single instance; the limit is a runtime setting (`limits.rateLimitPerMinute`) |
 | §8 Provider keys only in env; never in logs/manifests | done | HyperFrames child gets a filtered env (tested) |
 | §8 Chromium sandbox on outside containers | partial | html engine: on unless root or `REELFORGE_CHROMIUM_NO_SANDBOX=1`; Motion Canvas harness still always passes `--no-sandbox`; Remotion uses its own defaults |
 | §9 Single tenant | done | |
