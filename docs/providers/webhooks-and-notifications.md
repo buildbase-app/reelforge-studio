@@ -223,8 +223,12 @@ container over MCP; release image, hardened flags; receiver container
 Not tested: the real Slack, Discord, Teams, Resend, Postmark, SendGrid and
 Amazon SES services (no accounts in CI; stubs of their documented APIs only),
 SMTP with STARTTLS/TLS against a real server (Mailpit ran without TLS), the
-Docker e2e on PostgreSQL and MySQL for this step (the contract and server tests
-ran on both), HTTPS proxies for outbound webhooks.
+Docker e2e on MySQL (the contract and server tests ran on it), HTTPS proxies
+for outbound webhooks. The Docker e2e on PostgreSQL 17 ran every webhook and
+notification check of this step successfully (20 WHK/NTF checks, migration
+`0005_webhooks` applied), but the run as a whole did not pass: an older licence
+step (`render_project works after the restart`) failed while the shared test
+machine's kernel was killing processes for lack of memory; it was not re-run.
 
 Commands:
 

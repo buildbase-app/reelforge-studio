@@ -265,14 +265,16 @@ outcome. Mailpit in the compose `test` profile.
 
 | Check | Result |
 | --- | --- |
-| `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` | core 233 (webhooks 73), db 81, server 116 (webhooks 13, parity 6), engines with Chrome Headless Shell; on this shared machine (load average ~25) three load-sensitive older tests timed out in one full run and passed when re-run (see the PR) |
+| `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` | core 233 (webhooks 73), db 81, server 116 (webhooks 13, parity 6), engines with Chrome Headless Shell; on this shared machine (load average 20-40) older render-waiting tests (core and server licence, config CLI) timed out in full-workspace runs; every package passed when run on its own (core 233, server 116) |
 | Contract tests (webhook repository + all others) on memory, SQLite, PostgreSQL 17, MySQL 8.4 | 157 passed |
 | Server webhook and enterprise tests on PostgreSQL and MySQL | 35 passed on each |
 | Docker e2e, release image, hardened flags, `E2E_PREFIX=whk` | **ALL DOCKER E2E CHECKS PASSED** on SQLite (196 checks): signed webhook verified by the official library in a receiver container, Slack/Discord/Teams payloads, email through Mailpit (SMTP, read over its API) and the Resend/Postmark/SendGrid/SES stubs, retries, dead letter, 4xx, replay, a wrong provider key, no secrets in answers or the server log, a delivery queued while the receiver was down sent after a graceful (SIGTERM) restart |
 
 Not tested: the real Slack, Discord, Teams, Resend, Postmark, SendGrid and SES
 services (HTTP stubs of their documented APIs only), SMTP over TLS against a
-real server, the Docker e2e step on PostgreSQL/MySQL. CI does not install the
+real server, the Docker e2e on MySQL; on PostgreSQL every webhook check
+passed but the run failed at an older licence render step during kernel OOM
+kills on the shared machine (not re-run). CI does not install the
 `standardwebhooks` receiver separately: the Docker e2e does it in the client
 container.
 
