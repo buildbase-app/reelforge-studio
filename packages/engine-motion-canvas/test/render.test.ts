@@ -25,7 +25,8 @@ describe('browser requirement', () => {
 
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-mc-'));
 const cacheDir = resolve(__dirname, '../../../.render-cache');
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+// Chrome can still be flushing its profile when the suite ends; retry ENOTEMPTY/EBUSY.
+afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 const output: OutputSettings = { width: 360, height: 640, fps: 30, format: 'mp4' };
 const scene: Scene = {
