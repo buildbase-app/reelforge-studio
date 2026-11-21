@@ -37,7 +37,7 @@ client).
    migration. MCP tool names are versioned in the server card and marked
    `experimental` until v1.0.
 4. **Self-hosted means self-contained.** Defaults work offline: local
-   filesystem storage, local render, no telemetry. Every network egress is a
+   storage (files on disk, SQLite database), local render, no telemetry. Every network egress is a
    configured provider and is listed in `docs/PRIVACY.md`.
 5. **Deterministic core.** Same manifest + same assets + same versions gives a
    functionally identical video. Generative providers are steps that produce
@@ -224,7 +224,8 @@ that was run; "partial" says what is missing.
 | §3 Providers: avatar (HeyGen), stock, music | missing | Interfaces exist |
 | §3 Backend: local | done | in-process, job runner concurrency 1 by default |
 | §3 Backend: remotion-lambda | partial (skeleton) | Configuration check only; submitting returns `not_implemented` (501). Nothing faked |
-| §3 Storage: local fs | done | `LocalStorageDriver` for assets; projects/renders on the filesystem |
+| §3 Storage: local fs | done | `LocalStorageDriver` for asset and render files |
+| Database (#23, D-022) | done | Repository interfaces in core; Prisma 7: SQLite (default), PostgreSQL, MySQL by `DATABASE_URL`; migrations on start / `reelforge migrate`; one-time v0.1 import; contract tests on all three; Docker e2e on all three. MongoDB: not yet (Prisma 7) |
 | §3 Storage: S3-compatible, signed URLs | missing | `signedUrl` returns null |
 | §3 Docker image + compose | done | Built and run here: healthy, four-engine render via REST, MCP tools/list. Cloud recipes in docs/DEPLOY.md untested |
 | §4 Templates expose props JSON Schema, durations, theme tokens | done | `list_templates` |

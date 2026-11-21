@@ -264,7 +264,8 @@ agents must be able to do everything over MCP alone).
 
 ### D-017 --- Filesystem state, one instance per data directory
 
-**Status:** DECIDED for v0.1 (reversible).\
+**Status:** SUPERSEDED for metadata by D-022 (database, #23); binary files
+(assets, renders) still live in the data directory as described here.\
 Projects (with every version), assets (content-addressed), renders, jobs,
 themes, keys and provider secrets live under `REELFORGE_DATA_DIR`; atomic
 temp-file + rename writes; renders are finalised by renaming a temp
@@ -307,3 +308,109 @@ and 158). The server never downloads a browser at render time.
 `<data>/secrets.json` (mode 0600, plain text at rest), applied immediately,
 never returned. Environment variables still work; API-set values override
 them. Operators who prefer env-only can simply not grant `admin`.
+
+## H. Database layer (2026-11-21, issue #23)
+
+Numbering note: issue #22 calls the founder decisions D-015..D-018, but those
+numbers were already used above (section G). They are recorded here from
+D-022 on; "D-017 of #22" (database) is D-022 below, and the config (#22 D-018)
+and licence (#22 D-016) decisions keep their #22 labels until they are built.
+
+### D-022 --- Prisma 7 behind repository interfaces; SQLite by default, PostgreSQL and MySQL by DATABASE_URL
+
+**Status:** DECIDED (founder, #22). Implementation choices D-023..D-026 are
+reversible.\
+Projects with every version, API keys, jobs with their events and log lines,
+custom themes, provider settings, asset metadata and an audit log live in a
+database behind the interfaces in `packages/core/src/repositories.ts`.
+`ReelforgeService` and the stores only see those interfaces; `@reelforge/db`
+implements them with Prisma 7.10.1 and driver adapters (better-sqlite3, pg,
+mariadb); `createMemoryRepositories()` implements them in memory for unit
+tests. One contract suite (`packages/db/test/contract.test.ts`) runs against
+memory, SQLite, and PostgreSQL/MySQL when `TEST_POSTGRES_URL` /
+`TEST_MYSQL_URL` are set. The URL scheme picks the database: unset or
+`file:` → SQLite at `<data>/reelforge.db`; `postgres(ql)://`; `mysql://` or
+`mariadb://`. Binary files stay in the storage driver; an asset row records
+its `storageKey`. **The filesystem stores are retired rather than kept as a
+second backend**: keeping two implementations at feature parity (audit,
+workspaces, queries) would cost more than it saves, and SQLite is just as
+zero-config. The v0.1 layout is still read once by the importer (D-026).
+**MongoDB:** Prisma 7 has no MongoDB support yet (Prisma recommends 6.19 for
+it); a `mongodb://` URL is refused with that explanation. The interfaces have
+no SQL in them, JSON payloads are stored as documents (D-025), and the
+contract suite is ready to run against a MongoDB implementation.
+
+### D-023 --- One schema source, generated per provider; clients committed
+
+**Status:** DECIDED (reversible).\
+Prisma needs one `datasource` provider per schema and its generated client and
+query compiler are provider specific. Prisma's multi-file schema splits models
+across files but still has one provider, so it does not solve this.
+`packages/db/prisma/base.prisma` is the only file edited by hand;
+`pnpm --filter @reelforge/db schemas` renders `prisma/{sqlite,postgresql,mysql}/schema.prisma`
+by replacing the provider and three column-type placeholders (`@@TEXT@@`,
+`@@LONGTEXT@@`, `@@ID@@`, which only differ on MySQL: TEXT / LONGTEXT /
+VARCHAR(191)). The three generated clients (`src/generated/<provider>`, about
+800 KB of TypeScript each) are committed, so installs, CI and the Docker build
+need no `prisma generate` step and no Prisma binary download; CI regenerates
+them and fails on any diff. The runtime loads only the client of the
+configured provider. All repositories are written once against one client's
+types (the three model APIs are identical).
+
+### D-024 --- Our own migrator over the driver adapter; no Prisma CLI at runtime
+
+**Status:** DECIDED (reversible).\
+Migrations are SQL generated per provider with `prisma migrate diff` from the
+last migrated schema snapshot (`migrations/<provider>/schema.prisma`) to the
+current schema (`pnpm --filter @reelforge/db migration <name>`; no database
+needed), committed under `migrations/<provider>/<NNNN_name>/migration.sql` with
+the same ids for all three, and embedded in `src/generated/migrations.ts` (a
+bundled build needs no files beside it). At start (or `reelforge migrate`,
+`--migrate-only`) `src/migrate.ts` applies pending ones through the same
+Prisma connection, recording id + SHA-256 in `_reelforge_migrations`. Why not
+`prisma migrate deploy` in the image: it needs the Prisma CLI and its native
+schema engine (about 65 MB more, downloaded from Prisma's servers, telemetry
+to disable) in a locked, offline, non-root image; ours needs nothing extra and
+behaves the same on all three databases. Safety: one transaction per
+migration; PostgreSQL advisory lock, MySQL `GET_LOCK`, SQLite write lock, so
+concurrent starts are safe (tested); an edited migration (checksum) or a
+migration from a newer version stops the server with a clear message; SQLite
+migrations run with foreign keys off and `foreign_key_check` before commit
+(SQLite's table-rebuild procedure). Limit: MySQL commits DDL statement by
+statement, so a failed MySQL migration needs the backup (documented).
+
+### D-025 --- Data model: workspaceId everywhere, JSON as text, optimistic versions
+
+**Status:** DECIDED (reversible).\
+Every table has `workspaceId` with a foreign key to `Workspace`; there is one
+workspace (`default`), and a `Repositories` object is bound to one workspace,
+so teams/SSO later need code, not a data migration. User-chosen ids (projects,
+themes, assets) have composite primary keys `(workspaceId, id)`. Manifests,
+job params/results, metadata and theme definitions are stored as JSON
+**text** (LONGTEXT on MySQL), not native JSON: they round-trip byte for byte
+everywhere (PostgreSQL `jsonb` reorders keys) and map directly onto a document
+store later. A project save is one transaction: `UPDATE Project SET version =
+n+1 WHERE version = n` plus the new `ProjectVersion` row; zero rows updated
+means someone else saved first. `ProjectStore` keeps its in-process lock, so
+one server never conflicts with itself; a save that loses to another process
+is retried (up to 20 times with jitter), or reported as `version_conflict`
+(409) when the agent pinned `expectedVersion`. Job state changes are one
+transaction each (job row + `JobEvent`); progress updates are throttled
+(500 ms) and log lines are `JobEvent` rows. Provider settings carry a `scheme`
+column (`plain` now) so encryption at rest (#22 D-018) needs no schema change.
+`AuditLog` has a write helper (`service.audit()`, used by the CLI for key
+create/delete); the feature itself is #17.
+
+### D-026 --- One-time, idempotent import of v0.1 filesystem data
+
+**Status:** DECIDED.\
+On start (after migrations) the server imports `projects/` (every version,
+original timestamps), `keys.json` (hashes copied, so keys keep working),
+`themes/`, `jobs/` with logs, `secrets.json` and asset metadata from the data
+directory, through the repository interfaces, then records
+`import.fs-v0.1` in `SystemState` so it never scans again. Rows that exist are
+skipped, never overwritten; nothing on disk is deleted (the JSON files remain
+as a backup); asset and render files stay where they are because the storage
+layout is unchanged. `reelforge import-v01` re-runs it on demand. Tested in
+the contract suite on every database and in the Docker e2e (the e2e's admin key
+is an imported v0.1 key).

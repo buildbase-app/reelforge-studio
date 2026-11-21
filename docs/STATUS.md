@@ -32,7 +32,12 @@ v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
 decode checks, signed download links, provider configuration over the API,
 ElevenLabs TTS (mocked tests only), remotion-lambda skeleton, Docker image +
-compose. 185 tests pass locally with `REELFORGE_REQUIRE_BROWSER=1`, including
+compose. **Database layer (#23, D-022..D-026):** metadata in SQLite by
+default, PostgreSQL or MySQL/MariaDB by `DATABASE_URL`, behind repository
+interfaces; migrations on start / `reelforge migrate`; one-time import of v0.1
+filesystem data; repository contract tests on all three databases; Docker e2e
+passes on SQLite and the `postgres`/`mysql` compose profiles. MongoDB waits for
+Prisma 7. 233 tests pass locally with `REELFORGE_REQUIRE_BROWSER=1`, including
 MCP and REST journeys against a real server process. GitHub CI green on 9f62297 (run 44901451314: tests with
 `REELFORGE_REQUIRE_BROWSER=1` incl. MCP/REST e2e, spike, Docker build + smoke).
 Per-item status: `docs/AGENT_PLATFORM.md` §10.
@@ -60,6 +65,23 @@ another on a Docker network (agent "on another machine").
 | Forged `Host` / foreign `Origin` on `/mcp` | 403 (DNS-rebinding protection) |
 | New container on the same volume | projects, keys, renders kept |
 | Headless Claude Code, MCP only, no docs | pass (see A2); one self-corrected invalid manifest (`brief` as string) |
+
+### Docker E2E on three databases (2026-11-21, issue #23)
+
+`e2e/docker/run.sh` with `DB=sqlite` (default), `DB=postgres` and `DB=mysql`
+(the compose profiles; images `mirror.gcr.io/library/postgres:17` and
+`mysql:8.4` via `POSTGRES_IMAGE`/`MYSQL_IMAGE`). The volume starts as a v0.1
+filesystem data directory; the server gets the database through
+`DATABASE_URL_FILE` only. All three: **ALL DOCKER E2E CHECKS PASSED**:
+migration `0001_init` applied, v0.1 project (2 versions), theme and admin key
+imported once (the journey runs with the imported key), MCP journey from a
+separate container renders 1080×1920, 30 fps, 330 frames H.264 + AAC, 11.0 s
+(4 engines), auth/scope/validation negatives, Host/Origin 403, a new container
+keeps the data and does not import again; PostgreSQL/MySQL hold the project
+rows and no SQLite file is created. Image (`--network none`, UID 10001):
+migrate, CLI key creation and `reelforge backup` work offline. Image size
+2.36 GB → 2.50 GB (content 606 → 642 MB; the image now installs production
+dependencies only, which offsets most of Prisma's 72 MB client).
 
 Found and fixed during the run: agents polled `get_job` in a tight loop and
 ran out of turns (first Claude run: 61 turns, render actually succeeded).
@@ -99,7 +121,7 @@ mandatory seller-paid AI (D-005); **REST + MCP agent platform with plugins**
 5. Manifest v0.2 and MCP tool names as a public contract: marked experimental until v1.0.
 
 **Reversible defaults in use:** English-only acceptable at launch; Linux +
-macOS first, WSL untested; filesystem storage in the studio; test org for
+macOS first, WSL untested; SQLite by default in the studio (PostgreSQL/MySQL by `DATABASE_URL`); test org for
 end-to-end testing; production keeps live keys and is not used for tests.
 
 ## 6. End-to-end goal (v0.1)
@@ -149,6 +171,8 @@ end-to-end testing; production keeps live keys and is not used for tests.
 | 13 | studio | Audio and captions |
 | 14 | studio | Install, platforms and hardening |
 | 15 | studio | Optional web UI |
+| 22 | studio | Product packaging v1: locked image, licence, config, pluggable database (tracking) |
+| 23 | studio | Database layer: repository interfaces + Prisma (done on the branch; see §3) |
 
 Upstream issues filed for BuildBase gaps met along the way: saas-os/os#2737–#2742,
 saas-os/sdk#389, comment on saas-os/os#2735, buildbase-app/nextjs-starter#18.

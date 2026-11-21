@@ -116,8 +116,11 @@ apps/server/              REST /v1 + MCP /mcp (Hono), CLI (keys), config
   src/routes.ts           REST route table <-> MCP tool map (checked by test/parity.test.ts)
   src/registry.ts         which plugins this server ships with
 packages/core/            plugin interfaces + registry, ReelforgeService (every capability),
+                          repository interfaces (src/repositories.ts) + in-memory impl,
                           project/theme/asset/key stores, job runner, render pipeline,
-                          ElevenLabs provider, remotion-lambda skeleton
+                          v0.1 filesystem importer, ElevenLabs provider, remotion-lambda skeleton
+packages/db/              Prisma 7 repositories (SQLite default, PostgreSQL, MySQL by DATABASE_URL),
+                          migrator, prisma/base.prisma (the one schema source), migrations/
 packages/project-schema/  manifest v0.2 (+ v0.1 migration), template catalog, themes
 packages/media-pipeline/  FFmpeg/ffprobe: encode, assemble (music/voice/sfx), probe, checks
 packages/engine-remotion/ engine-motion-canvas/ engine-html/ engine-hyperframes/
@@ -139,6 +142,9 @@ pnpm keys:create --name me               # API key (printed once), REELFORGE_DAT
 pnpm dev                                 # server with watch on 127.0.0.1:4321
 pnpm start                               # server without watch
 pnpm reelforge keys list|delete <id>     # other CLI commands
+pnpm reelforge migrate [--status]        # database migrations (also run on start)
+TEST_POSTGRES_URL=... TEST_MYSQL_URL=... pnpm --filter @reelforge/db test   # contract tests on every DB
+REELFORGE_TEST_DB=postgres pnpm --filter @reelforge/server test             # server e2e on PostgreSQL
 ```
 
 ### Conventions
@@ -151,6 +157,12 @@ pnpm reelforge keys list|delete <id>     # other CLI commands
 - Errors: throw `ApiError(code, status, message, details)`; never return ad hoc
   error shapes. Manifest problems are `invalid_manifest` with `details.issues`
   (`path` + `message`), all at once.
+- State: every row goes through the repository interfaces
+  (`packages/core/src/repositories.ts`); the service never imports Prisma.
+  Schema change: edit `packages/db/prisma/base.prisma`, then
+  `pnpm --filter @reelforge/db generate` and
+  `pnpm --filter @reelforge/db migration <name>` (writes the SQL for all three
+  databases), and extend `packages/db/test/contract.test.ts`.
 - Files: write with `writeFileAtomic`/`writeJsonAtomic`; renders go to a temp
   directory and are renamed when every check passed. Never overwrite outputs.
 - Tests: fast unit tests use the fake engine in `packages/core/test/helpers.ts`;

@@ -119,3 +119,32 @@ implementation or licensing decisions.
     (https://elevenlabs.io/docs/api-reference/text-to-speech/convert-with-timestamps):
     endpoint and response shape used by the provider. Not called live
     (VERIFY with a real key).
+20. **npm registry** (checked 2026-11-21, `npm view`): `@prisma/client`,
+    `@prisma/adapter-better-sqlite3`, `@prisma/adapter-pg`,
+    `@prisma/adapter-mariadb` 7.10.1 (dist-tag `latest` for the client;
+    `prisma` CLI 7.10.1 published 2026-10-15, its `latest` tag is an 8.0 RC, so
+    7.10.1 is pinned). Adapter dependencies: better-sqlite3 ^12.6.0 (12.11.1
+    installed), pg ^8.16.3 (8.23.1), mariadb 3.5.4 (LGPL-2.1-or-later).
+21. **Prisma 7 packages as installed** (type definitions and generated code,
+    2026-11-21): adapters take a URL/config (`PrismaBetterSqlite3({ url })`,
+    `PrismaPg(poolConfig, { schema })`, `PrismaMariaDb(url)` which rewrites
+    `mysql://` to `mariadb://`); the `prisma-client` generator emits TypeScript
+    that loads the provider's query compiler as base64 WebAssembly from
+    `@prisma/client/runtime` (no engine binary at runtime); `prisma migrate diff
+    --from-empty|--from-schema --to-schema --script` needs a datasource in
+    `prisma.config.ts` but no database connection; the schema-engine binary is
+    downloaded by the CLI on first use (it is skipped at install because
+    `@prisma/engines` is not in `onlyBuiltDependencies`).
+22. **Prisma docs, MongoDB** (https://www.prisma.io/docs/orm/overview/databases/mongodb,
+    fetched 2026-11-21): "MongoDB support for Prisma ORM v7 is coming in the
+    near future"; use Prisma ORM v6.19 for MongoDB meanwhile.
+23. **MySQL 8.4 + MariaDB Connector/Node.js** (observed 2026-11-21 against
+    `mysql:8.4` (8.4.13)): `caching_sha2_password` over plain TCP fails with
+    "RSA public key is not available client side" unless
+    `allowPublicKeyRetrieval=true` (or TLS) is set.
+24. **SQLite documentation**, "ALTER TABLE" (the 12-step table rebuild with
+    `PRAGMA foreign_keys=OFF` outside the transaction and
+    `PRAGMA foreign_key_check` before commit) and "VACUUM INTO" (consistent
+    online copy): https://www.sqlite.org/lang_altertable.html,
+    https://www.sqlite.org/lang_vacuum.html (from documentation knowledge;
+    VERIFY wording).

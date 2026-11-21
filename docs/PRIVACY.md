@@ -45,11 +45,17 @@ Scene code never reaches the network:
 
 ## Secrets
 
-- API keys are stored as salted SHA-256 hashes in `keys.json`; the plain key
-  is shown once.
+- API keys are stored as salted SHA-256 hashes in the database (`ApiKey`
+  table); the plain key is shown once.
 - Provider keys come from environment variables, or are set by an admin agent
-  with `configure_provider` and stored in `<data>/secrets.json` (mode 0600,
-  plain text at rest: protect the data volume). The API only reports whether a
+  with `configure_provider` and stored in the database (`ProviderSetting`,
+  plain text at rest for now, `scheme = plain`; encryption with
+  `REELFORGE_SECRET_KEY` is planned (D-018 in #22). Protect the database and
+  its backups; the default SQLite file is mode 0600).
+- Database connections go only to the database you configure with
+  `DATABASE_URL` (default: a local SQLite file, no network). Prisma's client
+  sends no telemetry; the Prisma CLI (developer tooling only, not run by the
+  server) is run with `CHECKPOINT_DISABLE=1` in the image. The API only reports whether a
   setting is set and its source (`api`/`env`), never the value.
 - Signed download links are HMAC-SHA256 with a random key in
   `<data>/signing.key` (mode 0600); each link covers one file of one render

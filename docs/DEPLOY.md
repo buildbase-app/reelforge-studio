@@ -1,9 +1,12 @@
 # Deploying ReelForge Studio
 
 ReelForge Studio is one Node.js server (REST `/v1` + MCP `/mcp`) that renders
-in-process with FFmpeg and Chrome Headless Shell. It keeps all state on the
-filesystem under one data directory. Run **one instance per data directory**:
-jobs run in-process and the project store is not shared between instances.
+in-process with FFmpeg and Chrome Headless Shell. Metadata (projects and their
+versions, keys, jobs, themes, provider settings, asset metadata, audit log)
+lives in a database: **SQLite on the data volume by default**, or your own
+PostgreSQL or MySQL/MariaDB through `DATABASE_URL` (see [Database](#database)).
+Binary files (assets, renders, caches) stay in the data directory. Run **one
+instance per data directory**: jobs run in-process and renders are local files.
 
 **What has been tested (2026-11-21):** local `pnpm` on Linux x64; the Docker
 image built and run on Linux x64 (Docker 29.10, health check healthy, a
@@ -16,7 +19,11 @@ behaviour, marked VERIFY), macOS, Windows, ARM.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `REELFORGE_DATA_DIR` | `./data` (`/data` in Docker) | Projects, assets, renders, jobs, keys, themes, caches |
+| `REELFORGE_DATA_DIR` | `./data` (`/data` in Docker) | Asset and render files, caches, the URL signing key, and the SQLite database by default |
+| `DATABASE_URL` | `file:<data>/reelforge.db` (SQLite) | `postgresql://...` or `mysql://...` (MariaDB too). See [Database](#database) |
+| `DATABASE_URL_FILE` | (none) | Same, read from a file (the URL usually holds a password). `DATABASE_URL` wins if both are set |
+| `REELFORGE_MIGRATE_ON_START` | `1` | Apply pending database migrations on start. `0`: refuse to start while migrations are pending (run `reelforge migrate` yourself) |
+| `REELFORGE_DB_CONNECT_TIMEOUT_SECONDS` | `30` | Keep retrying the first database connection this long (a database container may still be starting) |
 | `REELFORGE_HOST` | `127.0.0.1` (`0.0.0.0` in Docker) | Bind address. Keep loopback unless a TLS proxy is in front |
 | `REELFORGE_PORT` | `4321` | Port (`0` picks a free one) |
 | `REELFORGE_PUBLIC_URL` | (none) | `https://studio.example.com`: used in output links and allowed as Host on `/mcp` |
@@ -30,7 +37,7 @@ behaviour, marked VERIFY), macOS, Windows, ARM.
 | `REELFORGE_MAX_UPLOAD_BYTES` | `209715200` | Asset upload / URL import limit |
 | `REELFORGE_CACHE_DIR` | `<data>/cache` | Engine bundle cache |
 | `FFMPEG_PATH`, `FFPROBE_PATH` | `ffmpeg`, `ffprobe` on PATH | System FFmpeg (6.1 and 5.1.9 tested) |
-| `ELEVENLABS_API_KEY` | (none) | Enables the ElevenLabs TTS provider. Can also be set by an admin agent with `configure_provider` / `PUT /v1/providers/elevenlabs/config` (stored in `<data>/secrets.json`, mode 0600, never returned) |
+| `ELEVENLABS_API_KEY` | (none) | Enables the ElevenLabs TTS provider. Can also be set by an admin agent with `configure_provider` / `PUT /v1/providers/elevenlabs/config` (stored in the database table `ProviderSetting`, plain text at rest for now (encryption: D-018 of #22); the SQLite file is mode 0600; never returned by the API) |
 | `REMOTION_LAMBDA_REGION`, `REMOTION_LAMBDA_FUNCTION_NAME`, `REMOTION_LAMBDA_SERVE_URL` | (none) | Marks the remotion-lambda backend configured. Rendering on it is **not implemented in v0.1** |
 
 ### The first key, then everything from the agent
@@ -182,12 +189,107 @@ app = "reelforge-studio"
 REELFORGE_BOOTSTRAP_KEY=rf_...`, `fly deploy`. One machine only (the volume
 attaches to one machine).
 
+## Database
+
+ReelForge picks the database from the `DATABASE_URL` scheme. Nothing to set up
+for the default.
+
+| Database | `DATABASE_URL` example | Tested |
+| --- | --- | --- |
+| SQLite (default) | unset, or `file:/data/reelforge.db` | yes (unit, contract, server e2e, Docker e2e) |
+| PostgreSQL 13+ | `postgresql://reelforge:PASSWORD@db.internal:5432/reelforge` | 17 (contract, server e2e, Docker e2e) |
+| PostgreSQL, own schema | `postgresql://reelforge:PASSWORD@db:5432/shared?schema=reelforge` | contract tests use this |
+| PostgreSQL, TLS | `postgresql://reelforge:PASSWORD@db.example.com:5432/reelforge?sslmode=require` | not tested |
+| MySQL 8.0+ | `mysql://reelforge:PASSWORD@db.internal:3306/reelforge` | 8.4 (contract, server e2e, Docker e2e) |
+| MariaDB 10.6+ | `mariadb://reelforge:PASSWORD@db.internal:3306/reelforge` | not tested (same driver) |
+| MongoDB | not supported yet | see below |
+
+- **Credentials in the URL:** URL-encode special characters in the password
+  (`@` is `%40`). Prefer `DATABASE_URL_FILE` with a Docker/Kubernetes secret;
+  the file must be readable by UID 10001. Logs show the URL with the password
+  replaced by `***`.
+- **MySQL 8 authentication:** MySQL 8's default `caching_sha2_password` needs
+  either TLS (`?ssl=true`) or `?allowPublicKeyRetrieval=true` over plain TCP.
+  Use the latter only on a private network (the compose profile does).
+- **Character set:** create MySQL databases as `utf8mb4` (the official image
+  and the migration's tables are).
+- **Migrations** run on start. To run them separately (an init container, a
+  release step, a database user without DDL rights for the app):
+  `reelforge migrate` (Docker: `docker exec reelforge reelforge migrate`, or
+  `docker run --rm -e DATABASE_URL=... reelforge-studio apps/server/node_modules/.bin/tsx apps/server/src/main.ts --migrate-only`),
+  then start with `REELFORGE_MIGRATE_ON_START=0`. `reelforge migrate --status`
+  lists applied and pending migrations (exit code 2 if any are pending).
+  Several instances starting at once are safe: migrations take a lock
+  (PostgreSQL advisory lock, MySQL `GET_LOCK`, SQLite write lock). An older
+  ReelForge refuses to start on a database migrated by a newer one.
+- **Upgrading from v0.1** (filesystem data, before the database): on the first
+  start the server imports `projects/`, `keys.json`, `themes/`, `jobs/` (with
+  logs), `secrets.json` and asset metadata from `REELFORGE_DATA_DIR` into the
+  database, once. Existing keys keep working (their hashes are copied). The old
+  JSON files are left in place as a backup; delete them once you have checked
+  the import. `reelforge import-v01 [--data-dir DIR]` runs it again on demand
+  (rows that exist are kept, never overwritten).
+- **Pool size:** each instance opens up to 10 connections (PostgreSQL, MySQL);
+  set `?connection_limit=N` in the URL to change it. Behind PgBouncer use
+  session pooling, or transaction pooling with a pool large enough for the
+  instance (interactive transactions hold one connection for their duration;
+  the migrator's advisory lock needs session or transaction mode, not
+  statement mode). With managed databases that limit connections, budget
+  `connection_limit` x instances (including `reelforge` CLI runs).
+- **SQLite** uses WAL mode (the server and the CLI can use the file at the
+  same time), the file is mode 0600, and it must be on a local disk or block
+  volume, not NFS/SMB/object-storage FUSE (file locking). One server per file.
+- **MongoDB:** Prisma 7 does not support MongoDB yet (Prisma recommends 6.19
+  for MongoDB). The repository interfaces in `packages/core/src/repositories.ts`
+  keep it a drop-in once Prisma 7 does (or with another implementation); a
+  `mongodb://` URL is refused with this explanation.
+
+### With docker compose
+
+```bash
+# PostgreSQL in the same compose project (official image; POSTGRES_IMAGE for a mirror)
+export POSTGRES_PASSWORD=$(openssl rand -hex 16)
+export DATABASE_URL=postgresql://reelforge:$POSTGRES_PASSWORD@postgres:5432/reelforge
+docker compose --profile postgres up -d --build
+
+# MySQL 8.4 (MYSQL_IMAGE for a mirror)
+export MYSQL_PASSWORD=$(openssl rand -hex 16) MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16)
+export DATABASE_URL="mysql://reelforge:$MYSQL_PASSWORD@mysql:3306/reelforge?allowPublicKeyRetrieval=true"
+docker compose --profile mysql up -d --build
+
+# Your own database server: no profile, just the URL
+DATABASE_URL=postgresql://... docker compose up -d
+```
+
+Keep the same variables (or an `.env` file next to `docker-compose.yml`) for
+every later `docker compose` command, or the server falls back to SQLite.
+
+### Backup and restore
+
+Back up the database **and** the data directory (asset and render files are
+not in the database). Stop renders or the server for a fully consistent pair;
+the database alone can be backed up online.
+
+| Database | Backup (online) | Restore (server stopped) |
+| --- | --- | --- |
+| SQLite | `reelforge backup /data/backups/reelforge-$(date +%F).db` (Docker: `docker exec reelforge reelforge backup /data/backups/rf.db`): a consistent copy while the server runs (`VACUUM INTO`). Do not just copy the file while the server runs: `-wal` holds recent writes | stop the server, replace `reelforge.db` with the backup and delete `reelforge.db-wal`/`-shm`, start |
+| PostgreSQL | `pg_dump -Fc -d "$URL" -f reelforge.dump` (compose: `docker compose exec -T postgres pg_dump -U reelforge -Fc reelforge > reelforge.dump`) | `pg_restore --clean --if-exists -d "$URL" reelforge.dump` |
+| MySQL | `mysqldump --single-transaction --routines reelforge > reelforge.sql` (compose: `docker compose exec -T mysql sh -c 'mysqldump -ureelforge -p"$MYSQL_PASSWORD" --single-transaction reelforge' > reelforge.sql`) | `mysql reelforge < reelforge.sql` |
+
+Data directory: `tar -C /var/lib/docker/volumes/reelforge-data/_data -czf data.tgz .`
+or `docker run --rm -v reelforge-data:/data -v "$PWD":/b alpine tar -C /data -czf /b/data.tgz .`.
+Restore a backup with the same ReelForge version (or older than the one you
+upgrade to): a newer database schema is refused by an older server. A failed
+MySQL migration cannot be rolled back automatically (MySQL commits DDL
+statement by statement): restore the backup taken before the upgrade.
+
 ## Persistent volume notes
 
-- Everything lives under `REELFORGE_DATA_DIR`: `projects/<id>/` (manifest,
-  versions, `assets/`, `renders/<runId>/`), `assets/` (uploaded/imported,
-  content-addressed), `jobs/` (status + logs), `themes/`, `keys.json` (hashed
-  keys), `cache/` (engine bundles, provider results).
+- Files live under `REELFORGE_DATA_DIR`: `projects/<id>/assets/` and
+  `projects/<id>/renders/<runId>/`, `assets/<id>/` (uploaded/imported,
+  content-addressed), `cache/` (engine bundles, provider results),
+  `signing.key`, and `reelforge.db` (+ `-wal`, `-shm`) when SQLite is used.
+  Everything else is in the database.
 - Writes use temp-file-then-rename; renders are written to
   `renders/.tmp-<runId>` and renamed when every check passed. Use a filesystem
   with atomic rename (local disk, EBS, EFS, Filestore; not object-storage FUSE).
