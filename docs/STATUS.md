@@ -245,6 +245,21 @@ limit, render quotas, IP allowlist; REST, MCP and CLI. `Idempotency-Key` /
 | Server tests (`enterprise`, `rest`, `mcp`, `parity`) on PostgreSQL and MySQL | 54 passed on each |
 | Docker e2e, release edition, hardened flags, `E2E_PREFIX=aud` | **ALL DOCKER E2E CHECKS PASSED** on SQLite (137 checks) and PostgreSQL (141): an agent over MCP creates a key with an expiry, rotates it, uses the old key inside the grace window, revokes it, sees the IP allowlist allow and deny, the rate limit and the render quota, reads the trail (no secret in it or its exports), repeats a create and a render with the same idempotency key (one project, one job; other arguments refused); the stdout sink's JSON lines are parsed from the container log, an OpenTelemetry Collector 0.140.1 container receives the OTLP entries, an unreachable collector leaves the requests unaffected and a warning in the log; the trail survives a restart. MySQL Docker e2e not run here |
 
+### Public docs published to BuildBase Docs (2026-11-21, issue #47)
+
+Built (D-080..D-082; how to run: docs/DOCS_PUBLISHING.md): 19 public-safe pages
+in 9 folders (`start`, `install`, `api`, `mcp`, `providers`, `manifest`,
+`cookbook`, `privacy`, `troubleshooting`) from `docs/public/**` plus
+`docs/CONFIG.md`, `docs/PRIVACY.md` and `docs/providers/*.md`, listed in
+`docs/public/manifest.json`. The MCP tool list (53 tools, grouped), the REST
+route table and the template catalog are generated from the code
+(`pnpm docs:reference`, drift test in the server suite).
+`scripts/docs/sync-buildbase.mjs` publishes them: idempotent, matched by path,
+owned by the `source-repo` tag, archive instead of delete. Published to the
+development environment `fsyqdskf` only; a re-run there was a no-op. No CI job
+yet (maintainers add it from the sketch in docs/DOCS_PUBLISHING.md); production
+not published. The store's `/docs` pages are a separate PR in the store repo.
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |
