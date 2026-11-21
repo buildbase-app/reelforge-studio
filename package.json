@@ -11,10 +11,14 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r --filter './packages/*' run build",
-    "typecheck": "pnpm -r run typecheck",
+    "typecheck": "tsc -p tsconfig.json && pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "spike": "tsx scripts/spike.ts",
-    "check": "pnpm typecheck && pnpm test"
+    "check": "pnpm typecheck && pnpm test",
+    "dev": "tsx watch --clear-screen=false apps/server/src/main.ts",
+    "start": "tsx apps/server/src/main.ts",
+    "keys:create": "tsx apps/server/src/cli.ts keys create",
+    "reelforge": "tsx apps/server/src/cli.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -25,7 +29,8 @@
     "@reelforge/media-pipeline": "workspace:*",
     "@reelforge/engine-motion-canvas": "workspace:*",
     "@reelforge/engine-remotion": "workspace:*",
-    "@reelforge/core": "workspace:*"
+    "@reelforge/core": "workspace:*",
+    "@reelforge/server": "workspace:*"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

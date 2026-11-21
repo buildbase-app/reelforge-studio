@@ -1,0 +1,262 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ElevenLabsTts, PluginRegistry, RemotionLambdaBackend, ReelforgeService } from '@reelforge/core';
+import { createApp, loadConfig, type ServerConfig } from '../src/index';
+import { fakeEngine, makeTone, tempDir } from '../../../packages/core/test/helpers';
+
+const { dir, cleanup } = tempDir('reelforge-rest-');
+afterAll(cleanup);
+const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
+
+let app: ReturnType<typeof createApp>;
+let service: ReelforgeService;
+let admin: string;
+let reader: string;
+let config: ServerConfig;
+
+beforeAll(async () => {
+  await makeTone(join(dir, 'tone.mp3'), 2);
+  const registry = new PluginRegistry()
+    .registerEngine(fakeEngine('remotion'))
+    .registerEngine(fakeEngine('motion-canvas'))
+    .registerProvider(new ElevenLabsTts({}))
+    .registerBackend(new RemotionLambdaBackend({}));
+  config = { ...loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_PUBLIC_URL: 'https://studio.example.com' }), maxJsonBytes: 64 * 1024 };
+  service = await ReelforgeService.create(registry, { dataDir: config.dataDir, publicUrl: config.publicUrl });
+  admin = (await service.keys.create('admin', ['admin'])).key;
+  reader = (await service.keys.create('reader', ['read'])).key;
+  app = createApp({ service, config });
+});
+
+function req(method: string, path: string, opts: { key?: string | null; body?: unknown; headers?: Record<string, string> } = {}) {
+  const headers: Record<string, string> = { host: 'localhost', ...(opts.headers ?? {}) };
+  const key = opts.key === undefined ? admin : opts.key;
+  if (key) headers.authorization = `Bearer ${key}`;
+  let body: BodyInit | undefined;
+  if (opts.body instanceof FormData) body = opts.body;
+  else if (opts.body !== undefined) {
+    body = typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body);
+    headers['content-type'] ??= 'application/json';
+  }
+  return app.request(path, { method, headers, body });
+}
+
+async function pollJob(id: string) {
+  for (let i = 0; i < 600; i++) {
+    const job = (await (await req('GET', `/v1/jobs/${id}`)).json()) as { status: string; result?: any; error?: any };
+    if (['succeeded', 'failed', 'cancelled'].includes(job.status)) return job;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error('job did not finish');
+}
+
+describe('health and discovery', () => {
+  it('serves /healthz, /readyz and the MCP server card without auth', async () => {
+    expect((await req('GET', '/healthz', { key: null })).status).toBe(200);
+    const ready = await req('GET', '/readyz', { key: null });
+    expect(ready.status).toBe(200);
+    expect(((await ready.json()) as any).checks.ffmpeg).toBe('ok');
+    const card = (await (await req('GET', '/.well-known/mcp.json', { key: null })).json()) as any;
+    expect(card.endpoint).toBe('https://studio.example.com/mcp');
+    expect(card.tools.map((t: any) => t.name)).toContain('render_project');
+  });
+
+  it('answers unknown routes with a JSON error', async () => {
+    const r = await req('GET', '/nope');
+    expect(r.status).toBe(404);
+    expect(((await r.json()) as any).error.code).toBe('not_found');
+  });
+});
+
+describe('auth', () => {
+  it('requires a valid Bearer key', async () => {
+    const none = await req('GET', '/v1/capabilities', { key: null });
+    expect(none.status).toBe(401);
+    expect(none.headers.get('www-authenticate')).toMatch(/Bearer/);
+    expect((await req('GET', '/v1/capabilities', { key: 'rf_wrongwrongwrongwrongwrong' })).status).toBe(401);
+    expect((await req('GET', '/v1/capabilities', { key: reader })).status).toBe(200);
+  });
+
+  it('enforces scopes', async () => {
+    const r = await req('POST', '/v1/projects', { key: reader, body: sample });
+    expect(r.status).toBe(403);
+    expect(((await r.json()) as any).error.code).toBe('forbidden');
+    expect((await req('GET', '/v1/keys', { key: reader })).status).toBe(403);
+  });
+
+  it('manages keys (admin), never returning hashes', async () => {
+    const created = await req('POST', '/v1/keys', { body: { name: 'agent', scopes: ['read', 'write'] } });
+    expect(created.status).toBe(201);
+    const { key, record } = (await created.json()) as any;
+    expect(key).toMatch(/^rf_/);
+    expect((await req('GET', '/v1/capabilities', { key })).status).toBe(200);
+    const list = await (await req('GET', '/v1/keys')).text();
+    expect(list).not.toContain('hash');
+    expect(list).not.toContain(key);
+    expect((await req('DELETE', `/v1/keys/${record.id}`)).status).toBe(204);
+    expect((await req('GET', '/v1/capabilities', { key })).status).toBe(401);
+  });
+
+  it('rate-limits per key', async () => {
+    const limited = createApp({ service, config: { ...config, rateLimitPerMinute: 2 } });
+    const call = () => limited.request('/v1/capabilities', { headers: { host: 'localhost', authorization: `Bearer ${reader}` } });
+    expect((await call()).status).toBe(200);
+    expect((await call()).status).toBe(200);
+    const third = await call();
+    expect(third.status).toBe(429);
+    expect(third.headers.get('retry-after')).toBeTruthy();
+  });
+
+  it('protects /mcp against DNS rebinding (Host and Origin)', async () => {
+    const init = { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} };
+    const headers = { accept: 'application/json, text/event-stream' };
+    expect((await req('POST', '/mcp', { body: init, headers: { ...headers, host: 'evil.example' } })).status).toBe(403);
+    expect((await req('POST', '/mcp', { body: init, headers: { ...headers, origin: 'https://evil.example' } })).status).toBe(403);
+    expect((await req('POST', '/mcp', { key: null, body: init, headers })).status).toBe(401);
+    expect((await req('POST', '/mcp', { body: init, headers: { ...headers, host: 'studio.example.com', origin: 'https://studio.example.com' } })).status).not.toBe(403);
+  });
+});
+
+describe('REST v1', () => {
+  it('reports capabilities, schema and templates', async () => {
+    const caps = (await (await req('GET', '/v1/capabilities')).json()) as any;
+    expect(caps.engines.map((e: any) => e.id)).toEqual(['remotion', 'motion-canvas']);
+    const schema = (await (await req('GET', '/v1/schema/project')).json()) as any;
+    expect(schema.type).toBe('object');
+    const t = (await (await req('GET', '/v1/templates?engine=remotion')).json()) as any;
+    expect(t.templates[0].id).toBe('kinetic-title');
+    expect(t.templates[0].propsSchema.properties.headline).toBeTruthy();
+  });
+
+  it('creates a project from a v0.1 manifest and reports problems with paths', async () => {
+    const r = await req('POST', '/v1/projects', { body: sample });
+    expect(r.status).toBe(201);
+    const created = (await r.json()) as any;
+    expect(created.manifest.schemaVersion).toBe('0.2');
+    expect(created.migratedFrom).toBe('0.1');
+    const bad = await req('POST', '/v1/projects', { body: { ...sample, projectId: 'bad', output: { ...sample.output, fps: 29 } } });
+    expect(bad.status).toBe(422);
+    const err = ((await bad.json()) as any).error;
+    expect(err.code).toBe('invalid_manifest');
+    expect(err.details.issues.some((i: any) => i.path.startsWith('output.fps'))).toBe(true);
+    expect((await req('POST', '/v1/projects', { body: 'not json' })).status).toBe(400);
+  });
+
+  it('patches with JSON merge patch and If-Match', async () => {
+    const cur = (await (await req('GET', '/v1/projects/sample-reel')).json()) as any;
+    const r = await req('PATCH', '/v1/projects/sample-reel', { body: { title: 'From REST' }, headers: { 'if-match': `"${cur.meta.version}"` } });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as any).manifest.title).toBe('From REST');
+    const stale = await req('PATCH', '/v1/projects/sample-reel', { body: { title: 'x' }, headers: { 'if-match': String(cur.meta.version) } });
+    expect(stale.status).toBe(409);
+    expect(((await (await req('GET', '/v1/projects/sample-reel/versions')).json()) as any).versions.length).toBe(2);
+  });
+
+  it('edits scenes including scenes:reorder', async () => {
+    const add = await req('POST', '/v1/projects/sample-reel/scenes', {
+      body: { scene: { id: 'cta', engine: 'remotion', template: 'kinetic-title', props: { headline: 'Follow' }, durationSeconds: 2 }, index: 0 },
+    });
+    expect(add.status).toBe(201);
+    expect(((await add.json()) as any).manifest.scenes[0].id).toBe('cta');
+    const patch = await req('PATCH', '/v1/projects/sample-reel/scenes/cta', { body: { props: { subline: 'for more' } } });
+    expect(((await patch.json()) as any).manifest.scenes[0].props).toEqual({ headline: 'Follow', subline: 'for more' });
+    const reorder = await req('POST', '/v1/projects/sample-reel/scenes:reorder', { body: { order: ['hook', 'how-it-works', 'cta'] } });
+    expect(reorder.status).toBe(200);
+    expect(((await reorder.json()) as any).manifest.scenes.map((s: any) => s.id)).toEqual(['hook', 'how-it-works', 'cta']);
+    const del = await req('DELETE', '/v1/projects/sample-reel/scenes/cta');
+    expect(((await del.json()) as any).manifest.scenes.length).toBe(2);
+    expect((await req('DELETE', '/v1/projects/sample-reel/scenes/cta')).status).toBe(404);
+  });
+
+  it('manages themes', async () => {
+    const tokens = { colors: { background: '#101010', surface: '#202020', text: '#ffffff', mutedText: '#bbbbbb', accent: '#22aaff', accent2: '#ffaa22' }, fontFamily: 'Arial, sans-serif' };
+    expect((await req('POST', '/v1/themes', { body: { id: 'acme', name: 'Acme', tokens } })).status).toBe(201);
+    expect(((await (await req('GET', '/v1/themes')).json()) as any).themes.map((t: any) => t.id)).toEqual(['default', 'midnight', 'acme']);
+    expect((await req('PUT', '/v1/themes/acme', { body: { name: 'Acme 2', tokens } })).status).toBe(200);
+    expect((await req('PUT', '/v1/themes/default', { body: { name: 'x', tokens } })).status).toBe(409);
+    expect((await req('PUT', '/v1/projects/sample-reel/theme', { body: { theme: 'acme' } })).status).toBe(200);
+    expect((await req('POST', '/v1/themes', { body: { id: 'bad', name: 'Bad', tokens: { colors: {} } } })).status).toBe(422);
+  });
+
+  it('uploads assets (multipart) and refuses unsafe URLs', async () => {
+    const form = new FormData();
+    form.set('file', new Blob([readFileSync(join(dir, 'tone.mp3'))], { type: 'audio/mpeg' }), 'tone.mp3');
+    form.set('projectId', 'sample-reel');
+    form.set('assetId', 'music');
+    form.set('license', JSON.stringify({ name: 'CC0-1.0', redistributable: true }));
+    const up = await req('POST', '/v1/assets', { body: form });
+    expect(up.status).toBe(201);
+    const { asset } = (await up.json()) as any;
+    expect(asset.contentType).toBe('audio/mpeg');
+    expect(((await (await req('GET', `/v1/assets/${asset.id}`)).json()) as any).sha256).toHaveLength(64);
+    const ssrf = await req('POST', '/v1/assets', { body: { url: 'https://169.254.169.254/latest' } });
+    expect(ssrf.status).toBe(400);
+    expect(((await ssrf.json()) as any).error.code).toBe('url_not_allowed');
+    expect((await req('POST', '/v1/assets', { body: { url: 'http://example.com/a.mp3' } })).status).toBe(400);
+    expect((await req('PATCH', '/v1/projects/sample-reel/audio', { body: { music: { asset: 'music', volume: 0.6 } } })).status).toBe(200);
+  });
+
+  it('validates', async () => {
+    const r = (await (await req('POST', '/v1/projects/sample-reel/validate')).json()) as any;
+    expect(r.ok).toBe(true);
+    expect(r.summary).toMatchObject({ totalFrames: 210, width: 1080, height: 1920, fps: 30 });
+  });
+
+  it('renders, streams job events and logs, lists outputs and serves the MP4 with Range', async () => {
+    const start = await req('POST', '/v1/projects/sample-reel/renders', { body: {} });
+    expect(start.status).toBe(202);
+    const { job } = (await start.json()) as any;
+    const done = await pollJob(job.id);
+    expect(done.status, JSON.stringify(done.error)).toBe('succeeded');
+    const renderId = done.result.renderId;
+    expect(done.result.outputUrl).toBe(`https://studio.example.com/v1/renders/${renderId}/output`);
+
+    const events = await (await req('GET', `/v1/jobs/${job.id}/events`)).text();
+    expect(events).toContain('event: status');
+    expect(events).toContain('"succeeded"');
+    const logs = (await (await req('GET', `/v1/jobs/${job.id}/logs?tail=5`)).json()) as any;
+    expect(logs.lines.length).toBeLessThanOrEqual(5);
+
+    const renders = (await (await req('GET', '/v1/projects/sample-reel/renders')).json()) as any;
+    expect(renders.renders[0].renderId).toBe(renderId);
+    const full = await req('GET', `/v1/renders/${renderId}/output`);
+    expect(full.status).toBe(200);
+    expect(full.headers.get('content-type')).toBe('video/mp4');
+    const size = Number(full.headers.get('content-length'));
+    expect(size).toBeGreaterThan(1000);
+    const part = await req('GET', `/v1/renders/${renderId}/output`, { headers: { range: 'bytes=0-99' } });
+    expect(part.status).toBe(206);
+    expect((await part.arrayBuffer()).byteLength).toBe(100);
+    const manifest = (await (await req('GET', `/v1/renders/${renderId}/output?file=render-manifest.json`)).json()) as any;
+    expect(manifest.audio.music.asset).toBe('music');
+    expect((await req('GET', `/v1/renders/${renderId}/output?file=../../keys.json`)).status).toBe(400);
+  }, 120_000);
+
+  it('rejects renders on unconfigured backends and runs on unconfigured providers', async () => {
+    const lambda = await req('POST', '/v1/projects/sample-reel/renders', { body: { backend: 'remotion-lambda' } });
+    expect(lambda.status).toBe(409);
+    expect(((await lambda.json()) as any).error.code).toBe('backend_not_configured');
+    const tts = await req('POST', '/v1/providers/elevenlabs/run', { body: { params: { text: 'Hi', voiceId: 'abc' } } });
+    expect(tts.status).toBe(409);
+    expect(((await tts.json()) as any).error.code).toBe('provider_not_configured');
+  });
+
+  it('cancels a job', async () => {
+    const { job } = (await (await req('POST', '/v1/projects/sample-reel/preview', { body: { scale: 0.25 } })).json()) as any;
+    const r = await req('POST', `/v1/jobs/${job.id}/cancel`);
+    expect(r.status).toBe(200);
+    const done = await pollJob(job.id);
+    expect(['cancelled', 'succeeded']).toContain(done.status);
+  });
+
+  it('limits JSON body size', async () => {
+    const r = await req('PATCH', '/v1/projects/sample-reel', { body: { title: 'x'.repeat(100 * 1024) } });
+    expect(r.status).toBe(413);
+  });
+
+  it('deletes projects', async () => {
+    expect((await req('DELETE', '/v1/projects/sample-reel')).status).toBe(204);
+    expect((await req('GET', '/v1/projects/sample-reel')).status).toBe(404);
+  });
+});

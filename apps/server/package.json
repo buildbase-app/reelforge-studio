@@ -1,0 +1,31 @@
+{
+  "name": "@reelforge/server",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "reelforge": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.11",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@reelforge/core": "workspace:*",
+    "@reelforge/engine-motion-canvas": "workspace:*",
+    "@reelforge/engine-remotion": "workspace:*",
+    "@reelforge/media-pipeline": "workspace:*",
+    "@reelforge/project-schema": "workspace:*",
+    "hono": "4.13.19",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}
