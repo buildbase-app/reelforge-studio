@@ -30,6 +30,9 @@ export async function startServer(
     quiet?: boolean;
     /** Licence checks: tests inject the licence API, fetch or clock (ServiceConfig.licence). */
     licence?: ServiceConfig['licence'];
+    /** Audit sink plugins (selected by audit.sinks) and the clock (tests). */
+    auditSinks?: ServiceConfig['auditSinks'];
+    now?: ServiceConfig['now'];
   } = {}
 ): Promise<StartedServer> {
   const env = opts.env ?? process.env;
@@ -65,6 +68,8 @@ export async function startServer(
       maxUploadBytes: config.maxUploadBytes,
       configSources: config.sources,
       licence: opts.licence,
+      auditSinks: opts.auditSinks,
+      now: opts.now,
       log: logger,
     });
   } catch (e) {
@@ -113,7 +118,7 @@ export async function startServer(
         server.close(() => resolve());
         (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
       });
-      service.licence.stop();
+      await service.stop();
       await service.jobs.flush();
       await db.close();
     },

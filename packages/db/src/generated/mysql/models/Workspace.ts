@@ -175,6 +175,7 @@ export type WorkspaceWhereInput = {
   assets?: Prisma.AssetListRelationFilter
   auditLogs?: Prisma.AuditLogListRelationFilter
   licenceStates?: Prisma.LicenceStateListRelationFilter
+  idempotencyKeys?: Prisma.IdempotencyKeyListRelationFilter
 }
 
 export type WorkspaceOrderByWithRelationInput = {
@@ -190,6 +191,7 @@ export type WorkspaceOrderByWithRelationInput = {
   assets?: Prisma.AssetOrderByRelationAggregateInput
   auditLogs?: Prisma.AuditLogOrderByRelationAggregateInput
   licenceStates?: Prisma.LicenceStateOrderByRelationAggregateInput
+  idempotencyKeys?: Prisma.IdempotencyKeyOrderByRelationAggregateInput
   _relevance?: Prisma.WorkspaceOrderByRelevanceInput
 }
 
@@ -209,6 +211,7 @@ export type WorkspaceWhereUniqueInput = Prisma.AtLeast<{
   assets?: Prisma.AssetListRelationFilter
   auditLogs?: Prisma.AuditLogListRelationFilter
   licenceStates?: Prisma.LicenceStateListRelationFilter
+  idempotencyKeys?: Prisma.IdempotencyKeyListRelationFilter
 }, "id">
 
 export type WorkspaceOrderByWithAggregationInput = {
@@ -242,6 +245,7 @@ export type WorkspaceCreateInput = {
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateInput = {
@@ -257,6 +261,7 @@ export type WorkspaceUncheckedCreateInput = {
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateUncheckedCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUpdateInput = {
@@ -272,6 +277,7 @@ export type WorkspaceUpdateInput = {
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateInput = {
@@ -287,6 +293,7 @@ export type WorkspaceUncheckedUpdateInput = {
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUncheckedUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateManyInput = {
@@ -456,6 +463,20 @@ export type WorkspaceUpdateOneRequiredWithoutAuditLogsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.WorkspaceUpdateToOneWithWhereWithoutAuditLogsInput, Prisma.WorkspaceUpdateWithoutAuditLogsInput>, Prisma.WorkspaceUncheckedUpdateWithoutAuditLogsInput>
 }
 
+export type WorkspaceCreateNestedOneWithoutIdempotencyKeysInput = {
+  create?: Prisma.XOR<Prisma.WorkspaceCreateWithoutIdempotencyKeysInput, Prisma.WorkspaceUncheckedCreateWithoutIdempotencyKeysInput>
+  connectOrCreate?: Prisma.WorkspaceCreateOrConnectWithoutIdempotencyKeysInput
+  connect?: Prisma.WorkspaceWhereUniqueInput
+}
+
+export type WorkspaceUpdateOneRequiredWithoutIdempotencyKeysNestedInput = {
+  create?: Prisma.XOR<Prisma.WorkspaceCreateWithoutIdempotencyKeysInput, Prisma.WorkspaceUncheckedCreateWithoutIdempotencyKeysInput>
+  connectOrCreate?: Prisma.WorkspaceCreateOrConnectWithoutIdempotencyKeysInput
+  upsert?: Prisma.WorkspaceUpsertWithoutIdempotencyKeysInput
+  connect?: Prisma.WorkspaceWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.WorkspaceUpdateToOneWithWhereWithoutIdempotencyKeysInput, Prisma.WorkspaceUpdateWithoutIdempotencyKeysInput>, Prisma.WorkspaceUncheckedUpdateWithoutIdempotencyKeysInput>
+}
+
 export type WorkspaceCreateNestedOneWithoutLicenceStatesInput = {
   create?: Prisma.XOR<Prisma.WorkspaceCreateWithoutLicenceStatesInput, Prisma.WorkspaceUncheckedCreateWithoutLicenceStatesInput>
   connectOrCreate?: Prisma.WorkspaceCreateOrConnectWithoutLicenceStatesInput
@@ -482,6 +503,7 @@ export type WorkspaceCreateWithoutProjectsInput = {
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutProjectsInput = {
@@ -496,6 +518,7 @@ export type WorkspaceUncheckedCreateWithoutProjectsInput = {
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateUncheckedCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutProjectsInput = {
@@ -526,6 +549,7 @@ export type WorkspaceUpdateWithoutProjectsInput = {
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutProjectsInput = {
@@ -540,6 +564,7 @@ export type WorkspaceUncheckedUpdateWithoutProjectsInput = {
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUncheckedUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutApiKeysInput = {
@@ -554,6 +579,7 @@ export type WorkspaceCreateWithoutApiKeysInput = {
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutApiKeysInput = {
@@ -568,6 +594,7 @@ export type WorkspaceUncheckedCreateWithoutApiKeysInput = {
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateUncheckedCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutApiKeysInput = {
@@ -598,6 +625,7 @@ export type WorkspaceUpdateWithoutApiKeysInput = {
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutApiKeysInput = {
@@ -612,6 +640,7 @@ export type WorkspaceUncheckedUpdateWithoutApiKeysInput = {
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUncheckedUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutJobsInput = {
@@ -626,6 +655,7 @@ export type WorkspaceCreateWithoutJobsInput = {
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutJobsInput = {
@@ -640,6 +670,7 @@ export type WorkspaceUncheckedCreateWithoutJobsInput = {
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateUncheckedCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutJobsInput = {
@@ -670,6 +701,7 @@ export type WorkspaceUpdateWithoutJobsInput = {
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutJobsInput = {
@@ -684,6 +716,7 @@ export type WorkspaceUncheckedUpdateWithoutJobsInput = {
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUncheckedUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutThemesInput = {
@@ -698,6 +731,7 @@ export type WorkspaceCreateWithoutThemesInput = {
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutThemesInput = {
@@ -712,6 +746,7 @@ export type WorkspaceUncheckedCreateWithoutThemesInput = {
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateUncheckedCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutThemesInput = {
@@ -742,6 +777,7 @@ export type WorkspaceUpdateWithoutThemesInput = {
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutThemesInput = {
@@ -756,6 +792,7 @@ export type WorkspaceUncheckedUpdateWithoutThemesInput = {
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUncheckedUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutProviderSettingsInput = {
@@ -770,6 +807,7 @@ export type WorkspaceCreateWithoutProviderSettingsInput = {
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutProviderSettingsInput = {
@@ -784,6 +822,7 @@ export type WorkspaceUncheckedCreateWithoutProviderSettingsInput = {
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateUncheckedCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutProviderSettingsInput = {
@@ -814,6 +853,7 @@ export type WorkspaceUpdateWithoutProviderSettingsInput = {
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutProviderSettingsInput = {
@@ -828,6 +868,7 @@ export type WorkspaceUncheckedUpdateWithoutProviderSettingsInput = {
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUncheckedUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutSettingsInput = {
@@ -842,6 +883,7 @@ export type WorkspaceCreateWithoutSettingsInput = {
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutSettingsInput = {
@@ -856,6 +898,7 @@ export type WorkspaceUncheckedCreateWithoutSettingsInput = {
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateUncheckedCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutSettingsInput = {
@@ -886,6 +929,7 @@ export type WorkspaceUpdateWithoutSettingsInput = {
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutSettingsInput = {
@@ -900,6 +944,7 @@ export type WorkspaceUncheckedUpdateWithoutSettingsInput = {
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUncheckedUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutAssetsInput = {
@@ -914,6 +959,7 @@ export type WorkspaceCreateWithoutAssetsInput = {
   settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutAssetsInput = {
@@ -928,6 +974,7 @@ export type WorkspaceUncheckedCreateWithoutAssetsInput = {
   settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateUncheckedCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutAssetsInput = {
@@ -958,6 +1005,7 @@ export type WorkspaceUpdateWithoutAssetsInput = {
   settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutAssetsInput = {
@@ -972,6 +1020,7 @@ export type WorkspaceUncheckedUpdateWithoutAssetsInput = {
   settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUncheckedUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutAuditLogsInput = {
@@ -986,6 +1035,7 @@ export type WorkspaceCreateWithoutAuditLogsInput = {
   settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutAuditLogsInput = {
@@ -1000,6 +1050,7 @@ export type WorkspaceUncheckedCreateWithoutAuditLogsInput = {
   settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   licenceStates?: Prisma.LicenceStateUncheckedCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutAuditLogsInput = {
@@ -1030,6 +1081,7 @@ export type WorkspaceUpdateWithoutAuditLogsInput = {
   settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutAuditLogsInput = {
@@ -1043,6 +1095,83 @@ export type WorkspaceUncheckedUpdateWithoutAuditLogsInput = {
   providerSettings?: Prisma.ProviderSettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
+  licenceStates?: Prisma.LicenceStateUncheckedUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
+}
+
+export type WorkspaceCreateWithoutIdempotencyKeysInput = {
+  id: string
+  name: string
+  createdAt?: Date | string
+  projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
+  apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
+  jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
+  themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
+  providerSettings?: Prisma.ProviderSettingCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
+  assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
+  auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
+  licenceStates?: Prisma.LicenceStateCreateNestedManyWithoutWorkspaceInput
+}
+
+export type WorkspaceUncheckedCreateWithoutIdempotencyKeysInput = {
+  id: string
+  name: string
+  createdAt?: Date | string
+  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
+  apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
+  jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
+  themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
+  providerSettings?: Prisma.ProviderSettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
+  auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
+  licenceStates?: Prisma.LicenceStateUncheckedCreateNestedManyWithoutWorkspaceInput
+}
+
+export type WorkspaceCreateOrConnectWithoutIdempotencyKeysInput = {
+  where: Prisma.WorkspaceWhereUniqueInput
+  create: Prisma.XOR<Prisma.WorkspaceCreateWithoutIdempotencyKeysInput, Prisma.WorkspaceUncheckedCreateWithoutIdempotencyKeysInput>
+}
+
+export type WorkspaceUpsertWithoutIdempotencyKeysInput = {
+  update: Prisma.XOR<Prisma.WorkspaceUpdateWithoutIdempotencyKeysInput, Prisma.WorkspaceUncheckedUpdateWithoutIdempotencyKeysInput>
+  create: Prisma.XOR<Prisma.WorkspaceCreateWithoutIdempotencyKeysInput, Prisma.WorkspaceUncheckedCreateWithoutIdempotencyKeysInput>
+  where?: Prisma.WorkspaceWhereInput
+}
+
+export type WorkspaceUpdateToOneWithWhereWithoutIdempotencyKeysInput = {
+  where?: Prisma.WorkspaceWhereInput
+  data: Prisma.XOR<Prisma.WorkspaceUpdateWithoutIdempotencyKeysInput, Prisma.WorkspaceUncheckedUpdateWithoutIdempotencyKeysInput>
+}
+
+export type WorkspaceUpdateWithoutIdempotencyKeysInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
+  apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
+  jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
+  themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
+  providerSettings?: Prisma.ProviderSettingUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
+  assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
+  auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
+  licenceStates?: Prisma.LicenceStateUpdateManyWithoutWorkspaceNestedInput
+}
+
+export type WorkspaceUncheckedUpdateWithoutIdempotencyKeysInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
+  apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
+  jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
+  themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
+  providerSettings?: Prisma.ProviderSettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
+  auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
   licenceStates?: Prisma.LicenceStateUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
@@ -1058,6 +1187,7 @@ export type WorkspaceCreateWithoutLicenceStatesInput = {
   settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutLicenceStatesInput = {
@@ -1072,6 +1202,7 @@ export type WorkspaceUncheckedCreateWithoutLicenceStatesInput = {
   settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutLicenceStatesInput = {
@@ -1102,6 +1233,7 @@ export type WorkspaceUpdateWithoutLicenceStatesInput = {
   settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutLicenceStatesInput = {
@@ -1116,6 +1248,7 @@ export type WorkspaceUncheckedUpdateWithoutLicenceStatesInput = {
   settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 
@@ -1133,6 +1266,7 @@ export type WorkspaceCountOutputType = {
   assets: number
   auditLogs: number
   licenceStates: number
+  idempotencyKeys: number
 }
 
 export type WorkspaceCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1145,6 +1279,7 @@ export type WorkspaceCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensi
   assets?: boolean | WorkspaceCountOutputTypeCountAssetsArgs
   auditLogs?: boolean | WorkspaceCountOutputTypeCountAuditLogsArgs
   licenceStates?: boolean | WorkspaceCountOutputTypeCountLicenceStatesArgs
+  idempotencyKeys?: boolean | WorkspaceCountOutputTypeCountIdempotencyKeysArgs
 }
 
 /**
@@ -1220,6 +1355,13 @@ export type WorkspaceCountOutputTypeCountLicenceStatesArgs<ExtArgs extends runti
   where?: Prisma.LicenceStateWhereInput
 }
 
+/**
+ * WorkspaceCountOutputType without action
+ */
+export type WorkspaceCountOutputTypeCountIdempotencyKeysArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.IdempotencyKeyWhereInput
+}
+
 
 export type WorkspaceSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1234,6 +1376,7 @@ export type WorkspaceSelect<ExtArgs extends runtime.Types.Extensions.InternalArg
   assets?: boolean | Prisma.Workspace$assetsArgs<ExtArgs>
   auditLogs?: boolean | Prisma.Workspace$auditLogsArgs<ExtArgs>
   licenceStates?: boolean | Prisma.Workspace$licenceStatesArgs<ExtArgs>
+  idempotencyKeys?: boolean | Prisma.Workspace$idempotencyKeysArgs<ExtArgs>
   _count?: boolean | Prisma.WorkspaceCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["workspace"]>
 
@@ -1256,6 +1399,7 @@ export type WorkspaceInclude<ExtArgs extends runtime.Types.Extensions.InternalAr
   assets?: boolean | Prisma.Workspace$assetsArgs<ExtArgs>
   auditLogs?: boolean | Prisma.Workspace$auditLogsArgs<ExtArgs>
   licenceStates?: boolean | Prisma.Workspace$licenceStatesArgs<ExtArgs>
+  idempotencyKeys?: boolean | Prisma.Workspace$idempotencyKeysArgs<ExtArgs>
   _count?: boolean | Prisma.WorkspaceCountOutputTypeDefaultArgs<ExtArgs>
 }
 
@@ -1271,6 +1415,7 @@ export type $WorkspacePayload<ExtArgs extends runtime.Types.Extensions.InternalA
     assets: Prisma.$AssetPayload<ExtArgs>[]
     auditLogs: Prisma.$AuditLogPayload<ExtArgs>[]
     licenceStates: Prisma.$LicenceStatePayload<ExtArgs>[]
+    idempotencyKeys: Prisma.$IdempotencyKeyPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1625,6 +1770,7 @@ export interface Prisma__WorkspaceClient<T, Null = never, ExtArgs extends runtim
   assets<T extends Prisma.Workspace$assetsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$assetsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AssetPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   auditLogs<T extends Prisma.Workspace$auditLogsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$auditLogsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AuditLogPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   licenceStates<T extends Prisma.Workspace$licenceStatesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$licenceStatesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$LicenceStatePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  idempotencyKeys<T extends Prisma.Workspace$idempotencyKeysArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$idempotencyKeysArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$IdempotencyKeyPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2218,6 +2364,30 @@ export type Workspace$licenceStatesArgs<ExtArgs extends runtime.Types.Extensions
   take?: number
   skip?: number
   distinct?: Prisma.LicenceStateScalarFieldEnum | Prisma.LicenceStateScalarFieldEnum[]
+}
+
+/**
+ * Workspace.idempotencyKeys
+ */
+export type Workspace$idempotencyKeysArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the IdempotencyKey
+   */
+  select?: Prisma.IdempotencyKeySelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the IdempotencyKey
+   */
+  omit?: Prisma.IdempotencyKeyOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IdempotencyKeyInclude<ExtArgs> | null
+  where?: Prisma.IdempotencyKeyWhereInput
+  orderBy?: Prisma.IdempotencyKeyOrderByWithRelationInput | Prisma.IdempotencyKeyOrderByWithRelationInput[]
+  cursor?: Prisma.IdempotencyKeyWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.IdempotencyKeyScalarFieldEnum | Prisma.IdempotencyKeyScalarFieldEnum[]
 }
 
 /**

@@ -45,6 +45,7 @@ logging:
 | `server.port` | `REELFORGE_PORT` | integer | `4321` | startup |  | TCP port (`0` picks a free one). |
 | `server.publicUrl` | `REELFORGE_PUBLIC_URL` | url | (none) | startup |  | Public base URL: used in output links and allowed as Host on `/mcp`. Example: `https://studio.example.com`. |
 | `server.allowedHosts` | `REELFORGE_ALLOWED_HOSTS` | list (comma-separated in env) | (empty) | runtime |  | Extra host names accepted on `/mcp` (DNS-rebinding protection), besides localhost and the public URL host. Comma-separated in the environment. Example: `reelforge,studio.internal`. |
+| `server.trustProxy` | `REELFORGE_TRUST_PROXY` | boolean | `false` | runtime |  | Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists. Only turn it on behind a proxy that sets that header. |
 
 ## limits
 
@@ -82,6 +83,26 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `security.secretKey` | `REELFORGE_SECRET_KEY` (each also as `_FILE`) | string | (none) | startup | yes | Encrypts secrets stored in the database (provider keys, licence key) with AES-256-GCM. At least 32 characters: `openssl rand -base64 32`. Without it the server refuses to store secrets. Keep it safe: losing it makes stored secrets unreadable. |
 | `security.bootstrapKey` | `REELFORGE_BOOTSTRAP_KEY` (each also as `_FILE`) | string | (none) | startup | yes | First admin API key (`rf_` + 20 or more URL-safe characters). Stored hashed as key "bootstrap" on start if no key exists. |
+
+## audit
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `audit.retentionDays` | `REELFORGE_AUDIT_RETENTION_DAYS` | integer | `365` | runtime |  | Days audit entries are kept in the database; older ones are deleted by the hourly sweep. `0` keeps them forever. |
+| `audit.sinks` | `REELFORGE_AUDIT_SINKS` | list (comma-separated in env) | (empty) | runtime |  | Where audit entries go besides the database (always on): `stdout` (one JSON line per entry, `{"type":"audit",...}`), `otlp` (OTLP/HTTP logs to `audit.otlpEndpoint`), or the id of a sink plugin. Several at once; comma-separated in the environment. Example: `stdout,otlp`. |
+| `audit.otlpEndpoint` | `REELFORGE_AUDIT_OTLP_ENDPOINT` | url | (none) | runtime |  | OTLP/HTTP logs endpoint for the `otlp` audit sink (JSON encoding). Sends audit entries to that host only when `otlp` is in `audit.sinks` (docs/PRIVACY.md). Example: `http://otel-collector:4318/v1/logs`. |
+
+## keys
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `keys.rotationGraceHours` | `REELFORGE_KEY_ROTATION_GRACE_HOURS` | integer | `24` | runtime |  | After `rotate_key`, the old secret keeps working this many hours so clients can switch. `0` ends it at once; a rotation may pass its own `graceHours`. |
+
+## idempotency
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `idempotency.ttlHours` | `REELFORGE_IDEMPOTENCY_TTL_HOURS` | integer | `24` | runtime |  | How long an `Idempotency-Key` (REST) / `idempotencyKey` (MCP) and its stored result are kept; expired ones are swept hourly. |
 
 ## render
 

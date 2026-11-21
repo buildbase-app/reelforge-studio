@@ -73,16 +73,55 @@ export interface ApiKeyRecord {
   hash: string;
   createdAt: string;
   lastUsedAt?: string;
+  /** The key stops working after this time. */
+  expiresAt?: string;
+  /** Set once revoked: the key never authenticates again (the row stays for the audit trail). */
+  revokedAt?: string;
+  /** The secret before the last rotation, valid until `prev.expiresAt` (D-056). */
+  prev?: ApiKeySecret & { expiresAt: string };
+  rotatedAt?: string;
+  /** Requests per minute (unset: limits.rateLimitPerMinute). */
+  rateLimitPerMinute?: number;
+  /** Render and preview jobs per UTC day / calendar month (unset: unlimited). */
+  rendersPerDay?: number;
+  rendersPerMonth?: number;
+  /** CIDR blocks the key may be used from (unset: anywhere). */
+  ipAllowlist?: string[];
+}
+
+/** A key's secret as stored: lookup prefix, salt and sha256(salt + key). */
+export interface ApiKeySecret {
+  prefix: string;
+  salt: string;
+  hash: string;
+}
+
+/** Fields of a key that can change after creation; null clears an optional one. */
+export interface ApiKeyPatch {
+  name?: string;
+  /** A new current secret (rotation). */
+  secret?: ApiKeySecret;
+  prev?: (ApiKeySecret & { expiresAt: string }) | null;
+  rotatedAt?: string;
+  expiresAt?: string | null;
+  revokedAt?: string;
+  rateLimitPerMinute?: number | null;
+  rendersPerDay?: number | null;
+  rendersPerMonth?: number | null;
+  ipAllowlist?: string[] | null;
 }
 
 export interface ApiKeyRepository {
   /** Oldest first. */
   list(): Promise<ApiKeyRecord[]>;
+  get(id: string): Promise<ApiKeyRecord | null>;
   count(): Promise<number>;
   insert(record: ApiKeyRecord): Promise<void>;
+  /** Change a key atomically (one statement). Returns the updated key, or null if it does not exist. */
+  update(id: string, patch: ApiKeyPatch): Promise<ApiKeyRecord | null>;
   /** Returns false if the key did not exist. */
   delete(id: string): Promise<boolean>;
-  /** Candidates for verification: keys whose stored prefix equals `prefix`. */
+  /** Candidates for verification: keys whose current or previous (rotated) prefix equals `prefix`. */
   findByPrefix(prefix: string): Promise<ApiKeyRecord[]>;
   touch(id: string, lastUsedAt: string): Promise<void>;
 }
@@ -112,6 +151,8 @@ export interface JobRecord {
   error?: { code: string; message: string; stage?: string };
   /** Job this one retries, if any. */
   retryOf?: string;
+  /** The API key that started it (render quotas). */
+  apiKeyId?: string;
 }
 
 export interface JobFilter {
@@ -132,6 +173,8 @@ export interface JobRepository {
   list(filter?: JobFilter): Promise<JobRecord[]>;
   /** Jobs whose status is queued or running. */
   listUnfinished(): Promise<JobRecord[]>;
+  /** How many jobs of these types `apiKeyId` started at or after `since` (render quotas). */
+  countByApiKey(apiKeyId: string, since: string, types: string[]): Promise<number>;
   appendLog(jobId: string, at: string, line: string): Promise<void>;
   /** Log lines as "<iso time> <line>", oldest first; the last `tail` if given. */
   logs(jobId: string, tail?: number): Promise<string[]>;
@@ -254,26 +297,82 @@ export interface AssetRepository {
 
 // ---- audit log --------------------------------------------------------------
 
+export type AuditResult = 'success' | 'failure' | 'denied';
+export const AUDIT_RESULTS: readonly AuditResult[] = ['success', 'failure', 'denied'];
+
 export interface AuditEntryInput {
   actorType: 'api_key' | 'cli' | 'system';
   actorId?: string;
+  /** The key's name at the time of the action. */
+  actorName?: string;
   /** Dotted verb, e.g. "key.create", "provider.configure". */
   action: string;
   targetType?: string;
   targetId?: string;
-  /** Never put secrets here. */
+  /** Default "success". */
+  result?: AuditResult;
+  ip?: string;
+  userAgent?: string;
+  requestId?: string;
+  /** Never put secrets here (AuditLog redacts what looks like one, as a second line of defence). */
   data?: Record<string, unknown>;
 }
 
 export interface AuditEntry extends AuditEntryInput {
   id: string;
   at: string;
+  result: AuditResult;
 }
 
+export interface AuditFilter {
+  /** Inclusive lower bound (ISO). */
+  from?: string;
+  /** Exclusive upper bound (ISO). */
+  to?: string;
+  actorId?: string;
+  /** Exact action, or a prefix ending in "*" ("key.*"). */
+  action?: string;
+  targetType?: string;
+  targetId?: string;
+  result?: AuditResult;
+  /** Page cursor: entries strictly older than this one (same order as the list). */
+  before?: { at: string; id: string };
+  /** Default 100. */
+  limit?: number;
+}
+
+/** Append-only: entries are inserted, listed and removed by the retention sweep only. */
 export interface AuditRepository {
   write(entry: AuditEntryInput): Promise<AuditEntry>;
-  /** Newest first. */
-  list(opts?: { limit?: number }): Promise<AuditEntry[]>;
+  /** Newest first (at, then id, descending). */
+  list(filter?: AuditFilter): Promise<AuditEntry[]>;
+  /** Retention: delete entries older than `cutoff`. Returns how many. */
+  deleteOlderThan(cutoff: string): Promise<number>;
+}
+
+// ---- idempotency keys -------------------------------------------------------
+
+export interface IdempotencyRecord {
+  /** Who sent it (API key id): keys of different callers never collide. */
+  actorId: string;
+  key: string;
+  operation: string;
+  requestHash: string;
+  status: 'pending' | 'done';
+  response?: unknown;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface IdempotencyRepository {
+  /** Insert a pending record. Returns false, changing nothing, when (actorId, key) exists. */
+  begin(record: IdempotencyRecord): Promise<boolean>;
+  get(actorId: string, key: string): Promise<IdempotencyRecord | null>;
+  /** Store the response and mark the record done. */
+  complete(actorId: string, key: string, response: unknown): Promise<void>;
+  delete(actorId: string, key: string): Promise<void>;
+  /** Delete records whose expiresAt is before `now`. Returns how many. */
+  deleteExpired(now: string): Promise<number>;
 }
 
 // ---- the bundle -------------------------------------------------------------
@@ -289,4 +388,5 @@ export interface Repositories {
   readonly licence: LicenceRepository;
   readonly assets: AssetRepository;
   readonly audit: AuditRepository;
+  readonly idempotency: IdempotencyRepository;
 }

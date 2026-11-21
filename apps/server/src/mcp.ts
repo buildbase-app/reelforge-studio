@@ -2,7 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { ApiError, ReelforgeService, hasScope, type AuthContext, type Scope } from '@reelforge/core';
+import { ApiError, ReelforgeService, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
+import { auditAction, auditTarget } from './audit';
 import { SCHEMA_VERSION } from '@reelforge/project-schema';
 import { z } from 'zod';
 import type { ServerConfig } from './config';
@@ -46,6 +47,39 @@ const licenseObj = z
   })
   .optional()
   .describe('Licence metadata for the asset (recommended; missing licences produce a warning).');
+
+const idempotencyKey = z
+  .string()
+  .min(1)
+  .max(128)
+  .optional()
+  .describe(
+    'Optional idempotency key (e.g. a UUID you generate once per intended action): retrying the call with the same key and arguments returns the first result instead of doing it twice; the same key with different arguments fails with idempotency_conflict. Kept 24 h.'
+  );
+const keyLimits = {
+  expiresAt: z.string().nullable().optional().describe('ISO-8601 time the key stops working, e.g. "2027-01-31T00:00:00Z"; null: never.'),
+  expiresInDays: z.number().gt(0).max(3650).optional().describe('Shortcut for expiresAt: this many days from now.'),
+  rateLimitPerMinute: z.number().int().min(0).nullable().optional().describe('Requests per minute for this key (null: the server default; 0: no limit).'),
+  rendersPerDay: z.number().int().min(0).nullable().optional().describe('Render and preview jobs per UTC day (null: unlimited).'),
+  rendersPerMonth: z.number().int().min(0).nullable().optional().describe('Render and preview jobs per calendar month, UTC (null: unlimited).'),
+  ipAllowlist: z.array(z.string()).max(50).nullable().optional().describe('CIDR blocks the key may be used from, e.g. ["203.0.113.0/24"]; null or []: anywhere.'),
+};
+/** Key options from tool arguments (expiresInDays -> expiresAt). */
+function keyOpts(a: Record<string, unknown>) {
+  const o: Record<string, unknown> = {};
+  for (const k of ['expiresAt', 'rateLimitPerMinute', 'rendersPerDay', 'rendersPerMonth', 'ipAllowlist']) if (a[k] !== undefined) o[k] = a[k];
+  if (typeof a.expiresInDays === 'number') o.expiresAt = new Date(Date.now() + a.expiresInDays * 86_400_000).toISOString();
+  return o;
+}
+const auditFilter = {
+  from: z.string().optional().describe('Entries at or after this ISO time.'),
+  to: z.string().optional().describe('Entries before this ISO time.'),
+  actorId: z.string().optional().describe('Only this actor (API key id).'),
+  action: z.string().optional().describe('Exact action ("key.rotate") or a prefix with * ("key.*").'),
+  targetType: z.string().optional().describe('e.g. "key", "project", "config".'),
+  targetId: z.string().optional(),
+  result: z.enum(['success', 'failure', 'denied']).optional(),
+};
 
 const timing = (m: Parameters<typeof ReelforgeService.sceneTiming>[0]) => ReelforgeService.sceneTiming(m);
 
@@ -100,8 +134,9 @@ export const TOOLS: ToolDef[] = [
       name: z.string(),
       description: z.string().optional(),
       tokens: z.record(z.string(), z.unknown()),
+      idempotencyKey,
     },
-    run: async (a, { service }) => service.createTheme(a),
+    run: async ({ idempotencyKey: key, ...a }, { service }) => service.idempotent(key, 'create_theme', a, () => service.createTheme(a)),
   },
   {
     name: 'list_projects',
@@ -118,9 +153,9 @@ export const TOOLS: ToolDef[] = [
     description:
       'Creates a project from a manifest. Minimal manifest: { schemaVersion: "0.2", projectId, title, output: { width: 1080, height: 1920, fps: 30, format: "mp4" }, scenes: [{ id, engine, template, durationSeconds, props }] }. Optional: brief, theme, audio, assets, captions. The manifest is validated against installed engines and templates; on failure you get every problem with its path. v0.1 manifests are migrated automatically.',
     scope: 'write',
-    input: { manifest: manifestObj },
+    input: { manifest: manifestObj, idempotencyKey },
     run: async (a, { service }) => {
-      const r = await service.createProject(a.manifest);
+      const r = await service.idempotent(a.idempotencyKey, 'create_project', { manifest: a.manifest }, () => service.createProject(a.manifest));
       return { ...r, timing: timing(r.manifest) };
     },
   },
@@ -176,9 +211,11 @@ export const TOOLS: ToolDef[] = [
       scene: z.record(z.string(), z.unknown()).describe('The scene object.'),
       index: z.number().int().min(0).optional().describe('Position (0 = first).'),
       expectedVersion,
+      idempotencyKey,
     },
     run: async (a, { service }) => {
-      const r = await service.addScene(a.projectId, a.scene, { index: a.index, expectedVersion: a.expectedVersion });
+      const req = { projectId: a.projectId, scene: a.scene, index: a.index, expectedVersion: a.expectedVersion };
+      const r = await service.idempotent(a.idempotencyKey, 'add_scene', req, () => service.addScene(a.projectId, a.scene, { index: a.index, expectedVersion: a.expectedVersion }));
       return { ...r, timing: timing(r.manifest) };
     },
   },
@@ -254,14 +291,15 @@ export const TOOLS: ToolDef[] = [
       modelId: z.string().optional(),
       projectId: projectId.optional(),
       acknowledgeCost: z.boolean().optional(),
+      idempotencyKey,
     },
     annotations: { openWorldHint: true },
-    run: async (a, { service }) =>
-      service.runProvider(
-        a.provider ?? 'elevenlabs',
-        { text: a.text, voiceId: a.voiceId, ...(a.modelId ? { modelId: a.modelId } : {}) },
-        { projectId: a.projectId, acknowledgeCost: a.acknowledgeCost }
-      ),
+    run: async (a, { service }) => {
+      const providerId = a.provider ?? 'elevenlabs';
+      const params = { text: a.text, voiceId: a.voiceId, ...(a.modelId ? { modelId: a.modelId } : {}) };
+      const opts = { projectId: a.projectId, acknowledgeCost: a.acknowledgeCost === true };
+      return service.idempotent(a.idempotencyKey, 'run_provider', { providerId, params, ...opts }, () => service.runProvider(providerId, params, opts));
+    },
   },
   {
     name: 'add_asset_from_url',
@@ -269,9 +307,12 @@ export const TOOLS: ToolDef[] = [
     description:
       'Downloads an image, audio, video or font from a public https URL into the server asset store (size-limited, private networks refused, type checked from the bytes) and, with projectId, adds it to the project as assetId. Only use files you have the rights to; pass license metadata.',
     scope: 'write',
-    input: { url: z.string().url(), projectId: projectId.optional(), assetId: z.string().optional().describe('Id to use in the manifest, e.g. "music".'), license: licenseObj },
+    input: { url: z.string().url(), projectId: projectId.optional(), assetId: z.string().optional().describe('Id to use in the manifest, e.g. "music".'), license: licenseObj, idempotencyKey },
     annotations: { openWorldHint: true },
-    run: async (a, { service }) => service.addAssetFromUrl(a.url, { projectId: a.projectId, assetId: a.assetId, license: a.license }),
+    run: async (a, { service }) => {
+      const opts = { projectId: a.projectId, assetId: a.assetId, license: a.license };
+      return service.idempotent(a.idempotencyKey, 'add_asset_from_url', { url: a.url, ...opts }, () => service.addAssetFromUrl(a.url, opts));
+    },
   },
   {
     name: 'list_assets',
@@ -288,8 +329,11 @@ export const TOOLS: ToolDef[] = [
     description:
       'Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image).',
     scope: 'render',
-    input: { projectId, sceneId: z.string().optional(), scale: z.number().gt(0).max(1).optional() },
-    run: async (a, { service }) => ({ job: await service.preview(a.projectId, { sceneId: a.sceneId, scale: a.scale }) }),
+    input: { projectId, sceneId: z.string().optional(), scale: z.number().gt(0).max(1).optional(), idempotencyKey },
+    run: async (a, { service }) => {
+      const opts = { sceneId: a.sceneId, scale: a.scale };
+      return service.idempotent(a.idempotencyKey, 'preview_scene', { projectId: a.projectId, ...opts }, async () => ({ job: await service.preview(a.projectId, opts) }));
+    },
   },
   {
     name: 'render_project',
@@ -297,8 +341,9 @@ export const TOOLS: ToolDef[] = [
     description:
       'Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Then call get_job with waitSeconds: 45 (repeat while it is still running) until status is succeeded or failed, then call get_render_output.',
     scope: 'render',
-    input: { projectId, backend: z.string().optional().describe('Render backend id; default from the manifest ("local").') },
-    run: async (a, { service }) => ({ job: await service.startRender(a.projectId, { backend: a.backend }) }),
+    input: { projectId, backend: z.string().optional().describe('Render backend id; default from the manifest ("local").'), idempotencyKey },
+    run: async (a, { service }) =>
+      service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, backend: a.backend }, async () => ({ job: await service.startRender(a.projectId, { backend: a.backend }) })),
   },
   {
     name: 'get_job',
@@ -386,8 +431,8 @@ export const TOOLS: ToolDef[] = [
     title: 'Retry a failed or cancelled job',
     description: 'Starts a new job with the same parameters as a failed or cancelled one (same project version). Earlier outputs are never overwritten.',
     scope: 'render',
-    input: { jobId: z.string() },
-    run: async (a, { service }) => ({ job: await service.retryJob(a.jobId) }),
+    input: { jobId: z.string(), idempotencyKey },
+    run: async (a, { service }) => service.idempotent(a.idempotencyKey, 'retry_job', { jobId: a.jobId }, async () => ({ job: await service.retryJob(a.jobId) })),
   },
   {
     name: 'list_project_versions',
@@ -520,10 +565,13 @@ export const TOOLS: ToolDef[] = [
       assetId: z.string().optional(),
       attachAs: z.enum(['voice', 'none']).optional(),
       acknowledgeCost: z.boolean().optional(),
+      idempotencyKey,
     },
     annotations: { openWorldHint: true },
-    run: async (a, { service }) =>
-      service.runProvider(a.providerId, a.params, { projectId: a.projectId, assetId: a.assetId, attachAs: a.attachAs, acknowledgeCost: a.acknowledgeCost }),
+    run: async (a, { service }) => {
+      const opts = { projectId: a.projectId, acknowledgeCost: a.acknowledgeCost === true, attachAs: a.attachAs === 'none' ? ('none' as const) : undefined, assetId: a.assetId };
+      return service.idempotent(a.idempotencyKey, 'run_provider', { providerId: a.providerId, params: a.params, ...opts }, () => service.runProvider(a.providerId, a.params, opts));
+    },
   },
   {
     name: 'get_licence',
@@ -558,32 +606,92 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_keys',
     title: 'List API keys (admin)',
-    description: 'Lists API keys (id, name, scopes, prefix, created/last used). Never returns secrets. Needs the admin scope.',
+    description:
+      'Lists API keys: id, name, scopes, prefix, status (active, expired, revoked), created, last used, expiry, limits, quotas, IP allowlist and, after a rotation, until when the old secret works. Never returns secrets. Needs the admin scope.',
     scope: 'admin',
     input: {},
     annotations: { readOnlyHint: true },
     run: async (_a, { service }) => ({ keys: await service.listKeys() }),
   },
   {
+    name: 'get_key',
+    title: 'Get an API key (admin)',
+    description: 'One API key (as list_keys shows it) with its render usage today and this month (UTC). Never returns the secret. Needs the admin scope.',
+    scope: 'admin',
+    input: { keyId: z.string() },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => service.getKey(a.keyId),
+  },
+  {
     name: 'create_key',
     title: 'Create an API key (admin)',
-    description: 'Creates an API key with the given scopes (read, write, render, admin). The key is returned once. Needs the admin scope.',
+    description:
+      'Creates an API key with the given scopes (read, write, render, admin) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.',
     scope: 'admin',
-    input: { name: z.string(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).min(1) },
-    run: async (a, { service }) => ({ ...(await service.createKey(a.name, a.scopes)), note: 'store this key now; it is not shown again' }),
+    input: { name: z.string(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).min(1), ...keyLimits },
+    run: async (a, { service, auth }) => ({
+      ...(await service.createKey(a.name, a.scopes, keyOpts(a), { actorType: 'api_key', actorId: auth.keyId })),
+      note: 'store this key now; it is not shown again',
+    }),
+  },
+  {
+    name: 'update_key',
+    title: 'Change an API key (admin)',
+    description: 'Changes a key\'s name, expiry, rate limit, render quotas or IP allowlist (null clears one). Scopes cannot change: create a new key. Needs the admin scope.',
+    scope: 'admin',
+    input: { keyId: z.string(), name: z.string().optional(), ...keyLimits },
+    annotations: { idempotentHint: true },
+    run: async (a, { service, auth }) =>
+      service.updateKey(a.keyId, { ...keyOpts(a), ...(a.name !== undefined ? { name: a.name } : {}) }, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'rotate_key',
+    title: 'Rotate an API key (admin)',
+    description:
+      'Gives a key a new secret (returned once) and keeps the old secret working for graceHours (default: the server setting keys.rotationGraceHours, 24 h), so clients can switch without downtime. Same id, name, scopes and limits. You may rotate the key you are using. Needs the admin scope.',
+    scope: 'admin',
+    input: { keyId: z.string(), graceHours: z.number().min(0).max(720).optional().describe('Hours the old secret keeps working (0: stops at once).') },
+    run: async (a, { service, auth }) => ({
+      ...(await service.rotateKey(a.keyId, { graceHours: a.graceHours }, { actorType: 'api_key', actorId: auth.keyId })),
+      note: 'store the new key now; it is not shown again. The old one works until record.previousSecretExpiresAt',
+    }),
+  },
+  {
+    name: 'revoke_key',
+    title: 'Revoke an API key (admin)',
+    description:
+      'Revokes a key: it (and any old secret still in its rotation grace window) stops working at once. The key stays listed with status "revoked" so the audit trail still names it. You cannot revoke the key you are using. Confirm with the user first. Needs the admin scope.',
+    scope: 'admin',
+    input: { keyId: z.string() },
+    annotations: { destructiveHint: true, idempotentHint: true },
+    run: async (a, { service, auth }) => service.revokeKey(a.keyId, { actorType: 'api_key', actorId: auth.keyId }),
   },
   {
     name: 'delete_key',
     title: 'Delete an API key (admin)',
-    description: 'Deletes an API key; it stops working immediately. You cannot delete the key you are using. Needs the admin scope.',
+    description: 'Deletes an API key; it stops working immediately and disappears from list_keys (prefer revoke_key, which keeps it listed for the audit trail). You cannot delete the key you are using. Needs the admin scope.',
     scope: 'admin',
     input: { keyId: z.string() },
     annotations: { destructiveHint: true },
     run: async (a, { service, auth }) => {
-      if (a.keyId === auth.keyId) throw new ApiError('conflict', 409, 'refusing to delete the key used for this request');
-      await service.deleteKey(a.keyId);
+      await service.deleteKey(a.keyId, { actorType: 'api_key', actorId: auth.keyId });
       return { deleted: a.keyId };
     },
+  },
+  {
+    name: 'list_audit_events',
+    title: 'Read the audit log (admin)',
+    description:
+      'The audit trail, newest first: who (API key id and name), action (e.g. "key.rotate", "project.create", "config.update"), target, result (success, failure, denied), client IP, user agent, request id and time (UTC). Never contains secret values. Filter by time (from/to), actorId, action ("key.*" for a prefix), targetType/targetId and result; page with cursor (nextCursor). format "jsonl" or "csv" returns an export (up to 10 000 entries; the REST route GET /v1/audit?format= streams up to 100 000). Needs the admin scope.',
+    scope: 'admin',
+    input: {
+      ...auditFilter,
+      limit: z.number().int().min(1).max(10_000).optional().describe('Page size (default 100, max 1000) or export size (max 10 000).'),
+      cursor: z.string().optional().describe('nextCursor of the previous page.'),
+      format: z.enum(['json', 'jsonl', 'csv']).optional().describe('json (default): a page of entries; jsonl / csv: an export as text.'),
+    },
+    annotations: { readOnlyHint: true },
+    run: async ({ format, ...q }, { service }) => (format === 'jsonl' || format === 'csv' ? service.exportAuditEvents(q, format) : service.listAuditEvents(q)),
   },
 ];
 
@@ -678,22 +786,45 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
       t.name,
       { title: t.title, description: t.description, inputSchema: t.input, annotations: { title: t.title, ...t.annotations } },
       (async (args: Record<string, unknown>): Promise<CallToolResult> => {
-        try {
-          if (!hasScope(auth, t.scope)) throw new ApiError('forbidden', 403, `this API key lacks the "${t.scope}" scope needed by ${t.name}`);
-          const result = await t.run(args ?? {}, ctx);
-          const extra = t.extra ? await t.extra(result, args ?? {}, ctx).catch(() => []) : [];
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }, ...extra],
-            structuredContent: (result && typeof result === 'object' && !Array.isArray(result) ? result : { result }) as Record<string, unknown>,
-          };
-        } catch (e) {
-          const err =
-            e instanceof ApiError
-              ? e.toJSON()
-              : { code: 'internal', message: e instanceof Error ? e.message : String(e) };
-          if (!(e instanceof ApiError)) console.error(`[reelforge] tool ${t.name} failed`, e);
-          return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: err }, null, 2) }] };
-        }
+        // One request context per tool call, so the service's own audit entry is seen per call.
+        const parent = currentRequest();
+        const call = { ...(parent ?? { requestId: 'mcp', via: 'mcp' as const }), auth, audited: false, idempotentReplay: false };
+        return runWithRequest(call, async () => {
+          let result: unknown;
+          let error: ApiError | undefined;
+          let failure: { code: string; message: string } | undefined;
+          try {
+            if (!hasScope(auth, t.scope)) throw new ApiError('forbidden', 403, `this API key lacks the "${t.scope}" scope needed by ${t.name}`);
+            result = await t.run(args ?? {}, ctx);
+            const extra = t.extra ? await t.extra(result, args ?? {}, ctx).catch(() => []) : [];
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }, ...extra],
+              structuredContent: (result && typeof result === 'object' && !Array.isArray(result) ? result : { result }) as Record<string, unknown>,
+            };
+          } catch (e) {
+            if (e instanceof ApiError) error = e;
+            const err = e instanceof ApiError ? e.toJSON() : { code: 'internal', message: e instanceof Error ? e.message : String(e) };
+            failure = { code: err.code, message: err.message };
+            if (!(e instanceof ApiError)) console.error(`[reelforge] tool ${t.name} failed`, e);
+            return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: err }, null, 2) }] };
+          } finally {
+            // One audit entry per admin or write call (D-055), unless the service wrote a detailed one.
+            if (t.scope !== 'read' && !call.audited) {
+              const { targetType, targetId, data } = auditTarget(t.name, args ?? {}, result);
+              await service
+                .audit({
+                  actorType: 'api_key',
+                  actorId: auth.keyId,
+                  action: auditAction(t.name),
+                  ...(targetType ? { targetType } : {}),
+                  ...(targetId ? { targetId } : {}),
+                  result: !failure ? 'success' : error?.status === 401 || error?.status === 403 ? 'denied' : 'failure',
+                  data: { ...data, ...(failure ? { error: failure.code } : {}), ...(call.idempotentReplay ? { idempotentReplay: true } : {}) },
+                })
+                .catch((e) => console.error('[reelforge] audit write failed', (e as Error).message));
+            }
+          }
+        });
       }) as never
     );
   }

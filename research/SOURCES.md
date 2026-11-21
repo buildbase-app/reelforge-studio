@@ -186,3 +186,14 @@ implementation or licensing decisions.
     observed 2026-11-21 on Node 22.23.5: the live licence check went through
     the sandbox proxy only with it, with the warning "EnvHttpProxyAgent is
     experimental"). https://nodejs.org/api/cli.html#node_use_env_proxy1
+30. **OTLP/HTTP logs, JSON encoding** (read 2026-11-21: OpenTelemetry protocol
+    specification, https://opentelemetry.io/docs/specs/otlp/#otlphttp, and the
+    logs data model, https://opentelemetry.io/docs/specs/otel/logs/data-model/):
+    `POST <endpoint>` (default path `/v1/logs`, port 4318) with
+    `Content-Type: application/json`, body `ExportLogsServiceRequest`
+    (`resourceLogs[].scopeLogs[].logRecords[]`, `timeUnixNano` as a decimal
+    string, attributes as `{key, value: {stringValue|intValue|boolValue}}`).
+    Verified 2026-11-21 against `otel/opentelemetry-collector:0.140.0`
+    (reports 0.140.1) with the `otlp` receiver and `debug` exporter: our
+    records arrive with scope `reelforge.audit`, event name, body and
+    attributes (D-058).

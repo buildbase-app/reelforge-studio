@@ -89,7 +89,7 @@ export class JobRunner {
     }
   }
 
-  async submit(type: string, params: Record<string, unknown>, meta: { projectId?: string; retryOf?: string } = {}): Promise<JobRecord> {
+  async submit(type: string, params: Record<string, unknown>, meta: { projectId?: string; retryOf?: string; apiKeyId?: string } = {}): Promise<JobRecord> {
     if (!this.handlers[type]) throw new ApiError('bad_request', 400, `unknown job type "${type}"`);
     const job: JobRecord = {
       id: newId('job'),
@@ -100,6 +100,7 @@ export class JobRunner {
       progress: { stage: 'queued', fraction: 0 },
       ...(meta.projectId ? { projectId: meta.projectId } : {}),
       ...(meta.retryOf ? { retryOf: meta.retryOf } : {}),
+      ...(meta.apiKeyId ? { apiKeyId: meta.apiKeyId } : {}),
     };
     // Durable before anyone sees the id.
     await this.repo.insert(structuredClone(job), job.createdAt);
@@ -146,12 +147,12 @@ export class JobRunner {
   }
 
   /** Start a new job with the same type and parameters. The old job and its output are untouched. */
-  async retry(id: string): Promise<JobRecord> {
+  async retry(id: string, meta: { apiKeyId?: string } = {}): Promise<JobRecord> {
     const job = await this.get(id);
     if (!TERMINAL.includes(job.status) || job.status === 'succeeded') {
       throw new ApiError('conflict', 409, `only failed or cancelled jobs can be retried (job is ${job.status})`);
     }
-    return this.submit(job.type, job.params, { projectId: job.projectId, retryOf: job.id });
+    return this.submit(job.type, job.params, { projectId: job.projectId, retryOf: job.id, ...meta });
   }
 
   async logs(id: string, tail?: number): Promise<string[]> {

@@ -93,6 +93,14 @@ export const ConfigSchema = z.object({
       example: 'reelforge,studio.internal',
       description: 'Extra host names accepted on `/mcp` (DNS-rebinding protection), besides localhost and the public URL host. Comma-separated in the environment.',
     }),
+    trustProxy: setting(z.boolean(), {
+      kind: 'boolean',
+      scope: 'runtime',
+      env: 'REELFORGE_TRUST_PROXY',
+      default: false,
+      description:
+        'Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists. Only turn it on behind a proxy that sets that header.',
+    }),
   }),
   limits: z.object({
     rateLimitPerMinute: setting(nonNegative(), {
@@ -218,6 +226,49 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_BOOTSTRAP_KEY',
       secret: true,
       description: 'First admin API key (`rf_` + 20 or more URL-safe characters). Stored hashed as key "bootstrap" on start if no key exists.',
+    }),
+  }),
+  audit: z.object({
+    retentionDays: setting(z.number().int().min(0).max(36500), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_AUDIT_RETENTION_DAYS',
+      default: 365,
+      description: 'Days audit entries are kept in the database; older ones are deleted by the hourly sweep. `0` keeps them forever.',
+    }),
+    sinks: setting(z.array(z.string().regex(/^[a-z][a-z0-9-]{0,40}$/, 'a sink id such as stdout or otlp')).max(10), {
+      kind: 'list',
+      scope: 'runtime',
+      env: 'REELFORGE_AUDIT_SINKS',
+      default: [],
+      example: 'stdout,otlp',
+      description:
+        'Where audit entries go besides the database (always on): `stdout` (one JSON line per entry, `{"type":"audit",...}`), `otlp` (OTLP/HTTP logs to `audit.otlpEndpoint`), or the id of a sink plugin. Several at once; comma-separated in the environment.',
+    }),
+    otlpEndpoint: setting(httpUrl().optional(), {
+      kind: 'url',
+      scope: 'runtime',
+      env: 'REELFORGE_AUDIT_OTLP_ENDPOINT',
+      example: 'http://otel-collector:4318/v1/logs',
+      description: 'OTLP/HTTP logs endpoint for the `otlp` audit sink (JSON encoding). Sends audit entries to that host only when `otlp` is in `audit.sinks` (docs/PRIVACY.md).',
+    }),
+  }),
+  keys: z.object({
+    rotationGraceHours: setting(z.number().int().min(0).max(720), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_KEY_ROTATION_GRACE_HOURS',
+      default: 24,
+      description: 'After `rotate_key`, the old secret keeps working this many hours so clients can switch. `0` ends it at once; a rotation may pass its own `graceHours`.',
+    }),
+  }),
+  idempotency: z.object({
+    ttlHours: setting(z.number().int().min(1).max(168), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_IDEMPOTENCY_TTL_HOURS',
+      default: 24,
+      description: 'How long an `Idempotency-Key` (REST) / `idempotencyKey` (MCP) and its stored result are kept; expired ones are swept hourly.',
     }),
   }),
   render: z.object({

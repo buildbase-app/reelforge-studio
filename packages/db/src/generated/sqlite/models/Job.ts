@@ -35,6 +35,7 @@ export type JobMinAggregateOutputType = {
   result: string | null
   error: string | null
   retryOf: string | null
+  apiKeyId: string | null
   createdAt: Date | null
   startedAt: Date | null
   finishedAt: Date | null
@@ -51,6 +52,7 @@ export type JobMaxAggregateOutputType = {
   result: string | null
   error: string | null
   retryOf: string | null
+  apiKeyId: string | null
   createdAt: Date | null
   startedAt: Date | null
   finishedAt: Date | null
@@ -67,6 +69,7 @@ export type JobCountAggregateOutputType = {
   result: number
   error: number
   retryOf: number
+  apiKeyId: number
   createdAt: number
   startedAt: number
   finishedAt: number
@@ -85,6 +88,7 @@ export type JobMinAggregateInputType = {
   result?: true
   error?: true
   retryOf?: true
+  apiKeyId?: true
   createdAt?: true
   startedAt?: true
   finishedAt?: true
@@ -101,6 +105,7 @@ export type JobMaxAggregateInputType = {
   result?: true
   error?: true
   retryOf?: true
+  apiKeyId?: true
   createdAt?: true
   startedAt?: true
   finishedAt?: true
@@ -117,6 +122,7 @@ export type JobCountAggregateInputType = {
   result?: true
   error?: true
   retryOf?: true
+  apiKeyId?: true
   createdAt?: true
   startedAt?: true
   finishedAt?: true
@@ -206,6 +212,7 @@ export type JobGroupByOutputType = {
   result: string | null
   error: string | null
   retryOf: string | null
+  apiKeyId: string | null
   createdAt: Date
   startedAt: Date | null
   finishedAt: Date | null
@@ -243,6 +250,7 @@ export type JobWhereInput = {
   result?: Prisma.StringNullableFilter<"Job"> | string | null
   error?: Prisma.StringNullableFilter<"Job"> | string | null
   retryOf?: Prisma.StringNullableFilter<"Job"> | string | null
+  apiKeyId?: Prisma.StringNullableFilter<"Job"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
@@ -261,6 +269,7 @@ export type JobOrderByWithRelationInput = {
   result?: Prisma.SortOrderInput | Prisma.SortOrder
   error?: Prisma.SortOrderInput | Prisma.SortOrder
   retryOf?: Prisma.SortOrderInput | Prisma.SortOrder
+  apiKeyId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   finishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -282,6 +291,7 @@ export type JobWhereUniqueInput = Prisma.AtLeast<{
   result?: Prisma.StringNullableFilter<"Job"> | string | null
   error?: Prisma.StringNullableFilter<"Job"> | string | null
   retryOf?: Prisma.StringNullableFilter<"Job"> | string | null
+  apiKeyId?: Prisma.StringNullableFilter<"Job"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
@@ -300,6 +310,7 @@ export type JobOrderByWithAggregationInput = {
   result?: Prisma.SortOrderInput | Prisma.SortOrder
   error?: Prisma.SortOrderInput | Prisma.SortOrder
   retryOf?: Prisma.SortOrderInput | Prisma.SortOrder
+  apiKeyId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   finishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -322,6 +333,7 @@ export type JobScalarWhereWithAggregatesInput = {
   result?: Prisma.StringNullableWithAggregatesFilter<"Job"> | string | null
   error?: Prisma.StringNullableWithAggregatesFilter<"Job"> | string | null
   retryOf?: Prisma.StringNullableWithAggregatesFilter<"Job"> | string | null
+  apiKeyId?: Prisma.StringNullableWithAggregatesFilter<"Job"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Job"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Job"> | Date | string | null
@@ -337,6 +349,7 @@ export type JobCreateInput = {
   result?: string | null
   error?: string | null
   retryOf?: string | null
+  apiKeyId?: string | null
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -355,6 +368,7 @@ export type JobUncheckedCreateInput = {
   result?: string | null
   error?: string | null
   retryOf?: string | null
+  apiKeyId?: string | null
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -371,6 +385,7 @@ export type JobUpdateInput = {
   result?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   retryOf?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  apiKeyId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -389,6 +404,7 @@ export type JobUncheckedUpdateInput = {
   result?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   retryOf?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  apiKeyId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -406,6 +422,7 @@ export type JobCreateManyInput = {
   result?: string | null
   error?: string | null
   retryOf?: string | null
+  apiKeyId?: string | null
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -421,6 +438,7 @@ export type JobUpdateManyMutationInput = {
   result?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   retryOf?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  apiKeyId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -437,6 +455,7 @@ export type JobUncheckedUpdateManyInput = {
   result?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   retryOf?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  apiKeyId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -463,6 +482,7 @@ export type JobCountOrderByAggregateInput = {
   result?: Prisma.SortOrder
   error?: Prisma.SortOrder
   retryOf?: Prisma.SortOrder
+  apiKeyId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
@@ -479,6 +499,7 @@ export type JobMaxOrderByAggregateInput = {
   result?: Prisma.SortOrder
   error?: Prisma.SortOrder
   retryOf?: Prisma.SortOrder
+  apiKeyId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
@@ -495,6 +516,7 @@ export type JobMinOrderByAggregateInput = {
   result?: Prisma.SortOrder
   error?: Prisma.SortOrder
   retryOf?: Prisma.SortOrder
+  apiKeyId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
@@ -547,10 +569,6 @@ export type JobUncheckedUpdateManyWithoutWorkspaceNestedInput = {
   deleteMany?: Prisma.JobScalarWhereInput | Prisma.JobScalarWhereInput[]
 }
 
-export type NullableStringFieldUpdateOperationsInput = {
-  set?: string | null
-}
-
 export type JobCreateNestedOneWithoutEventsInput = {
   create?: Prisma.XOR<Prisma.JobCreateWithoutEventsInput, Prisma.JobUncheckedCreateWithoutEventsInput>
   connectOrCreate?: Prisma.JobCreateOrConnectWithoutEventsInput
@@ -575,6 +593,7 @@ export type JobCreateWithoutWorkspaceInput = {
   result?: string | null
   error?: string | null
   retryOf?: string | null
+  apiKeyId?: string | null
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -591,6 +610,7 @@ export type JobUncheckedCreateWithoutWorkspaceInput = {
   result?: string | null
   error?: string | null
   retryOf?: string | null
+  apiKeyId?: string | null
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -636,6 +656,7 @@ export type JobScalarWhereInput = {
   result?: Prisma.StringNullableFilter<"Job"> | string | null
   error?: Prisma.StringNullableFilter<"Job"> | string | null
   retryOf?: Prisma.StringNullableFilter<"Job"> | string | null
+  apiKeyId?: Prisma.StringNullableFilter<"Job"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
@@ -651,6 +672,7 @@ export type JobCreateWithoutEventsInput = {
   result?: string | null
   error?: string | null
   retryOf?: string | null
+  apiKeyId?: string | null
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -668,6 +690,7 @@ export type JobUncheckedCreateWithoutEventsInput = {
   result?: string | null
   error?: string | null
   retryOf?: string | null
+  apiKeyId?: string | null
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -699,6 +722,7 @@ export type JobUpdateWithoutEventsInput = {
   result?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   retryOf?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  apiKeyId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -716,6 +740,7 @@ export type JobUncheckedUpdateWithoutEventsInput = {
   result?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   retryOf?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  apiKeyId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -731,6 +756,7 @@ export type JobCreateManyWorkspaceInput = {
   result?: string | null
   error?: string | null
   retryOf?: string | null
+  apiKeyId?: string | null
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -746,6 +772,7 @@ export type JobUpdateWithoutWorkspaceInput = {
   result?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   retryOf?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  apiKeyId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -762,6 +789,7 @@ export type JobUncheckedUpdateWithoutWorkspaceInput = {
   result?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   retryOf?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  apiKeyId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -778,6 +806,7 @@ export type JobUncheckedUpdateManyWithoutWorkspaceInput = {
   result?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   retryOf?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  apiKeyId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -825,6 +854,7 @@ export type JobSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   result?: boolean
   error?: boolean
   retryOf?: boolean
+  apiKeyId?: boolean
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
@@ -844,6 +874,7 @@ export type JobSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extension
   result?: boolean
   error?: boolean
   retryOf?: boolean
+  apiKeyId?: boolean
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
@@ -861,6 +892,7 @@ export type JobSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extension
   result?: boolean
   error?: boolean
   retryOf?: boolean
+  apiKeyId?: boolean
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
@@ -878,12 +910,13 @@ export type JobSelectScalar = {
   result?: boolean
   error?: boolean
   retryOf?: boolean
+  apiKeyId?: boolean
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
 }
 
-export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "type" | "status" | "projectId" | "params" | "progress" | "result" | "error" | "retryOf" | "createdAt" | "startedAt" | "finishedAt", ExtArgs["result"]["job"]>
+export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "type" | "status" | "projectId" | "params" | "progress" | "result" | "error" | "retryOf" | "apiKeyId" | "createdAt" | "startedAt" | "finishedAt", ExtArgs["result"]["job"]>
 export type JobInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
   events?: boolean | Prisma.Job$eventsArgs<ExtArgs>
@@ -916,6 +949,10 @@ export type $JobPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
     result: string | null
     error: string | null
     retryOf: string | null
+    /**
+     * The API key that started the job (render quotas, #65).
+     */
+    apiKeyId: string | null
     createdAt: Date
     startedAt: Date | null
     finishedAt: Date | null
@@ -1354,6 +1391,7 @@ export interface JobFieldRefs {
   readonly result: Prisma.FieldRef<"Job", 'String'>
   readonly error: Prisma.FieldRef<"Job", 'String'>
   readonly retryOf: Prisma.FieldRef<"Job", 'String'>
+  readonly apiKeyId: Prisma.FieldRef<"Job", 'String'>
   readonly createdAt: Prisma.FieldRef<"Job", 'DateTime'>
   readonly startedAt: Prisma.FieldRef<"Job", 'DateTime'>
   readonly finishedAt: Prisma.FieldRef<"Job", 'DateTime'>

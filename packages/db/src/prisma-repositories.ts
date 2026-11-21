@@ -2,9 +2,13 @@ import type { Project, Theme } from '@reelforge/project-schema';
 import {
   conflict,
   newId,
+  newSequentialId,
+  type ApiKeyPatch,
   type ApiKeyRecord,
   type AssetRecord,
   type AuditEntry,
+  type AuditFilter,
+  type IdempotencyRecord,
   type JobRecord,
   type LicenceStateRecord,
   type ProjectMeta,
@@ -73,6 +77,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     result: string | null;
     error: string | null;
     retryOf: string | null;
+    apiKeyId: string | null;
     createdAt: Date;
     startedAt: Date | null;
     finishedAt: Date | null;
@@ -89,6 +94,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     ...(r.result !== null ? { result: parse(r.result) } : {}),
     ...(r.error !== null ? { error: parse(r.error) } : {}),
     ...(r.retryOf !== null ? { retryOf: r.retryOf } : {}),
+    ...(r.apiKeyId !== null ? { apiKeyId: r.apiKeyId } : {}),
   });
   const jobData = (j: JobRecord) => ({
     type: j.type,
@@ -99,12 +105,34 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     result: j.result === undefined ? null : json(j.result),
     error: j.error === undefined ? null : json(j.error),
     retryOf: j.retryOf ?? null,
+    apiKeyId: j.apiKeyId ?? null,
     createdAt: new Date(j.createdAt),
     startedAt: j.startedAt ? new Date(j.startedAt) : null,
     finishedAt: j.finishedAt ? new Date(j.finishedAt) : null,
   });
 
-  const toKey = (r: { id: string; name: string; scopes: string; prefix: string; salt: string; hash: string; createdAt: Date; lastUsedAt: Date | null }): ApiKeyRecord => ({
+  type KeyRow = {
+    id: string;
+    name: string;
+    scopes: string;
+    prefix: string;
+    salt: string;
+    hash: string;
+    createdAt: Date;
+    lastUsedAt: Date | null;
+    expiresAt: Date | null;
+    revokedAt: Date | null;
+    prevPrefix: string | null;
+    prevSalt: string | null;
+    prevHash: string | null;
+    prevExpiresAt: Date | null;
+    rotatedAt: Date | null;
+    rateLimitPerMinute: number | null;
+    rendersPerDay: number | null;
+    rendersPerMonth: number | null;
+    ipAllowlist: string | null;
+  };
+  const toKey = (r: KeyRow): ApiKeyRecord => ({
     id: r.id,
     name: r.name,
     scopes: parse<Scope[]>(r.scopes),
@@ -113,7 +141,36 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     hash: r.hash,
     createdAt: iso(r.createdAt),
     ...(r.lastUsedAt ? { lastUsedAt: iso(r.lastUsedAt) } : {}),
+    ...(r.expiresAt ? { expiresAt: iso(r.expiresAt) } : {}),
+    ...(r.revokedAt ? { revokedAt: iso(r.revokedAt) } : {}),
+    ...(r.prevPrefix && r.prevSalt && r.prevHash && r.prevExpiresAt
+      ? { prev: { prefix: r.prevPrefix, salt: r.prevSalt, hash: r.prevHash, expiresAt: iso(r.prevExpiresAt) } }
+      : {}),
+    ...(r.rotatedAt ? { rotatedAt: iso(r.rotatedAt) } : {}),
+    ...(r.rateLimitPerMinute !== null ? { rateLimitPerMinute: r.rateLimitPerMinute } : {}),
+    ...(r.rendersPerDay !== null ? { rendersPerDay: r.rendersPerDay } : {}),
+    ...(r.rendersPerMonth !== null ? { rendersPerMonth: r.rendersPerMonth } : {}),
+    ...(r.ipAllowlist !== null ? { ipAllowlist: parse<string[]>(r.ipAllowlist) } : {}),
   });
+  const date = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(v));
+  const keyPatch = (p: ApiKeyPatch) => {
+    const d: Record<string, unknown> = {};
+    if (p.name !== undefined) d.name = p.name;
+    if (p.secret) Object.assign(d, { prefix: p.secret.prefix, salt: p.secret.salt, hash: p.secret.hash });
+    if (p.prev !== undefined) {
+      Object.assign(d, p.prev === null
+        ? { prevPrefix: null, prevSalt: null, prevHash: null, prevExpiresAt: null }
+        : { prevPrefix: p.prev.prefix, prevSalt: p.prev.salt, prevHash: p.prev.hash, prevExpiresAt: new Date(p.prev.expiresAt) });
+    }
+    if (p.rotatedAt !== undefined) d.rotatedAt = new Date(p.rotatedAt);
+    if (p.revokedAt !== undefined) d.revokedAt = new Date(p.revokedAt);
+    if (p.expiresAt !== undefined) d.expiresAt = date(p.expiresAt);
+    if (p.rateLimitPerMinute !== undefined) d.rateLimitPerMinute = p.rateLimitPerMinute;
+    if (p.rendersPerDay !== undefined) d.rendersPerDay = p.rendersPerDay;
+    if (p.rendersPerMonth !== undefined) d.rendersPerMonth = p.rendersPerMonth;
+    if (p.ipAllowlist !== undefined) d.ipAllowlist = p.ipAllowlist === null ? null : json(p.ipAllowlist);
+    return d;
+  };
 
   const toAsset = (r: {
     id: string;
@@ -208,24 +265,52 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       async list() {
         return (await prisma.apiKey.findMany({ where: ws, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] })).map(toKey);
       },
+      async get(id) {
+        const r = await prisma.apiKey.findFirst({ where: { ...ws, id } });
+        return r ? toKey(r) : null;
+      },
       async count() {
         return prisma.apiKey.count({ where: ws });
       },
       async insert(k) {
         try {
           await prisma.apiKey.create({
-            data: { ...ws, id: k.id, name: k.name, scopes: json(k.scopes), prefix: k.prefix, salt: k.salt, hash: k.hash, createdAt: new Date(k.createdAt), lastUsedAt: k.lastUsedAt ? new Date(k.lastUsedAt) : null },
+            data: {
+              ...ws,
+              id: k.id,
+              scopes: json(k.scopes),
+              createdAt: new Date(k.createdAt),
+              lastUsedAt: k.lastUsedAt ? new Date(k.lastUsedAt) : null,
+              ...keyPatch({
+                name: k.name,
+                secret: { prefix: k.prefix, salt: k.salt, hash: k.hash },
+                ...(k.prev ? { prev: k.prev } : {}),
+                ...(k.rotatedAt ? { rotatedAt: k.rotatedAt } : {}),
+                ...(k.revokedAt ? { revokedAt: k.revokedAt } : {}),
+                expiresAt: k.expiresAt ?? null,
+                rateLimitPerMinute: k.rateLimitPerMinute ?? null,
+                rendersPerDay: k.rendersPerDay ?? null,
+                rendersPerMonth: k.rendersPerMonth ?? null,
+                ipAllowlist: k.ipAllowlist ?? null,
+              }),
+            } as never,
           });
         } catch (e) {
           if (isUniqueViolation(e)) throw conflict(`key "${k.id}" already exists`);
           throw e;
         }
       },
+      async update(id, patch) {
+        const r = await prisma.apiKey.updateMany({ where: { ...ws, id }, data: keyPatch(patch) });
+        if (!r.count) return null;
+        const row = await prisma.apiKey.findFirst({ where: { ...ws, id } });
+        return row ? toKey(row) : null;
+      },
       async delete(id) {
         return (await prisma.apiKey.deleteMany({ where: { ...ws, id } })).count > 0;
       },
       async findByPrefix(prefix) {
-        return (await prisma.apiKey.findMany({ where: { ...ws, prefix } })).map(toKey);
+        return (await prisma.apiKey.findMany({ where: { ...ws, OR: [{ prefix }, { prevPrefix: prefix }] } })).map(toKey);
       },
       async touch(id, lastUsedAt) {
         await prisma.apiKey.updateMany({ where: { ...ws, id }, data: { lastUsedAt: new Date(lastUsedAt) } });
@@ -266,6 +351,9 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       },
       async listUnfinished() {
         return (await prisma.job.findMany({ where: { ...ws, status: { in: ['queued', 'running'] } } })).map(toJob);
+      },
+      async countByApiKey(apiKeyId, since, types) {
+        return prisma.job.count({ where: { ...ws, apiKeyId, createdAt: { gte: new Date(since) }, type: { in: types } } });
       },
       async appendLog(jobId, at, line) {
         await prisma.jobEvent.create({ data: { ...ws, jobId, at: new Date(at), type: 'log', message: line } });
@@ -430,7 +518,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
 
     audit: {
       async write(entry) {
-        const e: AuditEntry = { id: newId('aud'), at: new Date().toISOString(), ...entry };
+        const e: AuditEntry = { id: newSequentialId('aud'), at: new Date().toISOString(), ...entry, result: entry.result ?? 'success' };
         await prisma.auditLog.create({
           data: {
             ...ws,
@@ -438,26 +526,101 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
             at: new Date(e.at),
             actorType: e.actorType,
             actorId: e.actorId ?? null,
+            actorName: e.actorName ?? null,
             action: e.action,
             targetType: e.targetType ?? null,
             targetId: e.targetId ?? null,
+            result: e.result,
+            ip: e.ip ?? null,
+            userAgent: e.userAgent ?? null,
+            requestId: e.requestId ?? null,
             data: e.data ? json(e.data) : null,
           },
         });
         return e;
       },
-      async list(opts = {}) {
-        const rows = await prisma.auditLog.findMany({ where: ws, orderBy: [{ at: 'desc' }, { id: 'desc' }], take: opts.limit ?? 100 });
+      async list(f: AuditFilter = {}) {
+        const at: Record<string, Date> = {};
+        if (f.from) at.gte = new Date(f.from);
+        if (f.to) at.lt = new Date(f.to);
+        const where = {
+          ...ws,
+          ...(f.from || f.to ? { at } : {}),
+          ...(f.actorId ? { actorId: f.actorId } : {}),
+          ...(f.action ? { action: f.action.endsWith('*') ? { startsWith: f.action.slice(0, -1) } : f.action } : {}),
+          ...(f.targetType ? { targetType: f.targetType } : {}),
+          ...(f.targetId ? { targetId: f.targetId } : {}),
+          ...(f.result ? { result: f.result } : {}),
+          ...(f.before
+            ? { OR: [{ at: { lt: new Date(f.before.at) } }, { at: new Date(f.before.at), id: { lt: f.before.id } }] }
+            : {}),
+        };
+        const rows = await prisma.auditLog.findMany({ where, orderBy: [{ at: 'desc' }, { id: 'desc' }], take: f.limit ?? 100 });
         return rows.map((r) => ({
           id: r.id,
           at: iso(r.at),
           actorType: r.actorType as AuditEntry['actorType'],
-          action: r.action,
           ...(r.actorId !== null ? { actorId: r.actorId } : {}),
+          ...(r.actorName !== null ? { actorName: r.actorName } : {}),
+          action: r.action,
           ...(r.targetType !== null ? { targetType: r.targetType } : {}),
           ...(r.targetId !== null ? { targetId: r.targetId } : {}),
+          result: r.result as AuditEntry['result'],
+          ...(r.ip !== null ? { ip: r.ip } : {}),
+          ...(r.userAgent !== null ? { userAgent: r.userAgent } : {}),
+          ...(r.requestId !== null ? { requestId: r.requestId } : {}),
           ...(r.data !== null ? { data: parse<Record<string, unknown>>(r.data) } : {}),
         }));
+      },
+      async deleteOlderThan(cutoff) {
+        return (await prisma.auditLog.deleteMany({ where: { ...ws, at: { lt: new Date(cutoff) } } })).count;
+      },
+    },
+
+    idempotency: {
+      async begin(r: IdempotencyRecord) {
+        try {
+          await prisma.idempotencyKey.create({
+            data: {
+              ...ws,
+              actorId: r.actorId,
+              key: r.key,
+              operation: r.operation,
+              requestHash: r.requestHash,
+              status: r.status,
+              response: r.response === undefined ? null : json(r.response),
+              createdAt: new Date(r.createdAt),
+              expiresAt: new Date(r.expiresAt),
+            },
+          });
+          return true;
+        } catch (e) {
+          if (isUniqueViolation(e)) return false;
+          throw e;
+        }
+      },
+      async get(actorId, key) {
+        const r = await prisma.idempotencyKey.findUnique({ where: { workspaceId_actorId_key: { workspaceId, actorId, key } } });
+        if (!r) return null;
+        return {
+          actorId: r.actorId,
+          key: r.key,
+          operation: r.operation,
+          requestHash: r.requestHash,
+          status: r.status as IdempotencyRecord['status'],
+          ...(r.response !== null ? { response: parse(r.response) } : {}),
+          createdAt: iso(r.createdAt),
+          expiresAt: iso(r.expiresAt),
+        };
+      },
+      async complete(actorId, key, response) {
+        await prisma.idempotencyKey.updateMany({ where: { ...ws, actorId, key }, data: { status: 'done', response: json(response) } });
+      },
+      async delete(actorId, key) {
+        await prisma.idempotencyKey.deleteMany({ where: { ...ws, actorId, key } });
+      },
+      async deleteExpired(now) {
+        return (await prisma.idempotencyKey.deleteMany({ where: { ...ws, expiresAt: { lt: new Date(now) } } })).count;
       },
     },
   };
