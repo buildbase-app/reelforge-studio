@@ -15,6 +15,13 @@ function browserAvailable(): boolean {
   }
 }
 
+// In CI REELFORGE_REQUIRE_BROWSER=1 turns a missing browser into a failure instead of a skip.
+describe('browser requirement', () => {
+  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('a browser must be configured', () => {
+    expect(browserAvailable()).toBe(true);
+  });
+});
+
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-mc-'));
 const cacheDir = resolve(__dirname, '../../../.render-cache');
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

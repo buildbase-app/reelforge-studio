@@ -10,6 +10,13 @@ import { renderRemotionScene } from '../src/index';
 // it at a preinstalled one so the test does not depend on network access.
 const hasBrowser = Boolean(process.env.REELFORGE_CHROMIUM_PATH && existsSync(process.env.REELFORGE_CHROMIUM_PATH));
 
+// In CI REELFORGE_REQUIRE_BROWSER=1 turns a missing browser into a failure instead of a skip.
+describe('browser requirement', () => {
+  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('a browser must be configured', () => {
+    expect(hasBrowser).toBe(true);
+  });
+});
+
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-remotion-'));
 const cacheDir = resolve(__dirname, '../../../.render-cache');
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

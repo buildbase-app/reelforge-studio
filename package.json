@@ -30,7 +30,8 @@
     "@reelforge/engine-motion-canvas": "workspace:*",
     "@reelforge/engine-remotion": "workspace:*",
     "@reelforge/core": "workspace:*",
-    "@reelforge/server": "workspace:*"
+    "@reelforge/server": "workspace:*",
+    "@reelforge/engine-html": "workspace:*"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

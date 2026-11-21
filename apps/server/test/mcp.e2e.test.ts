@@ -60,7 +60,7 @@ describe.skipIf(!hasBrowser)('MCP end to end with real engines (needs REELFORGE_
     expect(tools.length).toBeGreaterThanOrEqual(24);
 
     const caps = (await call('get_capabilities', {})).data;
-    for (const e of caps.engines.filter((x: any) => ['remotion', 'motion-canvas'].includes(x.id))) expect(e.available, e.reason).toBe(true);
+    for (const e of caps.engines.filter((x: any) => ['remotion', 'motion-canvas', 'html'].includes(x.id))) expect(e.available, e.reason).toBe(true);
 
     const created = (await call('create_project', { manifest: sample })).data;
     expect(created.migratedFrom).toBe('0.1');
@@ -71,6 +71,18 @@ describe.skipIf(!hasBrowser)('MCP end to end with real engines (needs REELFORGE_
     });
     const updated = (await call('update_scene', { projectId: 'sample-reel', sceneId: 'outro', patch: { durationSeconds: 2, props: { subline: 'Self-hosted' } } })).data;
     expect(updated.timing.map((t: any) => t.durationFrames)).toEqual([90, 120, 60]);
+    // An agent-written HTML scene and the built-in html-title template.
+    await call('add_scene', {
+      projectId: 'sample-reel',
+      scene: {
+        id: 'agent-html',
+        engine: 'html',
+        durationSeconds: 1,
+        html: '<div class="pill">Agent-written HTML</div>',
+        css: '#rf-root{display:flex;align-items:center;justify-content:center}.pill{font-size:80px;font-weight:800;color:var(--rf-text);background:var(--rf-accent);padding:40px 60px;border-radius:999px;animation:pop .5s ease-out both}@keyframes pop{from{transform:scale(.6)}to{transform:none}}',
+      },
+    });
+    await call('add_scene', { projectId: 'sample-reel', scene: { id: 'card', engine: 'html', template: 'html-title', durationFrames: 45, props: { headline: 'Four engines, one timeline', kicker: 'HTML' } } });
     const report = (await call('validate_project', { projectId: 'sample-reel' })).data;
     expect(report.ok, JSON.stringify(report.errors)).toBe(true);
 
@@ -96,10 +108,10 @@ describe.skipIf(!hasBrowser)('MCP end to end with real engines (needs REELFORGE_
     writeFileSync(file, Buffer.from(await res.arrayBuffer()));
     const tools2 = resolveTools();
     const info = await probe(tools2.ffprobe, file);
-    expect(checkExpectation(info, { width: 1080, height: 1920, fps: 30, frames: 270, audio: true })).toEqual([]);
+    expect(checkExpectation(info, { width: 1080, height: 1920, fps: 30, frames: 345, audio: true })).toEqual([]);
     expect(info.videoCodec).toBe('h264');
     expect(info.audioCodec).toBe('aac');
-    expect(info.durationSeconds).toBeCloseTo(9, 1);
+    expect(info.durationSeconds).toBeCloseTo(11.5, 1);
     await assertDecodable(tools2.ffmpeg, file);
   }, 600_000);
 });
