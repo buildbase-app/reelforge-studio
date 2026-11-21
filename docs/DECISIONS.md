@@ -783,6 +783,7 @@ merge queue, `merge_group`: a `changes` job), and the `required` job aggregates
 every job (success or skipped) so branch protection can require it (#62);
 `docs/CONFIG.md` drift has its own small workflow;
 every job has `timeout-minutes`, and pnpm, Chrome, the buildx layers (GHA
-cache) and the Trivy DB are cached. Not verified here: arm64, publish and
-cosign run only on GitHub. Distribution of the image to buyers (pull access by
+cache) and the Trivy DB are cached. Verified on GitHub (manual run
+44921945693): every heavy job on amd64 and arm64. Not run yet: publish and
+cosign (main/tags only). Distribution of the image to buyers (pull access by
 licence, update channel) is still open (#11).

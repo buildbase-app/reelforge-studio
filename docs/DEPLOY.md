@@ -347,8 +347,9 @@ cosign verify ghcr.io/buildbase-app/reelforge-studio:<version> \
 cosign verify-attestation --type cyclonedx ...same flags... ghcr.io/buildbase-app/reelforge-studio:<version>
 ```
 
-(VERIFY: the publish job, cosign and the arm64 build run only on GitHub; they
-were not run in this environment.)
+The amd64 and arm64 image jobs passed on GitHub (run 44921945693, 2026-11-21).
+(VERIFY: the publish job and cosign run only on `main` and `v*` tags and have
+not run yet.)
 
 ## 3. VPS with Caddy (automatic HTTPS)
 
