@@ -186,7 +186,8 @@ describe('allowlist to desired pages', () => {
     assert.ok(!qs.content.includes('# Quick start'));
     assert.ok(qs.content.includes('[the API](/docs/api/overview#errors)'));
     assert.ok(qs.content.includes('[config](https://github.com/acme/repo/blob/main/docs/CONFIG.md)'));
-    assert.ok(qs.content.endsWith('in the ReelForge Studio repository._\n'));
+    assert.ok(qs.content.endsWith('in the ReelForge Studio repository.\n'));
+    assert.ok(!qs.content.includes('_Published'), 'no italic footer');
     assert.equal(docs[1].title, 'Connect an agent');
     assert.equal(docs[1].slug, 'agents');
     assert.ok(!docs[3].content.includes('internal table'));
