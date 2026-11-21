@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
-import { chromiumSandbox, packageVersion } from '@reelforge/core';
+import { chromiumSandbox, packageVersion, publishDirAtomically, stampMatches } from '@reelforge/core';
 import type { OutputSettings, RenderScene, ThemeTokens } from '@reelforge/project-schema';
 import { chromium, type Browser } from 'playwright-core';
 import type { Plugin } from 'vite';
@@ -74,10 +74,6 @@ function safeDefaultPath(): string | undefined {
   }
 }
 
-function stampMatches(dir: string, hash: string): boolean {
-  const stamp = join(dir, '.source-hash');
-  return existsSync(stamp) && readFileSync(stamp, 'utf8') === hash;
-}
 
 /**
  * The browser bundle of scenes/runtime.ts: the pre-built one when it matches
@@ -90,7 +86,19 @@ export async function buildBundle(cacheDir: string, force = false): Promise<stri
   if (!force && stampMatches(PREBUILT_MOTION_CANVAS_DIR, hash)) return PREBUILT_MOTION_CANVAS_DIR;
   const outDir = join(cacheDir, 'motion-canvas');
   if (!force && stampMatches(outDir, hash)) return outDir;
-  return viteBuild(outDir, join(cacheDir, 'vite'), hash);
+  // Built next to outDir and renamed into place: another server process may be rendering from outDir right now.
+  return publishDirAtomically(
+    outDir,
+    hash,
+    async (dir) => {
+      try {
+        await viteBuild(dir, `${dir}-vite`, hash);
+      } finally {
+        rmSync(`${dir}-vite`, { recursive: true, force: true });
+      }
+    },
+    { force }
+  );
 }
 
 /** Pre-build the bundle next to the package (image build time). `viteCacheDir` is a scratch directory. */
