@@ -38,6 +38,10 @@ cleanup() {
   docker volume rm $VOL >/dev/null 2>&1 || true; rm -rf "$WORK"
 }
 trap cleanup EXIT
+# `docker logs X | grep -q ...` is flaky under pipefail: grep -q exits at the first
+# match, docker logs then dies of SIGPIPE (exit 141) and the pipeline fails even
+# though the line is there (CI run 44916484714). Read the whole log, then grep.
+logs_have() { local c=$1; shift; docker logs "$c" > "$WORK/container.log" 2>&1 || true; grep -q -- "$@" "$WORK/container.log"; }
 
 [ "${SKIP_BUILD:-}" = 1 ] || docker build ${BUILD_ARGS:-} -t "$IMAGE" .
 
@@ -78,7 +82,7 @@ client() { docker run --rm --network $NET -v "$WORK/client:/c:ro" -v "$WORK/out:
 licence_server() {
   docker run -d --name $LIC --network $NET --network-alias licence -v "$WORK/mock:/m:ro" -e ORG_ID=$LIC_ORG \
     -e SEED_KEYS="[{\"key\":\"$KEY_A\",\"activationLimit\":1},{\"key\":\"$KEY_C\",\"activationLimit\":1}]" "$CLIENT_IMAGE" node /m/server.mjs >/dev/null
-  for _ in $(seq 1 30); do docker logs $LIC 2>&1 | grep -q 'mock licence server on' && return; sleep 1; done
+  for _ in $(seq 1 30); do logs_have $LIC 'mock licence server on' && return; sleep 1; done
   docker logs $LIC; echo "mock licence server did not start"; exit 1
 }
 
@@ -97,13 +101,13 @@ docker run --rm -v $VOL:/data -v "$WORK/client:/c:ro" -w /c -e KEY="$KEY" -e PLA
 start
 echo "== database and one-time v0.1 import"
 docker logs $NAME 2>&1 | grep -E '\[reelforge\] (database|imported|applying)' | sed 's/^/   /'
-docker logs $NAME 2>&1 | grep -q "database: ${DB/postgres/postgresql} " && echo "✔ server uses $DB" || { echo "✘ server is not on $DB"; docker logs $NAME; exit 1; }
+logs_have $NAME "database: ${DB/postgres/postgresql} " && echo "✔ server uses $DB" || { echo "✘ server is not on $DB"; docker logs $NAME; exit 1; }
 if [ "$DB" = sqlite ]; then docker exec $NAME test -s /data/reelforge.db && echo "✔ /data/reelforge.db exists"
 else docker exec $NAME test ! -e /data/reelforge.db && echo "✔ no SQLite file on the volume"; fi
 api() { curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT$1"; }
 [ "$(api /v1/projects/legacy-v01/versions)" = '{"versions":[1,2]}' ] && echo "✔ v0.1 project imported with both versions; the imported key works" || { echo "✘ v0.1 import"; api /v1/projects/legacy-v01/versions; exit 1; }
-api /v1/projects/legacy-v01 | grep -q '"Made by v0.1, edited"' && echo "✔ current manifest is version 2" || { echo "✘ v0.1 manifest"; exit 1; }
-api /v1/themes/legacy-theme | grep -q '"legacy-theme"' && echo "✔ v0.1 theme imported" || { echo "✘ v0.1 theme"; exit 1; }
+api /v1/projects/legacy-v01 | grep '"Made by v0.1, edited"' >/dev/null && echo "✔ current manifest is version 2" || { echo "✘ v0.1 manifest"; exit 1; }
+api /v1/themes/legacy-theme | grep '"legacy-theme"' >/dev/null && echo "✔ v0.1 theme imported" || { echo "✘ v0.1 theme"; exit 1; }
 echo "== licence: unlicensed, activate over MCP, render (mock licence server)"; PHASE=start client licence.mjs
 echo "== MCP journey (separate container)"; client journey.mjs
 echo "== ffprobe"; docker run --rm -v "$WORK/out:/o:ro" --entrypoint ffprobe "$IMAGE" -v error -count_frames \
@@ -117,18 +121,18 @@ mcp() { curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:$PORT/m
 echo "== licence: offline grace (licence server stopped)"
 docker stop $LIC >/dev/null
 PHASE=grace client licence.mjs
-docker logs $NAME 2>&1 | grep -q 'licence: licence server unreachable' && echo "✔ the grace warning is in the server log" || { echo "✘ no grace warning in the log"; docker logs $NAME 2>&1 | grep licence; exit 1; }
+logs_have $NAME 'licence: licence server unreachable' && echo "✔ the grace warning is in the server log" || { echo "✘ no grace warning in the log"; docker logs $NAME 2>&1 | grep licence; exit 1; }
 echo "== licence: revoked, limit_reached, deactivate (licence server back)"
 docker rm -f $LIC >/dev/null; licence_server
 PHASE=revoke client licence.mjs
 docker exec $NAME reelforge licence status > "$WORK/licence.txt" && grep -q '^status: *valid' "$WORK/licence.txt" && grep -q "key: *${KEY_C:0:5}-\*\*\*\*\*" "$WORK/licence.txt" \
   && echo "✔ reelforge licence status (CLI in the container): valid, key masked" || { echo "✘ reelforge licence status"; cat "$WORK/licence.txt"; exit 1; }
 sed 's/^/   /' "$WORK/licence.txt" | head -6
-for k in $KEY_A $KEY_B $KEY_C; do docker logs $NAME 2>&1 | grep -q "$k" && { echo "✘ the server log contains a licence key"; exit 1; }; done; echo "✔ no licence key in the server log"
+for k in $KEY_A $KEY_B $KEY_C; do logs_have $NAME "$k" && { echo "✘ the server log contains a licence key"; exit 1; }; done; echo "✔ no licence key in the server log"
 echo "== configuration over MCP (separate container)"
-docker logs $NAME 2>&1 | grep -q 'encrypted 1 stored secret(s) with REELFORGE_SECRET_KEY: ELEVENLABS_API_KEY' && echo "✔ v0.1 plaintext provider key encrypted once on start" || { echo "✘ plaintext provider key not encrypted"; docker logs $NAME; exit 1; }
-docker logs $NAME 2>&1 | grep -q 'config file: /config/reelforge.yaml' && echo "✔ config file read (REELFORGE_CONFIG)" || { echo "✘ config file not read"; exit 1; }
-docker logs $NAME 2>&1 | grep -q "$PLAIN_V01" && { echo "✘ the server log contains a secret"; exit 1; } || echo "✔ no secret in the server log"
+logs_have $NAME 'encrypted 1 stored secret(s) with REELFORGE_SECRET_KEY: ELEVENLABS_API_KEY' && echo "✔ v0.1 plaintext provider key encrypted once on start" || { echo "✘ plaintext provider key not encrypted"; docker logs $NAME; exit 1; }
+logs_have $NAME 'config file: /config/reelforge.yaml' && echo "✔ config file read (REELFORGE_CONFIG)" || { echo "✘ config file not read"; exit 1; }
+logs_have $NAME "$PLAIN_V01" && { echo "✘ the server log contains a secret"; exit 1; } || echo "✔ no secret in the server log"
 PHASE=before client config.mjs
 docker exec $NAME reelforge config check | sed 's/^/   /'
 docker exec $NAME reelforge config show > "$WORK/show.txt"
@@ -140,8 +144,8 @@ before=$(curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/v1/proj
 docker rm -f $NAME >/dev/null; start
 after=$(curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/v1/projects" | md5sum)
 [ "$before" = "$after" ] && echo "✔ projects survive a new container on the same volume" || { echo "✘ projects changed after restart"; exit 1; }
-docker logs $NAME 2>&1 | grep -q 'imported v0.1' && { echo "✘ v0.1 data imported a second time"; exit 1; } || echo "✔ no second import after the restart"
-docker logs $NAME 2>&1 | grep -q 'encrypted .* stored secret' && { echo "✘ secrets encrypted a second time"; exit 1; } || echo "✔ no second encryption pass after the restart"
+logs_have $NAME 'imported v0.1' && { echo "✘ v0.1 data imported a second time"; exit 1; } || echo "✔ no second import after the restart"
+logs_have $NAME 'encrypted .* stored secret' && { echo "✘ secrets encrypted a second time"; exit 1; } || echo "✔ no second encryption pass after the restart"
 echo "== configuration after the restart"; PHASE=after client config.mjs
 echo "== licence after the restart"; PHASE=restart client licence.mjs
 case "$DB" in
