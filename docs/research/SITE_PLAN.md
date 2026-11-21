@@ -521,7 +521,7 @@ The order follows BRIEF §4. Layout specifics:
 
 #### 1. Selling go-live path: own store in Staging, licence-key check, live-selling readiness. **Order 1 · M · deps: none · relates #2 #8**
 **Body:**
-- [ ] Move the test site to the production org's `development` environment (`fsyqdskf`): in the console (ReelForge → development) create a sign-in client with `https://reelforge-dev.buildbase.app` in its redirect URLs, a webhook → reelforge-dev.buildbase.app and an API key; then set the store's `deploy-test` values to `NEXT_PUBLIC_BUILDBASE_ORG_ID=6b01478bb42d2c444e99fcd8`, `NEXT_PUBLIC_BUILDBASE_ENVIRONMENT=fsyqdskf` and the new client id, client secret, webhook secret and API key.
+- [x] Move the test site to the production org's `development` environment (`fsyqdskf`): done 2026-11-21 in store commit 62e9ff3 (sign-in client, webhook, Stripe test keys, Worker secrets; `environmentId` in the routes that call the HTTP API).
 - [ ] In the dev environment (`fsyqdskf`) follow https://docs.buildbase.app/billing/selling#turn-it-on for the **own store** only: Stripe test keys saved, "Sell your own items" on, item type with "Your own store". Check whether Connect is really required (the docs say it isn't).
 - [ ] Create item "ReelForge" with variants Solo/Studio/Agency (founder sets prices; nothing hard-coded in code).
 - [ ] Set "Order page" = `https://reelforge-dev.buildbase.app/order` and connect an email sender, so receipts send.

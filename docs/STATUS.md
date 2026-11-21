@@ -46,8 +46,8 @@ Per-item status: `docs/AGENT_PLATFORM.md` §10.
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,
 signed webhooks stored in D1, hackathon tracker connected. Live:
 https://reelforge.buildbase.app. Test copy: https://reelforge-dev.buildbase.app
-(today still the ReelForge Test org, Stripe test keys; moving to the production
-org's `development` environment, see section 4). No buy flow yet (#2).
+(the ReelForge org's `development` environment `fsyqdskf` since 2026-11-21,
+Stripe test keys; D-030). No buy flow yet (#2).
 
 ### Docker E2E acceptance (2026-11-21, issue #16)
 
@@ -103,8 +103,8 @@ long-polls; tool descriptions say so. Found and documented: a
 | Old copy (unused) | Hackathon account `f12121a3…`: Worker `reelforge-store` + D1 `1a493bb6-…` on `reelforge-store.hackathon-f12.workers.dev`; delete after founder OK (#6) |
 | Deploys | GitHub Actions `deploy.yml` in the store repo (jobs `deploy` and `deploy-test`), secret `CLOUDFLARE_API_TOKEN` = scoped token `reelforge-github-deploy` |
 | BuildBase production org | `6b01478bb42d2c444e99fcd8` "ReelForge": client `XUlR38I2…`, webhook → reelforge.buildbase.app, **live** Stripe keys, selling draft, no products, no email sender |
-| BuildBase test org (being retired) | `6b016b04b42d2c444e9a13b9` "ReelForge Test": client `pHi25sbUqT87HM55lYklaoMhDnHeJxvVeLZyC8o6`, webhook → reelforge-dev.buildbase.app, Stripe **test** keys + Stripe→BuildBase endpoint (36 events); selling blocked on Stripe Connect. Still what the test site uses until the switch below |
-| BuildBase dev environment | `development` (`fsyqdskf`) of the production org `6b01478bb42d2c444e99fcd8`. **Works since 2026-11-21**, and all end-to-end testing happens here (D-030): the 503 "This environment is not available right now" (saas-os/os#2737) was the platform's `dev` plan never being published; BuildBase published it. Replaces the test org. Empty today: needs a sign-in client, webhook → reelforge-dev.buildbase.app, Stripe test keys and an email sender, then the store's `deploy-test` switches (`NEXT_PUBLIC_BUILDBASE_ORG_ID=6b01478bb42d2c444e99fcd8`, `NEXT_PUBLIC_BUILDBASE_ENVIRONMENT=fsyqdskf`, the new client id and secret) |
+| BuildBase test org (retired) | `6b016b04b42d2c444e9a13b9` "ReelForge Test": client `pHi25sbUqT87HM55lYklaoMhDnHeJxvVeLZyC8o6`, webhook → reelforge-dev.buildbase.app, Stripe **test** keys + Stripe→BuildBase endpoint (36 events); selling blocked on Stripe Connect. Not used since 2026-11-21 (D-030); deleting it is the founder's call (#21) |
+| BuildBase dev environment | `development` (`fsyqdskf`) of the production org `6b01478bb42d2c444e99fcd8`. **Works since 2026-11-21**, and all end-to-end testing happens here (D-030): the 503 "This environment is not available right now" (saas-os/os#2737) was the platform's `dev` plan never being published; BuildBase published it. The test site uses it since store commit 62e9ff3: its own sign-in client (`gqLbQtws…`), webhook → reelforge-dev.buildbase.app, Stripe **test** keys, Worker secrets set; server routes send `<orgId>-fsyqdskf`. Enterprise SSO and Directory Sync are available (the `dev` plan, up to 10 companies; own WorkOS account) |
 | Hackathon | Ship or Die tracker on every page; "Connected" |
 
 Admin credentials are held outside the repos; several were exposed in chat and
@@ -153,7 +153,7 @@ used for tests.
 | A2 MCP: create/edit/theme/render/output | **done and accepted in Docker (2026-11-21, #16)**: SDK-client journey from a separate container, and headless **Claude Code** made an 18 s, 4-engine reel over MCP only (12 turns, 2 `get_job` long-polls, 112 s, ≈ $0.32). Codex/Cursor untested (#33) | #9, #16 |
 | A3 engines: Remotion, Motion Canvas, HTML, HyperFrames | done (4 of 4, one MP4 in the e2e test) | #9 |
 | A4 Docker image + deploy docs | done for Docker/compose (built, healthy, offline render); cloud recipes untested | #9 |
-| B1 selling configured in the dev environment (`fsyqdskf`) | to do: set up selling in the dev environment (own store, Stripe test keys); was blocked on Stripe Connect in the test org | #8 |
+| B1 selling configured in the dev environment (`fsyqdskf`) | Stripe test keys saved in the dev environment (store 62e9ff3); own-store selling setup still to do (was blocked on Stripe Connect in the test org) | #8 |
 | B2 buy flow, order page, licences page | code done and deployed; purchase untested (after B1) | #2 |
 | B3 legal/trust pages | drafts live with placeholders; must move to the locked-image model (D-015) | #3 |
 | B4 demo leftovers removed | done | #1 |
