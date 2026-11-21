@@ -199,12 +199,14 @@ DB=postgres CLAUDE=1 RELEASE_IMAGE=reelforge-studio:release e2e/docker/run.sh   
 | Tier | When | What |
 | --- | --- | --- |
 | FAST | every push to any branch | typecheck, unit tests of every package, the SQLite server tests incl. the MCP and REST end-to-end journeys with real engines |
-| HEAVY | pull request to `main`, push to `main`, `v*` tags, nightly (03:23 UTC), manual (`workflow_dispatch`) | PostgreSQL/MySQL contract tests and server e2e, the spike render, the release image per architecture (amd64 + arm64, native runners): contents/size, secrets, Trivy (fixable HIGH/CRITICAL fail), CycloneDX SBOM, Docker e2e with the hardened flags (amd64 on three databases) |
+| HEAVY | pull request to `main`, merge queue (`merge_group`), push to `main`, `v*` tags, nightly (03:23 UTC), manual (`workflow_dispatch`) | PostgreSQL/MySQL contract tests and server e2e, the spike render, the release image per architecture (amd64 + arm64, native runners): contents/size, secrets, Trivy (fixable HIGH/CRITICAL fail), CycloneDX SBOM, Docker e2e with the hardened flags (amd64 on three databases) |
 | publish | push to `main` and `v*` tags only | multi-arch image on ghcr.io, cosign keyless signature, SBOM attestation |
 
-Docs-only changes (`docs/**`, `**/*.md`, `research/**`) run nothing; a change
-to the config schema or `docs/CONFIG.md` runs the small `config-docs.yml`
-check. A newer push cancels the older run of the same ref; every job has a
+Docs-only changes (`docs/**`, `**/*.md`, `research/**`) skip the jobs (pushes
+through `paths-ignore`, pull requests through the `changes` job); the `required`
+job aggregates the rest and always reports, so it can be a required check
+(#62). A change to the config schema or `docs/CONFIG.md` runs the small
+`config-docs.yml` check. A newer push cancels the older run of the same ref; every job has a
 timeout. On a branch, run the heavy checks you touched locally (the commands
 above) before asking for a PR; push at milestones, not every commit.
 

@@ -3,12 +3,14 @@ name: CI
 # What runs when (AGENTS.md "What CI runs when", D-043):
 #   FAST  - every push to any branch: typecheck, unit tests, the SQLite server
 #           tests with the MCP and REST end-to-end journeys (real engines).
-#   HEAVY - pull requests to main, pushes to main, v* tags, the nightly schedule
-#           and manual runs: PostgreSQL/MySQL, the spike render, the release
+#   HEAVY - pull requests to main, the merge queue, pushes to main, v* tags, the
+#           nightly schedule and manual runs: PostgreSQL/MySQL, the spike render, the release
 #           image (contents, secrets, Trivy, SBOM, Docker e2e on three databases
 #           with the hardened flags, amd64 + arm64), and on main/tags the
 #           signed multi-arch image on ghcr.io.
-# Docs-only changes run nothing here; docs/CONFIG.md drift has its own cheap
+# Docs-only changes skip the jobs (pushes: paths-ignore; pull requests and the
+# merge queue: the `changes` job), and `required` (the check branch protection
+# requires, #62) always reports. docs/CONFIG.md drift has its own cheap
 # workflow (config-docs.yml).
 on:
   push:
@@ -17,7 +19,7 @@ on:
     paths-ignore: ['docs/**', '**/*.md', 'research/**']
   pull_request:
     branches: [main]
-    paths-ignore: ['docs/**', '**/*.md', 'research/**']
+  merge_group:
   schedule:
     - cron: '23 3 * * *'
   workflow_dispatch:
@@ -31,11 +33,37 @@ permissions:
   contents: read
 
 env:
-  HEAVY: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+  HEAVY: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
+  changes:
+    # Does this change touch more than docs? Pull requests and the merge queue
+    # compare with their base; every other event counts as a code change (pushes
+    # that only touch docs never start this workflow).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          if [ -z "$BASE" ]; then echo "code=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          files=$(git diff --name-only "$BASE"...HEAD)
+          echo "$files"
+          n=$(echo "$files" | grep -Evc '^(docs/|research/)|\.md$' || true)
+          if [ "${n:-0}" -gt 0 ]; then code=true; else code=false; fi
+          echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+
   # ---------------------------------------------------------------- FAST tier
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -92,7 +120,8 @@ jobs:
   database:
     # Repository contract tests and the server end-to-end suite (MCP + REST journeys,
     # real engines) against PostgreSQL and MySQL. SQLite runs in the test job above.
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -166,7 +195,8 @@ jobs:
     # licence server baked in; the published image differs in one layer, compared by
     # run.sh). amd64 runs the e2e on SQLite, PostgreSQL and MySQL; arm64 on SQLite.
     # On main and v* tags the release image is pushed by digest for `publish`.
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -320,3 +350,15 @@ jobs:
           cosign sign --yes "$REF"
           cosign attest --yes --type cyclonedx --predicate sbom-amd64.cdx.json "$REF"
           echo "signed $REF" >> "$GITHUB_STEP_SUMMARY"
+
+  required:
+    # The one CI check branch protection requires (#62): green when every job
+    # above succeeded or was skipped (tier or docs-only), so it always reports.
+    name: required
+    if: always()
+    needs: [changes, test, database, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - run: echo '${{ toJSON(needs) }}' | jq -e 'all(.[]; .result == "success" or .result == "skipped")'

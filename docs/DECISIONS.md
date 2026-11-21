@@ -778,7 +778,10 @@ databases; arm64: SQLite). On main and `v*` tags only, `publish` merges the
 per-arch digests into one manifest on `ghcr.io/buildbase-app/reelforge-studio`,
 signs it with cosign keyless (GitHub OIDC) and attaches the SBOM attestation;
 branches never push or sign. `concurrency` cancels superseded runs,
-docs-only changes skip CI (`docs/CONFIG.md` drift has its own small workflow),
+docs-only changes skip the jobs (pushes: `paths-ignore`; pull requests and the
+merge queue, `merge_group`: a `changes` job), and the `required` job aggregates
+every job (success or skipped) so branch protection can require it (#62);
+`docs/CONFIG.md` drift has its own small workflow;
 every job has `timeout-minutes`, and pnpm, Chrome, the buildx layers (GHA
 cache) and the Trivy DB are cached. Not verified here: arm64, publish and
 cosign run only on GitHub. Distribution of the image to buyers (pull access by

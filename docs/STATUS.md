@@ -155,6 +155,31 @@ slot. **ALL DOCKER E2E CHECKS PASSED** for `DB=sqlite` and `DB=postgres` on
 2026-11-21 (image built from this branch). Beyond-grace and clock cases are
 covered by server tests with an injected clock (`apps/server/test/licence.test.ts`).
 
+### Release image and Docker E2E on it (2026-11-21, issue #26)
+
+The Dockerfile's default target is the **release image** (D-039..D-043):
+multi-stage, base pinned by digest, production dependencies only, Remotion and
+Motion Canvas bundles pre-built, no package managers, UID:GID 10001, tini,
+healthcheck; the licence settings (`required`, BuildBase production server and
+organisation) are fixed by the build (source `build`). The code stays
+readable (source-available, LICENSING.md); nothing is minified.
+
+| Check | Result |
+| --- | --- |
+| Size | 2.50 GB → **1.85 GB** uncompressed (compressed content 642 → 519 MB; `node_modules` 665 → 274 MB); budget 2000 MB |
+| `scripts/image/check-contents.sh` | pass: no repo docs/tests/tooling, source maps, build-only deps, musl builds or package managers; licence files, bundles, Chrome, tini present |
+| `scripts/image/check-secrets.sh` (with the build's CA bundle) | pass: nothing in `docker history`, the image config or the files; none of the 14 build-only CA certificates in a layer |
+| Trivy 0.76.2, fixable HIGH/CRITICAL | **0** (previous image: 71, in the bundled npm/pnpm/corepack and esbuild 0.21.5) |
+| CycloneDX SBOM | 591 components (CycloneDX 1.7) |
+| Docker e2e, release edition, hardened flags (`--read-only`, tmpfs `/tmp`, `--cap-drop ALL`, no-new-privileges, seccomp `deployment/seccomp/chrome.json`) | **ALL DOCKER E2E CHECKS PASSED** on SQLite (103 checks) and PostgreSQL (105): everything above (#16, #23, #24, #25) plus: no capabilities, NoNewPrivs, read-only root, Chromium's sandbox active for html/hyperframes/motion-canvas (renderers in a nested PID namespace; Remotion forces `--no-sandbox`), the image refuses to start with `licence.mode: off`, another server URL or org id (env or config file), `update_config` answers `build_locked_setting`, the published image shows the production settings with source `build` and shares 14 of 15 layers with the tested one |
+| Headless Claude Code against the release image, MCP only, `--max-turns 40` | pass: 13 turns, 138 s, ≈ $0.35; an 18.0 s reel (Remotion hook + html tips, Midnight theme with its own accent), ffprobe: H.264 1080×1920, 30 fps, 540 frames + AAC, duration 18.000 s |
+| amd64 / arm64 | amd64 built and tested here; arm64 only in CI (native arm64 runner), not run here |
+
+Found and fixed: HyperFrames refuses to render with less than 1 GB free in its
+temp directory, which a 1 GB tmpfs `/tmp` is not (its temp files now go to
+`/data`); `docker logs | grep -q` under `pipefail` made the Docker e2e flaky
+(9b287c5, CI run 44916484714).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |
@@ -213,7 +238,7 @@ used for tests.
 | A1 one-command server + keys | done (`pnpm dev` / `docker compose up`; bootstrap key env/_FILE or CLI) | #9 |
 | A2 MCP: create/edit/theme/render/output | **done and accepted in Docker (2026-11-21, #16)**: SDK-client journey from a separate container, and headless **Claude Code** made an 18 s, 4-engine reel over MCP only (12 turns, 2 `get_job` long-polls, 112 s, ≈ $0.32). Codex/Cursor untested (#33) | #9, #16 |
 | A3 engines: Remotion, Motion Canvas, HTML, HyperFrames | done (4 of 4, one MP4 in the e2e test) | #9 |
-| A4 Docker image + deploy docs | done for Docker/compose (built, healthy, offline render); cloud recipes untested | #9 |
+| A4 Docker image + deploy docs | done for Docker/compose: hardened release image (#26), e2e on it; Kubernetes `securityContext` documented, untested; cloud recipes untested | #9, #26 |
 | B1 selling configured in the dev environment (`fsyqdskf`) | Stripe test keys saved in the dev environment (store 62e9ff3); own-store selling setup still to do (was blocked on Stripe Connect in the test org) | #8 |
 | B2 buy flow, order page, licences page | code done and deployed; purchase untested (after B1) | #2 |
 | B3 legal/trust pages | drafts live with placeholders; must move to the locked-image model (D-015) | #3 |
@@ -243,6 +268,7 @@ used for tests.
 | 23 | studio | Database layer: repository interfaces + Prisma (done on the branch; see §3) |
 | 24 | studio | Configuration system: defaults < file < env < API/MCP runtime settings (done on the branch; see §3) |
 | 25 | studio | Licence activation: BuildBase licence API, daily validate, 14-day offline grace (done on the branch; see §3; follow-ups in D-038) |
+| 26 | studio | Release image, hardening, supply chain, e2e on the final image (done on the branch except the registry/distribution plan; see §3, D-039..D-043) |
 
 Upstream issues filed for BuildBase gaps met along the way: saas-os/os#2737–#2742,
 saas-os/sdk#389, comment on saas-os/os#2735, buildbase-app/nextjs-starter#18.
