@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { ApiError, notFound } from './errors';
 import { KeyedMutex, newId, readJson, writeJsonAtomic } from './fsutil';
@@ -57,14 +58,31 @@ export class KeyStore {
     this.file = resolve(dataDir, 'keys.json');
   }
 
+  private cacheMtime = -1;
+
+  /** Reads keys.json, reloading when another process (the CLI) changed it. */
   private async load(): Promise<ApiKeyRecord[]> {
-    if (!this.cache) this.cache = (await readJson<ApiKeyRecord[]>(this.file)) ?? [];
+    let mtime = 0;
+    try {
+      mtime = (await stat(this.file)).mtimeMs;
+    } catch {
+      mtime = 0;
+    }
+    if (!this.cache || mtime !== this.cacheMtime) {
+      this.cache = (await readJson<ApiKeyRecord[]>(this.file)) ?? [];
+      this.cacheMtime = mtime;
+    }
     return this.cache;
   }
 
   private async save(keys: ApiKeyRecord[]) {
     this.cache = keys;
     await writeJsonAtomic(this.file, keys);
+    try {
+      this.cacheMtime = (await stat(this.file)).mtimeMs;
+    } catch {
+      this.cacheMtime = -1;
+    }
   }
 
   async list(): Promise<PublicKey[]> {

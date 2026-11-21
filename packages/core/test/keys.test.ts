@@ -42,6 +42,13 @@ describe('KeyStore', () => {
     await expect(keys.create('', ['read'])).rejects.toMatchObject({ code: 'bad_request' });
   });
 
+  it('sees keys created by another process (the CLI) without a restart', async () => {
+    const other = new KeyStore(dir);
+    await keys.list(); // warm this instance's cache
+    const { key } = await other.create('from-cli', ['read']);
+    expect((await keys.verify(key))?.name).toBe('from-cli');
+  });
+
   it('deletes keys so they stop working', async () => {
     const { key, record } = await keys.create('temp', ['read']);
     await keys.delete(record.id);

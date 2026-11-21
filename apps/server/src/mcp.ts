@@ -353,6 +353,165 @@ export const TOOLS: ToolDef[] = [
       return [{ type: 'image', data: (await readFile(path)).toString('base64'), mimeType: 'image/png' }];
     },
   },
+  {
+    name: 'list_renders',
+    title: 'List renders of a project',
+    description: 'Lists finished renders and previews of a project, newest first, with output URLs, size, fps, frames and duration.',
+    scope: 'read',
+    input: { projectId },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => ({ renders: await service.listRenders(a.projectId) }),
+  },
+  {
+    name: 'list_jobs',
+    title: 'List jobs',
+    description: 'Lists render and preview jobs (newest first), optionally only those of one project.',
+    scope: 'read',
+    input: { projectId: projectId.optional() },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => ({ jobs: service.listJobs({ projectId: a.projectId }) }),
+  },
+  {
+    name: 'retry_job',
+    title: 'Retry a failed or cancelled job',
+    description: 'Starts a new job with the same parameters as a failed or cancelled one (same project version). Earlier outputs are never overwritten.',
+    scope: 'render',
+    input: { jobId: z.string() },
+    run: async (a, { service }) => ({ job: service.retryJob(a.jobId) }),
+  },
+  {
+    name: 'list_project_versions',
+    title: 'List saved versions of a project',
+    description: 'Every update saves a new version. Returns the version numbers; read one with get_project { version }.',
+    scope: 'read',
+    input: { projectId },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => ({ versions: await service.listProjectVersions(a.projectId) }),
+  },
+  {
+    name: 'delete_project',
+    title: 'Delete a project',
+    description: 'Deletes a project with all its versions and renders. Cannot be undone; confirm with the user first.',
+    scope: 'write',
+    input: { projectId },
+    annotations: { destructiveHint: true },
+    run: async (a, { service }) => {
+      await service.deleteProject(a.projectId);
+      return { deleted: a.projectId };
+    },
+  },
+  {
+    name: 'get_theme',
+    title: 'Get a theme',
+    description: 'Returns one theme with its tokens.',
+    scope: 'read',
+    input: { themeId: z.string() },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => service.getTheme(a.themeId),
+  },
+  {
+    name: 'update_theme',
+    title: 'Replace a custom theme',
+    description: 'Replaces a custom theme (built-in themes cannot be changed). Same fields as create_theme.',
+    scope: 'write',
+    input: { themeId: z.string(), name: z.string(), description: z.string().optional(), tokens: z.record(z.string(), z.unknown()) },
+    annotations: { idempotentHint: true },
+    run: async (a, { service }) => service.putTheme(a.themeId, { name: a.name, description: a.description, tokens: a.tokens }),
+  },
+  {
+    name: 'delete_theme',
+    title: 'Delete a custom theme',
+    description: 'Deletes a custom theme. Projects that use it fail validation until they pick another theme.',
+    scope: 'write',
+    input: { themeId: z.string() },
+    annotations: { destructiveHint: true },
+    run: async (a, { service }) => {
+      await service.deleteTheme(a.themeId);
+      return { deleted: a.themeId };
+    },
+  },
+  {
+    name: 'upload_asset',
+    title: 'Upload an asset (base64)',
+    description:
+      'Uploads a small file you already have (image, audio, video, font) as base64, for example generated audio. The type is checked from the bytes. With projectId it is added to the project as assetId. MCP messages are limited to a few MB; for larger files use REST POST /v1/assets (multipart) or add_asset_from_url.',
+    scope: 'write',
+    input: {
+      dataBase64: z.string().min(1).describe('File content, base64.'),
+      filename: z.string().optional(),
+      projectId: projectId.optional(),
+      assetId: z.string().optional(),
+      license: licenseObj,
+    },
+    run: async (a, { service }) =>
+      service.uploadAsset(Buffer.from(a.dataBase64, 'base64'), { filename: a.filename, projectId: a.projectId, assetId: a.assetId, license: a.license }),
+  },
+  {
+    name: 'get_asset',
+    title: 'Get an asset',
+    description: 'Metadata of an asset in the store: content type, media type, size, sha256, source, licence, provider metadata (e.g. TTS word timestamps).',
+    scope: 'read',
+    input: { assetId: z.string().describe('Store id, e.g. "ast-0123456789abcdef".') },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => service.getAsset(a.assetId),
+  },
+  {
+    name: 'list_providers',
+    title: 'List media providers',
+    description: 'Media providers (TTS, ...) installed on this server, whether the operator configured them, and their cost notes.',
+    scope: 'read',
+    input: {},
+    annotations: { readOnlyHint: true },
+    run: async (_a, { service }) => ({ providers: service.capabilities().providers }),
+  },
+  {
+    name: 'run_provider',
+    title: 'Run a media provider',
+    description:
+      'Runs any configured provider with its own parameters (see list_providers) and stores the result as an asset. May cost the operator money: without acknowledgeCost you get the cost note; ask the user first. For voice-overs generate_voice is simpler.',
+    scope: 'render',
+    input: {
+      providerId: z.string(),
+      params: z.record(z.string(), z.unknown()),
+      projectId: projectId.optional(),
+      assetId: z.string().optional(),
+      attachAs: z.enum(['voice', 'none']).optional(),
+      acknowledgeCost: z.boolean().optional(),
+    },
+    annotations: { openWorldHint: true },
+    run: async (a, { service }) =>
+      service.runProvider(a.providerId, a.params, { projectId: a.projectId, assetId: a.assetId, attachAs: a.attachAs, acknowledgeCost: a.acknowledgeCost }),
+  },
+  {
+    name: 'list_keys',
+    title: 'List API keys (admin)',
+    description: 'Lists API keys (id, name, scopes, prefix, created/last used). Never returns secrets. Needs the admin scope.',
+    scope: 'admin',
+    input: {},
+    annotations: { readOnlyHint: true },
+    run: async (_a, { service }) => ({ keys: await service.listKeys() }),
+  },
+  {
+    name: 'create_key',
+    title: 'Create an API key (admin)',
+    description: 'Creates an API key with the given scopes (read, write, render, admin). The key is returned once. Needs the admin scope.',
+    scope: 'admin',
+    input: { name: z.string(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).min(1) },
+    run: async (a, { service }) => ({ ...(await service.createKey(a.name, a.scopes)), note: 'store this key now; it is not shown again' }),
+  },
+  {
+    name: 'delete_key',
+    title: 'Delete an API key (admin)',
+    description: 'Deletes an API key; it stops working immediately. You cannot delete the key you are using. Needs the admin scope.',
+    scope: 'admin',
+    input: { keyId: z.string() },
+    annotations: { destructiveHint: true },
+    run: async (a, { service, auth }) => {
+      if (a.keyId === auth.keyId) throw new ApiError('conflict', 409, 'refusing to delete the key used for this request');
+      await service.deleteKey(a.keyId);
+      return { deleted: a.keyId };
+    },
+  },
 ];
 
 const DELIVERY_CHECKLIST = [
