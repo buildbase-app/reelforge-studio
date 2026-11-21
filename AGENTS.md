@@ -272,3 +272,42 @@ above) before asking for a PR; push at milestones, not every commit.
   (`packages/core/src/backends/remotion-lambda.ts`).
 - **Storage:** implement `StorageDriver` (`packages/core/src/storage.ts` has
   the local one). Only local storage is wired in v0.1.
+
+## Design and UI/UX rules (mandatory for any visual change)
+
+ReelForge must never look AI-generated. Every agent that changes a page, a
+component, a style, a reel template or a theme follows these rules, and so does
+every human.
+
+1. **Run the unslop skill.** It lives in this repository at
+   [`.claude/skills/unslop/`](.claude/skills/unslop/SKILL.md) (Claude Code picks
+   it up as `/unslop`; Codex reads it from `.agents/skills/unslop`, `$unslop`;
+   any other agent: read `SKILL.md` and its `references/` and follow the same
+   steps). Audit first against `references/signs.md`, write the direction, then
+   fix in its pass order (spacing, color, icons, copy, type, layout, details,
+   visuals, motion). Put the audit list and before/after screenshots (mobile
+   390 px and desktop 1440 px) in the pull request. unslop is by Damir
+   Sokolovsky ([@heydamir](https://x.com/heydamir)), CC BY 4.0; keep the credit.
+2. **Simple, attractive color.** Tinted neutrals for the chrome, one accent
+   color, and one bright element per screen (a real reel, a rendered object, a
+   chart). No purple-to-blue gradients, glows, gradient text, glossy blobs,
+   emoji labels, "New ✨" badges, uppercase tracked micro-labels or pulsing dots.
+   Text meets WCAG AA contrast in light and dark themes.
+3. **Motion that follows the scroll.** Parallax and reveal effects are driven by
+   the scroll position: CSS scroll-driven animations (`animation-timeline:
+   view()` / `scroll()`) first, an IntersectionObserver fallback where needed.
+   Animate only `transform` and `opacity`; no layout shift; no scroll-jacking or
+   scroll snapping of the whole page; keep it at 60 fps on a mid-range phone.
+   Use parallax sparingly (the hero visual and at most one more moment per page)
+   so it reads as depth, not noise. Everything turns off under
+   `prefers-reduced-motion: reduce`.
+4. **Real product, real material.** Show real reels rendered by the studio, real
+   tool calls and real numbers with a source. Never fabricate testimonials,
+   logos, user counts or metrics; never use stock images you cannot license.
+5. **Budgets.** Marketing pages: ≤ 150 KB first-load JS (gzip), LCP ≤ 2.0 s,
+   CLS ≤ 0.05, Lighthouse mobile ≥ 90 for performance, accessibility, best
+   practices and SEO. Report the numbers you measured in the PR.
+6. **Reel templates and themes** (studio) follow the same rules: one idea per
+   scene, deliberate type scale and easing, the theme's palette rather than
+   default gradients, readable captions in the safe area, and a contact-sheet
+   review before a template ships.
