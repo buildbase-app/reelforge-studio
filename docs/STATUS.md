@@ -33,8 +33,9 @@ theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
 decode checks, signed download links, provider configuration over the API,
 ElevenLabs TTS (mocked tests only), remotion-lambda skeleton, Docker image +
 compose. 184 tests pass locally with `REELFORGE_REQUIRE_BROWSER=1`, including
-MCP and REST journeys against a real server process. Per-item status:
-`docs/AGENT_PLATFORM.md` §10.
+MCP and REST journeys against a real server process. GitHub CI green on 9f62297 (run 44901451314: tests with
+`REELFORGE_REQUIRE_BROWSER=1` incl. MCP/REST e2e, spike, Docker build + smoke).
+Per-item status: `docs/AGENT_PLATFORM.md` §10.
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,
