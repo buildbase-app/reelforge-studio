@@ -20,7 +20,10 @@
     "start": "tsx apps/server/src/main.ts",
     "keys:create": "tsx apps/server/src/cli.ts keys create",
     "reelforge": "tsx apps/server/src/cli.ts",
-    "docs:config": "tsx scripts/config-docs.ts"
+    "docs:config": "tsx scripts/config-docs.ts",
+    "tutorials:prove": "tsx scripts/tutorials/prove.ts",
+    "tutorials:docs": "tsx scripts/tutorials/docs.ts",
+    "tutorials:test": "vitest run --dir scripts/tutorials"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -35,7 +38,8 @@
     "@reelforge/server": "workspace:*",
     "@reelforge/engine-html": "workspace:*",
     "@reelforge/engine-hyperframes": "workspace:*",
-    "@reelforge/db": "workspace:*"
+    "@reelforge/db": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.2"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

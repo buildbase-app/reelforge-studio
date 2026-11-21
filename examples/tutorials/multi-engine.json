@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "0.2",
+  "projectId": "tut-multi-engine",
+  "title": "Tutorial: four engines, one reel",
+  "output": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "format": "mp4"
+  },
+  "theme": "midnight",
+  "scenes": [
+    {
+      "id": "hook",
+      "engine": "remotion",
+      "template": "kinetic-title",
+      "durationSeconds": 2,
+      "props": {
+        "headline": "Four engines, one reel"
+      }
+    },
+    {
+      "id": "steps",
+      "engine": "motion-canvas",
+      "template": "animated-explainer",
+      "durationSeconds": 3,
+      "props": {
+        "title": "How it works",
+        "points": [
+          "Plan the scenes",
+          "Pick an engine per scene"
+        ]
+      }
+    },
+    {
+      "id": "card",
+      "engine": "html",
+      "template": "html-title",
+      "durationSeconds": 2,
+      "props": {
+        "kicker": "HTML",
+        "headline": "Cut to an HTML card"
+      }
+    },
+    {
+      "id": "outro",
+      "engine": "hyperframes",
+      "template": "hyperframes-title",
+      "durationSeconds": 2,
+      "props": {
+        "headline": "Ends on HyperFrames",
+        "subline": "Rendered and joined to the frame"
+      }
+    }
+  ]
+}
