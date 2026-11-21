@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chrome Headless Shell
+        run: |
+          pnpm --filter @reelforge/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
+          BIN=$(find ~/.cache/ms-playwright -type f -name chrome-headless-shell -perm -u+x | head -n 1)
+          test -n "$BIN"
+          echo "REELFORGE_CHROMIUM_PATH=$BIN" >> "$GITHUB_ENV"
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: End-to-end spike (Remotion + Motion Canvas -> MP4)
+        run: pnpm spike
+
+      - name: Upload sample render
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-reel
+          path: |
+            out/sample-reel/final.mp4
+            out/sample-reel/render-manifest.json
+            out/sample-reel/review/
+          if-no-files-found: warn

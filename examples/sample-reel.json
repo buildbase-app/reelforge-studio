@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "0.1",
+  "projectId": "sample-reel",
+  "title": "ReelForge sample reel",
+  "output": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "format": "mp4"
+  },
+  "audio": {
+    "musicTrack": null,
+    "voiceTrack": null
+  },
+  "assets": [],
+  "scenes": [
+    {
+      "id": "hook",
+      "engine": "remotion",
+      "template": "kinetic-title",
+      "durationFrames": 90,
+      "props": {
+        "headline": "Make Reels on your own machine",
+        "subline": "Two engines. One timeline.",
+        "accent": "#ff3d71",
+        "background": "#0b0b14"
+      }
+    },
+    {
+      "id": "how-it-works",
+      "engine": "motion-canvas",
+      "template": "animated-explainer",
+      "durationFrames": 120,
+      "props": {
+        "title": "How it works",
+        "points": ["Write or import a plan", "Approve the storyboard", "Render locally"],
+        "accent": "#00d1b2",
+        "background": "#0b0b14"
+      }
+    }
+  ]
+}

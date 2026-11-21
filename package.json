@@ -1,0 +1,35 @@
+{
+  "name": "reelforge-studio",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "ReelForge: self-hosted, AI-assisted short-form video studio (Remotion + Motion Canvas).",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r --filter './packages/*' run build",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "spike": "tsx scripts/spike.ts",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0",
+    "@reelforge/project-schema": "workspace:*",
+    "@reelforge/media-pipeline": "workspace:*",
+    "@reelforge/engine-motion-canvas": "workspace:*",
+    "@reelforge/engine-remotion": "workspace:*"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "@remotion/compositor-linux-x64-gnu"
+    ]
+  }
+}

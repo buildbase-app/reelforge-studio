@@ -1,0 +1,14 @@
+node_modules/
+dist/
+out/
+.turbo/
+*.log
+.DS_Store
+# Render work directories and outputs
+data/
+.render-cache/
+# Secrets and provider auth caches: never commit
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
