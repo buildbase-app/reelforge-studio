@@ -4,6 +4,38 @@ You are building **ReelForge**, a self-hosted, AI-assisted video
 production application. This file is the shared agent contract. Read it
 before editing code.
 
+## Contribution rules for AI agents (mandatory, every task)
+
+These rules are enforced by the required `pr-policy` check and branch
+protection on `main`. A pull request that breaks them cannot be merged. They
+apply to this project's own agents and to anyone else's. Full rules:
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+1. **Work from an issue.** Every task has a GitHub issue; link it in the PR
+   (`Closes #N` or `Refs #N`). No issue? Ask for one, or open it first with the
+   *Task* form.
+2. **Branch:** never commit to `main`. Use `claude/<short-description>` (or your
+   tool's prefix: `codex/`, `copilot/`, `cursor/`, `devin/`, `agent/`), or the
+   branch your operator assigned.
+3. **Pull request:** target `main`; open it as a **draft**; title is a
+   Conventional Commit (`fix(render): …`); fill every template section; tick only
+   checklist items that are true; under *AI assistance* tick "AI-generated" or
+   "AI-assisted", give `Tool:` and `model:`, and say what was checked on
+   `Human checked:` (write "Not yet checked by a human" if nobody has).
+4. **Before marking a PR ready:** run the project's checks locally (`pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test`)
+   and report the real result. Never claim a test, build or manual check you did
+   not run.
+5. **Never** delete, skip or weaken tests to go green; never commit secrets,
+   keys, `.env` files or personal data; never force-push to a shared branch.
+6. **Stay out of maintainer-only files** unless the task explicitly says so:
+   `LICENSE*`, `NOTICE`, `*LICENSE*.md`, `TRADEMARK.md`, `CONTRIBUTING.md`,
+   `AGENTS.md`, `CLAUDE.md`, `.github/`, and licence-enforcement code.
+7. **Never merge or approve** a pull request, and never change repository
+   settings, branch protection or rulesets. A human merges.
+8. **Keep PRs small** (about 500 changed lines, generated files excluded) and to
+   one purpose; split larger work into several PRs on the same issue.
+9. **Commit attribution:** keep your tool's `Co-Authored-By:` trailer.
+
 ## 1. Read the product documents
 
 Before implementation, read: - `docs/PRODUCT_BRIEF.md` -

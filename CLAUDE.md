@@ -13,3 +13,11 @@ Quick checks before you report:
 export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test
 ```
+
+## Contribution rules (mandatory)
+
+Before any change, follow "Contribution rules for AI agents" in [AGENTS.md](AGENTS.md):
+work from an issue, never commit to `main`, open a draft PR with a Conventional
+Commit title and the filled template (including AI assistance), run the checks,
+stay out of maintainer-only files, and never merge or approve. PRs that break
+these rules fail the required `pr-policy` check.

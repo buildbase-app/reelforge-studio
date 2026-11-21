@@ -1,0 +1,21 @@
+# Dependency updates. Grouped so they arrive as a few PRs a week, not dozens.
+# Dependabot PRs follow the PR policy (branch dependabot/…, title "build(deps): …").
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly, day: monday, time: '05:00' }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: 'build', prefix-development: 'build', include: scope }
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: ['dependencies']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday, time: '05:00' }
+    commit-message: { prefix: 'ci' }
+    groups:
+      actions:
+        patterns: ['*']
+    labels: ['dependencies']

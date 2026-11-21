@@ -1,0 +1,20 @@
+name: Task (maintainers and AI agents)
+description: A planned piece of work with acceptance criteria. Used by maintainers and their AI agents.
+title: '[area] '
+labels: ['status: backlog']
+body:
+  - type: textarea
+    id: goal
+    attributes: { label: Goal, description: 'One or two sentences: the outcome, not the steps.' }
+    validations: { required: true }
+  - type: textarea
+    id: tasks
+    attributes: { label: Tasks, description: 'Checkboxes, small enough to verify one by one.', value: "- [ ] \n- [ ] " }
+    validations: { required: true }
+  - type: textarea
+    id: done
+    attributes: { label: Done when, description: 'Acceptance criteria that can be checked (commands, outputs, screenshots).' }
+    validations: { required: true }
+  - type: textarea
+    id: notes
+    attributes: { label: Notes, description: 'Dependencies, risks, links, decisions (DECISIONS.md numbers).' }

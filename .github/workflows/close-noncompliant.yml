@@ -1,0 +1,33 @@
+name: close-noncompliant-prs
+
+# Pull requests that keep failing the PR policy are marked stale after 7 days
+# and closed 7 days later, with a comment saying why. Issues are not touched.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/stale@v9
+        with:
+          only-pr-labels: 'policy: needs-changes'
+          days-before-issue-stale: -1
+          days-before-issue-close: -1
+          days-before-pr-stale: 7
+          days-before-pr-close: 7
+          stale-pr-label: 'stale'
+          stale-pr-message: >
+            This pull request still fails the PR policy (see the `pr-policy` comment).
+            It will be closed in 7 days unless it is updated to follow CONTRIBUTING.md.
+          close-pr-message: >
+            Closed because it did not follow the contribution rules for 14 days
+            (CONTRIBUTING.md, "Pull requests"). You are welcome to open a new pull
+            request that follows them.
