@@ -233,7 +233,7 @@ function fakeOutput(root: string): string {
     frames: 120,
     fps: 30,
     renderSeconds: 12.3,
-    hardware: { cpu: 'CPU', cores: 4, ramGb: 16, os: 'Linux' },
+    hardware: { cpu: 'Example CPU', cores: 4, ramGb: 16, os: 'Linux' },
     studioVersion: '0.1.0',
     engineVersions: { remotion: '4.0.545' },
     renderedAt: '2026-11-21T10:00:00.000Z',
@@ -355,11 +355,13 @@ describe('publish to the BuildBase Collection (fake API)', () => {
     expect(bb.state.log.every((l) => l.startsWith('GET'))).toBe(true);
   });
 
-  it('diffs records field by field', () => {
+  it('diffs records field by field', async () => {
     expect(diffRecord({ a: 1, tags: ['x', 'y'], renderedAt: '2026-11-21T10:00:00Z' }, { a: 1, tags: ['y', 'x'], renderedAt: '2026-11-21T10:00:00.000Z' })).toEqual({});
     expect(diffRecord({ a: 1 }, { a: 2, b: '' })).toEqual({ a: 2 });
     const meta = JSON.parse(readFileSync(join(fakeOutput(join(dir, 'pub3')), 'unit-reel', 'meta.json'), 'utf8'));
-    expect(recordData(meta, undefined, undefined, 10, 'hidden')).toMatchObject({ mp4Path: '', status: 'hidden', order: 10, hardware: 'CPU, 4 cores, 16 GB RAM, Linux' });
+    expect(recordData(meta, undefined, undefined, 10, 'hidden')).toMatchObject({ mp4Path: '', status: 'hidden', order: 10, hardware: 'Example, 4 cores, 16 GB RAM' });
+    const { hardwareLabel } = await import('../src/publish');
+    expect(hardwareLabel({ cpu: 'Intel(R) Xeon(R) Processor @ 2.10GHz', cores: 4, ramGb: 16, os: 'Linux 6' })).toBe('Intel Xeon @ 2.10GHz, 4 cores, 16 GB RAM');
   });
 
   it('refuses a live version without the gallery fields', async () => {
@@ -404,5 +406,14 @@ describe('upload to R2 (fake Cloudflare API)', () => {
     const again = await uploadAll(out, { examplesDir: join(root, 'examples'), log: () => undefined, fetch: f, account: 'acc', token: 't' });
     expect(again).toMatchObject({ uploaded: 0, skipped: 7 });
     buckets = [];
+  });
+});
+
+describe('local media server', () => {
+  it('maps bucket paths to the web folder and refuses anything else', async () => {
+    const { resolveMediaPath } = await import('../src/serve');
+    expect(resolveMediaPath('/w', '/gallery/a-b/x.123.mp4')).toBe('/w/a-b/x.123.mp4');
+    expect(resolveMediaPath('/w', '/gallery/a/../../etc/passwd')).toBeNull();
+    expect(resolveMediaPath('/w', '/etc/passwd')).toBeNull();
   });
 });

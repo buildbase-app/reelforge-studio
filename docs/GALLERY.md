@@ -149,8 +149,8 @@ records the last run.
 
 ## Transcode
 
-720×1280, no audio: H.264 High (`-preset slow`, CRF from 23 up in steps of 2
-until it fits), `+faststart`, keyframe every 2 s; VP9 WebM (CRF from 34); AVIF
+720×1280, no audio: H.264 High (`-preset slow`, CRF from 20 up in steps of 2
+until it fits), `+faststart`, keyframe every 2 s; VP9 WebM (CRF from 31); AVIF
 and JPEG posters at 720×1280 and 360×640. Budgets (§B.6): 800 KB for a reel up
 to 15 s, scaled with length above that (at most 1.2 MB), 1.5 MB for featured
 reels. Each name carries the first 12 hex digits of its sha256:
@@ -171,7 +171,8 @@ can be re-run. `<out>/web/urls.json` has every public URL under
 `REELFORGE_GALLERY_MEDIA_URL` (default `https://media.reelforge.buildbase.app`,
 the planned custom domain on the bucket).
 
-Status 2026-11-21: R2 is not enabled on the Cloudflare account yet (API error
+Behind an HTTPS proxy, run Node with `NODE_USE_ENV_PROXY=1` so `fetch` uses
+it. Status 2026-11-21: R2 is not enabled on the Cloudflare account yet (API error
 10042, "enable R2 through the Cloudflare Dashboard"). The upload waits on that
 founder action, then the custom domain `media.reelforge.buildbase.app` on the
 bucket.

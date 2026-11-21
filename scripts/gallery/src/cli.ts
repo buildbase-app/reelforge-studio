@@ -9,6 +9,8 @@
  *   pnpm gallery transcode [slug...]   web MP4 + VP9 WebM + AVIF/JPEG posters, hashed names
  *   pnpm gallery upload [--dry-run]    upload web files to R2 (immutable cache headers)
  *   pnpm gallery publish [--dry-run]   upsert BuildBase Collection records
+ *   pnpm gallery report                examples/gallery/QUALITY.md from the last run
+ *   pnpm gallery serve [--port 8787]   serve <out>/web locally for a store preview
  *
  * Common flags: --out <dir> (default $REELFORGE_GALLERY_OUT or ./gallery-out,
  * outside git), --concurrency N (default 2), --server URL --key-file F (use a
@@ -34,7 +36,7 @@ const { values: flags, positionals } = parseArgs({
     'dry-run': { type: 'boolean', default: false },
     'base-url': { type: 'string' },
     bucket: { type: 'string' },
-    'drop-file': { type: 'string' },
+    port: { type: 'string', default: '8787' },
   },
 });
 
@@ -120,6 +122,20 @@ async function main() {
     case 'publish': {
       const { publishAll } = await import('./publish');
       await publishAll(OUT, { dryRun: flags['dry-run'], baseUrl: flags['base-url'] });
+      return;
+    }
+    case 'report': {
+      const { writeReport } = await import('./report');
+      const file = join(EXAMPLES, 'QUALITY.md');
+      writeReport(OUT, readEntries(EXAMPLES), file);
+      console.log(`gallery report: ${file}`);
+      return;
+    }
+    case 'serve': {
+      const { serveMedia } = await import('./serve');
+      const port = Number(flags.port) || 8787;
+      await serveMedia(join(OUT, 'web'), port);
+      console.log(`gallery serve: http://127.0.0.1:${port}/gallery/<slug>/<file> from ${join(OUT, 'web')} (Ctrl-C to stop)`);
       return;
     }
     case 'clean': {

@@ -1,7 +1,7 @@
 /**
  * `pnpm gallery transcode`: web versions of every reel that passed the gate.
  *
- *   <slug>.<hash>.mp4    H.264 High, 720x1280, no audio, +faststart (CRF raised until it fits the budget)
+ *   <slug>.<hash>.mp4    H.264 High, 720x1280, no audio, +faststart (CRF 20, raised until it fits the budget)
  *   <slug>.<hash>.webm   VP9, 720x1280, no audio (same budget)
  *   poster.<hash>.avif / .jpg        720x1280
  *   poster-360.<hash>.avif / .jpg    360x640 for grid cards
@@ -83,7 +83,7 @@ export async function transcodeOne(outDir: string, entry: GalleryEntry): Promise
   const mp4Crf = await encodeUnderBudget(
     (crf) => ['-i', src, '-vf', scale, '-an', '-c:v', 'libx264', '-profile:v', 'high', '-preset', 'slow', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-g', '60'],
     mp4Tmp,
-    23,
+    20,
     2,
     35,
     budget
@@ -92,7 +92,7 @@ export async function transcodeOne(outDir: string, entry: GalleryEntry): Promise
   const webmCrf = await encodeUnderBudget(
     (crf) => ['-i', src, '-vf', scale, '-an', '-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0', '-row-mt', '1', '-deadline', 'good', '-cpu-used', '3', '-g', '60'],
     webmTmp,
-    34,
+    31,
     3,
     48,
     budget

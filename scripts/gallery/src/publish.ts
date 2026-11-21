@@ -111,12 +111,21 @@ export interface GalleryRecordData {
   status: 'published' | 'hidden';
 }
 
+/** "Intel Xeon @ 2.10GHz, 4 cores, 16 GB RAM": readable, without trademark marks or kernel versions. */
+export function hardwareLabel(h: Meta['hardware']): string {
+  const cpu = h.cpu
+    .replace(/\((R|TM)\)/gi, '')
+    .replace(/\b(CPU|Processor)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `${cpu}, ${h.cores} cores, ${h.ramGb} GB RAM`;
+}
+
 /** One record's data from a reel's meta and media entry. */
 export function recordData(meta: Meta, media: MediaEntry | undefined, manifestPath: string | undefined, order: number, status: 'published' | 'hidden'): GalleryRecordData {
   const engineVersions = Object.entries(meta.engineVersions ?? {})
     .map(([k, v]) => `${k} ${v}`)
     .join('; ');
-  const h = meta.hardware;
   return {
     title: meta.title,
     slug: meta.slug,
@@ -129,7 +138,7 @@ export function recordData(meta: Meta, media: MediaEntry | undefined, manifestPa
     frames: meta.frames,
     fps: meta.fps,
     renderSeconds: meta.renderSeconds,
-    hardware: `${h.cpu}, ${h.cores} cores, ${h.ramGb} GB RAM, ${h.os}`,
+    hardware: hardwareLabel(meta.hardware),
     studioVersion: meta.studioVersion,
     engineVersions: engineVersions.slice(0, 400),
     renderedAt: meta.renderedAt,
