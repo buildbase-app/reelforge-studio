@@ -26,6 +26,9 @@ importers:
       '@reelforge/engine-remotion':
         specifier: workspace:*
         version: link:packages/engine-remotion
+      '@reelforge/gallery':
+        specifier: workspace:*
+        version: link:scripts/gallery
       '@reelforge/media-pipeline':
         specifier: workspace:*
         version: link:packages/media-pipeline
@@ -290,6 +293,30 @@ importers:
 
   packages/project-schema:
     dependencies:
+      zod:
+        specifier: ^4.1.0
+        version: 4.6.7
+
+  scripts/gallery:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 1.32.2
+        version: 1.32.2(zod@4.6.7)
+      '@reelforge/engine-html':
+        specifier: workspace:*
+        version: link:../../packages/engine-html
+      '@reelforge/engine-hyperframes':
+        specifier: workspace:*
+        version: link:../../packages/engine-hyperframes
+      '@reelforge/media-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/media-pipeline
+      '@reelforge/project-schema':
+        specifier: workspace:*
+        version: link:../../packages/project-schema
+      playwright-core:
+        specifier: ^1.57.0
+        version: 1.65.1
       zod:
         specifier: ^4.1.0
         version: 4.6.7
