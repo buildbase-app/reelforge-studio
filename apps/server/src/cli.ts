@@ -13,12 +13,15 @@
  *   reelforge licence status [--json] [--check]   licence status (exit 2 when renders are refused)
  *   reelforge licence activate [KEY] [--json]     store the key (encrypted) and activate it now
  *   reelforge licence deactivate [--json]         give this server's activation back
+ *   reelforge storage status [--json]             driver, health, usage, retention
+ *   reelforge storage migrate --to <driver> [--from local] [--dry-run]   copy assets and renders (idempotent)
+ *   reelforge storage cleanup [--dry-run] [--json]   apply the retention policy now
  *
  * Uses DATABASE_URL (default: SQLite in REELFORGE_DATA_DIR, ./data) like the
  * server. The key is printed once.
  */
 import { existsSync } from 'node:fs';
-import { ConfigError, KeyStore, RuntimeConfig, SCOPES, createLicenceManager, formatIssue, type ConfigReport, type LicenceReport, type Scope } from '@reelforge/core';
+import { ConfigError, KeyStore, RuntimeConfig, SCOPES, STORAGE_DRIVERS, StorageManager, createLicenceManager, createStorageDriver, formatIssue, migrateStorage, type ConfigReport, type LicenceReport, type Scope, type StorageDriverId } from '@reelforge/core';
 import { Database, parseDatabaseUrl, prepareDatabase } from '@reelforge/db';
 import { resolve } from 'node:path';
 import { loadConfig, type ServerConfig } from './config';
@@ -41,7 +44,92 @@ const USAGE = `usage:
   reelforge config show [--json] [--offline]
   reelforge licence status [--json] [--check]
   reelforge licence activate [KEY] [--json]   (KEY also from REELFORGE_LICENCE_KEY_INPUT; omit to re-activate the configured key)
-  reelforge licence deactivate [--json]`;
+  reelforge licence deactivate [--json]
+  reelforge storage status [--json]
+  reelforge storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]
+  reelforge storage cleanup [--dry-run] [--json]`;
+
+/**
+ * \`reelforge storage ...\` (D-069): works on the configuration (file, env and
+ * the database's runtime settings, so encrypted credentials are used) without
+ * a running server.
+ */
+async function storage(cmd: string | undefined, argv: string[], config: ServerConfig): Promise<void> {
+  if (!['status', 'migrate', 'cleanup'].includes(cmd ?? '')) {
+    console.log(USAGE);
+    process.exitCode = 1;
+    return;
+  }
+  const json = argv.includes('--json');
+  const dryRun = argv.includes('--dry-run');
+  const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds });
+  try {
+    const repos = db.repositories();
+    const settings = new RuntimeConfig(repos, config.sources);
+    await settings.load();
+    const cacheDir = config.cacheDir ?? `${config.dataDir}/cache`;
+    if (cmd === 'migrate') {
+      const to = arg('to', argv) as StorageDriverId | undefined;
+      const fromId = (arg('from', argv) ?? 'local') as StorageDriverId;
+      if (!to || !STORAGE_DRIVERS.includes(to) || !STORAGE_DRIVERS.includes(fromId) || to === fromId) {
+        console.error(`usage: reelforge storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]  (--to and --from must differ)`);
+        process.exitCode = 1;
+        return;
+      }
+      const storageCfg = settings.config.storage;
+      const from = await createStorageDriver(storageCfg, { dataDir: config.dataDir, driver: fromId });
+      const target = await createStorageDriver(storageCfg, { dataDir: config.dataDir, driver: to });
+      const health = await target.health();
+      if (!health.ok) {
+        console.error(`the target storage is not usable: ${health.message}`);
+        process.exitCode = 1;
+        return;
+      }
+      console.log(`${dryRun ? 'dry run: ' : ''}copying assets and renders from ${fromId} to ${to} ${JSON.stringify(target.describe())}`);
+      const r = await migrateStorage(from, target, { dryRun, log: (l) => console.log(l) });
+      await repos.audit.write({ actorType: 'cli', action: 'storage.migrate', targetType: 'storage', targetId: to, data: { from: fromId, dryRun, copied: r.copied, skipped: r.skipped, failed: r.failed.length } });
+      if (json) console.log(JSON.stringify(r, null, 2));
+      else {
+        console.log(`${dryRun ? 'would copy' : 'copied'}: ${r.copied.objects} objects (${r.copied.bytes} bytes); already there: ${r.skipped.objects} (${r.skipped.bytes} bytes); failed: ${r.failed.length}`);
+        for (const f of r.failed.slice(0, 20)) console.log(`  ✘ ${f.key}: ${f.error}`);
+        if (!dryRun && !r.failed.length && settings.config.storage.driver !== to) console.log(`next: set storage.driver to "${to}" (REELFORGE_STORAGE_DRIVER=${to}) and restart; run this command again first if renders were made meanwhile`);
+      }
+      if (r.failed.length) process.exitCode = 1;
+      return;
+    }
+    const manager = new StorageManager({ factory: createStorageDriver, settings, dataDir: config.dataDir, cacheDir, activeRunIds: async () => {
+      const ids = new Set<string>();
+      for (const status of ['queued', 'running'] as const) for (const j of await repos.jobs.list({ status })) {
+        const runId = (j.params as { runId?: unknown } | undefined)?.runId;
+        if (typeof runId === 'string') ids.add(runId);
+      }
+      return ids;
+    } });
+    await manager.init();
+    if (cmd === 'status') {
+      const st = await manager.status();
+      if (json) console.log(JSON.stringify(st, null, 2));
+      else {
+        console.log(`driver:     ${st.driver}  ${JSON.stringify(st.location)}`);
+        console.log(`health:     ${st.health.ok ? 'ok' : `NOT OK: ${st.health.message}`}`);
+        if (st.usage) console.log(`usage:      assets ${st.usage.assets.objects} (${st.usage.assets.bytes} B), renders ${st.usage.renders.count} (${st.usage.renders.bytes} B), unfinished ${st.usage.temp.objects} objects`);
+        console.log(`retention:  ${JSON.stringify(st.retention)}`);
+      }
+      if (!st.health.ok) process.exitCode = 2;
+      return;
+    }
+    const r = await manager.cleanup({ dryRun });
+    if (!dryRun) await repos.audit.write({ actorType: 'cli', action: 'storage.cleanup', targetType: 'storage', targetId: manager.driver.id, data: { policy: r.policy, totals: r.totals } });
+    if (json) console.log(JSON.stringify(r, null, 2));
+    else {
+      console.log(`${dryRun ? 'would delete' : 'deleted'}: ${r.totals.renders} render(s), ${r.temp.length} unfinished upload(s), ${r.staging.length} staging dir(s), ${r.cache.files} cached file(s); ${r.totals.bytes + r.cache.bytes} bytes`);
+      for (const x of r.renders) console.log(`  ${x.projectId}/${x.renderId}  ${x.createdAt}  ${x.bytes} B  (${x.reason})`);
+    }
+    if (r.errors.length) process.exitCode = 1;
+  } finally {
+    await db.close();
+  }
+}
 
 function printLicence(r: LicenceReport, json: boolean) {
   if (json) {
@@ -196,6 +284,7 @@ async function main(argv: string[]) {
   if (group === 'config' && cmd === 'show') return configShow(rest, config);
   const log = (line: string) => console.log(line);
   if (group === 'licence' || group === 'license') return licence(cmd, rest, config);
+  if (group === 'storage') return storage(cmd, rest, config);
 
   if (group === 'migrate' && argv.includes('--status')) {
     const db = await Database.open({ url: config.databaseUrl });

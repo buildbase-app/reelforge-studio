@@ -26,6 +26,8 @@
 #   RELEASE_IMAGE=reelforge-studio:release e2e/docker/run.sh   # also check the published release image:
 #                                     # production licence settings fixed, same layers as the tested image but one
 #   E2E_PREFIX=obs PORT=4331 e2e/docker/run.sh   # other container/network/volume names and host port (parallel runs)
+#   STORAGE=s3 e2e/docker/run.sh      # issue #27: then migrate to a MinIO container, restart on storage.driver s3,
+#                                     # render -> MinIO -> signed download -> ffprobe, retention, readyz (storage.mjs)
 #
 # Issue #64 (observability): JSON logs, GET /metrics checked with promtool and scraped by an OpenTelemetry
 # Collector container ("otel", OTEL_IMAGE), OTLP traces/logs/metrics selected at runtime over MCP and
@@ -45,6 +47,8 @@ EDITION=${EDITION:-release}
 HARDENED=${HARDENED:-1}
 P=${E2E_PREFIX:-rf-e2e}
 NET=$P-net VOL=$P-data NAME=$P-server PORT=${PORT:-4321} PROJECT=$P
+STORAGE=${STORAGE:-local} STORAGE_DRIVER=local MINIO=$P-minio MINIO_IMAGE=${MINIO_IMAGE:-mirror.gcr.io/minio/minio}
+case "$STORAGE" in local|s3) ;; *) echo "STORAGE must be local or s3"; exit 2 ;; esac
 # Licence (#25): a mock of the BuildBase licence API in its own container; the server only knows its URL.
 LIC=$P-licence LIC_ORG=6b01478bb42d2c444e99fcd8-mocklice
 # Observability (#64): an OpenTelemetry Collector and promtool (Prometheus image).
@@ -57,7 +61,7 @@ case "$EDITION" in release|dev) ;; *) echo "EDITION must be release or dev"; exi
 [ "$DB" = sqlite ] || NET=${PROJECT}_default
 WORK=$(mktemp -d); chmod 755 "$WORK"
 cleanup() {
-  docker rm -f $NAME $LIC $OTEL >/dev/null 2>&1 || true
+  docker rm -f $NAME $LIC $OTEL $MINIO $P-nobucket >/dev/null 2>&1 || true
   [ "$DB" = sqlite ] && { docker network rm $NET >/dev/null 2>&1 || true; } || docker compose -p $PROJECT --profile "$DB" down -v >/dev/null 2>&1 || true
   docker volume rm $VOL >/dev/null 2>&1 || true; rm -rf "$WORK"
 }
@@ -87,6 +91,8 @@ KEY=rf_$(openssl rand -hex 24)
 PLAIN_V01=sk_v01_plaintext_$(openssl rand -hex 8)
 mkdir -p "$WORK/secret" "$WORK/out" "$WORK/client" "$WORK/config" "$WORK/mock" "$WORK/otel"
 printf %s "$KEY" > "$WORK/secret/key"
+S3_ID=e2e$(openssl rand -hex 6) S3_SECRET=$(openssl rand -hex 20) S3_BUCKET=reelforge-e2e
+printf %s "$S3_ID" > "$WORK/secret/s3id"; printf %s "$S3_SECRET" > "$WORK/secret/s3secret"
 openssl rand -base64 32 > "$WORK/secret/secretkey"
 # The config file (REELFORGE_CONFIG): one source of settings; env and runtime settings override it.
 printf 'limits:\n  maxJsonBytes: 4194304\nlogging:\n  level: info\n' > "$WORK/config/reelforge.yaml"; chmod 644 "$WORK/config/reelforge.yaml"
@@ -97,21 +103,25 @@ case "$DB" in
   *) : > "$WORK/secret/dburl" ;;
 esac
 # The server runs as UID 10001: a *_FILE secret must be readable by it.
-for f in key dburl secretkey; do chown 10001 "$WORK/secret/$f" 2>/dev/null || chmod 644 "$WORK/secret/$f"; done
+for f in key dburl secretkey s3id s3secret; do [ -e "$WORK/secret/$f" ] || continue; chown 10001 "$WORK/secret/$f" 2>/dev/null || chmod 644 "$WORK/secret/$f"; done
 chmod 777 "$WORK/out" "$WORK/otel"
 cp e2e/otel/collector.yaml "$WORK/config/collector.yaml"; chmod 644 "$WORK/config/collector.yaml"
 cp e2e/docker/*.mjs examples/sample-reel.json "$WORK/client/"
 cp e2e/mock-licence/server.mjs "$WORK/mock/"; chmod -R a+rX "$WORK/mock"
-(cd "$WORK/client" && npm init -y >/dev/null && npm i -q --no-audit --no-fund @modelcontextprotocol/sdk@1.32.2 >/dev/null)
+(cd "$WORK/client" && npm init -y >/dev/null && npm i -q --no-audit --no-fund @modelcontextprotocol/sdk@1.32.2 $([ "$STORAGE" = s3 ] && echo @aws-sdk/client-s3@3.1164.0) >/dev/null)
 
 start() {
   # The database is chosen by DATABASE_URL alone (here its _FILE variant, so the password stays out of `docker inspect`).
   local dbenv=(); [ "$DB" = sqlite ] || dbenv=(-v "$WORK/secret/dburl:/run/secrets/dburl:ro" -e DATABASE_URL_FILE=/run/secrets/dburl)
+  # STORAGE=s3: the MinIO settings are always there (for `reelforge storage migrate`); storage.driver picks the driver.
+  local s3env=(); [ "$STORAGE" = s3 ] && s3env=(-e REELFORGE_STORAGE_DRIVER=$STORAGE_DRIVER -e REELFORGE_S3_ENDPOINT=http://minio:9000 -e REELFORGE_S3_BUCKET=${S3_BUCKET_OVERRIDE:-$S3_BUCKET}
+    -e REELFORGE_S3_FORCE_PATH_STYLE=true -v "$WORK/secret/s3id:/run/secrets/s3id:ro" -e REELFORGE_S3_ACCESS_KEY_ID_FILE=/run/secrets/s3id
+    -v "$WORK/secret/s3secret:/run/secrets/s3secret:ro" -e REELFORGE_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3secret)
   docker run -d --name $NAME --network $NET --network-alias reelforge -p 127.0.0.1:$PORT:4321 --shm-size=1g "${HARD[@]}" \
     -v $VOL:/data -v "$WORK/secret/key:/run/secrets/key:ro" -e REELFORGE_BOOTSTRAP_KEY_FILE=/run/secrets/key "${dbenv[@]}" \
     -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secretkey \
     -v "$WORK/config/reelforge.yaml:/config/reelforge.yaml:ro" -e REELFORGE_CONFIG=/config/reelforge.yaml \
-    "${LIC_ENV[@]}" \
+    "${LIC_ENV[@]}" "${s3env[@]}" \
     -e REELFORGE_ALLOWED_HOSTS=reelforge,reelforge:4321 "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && return; sleep 2; done
   docker logs $NAME; echo "server did not become healthy"; exit 1
@@ -135,6 +145,19 @@ else
 fi
 docker volume create $VOL >/dev/null
 echo "== mock licence server (container \"licence\")"; licence_server
+if [ "$STORAGE" = s3 ]; then
+  echo "== MinIO (container \"minio\")"
+  if ! docker image inspect "$MINIO_IMAGE" >/dev/null 2>&1 && ! docker pull -q "$MINIO_IMAGE" >/dev/null 2>&1; then
+    echo "   $MINIO_IMAGE cannot be pulled (MinIO stopped publishing images in 2025): building MinIO from its official source"
+    MINIO_IMAGE=$(e2e/minio/build-image.sh)
+  fi
+  docker run -d --name $MINIO --network $NET --network-alias minio -e MINIO_ROOT_USER="$S3_ID" -e MINIO_ROOT_PASSWORD="$S3_SECRET" "$MINIO_IMAGE" server /data >/dev/null
+  for _ in $(seq 1 30); do docker run --rm --network $NET "$CLIENT_IMAGE" node -e "fetch('http://minio:9000/minio/health/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" && break; sleep 1; done
+  docker run --rm --network $NET -v "$WORK/client:/c:ro" -w /c -e S3_ID="$S3_ID" -e S3_SECRET="$S3_SECRET" "$CLIENT_IMAGE" node --input-type=module -e "
+    import { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3';
+    await new S3Client({ endpoint: 'http://minio:9000', region: 'us-east-1', forcePathStyle: true, credentials: { accessKeyId: process.env.S3_ID, secretAccessKey: process.env.S3_SECRET } }).send(new CreateBucketCommand({ Bucket: '$S3_BUCKET' }));
+    console.log('✔ bucket $S3_BUCKET created ($MINIO_IMAGE)');"
+fi
 echo "== seed a v0.1 data directory"
 docker run --rm -v $VOL:/data -v "$WORK/client:/c:ro" -w /c -e KEY="$KEY" -e PLAIN_V01="$PLAIN_V01" -e SAMPLE=sample-reel.json "$CLIENT_IMAGE" \
   sh -c 'node seed-v01.mjs && chown -R 10001:10001 /data'
@@ -264,6 +287,44 @@ if [ "$rows" != skip ]; then
     && ! echo "$rows" | grep -q "$PLAIN_V01\|LIC-E2E" && echo "✔ secrets are AES-256-GCM ciphertext in $DB; the runtime rate limit is a row" || { echo "✘ unexpected settings rows in $DB"; echo "$rows" | cut -c1-60; exit 1; }
 fi
 
+if [ "$STORAGE" = s3 ]; then
+  echo "== storage: migrate local files to MinIO (reelforge storage migrate, twice: idempotent)"
+  docker exec $NAME reelforge storage migrate --to s3 | tee "$WORK/migrate1.txt" | sed 's/^/   /'
+  grep -Eq '^copied: [1-9][0-9]* objects' "$WORK/migrate1.txt" && echo "✔ STO-33 first run copied the local assets and renders" || { echo "✘ migrate copied nothing"; exit 1; }
+  docker exec $NAME reelforge storage migrate --to s3 | tee "$WORK/migrate2.txt" | sed 's/^/   /'
+  grep -Eq '^copied: 0 objects .*already there: [1-9]' "$WORK/migrate2.txt" && echo "✔ STO-33 second run copied nothing (idempotent)" || { echo "✘ migrate is not idempotent"; exit 1; }
+  echo "== storage: restart on storage.driver s3"
+  docker rm -f $NAME >/dev/null; STORAGE_DRIVER=s3; start
+  logs_have $NAME '\[reelforge\] storage: s3 ' && echo "✔ the server uses the s3 driver" || { echo "✘ not on s3"; docker logs $NAME | tail; exit 1; }
+  curl -s "http://127.0.0.1:$PORT/readyz" | grep -q '"storage":"ok"' && echo "✔ /readyz: storage ok" || { echo "✘ /readyz storage"; curl -s "http://127.0.0.1:$PORT/readyz"; exit 1; }
+  docker run --rm --network $NET -v "$WORK/client:/c:ro" -v "$WORK/out:/out" -w /c -e URL=http://reelforge:4321/mcp -e KEY="$KEY" -e SAMPLE=sample-reel.json \
+    -e S3_ENDPOINT=http://minio:9000 -e S3_ID="$S3_ID" -e S3_SECRET="$S3_SECRET" -e S3_BUCKET="$S3_BUCKET" "$CLIENT_IMAGE" node storage.mjs
+  echo "== ffprobe (render stored in MinIO, downloaded through the signed URL)"
+  docker run --rm -v "$WORK/out:/o:ro" --entrypoint ffprobe "$IMAGE" -v error -count_frames \
+    -show_entries stream=codec_name,width,height,r_frame_rate,nb_read_frames:format=duration -of compact /o/storage-e2e.mp4 | tee "$WORK/probe.txt" | sed 's/^/   /'
+  grep -q 'codec_name=h264|width=1080|height=1920' "$WORK/probe.txt" && echo "✔ STO-31 decodable 1080x1920 H.264" || { echo "✘ ffprobe"; exit 1; }
+  run=$(cat "$WORK/out/storage-render.txt")
+  code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/v1/renders/$run/output" -r 0-99)
+  echo "   GET /v1/renders/$run/output (Range 0-99, deleted by retention) -> $code"
+  [ "$code" = 404 ] && echo "✔ STO-34 the render deleted by retention is gone from the API too" || { echo "✘ deleted render still served ($code)"; exit 1; }
+  latest=$(curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/v1/projects/storage-e2e/renders" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).renders[0].renderId))')
+  hdr=$(curl -s -D - -o /dev/null -H "Authorization: Bearer $KEY" -r 0-99 "http://127.0.0.1:$PORT/v1/renders/$latest/output")
+  echo "$hdr" | grep -q '^HTTP/1.1 206' && echo "$hdr" | grep -qi '^content-range: bytes 0-99/' && echo "✔ STO-32 REST output streamed from MinIO through the server with Range (206)" || { echo "✘ Range through the server"; echo "$hdr"; exit 1; }
+  docker exec $NAME reelforge storage cleanup --dry-run | sed 's/^/   /'
+  docker exec $NAME reelforge storage status > "$WORK/storage-status.txt" && grep -q '^health: *ok' "$WORK/storage-status.txt" && echo "✔ reelforge storage status (CLI in the container): s3, health ok" || { echo "✘ storage status"; cat "$WORK/storage-status.txt"; exit 1; }
+  logs_have $NAME "$S3_SECRET" && { echo "✘ the server log contains the storage secret"; exit 1; } || echo "✔ STO-24 no storage secret in the server log"
+  echo "== storage: a missing bucket is reported by /readyz"
+  NAME_SAVE=$NAME; NAME=$P-nobucket; S3_BUCKET_OVERRIDE=missing-bucket-$P
+  docker run -d --name $NAME --network $NET "${HARD[@]}" --tmpfs /data:rw,uid=10001,gid=10001 -e REELFORGE_STORAGE_DRIVER=s3 -e REELFORGE_S3_ENDPOINT=http://minio:9000 \
+    -e REELFORGE_S3_BUCKET=$S3_BUCKET_OVERRIDE -e REELFORGE_S3_FORCE_PATH_STYLE=true -e REELFORGE_S3_ACCESS_KEY_ID_FILE=/run/secrets/s3id -e REELFORGE_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3secret \
+    -v "$WORK/secret/s3id:/run/secrets/s3id:ro" -v "$WORK/secret/s3secret:/run/secrets/s3secret:ro" "${LIC_ENV[@]}" "$IMAGE" >/dev/null
+  for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && break; sleep 2; done
+  ready=$(docker exec $NAME node -e "fetch('http://127.0.0.1:4321/readyz').then(async r=>console.log(r.status, await r.text()))")
+  echo "   $ready" | cut -c1-240
+  echo "$ready" | grep -q '^503 .*"storage":"unavailable (s3): bucket \\"missing-bucket' && echo "✔ STO-25 /readyz is 503 with a clear storage message" || { echo "✘ /readyz did not report the missing bucket"; exit 1; }
+  docker rm -f $NAME >/dev/null; NAME=$NAME_SAVE; unset S3_BUCKET_OVERRIDE
+fi
+
 if [ -n "${RELEASE_IMAGE:-}" ]; then
   echo "== the published release image ($RELEASE_IMAGE)"
   [ "$(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$RELEASE_IMAGE")" = release ] && echo "✔ $RELEASE_IMAGE is a release build" || { echo "✘ $RELEASE_IMAGE is not a release build"; exit 1; }
@@ -304,4 +365,4 @@ PY
   docker exec $NAME ffprobe -v error -count_frames -show_entries stream=codec_name,width,height,r_frame_rate,nb_read_frames:format=duration -of compact "$file" | sed 's/^/   /'
   docker exec $NAME ffprobe -v error -show_entries stream=width,height -of csv=p=0 "$file" | head -1 | grep -qx '1080,1920' && echo "✔ the agent's reel is a decodable 1080×1920 MP4" || { echo "✘ the agent's render is not 1080×1920"; exit 1; }
 fi
-echo "ALL DOCKER E2E CHECKS PASSED (DB=$DB, EDITION=$EDITION, HARDENED=$HARDENED)"
+echo "ALL DOCKER E2E CHECKS PASSED (DB=$DB, EDITION=$EDITION, HARDENED=$HARDENED, STORAGE=$STORAGE)"

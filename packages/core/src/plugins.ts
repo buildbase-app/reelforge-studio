@@ -184,16 +184,51 @@ export interface RenderBackend {
   cancel(jobId: string): Promise<void>;
 }
 
-/** Byte storage for assets and outputs. */
+/** One stored object, as listed by a storage driver. Keys are relative to the driver's root/prefix. */
+export interface StorageObject {
+  key: string;
+  bytes: number;
+  /** ISO time of the last write. */
+  modifiedAt: string;
+}
+
+export interface StoragePutOptions {
+  contentType?: string;
+}
+
+/** Inclusive byte range, as in an HTTP Range header. */
+export interface ByteRange {
+  start: number;
+  end: number;
+}
+
+/**
+ * Byte storage for assets and render outputs (docs/DECISIONS.md D-065).
+ * Keys are safe relative paths with forward slashes, the same layout on every
+ * driver: `assets/<assetId>/file.<ext>` and
+ * `projects/<projectId>/renders/<runId>/<file>`. Prefixes passed to `list`
+ * end with "/" (or are "" for everything).
+ */
 export interface StorageDriver {
+  /** local | s3 | azure | gcs */
   id: string;
-  put(key: string, data: Buffer): Promise<{ bytes: number }>;
-  get(key: string): Promise<Readable>;
-  stat(key: string): Promise<{ bytes: number } | null>;
-  list(prefix: string): Promise<string[]>;
+  /** Where the bytes go, for get_storage (bucket, endpoint, prefix, credential source). Never secrets. */
+  describe(): Record<string, unknown>;
+  put(key: string, data: Buffer, opts?: StoragePutOptions): Promise<{ bytes: number }>;
+  /** Upload a local file (streamed). */
+  putFile(key: string, file: string, opts?: StoragePutOptions): Promise<{ bytes: number }>;
+  /** The object's bytes, or the inclusive `range` of them. Rejects when the key does not exist. */
+  get(key: string, range?: ByteRange): Promise<Readable>;
+  stat(key: string): Promise<{ bytes: number; modifiedAt: string } | null>;
+  list(prefix: string): Promise<StorageObject[]>;
+  /** Copy inside the store (server-side where the backend can). Overwrites `to`. */
+  copy(from: string, to: string): Promise<void>;
+  /** Delete one object; deleting a missing key is not an error. */
   delete(key: string): Promise<void>;
-  /** A time-limited URL for remote storage; null for local storage (serve through the API). */
-  signedUrl(key: string, ttlSeconds: number): Promise<string | null>;
-  /** Local path for drivers that keep files on disk (engines need files). */
+  /** A time-limited, read-only URL from the bucket itself; null when the driver cannot sign (local storage: serve through the API). */
+  signedUrl(key: string, ttlSeconds: number, opts?: { filename?: string; contentType?: string }): Promise<string | null>;
+  /** Local path for drivers that keep files on disk (engines need files); null for remote storage. */
   localPath(key: string): string | null;
+  /** Can the store be reached and written with the configured credentials? */
+  health(): Promise<{ ok: boolean; message?: string }>;
 }

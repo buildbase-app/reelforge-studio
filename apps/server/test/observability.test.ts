@@ -234,7 +234,7 @@ describe('Prometheus metrics, JSON access logs and /readyz (default exporters)',
     const r = await api(s.server, 'GET', '/readyz', { key: null });
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
-    expect(r.body.checks).toEqual({ dataDir: 'ok', database: 'ok', ffmpeg: 'ok' });
+    expect(r.body.checks).toEqual({ dataDir: 'ok', database: 'ok', storage: 'ok', ffmpeg: 'ok' });
     const d = r.body.dependencies;
     expect(d.database).toMatchObject({ status: 'ok', required: true });
     expect(d.storage).toMatchObject({ status: 'ok', required: true, driver: 'local' });

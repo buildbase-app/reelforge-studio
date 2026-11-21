@@ -210,6 +210,20 @@ Not done: OTLP/gRPC (use a collector), vendor backends (Grafana Cloud,
 Honeycomb, Datadog: documented, untested), the Grafana dashboard loaded in
 Grafana, process metrics.
 
+### Storage drivers and retention (2026-11-21, issue #27)
+
+`storage.driver` `local` (default) / `s3` (any S3-compatible API) / `azure` /
+`gcs`, credentials as secret settings or the cloud identity, bucket-signed
+download links, atomic render commit, retention with a sweep,
+`get_storage` / `run_storage_cleanup`, `reelforge storage migrate`
+(D-065..D-069). Contract suite passed on local, MinIO (built from source:
+no MinIO image is published any more), Azurite and fake-gcs-server; Docker e2e
+`STORAGE=s3 e2e/docker/run.sh` passed on the release image (migrate, restart on
+s3, render → MinIO → signed download → ffprobe, retention, `/readyz` with a
+missing bucket). AWS S3, R2, B2, Wasabi, Spaces and real Azure/GCS are
+untested. Matrix and test cases: docs/providers/storage.md. CI does not start
+the emulators yet (a `.github/` change for a maintainer).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |

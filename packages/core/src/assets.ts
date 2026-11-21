@@ -6,7 +6,9 @@ import { BlockList, isIP, type LookupFunction } from 'node:net';
 import { ApiError, notFound } from './errors';
 import type { PutAssetInput, StoredAsset } from './plugins';
 import type { AssetRecord, AssetRepository } from './repositories';
-import { LocalStorageDriver } from './storage';
+import type { StorageDriver } from './plugins';
+import { ASSETS_PREFIX } from './storage/keys';
+import { LocalStorageDriver } from './storage/local';
 
 /**
  * Content types the asset store accepts, decided from the file's bytes, not
@@ -197,21 +199,32 @@ const ASSET_ID = /^ast-[0-9a-f]{16}$/;
 
 const toStored = ({ storageKey: _k, ...asset }: AssetRecord): StoredAsset => asset;
 
+/** Where AssetStore keeps bytes: the current driver and a way to get a local file (StorageManager). */
+export interface AssetStorage {
+  readonly driver: StorageDriver;
+  localFile(key: string, expectedBytes?: number): Promise<string>;
+}
+
 /**
  * Content-addressed asset store. The bytes go to the storage driver at
- * <id>/file.<ext> (local: <dataDir>/assets/<id>/file.<ext>), the metadata to
- * AssetRepository, where id = "ast-" + first 16 hex digits of the sha256.
- * Uploading the same bytes twice returns the same asset.
+ * assets/<id>/file.<ext> (local: <dataDir>/assets/<id>/file.<ext>; remote: the
+ * bucket, D-065), the metadata to AssetRepository, where id = "ast-" + first
+ * 16 hex digits of the sha256. Uploading the same bytes twice returns the
+ * same asset.
  */
 export class AssetStore {
-  readonly storage: LocalStorageDriver;
+  private readonly storage: AssetStorage;
 
   constructor(
     private readonly repo: AssetRepository,
-    dataDir: string,
+    /** A data directory (local storage) or the server's StorageManager. */
+    storage: string | AssetStorage,
     readonly limits: FetchLimits
   ) {
-    this.storage = new LocalStorageDriver(`${dataDir}/assets`);
+    if (typeof storage === 'string') {
+      const driver = new LocalStorageDriver(storage);
+      this.storage = { driver, localFile: async (key) => driver.localPath(key) };
+    } else this.storage = storage;
   }
 
   async put(input: PutAssetInput): Promise<StoredAsset> {
@@ -247,7 +260,7 @@ export class AssetStore {
       ...(input.metadata ? { metadata: input.metadata } : {}),
     };
     // Bytes first: a row never points at a missing file.
-    await this.storage.put(storageKey, input.data);
+    await this.storage.driver.put(ASSETS_PREFIX + storageKey, input.data, { contentType: sniffed.contentType });
     return toStored(await this.repo.insertIfAbsent(record));
   }
 
@@ -268,12 +281,13 @@ export class AssetStore {
     return a;
   }
 
-  /** Absolute path of the asset's bytes. */
+  /** Absolute path of the asset's bytes (for remote storage: a cached local copy). */
   async file(id: string): Promise<string> {
     const a = ASSET_ID.test(id) ? await this.repo.get(id) : null;
     if (!a) throw notFound('asset', id);
-    if (!(await this.storage.stat(a.storageKey))) throw notFound('asset file', id);
-    return this.storage.localPath(a.storageKey);
+    const key = ASSETS_PREFIX + a.storageKey;
+    if (!(await this.storage.driver.stat(key))) throw notFound('asset file', id);
+    return this.storage.localFile(key, a.bytes);
   }
 
   async list(): Promise<StoredAsset[]> {

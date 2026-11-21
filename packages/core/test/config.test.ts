@@ -161,8 +161,26 @@ describe('sources and precedence', () => {
     expect(text).not.toContain('SECRETVALUE');
   });
 
-  it('refuses storage.driver s3 until #27 is built', () => {
-    expect(issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3' } }))[0]!.message).toMatch(/#27/);
+  it('storage drivers need their settings; keys come in pairs (STO-15)', () => {
+    expect(issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3' } })).map((i) => i.key)).toEqual(['storage.s3.bucket']);
+    expect(issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 'azure' } })).map((i) => i.key)).toEqual(['storage.azure.container', 'storage.azure.accountUrl']);
+    expect(issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 'gcs' } })).map((i) => i.key)).toEqual(['storage.gcs.bucket']);
+    const pair = issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3', REELFORGE_S3_BUCKET: 'b', REELFORGE_S3_ACCESS_KEY_ID: 'AKIAEXAMPLE' } }));
+    expect(pair.map((i) => i.key)).toEqual(['storage.s3.secretAccessKey']);
+    expect(JSON.stringify(pair)).not.toContain('AKIAEXAMPLE');
+    expect(issues(() => resolveConfig({ env: { REELFORGE_S3_KMS_KEY_ID: 'k' } }))[0]!.key).toBe('storage.s3.kmsKeyId');
+    const ok = resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3', REELFORGE_S3_BUCKET: 'b', REELFORGE_S3_SSE: 'aws:kms', REELFORGE_S3_KMS_KEY_ID: 'arn:aws:kms:eu-west-1:1:key/x' } });
+    expect(ok.config.storage.s3).toMatchObject({ bucket: 'b', serverSideEncryption: 'aws:kms', forcePathStyle: false });
+  });
+
+  it('storage endpoints are SSRF-safe: http only to internal hosts, no credentials or query (STO-16)', () => {
+    const bad = (url: string) => issues(() => resolveConfig({ env: { REELFORGE_S3_ENDPOINT: url } }))[0]?.message ?? '';
+    expect(bad('http://s3.example.com')).toMatch(/only allowed for internal hosts/);
+    expect(bad('https://user:pw@s3.example.com')).toMatch(/must not contain credentials/);
+    expect(bad('https://s3.example.com/?x=1')).toMatch(/query/);
+    for (const ok of ['https://s3.example.com', 'http://minio:9000', 'http://127.0.0.1:9000', 'http://10.1.2.3:9000', 'http://minio.storage.svc:9000', 'http://[::1]:9000']) {
+      expect(() => resolveConfig({ env: { REELFORGE_S3_ENDPOINT: ok } }), ok).not.toThrow();
+    }
   });
 
   it('reads YAML and JSON config files; a broken file never echoes its content', () => {

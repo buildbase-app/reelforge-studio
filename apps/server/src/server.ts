@@ -35,6 +35,8 @@ export async function startServer(
     logWrite?: (level: 'debug' | 'info' | 'warn' | 'error', line: string) => void;
     /** Licence checks: tests inject the licence API, fetch or clock (ServiceConfig.licence). */
     licence?: ServiceConfig['licence'];
+    /** Storage driver factory / sweep (tests; ServiceConfig.storage). */
+    storage?: ServiceConfig['storage'];
   } = {}
 ): Promise<StartedServer> {
   const env = opts.env ?? process.env;
@@ -73,6 +75,7 @@ export async function startServer(
       maxUploadBytes: config.maxUploadBytes,
       configSources: config.sources,
       licence: opts.licence,
+      storage: opts.storage,
       log: logger.log,
       telemetry: obs.telemetry,
     });
@@ -112,6 +115,7 @@ export async function startServer(
   log(`ReelForge Studio ${SERVER_VERSION} listening on ${url} (data: ${config.dataDir})`);
   log(`REST ${url}/v1  MCP ${url}/mcp`);
   log(`database: ${db.kind} ${db.displayUrl}`);
+  log(`storage: ${service.storage.driver.id} ${JSON.stringify(service.storage.driver.describe())}`);
   if (existsSync(join(config.dataDir, 'secrets.json'))) {
     logger.log('warn', `${join(config.dataDir, 'secrets.json')} (v0.1) still holds provider keys in plain text; they are in the database now${service.settings.cipher ? ' (encrypted)' : ''}: delete the file once you have checked them`);
   }
@@ -132,6 +136,7 @@ export async function startServer(
         (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
       });
       service.licence.stop();
+      service.storage.stopSweeper();
       await service.jobs.flush();
       await obs.shutdown();
       await db.close();

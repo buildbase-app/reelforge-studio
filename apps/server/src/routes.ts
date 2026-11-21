@@ -72,6 +72,8 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'GET', path: '/v1/licence', scope: 'read', tool: 'get_licence' },
   { method: 'POST', path: '/v1/licence', scope: 'admin', tool: 'activate_licence' },
   { method: 'DELETE', path: '/v1/licence', scope: 'admin', tool: 'deactivate_licence' },
+  { method: 'GET', path: '/v1/storage', scope: 'admin', tool: 'get_storage' },
+  { method: 'POST', path: '/v1/storage/cleanup', scope: 'admin', tool: 'run_storage_cleanup' },
   { method: 'GET', path: '/v1/keys', scope: 'admin', tool: 'list_keys' },
   { method: 'POST', path: '/v1/keys', scope: 'admin', tool: 'create_key' },
   { method: 'DELETE', path: '/v1/keys/:id', scope: 'admin', tool: 'delete_key' },

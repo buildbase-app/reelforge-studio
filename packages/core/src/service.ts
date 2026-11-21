@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, stat } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { resolveTools, toolVersion, type Tools } from '@reelforge/media-pipeline';
 import {
@@ -37,6 +37,9 @@ import { RuntimeConfig, type ConfigSources } from './config/runtime';
 import { createLicenceManager, type LicenceApi, type LicenceManager } from './licence';
 import type { ResolvedConfig } from './config/load';
 import { ProjectStore } from './store';
+import { createStorageDriver, type StorageFactory } from './storage/factory';
+import { contentTypeFor, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix } from './storage/keys';
+import { StorageManager, type CleanupReport, type RetentionPolicy } from './storage/manager';
 import { ThemeStore } from './themes';
 import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
 
@@ -90,6 +93,12 @@ export interface ServiceConfig {
     /** Run the first check and the daily schedule (default true). */
     start?: boolean;
   };
+  /**
+   * Storage driver (D-065): built from storage.* by `factory` (default
+   * createStorageDriver; tests pass fakes). `sweep: false` turns the
+   * scheduled retention sweep off.
+   */
+  storage?: { factory?: StorageFactory; sweep?: boolean };
   log?: (level: 'info' | 'warn' | 'error', line: string) => void;
   /** Where traces and metrics go (the server's observability settings, D-050). Default: nowhere. */
   telemetry?: Telemetry;
@@ -144,6 +153,8 @@ export interface RenderSummary {
   /** Works without a key until downloadUrlExpiresAt (signed, read-only, this file only). */
   downloadUrl: string;
   downloadUrlExpiresAt: string;
+  /** "bucket": signed by the storage bucket (D-067); "server": a signed link to this server. */
+  downloadVia: 'bucket' | 'server';
 }
 
 const DEFAULT_MAX_UPLOAD = 200 * 1024 * 1024;
@@ -169,6 +180,8 @@ export class ReelforgeService {
   readonly licence: LicenceManager;
   readonly providerEnv: NodeJS.ProcessEnv;
   readonly repos: Repositories;
+  /** The storage driver, local copies, retention and the sweep (D-065..D-068). */
+  readonly storage: StorageManager;
   private readonly baseEnv: NodeJS.ProcessEnv;
   private toolsCache: Tools | null = null;
   private activatingLicence = false;
@@ -184,9 +197,21 @@ export class ReelforgeService {
     this.cacheDir = resolve(config.cacheDir ?? join(this.dataDir, 'cache'));
     this.repos = config.repositories;
     this.telemetry = config.telemetry ?? NOOP_TELEMETRY;
+    this.providerEnv = config.providerEnv ?? { ...process.env };
+    this.baseEnv = { ...this.providerEnv };
+    this.settings = new RuntimeConfig(this.repos, config.configSources ?? { env: { ...this.providerEnv } }, config.log);
+    this.storage = new StorageManager({
+      factory: config.storage?.factory ?? createStorageDriver,
+      settings: this.settings,
+      dataDir: this.dataDir,
+      cacheDir: this.cacheDir,
+      activeRunIds: () => this.activeRunIds(),
+      onSweep: (r) => this.auditCleanup(r, { actorType: 'system' }).then(() => undefined),
+      log: config.log,
+    });
     this.projects = new ProjectStore(this.repos.projects, this.dataDir);
     this.themes = new ThemeStore(this.repos.themes);
-    this.assets = new AssetStore(this.repos.assets, this.dataDir, {
+    this.assets = new AssetStore(this.repos.assets, this.storage, {
       maxBytes: config.maxUploadBytes ?? DEFAULT_MAX_UPLOAD,
       timeoutMs: config.fetchTimeoutMs ?? 30_000,
       maxRedirects: 3,
@@ -196,9 +221,6 @@ export class ReelforgeService {
     this.serverVersion = config.serverVersion ?? '0.1.0';
     this.publicUrl = (config.publicUrl ?? '').replace(/\/+$/, '');
     this.fetchImpl = config.fetch ?? fetch;
-    this.providerEnv = config.providerEnv ?? { ...process.env };
-    this.baseEnv = { ...this.providerEnv };
-    this.settings = new RuntimeConfig(this.repos, config.configSources ?? { env: { ...this.providerEnv } }, config.log);
     this.signer = new UrlSigner(this.dataDir);
     this.licence = createLicenceManager(this.settings, this.repos, {
       api: config.licence?.api,
@@ -230,6 +252,15 @@ export class ReelforgeService {
       await s.audit({ actorType: 'system', action: 'config.secrets.encrypt', data: { names: encrypted } });
     }
     for (const w of s.settings.warnings()) config.log?.('warn', w);
+    // Storage needs the runtime layer: credentials may be encrypted settings in the database (D-066).
+    await s.storage.init();
+    s.settings.onChange((_r, keys) => {
+      if (keys.some((k) => /^storage\.(s3|azure|gcs)\./.test(k))) {
+        s.storage.reload().catch((e) => config.log?.('error', `storage: could not apply the new credentials: ${(e as Error).message}`));
+      }
+      if (keys.includes('storage.retention.sweepIntervalMinutes') && config.storage?.sweep !== false) s.storage.startSweeper();
+    });
+    if (config.storage?.sweep !== false) s.storage.startSweeper();
     s.applySettings(s.settings.current, null);
     s.settings.onChange((resolved, keys) => s.applySettings(resolved, keys));
     // The licence state is read now; the network check runs in the background (start-up never waits for it).
@@ -303,7 +334,7 @@ export class ReelforgeService {
         default: b.id === 'local',
         env: b.env,
       })),
-      storage: this.registry.listStorages().map((s) => ({ id: s.id })).concat(this.registry.listStorages().length ? [] : [{ id: 'local' }]),
+      storage: [{ id: this.storage.driver.id, active: true, downloads: this.storage.downloads }],
       limits: {
         maxProjectSeconds: MAX_PROJECT_SECONDS,
         maxScenes: 50,
@@ -420,6 +451,12 @@ export class ReelforgeService {
   async deleteProject(id: string) {
     await this.projects.delete(id);
     for (const [run, pid] of this.renderIndex) if (pid === id) this.renderIndex.delete(run);
+    if (!this.storage.isLocal) {
+      // The local folder is gone; remove the project's renders from the bucket too (manifests first).
+      const objects = await this.storage.driver.list(`${PROJECTS_PREFIX}${id}/`);
+      const order = [...objects.filter((o) => o.key.endsWith(`/${RENDER_MANIFEST}`)), ...objects.filter((o) => !o.key.endsWith(`/${RENDER_MANIFEST}`))];
+      for (const o of order) await this.storage.driver.delete(o.key);
+    }
   }
 
   async listProjectVersions(id: string) {
@@ -696,6 +733,11 @@ export class ReelforgeService {
   private async renderLocally(req: RenderRequest, ctx: BackendContext): Promise<RenderOutcome> {
     const theme = await this.themes.resolve(req.project.theme);
     const assets = await this.resolveAssets(req.project, req.project.projectId);
+    const pid = req.project.projectId;
+    // Local storage: rendered in place and renamed (atomic). Remote: rendered in a staging
+    // directory, then committed to the bucket through temporary keys (D-067).
+    const local = this.storage.isLocal;
+    const rendersDir = local ? this.projects.rendersDir(pid) : join(this.storage.stagingRoot, pid);
     const res = await runRenderPipeline({
       runId: req.runId,
       kind: req.kind,
@@ -705,7 +747,7 @@ export class ReelforgeService {
       assets,
       registry: this.registry,
       tools: this.tools(),
-      rendersDir: this.projects.rendersDir(req.project.projectId),
+      rendersDir,
       cacheDir: this.cacheDir,
       sceneIds: req.sceneIds,
       scale: req.scale,
@@ -715,7 +757,27 @@ export class ReelforgeService {
       progress: ctx.progress,
       telemetry: this.telemetry,
     });
-    return { runId: res.runId, dir: res.dir, outputFile: res.outputFile, manifestFile: res.manifestFile };
+    if (!local) {
+      try {
+        const up = await this.storage.renders.commit(res.dir, pid, res.runId);
+        ctx.log(`stored: ${up.objects} files, ${up.bytes} bytes in ${this.storage.driver.id} storage`);
+      } finally {
+        await rm(res.dir, { recursive: true, force: true });
+      }
+    }
+    return { runId: res.runId, dir: local ? res.dir : renderPrefix(pid, res.runId), outputFile: res.outputFile, manifestFile: res.manifestFile };
+  }
+
+  /** Run ids of queued and running renders (the retention sweep never touches them). */
+  private async activeRunIds(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    for (const status of ['queued', 'running'] as const) {
+      for (const j of await this.jobs.list({ status })) {
+        const runId = (j.params as { runId?: unknown } | undefined)?.runId;
+        if (typeof runId === 'string') ids.add(runId);
+      }
+    }
+    return ids;
   }
 
   async getJob(id: string) {
@@ -752,28 +814,27 @@ export class ReelforgeService {
     return `${this.publicUrl}${path}`;
   }
 
-  private async findRenderDir(runId: string): Promise<{ projectId: string; dir: string }> {
+  private async findRender(runId: string): Promise<{ projectId: string }> {
     if (!/^(run|prv)_[a-z0-9]+$/.test(runId)) throw notFound('render', runId);
     const known = this.renderIndex.get(runId);
     const candidates = known ? [known] : (await this.projects.list()).map((m) => m.id);
     for (const pid of candidates) {
-      const dir = join(this.projects.rendersDir(pid), runId);
-      if (await stat(join(dir, 'render-manifest.json')).then(() => true, () => false)) {
+      if (await this.storage.renders.exists(pid, runId)) {
         this.renderIndex.set(runId, pid);
-        return { projectId: pid, dir };
+        return { projectId: pid };
       }
     }
     throw notFound('render', runId);
   }
 
   async getRender(runId: string): Promise<RenderSummary> {
-    const { projectId, dir } = await this.findRenderDir(runId);
-    const m = await readJson<{
+    const { projectId } = await this.findRender(runId);
+    const m = await this.storage.renders.readManifest<{
       kind: string;
       createdAt: string;
       output: { durationSeconds: number; frames: number; width: number; height: number; fps: number };
       scenes: Array<{ file: string }>;
-    }>(join(dir, 'render-manifest.json'));
+    }>(projectId, runId);
     if (!m) throw notFound('render', runId);
     const base = `/v1/renders/${runId}/output`;
     return {
@@ -790,11 +851,22 @@ export class ReelforgeService {
       outputUrl: this.url(base),
       posterUrl: this.url(`${base}?file=poster.png`),
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
-      ...this.signedDownload(runId),
+      ...(await this.downloadLink(projectId, runId)),
     };
   }
 
-  /** A time-limited link to one render file that needs no API key. */
+  /**
+   * downloadUrl for a render file: signed by the bucket when the driver can
+   * and storage.downloads allows it, else a signed link to this server (D-067).
+   */
+  private async downloadLink(projectId: string, runId: string, file = 'final.mp4') {
+    const ttl = this.config.signedUrlTtlSeconds ?? 3600;
+    const url = await this.storage.bucketUrl(renderPrefix(projectId, runId) + file, ttl, { filename: file.split('/').pop(), contentType: contentTypeFor(file) });
+    if (url) return { downloadUrl: url, downloadUrlExpiresAt: new Date(Date.now() + Math.min(ttl, 7 * 24 * 3600) * 1000).toISOString(), downloadVia: 'bucket' as const };
+    return { ...this.signedDownload(runId, file, ttl), downloadVia: 'server' as const };
+  }
+
+  /** A time-limited link to one render file on this server that needs no API key. */
   signedDownload(runId: string, file = 'final.mp4', ttlSeconds = this.config.signedUrlTtlSeconds ?? 3600) {
     const { expires, sig } = this.signer.sign([runId, file], ttlSeconds);
     const q = new URLSearchParams({ ...(file !== 'final.mp4' ? { file } : {}), expires: String(expires), sig });
@@ -806,23 +878,17 @@ export class ReelforgeService {
   }
 
   async getRenderManifest(runId: string): Promise<unknown> {
-    const { dir } = await this.findRenderDir(runId);
-    return readJson(join(dir, 'render-manifest.json'));
+    const { projectId } = await this.findRender(runId);
+    return this.storage.renders.readManifest(projectId, runId);
   }
 
   async listRenders(projectId: string): Promise<RenderSummary[]> {
     await this.projects.get(projectId);
-    let entries: string[] = [];
-    try {
-      entries = await readdir(this.projects.rendersDir(projectId));
-    } catch {
-      return [];
-    }
     const out: RenderSummary[] = [];
-    for (const e of entries.filter((x) => !x.startsWith('.'))) {
-      this.renderIndex.set(e, projectId);
+    for (const run of (await this.storage.renders.listRuns(projectId)).filter((r) => r.complete)) {
+      this.renderIndex.set(run.runId, projectId);
       try {
-        out.push(await this.getRender(e));
+        out.push(await this.getRender(run.runId));
       } catch {
         // incomplete or foreign directory
       }
@@ -830,16 +896,68 @@ export class ReelforgeService {
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  /** Absolute path of a file inside a render (final.mp4 by default). */
-  async renderFile(runId: string, file = 'final.mp4'): Promise<{ path: string; contentType: string }> {
+  /** A file of a render in storage (final.mp4 by default): its key, type and size, for streaming. */
+  async renderObject(runId: string, file = 'final.mp4'): Promise<{ key: string; contentType: string; bytes: number }> {
     if (!isSafeRelativePath(file) || !/^(final\.mp4|poster\.png|render-manifest\.json|clips\/[\w.-]+\.mp4)$/.test(file)) {
       throw badRequest('file must be final.mp4, poster.png, render-manifest.json or clips/<name>.mp4');
     }
-    const { dir } = await this.findRenderDir(runId);
-    const path = join(dir, file);
-    if (!existsSync(path)) throw notFound('render file', `${runId}/${file}`);
-    const contentType = file.endsWith('.mp4') ? 'video/mp4' : file.endsWith('.png') ? 'image/png' : 'application/json';
-    return { path, contentType };
+    const { projectId } = await this.findRender(runId);
+    const key = renderPrefix(projectId, runId) + file;
+    const s = await this.storage.driver.stat(key);
+    if (!s) throw notFound('render file', `${runId}/${file}`);
+    return { key, contentType: contentTypeFor(file), bytes: s.bytes };
+  }
+
+  /** A local file with a render file's bytes (remote storage: a cached copy). */
+  async renderFile(runId: string, file = 'final.mp4'): Promise<{ path: string; contentType: string }> {
+    const o = await this.renderObject(runId, file);
+    return { path: await this.storage.localFile(o.key, o.bytes), contentType: o.contentType };
+  }
+
+  // ---- storage --------------------------------------------------------------
+
+  /** Driver, where the bytes go (no secrets), health, usage, retention policy and the last sweep. */
+  getStorage() {
+    return this.storage.status();
+  }
+
+  /**
+   * Apply the retention policy now (admin). `dryRun` lists what would be
+   * deleted; overrides try another policy for this run only. A real run is
+   * audit-logged.
+   */
+  async runStorageCleanup(opts: { dryRun?: unknown; renderDays?: unknown; keepLastRendersPerProject?: unknown } = {}, actor?: Actor): Promise<CleanupReport> {
+    if (opts.dryRun !== undefined && typeof opts.dryRun !== 'boolean') throw badRequest('dryRun must be true or false');
+    const overrides: Partial<RetentionPolicy> = {};
+    for (const k of ['renderDays', 'keepLastRendersPerProject'] as const) {
+      const v = opts[k];
+      if (v === undefined || v === null) continue;
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 36500) throw badRequest(`${k} must be a whole number from 0 to 36500`);
+      overrides[k] = v;
+    }
+    const report = await this.storage.cleanup({ dryRun: opts.dryRun === true, overrides });
+    if (!report.dryRun) await this.auditCleanup(report, actor ?? { actorType: 'system' });
+    for (const r of report.renders) if (!report.dryRun) this.renderIndex.delete(r.renderId);
+    return report;
+  }
+
+  private auditCleanup(r: CleanupReport, actor: Actor) {
+    return this.audit({
+      actorType: actor.actorType,
+      ...(actor.actorId ? { actorId: actor.actorId } : {}),
+      action: 'storage.cleanup',
+      targetType: 'storage',
+      targetId: this.storage.driver.id,
+      data: {
+        policy: r.policy,
+        totals: r.totals,
+        renders: r.renders.slice(0, 100).map((x) => `${x.projectId}/${x.renderId}`),
+        temp: r.temp.length,
+        staging: r.staging.length,
+        cache: r.cache,
+        errors: r.errors.length,
+      },
+    });
   }
 
   // ---- assets ---------------------------------------------------------------

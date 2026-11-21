@@ -440,6 +440,18 @@ Prometheus/Grafana/Grafana Cloud/Datadog/Honeycomb examples, tested cases and
 troubleshooting: [providers/observability.md](providers/observability.md).
 Keep `/metrics` on the internal network or set `REELFORGE_METRICS_TOKEN`.
 
+## Storage
+
+Asset and render files live in the data directory by default. For a cluster,
+or to keep files out of the server, set `storage.driver` to `s3` (AWS S3, R2,
+B2, Wasabi, DigitalOcean Spaces, MinIO, GCS via HMAC), `azure` or `gcs`, with
+keys as `_FILE` secrets or the cloud's identity (IAM role, workload or managed
+identity). Move existing files with `reelforge storage migrate --to <driver>`
+(idempotent; run it until it copies nothing), then switch and restart. The
+data volume is still needed for the SQLite database (unless PostgreSQL/MySQL),
+the URL signing key, render staging and caches. Provider matrix, permissions,
+examples, retention and troubleshooting: [providers/storage.md](providers/storage.md).
+
 ## Database
 
 ReelForge picks the database from the `DATABASE_URL` scheme. Nothing to set up

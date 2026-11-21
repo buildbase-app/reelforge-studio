@@ -43,8 +43,13 @@ async function timed(fn: () => Promise<DependencyStatus>): Promise<DependencySta
  * because projects, settings and downloads keep working without it and
  * each engine's availability says why renders would fail.
  */
-export async function readiness(service: ReelforgeService, obs?: Observability): Promise<Readiness> {
+/** Storage driver health (local disk, bucket or container), supplied by the server so probes can be cached. */
+export type StorageHealth = () => Promise<{ ok: boolean; message?: string }>;
+
+export async function readiness(service: ReelforgeService, obs?: Observability, storageHealth?: StorageHealth): Promise<Readiness> {
   const dependencies: Record<string, DependencyStatus> = {};
+  let dataDirCheck = 'ok';
+  let storageCheck = 'ok';
   dependencies.database = await timed(async () => {
     try {
       await service.repos.keys.count();
@@ -58,10 +63,19 @@ export async function readiness(service: ReelforgeService, obs?: Observability):
     try {
       await access(service.dataDir, constants.W_OK);
     } catch {
-      return { status: 'error', required: true, driver, path: service.dataDir, detail: `not writable: ${service.dataDir}` };
+      dataDirCheck = `not writable: ${service.dataDir}`;
+      return { status: 'error', required: true, driver, path: service.dataDir, detail: dataDirCheck };
     }
     const fs = await statfs(service.dataDir).catch(() => null);
-    return { status: 'ok', required: true, driver, path: service.dataDir, ...(fs ? { freeBytes: fs.bavail * fs.bsize } : {}) };
+    const local = { driver, path: service.dataDir, ...(fs ? { freeBytes: fs.bavail * fs.bsize } : {}) };
+    if (storageHealth) {
+      const h = await storageHealth();
+      if (!h.ok) {
+        storageCheck = `unavailable (${service.storage.driver.id}): ${h.message ?? 'unknown error'}`;
+        return { status: 'error', required: true, ...local, detail: storageCheck };
+      }
+    }
+    return { status: 'ok', required: true, ...local };
   });
   dependencies.ffmpeg = await timed(async () => {
     try {
@@ -94,7 +108,8 @@ export async function readiness(service: ReelforgeService, obs?: Observability):
     };
   }
   const checks: Record<string, string> = {
-    dataDir: dependencies.storage.status === 'ok' ? 'ok' : String(dependencies.storage.detail),
+    dataDir: dataDirCheck,
+    ...(storageHealth ? { storage: storageCheck } : {}),
     database: dependencies.database.status === 'ok' ? 'ok' : String(dependencies.database.detail),
     ffmpeg: dependencies.ffmpeg.status === 'ok' ? 'ok' : String(dependencies.ffmpeg.detail),
   };
