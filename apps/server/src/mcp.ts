@@ -403,7 +403,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'get_theme',
     title: 'Get a theme',
-    description: 'Returns one theme with its tokens.',
+    description: 'Returns one theme (built-in or custom) with all its tokens: colours, font, weights, motion speed, caption style.',
     scope: 'read',
     input: { themeId: z.string() },
     annotations: { readOnlyHint: true },
