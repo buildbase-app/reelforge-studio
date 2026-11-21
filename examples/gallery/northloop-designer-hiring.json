@@ -1,0 +1,88 @@
+{
+  "gallery": {
+    "slug": "northloop-designer-hiring",
+    "title": "Northloop is hiring a designer",
+    "description": "Hiring reel for Northloop, a fictional studio, looking for a Senior Product Designer (remote).",
+    "category": "Hiring",
+    "tags": [
+      "hiring",
+      "design",
+      "remote"
+    ],
+    "prompt": "Hiring reel for Northloop, a fictional studio, looking for a Senior Product Designer (remote). Role card with chips and perks, a short \"what you will do\" list, and how to apply. 15 seconds.",
+    "palette": "grape",
+    "theme": "default + inline tokens (Plum)",
+    "engines": [
+      "html",
+      "motion-canvas"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 15
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "northloop-designer-hiring",
+    "title": "Northloop is hiring a designer",
+    "brief": {
+      "title": "Northloop is hiring a designer",
+      "goal": "Hiring reel for Northloop, a fictional studio, looking for a Senior Product Designer (remote). Role card with chips and perks, a short \"what you will do\" list, and how to apply. 15 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 15
+    },
+    "theme": {
+      "base": "default",
+      "tokens": {
+        "colors": {
+          "background": "#151014",
+          "surface": "#211a20",
+          "text": "#f5eef3",
+          "mutedText": "#b4a5af",
+          "accent": "#e85d8a",
+          "accent2": "#8f7f8a"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-role",
+        "engine": "html",
+        "durationSeconds": 5,
+        "html": "<div class=\"bd\"><div class=\"bd-split\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><div class=\"co rise\" style=\"animation-delay:0.1s\"><svg class=\"bm\" width=\"72\" height=\"72\" viewBox=\"0 0 64 64\"><circle cx=\"24\" cy=\"32\" r=\"16\" fill=\"var(--rf-accent)\"/><circle cx=\"42\" cy=\"32\" r=\"13\" fill=\"none\" stroke=\"var(--rf-accent)\" stroke-width=\"6\"/></svg><span>Northloop</span><b>is hiring</b></div><h1><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.3s\">Senior</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.37s\">Product</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.44s\">Designer</span></span></span></h1><div class=\"chips\"><span class=\"pop\" style=\"animation-delay:0.9s\">Remote (EU)</span><span class=\"pop\" style=\"animation-delay:1s\">Full-time</span></div><div class=\"perks\"><div class=\"pk slide-l\" style=\"animation-delay:1.3s\"><svg class=\"ic\" width=\"48\" height=\"48\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M16 27S4 19.5 4 11.5A6.5 6.5 0 0116 8a6.5 6.5 0 0112 3.5C28 19.5 16 27 16 27z\"/></svg>4-day week</div><div class=\"pk slide-l\" style=\"animation-delay:1.45s\"><svg class=\"ic\" width=\"48\" height=\"48\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"16\" cy=\"16\" r=\"12\"/><path d=\"M4 16h24M16 4c4 4 4 20 0 24M16 4c-4 4-4 20 0 24\"/></svg>Learning budget</div><div class=\"pk slide-l\" style=\"animation-delay:1.6s\"><svg class=\"ic\" width=\"48\" height=\"48\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 6c4-2 8-2 12 1 4-3 8-3 12-1v20c-4-2-8-2-12 1-4-3-8-3-12-1zM16 7v20\"/></svg>Home office setup</div></div></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#574953;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-fadeout 0.5s ease-in 4.5s both;}.cam{position:absolute;inset:0;animation:st-cam 5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-split{position:absolute;left:0;right:0;bottom:0;height:44%;background:var(--rf-surface)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}h1{margin:0;font-size:128px;line-height:.95;font-weight:var(--rf-heading-weight);letter-spacing:-.03em;color:var(--rf-text)}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.co{display:flex;align-items:center;gap:20px;font-size:44px;font-weight:600;margin-bottom:50px}.co b{font-weight:500;color:var(--rf-muted)}\n.chips{display:flex;flex-wrap:wrap;gap:16px;margin-top:50px}\n.chips span{font:500 34px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;padding:18px 26px;border-radius:16px;background:color-mix(in srgb,var(--rf-text) 8%,transparent);color:var(--rf-text)}\n.perks{margin-top:70px;display:grid;gap:20px}\n.pk{display:flex;align-items:center;gap:24px;font-size:42px;font-weight:500;padding:28px 32px;border-radius:24px;background:var(--rf-surface)}\n.pk .ic{color:var(--rf-accent)}",
+        "notes": "agent-written html scene (role)"
+      },
+      {
+        "id": "s2-animated",
+        "engine": "motion-canvas",
+        "durationSeconds": 5.5,
+        "template": "animated-explainer",
+        "props": {
+          "title": "What you will do",
+          "points": [
+            "Own the mobile app experience end to end",
+            "Run research with real customers every month",
+            "Grow our design system"
+          ]
+        }
+      },
+      {
+        "id": "s3-hero",
+        "engine": "html",
+        "durationSeconds": 4.5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><div><div class=\"eb rise\" style=\"animation-delay:0.35s\">Hiring</div></div><h1><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.5s\">Apply</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.575s\">at</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.65s\">northloop.example/jobs</span></span></span></h1><p class=\"sub rise\" style=\"animation-delay:1.075s\">We reply to everyone within a week</p></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#574953;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-fadein 0.5s ease-out both;}.cam{position:absolute;inset:0;animation:st-cam 4.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}h1{margin:0;font-size:128px;line-height:.95;font-weight:var(--rf-heading-weight);letter-spacing:-.03em;color:var(--rf-text)}.sub{margin:44px 0 0;font-size:48px;line-height:1.25;font-weight:400;color:var(--rf-muted);max-width:860px}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.eb{display:inline-block;font:500 32px/1.2 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}.ctr{align-items:center;text-align:center}.ctr .sub{margin-left:auto;margin-right:auto}\n.wrap>div:first-child{margin-bottom:56px}\n.cta{display:inline-flex;align-items:center;gap:20px;margin-top:64px;align-self:flex-start;font-size:44px;font-weight:600;padding:30px 48px;border-radius:999px;background:var(--rf-text);color:var(--rf-bg)}\n.ctr .cta{align-self:center}\n",
+        "notes": "agent-written html scene (hero)"
+      }
+    ]
+  }
+}

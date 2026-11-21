@@ -1,0 +1,92 @@
+{
+  "gallery": {
+    "slug": "aero-headphones-reveal",
+    "title": "Aero headphones reveal",
+    "description": "Create a minimal black-and-white reveal reel for Aero, fictional noise-cancelling headphones.",
+    "category": "Product launch",
+    "tags": [
+      "launch",
+      "audio",
+      "reveal"
+    ],
+    "prompt": "Create a minimal black-and-white reveal reel for Aero, fictional noise-cancelling headphones. Kinetic headline, a slow 3D product turn with spec callouts, a feature grid, and a clean end card. 15 seconds, no colour except greys.",
+    "palette": "mono",
+    "theme": "default + inline tokens (Mono)",
+    "engines": [
+      "html",
+      "remotion"
+    ],
+    "featured": true,
+    "music": "pulse",
+    "durationSeconds": 15
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "aero-headphones-reveal",
+    "title": "Aero headphones reveal",
+    "brief": {
+      "title": "Aero headphones reveal",
+      "goal": "Create a minimal black-and-white reveal reel for Aero, fictional noise-cancelling headphones. Kinetic headline, a slow 3D product turn with spec callouts, a feature grid, and a clean end card. 15 seconds, no colour except greys.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 15
+    },
+    "theme": {
+      "base": "default",
+      "tokens": {
+        "colors": {
+          "background": "#121212",
+          "surface": "#1d1d1d",
+          "text": "#f2f2f2",
+          "mutedText": "#a3a3a3",
+          "accent": "#f2f2f2",
+          "accent2": "#6e6e6e"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-manifesto",
+        "engine": "html",
+        "durationSeconds": 3,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"mbs\"><div class=\"mb b1\" style=\"animation-delay:0s;z-index:1\"><span style=\"animation-delay:0.12s\">Less</span></div><div class=\"mb b2\" style=\"animation-delay:0.9s;z-index:2\"><span style=\"animation-delay:1.02s\">noise</span></div><div class=\"mb b3\" style=\"animation-delay:1.8s;z-index:3\"><span style=\"animation-delay:1.92s\">More you</span></div></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#3a3a3a;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-zoomout 0.5s cubic-bezier(.7,0,.84,0) 2.5s both;}.cam{position:absolute;inset:0;animation:st-cam 3s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.mbs{position:absolute;inset:0}\n.mb{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:0 70px;text-align:center;clip-path:inset(100% 0 0 0);animation:mb-in .5s cubic-bezier(.76,0,.24,1) both}\n.mb:first-child{clip-path:none;animation:none}\n@keyframes mb-in{to{clip-path:inset(0 0 0 0)}}\n.mb span{font-size:200px;font-weight:600;letter-spacing:-.055em;line-height:.9;animation:mb-t .8s cubic-bezier(.16,1,.3,1) both}\n@keyframes mb-t{from{transform:translateY(60px);opacity:0}}\n.b1{background:var(--rf-bg);color:var(--rf-text)}.b2{background:var(--rf-surface);color:var(--rf-text)}.b3{background:var(--rf-text);color:var(--rf-bg)}.b4{background:var(--rf-accent);color:var(--rf-bg)}\n.mf{position:absolute;left:0;right:0;bottom:380px;z-index:99;text-align:center;font:500 30px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;mix-blend-mode:difference;color:#fff}",
+        "notes": "agent-written html scene (manifesto)"
+      },
+      {
+        "id": "s2-product",
+        "engine": "html",
+        "durationSeconds": 5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"pr-hd\"><div class=\"pr-n\"><span class=\"lt\" style=\"animation-delay:0.35s\">A</span><span class=\"lt\" style=\"animation-delay:0.385s\">e</span><span class=\"lt\" style=\"animation-delay:0.42s\">r</span><span class=\"lt\" style=\"animation-delay:0.455s\">o</span></div><div class=\"pr-t rise\" style=\"animation-delay:0.85s\">Silence, <em class=\"acc\">rebuilt</em></div></div><div class=\"pr-stage\"><div class=\"pr-obj\"><div class=\"pr-hp\"><i class=\"band\"></i><i class=\"cup l\"></i><i class=\"cup r\"></i></div></div><div class=\"pr-shadow\"></div></div><div class=\"pr-spec pop\" style=\"left:80px;top:1200px;animation-delay:1.35s\"><i></i>40 h battery</div><div class=\"pr-spec pop\" style=\"left:620px;top:1270px;animation-delay:1.55s\"><i></i>Adaptive ANC</div><div class=\"pr-spec pop\" style=\"left:140px;top:1400px;animation-delay:1.75s\"><i></i>250 g</div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#3a3a3a;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-zoomin 0.7s cubic-bezier(.16,1,.3,1) both,st-zoomout 0.5s cubic-bezier(.7,0,.84,0) 4.5s both;}.cam{position:absolute;inset:0;animation:st-cam 5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.lt{display:inline-block;animation:lt-pop 0.6s cubic-bezier(.16,1,.3,1) both}\n@keyframes lt-pop{from{opacity:0;transform:translateY(.35em)}to{opacity:1;transform:none}}.acc{color:var(--rf-accent);font-style:normal}.pr-hd{position:absolute;left:80px;right:80px;top:230px;text-align:center}\n.pr-n{font-size:136px;font-weight:600;letter-spacing:-.05em;line-height:1}\n.pr-t{margin-top:20px;font-size:46px;font-weight:600;color:var(--rf-muted)}\n.pr-stage{position:absolute;left:0;right:0;top:520px;height:640px}\n.pr-obj{position:absolute;left:50%;top:0;width:480px;height:600px;margin-left:-240px;animation:po-in 1.2s cubic-bezier(.16,1,.3,1) 0.55s both}\n@keyframes po-in{from{transform:translateY(120px);opacity:0}}\n.pr-shadow{position:absolute;left:50%;bottom:-30px;width:420px;height:60px;margin-left:-210px;border-radius:50%;background:radial-gradient(closest-side,rgba(0,0,0,.5),transparent)}\n.pr-dev{position:absolute;inset:0 60px;border-radius:70px;overflow:hidden;background:linear-gradient(150deg,color-mix(in srgb,var(--rf-text) 55%,var(--rf-surface)),var(--rf-surface) 55%,#000);box-shadow:inset 0 0 0 6px color-mix(in srgb,var(--rf-text) 30%,transparent),0 50px 100px -30px rgba(0,0,0,.8)}\n.pr-dev .scr{position:absolute;inset:26px;border-radius:50px;background:radial-gradient(60% 40% at 30% 30%,var(--rf-accent),transparent 70%),radial-gradient(60% 50% at 80% 80%,var(--rf-accent2),transparent 70%),#05050a}\n.pr-dev .cam{position:absolute;top:44px;left:50%;width:90px;height:26px;margin-left:-45px;border-radius:14px;background:#000}\n.pr-bottle{position:absolute;inset:0 120px}\n.pr-bottle .cap{position:absolute;left:30%;right:30%;top:0;height:80px;border-radius:20px;background:var(--rf-text)}\n.pr-bottle .body{position:absolute;left:0;right:0;top:70px;bottom:0;border-radius:90px 90px 60px 60px;background:linear-gradient(90deg,color-mix(in srgb,var(--rf-accent) 70%,#000),var(--rf-accent) 40%,color-mix(in srgb,var(--rf-accent) 60%,#fff) 55%,color-mix(in srgb,var(--rf-accent) 70%,#000))}\n.pr-bottle .label{position:absolute;left:0;right:0;top:250px;height:180px;background:color-mix(in srgb,var(--rf-bg) 85%,transparent)}\n.pr-hp{position:absolute;inset:0}\n.pr-hp .band{position:absolute;left:60px;right:60px;top:40px;height:440px;border-radius:220px 220px 0 0;border:46px solid color-mix(in srgb,var(--rf-text) 80%,var(--rf-surface));border-bottom:0}\n.pr-hp .cup{position:absolute;top:330px;width:170px;height:240px;border-radius:70px;background:linear-gradient(160deg,var(--rf-accent),color-mix(in srgb,var(--rf-accent) 50%,#000))}\n.pr-hp .cup.l{left:20px}.pr-hp .cup.r{right:20px}\n.pr-watch{position:absolute;inset:0}\n.pr-watch .strap{position:absolute;left:150px;right:150px;top:0;bottom:0;border-radius:40px;background:linear-gradient(90deg,color-mix(in srgb,var(--rf-accent2) 60%,#000),var(--rf-accent2),color-mix(in srgb,var(--rf-accent2) 60%,#000))}\n.pr-watch .face{position:absolute;left:70px;right:70px;top:120px;height:360px;border-radius:90px;background:#05050a;box-shadow:inset 0 0 0 14px color-mix(in srgb,var(--rf-text) 60%,#000)}\n.pr-watch .face b{position:absolute;inset:70px;border-radius:50%;border:16px solid var(--rf-accent);border-right-color:transparent;animation:wf 5s linear both}\n@keyframes wf{to{transform:rotate(200deg)}}\n.pr-spec{position:absolute;display:flex;align-items:center;gap:16px;padding:18px 28px;border-radius:16px;font-size:36px;font-weight:500;background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 8%,transparent)}\n.pr-spec i{width:14px;height:14px;border-radius:50%;background:var(--rf-muted)}",
+        "notes": "agent-written html scene (product)"
+      },
+      {
+        "id": "s3-feature-grid",
+        "engine": "html",
+        "durationSeconds": 4,
+        "html": "<div class=\"bd\"><div class=\"bd-grid\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><h2><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.35s\">Made</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.41s\">for</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.47s\">long</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.53s\">days</span></span></span></h2><div class=\"fg\"><div class=\"tile\" style=\"animation-delay:0.95s\"><span class=\"ti\"><svg class=\"ic\" width=\"64\" height=\"64\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"16\" cy=\"16\" r=\"12\"/><path d=\"M16 9v7l5 3\"/></svg></span><b>40 hours</b><small>per charge</small></div><div class=\"tile\" style=\"animation-delay:1.13s\"><span class=\"ti\"><svg class=\"ic\" width=\"64\" height=\"64\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 16c3-8 6-8 9 0s6 8 9 0 5-8 8-2\"/></svg></span><b>Adaptive</b><small>noise control</small></div><div class=\"tile\" style=\"animation-delay:1.31s\"><span class=\"ti\"><svg class=\"ic\" width=\"64\" height=\"64\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18 3L6 18h9l-1 11 12-16h-9z\"/></svg></span><b>10 min</b><small>= 5 h play</small></div><div class=\"tile\" style=\"animation-delay:1.49s\"><span class=\"ti\"><svg class=\"ic\" width=\"64\" height=\"64\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 26C6 12 14 5 27 5c0 13-7 21-21 21zM6 26l12-12\"/></svg></span><b>Recycled</b><small>aluminium</small></div></div></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#3a3a3a;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-zoomin 0.7s cubic-bezier(.16,1,.3,1) both,st-fadeout 0.5s ease-in 3.5s both;}.cam{position:absolute;inset:0;animation:st-cam 4s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-grid{position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px),linear-gradient(90deg,color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px);background-size:108px 108px;background-position:-2px -2px}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}h2{margin:0 0 70px;font-size:104px;line-height:.95;letter-spacing:-.045em;font-weight:var(--rf-heading-weight)}\n.fg{display:grid;grid-template-columns:1fr 1fr;gap:28px}\n.tile{display:flex;flex-direction:column;gap:22px;padding:44px 40px;min-height:380px;border-radius:40px;background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 8%,transparent);animation:tl .9s cubic-bezier(.16,1,.3,1) both}\n.tile:nth-child(2){background:var(--rf-accent);color:var(--rf-bg)}.tile:nth-child(2) .ti{background:var(--rf-bg);color:var(--rf-accent)}.tile:nth-child(2) small{color:color-mix(in srgb,var(--rf-bg) 75%,transparent)}\n@keyframes tl{from{transform:translateY(60px);opacity:0}}\n.ti{width:110px;height:110px;border-radius:24px;background:color-mix(in srgb,var(--rf-text) 8%,transparent);color:var(--rf-text);display:flex;align-items:center;justify-content:center}\n.tile b{font-size:50px;font-weight:600;letter-spacing:-.02em;line-height:1.05;margin-top:auto}\n.tile small{font-size:32px;font-weight:500;line-height:1.3;color:var(--rf-muted)}",
+        "notes": "agent-written html scene (featureGrid)"
+      },
+      {
+        "id": "s4-kinetic",
+        "engine": "remotion",
+        "durationSeconds": 3,
+        "template": "kinetic-title",
+        "props": {
+          "headline": "Aero. Hear what matters",
+          "subline": "Available in two finishes"
+        }
+      }
+    ]
+  }
+}

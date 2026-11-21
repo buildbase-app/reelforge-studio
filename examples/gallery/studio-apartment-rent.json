@@ -1,0 +1,84 @@
+{
+  "gallery": {
+    "slug": "studio-apartment-rent",
+    "title": "Studio for rent",
+    "description": "A rental listing reel for a fictional city studio: price card per month, floor plan, and an apply CTA.",
+    "category": "Real estate",
+    "tags": [
+      "real-estate",
+      "rental",
+      "city"
+    ],
+    "prompt": "A rental listing reel for a fictional city studio: price card per month, floor plan, and an apply CTA. Electric palette, 14 seconds.",
+    "palette": "electric",
+    "theme": "midnight + inline tokens (Signal)",
+    "engines": [
+      "html",
+      "remotion"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 14
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "studio-apartment-rent",
+    "title": "Studio for rent",
+    "brief": {
+      "title": "Studio for rent",
+      "goal": "A rental listing reel for a fictional city studio: price card per month, floor plan, and an apply CTA. Electric palette, 14 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 14
+    },
+    "theme": {
+      "base": "midnight",
+      "tokens": {
+        "colors": {
+          "background": "#0f1216",
+          "surface": "#181d23",
+          "text": "#eef2f6",
+          "mutedText": "#9ba6b2",
+          "accent": "#4f8cff",
+          "accent2": "#7c8794"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-pricing",
+        "engine": "html",
+        "durationSeconds": 5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"pcard\"><div class=\"pc-top\"><span class=\"pb pop\" style=\"animation-delay:0.4s\">Available 1 May</span><div class=\"pp\">City studio</div><div class=\"pv\"><sup>$</sup><span class=\"cnt n93\"></span><small>/month</small></div></div><ul><li class=\"rise\" style=\"animation-delay:0.9s\"><svg class=\"ic\" width=\"44\" height=\"44\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 17l7 7L26 9\"/></svg>Bills included</li><li class=\"rise\" style=\"animation-delay:1.04s\"><svg class=\"ic\" width=\"44\" height=\"44\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 17l7 7L26 9\"/></svg>Furnished</li><li class=\"rise\" style=\"animation-delay:1.18s\"><svg class=\"ic\" width=\"44\" height=\"44\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 17l7 7L26 9\"/></svg>Gym in the building</li></ul><div class=\"pbtn pop\" style=\"animation-delay:1.42s\">Start free trial</div></div></div></div><div class=\"tx tx-out\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#3f4853;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;}.cam{position:absolute;inset:0;animation:st-cam 5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-out{transform:translateY(101%);animation:tx-out 0.5s cubic-bezier(.76,0,.24,1) 4.5s both}@keyframes tx-out{to{transform:translateY(0)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}@property --n93{syntax:'<integer>';inherits:false;initial-value:2970}\n.n93{counter-reset:n93 var(--n93);animation:n93-c 1.3s cubic-bezier(.16,1,.3,1) 0.5s both}\n.n93::after{content:counter(n93,decimal)}\n@keyframes n93-c{from{--n93:2970}to{--n93:1350}}.pcard{position:absolute;left:110px;right:110px;top:340px;padding:70px 64px;border-radius:56px;background:color-mix(in srgb,var(--rf-surface) 88%,transparent);border:2px solid color-mix(in srgb,var(--rf-text) 10%,transparent);animation:k-rise 1s cubic-bezier(.16,1,.3,1) 0.1s both}\n.pb{display:inline-block;font:500 28px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-accent);margin-bottom:30px}\n.pp{font-size:56px;font-weight:600;color:var(--rf-muted)}\n.pv{font-size:230px;font-weight:600;letter-spacing:-.06em;line-height:1;margin:10px 0 40px;font-variant-numeric:tabular-nums}.pv sup{font-size:.35em;vertical-align:top;position:relative;top:.4em}.pv small{font-size:.22em;letter-spacing:0;color:var(--rf-muted);font-weight:600}\nul{list-style:none;margin:0;padding:40px 0 0;border-top:2px solid color-mix(in srgb,var(--rf-text) 10%,transparent)}\nli{display:flex;align-items:center;gap:22px;font-size:42px;font-weight:400;margin-bottom:28px}li .ic{color:var(--rf-muted);flex:none}\n.pbtn{margin-top:30px;text-align:center;font-size:44px;font-weight:600;padding:34px;border-radius:28px;background:var(--rf-text);color:var(--rf-bg)}",
+        "notes": "agent-written html scene (pricing)"
+      },
+      {
+        "id": "s2-listing",
+        "engine": "html",
+        "durationSeconds": 5.5,
+        "html": "<div class=\"bd\"><div class=\"bd-grid\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"ls-hd\"><div class=\"ls-pl rise\" style=\"animation-delay:0.35s\"><svg class=\"ic\" width=\"40\" height=\"40\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M16 29s9-8.5 9-15a9 9 0 00-18 0c0 6.5 9 15 9 15z\"/><circle cx=\"16\" cy=\"14\" r=\"3.5\"/></svg> Midtown (fictional)</div><div class=\"ls-t\"><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.45s\">Compact,</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.51s\">clever</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.57s\">studio</span></span></span></div></div><div class=\"plan\"><svg viewBox=\"0 0 900 740\"><path d=\"M40 40 H860 V700 H40 Z\" pathLength=\"1\" class=\"wl\" style=\"animation-delay:0.65s\"/><path d=\"M40 360 H380 M380 40 V520 M380 520 H560 M560 360 V700 M560 360 H860 M640 40 V240 M640 240 H860\" pathLength=\"1\" class=\"wl\" style=\"animation-delay:1.05s\"/><rect x=\"70\" y=\"70\" width=\"280\" height=\"260\" class=\"rm\" style=\"animation-delay:2.75s\"/><rect x=\"590\" y=\"390\" width=\"240\" height=\"280\" class=\"rm\" style=\"animation-delay:2.95s\"/></svg><span class=\"lb\" style=\"left:12%;top:24%;animation-delay:2.75s\">Living</span><span class=\"lb\" style=\"left:70%;top:68%;animation-delay:2.95s\">Bedroom</span><span class=\"lb\" style=\"left:74%;top:16%;animation-delay:3.05s\">Bath</span></div><div class=\"price pop\" style=\"animation-delay:1.79s\">$1,350/mo</div><div class=\"specs\"><span class=\"sp rise\" style=\"animation-delay:2.09s\"><svg class=\"ic\" width=\"44\" height=\"44\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 24V9M3 18h26v6M29 18v-3a4 4 0 00-4-4H14v7\"/><circle cx=\"8.5\" cy=\"14\" r=\"2.5\"/></svg>1 bed</span><span class=\"sp rise\" style=\"animation-delay:2.21s\"><svg class=\"ic\" width=\"44\" height=\"44\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 16h24v3a7 7 0 01-7 7H11a7 7 0 01-7-7zM8 16V7a3 3 0 016 0\"/></svg>1 bath</span><span class=\"sp rise\" style=\"animation-delay:2.33s\"><svg class=\"ic\" width=\"44\" height=\"44\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 5h22v22H5zM5 12h7v-7M27 20h-7v7\"/></svg>34 m²</span></div></div></div><div class=\"tx tx-in\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#3f4853;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-rise 0.8s cubic-bezier(.16,1,.3,1) both,st-fadeout 0.5s ease-in 5s both;}.cam{position:absolute;inset:0;animation:st-cam 5.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-grid{position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px),linear-gradient(90deg,color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px);background-size:108px 108px;background-position:-2px -2px}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-in{transform:translateY(0);animation:tx-in 0.55s cubic-bezier(.76,0,.24,1) both}@keyframes tx-in{to{transform:translateY(-101%)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.ls-hd{position:absolute;left:90px;right:90px;top:230px}\n.ls-pl{display:flex;align-items:center;gap:14px;font:500 34px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}\n.ls-t{margin-top:26px;font-size:92px;font-weight:var(--rf-heading-weight);letter-spacing:-.04em;line-height:.98}\n.plan{position:absolute;left:90px;right:90px;top:620px;height:600px;border-radius:36px;background:color-mix(in srgb,var(--rf-surface) 80%,transparent);border:2px solid color-mix(in srgb,var(--rf-text) 10%,transparent);padding:20px}\n.plan svg{width:100%;height:100%}\n.wl{fill:none;stroke:var(--rf-text);stroke-width:12;stroke-linecap:square;stroke-dasharray:1;stroke-dashoffset:1;animation:ld 1.68s cubic-bezier(.76,0,.24,1) both}\n@keyframes ld{to{stroke-dashoffset:0}}\n.rm{fill:color-mix(in srgb,var(--rf-accent) 22%,transparent);opacity:0;animation:k-fade .6s ease-out both}\n.lb{position:absolute;font:600 28px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted);animation:k-fade .6s ease-out both}\n.price{position:absolute;left:90px;top:1270px;font-size:130px;font-weight:600;letter-spacing:-.05em;transform-origin:left}\n.specs{position:absolute;left:90px;right:90px;top:1440px;display:flex;gap:18px}\n.sp{display:flex;align-items:center;gap:14px;font-size:36px;font-weight:600;padding:20px 28px;border-radius:22px;background:color-mix(in srgb,var(--rf-text) 8%,transparent)}\n.sp .ic{color:var(--rf-muted)}",
+        "notes": "agent-written html scene (listing)"
+      },
+      {
+        "id": "s3-kinetic",
+        "engine": "remotion",
+        "durationSeconds": 3.5,
+        "template": "kinetic-title",
+        "props": {
+          "headline": "Apply in two minutes",
+          "subline": "Viewings this week"
+        }
+      }
+    ]
+  }
+}

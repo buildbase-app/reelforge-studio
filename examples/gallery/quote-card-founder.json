@@ -1,0 +1,73 @@
+{
+  "gallery": {
+    "slug": "quote-card-founder",
+    "title": "Quote card: founder",
+    "description": "A bold sans-serif quote card for a fictional founder, followed by an outro with a fictional brand.",
+    "category": "Quote card",
+    "tags": [
+      "quote",
+      "founder",
+      "template"
+    ],
+    "prompt": "A bold sans-serif quote card for a fictional founder, followed by an outro with a fictional brand. Grape palette, 10 seconds.",
+    "palette": "grape",
+    "theme": "default + inline tokens (Plum)",
+    "engines": [
+      "html"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 10
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "quote-card-founder",
+    "title": "Quote card: founder",
+    "brief": {
+      "title": "Quote card: founder",
+      "goal": "A bold sans-serif quote card for a fictional founder, followed by an outro with a fictional brand. Grape palette, 10 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 10
+    },
+    "theme": {
+      "base": "default",
+      "tokens": {
+        "colors": {
+          "background": "#151014",
+          "surface": "#211a20",
+          "text": "#f5eef3",
+          "mutedText": "#b4a5af",
+          "accent": "#e85d8a",
+          "accent2": "#8f7f8a"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-quote",
+        "engine": "html",
+        "durationSeconds": 5.5,
+        "html": "<div class=\"bd\"><div class=\"bd-split\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><div class=\"qm pop\" style=\"animation-delay:0.1s\">“</div><blockquote><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.35s\">Ship</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.41s\">the</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.47s\">small</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.53s\">thing</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.59s\">Then</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.65s\">ship</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.71s\">it</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.77s\">again</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.83s\">tomorrow</span></span></span></blockquote><div class=\"who rise\" style=\"animation-delay:1.14s\"><span class=\"av\">RD</span><span><b>Riley Demo</b><br>Founder, Placeholder Labs</span></div><div class=\"lab fade\" style=\"animation-delay:1.54s\">Illustrative quote · fictional person</div></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#574953;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-zoomout 0.5s cubic-bezier(.7,0,.84,0) 5s both;}.cam{position:absolute;inset:0;animation:st-cam 5.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-split{position:absolute;left:0;right:0;bottom:0;height:44%;background:var(--rf-surface)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.acc{color:var(--rf-accent);font-style:normal}.qm{font-size:360px;line-height:.9;font-weight:600;color:var(--rf-accent);height:220px;margin-bottom:20px;transform-origin:left bottom}\nblockquote{margin:0;font-size:84px;line-height:1.08;font-weight:700;letter-spacing:-.025em;}\n.who{display:flex;align-items:center;gap:30px;margin-top:80px;font-size:38px;line-height:1.3;color:var(--rf-muted)}\n.who b{color:var(--rf-text);font-size:42px}\n.av{width:120px;height:120px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:44px;color:var(--rf-text);background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 10%,transparent)}\n.lab{margin-top:56px;font:500 26px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted);opacity:.7}",
+        "notes": "agent-written html scene (quote)"
+      },
+      {
+        "id": "s2-outro",
+        "engine": "html",
+        "durationSeconds": 4.5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap ctr\"><div class=\"mark\"><svg class=\"bm\" width=\"220\" height=\"220\" viewBox=\"0 0 64 64\"><circle cx=\"24\" cy=\"32\" r=\"16\" fill=\"var(--rf-accent)\"/><circle cx=\"42\" cy=\"32\" r=\"13\" fill=\"none\" stroke=\"var(--rf-accent)\" stroke-width=\"6\"/></svg></div><div class=\"bn\"><span class=\"lt\" style=\"animation-delay:0.75s\">P</span><span class=\"lt\" style=\"animation-delay:0.79s\">l</span><span class=\"lt\" style=\"animation-delay:0.83s\">a</span><span class=\"lt\" style=\"animation-delay:0.87s\">c</span><span class=\"lt\" style=\"animation-delay:0.91s\">e</span><span class=\"lt\" style=\"animation-delay:0.95s\">h</span><span class=\"lt\" style=\"animation-delay:0.99s\">o</span><span class=\"lt\" style=\"animation-delay:1.03s\">l</span><span class=\"lt\" style=\"animation-delay:1.07s\">d</span><span class=\"lt\" style=\"animation-delay:1.11s\">e</span><span class=\"lt\" style=\"animation-delay:1.15s\">r</span> <span class=\"lt\" style=\"animation-delay:1.23s\">L</span><span class=\"lt\" style=\"animation-delay:1.27s\">a</span><span class=\"lt\" style=\"animation-delay:1.31s\">b</span><span class=\"lt\" style=\"animation-delay:1.35s\">s</span></div><p class=\"ln rise\" style=\"animation-delay:1.15s\">Small teams, <em class=\"acc\">shipping daily</em></p></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#574953;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-zoomin 0.7s cubic-bezier(.16,1,.3,1) both;}.cam{position:absolute;inset:0;animation:st-cam 4.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.lt{display:inline-block;animation:lt-pop 0.6s cubic-bezier(.16,1,.3,1) both}\n@keyframes lt-pop{from{opacity:0;transform:translateY(.35em)}to{opacity:1;transform:none}}.acc{color:var(--rf-accent);font-style:normal}.ctr{align-items:center;text-align:center}\n.mark .bm{width:260px;height:260px}.mark{animation:mk-in 1s cubic-bezier(.16,1,.3,1) 0.35s both}\n@keyframes mk-in{from{transform:scale(.8);opacity:0}}\n.bn{margin-top:60px;font-size:140px;font-weight:600;letter-spacing:-.05em;line-height:1}\n.ln{margin:30px 0 0;font-size:50px;font-weight:600;color:var(--rf-muted);max-width:840px;line-height:1.25}\n.btn{margin-top:70px;font-size:46px;font-weight:600;padding:34px 70px;border-radius:999px;background:var(--rf-text);color:var(--rf-bg);animation:k-pop .7s cubic-bezier(.16,1,.3,1) 1.45s both}\n.url{margin-top:40px;font:600 36px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}",
+        "notes": "agent-written html scene (outro)"
+      }
+    ]
+  }
+}
