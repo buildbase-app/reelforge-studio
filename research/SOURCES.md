@@ -156,3 +156,33 @@ implementation or licensing decisions.
     for secrets at rest (D-033). https://nodejs.org/api/crypto.html (Node 22;
     from documentation knowledge, behaviour verified by the round-trip,
     wrong-key and tamper tests in packages/core/test/config.test.ts).
+27. **`@buildbase/sdk` 1.8.0, `LicensesApi`** (read 2026-11-21 in
+    `node_modules/@buildbase/sdk/dist/index.d.ts` and `dist/index.mjs` of the
+    store repo; npm `pnpm view @buildbase/sdk` 1.8.0): `new LicensesApi({ serverUrl,
+    version, orgId })`; `validate(key, instance?)`, `activate(key, instance)`,
+    `deactivate(key, instance)` each `POST {serverUrl}/api/{version}/licenses/{orgId}/{op}`
+    with JSON `{ key, instance }` and no auth headers (`getAuthHeaders()`
+    returns `{}`); the answer is `LicenseCheckView` `{ valid, reason, key?:
+    { status, activations, activationLimit, expiresAt }, item?: { id, title },
+    instance?: { instance, activatedAt } | null }`; reasons `LICENSE_REASON`:
+    not_found, revoked, expired, not_yet, limit_reached, not_activated; keys are
+    25 characters of `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` in groups of 5; a
+    non-2xx answer throws with `status`, `code` (429 → `LICENSE_CHECKS_LIMITED`)
+    and `retryAfterSeconds` from `Retry-After`. The package's dependencies
+    include React UI libraries and peer dependencies on `next`, `react` and
+    `react-dom` (17 MB unpacked), which is why the studio speaks the same HTTP
+    contract itself (D-035).
+28. **BuildBase licence API, live** (2026-11-21, development environment
+    `6b01478bb42d2c444e99fcd8-fsyqdskf`, a key from a test purchase with
+    `activationLimit: 1`): validate/activate/deactivate behave as above;
+    activate is idempotent per instance; a second instance gets
+    `limit_reached`; an unknown key `not_found`; too many checks 429
+    `LICENSE_CHECKS_LIMITED`. Our client against it from a real server process:
+    activate → `valid`, `activations 1/1`, item "ReelForge Studio" →
+    `DELETE /v1/licence` → `activations 0/1`; cross-checked afterwards with the
+    SDK's `LicensesApi.validate(key)`: `valid: true, activations: 0`.
+29. **Node.js 22 `NODE_USE_ENV_PROXY`**: Node's built-in `fetch` ignores
+    `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1` (added in Node 22.21 / 24.5;
+    observed 2026-11-21 on Node 22.23.5: the live licence check went through
+    the sandbox proxy only with it, with the warning "EnvHttpProxyAgent is
+    experimental"). https://nodejs.org/api/cli.html#node_use_env_proxy1

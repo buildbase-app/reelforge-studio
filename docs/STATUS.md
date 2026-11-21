@@ -26,7 +26,7 @@ HTML, HyperFrames) and providers (TTS such as ElevenLabs, ...). The
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, branch `claude/eloquent-wright-tm3cs7`):
-REST `/v1` + MCP `/mcp` server (43 MCP tools, every REST route has one,
+REST `/v1` + MCP `/mcp` server (46 MCP tools, every REST route has one,
 checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -45,7 +45,18 @@ setting (docs/CONFIG.md, generated, CI drift check); defaults <
 start-up-only keys refused with where to set them, runtime changes applied
 live; secrets in the database AES-256-GCM with `REELFORGE_SECRET_KEY` (refused
 without it; plaintext rows encrypted once); `reelforge config check` / `show`.
-268 tests pass locally with `REELFORGE_REQUIRE_BROWSER=1`, including
+**Licence activation (#25, D-028, D-035..D-038):** BuildBase licence API
+(activate on first start / key change, validate at start and daily, only the
+key and a random instance id sent), state in a `LicenceState` table on all
+three databases, 14-day offline grace from the last success, backoff on
+429/5xx, clock checks; `render_project` / `preview_scene` / `retry_job`
+refused with `licence_required` / `licence_invalid` and a fix while reading
+and downloads keep working; `GET`/`POST`/`DELETE /v1/licence`, MCP
+`get_licence` / `activate_licence` / `deactivate_licence`, licence in
+`get_capabilities`, `reelforge licence status|activate|deactivate`;
+`licence.mode` `required` (default) / `off` (dev, CI) / `trial` (reserved).
+Live check against the dev environment with a test-purchase key passed
+(activate → valid 1/1 → deactivate → 0/1). 295 tests pass locally with `REELFORGE_REQUIRE_BROWSER=1`, including
 MCP and REST journeys against a real server process. GitHub CI green on 9f62297 (run 44901451314: tests with
 `REELFORGE_REQUIRE_BROWSER=1` incl. MCP/REST e2e, spike, Docker build + smoke).
 Per-item status: `docs/AGENT_PLATFORM.md` §10.
@@ -121,6 +132,28 @@ from the encrypted key. PostgreSQL/MySQL: the secret rows are `aes-256-gcm`
 ciphertext without the plaintext; the rate limit is a `Setting` row.
 **ALL DOCKER E2E CHECKS PASSED** for `DB=sqlite`, `DB=postgres` and
 `DB=mysql` on 2026-11-21 with the image built from this branch (d3eef01 + e2e changes).
+
+### Docker E2E: licence (2026-11-21, issue #25)
+
+`e2e/docker/run.sh` now starts a mock of the BuildBase licence API in its own
+container (`e2e/mock-licence/server.mjs`, alias `licence`); the server only
+gets `REELFORGE_LICENCE_SERVER_URL` and `REELFORGE_LICENCE_ORG_ID` and runs in
+the default `required` mode. From the client container an agent (MCP SDK):
+sees `unlicensed` in `get_capabilities` / `get_licence`, is refused
+`render_project` (`licence_required` with the fix), activates with
+`activate_licence` (valid, 1/1, key masked; the mock saw only `key` and
+`instance`, no credentials) and renders; with the licence container stopped,
+re-checks into `grace` (warning in capabilities and log, graceUntil = last
+success + 14 days) and still renders; with it back, the key is revoked and the
+next check refuses `render_project` and `preview_scene` (`licence_invalid`,
+reason and fix) while `list_renders` and the signed download still work; a key
+active elsewhere answers `limit_reached`; `deactivate_licence` frees the slot
+and `activate_licence` takes it again; `reelforge licence status` in the
+container shows it masked; no key in the server log; after a new container on
+the same volume the instance id is the same and re-activating takes no second
+slot. **ALL DOCKER E2E CHECKS PASSED** for `DB=sqlite` and `DB=postgres` on
+2026-11-21 (image built from this branch). Beyond-grace and clock cases are
+covered by server tests with an injected clock (`apps/server/test/licence.test.ts`).
 
 ## 4. Infrastructure inventory (no secrets)
 
@@ -209,6 +242,7 @@ used for tests.
 | 22 | studio | Product packaging v1: locked image, licence, config, pluggable database (tracking) |
 | 23 | studio | Database layer: repository interfaces + Prisma (done on the branch; see §3) |
 | 24 | studio | Configuration system: defaults < file < env < API/MCP runtime settings (done on the branch; see §3) |
+| 25 | studio | Licence activation: BuildBase licence API, daily validate, 14-day offline grace (done on the branch; see §3; follow-ups in D-038) |
 
 Upstream issues filed for BuildBase gaps met along the way: saas-os/os#2737–#2742,
 saas-os/sdk#389, comment on saas-os/os#2735, buildbase-app/nextjs-starter#18.

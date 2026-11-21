@@ -3,8 +3,10 @@
 # then drives it from a SEPARATE container on a Docker network (an agent on
 # "another machine"): MCP journey, auth/scope/validation negatives, Host/Origin
 # checks, configuration over MCP (#24: sources, a runtime change, a refused
-# start-up-only key, encrypted secrets), and a restart that must keep projects,
-# keys, renders and runtime settings.
+# start-up-only key, encrypted secrets), licence activation against a mock
+# licence server container (#25: unlicensed, activate, render, offline grace,
+# revoked, limit_reached, deactivate), and a restart that must keep projects,
+# keys, renders, runtime settings and the licence instance id.
 #
 #   e2e/docker/run.sh                 # build + test
 #   IMAGE=reelforge-studio:dev SKIP_BUILD=1 e2e/docker/run.sh
@@ -22,11 +24,16 @@ IMAGE=${IMAGE:-reelforge-studio:e2e}
 CLIENT_IMAGE=${CLIENT_IMAGE:-node:22-bookworm-slim}
 DB=${DB:-sqlite}
 NET=rf-e2e-net VOL=rf-e2e-data NAME=rf-e2e-server PORT=${PORT:-4321} PROJECT=rf-e2e
+# Licence (#25): a mock of the BuildBase licence API in its own container; the server only knows its URL.
+LIC=rf-e2e-licence LIC_ORG=6b01478bb42d2c444e99fcd8-mocklice
+lkey() { openssl rand -hex 13 | cut -c1-25 | tr 'a-f01' 'A-FGH' | sed 's/.\{5\}/&-/g;s/-$//'; }
+KEY_A=$(lkey) KEY_B=$(lkey) KEY_C=$(lkey)
+LICENCE_KEYS="[\"$KEY_A\",\"$KEY_B\",\"$KEY_C\"]"
 case "$DB" in sqlite|postgres|mysql) ;; *) echo "DB must be sqlite, postgres or mysql"; exit 2 ;; esac
 [ "$DB" = sqlite ] || NET=${PROJECT}_default
 WORK=$(mktemp -d); chmod 755 "$WORK"
 cleanup() {
-  docker rm -f $NAME >/dev/null 2>&1 || true
+  docker rm -f $NAME $LIC >/dev/null 2>&1 || true
   [ "$DB" = sqlite ] && { docker network rm $NET >/dev/null 2>&1 || true; } || docker compose -p $PROJECT --profile "$DB" down -v >/dev/null 2>&1 || true
   docker volume rm $VOL >/dev/null 2>&1 || true; rm -rf "$WORK"
 }
@@ -36,7 +43,7 @@ trap cleanup EXIT
 
 KEY=rf_$(openssl rand -hex 24)
 PLAIN_V01=sk_v01_plaintext_$(openssl rand -hex 8)
-mkdir -p "$WORK/secret" "$WORK/out" "$WORK/client" "$WORK/config"
+mkdir -p "$WORK/secret" "$WORK/out" "$WORK/client" "$WORK/config" "$WORK/mock"
 printf %s "$KEY" > "$WORK/secret/key"
 openssl rand -base64 32 > "$WORK/secret/secretkey"
 # The config file (REELFORGE_CONFIG): one source of settings; env and runtime settings override it.
@@ -51,6 +58,7 @@ esac
 for f in key dburl secretkey; do chown 10001 "$WORK/secret/$f" 2>/dev/null || chmod 644 "$WORK/secret/$f"; done
 chmod 777 "$WORK/out"
 cp e2e/docker/*.mjs examples/sample-reel.json "$WORK/client/"
+cp e2e/mock-licence/server.mjs "$WORK/mock/"; chmod -R a+rX "$WORK/mock"
 (cd "$WORK/client" && npm init -y >/dev/null && npm i -q --no-audit --no-fund @modelcontextprotocol/sdk@1.32.2 >/dev/null)
 
 start() {
@@ -60,12 +68,19 @@ start() {
     -v $VOL:/data -v "$WORK/secret/key:/run/secrets/key:ro" -e REELFORGE_BOOTSTRAP_KEY_FILE=/run/secrets/key "${dbenv[@]}" \
     -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secretkey \
     -v "$WORK/config/reelforge.yaml:/config/reelforge.yaml:ro" -e REELFORGE_CONFIG=/config/reelforge.yaml \
+    -e REELFORGE_LICENCE_SERVER_URL=http://licence:8080 -e REELFORGE_LICENCE_ORG_ID=$LIC_ORG \
     -e REELFORGE_ALLOWED_HOSTS=reelforge,reelforge:4321 "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && return; sleep 2; done
   docker logs $NAME; echo "server did not become healthy"; exit 1
 }
 client() { docker run --rm --network $NET -v "$WORK/client:/c:ro" -v "$WORK/out:/out" -w /c \
-  -e URL=http://reelforge:4321/mcp -e KEY="$KEY" -e SAMPLE=sample-reel.json -e PLAIN_V01="$PLAIN_V01" -e PHASE="${PHASE:-before}" "$CLIENT_IMAGE" node "$@"; }
+  -e URL=http://reelforge:4321/mcp -e KEY="$KEY" -e SAMPLE=sample-reel.json -e PLAIN_V01="$PLAIN_V01" -e PHASE="${PHASE:-before}" -e LICENCE_KEYS="$LICENCE_KEYS" "$CLIENT_IMAGE" node "$@"; }
+licence_server() {
+  docker run -d --name $LIC --network $NET --network-alias licence -v "$WORK/mock:/m:ro" -e ORG_ID=$LIC_ORG \
+    -e SEED_KEYS="[{\"key\":\"$KEY_A\",\"activationLimit\":1},{\"key\":\"$KEY_C\",\"activationLimit\":1}]" "$CLIENT_IMAGE" node /m/server.mjs >/dev/null
+  for _ in $(seq 1 30); do docker logs $LIC 2>&1 | grep -q 'mock licence server on' && return; sleep 1; done
+  docker logs $LIC; echo "mock licence server did not start"; exit 1
+}
 
 if [ "$DB" = sqlite ]; then
   docker network create $NET >/dev/null
@@ -75,6 +90,7 @@ else
     docker compose -p $PROJECT --profile "$DB" up -d --wait "$DB"
 fi
 docker volume create $VOL >/dev/null
+echo "== mock licence server (container \"licence\")"; licence_server
 echo "== seed a v0.1 data directory"
 docker run --rm -v $VOL:/data -v "$WORK/client:/c:ro" -w /c -e KEY="$KEY" -e PLAIN_V01="$PLAIN_V01" -e SAMPLE=sample-reel.json "$CLIENT_IMAGE" \
   sh -c 'node seed-v01.mjs && chown -R 10001:10001 /data'
@@ -88,6 +104,7 @@ api() { curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT$1"; }
 [ "$(api /v1/projects/legacy-v01/versions)" = '{"versions":[1,2]}' ] && echo "✔ v0.1 project imported with both versions; the imported key works" || { echo "✘ v0.1 import"; api /v1/projects/legacy-v01/versions; exit 1; }
 api /v1/projects/legacy-v01 | grep -q '"Made by v0.1, edited"' && echo "✔ current manifest is version 2" || { echo "✘ v0.1 manifest"; exit 1; }
 api /v1/themes/legacy-theme | grep -q '"legacy-theme"' && echo "✔ v0.1 theme imported" || { echo "✘ v0.1 theme"; exit 1; }
+echo "== licence: unlicensed, activate over MCP, render (mock licence server)"; PHASE=start client licence.mjs
 echo "== MCP journey (separate container)"; client journey.mjs
 echo "== ffprobe"; docker run --rm -v "$WORK/out:/o:ro" --entrypoint ffprobe "$IMAGE" -v error -count_frames \
   -show_entries stream=codec_name,width,height,r_frame_rate,nb_read_frames:format=duration -of compact /o/docker-e2e.mp4
@@ -97,6 +114,17 @@ mcp() { curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:$PORT/m
   -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' "$@" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'; }
 [ "$(mcp -H 'Host: evil.example')" = 403 ] && echo "✔ forged Host → 403" || { echo "✘ forged Host not refused"; exit 1; }
 [ "$(mcp -H 'Origin: https://evil.example')" = 403 ] && echo "✔ foreign Origin → 403" || { echo "✘ foreign Origin not refused"; exit 1; }
+echo "== licence: offline grace (licence server stopped)"
+docker stop $LIC >/dev/null
+PHASE=grace client licence.mjs
+docker logs $NAME 2>&1 | grep -q 'licence: licence server unreachable' && echo "✔ the grace warning is in the server log" || { echo "✘ no grace warning in the log"; docker logs $NAME 2>&1 | grep licence; exit 1; }
+echo "== licence: revoked, limit_reached, deactivate (licence server back)"
+docker rm -f $LIC >/dev/null; licence_server
+PHASE=revoke client licence.mjs
+docker exec $NAME reelforge licence status > "$WORK/licence.txt" && grep -q '^status: *valid' "$WORK/licence.txt" && grep -q "key: *${KEY_C:0:5}-\*\*\*\*\*" "$WORK/licence.txt" \
+  && echo "✔ reelforge licence status (CLI in the container): valid, key masked" || { echo "✘ reelforge licence status"; cat "$WORK/licence.txt"; exit 1; }
+sed 's/^/   /' "$WORK/licence.txt" | head -6
+for k in $KEY_A $KEY_B $KEY_C; do docker logs $NAME 2>&1 | grep -q "$k" && { echo "✘ the server log contains a licence key"; exit 1; }; done; echo "✔ no licence key in the server log"
 echo "== configuration over MCP (separate container)"
 docker logs $NAME 2>&1 | grep -q 'encrypted 1 stored secret(s) with REELFORGE_SECRET_KEY: ELEVENLABS_API_KEY' && echo "✔ v0.1 plaintext provider key encrypted once on start" || { echo "✘ plaintext provider key not encrypted"; docker logs $NAME; exit 1; }
 docker logs $NAME 2>&1 | grep -q 'config file: /config/reelforge.yaml' && echo "✔ config file read (REELFORGE_CONFIG)" || { echo "✘ config file not read"; exit 1; }
@@ -115,6 +143,7 @@ after=$(curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/v1/proje
 docker logs $NAME 2>&1 | grep -q 'imported v0.1' && { echo "✘ v0.1 data imported a second time"; exit 1; } || echo "✔ no second import after the restart"
 docker logs $NAME 2>&1 | grep -q 'encrypted .* stored secret' && { echo "✘ secrets encrypted a second time"; exit 1; } || echo "✔ no second encryption pass after the restart"
 echo "== configuration after the restart"; PHASE=after client config.mjs
+echo "== licence after the restart"; PHASE=restart client licence.mjs
 case "$DB" in
   postgres) n=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT count(*) FROM "Project"') ;;
   mysql) n=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT count(*) FROM Project') ;;
@@ -126,6 +155,15 @@ case "$DB" in
   mysql) rows=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT name, scheme, value FROM ProviderSetting UNION ALL SELECT `key`, scheme, value FROM Setting') ;;
   *) rows=skip ;;
 esac
+case "$DB" in
+  postgres) lic=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT * FROM "LicenceState"') ;;
+  mysql) lic=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT * FROM LicenceState') ;;
+  *) lic=skip ;;
+esac
+if [ "$lic" != skip ]; then
+  echo "$lic" | grep -q "$(cat "$WORK/out/instance.txt")" && ! echo "$lic" | grep -q "$KEY_A\|$KEY_B\|$KEY_C" \
+    && echo "✔ the licence state is a row in $DB (instance id, no key)" || { echo "✘ unexpected LicenceState in $DB"; echo "$lic" | cut -c1-80; exit 1; }
+fi
 if [ "$rows" != skip ]; then
   echo "$rows" | grep -E 'ELEVENLABS_API_KEY.aes-256-gcm' >/dev/null && echo "$rows" | grep -E 'licence.key.aes-256-gcm' >/dev/null && echo "$rows" | grep -E 'limits.rateLimitPerMinute.plain.600' >/dev/null \
     && ! echo "$rows" | grep -q "$PLAIN_V01\|LIC-E2E" && echo "✔ secrets are AES-256-GCM ciphertext in $DB; the runtime rate limit is a row" || { echo "✘ unexpected settings rows in $DB"; echo "$rows" | cut -c1-60; exit 1; }

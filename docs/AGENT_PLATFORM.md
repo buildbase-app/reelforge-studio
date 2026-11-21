@@ -141,7 +141,8 @@ Implemented extras (v0.1): `GET /v1/templates`, `GET /v1/projects/:id/versions`,
 `PUT /v1/projects/:id/theme`, `PATCH /v1/projects/:id/audio`, `GET /v1/jobs`,
 `POST /v1/jobs/:id/retry`, `GET /v1/renders/:id`, `GET /v1/assets`,
 `GET /v1/providers`, `PUT /v1/providers/:id/config` (admin), `GET /v1/config` and
-`PATCH /v1/config` (admin; configuration, see docs/CONFIG.md). The machine-readable table with the matching MCP tool and
+`PATCH /v1/config` (admin; configuration, see docs/CONFIG.md), `GET /v1/licence`
+(read) and `POST`/`DELETE /v1/licence` (admin; licence, see docs/DEPLOY.md). The machine-readable table with the matching MCP tool and
 scope of every route is `apps/server/src/routes.ts`; `test/parity.test.ts`
 fails if REST and MCP drift apart.
 
@@ -244,9 +245,10 @@ that was run; "partial" says what is missing.
 | §6 Outputs: MP4, render manifest, poster; signed URL when remote | done (local) | Download with Range and Bearer key, or a signed time-limited `downloadUrl` (HMAC, one file, 1 h) that needs no key; no remote storage yet |
 | Provider configuration over the API (agent-only operation) | done | `configure_provider` / `PUT /v1/providers/:id/config` (admin); values stored encrypted (AES-256-GCM, `REELFORGE_SECRET_KEY`, D-033) and never returned; `list_providers` reports set/source |
 | Configuration everywhere (#24, D-029, D-031..D-034) | done | One schema (docs/CONFIG.md); defaults < `REELFORGE_CONFIG` file < env (`_FILE` for secrets) < runtime settings in the database; `get_config` / `update_config`, `GET`/`PATCH /v1/config` (admin, audit-logged); start-up-only keys refused with where to set them; `reelforge config check` / `show`; Docker e2e on SQLite and PostgreSQL |
+| Licence activation (#25, D-028, D-035..D-038) | done | BuildBase licence API (key + instance id only), `LicenceState` table on all three databases, daily validate, 14-day offline grace, backoff, clock checks; renders/previews refused with `licence_required` / `licence_invalid` + fix; `get_licence` / `activate_licence` / `deactivate_licence`, `/v1/licence`, `reelforge licence`; unit tests (mock LicensesApi), server tests (mock licence server, injected clock), Docker e2e on SQLite and PostgreSQL, one live check against the dev environment. `licence.mode: trial` reserved |
 | Workflow guide for agents without docs | done | MCP resource `reelforge://guide/workflow` and prompt `make_reel`; the guide's manifest is validated by a test |
 | §6 Assets: upload or URL, licence, checksum | done | Content-addressed store, byte sniffing, https only, SSRF guard at connect time, size limit |
-| §7 MCP tools (24 in the spec) | done | All 24 + 19 extras; official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 MCP tools (24 in the spec) | done | All 24 + 22 extras; official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 Resources and prompts `plan_reel`, `review_reel` | done | MCP tests |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |

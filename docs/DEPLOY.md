@@ -47,6 +47,7 @@ The ones most deployments set:
 | `REELFORGE_ALLOWED_HOSTS` | (none) | Extra host names accepted on `/mcp` (runtime-changeable) |
 | `REELFORGE_RENDER_CONCURRENCY` | `1` | Renders at the same time (runtime-changeable) |
 | `ELEVENLABS_API_KEY` (`_FILE`) | (none) | ElevenLabs TTS; or set by an admin agent with `configure_provider` / `update_config` (`providers.elevenlabs.apiKey`), stored encrypted |
+| `REELFORGE_LICENCE_KEY` (`_FILE`) | (none) | Your licence key; or set by an admin agent with `activate_licence` / `POST /v1/licence` (stored encrypted). Renders need an activated key, see [Licence](#licence) |
 
 Check a configuration without starting the server, and print the effective one
 (secrets redacted, runtime values from the database included):
@@ -76,6 +77,57 @@ afterwards (the server warns while it exists). Starting with a different or no
 key leaves stored secrets unreadable: the server still starts, and
 `get_config` / `list_providers` show the error. Secrets are never returned by
 the API, logged, or put in error messages.
+
+### Licence
+
+ReelForge activates with the licence key from your purchase (D-028). Without
+a valid licence everything works except **new renders and previews**
+(`render_project`, `preview_scene`, `retry_job` answer `403 licence_required`
+or `licence_invalid` with what is wrong and how to fix it); projects, renders
+and downloads stay available.
+
+Set the key one of these ways:
+
+```bash
+# an admin agent (MCP): activate_licence { "key": "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2" }
+curl -X POST -H "Authorization: Bearer $ADMIN_KEY" -H 'content-type: application/json' \
+  -d '{"key":"ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2"}' https://studio.example.com/v1/licence
+docker exec <container> reelforge licence activate ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2
+# or before the start: REELFORGE_LICENCE_KEY / REELFORGE_LICENCE_KEY_FILE
+```
+
+The first two store it encrypted, so they need `REELFORGE_SECRET_KEY`.
+`GET /v1/licence` / `get_licence` / `reelforge licence status` show the
+status (`valid`, `grace`, `invalid`, `unlicensed`), the reason, the last
+check, how long the server keeps working offline, and activations used of
+the limit; the key is shown as its first group only.
+
+- **Network.** The server needs outbound HTTPS to `api.console.buildbase.app`
+  once to activate, then checks once a day. It never waits for it at start.
+  It sends only the key and a random instance id (docs/PRIVACY.md). **Behind
+  an HTTPS proxy** set `HTTPS_PROXY=http://proxy:3128` **and**
+  `NODE_USE_ENV_PROXY=1` (Node's built-in fetch ignores the proxy variables
+  without it; Node 22.21 or later, which the image has) and, for a
+  TLS-intercepting proxy, `NODE_EXTRA_CA_CERTS=/path/to/ca.pem`.
+- **Offline.** If the licence server cannot be reached, renders keep working
+  for **14 days after the last successful check** (`grace`, with a warning in
+  `get_capabilities`, `/v1/licence` and the log). After that they are refused
+  until a check succeeds; `POST /v1/licence` with an empty body (or
+  `activate_licence {}`) checks at once. `REELFORGE_LICENCE_OFFLINE_GRACE_DAYS`
+  can only shorten the period. Setting the system clock back does not extend
+  it.
+- **Moving to another server.** The activation belongs to the database (the
+  instance id is stored there), so moving the data volume / database moves the
+  activation. For a new installation, free the old one first:
+  `deactivate_licence` / `DELETE /v1/licence` / `reelforge licence deactivate`,
+  then activate on the new server. A key over its activation limit answers
+  `limit_reached`.
+- **Development and CI.** `REELFORGE_LICENCE_MODE=off` lets renders run without
+  a licence (`pnpm dev` sets it). `required` is the default. Do not use `off`
+  in production; it is not a licence.
+- **CLI and a running server.** `reelforge licence ...` works on the database
+  directly; a running server reads a key stored by the CLI after a restart
+  (use the API to change a running server).
 
 ### The first key, then everything from the agent
 

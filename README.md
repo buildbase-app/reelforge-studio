@@ -46,7 +46,7 @@ this repo".
 ## What works today
 
 - **Server** (`apps/server`): REST `/v1` and MCP `/mcp` (official MCP SDK,
-  Streamable HTTP) over the same handlers; 43 MCP tools, resources (incl. a workflow guide), prompts
+  Streamable HTTP) over the same handlers; 46 MCP tools, resources (incl. a workflow guide), prompts
   `make_reel`/`plan_reel`/`review_reel`; API keys with scopes; per-key rate limit; jobs
   with progress (SSE), logs, cancel and retry; output download with Range.
 - **Manifest v0.2** (`packages/project-schema`): brief, theme, per-scene
@@ -63,6 +63,11 @@ this repo".
 - **Providers/backends**: ElevenLabs TTS (word timestamps, cost
   acknowledgement, content-hash cache; tested with a mocked API only);
   remotion-lambda reports its configuration but does not render in v0.1.
+- **Licence**: activates with the purchase's licence key through BuildBase
+  (only the key and a random instance id are sent; daily check, 14 days
+  offline grace); without a valid licence renders are refused and everything
+  else works. `REELFORGE_LICENCE_MODE=off` for development (`pnpm dev` sets it).
+  See docs/DEPLOY.md#licence.
 - **Deployment**: Dockerfile and compose (built and run here), deploy guides.
 
 ## Licensing: read before you sell or deploy

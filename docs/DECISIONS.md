@@ -564,3 +564,94 @@ with the names set or cleared). Errors: `invalid_setting` (422, unknown key or
 invalid value), `startup_only_setting` (409), `secret_key_required` (409), with
 `details.issues` listing every problem.
 
+
+## K. Licence activation (2026-11-21, issue #25, built from D-028)
+
+### D-035 --- The BuildBase licence API over plain HTTP; the SDK is not a runtime dependency
+
+**Status:** DECIDED (reversible).\
+The studio talks to the same three routes `LicensesApi` of `@buildbase/sdk`
+1.8.0 calls (`POST {serverUrl}/api/v1/licenses/{orgId}/{validate|activate|deactivate}`,
+body `{ key, instance }`, no credentials; research/SOURCES.md 27) with a
+60-line client (`BuildBaseLicenceClient`, `packages/core/src/licence.ts`).
+**Why not the SDK package:** it is a web SDK whose dependencies are React UI
+libraries (Radix, lucide-react, react-hook-form, socket.io-client, ...) with
+peer dependencies on `next`, `react` and `react-dom`, 17 MB unpacked before
+those; pnpm installs peers by default, so a locked server image (D-027) would
+carry a web framework to make three POSTs. **Kept compatible:** the module's
+`LicenceApi` interface has the SDK class's method signatures, so an SDK
+instance can be passed in unchanged; the answer type mirrors
+`LicenseCheckView`. **Verified:** our client against the real dev environment
+(activate, status, deactivate), then the SDK's own `LicensesApi.validate`
+confirmed the freed slot (SOURCES 28). If BuildBase ships a server-only entry
+point without UI dependencies, switching is a one-line change.
+Configuration: `licence.serverUrl` (default `https://api.console.buildbase.app`)
+and `licence.orgId` (default the production org `6b01478bb42d2c444e99fcd8`; a
+test environment is `<orgId>-<environment key>`, D-030), both start-up only.
+
+### D-036 --- Licence state and instance id live in the database
+
+**Status:** DECIDED (reversible).\
+A `LicenceState` row per workspace (migration `0003_licence_state` for SQLite,
+PostgreSQL and MySQL; `LicenceRepository` with contract tests on all three)
+holds the instance id, the last answer (JSON), last check, last success,
+last error, activation and deactivation times, next check and the latest
+clock time seen. The instance id (`rf-<UUID>`) is created once (atomic insert,
+so two processes starting together agree). **The key is not in this table**:
+it is the encrypted runtime setting `licence.key` (D-033) or comes from the
+file/env; `keyHash` (HMAC-SHA256 keyed with the instance id) says which key the
+stored answer belongs to, so changing the key starts over. Issue #25 said
+"created once on the data volume"; with SQLite the database *is* on the volume,
+and with PostgreSQL/MySQL the activation follows the database, which is where
+the rest of the installation's state is. Moving the database (or SQLite volume)
+moves the activation; a fresh database is a new installation and needs a free
+slot (`deactivate_licence` on the old one).
+
+### D-037 --- Licence states, what is refused, offline grace, retries and clock checks
+
+**Status:** DECIDED (reversible in details; the 14-day grace and "read and
+export keep working" are D-028).\
+States: **valid**; **grace** (the last attempt failed for lack of an answer
+and the last success is at most `offlineGraceDays` old: full use, warning in
+`get_capabilities`, `/v1/licence` and the log); **invalid** (the licence server
+said no: `not_found`, `revoked`, `expired`, `not_yet`, `limit_reached`,
+`not_activated`; or `grace_expired`, `unreachable` before any success,
+`clock_skew`, `deactivated`); **unlicensed** (no key); **checking** (first
+check running). An explicit "no" applies at once even if the server goes
+offline afterwards. **Refused when not allowed:** `render_project`,
+`preview_scene` and `retry_job` of a render, with `403 licence_required` /
+`licence_invalid` and `details.licence` (status, reason, message, fix);
+everything else (reading, listing, editing, exporting, downloads) works.
+**`licence.mode`:** `required` is the schema default, so a sold image that
+loses its environment still requires a licence; `off` is for development and
+CI (renders allowed, a configured key is still checked and reported; `pnpm
+dev` sets it); `trial` is reserved (TODO, behaves as `required`). Without a
+key nothing is sent. **Timing:** activate on first start and when the key
+changes (also through `update_config`), validate at start and every 24 h; a
+`validate` answering `not_activated` re-activates (the slot was freed
+elsewhere). Start-up never waits for the network; a render waits up to 20 s for
+a check already running. **Backoff:** failures (network, timeout 15 s, 429,
+5xx, unexpected answers) retry after 1 min, doubling up to 6 h, never sooner
+than `Retry-After`, with up to 10 % jitter. **Grace:** counted from the last
+success; `offlineGraceDays` may be set lower than 14, not higher. **Clock:** a
+last success more than 10 minutes in the future, or a clock more than 10
+minutes behind the latest time seen, gives no grace (`clock_skew`); a fresh
+success resets the reference. **Deactivate** is sticky: the server does not
+take the slot again by itself (restarts included) until `activate_licence`.
+`POST /v1/licence` without a key re-checks at once. Every activation and
+deactivation is audit-logged with the masked key.
+
+### D-038 --- Honest limits of the licence check
+
+**Status:** RECORDED (founder awareness; follow-ups proposed).\
+The operator controls the machine, so the check is a deterrent, not DRM
+(D-027 "layered protection"): `licence.mode: off`, `licence.serverUrl`
+pointing at a fake server that always answers `valid`, a frozen clock, or a
+patched image all bypass it. BuildBase's answers are not signed, so the studio
+cannot tell a real answer from a fake one. Proposed follow-ups, not done:
+(1) ask BuildBase for signed licence answers (or a signed licence file, which
+is also the air-gapped enterprise option in D-028) and verify the signature
+with a public key built into the image; (2) in the sold image, refuse `off`
+and a non-default `serverUrl` unless a build flag allows them (the e2e image
+would set it). Neither is needed for the first sale; both are cheap once
+BuildBase signs answers.

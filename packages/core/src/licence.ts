@@ -459,7 +459,7 @@ export class LicenceManager {
     const sig = `${r.status}|${r.reason}|${r.status === 'grace' ? r.lastError?.at : ''}`;
     if (sig === this.lastLogged) return;
     this.lastLogged = sig;
-    const level = r.status === 'valid' ? 'info' : r.status === 'grace' || r.renderAllowed ? 'warn' : 'error';
+    const level = r.status === 'valid' ? 'info' : r.status === 'grace' || r.renderAllowed || r.reason === 'deactivated' ? 'warn' : 'error';
     this.log(level, why && why !== 'scheduled' && r.status === 'valid' ? `${line} [${why}]` : line);
   }
 

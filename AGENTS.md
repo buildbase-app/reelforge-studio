@@ -110,7 +110,7 @@ system.
 ### Layout
 
 ```
-apps/server/              REST /v1 + MCP /mcp (Hono), CLI (keys, migrate, config check|show)
+apps/server/              REST /v1 + MCP /mcp (Hono), CLI (keys, migrate, config check|show, licence)
   src/app.ts              REST routes, auth, rate limit, /mcp Host/Origin checks
   src/mcp.ts              MCP tools/resources/prompts (thin wrappers over the service)
   src/routes.ts           REST route table <-> MCP tool map (checked by test/parity.test.ts)
@@ -120,7 +120,8 @@ packages/core/            plugin interfaces + registry, ReelforgeService (every 
                           repository interfaces (src/repositories.ts) + in-memory impl,
                           project/theme/asset/key stores, job runner, render pipeline,
                           v0.1 filesystem importer, ElevenLabs provider, remotion-lambda skeleton,
-                          src/config/ (THE settings schema, sources, AES-GCM secrets, runtime layer)
+                          src/config/ (THE settings schema, sources, AES-GCM secrets, runtime layer),
+                          src/licence.ts (licence activation, grace, render gate; D-035..D-038)
 packages/db/              Prisma 7 repositories (SQLite default, PostgreSQL, MySQL by DATABASE_URL),
                           migrator, prisma/base.prisma (the one schema source), migrations/
 packages/project-schema/  manifest v0.2 (+ v0.1 migration), template catalog, themes
@@ -141,11 +142,12 @@ pnpm test                                # all packages; engine tests skip witho
 REELFORGE_REQUIRE_BROWSER=1 pnpm test    # CI mode: a missing browser fails instead of skipping
 pnpm spike                               # renders out/sample-reel/final.mp4
 pnpm keys:create --name me               # API key (printed once), REELFORGE_DATA_DIR=./data
-pnpm dev                                 # server with watch on 127.0.0.1:4321
+pnpm dev                                 # server with watch on 127.0.0.1:4321 (REELFORGE_LICENCE_MODE=off)
 pnpm start                               # server without watch
 pnpm reelforge keys list|delete <id>     # other CLI commands
 pnpm reelforge migrate [--status]        # database migrations (also run on start)
 pnpm reelforge config check|show         # validate / print the configuration (docs/CONFIG.md)
+pnpm reelforge licence status|activate|deactivate   # licence (docs/DEPLOY.md#licence)
 pnpm docs:config                         # regenerate docs/CONFIG.md after changing the config schema
 TEST_POSTGRES_URL=... TEST_MYSQL_URL=... pnpm --filter @reelforge/db test   # contract tests on every DB
 REELFORGE_TEST_DB=postgres pnpm --filter @reelforge/server test             # server e2e on PostgreSQL
@@ -178,6 +180,9 @@ REELFORGE_TEST_DB=postgres pnpm --filter @reelforge/server test             # se
   a direct `process.env` read; then `pnpm docs:config`. A runtime setting must
   take effect without a restart (see `applySettings` / `applyServerSettings`).
 - No telemetry, no new network egress without listing it in docs/PRIVACY.md.
+- Licence: tests never call the real licence server. Use `REELFORGE_LICENCE_MODE=off`,
+  a mock `LicenceApi` (packages/core/test/licence.test.ts) or the mock licence
+  server `e2e/mock-licence/server.mjs` (`REELFORGE_LICENCE_SERVER_URL`).
 - Pin new runtime dependencies to versions you checked on the registry and add
   them to LICENSES/THIRD_PARTY.md.
 
