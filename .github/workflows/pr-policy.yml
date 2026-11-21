@@ -35,10 +35,19 @@ jobs:
             const { checkPullRequest, renderComment } = require('./.github/scripts/pr-policy.cjs');
             const pr = context.payload.pull_request;
             const files = await github.paginate(github.rest.pulls.listFiles, { ...context.repo, pull_number: pr.number, per_page: 100 });
+            // author_association hides private organization membership (a member shows as CONTRIBUTOR to
+            // this token), so ask for the author's actual permission on this repository instead.
+            let role = 'none';
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ ...context.repo, username: pr.user.login });
+              role = data.role_name || data.permission || 'none';
+            } catch (e) {
+              core.warning(`Could not read the permission of ${pr.user.login}: ${e.message}`);
+            }
             const result = checkPullRequest({
               branch: pr.head.ref, base: pr.base.ref, title: pr.title, body: pr.body,
               author: pr.user.login,
-              isMaintainer: ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(pr.author_association),
+              isMaintainer: ['admin', 'maintain'].includes(role),
               files: files.map((f) => f.filename),
               changedLines: pr.additions + pr.deletions,
               draft: pr.draft,
