@@ -157,7 +157,7 @@ injected clock; also run with `REELFORGE_TEST_DB=postgres` and `mysql`) and
 `apps/server/test/parity.test.ts`; *Docker* `e2e/docker/run.sh` step
 `audit.mjs` (an agent in a separate container over MCP; release image,
 hardened flags) on SQLite and PostgreSQL, with an OpenTelemetry Collector
-container.
+container (SQLite: 137 checks, PostgreSQL: 141, all passed).
 
 | ID | What it checks | How | Result |
 | --- | --- | --- | --- |
