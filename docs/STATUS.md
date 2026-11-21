@@ -32,7 +32,7 @@ v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
 decode checks, signed download links, provider configuration over the API,
 ElevenLabs TTS (mocked tests only), remotion-lambda skeleton, Docker image +
-compose. 184 tests pass locally with `REELFORGE_REQUIRE_BROWSER=1`, including
+compose. 185 tests pass locally with `REELFORGE_REQUIRE_BROWSER=1`, including
 MCP and REST journeys against a real server process. GitHub CI green on 9f62297 (run 44901451314: tests with
 `REELFORGE_REQUIRE_BROWSER=1` incl. MCP/REST e2e, spike, Docker build + smoke).
 Per-item status: `docs/AGENT_PLATFORM.md` §10.
@@ -42,6 +42,30 @@ Per-item status: `docs/AGENT_PLATFORM.md` §10.
 signed webhooks stored in D1, hackathon tracker connected. Live:
 https://reelforge.buildbase.app. Test copy: https://reelforge-dev.buildbase.app
 (ReelForge Test org, Stripe test keys). No buy flow yet (#2).
+
+### Docker E2E acceptance (2026-11-21, issue #16)
+
+Reproduce with `e2e/docker/run.sh` (add `CLAUDE=1` for the headless Claude
+run). Image built from the working tree; server in one container, client in
+another on a Docker network (agent "on another machine").
+
+| Check | Result |
+| --- | --- |
+| Image builds; container healthy; non-root (UID 10001) | pass |
+| MCP journey (official SDK client, other container): capabilities, themes, templates, create (v0.1 migrated), add/update scenes with timing, set theme, validate, render, long-poll, signed download | pass: 1080×1920, 30 fps, H.264 + AAC, 330 frames (= sum of scene frames), 4 engines |
+| No key / wrong key / revoked key | 401 |
+| Read-only key: write or key admin | 403 |
+| Keys created and revoked by an agent over the API | pass |
+| Invalid manifest | 422 `invalid_manifest` with paths |
+| Forged `Host` / foreign `Origin` on `/mcp` | 403 (DNS-rebinding protection) |
+| New container on the same volume | projects, keys, renders kept |
+| Headless Claude Code, MCP only, no docs | pass (see A2); one self-corrected invalid manifest (`brief` as string) |
+
+Found and fixed during the run: agents polled `get_job` in a tight loop and
+ran out of turns (first Claude run: 61 turns, render actually succeeded).
+`get_job` now takes `waitSeconds` (≤ 50) and REST `GET /v1/jobs/:id?wait=N`
+long-polls; tool descriptions say so. Found and documented: a
+`*_FILE` secret must be readable by UID 10001.
 
 ## 4. Infrastructure inventory (no secrets)
 
@@ -97,13 +121,13 @@ end-to-end testing; production keeps live keys and is not used for tests.
 | Step | Status | Issue |
 | --- | --- | --- |
 | A1 one-command server + keys | done (`pnpm dev` / `docker compose up`; bootstrap key env/_FILE or CLI) | #9 |
-| A2 MCP: create/edit/theme/render/output | done (SDK-client journey against a real server process); untested with Claude Code/Codex/Cursor themselves | #9 |
+| A2 MCP: create/edit/theme/render/output | **done and accepted in Docker (2026-11-21, #16)**: SDK-client journey from a separate container, and headless **Claude Code** made an 18 s, 4-engine reel over MCP only (12 turns, 2 `get_job` long-polls, 112 s, ≈ $0.32). Codex/Cursor untested (#33) | #9, #16 |
 | A3 engines: Remotion, Motion Canvas, HTML, HyperFrames | done (4 of 4, one MP4 in the e2e test) | #9 |
 | A4 Docker image + deploy docs | done for Docker/compose (built, healthy, offline render); cloud recipes untested | #9 |
 | B1 selling configured in test org | blocked: founder turns on Stripe Connect (test) | #8 |
-| B2 buy flow, order page, licences page | not started (after B1) | #2 |
-| B3 legal/trust pages | drafts possible; needs founder details | #3 |
-| B4 demo leftovers removed | not started | #1 |
+| B2 buy flow, order page, licences page | code done and deployed; purchase untested (after B1) | #2 |
+| B3 legal/trust pages | drafts live with placeholders; must move to the locked-image model (D-015) | #3 |
+| B4 demo leftovers removed | done | #1 |
 | B5 test purchase verified end to end | after B1–B2 | #2 |
 
 ## 7. Backlog

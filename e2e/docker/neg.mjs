@@ -1,0 +1,17 @@
+const B = 'http://reelforge:4321', A = process.env.KEY; let fail = 0;
+const req = (p, o = {}, k) => fetch(B + p, { ...o, headers: { 'content-type': 'application/json', ...(k ? { authorization: `Bearer ${k}` } : {}) } });
+const check = (name, got, want) => { const ok = got === want; if (!ok) fail++; console.log(`${ok ? '✔' : '✘'} ${name}: ${got} (want ${want})`); };
+check('no key → /v1/projects', (await req('/v1/projects')).status, 401);
+check('wrong key', (await req('/v1/projects', {}, 'rf_' + 'x'.repeat(48))).status, 401);
+check('no key → /mcp', (await fetch(B + '/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' })).status, 401);
+const kr = await req('/v1/keys', { method: 'POST', body: JSON.stringify({ name: 'readonly-e2e', scopes: ['read'] }) }, A); const k = await kr.json();
+check('admin creates read-only key via API', kr.status, 201);
+const RO = k.key ?? k.secret ?? k.apiKey;
+check('read-only key can list projects', (await req('/v1/projects', {}, RO)).status, 200);
+check('read-only key cannot create project', (await req('/v1/projects', { method: 'POST', body: '{"manifest":{}}' }, RO)).status, 403);
+check('read-only key cannot create keys', (await req('/v1/keys', { method: 'POST', body: '{"name":"x","scopes":["admin"]}' }, RO)).status, 403);
+const bad = await req('/v1/projects', { method: 'POST', body: JSON.stringify({ manifest: { schemaVersion: '0.2', projectId: 'bad', output: { width: 1080, height: 1920, fps: 0 }, scenes: [] } }) }, A);
+const bj = await bad.json(); check('invalid manifest rejected', bad.status, 422); console.log('   error:', JSON.stringify(bj).slice(0, 220));
+const id = k.id ?? k.key?.id ?? k.record?.id; check('admin revokes key via API', (await req(`/v1/keys/${id}`, { method: 'DELETE' }, A)).status, 204);
+check('revoked key rejected', (await req('/v1/projects', {}, RO)).status, 401);
+process.exit(fail ? 1 : 0);

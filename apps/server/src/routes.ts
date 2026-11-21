@@ -46,7 +46,7 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'POST', path: '/v1/jobs/:id/cancel', scope: 'render', tool: 'cancel_job' },
   { method: 'POST', path: '/v1/jobs/:id/retry', scope: 'render', tool: 'retry_job' },
   { method: 'GET', path: '/v1/jobs/:id/logs', scope: 'read', tool: 'get_job_logs' },
-  { method: 'GET', path: '/v1/jobs/:id/events', scope: 'read', tool: 'get_job', note: 'SSE stream in REST; MCP clients poll get_job.' },
+  { method: 'GET', path: '/v1/jobs/:id/events', scope: 'read', tool: 'get_job', note: 'SSE stream in REST; MCP clients call get_job with waitSeconds (long-poll).' },
   { method: 'GET', path: '/v1/renders/:id', scope: 'read', tool: 'get_render_output' },
   {
     method: 'GET',

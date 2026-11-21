@@ -22,7 +22,7 @@ behaviour, marked VERIFY), macOS, Windows, ARM.
 | `REELFORGE_PUBLIC_URL` | (none) | `https://studio.example.com`: used in output links and allowed as Host on `/mcp` |
 | `REELFORGE_ALLOWED_HOSTS` | (none) | Extra comma-separated host names accepted on `/mcp` |
 | `REELFORGE_BOOTSTRAP_KEY` | (none) | `rf_` + 20 or more URL-safe characters. Stored (hashed) as an admin key named `bootstrap` on first start if no key exists |
-| `REELFORGE_BOOTSTRAP_KEY_FILE` | (none) | Same, read from a file (Docker/Kubernetes secrets). The variable wins if both are set |
+| `REELFORGE_BOOTSTRAP_KEY_FILE` | (none) | Same, read from a file (Docker/Kubernetes secrets). The variable wins if both are set. The file must be readable by the container user (UID 10001): Compose/Kubernetes secrets are by default; for a bind mount use `chown 10001` or mode 0444 |
 | `REELFORGE_CHROMIUM_PATH` | (none; set in Docker) | Chrome Headless Shell binary used by every engine |
 | `REELFORGE_CHROMIUM_NO_SANDBOX` | (unset; `1` in Docker) | Turn Chromium's own sandbox off (containers) |
 | `REELFORGE_RENDER_CONCURRENCY` | `1` | Renders at the same time. Each uses several CPU cores and 1-2 GB RAM |

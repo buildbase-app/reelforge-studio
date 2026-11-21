@@ -286,7 +286,7 @@ export const TOOLS: ToolDef[] = [
     name: 'preview_scene',
     title: 'Render a quick preview',
     description:
-      'Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted. Returns a job; poll get_job, then get_render_output (includes a poster image).',
+      'Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image).',
     scope: 'render',
     input: { projectId, sceneId: z.string().optional(), scale: z.number().gt(0).max(1).optional() },
     run: async (a, { service }) => ({ job: await service.preview(a.projectId, { sceneId: a.sceneId, scale: a.scale }) }),
@@ -295,7 +295,7 @@ export const TOOLS: ToolDef[] = [
     name: 'render_project',
     title: 'Render the project',
     description:
-      'Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Poll get_job every few seconds until status is succeeded or failed, then call get_render_output.',
+      'Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Then call get_job with waitSeconds: 45 (repeat while it is still running) until status is succeeded or failed, then call get_render_output.',
     scope: 'render',
     input: { projectId, backend: z.string().optional().describe('Render backend id; default from the manifest ("local").') },
     run: async (a, { service }) => ({ job: await service.startRender(a.projectId, { backend: a.backend }) }),
@@ -303,11 +303,21 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'get_job',
     title: 'Get job status',
-    description: 'Status of a render/preview job: queued, running (with progress stage and fraction), succeeded (result has renderId and output URLs), failed (error with code and stage) or cancelled.',
+    description:
+      'Status of a render/preview job: queued, running (with progress stage and fraction), succeeded (result has renderId and output URLs), failed (error with code and stage) or cancelled. Renders take from seconds to several minutes: pass waitSeconds (up to 50) to wait for the job to finish instead of calling this repeatedly; it returns early as soon as the job finishes, otherwise the current progress.',
     scope: 'read',
-    input: { jobId: z.string() },
+    input: {
+      jobId: z.string(),
+      waitSeconds: z
+        .number()
+        .int()
+        .min(0)
+        .max(50)
+        .optional()
+        .describe('Wait up to this many seconds for the job to finish (0 = answer at once). Use 45 while a render runs.'),
+    },
     annotations: { readOnlyHint: true },
-    run: async (a, { service }) => service.getJob(a.jobId),
+    run: async (a, { service }) => service.waitForJob(a.jobId, a.waitSeconds ?? 0),
   },
   {
     name: 'cancel_job',
@@ -339,7 +349,7 @@ export const TOOLS: ToolDef[] = [
       let renderId = a.renderId as string | undefined;
       if (!renderId && a.jobId) {
         const job = service.getJob(a.jobId);
-        if (job.status !== 'succeeded') throw new ApiError('job_not_finished', 409, `job ${a.jobId} is ${job.status}; poll get_job until it succeeds`, { error: job.error });
+        if (job.status !== 'succeeded') throw new ApiError('job_not_finished', 409, `job ${a.jobId} is ${job.status}; call get_job with waitSeconds: 45 until it succeeds`, { error: job.error });
         renderId = job.result?.renderId as string;
       }
       if (!renderId) throw new ApiError('bad_request', 400, 'give renderId or jobId');
@@ -551,7 +561,7 @@ done with tools; there is no UI.
    configured TTS provider and acknowledgeCost: true after the user agreed.
 7. validate_project until ok: true (warnings are fine but read them).
 8. Optional quick look: preview_scene (low resolution), then get_render_output.
-9. render_project -> poll get_job every 3-5 s until succeeded/failed ->
+9. render_project -> get_job with waitSeconds 45 (repeat while running) until succeeded/failed ->
    get_render_output. Give the user downloadUrl (works without a key for ~1 h).
    If it failed: get_job_logs, fix, render again (or retry_job).
 

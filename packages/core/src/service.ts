@@ -23,6 +23,9 @@ import { LocalBackend } from './backends/local';
 import { ApiError, badRequest, invalidManifest, notFound } from './errors';
 import { newId, readJson, writeJsonAtomic } from './fsutil';
 import { JobRunner, type JobContext, type JobRecord } from './jobs';
+
+/** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
+export const MAX_JOB_WAIT_SECONDS = 50;
 import { KeyStore, type Scope } from './keys';
 import { applyMergePatch, isPlainObject } from './mergePatch';
 import type { BackendContext, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
@@ -227,7 +230,7 @@ export class ReelforgeService {
         'list_templates and list_themes to see what exists',
         'create_project with a manifest (schemaVersion "0.2"; "0.1" is migrated)',
         'edit with add_scene / update_scene / set_theme / set_audio; validate_project after edits',
-        'render_project, then poll get_job until succeeded, then get_render_output',
+        'render_project, then get_job with waitSeconds: 45 until succeeded, then get_render_output',
       ],
     };
   }
@@ -611,6 +614,16 @@ export class ReelforgeService {
     const job = this.jobs.get(id);
     const pos = this.jobs.queuePosition(id);
     return { ...job, ...(pos !== null ? { queuePosition: pos } : {}) };
+  }
+  /**
+   * Like getJob, but waits up to `waitSeconds` (capped at MAX_JOB_WAIT_SECONDS)
+   * for the job to finish. Returns the current state either way, so agents can
+   * long-poll instead of calling get_job in a tight loop.
+   */
+  async waitForJob(id: string, waitSeconds = 0) {
+    const secs = Math.min(Math.max(0, waitSeconds), MAX_JOB_WAIT_SECONDS);
+    if (secs > 0) await this.jobs.waitFor(id, secs * 1000).catch(() => undefined);
+    return this.getJob(id);
   }
   listJobs(filter: { projectId?: string } = {}) {
     return this.jobs.list(filter);

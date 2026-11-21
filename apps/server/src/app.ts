@@ -244,7 +244,11 @@ export function createApp({ service, config }: AppDeps) {
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
 
   v1.get('/jobs', need('read'), (c) => c.json({ jobs: service.listJobs({ projectId: c.req.query('projectId') }) }));
-  v1.get('/jobs/:id', need('read'), (c) => c.json(service.getJob(c.req.param('id'))));
+  v1.get('/jobs/:id', need('read'), async (c) => {
+    // ?wait=N long-polls up to N seconds (max 50) for the job to finish.
+    const wait = Number(c.req.query('wait') ?? 0);
+    return c.json(await service.waitForJob(c.req.param('id'), Number.isFinite(wait) ? wait : 0));
+  });
   v1.post('/jobs/:id/cancel', need('render'), async (c) => c.json(await service.cancelJob(c.req.param('id'))));
   v1.post('/jobs/:id/retry', need('render'), (c) => c.json({ job: service.retryJob(c.req.param('id')) }, 202));
   v1.get('/jobs/:id/logs', need('read'), async (c) => {

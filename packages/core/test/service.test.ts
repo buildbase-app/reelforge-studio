@@ -170,6 +170,23 @@ describe('ReelforgeService', () => {
     expect((await svc.listRenders('sample-reel')).length).toBe(2);
   }, 180_000);
 
+  it('long-polls a job: waitForJob returns early when it finishes and caps the wait', async () => {
+    const job = await svc.startRender('sample-reel');
+    // A short wait returns the job still in progress, not an error.
+    const early = await svc.waitForJob(job.id, 0);
+    expect(['queued', 'running']).toContain(early.status);
+    // A long wait returns as soon as the job finishes (well before the cap).
+    const t0 = Date.now();
+    let j = await svc.waitForJob(job.id, 50);
+    while (j.status === 'queued' || j.status === 'running') j = await svc.waitForJob(job.id, 50);
+    expect(j.status, JSON.stringify(j.error)).toBe('succeeded');
+    expect(Date.now() - t0).toBeLessThan(170_000);
+    // A finished job answers at once, whatever the wait.
+    const t1 = Date.now();
+    expect((await svc.waitForJob(job.id, 50)).status).toBe('succeeded');
+    expect(Date.now() - t1).toBeLessThan(1_000);
+  }, 180_000);
+
   it('cancels a running render and leaves no partial output', async () => {
     const before = readdirSync(join(dir, 'data/projects/sample-reel/renders'));
     const job = await svc.startRender('sample-reel');
