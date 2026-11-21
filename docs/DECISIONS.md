@@ -414,3 +414,62 @@ as a backup); asset and render files stay where they are because the storage
 layout is unchanged. `reelforge import-v01` re-runs it on demand. Tested in
 the contract suite on every database and in the Docker e2e (the e2e's admin key
 is an imported v0.1 key).
+
+## I. Founder product decisions (2026-11-21, issues #22, #24, #25, #26)
+
+Issue #22 labelled these D-015..D-018; those numbers were taken (section G),
+so they are recorded here. Issue mapping: #22 "D-015" = D-027, "D-016" =
+D-028, "D-018" = D-029 ("D-017", the database, is D-022).
+
+### D-027 --- Buyers get a locked Docker image plus a licence key, not source code
+
+**Decision (founder).** ReelForge is sold as a pre-built, minified Docker image
+(no source maps, no TypeScript sources, production dependencies only) that
+activates with a licence key. Templates, themes, HTML/HyperFrames scenes and
+provider plugins stay open and load from mounted folders or the API, so buyers
+customise without the core. Source access may come later as an Enterprise tier
+under contract; the repository stays structured so that needs no rework.
+**Why.** Leaked source is the main risk for a one-time-sale code product.
+**Honest limit.** Anyone running an image can, with effort, reverse-engineer
+it; protection is layered: compiled build, licence activation, EULA terms
+against reverse engineering and resale, and updates/templates only for
+licensed keys. **Consequences.** Store EULA/pricing copy changes (#3); the
+Remotion question for redistribution inside a closed image is more urgent
+(#10); LGPL modules (e.g. the mariadb driver) stay separate, unbundled modules
+(#26).
+
+### D-028 --- Licence check: BuildBase LicensesApi, online with 14-day offline grace
+
+**Decision (founder).** Activate with BuildBase `LicensesApi` on first start,
+validate daily, keep working up to 14 days past the last good answer; after
+that (or when revoked, expired or over the activation limit) existing data
+stays readable and exportable but new renders are refused with a clear fix.
+Only the licence key and a random instance id (created on the data volume)
+are sent; no customer data or secrets leave the buyer's server. An offline
+signed licence file for air-gapped networks is a later enterprise option.
+Open: the BuildBase orders doc contradicts itself on licence-key delivery
+(#40); verify with a test purchase before building on it (#25).
+
+### D-029 --- Configuration: defaults < file < env < API/MCP runtime settings
+
+**Decision (founder).** Every setting is configurable without a UI. Precedence:
+defaults, then a config file (`REELFORGE_CONFIG`), then `REELFORGE_*` env vars
+(every secret also as `_FILE`), then runtime settings set over REST/MCP and
+stored in the database. Start-up-only settings are refused at runtime with an
+error naming where to set them. `GET /v1/config` / MCP `get_config` show each
+effective value and its source; secrets only as set/not set. Provider keys
+stored in the database are encrypted at rest with `REELFORGE_SECRET_KEY`.
+Built in #24.
+
+### D-030 --- All end-to-end testing in the production org's development environment
+
+**Decision (founder, 2026-11-21).** Testing (sign-in, webhooks, selling, test
+purchases with Stripe test keys) happens only in the development environment
+`fsyqdskf` of the ReelForge BuildBase org (`6b01478bb42d2c444e99fcd8`). The
+separate "ReelForge Test" org (`6b016b04b42d2c444e9a13b9`) is not used any
+more; its Stripe test webhook endpoint is disabled (not deleted) and deleting
+the org is the founder's call (#21). Server code that calls the BuildBase HTTP
+API directly sends `environmentId(orgId, environment)` (`<orgId>-fsyqdskf`).
+Note: items cannot be promoted between environments (`env push` moves only
+templates, workflows, plans and unsubscribe groups), so production items are
+created in production when selling goes live.
