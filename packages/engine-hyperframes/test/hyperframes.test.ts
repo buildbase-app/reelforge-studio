@@ -12,7 +12,8 @@ const browser = process.env.REELFORGE_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const requireBrowser = process.env.REELFORGE_REQUIRE_BROWSER === '1';
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-hf-'));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+// Chrome can still be flushing its profile when the suite ends; retry ENOTEMPTY/EBUSY.
+afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 const output: OutputSettings = { width: 360, height: 640, fps: 30, format: 'mp4' };
 const theme = builtinTheme('default')!.tokens;
 
