@@ -217,3 +217,24 @@ nothing; consider a non-empty first frame for platform thumbnails.
 Not yet tested: macOS, Windows, Docker, ARM, music with real-world files,
 render times on documented reference hardware (NFR-003), repeat runs on a
 fresh machine.
+
+### D-014 --- Self-hosted server with REST + MCP; agents decide, the server renders (2026-11-21)
+
+**Status:** DECIDED (founder).\
+**Decision:** ReelForge Studio ships as a self-hostable server (one Docker
+image; laptop, VPS or any cloud) exposing a REST API and an MCP server on the
+operator's own instance, authenticated with operator-created API keys. Any MCP
+client (Claude, Codex, Cursor, ...) can drive every capability: themes,
+templates, projects, scene editing with exact timing, audio, render, outputs.
+The agent decides the scenes; the server validates, renders and checks. There
+is no built-in LLM.\
+**Pluggable by design:** render engines (Remotion, Motion Canvas, HTML, later
+HyperFrames or others), media providers (TTS such as ElevenLabs, avatars such
+as HeyGen, stock), render backends (local, the customer's Remotion Lambda,
+other clouds) and storage (local, S3-compatible). Spec: docs/AGENT_PLATFORM.md.\
+**Kept reversible on purpose:** manifest is versioned with migrations; MCP
+tools are marked experimental until v1.0; no provider is hard-wired; the web
+UI is just another API client.\
+**Interpretation to confirm:** "hygiene" in the founder's note is read as
+HeyGen (avatar provider) and/or HyperFrames (HTML-to-video engine); both fit
+the plugin interfaces.
