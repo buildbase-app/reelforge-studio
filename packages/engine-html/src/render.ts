@@ -153,7 +153,17 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     if (timeout.aborted) throw new PipelineError(stage, `html render timed out after ${timeoutMs} ms`);
     if (signal.aborted) throw new PipelineError(stage, 'cancelled');
     if (e instanceof PipelineError) throw e;
-    throw new PipelineError(stage, `html render failed: ${(e as Error).message}`);
+    const msg = (e as Error).message;
+    if (/No usable sandbox|sandboxing failed/i.test(msg)) {
+      throw new PipelineError(
+        stage,
+        'Chromium could not start its sandbox on this machine (e.g. Ubuntu 23.10+ restricts unprivileged user namespaces). ' +
+          'Enable user namespaces for Chrome (see Chromium docs/security/apparmor-userns-restrictions.md), or run ReelForge in a container ' +
+          'and set REELFORGE_CHROMIUM_NO_SANDBOX=1.',
+        msg.slice(0, 2000)
+      );
+    }
+    throw new PipelineError(stage, `html render failed: ${msg}`);
   } finally {
     signal.removeEventListener('abort', onAbort);
     await browser?.close().catch(() => undefined);

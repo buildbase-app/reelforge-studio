@@ -14,6 +14,10 @@ jobs:
     env:
       # A missing browser fails the engine and end-to-end tests instead of skipping them.
       REELFORGE_REQUIRE_BROWSER: '1'
+      # Ubuntu 24.04 runners restrict unprivileged user namespaces, so Chromium's
+      # own sandbox cannot start (verified: "No usable sandbox"). The runner VM is
+      # the isolation boundary here.
+      REELFORGE_CHROMIUM_NO_SANDBOX: '1'
     steps:
       - uses: actions/checkout@v4
 
