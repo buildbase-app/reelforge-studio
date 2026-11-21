@@ -21,3 +21,10 @@ work from an issue, never commit to `main`, open a draft PR with a Conventional
 Commit title and the filled template (including AI assistance), run the checks,
 stay out of maintainer-only files, and never merge or approve. PRs that break
 these rules fail the required `pr-policy` check.
+
+## Design rules
+
+Any visual change (reel templates, themes, docs pages, screenshots for the
+site) follows "Design and UI/UX rules" in [AGENTS.md](AGENTS.md): run the
+unslop skill (`/unslop`, in `.claude/skills/unslop/`), keep the palette simple,
+and review a contact sheet before a template ships.
