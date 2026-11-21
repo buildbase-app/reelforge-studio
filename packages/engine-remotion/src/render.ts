@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer';
 import { PipelineError } from '@reelforge/media-pipeline';
-import { packageVersion } from '@reelforge/core';
+import { packageVersion, publishDirAtomically, stampMatches } from '@reelforge/core';
 import type { OutputSettings, RenderScene, ThemeTokens } from '@reelforge/project-schema';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -67,10 +67,6 @@ function sourceHash(): string {
   return h.digest('hex');
 }
 
-function stampMatches(dir: string, hash: string): boolean {
-  const stamp = join(dir, '.source-hash');
-  return existsSync(stamp) && readFileSync(stamp, 'utf8') === hash;
-}
 
 /**
  * The compositions bundled with Remotion's Webpack setup: the pre-built bundle
@@ -82,7 +78,8 @@ export async function bundleCompositions(cacheDir: string, force = false): Promi
   if (!force && stampMatches(PREBUILT_REMOTION_DIR, hash)) return PREBUILT_REMOTION_DIR;
   const outDir = join(resolve(cacheDir), 'remotion');
   if (!force && stampMatches(outDir, hash)) return outDir;
-  return buildCompositions(outDir, hash);
+  // Built next to outDir and renamed into place: another server process may be rendering from outDir right now.
+  return publishDirAtomically(outDir, hash, async (dir) => void (await buildCompositions(dir, hash)), { force });
 }
 
 /** Pre-build the bundle next to the package (image build time). Returns its directory. */
