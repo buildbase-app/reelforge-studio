@@ -328,7 +328,7 @@ if [ "$STORAGE" = s3 ]; then
   grep -Eq '^copied: 0 objects .*already there: [1-9]' "$WORK/migrate2.txt" && echo "✔ STO-33 second run copied nothing (idempotent)" || { echo "✘ migrate is not idempotent"; exit 1; }
   echo "== storage: restart on storage.driver s3"
   docker rm -f $NAME >/dev/null; STORAGE_DRIVER=s3; start
-  logs_have $NAME '\[reelforge\] storage: s3 ' && echo "✔ the server uses the s3 driver" || { echo "✘ not on s3"; docker logs $NAME | tail; exit 1; }
+  logs_have $NAME '"msg":"storage: s3 ' && echo "✔ the server uses the s3 driver" || { echo "✘ not on s3"; docker logs $NAME | tail; exit 1; }
   curl -s "http://127.0.0.1:$PORT/readyz" | grep -q '"storage":"ok"' && echo "✔ /readyz: storage ok" || { echo "✘ /readyz storage"; curl -s "http://127.0.0.1:$PORT/readyz"; exit 1; }
   docker run --rm --network $NET -v "$WORK/client:/c:ro" -v "$WORK/out:/out" -w /c -e URL=http://reelforge:4321/mcp -e KEY="$KEY" -e SAMPLE=sample-reel.json \
     -e S3_ENDPOINT=http://minio:9000 -e S3_ID="$S3_ID" -e S3_SECRET="$S3_SECRET" -e S3_BUCKET="$S3_BUCKET" "$CLIENT_IMAGE" node storage.mjs
