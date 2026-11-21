@@ -69,14 +69,17 @@ RUN --mount=type=secret,id=extra_ca,required=false \
 # ---- chrome: Chrome Headless Shell ------------------------------------------------------
 # Remotion's ensureBrowser() downloads the build pinned for Remotion 4.0.545 (from
 # remotion.media, also for linux/arm64); every engine uses it from a fixed path.
+# The linux/arm64 build names its binary `headless_shell` (Remotion's own build);
+# /opt/chrome-headless-shell/chrome-headless-shell is the same path on both.
 FROM deps AS chrome
 RUN --mount=type=secret,id=extra_ca,required=false \
     if [ -f /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
     cd packages/engine-remotion \
  && node --input-type=module -e "import { ensureBrowser } from '@remotion/renderer'; await ensureBrowser();" \
- && BIN="$(find /app -path '*/.remotion/*' -type f -name chrome-headless-shell | head -n 1)" \
- && test -n "$BIN" \
+ && BIN="$(find /app -path '*/.remotion/*' -type f \( -name chrome-headless-shell -o -name headless_shell \) | head -n 1)" \
+ && { test -n "$BIN" || { echo "no Chrome Headless Shell binary found after ensureBrowser()" >&2; exit 1; }; } \
  && mv "$(dirname "$BIN")" /opt/chrome-headless-shell \
+ && if [ ! -e /opt/chrome-headless-shell/chrome-headless-shell ]; then ln -s "$(basename "$BIN")" /opt/chrome-headless-shell/chrome-headless-shell; fi \
  && /opt/chrome-headless-shell/chrome-headless-shell --version
 
 # ---- build: sources and the pre-built engine bundles ------------------------------------
