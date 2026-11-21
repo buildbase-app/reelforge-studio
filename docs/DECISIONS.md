@@ -655,3 +655,131 @@ with a public key built into the image; (2) in the sold image, refuse `off`
 and a non-default `serverUrl` unless a build flag allows them (the e2e image
 would set it). Neither is needed for the first sale; both are cheap once
 BuildBase signs answers.
+
+## L. Production image, hardening and supply chain (2026-11-21, issue #26)
+
+Founder input during the work: the code becomes public and source-available
+(LICENSE.md, LICENSING.md); source hiding (minifying, a "no .ts in the image"
+check) was dropped; the licence requirement stays the default for every
+release image. D-027's "locked image" is therefore an image whose *licence
+settings* are locked, not its code.
+
+### D-039 --- Editions: release images fix the licence settings at build time
+
+**Status:** DECIDED (founder, reversible in mechanism).\
+The Dockerfile's `REELFORGE_EDITION` build arg is `release` by default. A
+release build writes `/app/packages/core/build-info.json` (root-owned, at a
+fixed path no environment variable can change) with `licence.mode: required`,
+`licence.serverUrl` and `licence.orgId` (build args `LICENCE_SERVER_URL`,
+default `https://api.console.buildbase.app`; `LICENCE_ORG_ID`, default the
+production organisation `6b01478bb42d2c444e99fcd8`). The config loader gives
+these the source `build`; a config file, environment or runtime value that
+differs is refused (the server does not start, `reelforge config check` exits
+1); `update_config` answers `409 build_locked_setting`. `get_config` and
+`get_capabilities` report the `edition`. In a release build the licence calls
+refuse HTTP redirects. A missing file means a dev build (`pnpm dev`, tests,
+`--build-arg REELFORGE_EDITION=dev`), where `licence.mode: off` is allowed for
+noncommercial development only (LICENSING.md). The file is validated at start
+and at image build: only those three keys may be fixed, a release build must
+fix all three and `mode` only to `required`.
+**Testing the release edition:** the e2e builds it with the mock licence
+server baked in (`LICENCE_SERVER_URL=http://licence:8080`, a mock org id);
+that image and the published one share every layer except the edition step's
+20 kB layer (checked by `e2e/docker/run.sh` with `RELEASE_IMAGE=`). Chosen
+over overriding DNS for the baked host, which would have needed a TLS
+certificate the image trusts, i.e. a second bypass to test the first.
+**Clock:** the "highest time seen" marker (D-037) is now also checked and
+moved forward at every start and hourly while running, not only at licence
+checks, so a restart with the clock set back gets no grace.
+**Honest limits (updates D-038):** with public source, anyone can build an
+image with `off`, edit `build-info.json` in a derived image, or answer from a
+fake server behind DNS plus their own CA in `NODE_EXTRA_CA_CERTS` (answers are
+still unsigned; request drafted in
+`docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md`, not filed). TLS pinning
+to bundled roots was not added: it would only close the last of these, while
+breaking TLS-intercepting corporate proxies. The lock makes the published
+image behave like a licensed product; the licence terms are the protection.
+
+### D-040 --- The production image: multi-stage, production dependencies, pre-built bundles, not minified
+
+**Status:** DECIDED (reversible).\
+Stages: `os` (Debian packages incl. Chrome's libraries, `apt-get upgrade`),
+`deps` (pnpm, all dependencies), `chrome` (Remotion's `ensureBrowser()`),
+`build` (the Remotion and Motion Canvas browser bundles are pre-built with
+`apps/server/src/prebuild.ts` into each engine's `.prebuilt/`; the runtime tree
+without tests, Prisma tooling or docs), `prod-deps` (`pnpm install --prod`;
+source maps, type declarations and changelogs deleted), `dev` (the whole repo
+for `docker build --target dev`) and `release` (default: no npm/npx/corepack/
+yarn/pnpm; `LICENSE.md`, `NOTICE`, `LICENSES/` in `/app`). `@remotion/bundler`,
+Vite and the Motion Canvas build plugins became devDependencies, and the
+engines import them only when they must build (a bundle is used when its
+`.source-hash` matches the sources, so a production container never runs a
+bundler and needs no writable bundle directory). Optional native packages are
+limited to glibc (`supportedArchitectures` in pnpm-workspace.yaml). The server
+still runs TypeScript through tsx: with public source, an esbuild bundle would
+only save start-up time, and keeping dependencies unbundled keeps LGPL modules
+(mariadb) separately replaceable. The base image is pinned by digest
+(`BASE_DIGEST`); `BASE_IMAGE` may name a mirror. Result: 2.50 GB to 1.85 GB
+uncompressed (compressed content 642 to 519 MB), `node_modules` 665 to 274 MB.
+
+### D-041 --- Hardened runtime; Chromium's sandbox with a seccomp profile, except Remotion
+
+**Status:** DECIDED (reversible).\
+The release image runs as UID:GID 10001:10001 with root-owned application
+files, tini as PID 1, a healthcheck, `HOME`/XDG directories in `/tmp`, and
+works with `--read-only`, a tmpfs `/tmp`, `--cap-drop ALL` and
+`no-new-privileges` (compose default; the Docker e2e runs the whole suite so;
+Kubernetes `securityContext` in docs/DEPLOY.md). Chromium's namespace sandbox
+cannot start under Docker's default seccomp profile (it allows `clone`/
+`unshare` with namespace flags only with `CAP_SYS_ADMIN`; verified "No usable
+sandbox"). `deployment/seccomp/chrome.json` = Docker's default profile (moby
+profiles v0.3.0) + `clone`, `unshare`, `setns`, `chroot` without capabilities;
+with it and `REELFORGE_CHROMIUM_NO_SANDBOX=0` the html, hyperframes and
+motion-canvas engines run sandboxed (verified: renderers in a nested PID
+namespace, full render passes). One rule (`chromiumSandbox()` in core) now
+decides for those three (Motion Canvas used to pass `--no-sandbox` always;
+HyperFrames gets `HYPERFRAMES_CHROME_SANDBOX` so it cannot silently fall
+back). **Remotion hard-codes `--no-sandbox` and `--single-process`** in
+`@remotion/renderer` on Linux; patching it was rejected, and it renders only
+ReelForge's own templates. `get_capabilities.security` reports the sandbox per
+engine with a warning. The image default stays `NO_SANDBOX=1` so a plain
+`docker run` works. HyperFrames' temp files go to the cache directory on
+`/data` (it refuses to render with < 1 GB free in its temp directory).
+
+### D-042 --- Image checks: contents, no secrets, size budget 2000 MB
+
+**Status:** DECIDED (reversible).\
+`scripts/image/check-contents.sh` lists every file of the image (`docker
+export`) and fails on repository docs/tests/e2e/scripts, Prisma tooling,
+source maps, type declarations in `node_modules`, build-only dependencies,
+musl builds, package managers, `.git`/`.env`/`.npmrc`, a missing licence
+file, pre-built bundle, Chrome, tini or ffprobe, a wrong user, entrypoint or
+healthcheck, a release build without `build-info.json` (or a dev build with
+one), or a size over the budget: **2000 MB uncompressed** (1845 MB on
+2026-11-21; Chrome 243 MB, `/usr/lib` 470 MB, fonts 112 MB, `node_modules`
+274 MB). `scripts/image/check-secrets.sh` checks `docker history`, the image
+config and the files (private keys with key material, GitHub/AWS/Anthropic/
+OpenAI/Slack tokens, `rf_` API keys, credential files, and, given `EXTRA_CA`,
+that none of the build-only CA certificates is in a layer). Proxy settings
+are passed as Docker's predefined proxy build args and never declared, so they
+stay out of the history; the build CA is a `--secret` mount.
+
+### D-043 --- CI tiers and supply chain
+
+**Status:** DECIDED (founder asked for the cost controls; reversible).\
+FAST on every push to any branch: typecheck, unit tests, SQLite server tests
+with the MCP/REST e2e. HEAVY on pull requests to main, pushes to main, `v*`
+tags, nightly and manual runs: PostgreSQL/MySQL, the spike, and the `image`
+job per architecture (native `ubuntu-24.04` and `ubuntu-24.04-arm` runners
+instead of QEMU): contents, secrets, Trivy 0.76.2 (fixable HIGH/CRITICAL fail;
+0 found on 2026-11-21, the previous image had 71, mostly in the bundled npm
+and an old esbuild), CycloneDX SBOM artifact, Docker e2e hardened (amd64: three
+databases; arm64: SQLite). On main and `v*` tags only, `publish` merges the
+per-arch digests into one manifest on `ghcr.io/buildbase-app/reelforge-studio`,
+signs it with cosign keyless (GitHub OIDC) and attaches the SBOM attestation;
+branches never push or sign. `concurrency` cancels superseded runs,
+docs-only changes skip CI (`docs/CONFIG.md` drift has its own small workflow),
+every job has `timeout-minutes`, and pnpm, Chrome, the buildx layers (GHA
+cache) and the Trivy DB are cached. Not verified here: arm64, publish and
+cosign run only on GitHub. Distribution of the image to buyers (pull access by
+licence, update channel) is still open (#11).

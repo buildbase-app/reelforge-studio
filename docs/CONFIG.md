@@ -13,6 +13,12 @@ Precedence, lowest to highest (D-029):
 4. **runtime**: values set over the API (`PATCH /v1/config`, MCP `update_config`, admin scope), stored in the
    database; only settings with scope **runtime**. `null` clears a runtime value.
 
+**Release images** (the published Docker image, D-039) fix `licence.mode` (`required`), `licence.serverUrl` and
+`licence.orgId` at build time: their source is **build**, and a config file, environment variable or
+`update_config` that tries to change them is refused (`build_locked_setting`). Builds from source (`pnpm dev`,
+`--build-arg REELFORGE_EDITION=dev`) keep every setting configurable; `licence.mode: off` there is for
+noncommercial development only (LICENSING.md).
+
 Scope **startup** settings are read once at start; changing them at runtime is refused with an error that says
 where to set them. `GET /v1/config` / MCP `get_config` show each effective value and its source; secrets show
 only `set` / `not set`. Secrets set at runtime are stored encrypted (AES-256-GCM) with `REELFORGE_SECRET_KEY`;

@@ -81,6 +81,8 @@ export interface BuildBaseLicenceClientOptions {
   version?: string;
   timeoutMs?: number;
   fetch?: typeof fetch;
+  /** Refuse HTTP redirects, so the call never leaves serverUrl's host (release builds, D-039). */
+  noRedirects?: boolean;
 }
 
 /**
@@ -93,8 +95,10 @@ export class BuildBaseLicenceClient implements LicenceApi {
   private readonly base: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly redirect: RequestRedirect;
 
   constructor(opts: BuildBaseLicenceClientOptions) {
+    this.redirect = opts.noRedirects ? 'error' : 'follow';
     this.base = `${opts.serverUrl.replace(/\/+$/, '')}/api/${opts.version ?? 'v1'}/licenses/${encodeURIComponent(opts.orgId)}`;
     this.fetchImpl = opts.fetch ?? fetch;
     this.timeoutMs = opts.timeoutMs ?? 15_000;
@@ -118,6 +122,7 @@ export class BuildBaseLicenceClient implements LicenceApi {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify(body),
+        redirect: this.redirect,
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
     } catch (e) {
@@ -196,6 +201,8 @@ const BACKOFF_BASE_MS = 60_000;
 const BACKOFF_MAX_MS = 6 * 3_600_000;
 /** How long a render waits for a check that is already running. */
 const RENDER_WAIT_MS = 20_000;
+/** How often a running server records the latest clock time it has seen (besides every start and check). */
+const CLOCK_MARK_INTERVAL_MS = 3_600_000;
 
 /** "ABCDE-FGHJK-..." → "ABCDE-*****-...": the first group only. */
 export function maskLicenceKey(key: string): string {
@@ -295,6 +302,7 @@ export class LicenceManager {
   /** A check was asked for and has not produced its answer yet ("checking"). */
   private pending = false;
   private timer: NodeJS.Timeout | null = null;
+  private clockTimer: NodeJS.Timeout | null = null;
   private failures = 0;
   private stopped = false;
   private lastLogged = '';
@@ -312,10 +320,41 @@ export class LicenceManager {
     return this.opts.mode;
   }
 
-  /** Read (or create, once) the stored state. No network. */
+  /** Read (or create, once) the stored state and record the clock (markClock). No network. */
   async init(): Promise<void> {
     this.state = await this.opts.repo.init((this.opts.newInstanceId ?? newInstanceId)(), new Date(this.now()).toISOString());
     if (this.opts.mode === 'trial') this.log('warn', 'licence: licence.mode "trial" is not built yet; behaving as "required"');
+    await this.markClock('start');
+  }
+
+  /**
+   * The "highest time seen" marker (highWaterAt), checked and moved forward at
+   * every start and hourly while running, not only at licence checks. A clock
+   * set back more than 10 minutes behind it gets no offline grace (clock_skew)
+   * until it is correct again or a licence check succeeds. It cannot see time
+   * that passes while the server is stopped (docs/DEPLOY.md#licence).
+   */
+  async markClock(why: 'start' | 'timer' = 'timer'): Promise<void> {
+    if (this.inflight) return; // a check is about to store the state (and the marker) anyway
+    const stored = (await this.opts.repo.get()) ?? this.state;
+    if (!stored) return;
+    const now = this.now();
+    const high = stored.highWaterAt ? Date.parse(stored.highWaterAt) : undefined;
+    if (high !== undefined && now < high - CLOCK_TOLERANCE_MS) {
+      this.state = stored;
+      if (why === 'start') {
+        this.log('error', `licence: the system clock (${this.iso(now)}) is behind the latest time this server has seen (${stored.highWaterAt}); the offline grace period does not apply until the clock is correct or a licence check succeeds.`);
+      }
+      return;
+    }
+    if (high !== undefined && now <= high) {
+      this.state = stored;
+      return;
+    }
+    const next = { ...stored, highWaterAt: this.iso(now), updatedAt: this.iso(now) };
+    if (this.inflight) return;
+    await this.opts.repo.save(next);
+    this.state = next;
   }
 
   get instanceId(): string {
@@ -327,12 +366,18 @@ export class LicenceManager {
   start(): void {
     this.stopped = false;
     void this.check('start').catch(() => undefined);
+    if (this.opts.timers !== false && !this.clockTimer) {
+      this.clockTimer = setInterval(() => void this.markClock('timer').catch(() => undefined), CLOCK_MARK_INTERVAL_MS);
+      this.clockTimer.unref?.();
+    }
   }
 
   stop(): void {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    if (this.clockTimer) clearInterval(this.clockTimer);
+    this.clockTimer = null;
   }
 
   /** The configured key changed (update_config / activate_licence): check it now, in the background. */
@@ -638,7 +683,8 @@ export function createLicenceManager(
   const lc = settings.config.licence;
   return new LicenceManager({
     repo: repos.licence,
-    api: opts.api ?? new BuildBaseLicenceClient({ serverUrl: lc.serverUrl, orgId: lc.orgId, fetch: opts.fetch }),
+    // A release build fixes serverUrl (source "build"); its calls also refuse redirects, so they only reach that host.
+    api: opts.api ?? new BuildBaseLicenceClient({ serverUrl: lc.serverUrl, orgId: lc.orgId, fetch: opts.fetch, noRedirects: settings.current.build.edition === 'release' }),
     key: () => {
       const st = settings.current.settings.get('licence.key');
       const value = typeof st?.value === 'string' ? st.value : undefined;

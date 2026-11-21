@@ -8,10 +8,23 @@
 # revoked, limit_reached, deactivate), and a restart that must keep projects,
 # keys, renders, runtime settings and the licence instance id.
 #
-#   e2e/docker/run.sh                 # build + test
-#   IMAGE=reelforge-studio:dev SKIP_BUILD=1 e2e/docker/run.sh
-#   CLAUDE=1 e2e/docker/run.sh        # also: headless Claude Code makes a reel over MCP only
+# Issue #26: by default it tests the RELEASE image (the Dockerfile's default
+# target and edition) with the hardened run flags: --read-only, tmpfs /tmp,
+# --cap-drop ALL, no-new-privileges, UID 10001 and the seccomp profile
+# deployment/seccomp/chrome.json with Chromium's sandbox on. A release build
+# fixes licence.mode/serverUrl/orgId at build time, so this test builds the
+# release edition with the mock licence server baked in (build args
+# LICENCE_SERVER_URL / LICENCE_ORG_ID; the only difference to the published
+# image is that one small layer, which RELEASE_IMAGE=... compares).
+#
+#   e2e/docker/run.sh                 # build + test (release edition, hardened)
+#   IMAGE=reelforge-studio:e2e SKIP_BUILD=1 e2e/docker/run.sh
+#   CLAUDE=1 e2e/docker/run.sh        # also: headless Claude Code makes a reel over MCP only (--max-turns 40)
 #   DB=postgres e2e/docker/run.sh     # database from the compose profile (postgres | mysql); default sqlite
+#   EDITION=dev e2e/docker/run.sh     # dev edition: the licence server comes from env instead
+#   HARDENED=0 e2e/docker/run.sh      # plain `docker run` flags (no read-only, capabilities, seccomp profile)
+#   RELEASE_IMAGE=reelforge-studio:release e2e/docker/run.sh   # also check the published release image:
+#                                     # production licence settings fixed, same layers as the tested image but one
 #
 # The data volume starts as a v0.1 filesystem data directory (seed-v01.mjs): the
 # server must import it once into the database, and the e2e key is that imported
@@ -23,6 +36,8 @@ cd "$(dirname "$0")/../.."
 IMAGE=${IMAGE:-reelforge-studio:e2e}
 CLIENT_IMAGE=${CLIENT_IMAGE:-node:22-bookworm-slim}
 DB=${DB:-sqlite}
+EDITION=${EDITION:-release}
+HARDENED=${HARDENED:-1}
 NET=rf-e2e-net VOL=rf-e2e-data NAME=rf-e2e-server PORT=${PORT:-4321} PROJECT=rf-e2e
 # Licence (#25): a mock of the BuildBase licence API in its own container; the server only knows its URL.
 LIC=rf-e2e-licence LIC_ORG=6b01478bb42d2c444e99fcd8-mocklice
@@ -30,6 +45,7 @@ lkey() { openssl rand -hex 13 | cut -c1-25 | tr 'a-f01' 'A-FGH' | sed 's/.\{5\}/
 KEY_A=$(lkey) KEY_B=$(lkey) KEY_C=$(lkey)
 LICENCE_KEYS="[\"$KEY_A\",\"$KEY_B\",\"$KEY_C\"]"
 case "$DB" in sqlite|postgres|mysql) ;; *) echo "DB must be sqlite, postgres or mysql"; exit 2 ;; esac
+case "$EDITION" in release|dev) ;; *) echo "EDITION must be release or dev"; exit 2 ;; esac
 [ "$DB" = sqlite ] || NET=${PROJECT}_default
 WORK=$(mktemp -d); chmod 755 "$WORK"
 cleanup() {
@@ -43,7 +59,21 @@ trap cleanup EXIT
 # though the line is there (CI run 44916484714). Read the whole log, then grep.
 logs_have() { local c=$1; shift; docker logs "$c" > "$WORK/container.log" 2>&1 || true; grep -q -- "$@" "$WORK/container.log"; }
 
-[ "${SKIP_BUILD:-}" = 1 ] || docker build ${BUILD_ARGS:-} -t "$IMAGE" .
+if [ "$EDITION" = release ]; then
+  EDITION_ARGS=(--build-arg REELFORGE_EDITION=release --build-arg LICENCE_SERVER_URL=http://licence:8080 --build-arg LICENCE_ORG_ID=$LIC_ORG)
+else
+  EDITION_ARGS=(--build-arg REELFORGE_EDITION=dev)
+fi
+[ "${SKIP_BUILD:-}" = 1 ] || docker build ${BUILD_ARGS:-} "${EDITION_ARGS[@]}" -t "$IMAGE" .
+echo "== image $IMAGE: edition $(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$IMAGE"), hardened run flags: $HARDENED"
+[ "$(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$IMAGE")" = "$EDITION" ] || { echo "✘ $IMAGE is not a $EDITION build"; exit 1; }
+# The hardened run flags (docs/DEPLOY.md#hardening). The image's user is 10001:10001.
+HARD=()
+[ "$HARDENED" = 1 ] && HARD=(--read-only --tmpfs /tmp:rw,nosuid,nodev,size=1g --cap-drop ALL --security-opt no-new-privileges
+  --security-opt "seccomp=$PWD/deployment/seccomp/chrome.json" -e REELFORGE_CHROMIUM_NO_SANDBOX=0)
+# A dev build gets the mock licence server from env; a release build has it baked in.
+LIC_ENV=()
+[ "$EDITION" = dev ] && LIC_ENV=(-e REELFORGE_LICENCE_SERVER_URL=http://licence:8080 -e REELFORGE_LICENCE_ORG_ID=$LIC_ORG)
 
 KEY=rf_$(openssl rand -hex 24)
 PLAIN_V01=sk_v01_plaintext_$(openssl rand -hex 8)
@@ -68,17 +98,18 @@ cp e2e/mock-licence/server.mjs "$WORK/mock/"; chmod -R a+rX "$WORK/mock"
 start() {
   # The database is chosen by DATABASE_URL alone (here its _FILE variant, so the password stays out of `docker inspect`).
   local dbenv=(); [ "$DB" = sqlite ] || dbenv=(-v "$WORK/secret/dburl:/run/secrets/dburl:ro" -e DATABASE_URL_FILE=/run/secrets/dburl)
-  docker run -d --name $NAME --network $NET --network-alias reelforge -p 127.0.0.1:$PORT:4321 --shm-size=1g \
+  docker run -d --name $NAME --network $NET --network-alias reelforge -p 127.0.0.1:$PORT:4321 --shm-size=1g "${HARD[@]}" \
     -v $VOL:/data -v "$WORK/secret/key:/run/secrets/key:ro" -e REELFORGE_BOOTSTRAP_KEY_FILE=/run/secrets/key "${dbenv[@]}" \
     -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secretkey \
     -v "$WORK/config/reelforge.yaml:/config/reelforge.yaml:ro" -e REELFORGE_CONFIG=/config/reelforge.yaml \
-    -e REELFORGE_LICENCE_SERVER_URL=http://licence:8080 -e REELFORGE_LICENCE_ORG_ID=$LIC_ORG \
+    "${LIC_ENV[@]}" \
     -e REELFORGE_ALLOWED_HOSTS=reelforge,reelforge:4321 "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && return; sleep 2; done
   docker logs $NAME; echo "server did not become healthy"; exit 1
 }
 client() { docker run --rm --network $NET -v "$WORK/client:/c:ro" -v "$WORK/out:/out" -w /c \
-  -e URL=http://reelforge:4321/mcp -e KEY="$KEY" -e SAMPLE=sample-reel.json -e PLAIN_V01="$PLAIN_V01" -e PHASE="${PHASE:-before}" -e LICENCE_KEYS="$LICENCE_KEYS" "$CLIENT_IMAGE" node "$@"; }
+  -e URL=http://reelforge:4321/mcp -e KEY="$KEY" -e SAMPLE=sample-reel.json -e PLAIN_V01="$PLAIN_V01" -e PHASE="${PHASE:-before}" -e LICENCE_KEYS="$LICENCE_KEYS" \
+  -e EDITION="$EDITION" -e SANDBOX="$HARDENED" "$CLIENT_IMAGE" node "$@"; }
 licence_server() {
   docker run -d --name $LIC --network $NET --network-alias licence -v "$WORK/mock:/m:ro" -e ORG_ID=$LIC_ORG \
     -e SEED_KEYS="[{\"key\":\"$KEY_A\",\"activationLimit\":1},{\"key\":\"$KEY_C\",\"activationLimit\":1}]" "$CLIENT_IMAGE" node /m/server.mjs >/dev/null
@@ -105,6 +136,32 @@ logs_have $NAME "database: ${DB/postgres/postgresql} " && echo "✔ server uses 
 if [ "$DB" = sqlite ]; then docker exec $NAME test -s /data/reelforge.db && echo "✔ /data/reelforge.db exists"
 else docker exec $NAME test ! -e /data/reelforge.db && echo "✔ no SQLite file on the volume"; fi
 api() { curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT$1"; }
+echo "== container hardening"
+[ "$(docker exec $NAME id -u):$(docker exec $NAME id -g)" = 10001:10001 ] && echo "✔ runs as UID:GID 10001:10001" || { echo "✘ not UID 10001"; exit 1; }
+docker exec $NAME sh -c 'test ! -w /app && test ! -w /app/packages/core/src/index.ts' && echo "✔ the application files are not writable by the server user" || { echo "✘ /app is writable"; exit 1; }
+if [ "$HARDENED" = 1 ]; then
+  hc=$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{json .HostConfig.SecurityOpt}}' $NAME)
+  # Docker keeps the seccomp profile inline in SecurityOpt; ours carries a "ReelForge:" comment.
+  case "$hc" in "true [ALL] "*no-new-privileges*"ReelForge: Chromium's namespace sandbox"*) echo "✔ --read-only, --cap-drop ALL, no-new-privileges, seccomp profile deployment/seccomp/chrome.json" ;;
+    *) echo "✘ hardening flags missing: ${hc:0:200}"; exit 1 ;; esac
+  docker exec $NAME sh -c 'touch /etc/rf 2>/dev/null' && { echo "✘ the root filesystem is writable"; exit 1; } || echo "✔ the root filesystem is read-only; /tmp and /data are writable: $(docker exec $NAME sh -c 'touch /tmp/rf /data/.rf && rm /tmp/rf /data/.rf && echo yes')"
+  [ "$(docker exec $NAME sh -c 'grep CapEff /proc/1/status' | awk '{print $2}')" = 0000000000000000 ] && echo "✔ no effective capabilities" || { echo "✘ capabilities present"; exit 1; }
+  docker exec $NAME sh -c 'grep -q "NoNewPrivs:[[:space:]]*1" /proc/1/status' && echo "✔ NoNewPrivs is set" || { echo "✘ NoNewPrivs not set"; exit 1; }
+  probe=$(docker exec -i $NAME node --input-type=module < e2e/docker/sandbox-probe.mjs)
+  echo "$probe" | grep '"sandboxed":true' >/dev/null && echo "✔ Chromium's own sandbox runs (renderers in a nested PID namespace): $probe" || { echo "✘ Chromium sandbox not active: $probe"; exit 1; }
+fi
+if [ "$EDITION" = release ]; then
+  echo "== release build: licence settings fixed by the image"
+  docker exec $NAME reelforge config check | sed 's/^/   /'
+  # The same image refuses to start when the config file or env tries to change them.
+  for override in REELFORGE_LICENCE_MODE=off REELFORGE_LICENCE_SERVER_URL=http://fake-licence.example REELFORGE_LICENCE_ORG_ID=aaaaaaaaaaaaaaaaaaaaaaaa; do
+    out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -e "$override" "$IMAGE" 2>&1) && { echo "✘ started with $override"; exit 1; }
+    echo "$out" | grep 'fixed by this release build' >/dev/null && echo "✔ refuses to start with $override: $(echo "$out" | grep -o '"licence[^"]*" is fixed by this release build[^.]*' | head -1)" || { echo "✘ unexpected output for $override"; echo "$out" | tail -5; exit 1; }
+  done
+  printf 'licence:\n  mode: "off"\n' > "$WORK/config/off.yaml"; chmod 644 "$WORK/config/off.yaml"
+  out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -v "$WORK/config/off.yaml:/config/off.yaml:ro" -e REELFORGE_CONFIG=/config/off.yaml "$IMAGE" 2>&1) && { echo "✘ started with licence.mode off in the config file"; exit 1; }
+  echo "$out" | grep '/config/off.yaml (licence.mode): "licence.mode" is fixed' >/dev/null && echo "✔ refuses to start with licence.mode: off in the config file" || { echo "✘ config file override"; echo "$out" | tail -5; exit 1; }
+fi
 [ "$(api /v1/projects/legacy-v01/versions)" = '{"versions":[1,2]}' ] && echo "✔ v0.1 project imported with both versions; the imported key works" || { echo "✘ v0.1 import"; api /v1/projects/legacy-v01/versions; exit 1; }
 api /v1/projects/legacy-v01 | grep '"Made by v0.1, edited"' >/dev/null && echo "✔ current manifest is version 2" || { echo "✘ v0.1 manifest"; exit 1; }
 api /v1/themes/legacy-theme | grep '"legacy-theme"' >/dev/null && echo "✔ v0.1 theme imported" || { echo "✘ v0.1 theme"; exit 1; }
@@ -173,10 +230,44 @@ if [ "$rows" != skip ]; then
     && ! echo "$rows" | grep -q "$PLAIN_V01\|LIC-E2E" && echo "✔ secrets are AES-256-GCM ciphertext in $DB; the runtime rate limit is a row" || { echo "✘ unexpected settings rows in $DB"; echo "$rows" | cut -c1-60; exit 1; }
 fi
 
-if [ "${CLAUDE:-}" = 1 ]; then
-  echo "== headless Claude Code, MCP only"
-  umask 077; printf '{"mcpServers":{"reelforge":{"type":"http","url":"http://127.0.0.1:%s/mcp","headers":{"Authorization":"Bearer %s"}}}}' "$PORT" "$KEY" > "$WORK/mcp.json"
-  claude -p "You are connected to a ReelForge video studio through the 'reelforge' MCP server. Make a 15 to 20 second vertical reel with 3 tips for writing better product hooks. Plan the scenes, engines, templates, per-scene timing and theme yourself, render it, wait for it to finish, and reply with the project id, job id, render id, duration, frame count and download URL. Use only the reelforge tools." \
-    --mcp-config "$WORK/mcp.json" --strict-mcp-config --allowedTools mcp__reelforge --max-turns 40 < /dev/null
+if [ -n "${RELEASE_IMAGE:-}" ]; then
+  echo "== the published release image ($RELEASE_IMAGE)"
+  [ "$(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$RELEASE_IMAGE")" = release ] && echo "✔ $RELEASE_IMAGE is a release build" || { echo "✘ $RELEASE_IMAGE is not a release build"; exit 1; }
+  docker run --rm --network none "${HARD[@]}" -e REELFORGE_DATA_DIR=/tmp/d "$RELEASE_IMAGE" reelforge config show --offline > "$WORK/release-show.txt"
+  grep -E '^licence\.(mode|serverUrl|orgId) ' "$WORK/release-show.txt" | sed 's/^/   /'
+  grep -Eq '^licence\.mode +"required" +\(build: release build' "$WORK/release-show.txt" \
+    && grep -Eq '^licence\.serverUrl +"https://api\.console\.buildbase\.app" +\(build' "$WORK/release-show.txt" \
+    && grep -Eq '^licence\.orgId +"6b01478bb42d2c444e99fcd8" +\(build' "$WORK/release-show.txt" \
+    && echo "✔ licence.mode required, BuildBase production server and organisation, all fixed by the build" || { echo "✘ release licence settings"; cat "$WORK/release-show.txt"; exit 1; }
+  # The tested image and the published one share every layer but the edition step's.
+  a=$(docker image inspect -f '{{range .RootFS.Layers}}{{println .}}{{end}}' "$IMAGE"); b=$(docker image inspect -f '{{range .RootFS.Layers}}{{println .}}{{end}}' "$RELEASE_IMAGE")
+  na=$(grep -c . <<< "$a"); nb=$(grep -c . <<< "$b")
+  differ=$(paste <(echo "$a") <(echo "$b") | awk '$1 != $2' | wc -l)
+  [ "$na" = "$nb" ] && [ "$differ" = 1 ] \
+    && echo "✔ $IMAGE and $RELEASE_IMAGE share $((na - 1)) of $na layers; only the edition step's layer (build-info.json) differs" || { echo "✘ the images differ in $differ of $na layers (expected 1)"; exit 1; }
 fi
-echo "ALL DOCKER E2E CHECKS PASSED (DB=$DB)"
+
+if [ "${CLAUDE:-}" = 1 ]; then
+  echo "== headless Claude Code, MCP only, against $IMAGE (--max-turns 40)"
+  umask 077; printf '{"mcpServers":{"reelforge":{"type":"http","url":"http://127.0.0.1:%s/mcp","headers":{"Authorization":"Bearer %s"}}}}' "$PORT" "$KEY" > "$WORK/mcp.json"
+  started=$(date +%s)
+  claude -p "You are connected to a ReelForge video studio through the 'reelforge' MCP server. Make a 15 to 20 second vertical reel with 3 tips for writing better product hooks. Plan the scenes, engines, templates, per-scene timing and theme yourself, render it, wait for it to finish, and reply with the project id, job id, render id, duration, frame count and download URL. Use only the reelforge tools." \
+    --mcp-config "$WORK/mcp.json" --strict-mcp-config --allowedTools mcp__reelforge --max-turns 40 --output-format json < /dev/null > "$WORK/claude.json" || true
+  umask 022
+  python3 - "$WORK/claude.json" "$(( $(date +%s) - started ))" <<'PY' | tee "$WORK/claude-summary.txt"
+import json, sys
+r = json.load(open(sys.argv[1]))
+print(f"   result: {r.get('subtype')}  is_error: {r.get('is_error')}  turns: {r.get('num_turns')}  wall time: {sys.argv[2]} s  "
+      f"duration_ms: {r.get('duration_ms')}  cost_usd: {r.get('total_cost_usd')}")
+print("   reply: " + (r.get('result') or '').replace('\n', '\n          ')[:1500])
+PY
+  grep -q 'is_error: False' "$WORK/claude-summary.txt" || { echo "✘ the Claude run did not finish cleanly"; exit 1; }
+  # The newest render on the volume is the agent's: decode and probe it.
+  latest=$(docker exec $NAME sh -c 'ls -td /data/projects/*/renders/run_* 2>/dev/null | head -1')
+  [ -n "$latest" ] && docker exec $NAME ls "$latest" >/dev/null || { echo "✘ no render found on the volume"; exit 1; }
+  file=$latest/final.mp4
+  echo "   render: $file"
+  docker exec $NAME ffprobe -v error -count_frames -show_entries stream=codec_name,width,height,r_frame_rate,nb_read_frames:format=duration -of compact "$file" | sed 's/^/   /'
+  docker exec $NAME ffprobe -v error -show_entries stream=width,height -of csv=p=0 "$file" | head -1 | grep -qx '1080,1920' && echo "✔ the agent's reel is a decodable 1080×1920 MP4" || { echo "✘ the agent's render is not 1080×1920"; exit 1; }
+fi
+echo "ALL DOCKER E2E CHECKS PASSED (DB=$DB, EDITION=$EDITION, HARDENED=$HARDENED)"

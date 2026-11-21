@@ -231,6 +231,36 @@ describe('LicenceManager', () => {
     expect((await b.m.check('scheduled')).status).toBe('valid');
   });
 
+  it('the highest time seen is recorded at every start and by the hourly marker, and a restart with the clock set back gets no grace', async () => {
+    const repos = createMemoryRepositories();
+    const first = setup({ repos });
+    await first.m.init();
+    await first.m.check('start'); // valid at T0
+    first.api.offline = true;
+    first.clock.t = T0 + 8 * DAY;
+    expect((await first.m.check('scheduled')).status).toBe('grace');
+    // Still running offline a day later: the hourly marker moves with the clock.
+    first.clock.t = T0 + 9 * DAY;
+    await first.m.markClock('timer');
+    expect((await repos.licence.get())!.highWaterAt).toBe(new Date(T0 + 9 * DAY).toISOString());
+    expect(first.m.report().status).toBe('grace');
+
+    // Stopped, clock set back to T0 + 1 day, started again (no licence check has run yet).
+    const clock = { t: T0 + DAY };
+    const again = setup({ repos, api: first.api, clock });
+    await again.m.init();
+    expect(again.logs.some((l) => /^error: licence: the system clock .* is behind the latest time this server has seen/.test(l))).toBe(true);
+    expect(again.m.report()).toMatchObject({ status: 'invalid', reason: 'clock_skew', renderAllowed: false });
+    // The marker is never moved backwards.
+    expect((await repos.licence.get())!.highWaterAt).toBe(new Date(T0 + 9 * DAY).toISOString());
+
+    // A normal restart moves the marker forward.
+    const later = setup({ repos, api: first.api, clock: { t: T0 + 10 * DAY } });
+    await later.m.init();
+    expect((await repos.licence.get())!.highWaterAt).toBe(new Date(T0 + 10 * DAY).toISOString());
+    expect(later.m.report().status).toBe('grace');
+  });
+
   it('backs off on 429 (Retry-After) and 5xx, doubling, and resets after a success', async () => {
     const { m, api, clock } = setup();
     await m.init();

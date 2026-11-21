@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bundle } from '@remotion/bundler';
 import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer';
 import { PipelineError } from '@reelforge/media-pipeline';
 import { packageVersion } from '@reelforge/core';
@@ -11,6 +10,12 @@ import type { OutputSettings, RenderScene, ThemeTokens } from '@reelforge/projec
 const here = dirname(fileURLToPath(import.meta.url));
 const compositionsDir = resolve(here, '../compositions');
 const entryPoint = join(compositionsDir, 'Root.tsx');
+/**
+ * Bundle built at image build time (`apps/server/src/prebuild.ts`). Used when its
+ * source hash matches, so a production container never runs Webpack and needs
+ * no writable bundle directory.
+ */
+export const PREBUILT_REMOTION_DIR = resolve(here, '../.prebuilt/remotion');
 
 export interface RemotionRenderOptions {
   scene: RenderScene;
@@ -62,14 +67,38 @@ function sourceHash(): string {
   return h.digest('hex');
 }
 
-/** Bundle the compositions with Remotion's Webpack setup, cached by source hash. */
+function stampMatches(dir: string, hash: string): boolean {
+  const stamp = join(dir, '.source-hash');
+  return existsSync(stamp) && readFileSync(stamp, 'utf8') === hash;
+}
+
+/**
+ * The compositions bundled with Remotion's Webpack setup: the pre-built bundle
+ * when it matches the sources, otherwise one built into cacheDir (cached by
+ * source hash). `@remotion/bundler` (Webpack) is loaded only to build.
+ */
 export async function bundleCompositions(cacheDir: string, force = false): Promise<string> {
-  const outDir = join(resolve(cacheDir), 'remotion');
-  const stamp = join(outDir, '.source-hash');
   const hash = sourceHash();
-  if (!force && existsSync(stamp) && readFileSync(stamp, 'utf8') === hash) return outDir;
-  await bundle({ entryPoint, outDir, enableCaching: true });
-  writeFileSync(stamp, hash);
+  if (!force && stampMatches(PREBUILT_REMOTION_DIR, hash)) return PREBUILT_REMOTION_DIR;
+  const outDir = join(resolve(cacheDir), 'remotion');
+  if (!force && stampMatches(outDir, hash)) return outDir;
+  return buildCompositions(outDir, hash);
+}
+
+/** Pre-build the bundle next to the package (image build time). Returns its directory. */
+export async function prebuildCompositions(): Promise<string> {
+  return buildCompositions(PREBUILT_REMOTION_DIR, sourceHash(), { sourceMaps: false });
+}
+
+async function buildCompositions(outDir: string, hash: string, opts: { sourceMaps?: boolean } = {}): Promise<string> {
+  const { bundle } = await import('@remotion/bundler');
+  await bundle({
+    entryPoint,
+    outDir,
+    enableCaching: opts.sourceMaps !== false,
+    ...(opts.sourceMaps === false ? { webpackOverride: (c) => ({ ...c, devtool: false }) } : {}),
+  });
+  writeFileSync(join(outDir, '.source-hash'), hash);
   return outDir;
 }
 

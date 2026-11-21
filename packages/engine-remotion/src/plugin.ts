@@ -22,6 +22,8 @@ export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
       Object.entries(TEMPLATES)
         .filter(([, t]) => t.engine === 'remotion')
         .map(([id, t]) => ({ ...t, id })),
+    // Remotion always launches Chrome with --no-sandbox (and --single-process) on Linux.
+    browserSandbox: () => false,
     availability() {
       const b = browser();
       if (b && existsSync(b)) return { ok: true };

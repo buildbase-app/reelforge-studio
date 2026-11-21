@@ -142,11 +142,12 @@ function configCheck(argv: string[]): void {
   }
   console.log(`configuration is valid${config.sources.file ? ` (config file ${config.sources.file.path})` : ' (no config file; REELFORGE_CONFIG is not set)'}`);
   console.log(`  ${Object.entries(counts).map(([k, v]) => `${v} from ${k}`).join(', ')}`);
+  console.log(`  edition: ${config.resolved.build.edition}${config.resolved.build.edition === 'release' ? ' (licence.mode, licence.serverUrl and licence.orgId are fixed by the build)' : ''}`);
   for (const w of warnings) console.log(`  ! ${w}`);
 }
 
 function printReport(r: ConfigReport, note?: string) {
-  console.log(`config file: ${r.configFile ?? '(none)'}    secret key: ${r.secretKey}${note ? `    ${note}` : ''}`);
+  console.log(`edition: ${r.edition}    config file: ${r.configFile ?? '(none)'}    secret key: ${r.secretKey}${note ? `    ${note}` : ''}`);
   const width = Math.max(...r.settings.map((s) => s.key.length));
   for (const s of r.settings) {
     const where = s.source === 'default' ? 'default' : `${s.source}${s.origin && s.origin !== 'database' ? `: ${s.origin}` : ''}`;

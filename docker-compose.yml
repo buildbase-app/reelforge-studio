@@ -18,13 +18,32 @@
 #   export DATABASE_URL="mysql://reelforge:$MYSQL_PASSWORD@mysql:3306/reelforge?allowPublicKeyRetrieval=true"
 #   docker compose --profile mysql up -d --build
 # Your own database server elsewhere: set DATABASE_URL only (no profile).
+#
+# Hardened by default (docs/DEPLOY.md#hardening): read-only root filesystem, /tmp
+# as tmpfs, no Linux capabilities, no-new-privileges, non-root UID 10001, and the
+# seccomp profile deployment/seccomp/chrome.json (Docker's default plus the user
+# namespaces Chromium's sandbox needs), so html, hyperframes and motion-canvas
+# render with Chromium's sandbox on. Without that profile set
+# REELFORGE_CHROMIUM_NO_SANDBOX=1.
 # POSTGRES_IMAGE / MYSQL_IMAGE pick a mirror of the official images, e.g.
 # mirror.gcr.io/library/postgres:17 or public.ecr.aws/docker/library/mysql:8.4.
 services:
   reelforge:
-    build: .
+    build:
+      context: .
+      args:
+        # release (default): licence settings fixed by the image. dev: noncommercial development only (LICENSING.md).
+        REELFORGE_EDITION: ${REELFORGE_EDITION:-release}
     image: ${REELFORGE_IMAGE:-reelforge-studio:latest}
     restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./deployment/seccomp/chrome.json
     ports:
       # Loopback only by default; put a TLS proxy in front for remote agents.
       - "127.0.0.1:${REELFORGE_PORT:-4321}:4321"
@@ -39,6 +58,8 @@ services:
       REELFORGE_PUBLIC_URL: ${REELFORGE_PUBLIC_URL:-}
       REELFORGE_ALLOWED_HOSTS: ${REELFORGE_ALLOWED_HOSTS:-}
       REELFORGE_RENDER_CONCURRENCY: ${REELFORGE_RENDER_CONCURRENCY:-1}
+      # Chromium's own sandbox (needs the seccomp profile above). Remotion always runs without it.
+      REELFORGE_CHROMIUM_NO_SANDBOX: ${REELFORGE_CHROMIUM_NO_SANDBOX:-0}
       # Empty = SQLite at /data/reelforge.db. postgresql://... or mysql://... otherwise.
       DATABASE_URL: ${DATABASE_URL:-}
       # Optional providers / backends (leave empty to keep them off):

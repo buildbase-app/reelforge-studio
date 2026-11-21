@@ -102,7 +102,7 @@ export interface ProviderSetting {
   name: string;
   set: boolean;
   /** Where the value comes from; the value itself is never returned. */
-  source: 'api' | 'env' | 'file' | 'unset';
+  source: 'api' | 'env' | 'file' | 'build' | 'unset';
   /** A stored value that cannot be used (e.g. it cannot be decrypted with the current REELFORGE_SECRET_KEY). */
   error?: string;
 }
@@ -268,11 +268,13 @@ export class ReelforgeService {
 
   capabilities() {
     const tools = this.toolsOrNull();
+    const engines = this.registry.listEngines();
+    const sandboxOff = engines.filter((e) => e.browserSandbox?.() === false).map((e) => e.id);
     return {
-      server: { name: 'reelforge-studio', version: this.serverVersion, mcpToolsStatus: 'experimental' },
+      server: { name: 'reelforge-studio', version: this.serverVersion, edition: this.settings.current.build.edition, mcpToolsStatus: 'experimental' },
       schemaVersion: SCHEMA_VERSION,
       supportedSchemaVersions: SUPPORTED_SCHEMA_VERSIONS,
-      engines: this.registry.listEngines().map((e) => {
+      engines: engines.map((e) => {
         const a = e.availability();
         return {
           id: e.id,
@@ -280,6 +282,7 @@ export class ReelforgeService {
           version: e.version(),
           available: a.ok,
           ...(a.reason ? { reason: a.reason } : {}),
+          ...(e.browserSandbox ? { browserSandbox: e.browserSandbox() } : {}),
           acceptsSource: e.acceptsSource,
           templates: e.templates().map((t) => t.id),
         };
@@ -305,6 +308,19 @@ export class ReelforgeService {
         renderConcurrency: this.jobs.concurrency,
       },
       licence: this.licence.summary(),
+      security: {
+        chromiumSandbox: Object.fromEntries(engines.filter((e) => e.browserSandbox).map((e) => [e.id, e.browserSandbox!()])),
+        ...(sandboxOff.length
+          ? {
+              warning:
+                `Chromium runs without its own sandbox for: ${sandboxOff.join(', ')}. The container (non-root, read-only, no capabilities) is the isolation boundary.` +
+                (sandboxOff.includes('remotion') ? ' Remotion always passes --no-sandbox.' : '') +
+                (sandboxOff.some((id) => id !== 'remotion')
+                  ? ' To sandbox html, hyperframes and motion-canvas, run the container with the seccomp profile deployment/seccomp/chrome.json and REELFORGE_CHROMIUM_NO_SANDBOX=0 (docs/DEPLOY.md).'
+                  : ''),
+            }
+          : {}),
+      },
       versions: {
         node: process.version,
         ffmpeg: tools ? toolVersion(tools.ffmpeg) : null,

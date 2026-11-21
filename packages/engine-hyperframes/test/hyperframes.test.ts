@@ -37,6 +37,9 @@ describe('composition builder', () => {
   it('runs the CLI with telemetry, update checks and installs disabled', () => {
     const env = hyperframesEnv('/bin/chrome', '/tmp/cache', { PATH: '/usr/bin', SECRET_TOKEN: 'x', ELEVENLABS_API_KEY: 'k' });
     expect(env).toMatchObject({ HYPERFRAMES_NO_TELEMETRY: '1', DO_NOT_TRACK: '1', HYPERFRAMES_NO_UPDATE_CHECK: '1', HYPERFRAMES_NO_AUTO_INSTALL: '1', HYPERFRAMES_BROWSER_PATH: '/bin/chrome' });
+    expect(env.TMPDIR).toBe('/tmp/cache/hyperframes/tmp'); // temp files on the data volume, not a small /tmp tmpfs
+    expect(env.HYPERFRAMES_CHROME_SANDBOX).toMatch(/^[01]$/); // the shared sandbox rule, never HyperFrames' silent fallback
+    expect(hyperframesEnv('/bin/chrome', '/c', { REELFORGE_CHROMIUM_NO_SANDBOX: '1' }).HYPERFRAMES_CHROME_SANDBOX).toBe('0');
     expect(env.SECRET_TOKEN).toBeUndefined();
     expect(env.ELEVENLABS_API_KEY).toBeUndefined();
   });

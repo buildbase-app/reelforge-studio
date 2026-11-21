@@ -83,6 +83,8 @@ export interface EnginePlugin {
   acceptsSource: boolean;
   /** Whether this engine can render on this machine right now (browser present, ...). */
   availability(): Availability;
+  /** Whether this engine's Chromium runs with its own sandbox (omit for engines without a browser). */
+  browserSandbox?(): boolean;
   render(scene: RenderScene, ctx: EngineRenderContext): Promise<ClipResult>;
 }
 

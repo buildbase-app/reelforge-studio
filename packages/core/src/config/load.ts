@@ -2,9 +2,11 @@ import { readFileSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { z } from 'zod';
+import { buildOrigin, currentBuild, type BuildInfo } from './build';
 import { ConfigSchema, FileConfigSchema, SETTINGS, SETTINGS_BY_KEY, envNames, getPath, setPath, type Config, type SettingDef } from './schema';
 
-export type ConfigSource = 'default' | 'file' | 'env' | 'runtime';
+/** `build`: fixed by a release image (D-039); nothing else can change it. */
+export type ConfigSource = 'default' | 'file' | 'env' | 'runtime' | 'build';
 
 export interface ConfigIssue {
   /** Dotted setting key, or "" for the file as a whole. */
@@ -175,6 +177,7 @@ export interface ResolvedConfig {
   settings: Map<string, ResolvedSetting>;
   file?: ConfigFile;
   warnings: string[];
+  build: BuildInfo;
 }
 
 export interface ResolveInput {
@@ -182,6 +185,15 @@ export interface ResolveInput {
   file?: ConfigFile;
   /** Runtime values from the database (already decrypted), by key. Only runtime-scope keys are used. */
   runtime?: Record<string, unknown>;
+  /** The build (release images fix some settings). Default: this process's build (currentBuild()). */
+  build?: BuildInfo;
+}
+
+/** Why a value from the file, env or runtime layer is refused for a setting a release build fixes. */
+export function buildLockedMessage(key: string, build: BuildInfo): string {
+  return `"${key}" is fixed by this ${build.edition} build to ${JSON.stringify(build.locked[key])} and cannot be changed by the config file, environment or update_config. Remove it.${
+    key === 'licence.mode' ? ' Building from source with licence.mode "off" is for noncommercial development only (LICENSING.md).' : ''
+  }`;
 }
 
 /**
@@ -208,9 +220,20 @@ export function resolveConfig(input: ResolveInput): ResolvedConfig {
     if (v) runtimeValues.set(key, v);
   }
 
+  const build = input.build ?? currentBuild();
   const settings = new Map<string, ResolvedSetting>();
   const pending: SettingDef[] = [];
   for (const def of SETTINGS) {
+    if (Object.hasOwn(build.locked, def.key)) {
+      const fixed = build.locked[def.key];
+      // Saying the same thing again is harmless; anything else is refused (the server does not start).
+      for (const [source, layer] of [['file', fileValues], ['env', envValues], ['runtime', runtimeValues]] as const) {
+        const v = layer.get(def.key);
+        if (v && JSON.stringify(v.value) !== JSON.stringify(fixed)) issues.push({ key: def.key, source, origin: v.origin, message: buildLockedMessage(def.key, build) });
+      }
+      settings.set(def.key, { def, value: structuredClone(fixed), source: 'build', origin: buildOrigin(build) });
+      continue;
+    }
     const r = runtimeValues.get(def.key);
     const e = envValues.get(def.key);
     const f = fileValues.get(def.key);
@@ -244,7 +267,7 @@ export function resolveConfig(input: ResolveInput): ResolvedConfig {
       })
     );
   }
-  return { config: parsed.data, settings, file: input.file, warnings };
+  return { config: parsed.data, settings, file: input.file, warnings, build };
 }
 
 /** Validate one runtime value (PATCH /v1/config) against its setting. */
