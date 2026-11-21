@@ -82,6 +82,10 @@ rows and no SQLite file is created. Image (`--network none`, UID 10001):
 migrate, CLI key creation and `reelforge backup` work offline. Image size
 2.36 GB → 2.50 GB (content 606 → 642 MB; the image now installs production
 dependencies only, which offsets most of Prisma's 72 MB client).
+GitHub CI green on ddaac7b (run 44907459777): contract tests (68 each) and
+the server e2e (37) on PostgreSQL 17 and MySQL 8.4 service containers, the
+SQLite test job, and the Docker job running `e2e/docker/run.sh` for sqlite,
+postgres and mysql (all three "ALL DOCKER E2E CHECKS PASSED").
 
 Found and fixed during the run: agents polled `get_job` in a tight loop and
 ran out of turns (first Claude run: 61 turns, render actually succeeded).
