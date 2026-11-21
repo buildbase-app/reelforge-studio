@@ -76,11 +76,11 @@ another on a Docker network (agent "on another machine").
 
 | Check | Result |
 | --- | --- |
-| Image builds; container healthy; non-root (UID 10001) | pass (321 tests in the repo with `REELFORGE_REQUIRE_BROWSER=1`) |
+| Image builds; container healthy; non-root (UID 10001) | pass |
 | MCP journey (official SDK client, other container): capabilities, themes, templates, create (v0.1 migrated), add/update scenes with timing, set theme, validate, render, long-poll, signed download | pass: 1080×1920, 30 fps, H.264 + AAC, 330 frames (= sum of scene frames), 4 engines |
 | No key / wrong key / revoked key | 401 |
 | Read-only key: write or key admin | 403 |
-| Keys created and revoked by an agent over the API | pass (321 tests in the repo with `REELFORGE_REQUIRE_BROWSER=1`) |
+| Keys created and revoked by an agent over the API | pass |
 | Invalid manifest | 422 `invalid_manifest` with paths |
 | Forged `Host` / foreign `Origin` on `/mcp` | 403 (DNS-rebinding protection) |
 | New container on the same volume | projects, keys, renders kept |
