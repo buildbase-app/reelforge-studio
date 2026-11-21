@@ -63,6 +63,7 @@ export const ModelName = {
   Asset: 'Asset',
   AuditLog: 'AuditLog',
   IdempotencyKey: 'IdempotencyKey',
+  RateLimitWindow: 'RateLimitWindow',
   LicenceState: 'LicenceState',
   SystemState: 'SystemState'
 } as const
@@ -155,7 +156,12 @@ export const JobScalarFieldEnum = {
   apiKeyId: 'apiKeyId',
   createdAt: 'createdAt',
   startedAt: 'startedAt',
-  finishedAt: 'finishedAt'
+  finishedAt: 'finishedAt',
+  queue: 'queue',
+  attempts: 'attempts',
+  workerId: 'workerId',
+  leaseExpiresAt: 'leaseExpiresAt',
+  cancelRequestedAt: 'cancelRequestedAt'
 } as const
 
 export type JobScalarFieldEnum = (typeof JobScalarFieldEnum)[keyof typeof JobScalarFieldEnum]
@@ -260,6 +266,16 @@ export const IdempotencyKeyScalarFieldEnum = {
 } as const
 
 export type IdempotencyKeyScalarFieldEnum = (typeof IdempotencyKeyScalarFieldEnum)[keyof typeof IdempotencyKeyScalarFieldEnum]
+
+
+export const RateLimitWindowScalarFieldEnum = {
+  workspaceId: 'workspaceId',
+  key: 'key',
+  windowStart: 'windowStart',
+  count: 'count'
+} as const
+
+export type RateLimitWindowScalarFieldEnum = (typeof RateLimitWindowScalarFieldEnum)[keyof typeof RateLimitWindowScalarFieldEnum]
 
 
 export const LicenceStateScalarFieldEnum = {

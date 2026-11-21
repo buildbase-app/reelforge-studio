@@ -6,14 +6,27 @@ import { writeFileAtomic } from './fsutil';
 /**
  * HMAC signer for time-limited download links, so an agent can hand a plain
  * URL to a person or a tool that cannot send an Authorization header.
- * The key lives in <dataDir>/signing.key (mode 0600), created on first use.
+ * The key lives in <dataDir>/signing.key (mode 0600), created on first use,
+ * or is derived from REELFORGE_SECRET_KEY for several instances (D-077).
  */
 export class UrlSigner {
   private key: Buffer | null = null;
 
-  constructor(private readonly dataDir: string) {}
+  /**
+   * `sharedSecret` (REELFORGE_SECRET_KEY, set when several instances share the
+   * database queue): the key is derived from it, so every instance verifies
+   * the links of the others. Otherwise a random key in <dataDir>/signing.key.
+   */
+  constructor(
+    private readonly dataDir: string,
+    private readonly sharedSecret?: string
+  ) {}
 
   async init(): Promise<void> {
+    if (this.sharedSecret) {
+      this.key = createHmac('sha256', this.sharedSecret).update('reelforge url signing v1').digest();
+      return;
+    }
     const file = resolve(this.dataDir, 'signing.key');
     try {
       this.key = Buffer.from((await readFile(file, 'utf8')).trim(), 'hex');

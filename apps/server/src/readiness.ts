@@ -93,6 +93,25 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
     return { status: 'ok', required: false, path, ...(version ? { version } : {}) };
   });
 
+  // The job queue (D-075): which role this is, what it runs, and whether claiming works.
+  const q = service.jobs.status();
+  const role = service.settings.config.server.role;
+  dependencies.queue = {
+    status: q.paused === 'shutting down' || q.lastError ? 'error' : 'ok',
+    // A worker that cannot claim (or is draining) must leave rotation; others only report it.
+    required: q.paused === 'shutting down' || (role === 'worker' && Boolean(q.lastError)),
+    role,
+    mode: q.mode,
+    renders: q.runJobs,
+    workerId: q.workerId,
+    running: q.running,
+    queued: q.queued,
+    concurrency: q.concurrency,
+    ...(q.paused ? { paused: q.paused } : {}),
+    ...(q.lastHeartbeatAt ? { lastHeartbeatAt: q.lastHeartbeatAt } : {}),
+    ...(q.lastError ? { detail: `queue ${q.lastError.operation} failing since ${q.lastError.at}: ${q.lastError.message}` } : q.paused ? { detail: q.paused } : {}),
+  };
+
   if (obs) {
     // OTLP exporters: reported, never required (a telemetry backend being down must not take the studio out of rotation).
     const signals = obs.exportHealth();

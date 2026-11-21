@@ -22,12 +22,12 @@ import { AssetStore } from './assets';
 import { LocalBackend } from './backends/local';
 import { ApiError, badRequest, invalidManifest, notFound } from './errors';
 import { newId, readJson, writeJsonAtomic } from './fsutil';
-import { JobRunner, type JobContext, type JobRecord } from './jobs';
+import { JobRunner, QuotaExceeded, type DatabaseQueueOptions, type JobContext, type JobRecord, type QueueMode } from './jobs';
 
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
 import { KeyStore, quotaWindows, type KeyOptions, type PublicKey, type Scope } from './keys';
-import type { AuditEntryInput, AuditFilter, Repositories } from './repositories';
+import type { AuditEntryInput, AuditFilter, QuotaWindow, Repositories } from './repositories';
 import {
   AuditLog,
   MAX_AUDIT_EXPORT,
@@ -123,6 +123,17 @@ export interface ServiceConfig {
   maintenance?: boolean;
   /** Clock for key expiry, rotation grace, quotas and idempotency (tests inject one). Default Date.now. */
   now?: () => number;
+  /**
+   * Job queue (D-075). Default: from server.role and queue.* (`database` for
+   * the api and worker roles). Tests override single values (short leases).
+   */
+  queue?: { mode?: QueueMode } & DatabaseQueueOptions;
+}
+
+/** The queue mode for a role and queue.driver (D-075). */
+export function effectiveQueueMode(role: 'all' | 'api' | 'worker', driver: 'auto' | 'inprocess' | 'database'): QueueMode {
+  if (driver !== 'auto') return driver;
+  return role === 'all' ? 'inprocess' : 'database';
 }
 
 /** Most audit entries one MCP export returns (REST streams up to MAX_AUDIT_EXPORT). */
@@ -131,6 +142,7 @@ export const MAX_MCP_EXPORT = 10_000;
 /** Render and preview jobs count towards a key's render quota. */
 const QUOTA_JOB_TYPES = ['render', 'preview'];
 const SWEEP_INTERVAL_MS = 3_600_000;
+const SETTINGS_REFRESH_MS = 15_000;
 
 /** Who made a change (audit log). */
 export interface Actor {
@@ -214,7 +226,8 @@ export class ReelforgeService {
   readonly auditLog: AuditLog;
   private readonly baseEnv: NodeJS.ProcessEnv;
   private sweepTimer: NodeJS.Timeout | null = null;
-  private quotaLocks = new Map<string, Promise<unknown>>();
+  private storageHealthCache: { at: number; value: { ok: boolean; reason?: string } } | null = null;
+  private refreshTimer: NodeJS.Timeout | null = null;
   private builtinSinks = new Map<string, AuditSink>();
   /** The clock (ServiceConfig.now). */
   readonly now: () => number;
@@ -262,7 +275,10 @@ export class ReelforgeService {
     this.serverVersion = config.serverVersion ?? '0.1.0';
     this.publicUrl = (config.publicUrl ?? '').replace(/\/+$/, '');
     this.fetchImpl = config.fetch ?? fetch;
-    this.signer = new UrlSigner(this.dataDir);
+    const cfg = this.settings.current.config;
+    const queueMode = config.queue?.mode ?? effectiveQueueMode(cfg.server.role, cfg.queue.driver);
+    // Several instances must verify each other's signed links: derive the key from REELFORGE_SECRET_KEY when it is set.
+    this.signer = new UrlSigner(this.dataDir, queueMode === 'database' ? cfg.security.secretKey : undefined);
     this.licence = createLicenceManager(this.settings, this.repos, {
       api: config.licence?.api,
       fetch: config.licence?.fetch,
@@ -272,9 +288,20 @@ export class ReelforgeService {
     });
     this.jobs = new JobRunner({
       repo: this.repos.jobs,
-      concurrency: config.renderConcurrency ?? 1,
+      concurrency: cfg.server.workerConcurrency ?? config.renderConcurrency ?? 1,
       handlers: { render: (ctx) => this.runRenderJob(ctx), preview: (ctx) => this.runRenderJob(ctx) },
       telemetry: this.telemetry,
+      mode: queueMode,
+      database: {
+        runJobs: cfg.server.role !== 'api',
+        leaseMs: cfg.queue.leaseSeconds * 1000,
+        maxAttempts: cfg.queue.maxAttempts,
+        pollMs: cfg.queue.pollIntervalMs,
+        // Renders would only fail while the bucket is down: wait instead of burning attempts.
+        canClaim: () => this.storageReady(),
+        ...config.queue,
+      },
+      log: (level, line) => config.log?.(level, line),
     });
     if (!registry.listBackends().some((b) => b.id === 'local')) {
       registry.registerBackend(new LocalBackend((req, ctx) => this.renderLocally(req, ctx)));
@@ -284,7 +311,7 @@ export class ReelforgeService {
   static async create(registry: PluginRegistry, config: ServiceConfig): Promise<ReelforgeService> {
     const s = new ReelforgeService(registry, config);
     await mkdir(s.dataDir, { recursive: true });
-    await s.jobs.init();
+    if (s.jobs.mode === 'inprocess') await s.jobs.init();
     await s.signer.init();
     await s.settings.load();
     const encrypted = await s.settings.encryptPlaintext();
@@ -314,6 +341,13 @@ export class ReelforgeService {
     s.settings.onChange((_r, keys) => {
       if (keys.some((k) => k.startsWith('audit.'))) s.applyAuditSinks();
     });
+    if (s.jobs.mode === 'database') {
+      // Several instances: a runtime setting changed on one (update_config) reaches the others within 15 s.
+      s.refreshTimer = setInterval(() => {
+        void s.settings.refresh().catch((e) => config.log?.('warn', `could not re-read runtime settings: ${(e as Error).message}`));
+      }, SETTINGS_REFRESH_MS);
+      s.refreshTimer.unref();
+    }
     if (config.maintenance !== false) {
       // First sweep shortly after start (never delays it), then hourly.
       const run = () => void s.sweep().catch((e) => config.log?.('warn', `maintenance sweep failed: ${(e as Error).message}`));
@@ -321,6 +355,8 @@ export class ReelforgeService {
       s.sweepTimer = setInterval(run, SWEEP_INTERVAL_MS);
       s.sweepTimer.unref();
     }
+    // Database queue: claiming starts once storage and settings are ready.
+    if (s.jobs.mode === 'database') await s.jobs.init();
     return s;
   }
 
@@ -361,6 +397,7 @@ export class ReelforgeService {
   async sweep(now = this.now()) {
     const auditDeleted = await this.auditLog.sweep(this.settings.current.config.audit.retentionDays, now);
     const idempotencyDeleted = await this.repos.idempotency.deleteExpired(new Date(now).toISOString());
+    await this.repos.rateLimits.deleteOlderThan(new Date(now - 3_600_000).toISOString());
     if (auditDeleted) {
       await this.audit({ actorType: 'system', action: 'audit.sweep', data: { deleted: auditDeleted, retentionDays: this.settings.current.config.audit.retentionDays } });
     }
@@ -371,6 +408,8 @@ export class ReelforgeService {
   async stop() {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.sweepTimer = null;
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    this.refreshTimer = null;
     this.licence.stop();
     this.storage.stopSweeper();
     await this.auditLog.close();
@@ -400,7 +439,7 @@ export class ReelforgeService {
    */
   private applySettings(resolved: ResolvedConfig, keys: string[] | null) {
     const use = (key: string) => (keys === null ? resolved.settings.get(key)?.source === 'runtime' : keys.includes(key));
-    if (use('limits.renderConcurrency')) this.jobs.setConcurrency(resolved.config.limits.renderConcurrency);
+    if (use('limits.renderConcurrency') && resolved.config.server.workerConcurrency === undefined) this.jobs.setConcurrency(resolved.config.limits.renderConcurrency);
     if (use('limits.maxUploadBytes')) this.assets.limits.maxBytes = resolved.config.limits.maxUploadBytes;
     for (const [name, v] of Object.entries(this.settings.providerEnvOverlay())) {
       if (v !== undefined) this.providerEnv[name] = v;
@@ -809,54 +848,67 @@ export class ReelforgeService {
     const blocking = report.errors.filter((e) => !(backendOverride && e.path === 'render.backend'));
     if (blocking.length) throw new ApiError('validation_failed', 422, 'fix these problems before rendering (see details.errors)', { errors: blocking, warnings: report.warnings });
     const runId = newId(kind === 'preview' ? 'prv' : 'run');
-    return this.withRenderQuota((apiKeyId) =>
+    return this.withRenderQuota((apiKeyId, quota) =>
       this.jobs.submit(
         kind,
         { projectId: id, version: meta.version, backend: backendId, runId, ...(sceneIds ? { sceneIds } : {}), ...(scale ? { scale } : {}) },
-        { projectId: id, ...(apiKeyId ? { apiKeyId } : {}) }
+        { projectId: id, ...(apiKeyId ? { apiKeyId } : {}) },
+        quota
       )
     );
   }
 
   /**
    * Start a render or preview job under the calling key's render quota
-   * (rendersPerDay / rendersPerMonth, UTC). The check and the insert are
-   * serialised per key in this process, so parallel calls cannot overshoot.
+   * (rendersPerDay / rendersPerMonth, UTC). The count and the insert are one
+   * database transaction that locks the key's row, so parallel calls on any
+   * number of instances cannot overshoot (D-078).
    */
-  private async withRenderQuota<T>(submit: (apiKeyId?: string) => Promise<T>): Promise<T> {
+  private async withRenderQuota(submit: (apiKeyId?: string, quota?: { types: string[]; windows: QuotaWindow[] }) => Promise<JobRecord>): Promise<JobRecord> {
     const auth = currentRequest()?.auth;
     if (!auth || auth.keyId === 'signed-url') return submit();
     if (auth.rendersPerDay === undefined && auth.rendersPerMonth === undefined) return submit(auth.keyId);
-    const previous = this.quotaLocks.get(auth.keyId) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(async () => {
-      const w = quotaWindows(this.now());
-      for (const [period, limit, since, resetsAt] of [
+    const w = quotaWindows(this.now());
+    const windows = (
+      [
         ['day', auth.rendersPerDay, w.dayStart, w.dayEnd],
         ['month', auth.rendersPerMonth, w.monthStart, w.monthEnd],
-      ] as const) {
-        if (limit === undefined) continue;
-        const used = await this.repos.jobs.countByApiKey(auth.keyId, since, QUOTA_JOB_TYPES);
-        if (used >= limit) {
-          throw new ApiError('quota_exceeded', 429, `this API key may start ${limit} render${limit === 1 ? '' : 's'} per ${period} (renders and previews, UTC); ${used} used. The quota resets at ${resetsAt}.`, {
-            period,
-            limit,
-            used,
-            resetsAt,
-          });
-        }
-      }
-      return submit(auth.keyId);
-    });
-    this.quotaLocks.set(auth.keyId, run);
+      ] as const
+    ).filter((x): x is readonly ['day' | 'month', number, string, string] => x[1] !== undefined);
     try {
-      return await run;
-    } finally {
-      if (this.quotaLocks.get(auth.keyId) === run) this.quotaLocks.delete(auth.keyId);
+      return await submit(auth.keyId, { types: QUOTA_JOB_TYPES, windows: windows.map(([, limit, since]) => ({ since, limit })) });
+    } catch (e) {
+      if (!(e instanceof QuotaExceeded)) throw e;
+      const [period, limit, , resetsAt] = windows[e.window]!;
+      const used = e.used;
+      throw new ApiError('quota_exceeded', 429, `this API key may start ${limit} render${limit === 1 ? '' : 's'} per ${period} (renders and previews, UTC); ${used} used. The quota resets at ${resetsAt}.`, {
+        period,
+        limit,
+        used,
+        resetsAt,
+      });
     }
+  }
+
+  /** Whether renders can be stored now (remote storage health, cached 10 s); a worker does not claim jobs while not. */
+  private async storageReady(): Promise<{ ok: boolean; reason?: string }> {
+    if (this.storage.isLocal) return { ok: true };
+    const c = this.storageHealthCache;
+    if (c && Date.now() - c.at < 10_000) return c.value;
+    const h = await this.storage.driver.health().catch((e: Error) => ({ ok: false, message: e.message }));
+    const value = h.ok ? { ok: true } : { ok: false, reason: `storage (${this.storage.driver.id}) is unavailable: ${h.message ?? 'unknown error'}` };
+    this.storageHealthCache = { at: Date.now(), value };
+    return value;
   }
 
   private async runRenderJob(ctx: JobContext): Promise<Record<string, unknown>> {
     const p = ctx.job.params as { projectId: string; version: number; backend: string; runId: string; sceneIds?: string[]; scale?: number };
+    if ((ctx.job.attempts ?? 1) > 1 && (await this.storage.renders.exists(p.projectId, p.runId).catch(() => false))) {
+      // An earlier attempt committed the render, then its worker died before recording it: finish with that render.
+      ctx.log(`render ${p.runId} was already committed by an earlier attempt; using it`);
+      this.renderIndex.set(p.runId, p.projectId);
+      return { ...(await this.getRender(p.runId)) };
+    }
     const project = await this.projects.getVersion(p.projectId, p.version);
     const backend = this.registry.backend(p.backend);
     const outcome = await backend.submit(
@@ -942,7 +994,7 @@ export class ReelforgeService {
 
   async getJob(id: string) {
     const job = await this.jobs.get(id);
-    const pos = this.jobs.queuePosition(id);
+    const pos = await this.jobs.positionOf(job);
     return { ...job, ...(pos !== null ? { queuePosition: pos } : {}) };
   }
   /**
@@ -965,7 +1017,7 @@ export class ReelforgeService {
     const job = await this.getJob(id);
     if (job.type === 'render' || job.type === 'preview') {
       await this.licence.assertRenderAllowed();
-      return this.withRenderQuota((apiKeyId) => this.jobs.retry(id, apiKeyId ? { apiKeyId } : {}));
+      return this.withRenderQuota((apiKeyId, quota) => this.jobs.retry(id, apiKeyId ? { apiKeyId } : {}, quota));
     }
     const apiKeyId = currentRequest()?.auth?.keyId;
     return this.jobs.retry(id, apiKeyId ? { apiKeyId } : {});

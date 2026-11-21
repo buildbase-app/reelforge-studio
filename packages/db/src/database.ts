@@ -96,7 +96,7 @@ export class Database {
   repositories(workspaceId = DEFAULT_WORKSPACE_ID): Repositories {
     let r = this.repos.get(workspaceId);
     if (!r) {
-      r = createPrismaRepositories(this.prisma, workspaceId);
+      r = createPrismaRepositories(this.prisma, workspaceId, this.kind);
       this.repos.set(workspaceId, r);
     }
     return r;
