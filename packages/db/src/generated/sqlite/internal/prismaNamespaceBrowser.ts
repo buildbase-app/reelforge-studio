@@ -62,6 +62,7 @@ export const ModelName = {
   Setting: 'Setting',
   Asset: 'Asset',
   AuditLog: 'AuditLog',
+  LicenceState: 'LicenceState',
   SystemState: 'SystemState'
 } as const
 
@@ -223,6 +224,24 @@ export const AuditLogScalarFieldEnum = {
 } as const
 
 export type AuditLogScalarFieldEnum = (typeof AuditLogScalarFieldEnum)[keyof typeof AuditLogScalarFieldEnum]
+
+
+export const LicenceStateScalarFieldEnum = {
+  workspaceId: 'workspaceId',
+  instanceId: 'instanceId',
+  keyHash: 'keyHash',
+  answer: 'answer',
+  lastCheckedAt: 'lastCheckedAt',
+  lastSuccessAt: 'lastSuccessAt',
+  lastError: 'lastError',
+  activatedAt: 'activatedAt',
+  deactivatedAt: 'deactivatedAt',
+  nextCheckAt: 'nextCheckAt',
+  highWaterAt: 'highWaterAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type LicenceStateScalarFieldEnum = (typeof LicenceStateScalarFieldEnum)[keyof typeof LicenceStateScalarFieldEnum]
 
 
 export const SystemStateScalarFieldEnum = {

@@ -199,6 +199,43 @@ export interface SettingRepository {
   apply(changes: Record<string, StoredValue | null>, at: string, updatedBy?: string): Promise<void>;
 }
 
+// ---- licence ----------------------------------------------------------------
+
+/**
+ * Licence activation state (D-028, D-035), one per workspace. Never holds the
+ * licence key: `keyHash` (HMAC-SHA256 keyed with the instance id) only says
+ * which key the stored answer belongs to. Timestamps are ISO-8601.
+ */
+export interface LicenceStateRecord {
+  /** Random, created once; sent to BuildBase with the key (the only data sent). */
+  instanceId: string;
+  keyHash?: string;
+  /** The last answer from the licence server, as received (no key string in it). */
+  answer?: Record<string, unknown>;
+  lastCheckedAt?: string;
+  /** Last answer with valid: true; the offline grace period counts from here. */
+  lastSuccessAt?: string;
+  /** The last failed attempt (unreachable, rate limited, server error); cleared by an answer. */
+  lastError?: { kind: string; message: string; status?: number; code?: string; at: string };
+  activatedAt?: string;
+  deactivatedAt?: string;
+  nextCheckAt?: string;
+  /** Latest clock time seen; a clock set back past it gets no grace. */
+  highWaterAt?: string;
+  updatedAt: string;
+}
+
+export interface LicenceRepository {
+  get(): Promise<LicenceStateRecord | null>;
+  /**
+   * The stored state, or a new one with `instanceId` when there is none
+   * (atomic: two processes starting together end up with the same instance id).
+   */
+  init(instanceId: string, at: string): Promise<LicenceStateRecord>;
+  /** Replace the stored state (the instance id never changes once stored). */
+  save(state: LicenceStateRecord): Promise<void>;
+}
+
 // ---- assets -----------------------------------------------------------------
 
 export interface AssetRecord extends StoredAsset {
@@ -249,6 +286,7 @@ export interface Repositories {
   readonly themes: ThemeRepository;
   readonly providerSettings: ProviderSettingRepository;
   readonly settings: SettingRepository;
+  readonly licence: LicenceRepository;
   readonly assets: AssetRepository;
   readonly audit: AuditRepository;
 }

@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
-import { ReelforgeService, type PluginRegistry } from '@reelforge/core';
+import { ReelforgeService, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
 import { defaultDatabaseUrl, prepareDatabase, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
@@ -28,6 +28,8 @@ export async function startServer(
     registry?: PluginRegistry | ((providerEnv: NodeJS.ProcessEnv) => PluginRegistry);
     env?: NodeJS.ProcessEnv;
     quiet?: boolean;
+    /** Licence checks: tests inject the licence API, fetch or clock (ServiceConfig.licence). */
+    licence?: ServiceConfig['licence'];
   } = {}
 ): Promise<StartedServer> {
   const env = opts.env ?? process.env;
@@ -62,6 +64,7 @@ export async function startServer(
       publicUrl: config.publicUrl,
       maxUploadBytes: config.maxUploadBytes,
       configSources: config.sources,
+      licence: opts.licence,
       log: logger,
     });
   } catch (e) {
@@ -110,6 +113,7 @@ export async function startServer(
         server.close(() => resolve());
         (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
       });
+      service.licence.stop();
       await service.jobs.flush();
       await db.close();
     },

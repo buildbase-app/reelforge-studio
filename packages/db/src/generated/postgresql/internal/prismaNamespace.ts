@@ -408,6 +408,7 @@ export const ModelName = {
   Setting: 'Setting',
   Asset: 'Asset',
   AuditLog: 'AuditLog',
+  LicenceState: 'LicenceState',
   SystemState: 'SystemState'
 } as const
 
@@ -424,7 +425,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "workspace" | "project" | "projectVersion" | "apiKey" | "job" | "jobEvent" | "theme" | "providerSetting" | "setting" | "asset" | "auditLog" | "systemState"
+    modelProps: "workspace" | "project" | "projectVersion" | "apiKey" | "job" | "jobEvent" | "theme" | "providerSetting" | "setting" | "asset" | "auditLog" | "licenceState" | "systemState"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1242,6 +1243,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    LicenceState: {
+      payload: Prisma.$LicenceStatePayload<ExtArgs>
+      fields: Prisma.LicenceStateFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.LicenceStateFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LicenceStatePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.LicenceStateFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LicenceStatePayload>
+        }
+        findFirst: {
+          args: Prisma.LicenceStateFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LicenceStatePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.LicenceStateFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LicenceStatePayload>
+        }
+        findMany: {
+          args: Prisma.LicenceStateFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LicenceStatePayload>[]
+        }
+        create: {
+          args: Prisma.LicenceStateCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LicenceStatePayload>
+        }
+        createMany: {
+          args: Prisma.LicenceStateCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.LicenceStateCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LicenceStatePayload>[]
+        }
+        delete: {
+          args: Prisma.LicenceStateDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LicenceStatePayload>
+        }
+        update: {
+          args: Prisma.LicenceStateUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LicenceStatePayload>
+        }
+        deleteMany: {
+          args: Prisma.LicenceStateDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.LicenceStateUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.LicenceStateUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LicenceStatePayload>[]
+        }
+        upsert: {
+          args: Prisma.LicenceStateUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$LicenceStatePayload>
+        }
+        aggregate: {
+          args: Prisma.LicenceStateAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateLicenceState>
+        }
+        groupBy: {
+          args: Prisma.LicenceStateGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.LicenceStateGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.LicenceStateCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.LicenceStateCountAggregateOutputType> | number
+        }
+      }
+    }
     SystemState: {
       payload: Prisma.$SystemStatePayload<ExtArgs>
       fields: Prisma.SystemStateFieldRefs
@@ -1500,6 +1575,24 @@ export const AuditLogScalarFieldEnum = {
 } as const
 
 export type AuditLogScalarFieldEnum = (typeof AuditLogScalarFieldEnum)[keyof typeof AuditLogScalarFieldEnum]
+
+
+export const LicenceStateScalarFieldEnum = {
+  workspaceId: 'workspaceId',
+  instanceId: 'instanceId',
+  keyHash: 'keyHash',
+  answer: 'answer',
+  lastCheckedAt: 'lastCheckedAt',
+  lastSuccessAt: 'lastSuccessAt',
+  lastError: 'lastError',
+  activatedAt: 'activatedAt',
+  deactivatedAt: 'deactivatedAt',
+  nextCheckAt: 'nextCheckAt',
+  highWaterAt: 'highWaterAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type LicenceStateScalarFieldEnum = (typeof LicenceStateScalarFieldEnum)[keyof typeof LicenceStateScalarFieldEnum]
 
 
 export const SystemStateScalarFieldEnum = {
@@ -1772,6 +1865,7 @@ export type GlobalOmitConfig = {
   setting?: Prisma.SettingOmit
   asset?: Prisma.AssetOmit
   auditLog?: Prisma.AuditLogOmit
+  licenceState?: Prisma.LicenceStateOmit
   systemState?: Prisma.SystemStateOmit
 }
 

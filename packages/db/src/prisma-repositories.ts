@@ -6,6 +6,7 @@ import {
   type AssetRecord,
   type AuditEntry,
   type JobRecord,
+  type LicenceStateRecord,
   type ProjectMeta,
   type Repositories,
   type Scope,
@@ -27,6 +28,35 @@ const TX = { maxWait: 10_000, timeout: 30_000 };
 /** Unique-constraint violation (P2002), whichever database raised it. */
 export function isUniqueViolation(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'P2002';
+}
+
+function toLicence(r: {
+  instanceId: string;
+  keyHash: string | null;
+  answer: string | null;
+  lastCheckedAt: Date | null;
+  lastSuccessAt: Date | null;
+  lastError: string | null;
+  activatedAt: Date | null;
+  deactivatedAt: Date | null;
+  nextCheckAt: Date | null;
+  highWaterAt: Date | null;
+  updatedAt: Date;
+}): LicenceStateRecord {
+  const opt = (k: string, d: Date | null) => (d ? { [k]: iso(d) } : {});
+  return {
+    instanceId: r.instanceId,
+    ...(r.keyHash !== null ? { keyHash: r.keyHash } : {}),
+    ...(r.answer !== null ? { answer: parse(r.answer) } : {}),
+    ...opt('lastCheckedAt', r.lastCheckedAt),
+    ...opt('lastSuccessAt', r.lastSuccessAt),
+    ...(r.lastError !== null ? { lastError: parse(r.lastError) } : {}),
+    ...opt('activatedAt', r.activatedAt),
+    ...opt('deactivatedAt', r.deactivatedAt),
+    ...opt('nextCheckAt', r.nextCheckAt),
+    ...opt('highWaterAt', r.highWaterAt),
+    updatedAt: iso(r.updatedAt),
+  };
 }
 
 /** Repositories for one workspace on any of the Prisma-supported databases. */
@@ -319,6 +349,38 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
               })
         );
         if (ops.length) await prisma.$transaction(ops);
+      },
+    },
+
+    licence: {
+      async get() {
+        const r = await prisma.licenceState.findUnique({ where: { workspaceId } });
+        return r ? toLicence(r) : null;
+      },
+      async init(instanceId, at) {
+        try {
+          await prisma.licenceState.create({ data: { ...ws, instanceId, updatedAt: new Date(at) } });
+        } catch (e) {
+          if (!isUniqueViolation(e)) throw e;
+        }
+        return toLicence(await prisma.licenceState.findUniqueOrThrow({ where: { workspaceId } }));
+      },
+      async save(s) {
+        const date = (v?: string) => (v ? new Date(v) : null);
+        const data = {
+          keyHash: s.keyHash ?? null,
+          answer: s.answer ? json(s.answer) : null,
+          lastCheckedAt: date(s.lastCheckedAt),
+          lastSuccessAt: date(s.lastSuccessAt),
+          lastError: s.lastError ? json(s.lastError) : null,
+          activatedAt: date(s.activatedAt),
+          deactivatedAt: date(s.deactivatedAt),
+          nextCheckAt: date(s.nextCheckAt),
+          highWaterAt: date(s.highWaterAt),
+          updatedAt: new Date(s.updatedAt),
+        };
+        // The instance id is written once (init) and never changed here.
+        await prisma.licenceState.upsert({ where: { workspaceId }, create: { ...ws, instanceId: s.instanceId, ...data }, update: data });
       },
     },
 

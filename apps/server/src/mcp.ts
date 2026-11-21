@@ -526,6 +526,36 @@ export const TOOLS: ToolDef[] = [
       service.runProvider(a.providerId, a.params, { projectId: a.projectId, assetId: a.assetId, attachAs: a.attachAs, acknowledgeCost: a.acknowledgeCost }),
   },
   {
+    name: 'get_licence',
+    title: 'Get the licence status',
+    description:
+      'Returns the licence status of this server: status "valid" (full use), "grace" (the licence server is unreachable; renders keep working until graceUntil), "invalid" (renders and previews are refused; reason, message and fix say why and what to do), "unlicensed" (no key) or "checking". Also: renderAllowed, last check and last success, item, activations used/limit, the key masked (first group only). Reading, listing and downloading always work. If renders are refused, tell the user the message and fix; activating needs the admin scope.',
+    scope: 'read',
+    input: {},
+    annotations: { readOnlyHint: true },
+    run: async (_a, { service }) => service.getLicence(),
+  },
+  {
+    name: 'activate_licence',
+    title: 'Set and activate the licence key (admin)',
+    description:
+      'Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the admin scope.',
+    scope: 'admin',
+    input: { key: z.string().optional().describe('The licence key from the ReelForge purchase, e.g. "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2". Omit to re-check the configured key.') },
+    annotations: { openWorldHint: true, idempotentHint: true },
+    run: async (a, { service, auth }) => service.activateLicence(a.key, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'deactivate_licence',
+    title: 'Give the licence activation back (admin)',
+    description:
+      'Frees this server\'s activation of the licence key at the licence server, so the key can be activated on another server. Afterwards renders and previews are refused here until activate_licence is called again. Only do this when the user asks (e.g. moving to a new server). Needs the admin scope.',
+    scope: 'admin',
+    input: {},
+    annotations: { destructiveHint: true, openWorldHint: true },
+    run: async (_a, { service, auth }) => service.deactivateLicence({ actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
     name: 'list_keys',
     title: 'List API keys (admin)',
     description: 'Lists API keys (id, name, scopes, prefix, created/last used). Never returns secrets. Needs the admin scope.',
@@ -565,7 +595,8 @@ done with tools; there is no UI.
 
 ## Steps
 1. get_capabilities: engines that can render here (available: true), templates,
-   themes, providers (configured? cost?), limits (fps 24/25/30/60, max 180 s).
+   themes, providers (configured? cost?), limits (fps 24/25/30/60, max 180 s),
+   licence (renderAllowed; if false, get_licence has the message and fix for the user).
 2. list_templates: props JSON Schema, duration range (seconds) and theme tokens
    of each template. list_themes: built-in "default", "midnight" and custom ones.
 3. create_project with a manifest (minimal example below). Errors come back as
@@ -585,6 +616,8 @@ done with tools; there is no UI.
 9. render_project -> get_job with waitSeconds 45 (repeat while running) until succeeded/failed ->
    get_render_output. Give the user downloadUrl (works without a key for ~1 h).
    If it failed: get_job_logs, fix, render again (or retry_job).
+   An error licence_required / licence_invalid is not a manifest problem: tell
+   the user its message and fix (an admin activates with activate_licence).
 
 ## Minimal manifest
 {
@@ -634,6 +667,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
         'ReelForge Studio renders short vertical videos from a JSON manifest. You decide the scenes; the server validates, renders and checks. ' +
         'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
         'Full guide with a minimal manifest: resource reelforge://guide/workflow or prompt make_reel. ' +
+        'Renders need a valid licence: get_capabilities.licence / get_licence say whether renders are allowed and, if not, what the user must do. ' +
         'Tools are experimental until v1.0.',
     }
   );

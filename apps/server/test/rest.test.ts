@@ -42,7 +42,7 @@ beforeAll(async () => {
     dataDir: config.dataDir,
     publicUrl: config.publicUrl,
     providerEnv,
-    configSources: { env: { REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij' } },
+    configSources: { env: { REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', REELFORGE_LICENCE_MODE: 'off' } },
   });
   admin = (await service.keys.create('admin', ['admin'])).key;
   reader = (await service.keys.create('reader', ['read'])).key;

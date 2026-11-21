@@ -62,6 +62,7 @@ export const ModelName = {
   Setting: 'Setting',
   Asset: 'Asset',
   AuditLog: 'AuditLog',
+  LicenceState: 'LicenceState',
   SystemState: 'SystemState'
 } as const
 
@@ -228,6 +229,24 @@ export const AuditLogScalarFieldEnum = {
 export type AuditLogScalarFieldEnum = (typeof AuditLogScalarFieldEnum)[keyof typeof AuditLogScalarFieldEnum]
 
 
+export const LicenceStateScalarFieldEnum = {
+  workspaceId: 'workspaceId',
+  instanceId: 'instanceId',
+  keyHash: 'keyHash',
+  answer: 'answer',
+  lastCheckedAt: 'lastCheckedAt',
+  lastSuccessAt: 'lastSuccessAt',
+  lastError: 'lastError',
+  activatedAt: 'activatedAt',
+  deactivatedAt: 'deactivatedAt',
+  nextCheckAt: 'nextCheckAt',
+  highWaterAt: 'highWaterAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type LicenceStateScalarFieldEnum = (typeof LicenceStateScalarFieldEnum)[keyof typeof LicenceStateScalarFieldEnum]
+
+
 export const SystemStateScalarFieldEnum = {
   key: 'key',
   value: 'value',
@@ -377,6 +396,17 @@ export const AuditLogOrderByRelevanceFieldEnum = {
 } as const
 
 export type AuditLogOrderByRelevanceFieldEnum = (typeof AuditLogOrderByRelevanceFieldEnum)[keyof typeof AuditLogOrderByRelevanceFieldEnum]
+
+
+export const LicenceStateOrderByRelevanceFieldEnum = {
+  workspaceId: 'workspaceId',
+  instanceId: 'instanceId',
+  keyHash: 'keyHash',
+  answer: 'answer',
+  lastError: 'lastError'
+} as const
+
+export type LicenceStateOrderByRelevanceFieldEnum = (typeof LicenceStateOrderByRelevanceFieldEnum)[keyof typeof LicenceStateOrderByRelevanceFieldEnum]
 
 
 export const SystemStateOrderByRelevanceFieldEnum = {

@@ -104,6 +104,17 @@ export type Asset = Prisma.AssetModel
  */
 export type AuditLog = Prisma.AuditLogModel
 /**
+ * Model LicenceState
+ * Licence activation state (#25, D-028, D-035): one row per workspace (the
+ * instance-wide licence lives in the default workspace). instanceId is random,
+ * created once, and is the only thing sent to BuildBase besides the key. The
+ * key itself is never stored here (it is the encrypted runtime setting
+ * licence.key, or comes from the config file / environment); keyHash
+ * (HMAC-SHA256 with the instance id) tells whether the stored answer is for
+ * the key configured now.
+ */
+export type LicenceState = Prisma.LicenceStateModel
+/**
  * Model SystemState
  * Instance-wide state (e.g. that the v0.1 filesystem import ran).
  */

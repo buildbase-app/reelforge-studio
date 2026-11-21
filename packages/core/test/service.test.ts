@@ -45,7 +45,7 @@ beforeAll(async () => {
     .registerEngine(fakeEngine('motion-canvas', { delayPerFrameMs: 2 }))
     .registerProvider(new ElevenLabsTts({ ELEVENLABS_API_KEY: 'test-key' }))
     .registerBackend(new RemotionLambdaBackend({}));
-  svc = await ReelforgeService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), publicUrl: 'https://studio.example.com/', fetch: mockFetch });
+  svc = await ReelforgeService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), publicUrl: 'https://studio.example.com/', fetch: mockFetch, configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } } });
 });
 
 describe('ReelforgeService', () => {

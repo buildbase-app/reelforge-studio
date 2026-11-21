@@ -302,6 +302,36 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
     });
   });
 
+  describe('licence state', () => {
+    it('creates the instance id once, round-trips every field, and keeps the instance id on save', async () => {
+      expect(await repos.licence.get()).toBeNull();
+      const t0 = now();
+      const first = await repos.licence.init('rf-instance-a', t0);
+      expect(first).toEqual({ instanceId: 'rf-instance-a', updatedAt: t0 });
+      // A second start (or a second process) gets the stored instance id, not its own.
+      expect((await repos.licence.init('rf-instance-b', later(5))).instanceId).toBe('rf-instance-a');
+      const full = {
+        instanceId: 'rf-instance-a',
+        keyHash: 'h'.repeat(64),
+        answer: { valid: true, reason: null, key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null }, item: { id: 'itm_1', title: 'ReelForge' }, instance: { instance: 'rf-instance-a', activatedAt: t0 } },
+        lastCheckedAt: later(10),
+        lastSuccessAt: later(10),
+        lastError: { kind: 'unreachable', message: 'connect ECONNREFUSED', at: later(9) },
+        activatedAt: t0,
+        deactivatedAt: later(11),
+        nextCheckAt: later(86_400_000),
+        highWaterAt: later(12),
+        updatedAt: later(12),
+      };
+      await repos.licence.save(full);
+      expect(await repos.licence.get()).toEqual(full);
+      // Clearing optional fields; a different instance id is ignored.
+      const t3 = later(20);
+      await repos.licence.save({ instanceId: 'rf-other', lastCheckedAt: t3, updatedAt: t3 });
+      expect(await repos.licence.get()).toEqual({ instanceId: 'rf-instance-a', lastCheckedAt: t3, updatedAt: t3 });
+    });
+  });
+
   describe('assets', () => {
     it('is content addressed: inserting the same id returns the stored row', async () => {
       const a = {
@@ -394,7 +424,7 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
           // other's event loop, so SQLite migrates one after the other here (separate
           // processes, like the server and the CLI, wait on SQLite's lock instead).
           const ran = kind === 'sqlite' ? [await a.migrate(), await b.migrate()] : await Promise.all([a.migrate(), b.migrate()]);
-          expect(ran.flat()).toEqual(['0001_init', '0002_runtime_settings']);
+          expect(ran.flat()).toEqual(['0001_init', '0002_runtime_settings', '0003_licence_state']);
           const first = await a.importFilesystemOnce(legacy);
           expect(first?.projects).toBe(1);
           expect(await b.importFilesystemOnce(legacy)).toBeNull();

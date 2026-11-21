@@ -354,6 +354,13 @@ export function createApp({ service, config }: AppDeps) {
     return c.json(await service.updateConfig(patch, actor(c)));
   });
 
+  v1.get('/licence', need('read'), (c) => c.json(service.getLicence()));
+  v1.post('/licence', need('admin'), json, async (c) => {
+    const b = await body(c);
+    return c.json(await service.activateLicence(b.key, actor(c)));
+  });
+  v1.delete('/licence', need('admin'), async (c) => c.json(await service.deactivateLicence(actor(c))));
+
   v1.get('/keys', need('admin'), async (c) => c.json({ keys: await service.listKeys() }));
   v1.post('/keys', need('admin'), json, async (c) => {
     const b = await body(c);

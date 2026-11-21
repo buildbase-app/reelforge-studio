@@ -317,22 +317,44 @@ export const ConfigSchema = z.object({
     }),
   }),
   licence: z.object({
-    key: setting(z.string().min(1).max(500).regex(/^[^\r\n]*$/, 'must be a single line').optional(), {
+    mode: setting(z.enum(['required', 'off', 'trial']), {
+      kind: 'enum',
+      scope: 'startup',
+      env: 'REELFORGE_LICENCE_MODE',
+      aliases: ['REELFORGE_LICENSE_MODE'],
+      default: 'required',
+      description:
+        'What happens without a valid licence (D-028). `required`: renders and previews are refused until a key is activated (everything else works). `off`: development and CI only; nothing is refused, a configured key is still checked and reported. `trial` is reserved and not built yet (behaves as `required`).',
+    }),
+    key: setting(z.string().trim().min(1).max(500).regex(/^[^\r\n]*$/, 'must be a single line').optional(), {
       kind: 'string',
       scope: 'runtime',
       env: 'REELFORGE_LICENCE_KEY',
       aliases: ['REELFORGE_LICENSE_KEY'],
       secret: true,
-      placeholder: '#25',
-      description: 'Licence key (D-028). Stored encrypted when set at runtime. Not checked yet: licence activation is #25.',
+      description:
+        'Licence key from your ReelForge purchase (D-028). Activated on start and when set; validated daily. Setting it with `activate_licence` / `POST /v1/licence` stores it encrypted (needs `REELFORGE_SECRET_KEY`). Only the key and a random instance id are sent to the licence server (docs/PRIVACY.md).',
     }),
-    offlineGraceDays: setting(z.number().int().min(0).max(365), {
+    offlineGraceDays: setting(z.number().int().min(0).max(14), {
       kind: 'integer',
       scope: 'startup',
       env: 'REELFORGE_LICENCE_OFFLINE_GRACE_DAYS',
       default: 14,
-      placeholder: '#25',
-      description: 'Days the server keeps working past the last good licence check (D-028). Not used yet (#25).',
+      description: 'Days the server keeps rendering past the last successful licence check while the licence server cannot be reached (D-028). At most 14; a lower value only shortens it.',
+    }),
+    serverUrl: setting(httpUrl(), {
+      kind: 'url',
+      scope: 'startup',
+      env: 'REELFORGE_LICENCE_SERVER_URL',
+      default: 'https://api.console.buildbase.app',
+      description: 'Licence server (BuildBase). Change only for a mock server in tests.',
+    }),
+    orgId: setting(z.string().regex(/^[a-z0-9]{8,64}(-[a-z]{8})?$/, 'a BuildBase organisation id, optionally followed by -<environment key>'), {
+      kind: 'string',
+      scope: 'startup',
+      env: 'REELFORGE_LICENCE_ORG_ID',
+      default: '6b01478bb42d2c444e99fcd8',
+      description: 'BuildBase organisation that issued the key (ReelForge production). A test environment is `<orgId>-<environment key>`.',
     }),
   }),
 });

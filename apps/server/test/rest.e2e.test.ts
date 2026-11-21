@@ -29,6 +29,7 @@ describe.skipIf(!hasBrowser)('agent journey over REST against a real server proc
       REELFORGE_DATA_DIR: dataDir,
       REELFORGE_CACHE_DIR: resolve(__dirname, '../../../.render-cache'),
       REELFORGE_CHROMIUM_PATH: browser!,
+      REELFORGE_LICENCE_MODE: 'off',
     });
   }, 120_000);
   afterAll(async () => {

@@ -8,6 +8,7 @@ import {
   type AuditEntry,
   type JobRecord,
   type ProjectMeta,
+  type LicenceStateRecord,
   type ProviderSettingInfo,
   type StoredSetting,
   type StoredValue,
@@ -33,6 +34,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
   const runtimeSettings = new Map<string, StoredSetting>();
   const assets = new Map<string, AssetRecord>();
   const audit: AuditEntry[] = [];
+  let licence: LicenceStateRecord | null = null;
 
   return {
     workspaceId,
@@ -170,6 +172,18 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
           if (value === null) runtimeSettings.delete(key);
           else runtimeSettings.set(key, { key, value: value.value, scheme: value.scheme, updatedAt: at, ...(updatedBy ? { updatedBy } : {}) });
         }
+      },
+    },
+    licence: {
+      async get() {
+        return licence ? clone(licence) : null;
+      },
+      async init(instanceId, at) {
+        if (!licence) licence = { instanceId, updatedAt: at };
+        return clone(licence);
+      },
+      async save(state) {
+        licence = { ...clone(state), instanceId: licence?.instanceId ?? state.instanceId };
       },
     },
     assets: {

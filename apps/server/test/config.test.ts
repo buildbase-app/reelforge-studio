@@ -34,7 +34,7 @@ beforeAll(async () => {
   writeFileSync(configFile, `# test config\nstorage:\n  dataDir: ${dataDir}\nlimits:\n  maxJsonBytes: 65536\n  rateLimitPerMinute: 1000\nlogging:\n  level: warn\n`);
   const database = await testDatabase(dir);
   dropDb = database.drop;
-  env = { ...database.env, REELFORGE_CONFIG: configFile, REELFORGE_RATE_LIMIT_PER_MINUTE: '500', REELFORGE_SECRET_KEY: SECRET_KEY };
+  env = { ...database.env, REELFORGE_CONFIG: configFile, REELFORGE_RATE_LIMIT_PER_MINUTE: '500', REELFORGE_SECRET_KEY: SECRET_KEY, REELFORGE_LICENCE_MODE: 'off' };
   server = await start();
   admin = (await server.service.keys.create('admin', ['admin'])).key;
   reader = (await server.service.keys.create('reader', ['read'])).key;

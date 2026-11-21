@@ -34,6 +34,7 @@ import { PluginRegistry } from './registry';
 import { runRenderPipeline } from './render';
 import { UrlSigner } from './secrets';
 import { RuntimeConfig, type ConfigSources } from './config/runtime';
+import { createLicenceManager, type LicenceApi, type LicenceManager } from './licence';
 import type { ResolvedConfig } from './config/load';
 import { ProjectStore } from './store';
 import { ThemeStore } from './themes';
@@ -73,6 +74,21 @@ export interface ServiceConfig {
    * runtime layer stored in the database). Default: { env: providerEnv }.
    */
   configSources?: ConfigSources;
+  /**
+   * Licence checks (D-028). The licence server URL, org id, mode and grace
+   * period come from the configuration (licence.*); tests inject the API and
+   * the clock here.
+   */
+  licence?: {
+    /** Default: BuildBaseLicenceClient for licence.serverUrl / licence.orgId. */
+    api?: LicenceApi;
+    /** fetch for the default client. */
+    fetch?: typeof fetch;
+    now?: () => number;
+    checkIntervalMs?: number;
+    /** Run the first check and the daily schedule (default true). */
+    start?: boolean;
+  };
   log?: (level: 'info' | 'warn' | 'error', line: string) => void;
 }
 
@@ -146,10 +162,13 @@ export class ReelforgeService {
   /** Effective configuration: defaults < file < env < runtime settings in the database. */
   readonly settings: RuntimeConfig;
   readonly signer: UrlSigner;
+  /** Licence activation state; renders are refused when it says so (D-028). */
+  readonly licence: LicenceManager;
   readonly providerEnv: NodeJS.ProcessEnv;
   readonly repos: Repositories;
   private readonly baseEnv: NodeJS.ProcessEnv;
   private toolsCache: Tools | null = null;
+  private activatingLicence = false;
   private renderIndex = new Map<string, string>();
   private readonly fetchImpl: typeof fetch;
 
@@ -176,6 +195,13 @@ export class ReelforgeService {
     this.baseEnv = { ...this.providerEnv };
     this.settings = new RuntimeConfig(this.repos, config.configSources ?? { env: { ...this.providerEnv } }, config.log);
     this.signer = new UrlSigner(this.dataDir);
+    this.licence = createLicenceManager(this.settings, this.repos, {
+      api: config.licence?.api,
+      fetch: config.licence?.fetch,
+      now: config.licence?.now,
+      checkIntervalMs: config.licence?.checkIntervalMs,
+      log: config.log,
+    });
     this.jobs = new JobRunner({
       repo: this.repos.jobs,
       concurrency: config.renderConcurrency ?? 1,
@@ -200,6 +226,12 @@ export class ReelforgeService {
     for (const w of s.settings.warnings()) config.log?.('warn', w);
     s.applySettings(s.settings.current, null);
     s.settings.onChange((resolved, keys) => s.applySettings(resolved, keys));
+    // The licence state is read now; the network check runs in the background (start-up never waits for it).
+    await s.licence.init();
+    s.settings.onChange((_r, keys) => {
+      if (keys.includes('licence.key') && !s.activatingLicence) s.licence.keyChanged();
+    });
+    if (config.licence?.start !== false) s.licence.start();
     return s;
   }
 
@@ -272,6 +304,7 @@ export class ReelforgeService {
         maxHtmlBytes: MAX_SOURCE_BYTES,
         renderConcurrency: this.jobs.concurrency,
       },
+      licence: this.licence.summary(),
       versions: {
         node: process.version,
         ffmpeg: tools ? toolVersion(tools.ffmpeg) : null,
@@ -282,6 +315,7 @@ export class ReelforgeService {
         'create_project with a manifest (schemaVersion "0.2"; "0.1" is migrated)',
         'edit with add_scene / update_scene / set_theme / set_audio; validate_project after edits',
         'render_project, then get_job with waitSeconds: 45 until succeeded, then get_render_output',
+        'renders need a valid licence: if licence.renderAllowed is false, get_licence says what the user must do',
       ],
     };
   }
@@ -576,6 +610,7 @@ export class ReelforgeService {
   }
 
   private async enqueueRender(id: string, kind: 'render' | 'preview', backendOverride?: string, sceneIds?: string[], scale?: number) {
+    await this.licence.assertRenderAllowed();
     const { manifest, meta } = await this.projects.get(id);
     if (sceneIds) {
       for (const s of sceneIds) {
@@ -681,7 +716,9 @@ export class ReelforgeService {
   cancelJob(id: string) {
     return this.jobs.cancel(id);
   }
-  retryJob(id: string) {
+  async retryJob(id: string) {
+    const job = await this.getJob(id);
+    if (job.type === 'render' || job.type === 'preview') await this.licence.assertRenderAllowed();
     return this.jobs.retry(id);
   }
   jobLogs(id: string, tail?: number) {
@@ -973,6 +1010,56 @@ export class ReelforgeService {
       action: 'config.update',
       targetType: 'config',
       data: { changes: r.changes },
+    });
+    return r;
+  }
+
+  // ---- licence ----------------------------------------------------------------
+
+  /** Licence status: valid / grace / invalid / unlicensed, why, and how to fix it. The key only masked. */
+  getLicence() {
+    return this.licence.report();
+  }
+
+  /**
+   * Set the licence key (optional: without one the configured key is checked
+   * again) and activate it now. The key is stored as the encrypted runtime
+   * setting licence.key (needs REELFORGE_SECRET_KEY); audit-logged without it.
+   */
+  async activateLicence(key: unknown, actor?: Actor) {
+    if (key !== undefined && key !== null) {
+      if (typeof key !== 'string' || !key.trim()) throw badRequest('key must be the licence key as a string, e.g. "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2"');
+      this.activatingLicence = true;
+      try {
+        await this.updateConfig({ 'licence.key': key.trim() }, actor);
+      } finally {
+        this.activatingLicence = false;
+      }
+    } else if (!this.licence.report().key) {
+      throw new ApiError('licence_key_missing', 400, 'No licence key is set: send {"key": "<your licence key>"}.');
+    }
+    const r = await this.licence.activateNow();
+    await this.audit({
+      actorType: actor?.actorType ?? 'system',
+      ...(actor?.actorId ? { actorId: actor.actorId } : {}),
+      action: 'licence.activate',
+      targetType: 'licence',
+      targetId: r.instanceId,
+      data: { key: r.key, status: r.status, reason: r.reason },
+    });
+    return r;
+  }
+
+  /** Give this server's activation back (to move the licence to another server). */
+  async deactivateLicence(actor?: Actor) {
+    const r = await this.licence.deactivate();
+    await this.audit({
+      actorType: actor?.actorType ?? 'system',
+      ...(actor?.actorId ? { actorId: actor.actorId } : {}),
+      action: 'licence.deactivate',
+      targetType: 'licence',
+      targetId: r.instanceId,
+      data: { key: r.key },
     });
     return r;
   }

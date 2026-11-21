@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertDecodable, checkExpectation, frameStats, probe, resolveTools } from '@reelforge/media-pipeline';
 import { tempDir } from '../../../packages/core/test/helpers';
+import { startMockLicenceServer, type MockLicenceServer } from '../../../e2e/mock-licence/server.mjs';
 import { cliCreateKey, startServerProcess, testDatabase, type ServerProcess } from './serverProcess';
 
 /**
@@ -34,8 +35,12 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
   let key: string;
   let readOnlyKey: string;
   let database: Awaited<ReturnType<typeof testDatabase>>;
+  // Licence: the mode the sold image uses (required), against the mock licence server.
+  let licenceServer: MockLicenceServer;
+  const LICENCE_KEY = 'E2EAA-BCDEF-GHJKL-MNPQR-STUVW';
 
   beforeAll(async () => {
+    licenceServer = await startMockLicenceServer({ orgId: 'e2eorg0000-mocklice', keys: [{ key: LICENCE_KEY, activationLimit: 1 }] });
     database = await testDatabase(dir);
     key = cliCreateKey(dataDir, 'agent', 'read,write,render', database.env);
     readOnlyKey = cliCreateKey(dataDir, 'viewer', 'read', database.env);
@@ -44,10 +49,15 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
       REELFORGE_DATA_DIR: dataDir,
       REELFORGE_CACHE_DIR: resolve(__dirname, '../../../.render-cache'),
       REELFORGE_CHROMIUM_PATH: browser!,
+      REELFORGE_LICENCE_MODE: 'required',
+      REELFORGE_LICENCE_KEY: LICENCE_KEY,
+      REELFORGE_LICENCE_SERVER_URL: licenceServer.url,
+      REELFORGE_LICENCE_ORG_ID: 'e2eorg0000-mocklice',
     });
   }, 120_000);
   afterAll(async () => {
     await server?.stop();
+    await licenceServer?.close();
     await database?.drop();
     cleanup();
   });
@@ -67,6 +77,19 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
     if (r.isError) throw new Error(`${name} failed: ${JSON.stringify(r.data)}`);
     return r;
   }
+
+  it('licence from REELFORGE_LICENCE_KEY is activated on start (mode required); get_licence shows it masked', async () => {
+    const agent = await connect(key);
+    const r = await ok(agent, 'get_licence', {});
+    expect(r.data).toMatchObject({ mode: 'required', key: 'E2EAA-*****-*****-*****-*****', keySource: 'env (REELFORGE_LICENCE_KEY)' });
+    // The start-up check runs in the background; render_project would wait for it, get_licence does not.
+    if (r.data.status === 'checking') await new Promise((ok) => setTimeout(ok, 2000));
+    expect((await ok(agent, 'get_licence', {})).data).toMatchObject({ status: 'valid', renderAllowed: true });
+    expect(licenceServer.activations(LICENCE_KEY)).toEqual([r.data.instanceId]);
+    expect(server.output()).toMatch(/licence: valid/);
+    expect(server.output()).not.toContain('BCDEF-GHJKL');
+    await agent.close();
+  });
 
   it('refuses a missing or wrong key with 401', async () => {
     const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' });

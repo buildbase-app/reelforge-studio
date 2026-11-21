@@ -23,6 +23,7 @@ model Workspace {
   settings         Setting[]
   assets           Asset[]
   auditLogs        AuditLog[]
+  licenceStates    LicenceState[]
 }
 
 /// A project; its manifests live in ProjectVersion (one row per saved version).
@@ -200,6 +201,36 @@ model AuditLog {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, at])
+}
+
+/// Licence activation state (#25, D-028, D-035): one row per workspace (the
+/// instance-wide licence lives in the default workspace). instanceId is random,
+/// created once, and is the only thing sent to BuildBase besides the key. The
+/// key itself is never stored here (it is the encrypted runtime setting
+/// licence.key, or comes from the config file / environment); keyHash
+/// (HMAC-SHA256 with the instance id) tells whether the stored answer is for
+/// the key configured now.
+model LicenceState {
+  workspaceId   String    @id
+  instanceId    String
+  keyHash       String?
+  /// The last answer from BuildBase (valid, reason, key status, item, instance) as JSON text.
+  answer        String?
+  /// Last attempt, successful or not.
+  lastCheckedAt DateTime?
+  /// Last time BuildBase answered valid: the offline grace period counts from here.
+  lastSuccessAt DateTime?
+  /// The last failed attempt (unreachable, rate limited, server error) as JSON text; null after a success.
+  lastError     String?
+  activatedAt   DateTime?
+  /// Set by deactivate_licence: the server does not activate this key again by itself.
+  deactivatedAt DateTime?
+  nextCheckAt   DateTime?
+  /// The latest clock time this server has seen (a clock set back cannot extend the grace period).
+  highWaterAt   DateTime?
+  updatedAt     DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 /// Instance-wide state (e.g. that the v0.1 filesystem import ran).

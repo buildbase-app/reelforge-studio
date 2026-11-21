@@ -106,8 +106,11 @@ logging:
 
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
-| `licence.key` | `REELFORGE_LICENCE_KEY`, `REELFORGE_LICENSE_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Licence key (D-028). Stored encrypted when set at runtime. Not checked yet: licence activation is #25. _(Reserved for #25.)_ |
-| `licence.offlineGraceDays` | `REELFORGE_LICENCE_OFFLINE_GRACE_DAYS` | integer | `14` | startup |  | Days the server keeps working past the last good licence check (D-028). Not used yet (#25). _(Reserved for #25.)_ |
+| `licence.mode` | `REELFORGE_LICENCE_MODE`, `REELFORGE_LICENSE_MODE` | `required` \| `off` \| `trial` | `required` | startup |  | What happens without a valid licence (D-028). `required`: renders and previews are refused until a key is activated (everything else works). `off`: development and CI only; nothing is refused, a configured key is still checked and reported. `trial` is reserved and not built yet (behaves as `required`). |
+| `licence.key` | `REELFORGE_LICENCE_KEY`, `REELFORGE_LICENSE_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Licence key from your ReelForge purchase (D-028). Activated on start and when set; validated daily. Setting it with `activate_licence` / `POST /v1/licence` stores it encrypted (needs `REELFORGE_SECRET_KEY`). Only the key and a random instance id are sent to the licence server (docs/PRIVACY.md). |
+| `licence.offlineGraceDays` | `REELFORGE_LICENCE_OFFLINE_GRACE_DAYS` | integer | `14` | startup |  | Days the server keeps rendering past the last successful licence check while the licence server cannot be reached (D-028). At most 14; a lower value only shortens it. |
+| `licence.serverUrl` | `REELFORGE_LICENCE_SERVER_URL` | url | `https://api.console.buildbase.app` | startup |  | Licence server (BuildBase). Change only for a mock server in tests. |
+| `licence.orgId` | `REELFORGE_LICENCE_ORG_ID` | string | `6b01478bb42d2c444e99fcd8` | startup |  | BuildBase organisation that issued the key (ReelForge production). A test environment is `<orgId>-<environment key>`. |
 
 ## Not in the schema
 
