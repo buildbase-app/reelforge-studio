@@ -37,6 +37,11 @@
 # Issue #65: audit log, key lifecycle and idempotency (audit.mjs) with the stdout and OTLP audit sinks on;
 # the same collector receives the OTLP audit logs (debug exporter, detailed) and must show the entries.
 #
+# Issue #66: outbound events (webhooks.mjs). A receiver container ("receiver", e2e/webhooks/receiver.mjs) verifies
+# every Standard Webhooks signature with the official standardwebhooks library, takes the Slack/Discord/Teams
+# payloads and stubs the Resend/Postmark/SendGrid/SES APIs; Mailpit ("mailpit", MAILPIT_IMAGE) catches the SMTP
+# email, read over its HTTP API. A delivery queued while the receiver is down is sent after the server restart.
+#
 # The data volume starts as a v0.1 filesystem data directory (seed-v01.mjs): the
 # server must import it once into the database, and the e2e key is that imported
 # key. POSTGRES_IMAGE / MYSQL_IMAGE select mirrors of the official images.
@@ -57,6 +62,10 @@ case "$STORAGE" in local|s3) ;; *) echo "STORAGE must be local or s3"; exit 2 ;;
 LIC=$P-licence LIC_ORG=6b01478bb42d2c444e99fcd8-mocklice
 # Observability (#64) and audit sinks (#65): one OpenTelemetry Collector ("otel") and promtool (Prometheus image).
 OTEL=$P-otel OTEL_IMAGE=${OTEL_IMAGE:-mirror.gcr.io/otel/opentelemetry-collector-contrib:0.140.0} PROM_IMAGE=${PROM_IMAGE:-mirror.gcr.io/prom/prometheus:v3.7.3}
+# Outbound events (#66): webhook receiver + email API stubs, and Mailpit for SMTP.
+RX=$P-receiver MAILPIT=$P-mailpit MAILPIT_IMAGE=${MAILPIT_IMAGE:-mirror.gcr.io/axllent/mailpit:v1.34.0}
+RESEND_KEY=re_e2e$(openssl rand -hex 12) POSTMARK_TOKEN=pm-e2e-$(openssl rand -hex 12) SENDGRID_KEY=SG.e2e$(openssl rand -hex 12)
+SES_KEY_ID=AKIAE2E$(openssl rand -hex 6 | tr a-f A-F) SES_SECRET=$(openssl rand -hex 20)
 lkey() { openssl rand -hex 13 | cut -c1-25 | tr 'a-f01' 'A-FGH' | sed 's/.\{5\}/&-/g;s/-$//'; }
 KEY_A=$(lkey) KEY_B=$(lkey) KEY_C=$(lkey)
 LICENCE_KEYS="[\"$KEY_A\",\"$KEY_B\",\"$KEY_C\"]"
@@ -65,7 +74,7 @@ case "$EDITION" in release|dev) ;; *) echo "EDITION must be release or dev"; exi
 [ "$DB" = sqlite ] || NET=${PROJECT}_default
 WORK=$(mktemp -d); chmod 755 "$WORK"
 cleanup() {
-  docker rm -f $NAME $LIC $OTEL $MINIO $P-nobucket >/dev/null 2>&1 || true
+  docker rm -f $NAME $LIC $OTEL $MINIO $P-nobucket $RX $MAILPIT >/dev/null 2>&1 || true
   [ "$DB" = sqlite ] && { docker network rm $NET >/dev/null 2>&1 || true; } || docker compose -p $PROJECT --profile "$DB" down -v >/dev/null 2>&1 || true
   docker volume rm $VOL >/dev/null 2>&1 || true; rm -rf "$WORK"
 }
@@ -110,9 +119,9 @@ esac
 for f in key dburl secretkey s3id s3secret; do [ -e "$WORK/secret/$f" ] || continue; chown 10001 "$WORK/secret/$f" 2>/dev/null || chmod 644 "$WORK/secret/$f"; done
 chmod 777 "$WORK/out" "$WORK/otel"
 cp e2e/otel/collector.yaml "$WORK/config/collector.yaml"; chmod 644 "$WORK/config/collector.yaml"
-cp e2e/docker/*.mjs examples/sample-reel.json "$WORK/client/"
+cp e2e/docker/*.mjs e2e/webhooks/receiver.mjs examples/sample-reel.json "$WORK/client/"
 cp e2e/mock-licence/server.mjs "$WORK/mock/"; chmod -R a+rX "$WORK/mock"
-(cd "$WORK/client" && npm init -y >/dev/null && npm i -q --no-audit --no-fund @modelcontextprotocol/sdk@1.32.2 $([ "$STORAGE" = s3 ] && echo @aws-sdk/client-s3@3.1164.0) >/dev/null)
+(cd "$WORK/client" && npm init -y >/dev/null && npm i -q --no-audit --no-fund @modelcontextprotocol/sdk@1.32.2 standardwebhooks@1.3.0 $([ "$STORAGE" = s3 ] && echo @aws-sdk/client-s3@3.1164.0) >/dev/null)
 
 start() {
   # The database is chosen by DATABASE_URL alone (here its _FILE variant, so the password stays out of `docker inspect`).
@@ -126,13 +135,23 @@ start() {
     -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secretkey \
     -v "$WORK/config/reelforge.yaml:/config/reelforge.yaml:ro" -e REELFORGE_CONFIG=/config/reelforge.yaml \
     "${LIC_ENV[@]}" "${s3env[@]}" -e REELFORGE_AUDIT_SINKS=stdout,otlp -e REELFORGE_AUDIT_OTLP_ENDPOINT=http://otel:4318/v1/logs \
-    -e REELFORGE_ALLOWED_HOSTS=reelforge,reelforge:4321 "$IMAGE" >/dev/null
+    -e REELFORGE_ALLOWED_HOSTS=reelforge,reelforge:4321 \
+    -e REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS=true -e REELFORGE_WEBHOOKS_ALLOW_HTTP=true -e REELFORGE_SMTP_HOST=mailpit -e REELFORGE_SMTP_PORT=1025 -e REELFORGE_SMTP_SECURITY=none \
+    -e REELFORGE_RESEND_BASE_URL=http://receiver:8080/resend -e REELFORGE_POSTMARK_BASE_URL=http://receiver:8080/postmark -e REELFORGE_SENDGRID_BASE_URL=http://receiver:8080/sendgrid \
+    -e REELFORGE_SES_ENDPOINT=http://receiver:8080/ses "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && return; sleep 2; done
   docker logs $NAME; echo "server did not become healthy"; exit 1
 }
 client() { docker run --rm --network $NET -v "$WORK/client:/c:ro" -v "$WORK/out:/out" -v "$WORK/otel:/otel:ro" -w /c \
   -e URL=http://reelforge:4321/mcp -e KEY="$KEY" -e SAMPLE=sample-reel.json -e PLAIN_V01="$PLAIN_V01" -e PHASE="${PHASE:-before}" -e LICENCE_KEYS="$LICENCE_KEYS" \
-  -e EDITION="$EDITION" -e SANDBOX="$HARDENED" "$CLIENT_IMAGE" node "$@"; }
+  -e EDITION="$EDITION" -e SANDBOX="$HARDENED" -e RESEND_KEY="$RESEND_KEY" -e POSTMARK_TOKEN="$POSTMARK_TOKEN" -e SENDGRID_KEY="$SENDGRID_KEY" -e SES_KEY_ID="$SES_KEY_ID" -e SES_SECRET="$SES_SECRET" \
+  "$CLIENT_IMAGE" node "$@"; }
+receiver_start() {
+  docker run -d --name $RX --network $NET --network-alias receiver -v "$WORK/client:/c:ro" -v "$WORK/out:/out" -e SECRETS_FILE=/out/receiver-secrets.json -w /c -e RESEND_KEY="$RESEND_KEY" -e POSTMARK_TOKEN="$POSTMARK_TOKEN" \
+    -e SENDGRID_KEY="$SENDGRID_KEY" -e SES_KEY_ID="$SES_KEY_ID" "$CLIENT_IMAGE" node receiver.mjs >/dev/null
+  for _ in $(seq 1 30); do logs_have $RX 'webhook receiver on' && return; sleep 1; done
+  docker logs $RX; echo "webhook receiver did not start"; exit 1
+}
 licence_server() {
   docker run -d --name $LIC --network $NET --network-alias licence -v "$WORK/mock:/m:ro" -e ORG_ID=$LIC_ORG \
     -e SEED_KEYS="[{\"key\":\"$KEY_A\",\"activationLimit\":1},{\"key\":\"$KEY_C\",\"activationLimit\":1}]" "$CLIENT_IMAGE" node /m/server.mjs >/dev/null
@@ -167,6 +186,11 @@ docker run -d --name $OTEL --network $NET --network-alias otel --user 10001 -v "
   "$OTEL_IMAGE" --config /etc/otelcol/config.yaml >/dev/null
 for _ in $(seq 1 30); do logs_have $OTEL 'Everything is ready' && break; sleep 1; done
 logs_have $OTEL 'Everything is ready' && echo "✔ collector $OTEL_IMAGE is up" || { docker logs $OTEL | tail -20; echo "✘ the collector did not start"; exit 1; }
+echo "== webhook receiver (container \"receiver\") and Mailpit (container \"mailpit\", $MAILPIT_IMAGE) for outbound events (#66)"
+receiver_start
+docker run -d --name $MAILPIT --network $NET --network-alias mailpit "$MAILPIT_IMAGE" >/dev/null
+for _ in $(seq 1 30); do docker run --rm --network $NET "$CLIENT_IMAGE" node -e "fetch('http://mailpit:8025/api/v1/info').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" && break; sleep 1; done
+echo "✔ receiver and Mailpit are up"
 echo "== seed a v0.1 data directory"
 docker run --rm -v $VOL:/data -v "$WORK/client:/c:ro" -w /c -e KEY="$KEY" -e PLAIN_V01="$PLAIN_V01" -e SAMPLE=sample-reel.json "$CLIENT_IMAGE" \
   sh -c 'node seed-v01.mjs && chown -R 10001:10001 /data'
@@ -228,6 +252,17 @@ docker logs $OTEL > "$WORK/otel.log" 2>&1 || true
 grep -q "audit.target.id: Str($AUD_KEY)" "$WORK/otel.log" && grep -q 'audit.action: Str(key.rotate)' "$WORK/otel.log" && grep -q 'InstrumentationScope reelforge.audit' "$WORK/otel.log" \
   && echo "✔ OTLP sink: the collector received the key's audit entries ($(grep -c 'EventName: reelforge.audit' "$WORK/otel.log") log records)" || { echo "✘ OTLP entries missing in the collector"; tail -40 "$WORK/otel.log"; exit 1; }
 logs_have $NAME 'audit sink otlp: .* not delivered to http://otel-down.invalid:4318' && echo "✔ a failing sink is visible in the server log (and the request succeeded)" || { echo "✘ the failing OTLP sink left no warning"; exit 1; }
+echo "== outbound events (#66): signed webhooks, Slack/Discord/Teams, email over SMTP (Mailpit), Resend, Postmark, SendGrid, SES (stubs)"
+PHASE=setup client webhooks.mjs
+docker logs $NAME > "$WORK/server.log" 2>&1 || true
+python3 - "$WORK/server.log" "$WORK/out/webhooks.json" <<'PY' || exit 1
+import json, sys
+log, secrets = open(sys.argv[1]).read(), json.load(open(sys.argv[2]))["secrets"]
+leak = [s[:10] for s in secrets if (s[6:] if s.startswith("whsec_") else s) in log]
+print("✘ the server log contains a webhook/provider secret: " + ", ".join(leak) if leak else f"✔ WHK-12 no signing secret, chat token or email provider credential in the server log ({len(secrets)} checked)")
+sys.exit(1 if leak else 0)
+PY
+logs_have $NAME '"msg":"webhook whk_[^ ]* (\\"e2e 500\\", webhook): delivery dlv_[^ ]* of key.created failed for good after 3 attempt' && echo "✔ the dead letter is a warning in the server log" || { echo "✘ no dead-letter warning in the log"; grep -o '"msg":"webhook[^"]*' "$WORK/container.log" | head -5; exit 1; }
 echo "== auth, scopes, validation"; client neg.mjs
 echo "== observability (#64): JSON logs, Prometheus /metrics, OTLP to an OpenTelemetry Collector (container \"otel\")"
 docker logs $NAME > "$WORK/container.log" 2>&1 || true
@@ -278,14 +313,22 @@ docker exec $NAME reelforge config show > "$WORK/show.txt"
 grep -E '^(limits.rateLimitPerMinute|licence.key|providers.elevenlabs.apiKey) ' "$WORK/show.txt" | sed 's/^/   /'
 grep -q "$PLAIN_V01\|LIC-E2E" "$WORK/show.txt" && { echo "✘ config show printed a secret"; exit 1; } || echo "✔ reelforge config show (CLI in the container) redacts secrets and shows the runtime value"
 grep -Eq '^limits.rateLimitPerMinute +600 +\(runtime' "$WORK/show.txt" || { echo "✘ config show does not show the runtime value"; cat "$WORK/show.txt"; exit 1; }
+echo "== outbound events: receiver down, a delivery stays pending (#66)"
+docker rm -f $RX >/dev/null
+PHASE=pending client webhooks.mjs
 echo "== restart keeps data"
 before=$(curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/v1/projects" | md5sum)
+# SIGTERM first: the server shuts down gracefully (in-flight deliveries finish or are handed back as pending).
+docker stop -t 30 $NAME >/dev/null; logs_have $NAME 'SIGTERM: shutting down' && echo "✔ graceful shutdown on SIGTERM" || { echo "✘ no graceful shutdown"; tail -5 "$WORK/container.log"; exit 1; }
 docker rm -f $NAME >/dev/null; start
 after=$(curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/v1/projects" | md5sum)
 [ "$before" = "$after" ] && echo "✔ projects survive a new container on the same volume" || { echo "✘ projects changed after restart"; exit 1; }
 logs_have $NAME 'imported v0.1' && { echo "✘ v0.1 data imported a second time"; exit 1; } || echo "✔ no second import after the restart"
 logs_have $NAME 'encrypted .* stored secret' && { echo "✘ secrets encrypted a second time"; exit 1; } || echo "✔ no second encryption pass after the restart"
 echo "== configuration after the restart"; PHASE=after client config.mjs
+echo "== outbound events after the restart: receiver back, the pending delivery is sent (#66)"
+receiver_start
+PHASE=resume client webhooks.mjs
 echo "== licence after the restart"; PHASE=restart client licence.mjs
 [ "$(api "/v1/audit?targetId=$AUD_KEY&action=key.rotate&result=success" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["events"]))')" = 1 ] \
   && echo "✔ the audit trail survives the restart" || { echo "✘ audit trail lost after the restart"; exit 1; }
