@@ -131,7 +131,9 @@ onapi=$(psql_ "SELECT count(*) FROM \"Job\" WHERE \"workerId\" LIKE '$P-api%'")
 curl -s "http://127.0.0.1:$PORT/metrics" > "$WORK/api-metrics.txt"
 grep -q '^reelforge_server_role{reelforge_role="api"} 1' "$WORK/api-metrics.txt" || fail "api role gauge"
 grep -Eq '^reelforge_(render_frames_total|jobs_finished_total)\{' "$WORK/api-metrics.txt" && fail "the api container rendered or finished jobs" || echo "✔ api /metrics: role api, no rendered frames, no finished jobs"
-docker run --rm -v "$WORK/out:/o:ro" --entrypoint ffprobe "$IMAGE" -v error -show_entries stream=codec_name,width,height,nb_frames -of compact /o/scale-e2e.mp4 | head -1 | tee "$WORK/probe.txt" | sed 's/^/   /'
+# The whole output first (a `| head` would SIGPIPE docker under pipefail).
+docker run --rm -v "$WORK/out:/o:ro" --entrypoint ffprobe "$IMAGE" -v error -select_streams v:0 -show_entries stream=codec_name,width,height,nb_frames -of compact /o/scale-e2e.mp4 > "$WORK/probe.txt"
+sed 's/^/   /' "$WORK/probe.txt"
 grep -q 'codec_name=h264|width=1080|height=1920' "$WORK/probe.txt" && echo "✔ the render made on a worker and stored in MinIO is a 1080x1920 H.264 MP4" || fail "ffprobe"
 
 echo "== a worker killed mid-render (SIGKILL) (SCL-13)"
@@ -165,11 +167,14 @@ echo "== storage down (SCL-16)"
 docker stop $MINIO >/dev/null
 for _ in $(seq 1 30); do r=$(wget_ $W1 /readyz 4000); echo "$r" | grep -q '^503' && break; sleep 2; done
 echo "$r" | grep -q '^503 .*"storage":"unavailable (s3)' && echo "✔ worker /readyz 503: storage unavailable (s3)" || fail "worker readyz with MinIO down: ${r:0:300}"
+# Each worker re-checks its storage at most every 10 s before claiming: wait until both have paused.
+for w in $W1 $W2; do for _ in $(seq 1 30); do logs_have $w '"msg":"queue: not claiming jobs: storage (s3) is unavailable' && break; sleep 1; done; done
+logs_have $W1 '"msg":"queue: not claiming jobs: storage (s3) is unavailable' && logs_have $W2 '"msg":"queue: not claiming jobs: storage (s3) is unavailable' \
+  && echo "✔ both worker logs say why they stopped claiming" || fail "no pause line in a worker log"
 client submit
 sleep 8
 st=$(psql_ "SELECT status FROM \"Job\" WHERE id = '$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$WORK/out/scale-queued.json")'")
 [ "$st" = queued ] && echo "✔ the job stays queued while storage is down (workers do not claim and burn attempts)" || fail "job is $st with storage down"
-logs_have $W1 '"msg":"queue: not claiming jobs: storage (s3) is unavailable' && echo "✔ the worker log says why it is not claiming" || fail "no pause line in the worker log"
 docker start $MINIO >/dev/null; for _ in $(seq 1 30); do minio_ready && break; sleep 1; done
 client wait
 for _ in $(seq 1 15); do wget_ $W1 /readyz | grep -q '^200' && break; sleep 2; done

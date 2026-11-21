@@ -266,13 +266,19 @@ restricted pod security) and a compose file for an api with N workers.
 
 | Check | Result |
 | --- | --- |
-| `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` | @@FULL@@ |
+| `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` (SQLite) | typecheck pass; project-schema 44, media-pipeline 11, engines 30, db 101, core 170 + server 103 passed; 4 timing-bound tests (a 30 s render wait, 5 s CLI spawns) timed out under a host load average of 20-28 from parallel agents and passed when re-run (see the PR) |
 | Queue contract (QUE-01..12) on memory, SQLite, PostgreSQL 17, MySQL 8.4; whole db suite | 48 passed; db suite 203 passed |
 | Worker processes on SQLite, PostgreSQL 17, MySQL 8.4 (SCL-01..06: N×M exactly once, SIGKILL mid-job, max attempts, SIGTERM hand-back, quota race of two processes, cross-instance cancel/long-poll) | 18 passed |
-| Runner (SCL-01u..09u) | 9 passed |
+| Runner (SCL-01u..10u) | 10 passed |
 | Server: guard (SCA-01..04) and an api + two workers on one database (SCA-05..12) | 12 passed on PostgreSQL 17, 12 on MySQL 8.4 |
 | Kubernetes manifests | kubeconform 0.7.0 strict (1.31): 12 valid; `kubectl kustomize` output: 11 valid; not applied to a cluster |
-| Docker scale e2e (`SCALE=1 e2e/docker/run.sh`), release image, hardened flags: api + 2 workers, PostgreSQL 17, MinIO | @@E2E@@ |
+| Docker scale e2e (`SCALE=1 e2e/docker/run.sh`), release image, hardened flags: api + 2 workers, PostgreSQL 17, MinIO | **ALL SCALE E2E CHECKS PASSED** (47 checks): role guard refusals, worker-only routes, 6 renders spread over both workers once each (one `running` event per job in PostgreSQL, none on the api), `docker kill` mid-render → re-queued and finished elsewhere (attempt 2), cancel across instances, `docker stop` hands the job back, MinIO down → workers pause and `/readyz` 503, PostgreSQL down → `/readyz` 503 without restarts and back to work, bounded metrics, no secret in any log |
+
+Found and fixed: Playwright closed Chrome on SIGTERM, so a draining worker
+failed its render instead of handing it back (engines now leave signals to
+the server; a job ending during shutdown is always handed back); `/readyz`
+could hang on an unreachable database (probes capped at 5 s, PostgreSQL
+connect timeout 10 s).
 
 Not done: Redis/BullMQ (not built, D-075), MariaDB and Azure/GCS with several
 instances, the MySQL Docker scale run, a real cluster and the HPA External
