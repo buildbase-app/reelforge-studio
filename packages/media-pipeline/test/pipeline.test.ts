@@ -7,6 +7,7 @@ import {
   assemble,
   assertDecodable,
   checkExpectation,
+  frameStats,
   probe,
   resolveTools,
   run,
@@ -147,6 +148,46 @@ describe('assemble', () => {
     const info = await probe(tools.ffprobe, out);
     expect(info.hasAudio).toBe(true);
     expect(info.durationSeconds).toBeCloseTo(2, 1);
+  });
+
+  it('mixes music, a delayed voice and sound effects into one exact-length track', async () => {
+    const clip = await makeClip('mix.mp4', { w: 360, h: 640, fps: 30, frames: 90 });
+    const tone = async (name: string, freq: number, seconds: number) => {
+      const f = join(dir, name);
+      await run(tools.ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', `sine=frequency=${freq}:duration=${seconds}`, f], 'fixture');
+      return f;
+    };
+    const out = join(dir, 'mix-out.mp4');
+    const res = await assemble({
+      ffmpeg: tools.ffmpeg,
+      ffprobe: tools.ffprobe,
+      clips: [{ sceneId: 'mix', file: clip, frames: 90 }],
+      out,
+      width: 360,
+      height: 640,
+      fps: 30,
+      music: { file: await tone('bed.wav', 220, 10), volume: 0.3, fadeOutSeconds: 0.5 },
+      voice: { file: await tone('vo.wav', 660, 1), volume: 1, startSeconds: 0.5 },
+      sfx: [{ file: await tone('pop.wav', 1200, 0.2), volume: 0.8, atSeconds: 2 }],
+    });
+    expect(res.args.join(' ')).toContain('amix=inputs=3');
+    expect(res.args.join(' ')).toContain('adelay=500|500');
+    const info = await probe(tools.ffprobe, out);
+    expect(checkExpectation(info, { width: 360, height: 640, fps: 30, frames: 90, audio: true })).toEqual([]);
+    expect(info.durationSeconds).toBeCloseTo(3, 1);
+    await assertDecodable(tools.ffmpeg, out);
+  });
+});
+
+describe('frameStats', () => {
+  it('tells a flat frame from a detailed one', async () => {
+    const flat = join(dir, 'flat.mp4');
+    await run(tools.ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', 'color=c=black:size=64x64:rate=30', '-frames:v', '3', '-pix_fmt', 'yuv420p', flat], 'fixture');
+    const busy = await makeClip('busy.mp4', { w: 64, h: 64, fps: 30, frames: 3 });
+    const a = await frameStats(tools.ffmpeg, flat, 0);
+    const b = await frameStats(tools.ffmpeg, busy, 0);
+    expect(a.yMax - a.yMin).toBeLessThan(5);
+    expect(b.yMax - b.yMin).toBeGreaterThan(50);
   });
 });
 

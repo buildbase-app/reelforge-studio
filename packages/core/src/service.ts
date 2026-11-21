@@ -1,0 +1,827 @@
+import { existsSync } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
+import { join, resolve, sep } from 'node:path';
+import { resolveTools, toolVersion, type Tools } from '@reelforge/media-pipeline';
+import {
+  DEFAULT_OUTPUT,
+  MAX_PROJECT_SECONDS,
+  MAX_SOURCE_BYTES,
+  SCHEMA_VERSION,
+  SUPPORTED_FPS,
+  SUPPORTED_SCHEMA_VERSIONS,
+  isSafeRelativePath,
+  parseProject,
+  projectJsonSchema,
+  sceneFrames,
+  totalFrames,
+  type Project,
+  type ValidationIssue,
+  type ValidationWarning,
+} from '@reelforge/project-schema';
+import { AssetStore } from './assets';
+import { LocalBackend } from './backends/local';
+import { ApiError, badRequest, invalidManifest, notFound } from './errors';
+import { newId, readJson, writeJsonAtomic } from './fsutil';
+import { JobRunner, type JobContext, type JobRecord } from './jobs';
+import { KeyStore, type Scope } from './keys';
+import { applyMergePatch, isPlainObject } from './mergePatch';
+import type { BackendContext, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
+import { PluginRegistry } from './registry';
+import { runRenderPipeline } from './render';
+import { ProjectStore } from './store';
+import { ThemeStore } from './themes';
+
+export interface ServiceConfig {
+  dataDir: string;
+  /** Engine bundle cache. Default <dataDir>/cache. */
+  cacheDir?: string;
+  renderConcurrency?: number;
+  serverVersion?: string;
+  /** Public base URL (e.g. https://studio.example.com) used in output links. */
+  publicUrl?: string;
+  maxUploadBytes?: number;
+  fetchTimeoutMs?: number;
+  /** Tests only: let add_asset_from_url reach http:// and private addresses. */
+  allowInsecureFetchForTests?: boolean;
+  /** fetch used by providers (injectable for tests). */
+  fetch?: typeof fetch;
+}
+
+export interface ValidationReport {
+  ok: boolean;
+  errors: ValidationIssue[];
+  warnings: ValidationWarning[];
+  migratedFrom: string | null;
+  summary?: {
+    scenes: number;
+    totalFrames: number;
+    durationSeconds: number;
+    width: number;
+    height: number;
+    fps: number;
+    engines: string[];
+  };
+}
+
+export interface RenderSummary {
+  renderId: string;
+  projectId: string;
+  kind: string;
+  createdAt: string;
+  durationSeconds: number;
+  frames: number;
+  width: number;
+  height: number;
+  fps: number;
+  files: string[];
+  outputUrl: string;
+  posterUrl: string;
+  manifestUrl: string;
+}
+
+const DEFAULT_MAX_UPLOAD = 200 * 1024 * 1024;
+
+/**
+ * Every capability of the product as plain async methods. REST routes and
+ * MCP tools are thin wrappers over this class, so both always behave the same.
+ */
+export class ReelforgeService {
+  readonly dataDir: string;
+  readonly cacheDir: string;
+  readonly projects: ProjectStore;
+  readonly themes: ThemeStore;
+  readonly assets: AssetStore;
+  readonly keys: KeyStore;
+  readonly jobs: JobRunner;
+  readonly serverVersion: string;
+  readonly publicUrl: string;
+  private toolsCache: Tools | null = null;
+  private renderIndex = new Map<string, string>();
+  private readonly fetchImpl: typeof fetch;
+
+  private constructor(
+    readonly registry: PluginRegistry,
+    readonly config: ServiceConfig
+  ) {
+    this.dataDir = resolve(config.dataDir);
+    this.cacheDir = resolve(config.cacheDir ?? join(this.dataDir, 'cache'));
+    this.projects = new ProjectStore(this.dataDir);
+    this.themes = new ThemeStore(this.dataDir);
+    this.assets = new AssetStore(this.dataDir, {
+      maxBytes: config.maxUploadBytes ?? DEFAULT_MAX_UPLOAD,
+      timeoutMs: config.fetchTimeoutMs ?? 30_000,
+      maxRedirects: 3,
+      allowInsecureForTests: config.allowInsecureFetchForTests,
+    });
+    this.keys = new KeyStore(this.dataDir);
+    this.serverVersion = config.serverVersion ?? '0.1.0';
+    this.publicUrl = (config.publicUrl ?? '').replace(/\/+$/, '');
+    this.fetchImpl = config.fetch ?? fetch;
+    this.jobs = new JobRunner({
+      dataDir: this.dataDir,
+      concurrency: config.renderConcurrency ?? 1,
+      handlers: { render: (ctx) => this.runRenderJob(ctx), preview: (ctx) => this.runRenderJob(ctx) },
+    });
+    if (!registry.listBackends().some((b) => b.id === 'local')) {
+      registry.registerBackend(new LocalBackend((req, ctx) => this.renderLocally(req, ctx)));
+    }
+  }
+
+  static async create(registry: PluginRegistry, config: ServiceConfig): Promise<ReelforgeService> {
+    const s = new ReelforgeService(registry, config);
+    await s.jobs.init();
+    return s;
+  }
+
+  tools(): Tools {
+    if (!this.toolsCache) this.toolsCache = resolveTools();
+    return this.toolsCache;
+  }
+
+  private toolsOrNull(): Tools | null {
+    try {
+      return this.tools();
+    } catch {
+      return null;
+    }
+  }
+
+  // ---- discovery ------------------------------------------------------------
+
+  capabilities() {
+    const tools = this.toolsOrNull();
+    return {
+      server: { name: 'reelforge-studio', version: this.serverVersion, mcpToolsStatus: 'experimental' },
+      schemaVersion: SCHEMA_VERSION,
+      supportedSchemaVersions: SUPPORTED_SCHEMA_VERSIONS,
+      engines: this.registry.listEngines().map((e) => {
+        const a = e.availability();
+        return {
+          id: e.id,
+          displayName: e.displayName,
+          version: e.version(),
+          available: a.ok,
+          ...(a.reason ? { reason: a.reason } : {}),
+          acceptsSource: e.acceptsSource,
+          templates: e.templates().map((t) => t.id),
+        };
+      }),
+      templates: this.registry.templateInfos().map(({ propsSchema: _p, ...t }) => t),
+      providers: this.registry.listProviders().map((p) => ({
+        id: p.id,
+        kind: p.kind,
+        displayName: p.displayName,
+        configured: p.configured(),
+        costNote: p.costNote,
+        env: p.env,
+      })),
+      backends: this.registry.listBackends().map((b) => ({
+        id: b.id,
+        displayName: b.displayName,
+        configured: b.configured(),
+        implemented: b.implemented,
+        default: b.id === 'local',
+        env: b.env,
+      })),
+      storage: this.registry.listStorages().map((s) => ({ id: s.id })).concat(this.registry.listStorages().length ? [] : [{ id: 'local' }]),
+      limits: {
+        maxProjectSeconds: MAX_PROJECT_SECONDS,
+        maxScenes: 50,
+        supportedFps: SUPPORTED_FPS,
+        defaultOutput: DEFAULT_OUTPUT,
+        maxUploadBytes: this.assets.limits.maxBytes,
+        maxHtmlBytes: MAX_SOURCE_BYTES,
+        renderConcurrency: this.jobs.concurrency,
+      },
+      versions: {
+        node: process.version,
+        ffmpeg: tools ? toolVersion(tools.ffmpeg) : null,
+        ffprobe: tools ? toolVersion(tools.ffprobe) : null,
+      },
+      workflow: [
+        'list_templates and list_themes to see what exists',
+        'create_project with a manifest (schemaVersion "0.2"; "0.1" is migrated)',
+        'edit with add_scene / update_scene / set_theme / set_audio; validate_project after edits',
+        'render_project, then poll get_job until succeeded, then get_render_output',
+      ],
+    };
+  }
+
+  projectSchema() {
+    return projectJsonSchema();
+  }
+
+  listTemplates(engine?: string) {
+    return this.registry.templateInfos(engine);
+  }
+
+  // ---- themes ---------------------------------------------------------------
+
+  listThemes() {
+    return this.themes.list();
+  }
+  getTheme(id: string) {
+    return this.themes.get(id);
+  }
+  createTheme(input: unknown) {
+    return this.themes.create(input);
+  }
+  putTheme(id: string, input: unknown) {
+    return this.themes.put(id, input);
+  }
+  deleteTheme(id: string) {
+    return this.themes.delete(id);
+  }
+
+  // ---- projects -------------------------------------------------------------
+
+  /** Schema validation with the installed engines; throws invalid_manifest. */
+  private parseOrThrow(input: unknown): { project: Project; warnings: ValidationWarning[]; migratedFrom: string | null } {
+    const r = parseProject(input, { catalog: this.registry.catalog() });
+    if (!r.ok) throw invalidManifest(r.issues);
+    return r;
+  }
+
+  async listProjects() {
+    const metas = await this.projects.list();
+    const out = [];
+    for (const m of metas) {
+      const { manifest } = await this.projects.get(m.id);
+      out.push({ ...m, title: manifest.title, scenes: manifest.scenes.length, durationSeconds: totalFrames(manifest) / manifest.output.fps });
+    }
+    return out;
+  }
+
+  async createProject(input: unknown) {
+    const { project, warnings, migratedFrom } = this.parseOrThrow(input);
+    const stored = await this.projects.create(project);
+    return { ...stored, warnings, migratedFrom };
+  }
+
+  async getProject(id: string) {
+    return this.projects.get(id);
+  }
+
+  /**
+   * Update with a full manifest (body has `schemaVersion`) or a JSON merge
+   * patch (anything else). Arrays are replaced by a merge patch; use the scene
+   * methods to edit single scenes.
+   */
+  async updateProject(id: string, body: unknown, expectedVersion?: number) {
+    if (!isPlainObject(body)) throw badRequest('body must be a JSON object: a full manifest or a JSON merge patch');
+    let warnings: ValidationWarning[] = [];
+    const stored = await this.projects.update(
+      id,
+      (current) => {
+        const next = 'schemaVersion' in body ? body : applyMergePatch(current, body);
+        const r = this.parseOrThrow(next);
+        warnings = r.warnings;
+        return r.project;
+      },
+      expectedVersion
+    );
+    return { ...stored, warnings };
+  }
+
+  async deleteProject(id: string) {
+    await this.projects.delete(id);
+    for (const [run, pid] of this.renderIndex) if (pid === id) this.renderIndex.delete(run);
+  }
+
+  async listProjectVersions(id: string) {
+    await this.projects.get(id);
+    return this.projects.listVersions(id);
+  }
+
+  /** Validate an arbitrary manifest without storing it. */
+  async validateManifest(input: unknown, projectId: string | null = null): Promise<ValidationReport> {
+    const r = parseProject(input, { catalog: this.registry.catalog() });
+    if (!r.ok) return { ok: false, errors: r.issues, warnings: [], migratedFrom: null };
+    const deep = await this.deepChecks(r.project, projectId);
+    const errors = deep.errors;
+    return {
+      ok: errors.length === 0,
+      errors,
+      warnings: [...r.warnings, ...deep.warnings],
+      migratedFrom: r.migratedFrom,
+      summary: {
+        scenes: r.project.scenes.length,
+        totalFrames: totalFrames(r.project),
+        durationSeconds: totalFrames(r.project) / r.project.output.fps,
+        width: r.project.output.width,
+        height: r.project.output.height,
+        fps: r.project.output.fps,
+        engines: [...new Set(r.project.scenes.map((s) => s.engine))],
+      },
+    };
+  }
+
+  async validateProject(id: string): Promise<ValidationReport> {
+    const { manifest } = await this.projects.get(id);
+    return this.validateManifest(manifest, id);
+  }
+
+  /** Checks that need the server: theme exists, backend usable, engines available, asset files present. */
+  private async deepChecks(p: Project, projectId: string | null): Promise<{ errors: ValidationIssue[]; warnings: ValidationWarning[] }> {
+    const errors: ValidationIssue[] = [];
+    const warnings: ValidationWarning[] = [];
+    try {
+      await this.themes.resolve(p.theme);
+    } catch (e) {
+      errors.push({ path: 'theme', message: (e as Error).message + `; available: ${(await this.themes.list()).map((t) => t.id).join(', ')}` });
+    }
+    try {
+      const b = this.registry.backend(p.render.backend);
+      if (!b.configured()) errors.push({ path: 'render.backend', message: `backend "${b.id}" is not configured on this server (set ${b.env.join(', ')})` });
+      else if (!b.implemented) errors.push({ path: 'render.backend', message: `backend "${b.id}" is not implemented in this version; use "local"` });
+    } catch (e) {
+      errors.push({ path: 'render.backend', message: (e as Error).message });
+    }
+    const seen = new Set<string>();
+    p.scenes.forEach((s, i) => {
+      if (seen.has(s.engine)) return;
+      seen.add(s.engine);
+      try {
+        const a = this.registry.engine(s.engine).availability();
+        if (!a.ok) errors.push({ path: `scenes.${i}.engine`, message: `engine "${s.engine}" cannot render on this server: ${a.reason}` });
+      } catch {
+        // unknown engines are already reported by schema validation
+      }
+    });
+    for (const [i, a] of p.assets.entries()) {
+      if (a.uri.startsWith('https://')) {
+        errors.push({ path: `assets.${i}.uri`, message: `asset "${a.id}" has not been imported; call add_asset_from_url with this URL` });
+      } else if (a.uri.startsWith('asset://')) {
+        if (!(await this.assets.find(a.uri.slice('asset://'.length)))) {
+          errors.push({ path: `assets.${i}.uri`, message: `asset "${a.id}" (${a.uri}) is not in the asset store` });
+        }
+      } else if (a.uri.startsWith('project://')) {
+        if (projectId === null) {
+          warnings.push({ path: `assets.${i}.uri`, message: `project:// asset "${a.id}" is checked when the project is saved` });
+        } else if (!existsSync(this.projectFile(projectId, a.uri))) {
+          errors.push({ path: `assets.${i}.uri`, message: `file for asset "${a.id}" not found in the project's assets/ folder` });
+        }
+      }
+    }
+    return { errors, warnings };
+  }
+
+  private projectFile(projectId: string, uri: string): string {
+    const relPath = uri.slice('project://'.length);
+    if (!isSafeRelativePath(relPath)) throw badRequest(`unsafe project path ${uri}`);
+    const base = this.projects.assetsDir(projectId);
+    const p = resolve(base, relPath);
+    if (!p.startsWith(base + sep)) throw badRequest(`unsafe project path ${uri}`);
+    return p;
+  }
+
+  // ---- scenes ---------------------------------------------------------------
+
+  private static stripStartFrames(p: Record<string, unknown>) {
+    const scenes = p.scenes as Array<Record<string, unknown>>;
+    for (const s of scenes) delete s.startFrame;
+  }
+
+  async addScene(id: string, scene: unknown, opts: { index?: number; expectedVersion?: number } = {}) {
+    if (!isPlainObject(scene)) throw badRequest('scene must be an object');
+    let warnings: ValidationWarning[] = [];
+    const stored = await this.projects.update(
+      id,
+      (current) => {
+        const next = structuredClone(current) as unknown as Record<string, unknown>;
+        const scenes = next.scenes as unknown[];
+        const index = opts.index === undefined ? scenes.length : Math.max(0, Math.min(scenes.length, opts.index));
+        scenes.splice(index, 0, structuredClone(scene));
+        ReelforgeService.stripStartFrames(next);
+        const r = this.parseOrThrow(next);
+        warnings = r.warnings;
+        return r.project;
+      },
+      opts.expectedVersion
+    );
+    return { ...stored, warnings };
+  }
+
+  async updateScene(id: string, sceneId: string, patch: unknown, expectedVersion?: number) {
+    if (!isPlainObject(patch)) throw badRequest('patch must be an object (JSON merge patch of the scene)');
+    let warnings: ValidationWarning[] = [];
+    const stored = await this.projects.update(
+      id,
+      (current) => {
+        const next = structuredClone(current) as unknown as Record<string, unknown>;
+        const scenes = next.scenes as Array<Record<string, unknown>>;
+        const i = scenes.findIndex((s) => s.id === sceneId);
+        if (i < 0) throw notFound('scene', sceneId, { scenes: scenes.map((s) => s.id) });
+        const p = { ...patch };
+        // Switching duration units: drop the other one so exactly one remains.
+        if (p.durationSeconds !== undefined && p.durationSeconds !== null && p.durationFrames === undefined) p.durationFrames = null;
+        if (p.durationFrames !== undefined && p.durationFrames !== null && p.durationSeconds === undefined) p.durationSeconds = null;
+        if (p.html !== undefined && p.html !== null && p.template === undefined) p.template = null;
+        if (p.template !== undefined && p.template !== null && p.html === undefined) {
+          p.html = null;
+          p.css = null;
+        }
+        // An engine change usually means new props.
+        scenes[i] = applyMergePatch(scenes[i], p) as Record<string, unknown>;
+        ReelforgeService.stripStartFrames(next);
+        const r = this.parseOrThrow(next);
+        warnings = r.warnings;
+        return r.project;
+      },
+      expectedVersion
+    );
+    return { ...stored, warnings };
+  }
+
+  async removeScene(id: string, sceneId: string, expectedVersion?: number) {
+    return this.projects.update(
+      id,
+      (current) => {
+        const next = structuredClone(current) as unknown as Record<string, unknown>;
+        const scenes = next.scenes as Array<Record<string, unknown>>;
+        const i = scenes.findIndex((s) => s.id === sceneId);
+        if (i < 0) throw notFound('scene', sceneId, { scenes: scenes.map((s) => s.id) });
+        if (scenes.length === 1) throw badRequest('a project needs at least one scene; add another before removing this one');
+        scenes.splice(i, 1);
+        ReelforgeService.stripStartFrames(next);
+        return this.parseOrThrow(next).project;
+      },
+      expectedVersion
+    );
+  }
+
+  async reorderScenes(id: string, order: unknown, expectedVersion?: number) {
+    if (!Array.isArray(order) || !order.every((x) => typeof x === 'string')) throw badRequest('order must be an array of scene ids');
+    return this.projects.update(
+      id,
+      (current) => {
+        const ids = current.scenes.map((s) => s.id);
+        if (order.length !== ids.length || new Set(order).size !== order.length || !order.every((o) => ids.includes(o))) {
+          throw badRequest('order must list every scene id exactly once', { scenes: ids });
+        }
+        const next = structuredClone(current) as unknown as Record<string, unknown>;
+        const byId = new Map((next.scenes as Array<Record<string, unknown>>).map((s) => [s.id as string, s]));
+        next.scenes = order.map((o) => byId.get(o)!);
+        ReelforgeService.stripStartFrames(next);
+        return this.parseOrThrow(next).project;
+      },
+      expectedVersion
+    );
+  }
+
+  async setTheme(id: string, theme: unknown, expectedVersion?: number) {
+    if (typeof theme === 'string') await this.themes.get(theme);
+    else if (isPlainObject(theme)) await this.themes.get(typeof theme.base === 'string' ? theme.base : 'default');
+    else throw badRequest('theme must be a theme id or { base, tokens }');
+    return this.projects.update(id, (current) => this.parseOrThrow({ ...current, theme }).project, expectedVersion);
+  }
+
+  async setAudio(id: string, audioPatch: unknown, expectedVersion?: number) {
+    if (!isPlainObject(audioPatch)) throw badRequest('audio must be an object');
+    return this.projects.update(
+      id,
+      (current) => this.parseOrThrow({ ...current, audio: applyMergePatch(current.audio, audioPatch) }).project,
+      expectedVersion
+    );
+  }
+
+  // ---- renders --------------------------------------------------------------
+
+  async startRender(id: string, opts: { backend?: string } = {}): Promise<JobRecord> {
+    return this.enqueueRender(id, 'render', opts.backend);
+  }
+
+  async preview(id: string, opts: { sceneId?: string; scale?: number } = {}): Promise<JobRecord> {
+    const scale = opts.scale ?? 1 / 3;
+    if (!(scale > 0 && scale <= 1)) throw badRequest('scale must be > 0 and <= 1');
+    return this.enqueueRender(id, 'preview', undefined, opts.sceneId ? [opts.sceneId] : undefined, scale);
+  }
+
+  private async enqueueRender(id: string, kind: 'render' | 'preview', backendOverride?: string, sceneIds?: string[], scale?: number) {
+    const { manifest, meta } = await this.projects.get(id);
+    if (sceneIds) {
+      for (const s of sceneIds) {
+        if (!manifest.scenes.some((x) => x.id === s)) throw notFound('scene', s, { scenes: manifest.scenes.map((x) => x.id) });
+      }
+    }
+    const report = await this.validateProject(id);
+    const backendId = backendOverride ?? manifest.render.backend;
+    const backend = this.registry.backend(backendId);
+    if (!backend.configured()) {
+      throw new ApiError('backend_not_configured', 409, `render backend "${backendId}" is not configured; set ${backend.env.join(', ')}`);
+    }
+    if (!backend.implemented) {
+      throw new ApiError('not_implemented', 501, `render backend "${backendId}" is not implemented in v0.1; use backend "local"`);
+    }
+    const blocking = report.errors.filter((e) => !(backendOverride && e.path === 'render.backend'));
+    if (blocking.length) throw new ApiError('validation_failed', 422, 'fix these problems before rendering (see details.errors)', { errors: blocking, warnings: report.warnings });
+    const runId = newId(kind === 'preview' ? 'prv' : 'run');
+    return this.jobs.submit(
+      kind,
+      { projectId: id, version: meta.version, backend: backendId, runId, ...(sceneIds ? { sceneIds } : {}), ...(scale ? { scale } : {}) },
+      { projectId: id }
+    );
+  }
+
+  private async runRenderJob(ctx: JobContext): Promise<Record<string, unknown>> {
+    const p = ctx.job.params as { projectId: string; version: number; backend: string; runId: string; sceneIds?: string[]; scale?: number };
+    const project = await this.projects.getVersion(p.projectId, p.version);
+    const backend = this.registry.backend(p.backend);
+    const outcome = await backend.submit(
+      {
+        jobId: ctx.job.id,
+        runId: p.runId,
+        kind: ctx.job.type as 'render' | 'preview',
+        project,
+        projectVersion: p.version,
+        sceneIds: p.sceneIds,
+        scale: p.scale,
+      },
+      { signal: ctx.signal, log: ctx.log, progress: ctx.progress }
+    );
+    this.renderIndex.set(outcome.runId, p.projectId);
+    const summary = await this.getRender(outcome.runId);
+    return { ...summary };
+  }
+
+  /** Assets of a project as local files. */
+  async resolveAssets(project: Project, projectId: string): Promise<Map<string, ResolvedAsset>> {
+    const map = new Map<string, ResolvedAsset>();
+    for (const a of project.assets) {
+      let file: string;
+      if (a.uri.startsWith('asset://')) file = await this.assets.file(a.uri.slice('asset://'.length));
+      else if (a.uri.startsWith('project://')) file = this.projectFile(projectId, a.uri);
+      else throw new ApiError('asset_not_imported', 422, `asset "${a.id}" is a remote URL; import it with add_asset_from_url first`);
+      if (!existsSync(file)) throw new ApiError('asset_missing', 422, `file for asset "${a.id}" is missing`);
+      map.set(a.id, { id: a.id, file, mediaType: a.mediaType, ...(a.contentType ? { contentType: a.contentType } : {}) });
+    }
+    return map;
+  }
+
+  private async renderLocally(req: RenderRequest, ctx: BackendContext): Promise<RenderOutcome> {
+    const theme = await this.themes.resolve(req.project.theme);
+    const assets = await this.resolveAssets(req.project, req.project.projectId);
+    const res = await runRenderPipeline({
+      runId: req.runId,
+      kind: req.kind,
+      project: req.project,
+      projectVersion: req.projectVersion,
+      theme,
+      assets,
+      registry: this.registry,
+      tools: this.tools(),
+      rendersDir: this.projects.rendersDir(req.project.projectId),
+      cacheDir: this.cacheDir,
+      sceneIds: req.sceneIds,
+      scale: req.scale,
+      serverVersion: this.serverVersion,
+      signal: ctx.signal,
+      log: ctx.log,
+      progress: ctx.progress,
+    });
+    return { runId: res.runId, dir: res.dir, outputFile: res.outputFile, manifestFile: res.manifestFile };
+  }
+
+  getJob(id: string) {
+    const job = this.jobs.get(id);
+    const pos = this.jobs.queuePosition(id);
+    return { ...job, ...(pos !== null ? { queuePosition: pos } : {}) };
+  }
+  listJobs(filter: { projectId?: string } = {}) {
+    return this.jobs.list(filter);
+  }
+  cancelJob(id: string) {
+    return this.jobs.cancel(id);
+  }
+  retryJob(id: string) {
+    return this.jobs.retry(id);
+  }
+  jobLogs(id: string, tail?: number) {
+    return this.jobs.logs(id, tail);
+  }
+
+  private url(path: string) {
+    return `${this.publicUrl}${path}`;
+  }
+
+  private async findRenderDir(runId: string): Promise<{ projectId: string; dir: string }> {
+    if (!/^(run|prv)_[a-z0-9]+$/.test(runId)) throw notFound('render', runId);
+    const known = this.renderIndex.get(runId);
+    const candidates = known ? [known] : (await this.projects.list()).map((m) => m.id);
+    for (const pid of candidates) {
+      const dir = join(this.projects.rendersDir(pid), runId);
+      if (await stat(join(dir, 'render-manifest.json')).then(() => true, () => false)) {
+        this.renderIndex.set(runId, pid);
+        return { projectId: pid, dir };
+      }
+    }
+    throw notFound('render', runId);
+  }
+
+  async getRender(runId: string): Promise<RenderSummary> {
+    const { projectId, dir } = await this.findRenderDir(runId);
+    const m = await readJson<{
+      kind: string;
+      createdAt: string;
+      output: { durationSeconds: number; frames: number; width: number; height: number; fps: number };
+      scenes: Array<{ file: string }>;
+    }>(join(dir, 'render-manifest.json'));
+    if (!m) throw notFound('render', runId);
+    const base = `/v1/renders/${runId}/output`;
+    return {
+      renderId: runId,
+      projectId,
+      kind: m.kind,
+      createdAt: m.createdAt,
+      durationSeconds: m.output.durationSeconds,
+      frames: m.output.frames,
+      width: m.output.width,
+      height: m.output.height,
+      fps: m.output.fps,
+      files: ['final.mp4', 'poster.png', 'render-manifest.json', ...m.scenes.map((s) => s.file)],
+      outputUrl: this.url(base),
+      posterUrl: this.url(`${base}?file=poster.png`),
+      manifestUrl: this.url(`${base}?file=render-manifest.json`),
+    };
+  }
+
+  async getRenderManifest(runId: string): Promise<unknown> {
+    const { dir } = await this.findRenderDir(runId);
+    return readJson(join(dir, 'render-manifest.json'));
+  }
+
+  async listRenders(projectId: string): Promise<RenderSummary[]> {
+    await this.projects.get(projectId);
+    let entries: string[] = [];
+    try {
+      entries = await readdir(this.projects.rendersDir(projectId));
+    } catch {
+      return [];
+    }
+    const out: RenderSummary[] = [];
+    for (const e of entries.filter((x) => !x.startsWith('.'))) {
+      this.renderIndex.set(e, projectId);
+      try {
+        out.push(await this.getRender(e));
+      } catch {
+        // incomplete or foreign directory
+      }
+    }
+    return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** Absolute path of a file inside a render (final.mp4 by default). */
+  async renderFile(runId: string, file = 'final.mp4'): Promise<{ path: string; contentType: string }> {
+    if (!isSafeRelativePath(file) || !/^(final\.mp4|poster\.png|render-manifest\.json|clips\/[\w.-]+\.mp4)$/.test(file)) {
+      throw badRequest('file must be final.mp4, poster.png, render-manifest.json or clips/<name>.mp4');
+    }
+    const { dir } = await this.findRenderDir(runId);
+    const path = join(dir, file);
+    if (!existsSync(path)) throw notFound('render file', `${runId}/${file}`);
+    const contentType = file.endsWith('.mp4') ? 'video/mp4' : file.endsWith('.png') ? 'image/png' : 'application/json';
+    return { path, contentType };
+  }
+
+  // ---- assets ---------------------------------------------------------------
+
+  private async attachToProject(projectId: string, asset: StoredAsset, manifestId?: string, license?: StoredAsset['license']) {
+    const id = manifestId ?? asset.id.replace(/^ast-/, 'a-');
+    const entry = {
+      id,
+      uri: `asset://${asset.id}`,
+      mediaType: asset.mediaType,
+      sha256: asset.sha256,
+      contentType: asset.contentType,
+      bytes: asset.bytes,
+      source: asset.source.slice(0, 2048),
+      ...((license ?? asset.license) ? { license: license ?? asset.license } : {}),
+    };
+    await this.projects.update(projectId, (current) => {
+      const assets = current.assets.filter((a) => a.id !== id);
+      return this.parseOrThrow({ ...current, assets: [...assets, entry] }).project;
+    });
+    return id;
+  }
+
+  async uploadAsset(data: Buffer, opts: { filename?: string; contentType?: string; projectId?: string; assetId?: string; license?: StoredAsset['license'] } = {}) {
+    if (opts.projectId) await this.projects.get(opts.projectId);
+    const asset = await this.assets.put({ data, source: 'upload', originalName: opts.filename, declaredContentType: opts.contentType, license: opts.license });
+    const projectAssetId = opts.projectId ? await this.attachToProject(opts.projectId, asset, opts.assetId, opts.license) : undefined;
+    return { asset, uri: `asset://${asset.id}`, projectAssetId };
+  }
+
+  async addAssetFromUrl(url: string, opts: { projectId?: string; assetId?: string; license?: StoredAsset['license'] } = {}) {
+    if (typeof url !== 'string' || !url) throw badRequest('url is required');
+    if (opts.projectId) await this.projects.get(opts.projectId);
+    const asset = await this.assets.fromUrl(url, { license: opts.license });
+    const projectAssetId = opts.projectId ? await this.attachToProject(opts.projectId, asset, opts.assetId, opts.license) : undefined;
+    return { asset, uri: `asset://${asset.id}`, projectAssetId };
+  }
+
+  getAsset(id: string) {
+    return this.assets.get(id);
+  }
+
+  async listAssets(opts: { projectId?: string } = {}) {
+    if (!opts.projectId) return this.assets.list();
+    const { manifest } = await this.projects.get(opts.projectId);
+    return manifest.assets;
+  }
+
+  // ---- providers ------------------------------------------------------------
+
+  async runProvider(
+    providerId: string,
+    params: unknown,
+    opts: { projectId?: string; acknowledgeCost?: boolean; attachAs?: 'voice' | 'none'; assetId?: string } = {}
+  ) {
+    const provider = this.registry.provider(providerId);
+    const parsed = provider.params.safeParse(params);
+    if (!parsed.success) {
+      throw new ApiError('invalid_params', 422, `invalid parameters for provider "${providerId}"`, {
+        issues: parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message })),
+      });
+    }
+    if (opts.projectId) await this.projects.get(opts.projectId);
+    const cacheKey = provider.cacheKey?.(parsed.data);
+    const cacheFile = cacheKey ? join(this.cacheDir, 'providers', `${cacheKey}.json`) : null;
+    let result: { asset: StoredAsset; data?: Record<string, unknown>; cached?: boolean } | undefined;
+    if (cacheFile) {
+      const hit = await readJson<{ assetId: string; data?: Record<string, unknown> }>(cacheFile);
+      const asset = hit ? await this.assets.find(hit.assetId) : undefined;
+      if (hit && asset) result = { asset, data: hit.data, cached: true };
+    }
+    if (!result) {
+      if (!provider.configured()) {
+        throw new ApiError('provider_not_configured', 409, `provider "${providerId}" is not configured on this server; the operator must set ${provider.env.join(', ')}`);
+      }
+      if (!opts.acknowledgeCost) {
+        throw new ApiError('cost_acknowledgement_required', 402, `this call may cost money: ${provider.costNote} Ask the user, then call again with acknowledgeCost: true.`, {
+          costNote: provider.costNote,
+        });
+      }
+      const controller = new AbortController();
+      result = await provider.run(parsed.data, {
+        signal: controller.signal,
+        log: () => undefined,
+        putAsset: (input) => this.assets.put(input),
+        fetch: this.fetchImpl,
+      });
+      if (cacheFile) await writeJsonAtomic(cacheFile, { assetId: result.asset.id, data: result.data });
+    }
+    let projectAssetId: string | undefined;
+    if (opts.projectId && opts.attachAs !== 'none') {
+      projectAssetId = await this.attachToProject(opts.projectId, result.asset, opts.assetId ?? (provider.kind === 'tts' ? 'voice' : undefined));
+      if (provider.kind === 'tts' && (opts.attachAs ?? 'voice') === 'voice') {
+        const p = parsed.data as { text?: string; voiceId?: string };
+        await this.projects.update(opts.projectId, (current) =>
+          this.parseOrThrow({
+            ...current,
+            audio: {
+              ...current.audio,
+              voice: {
+                asset: projectAssetId,
+                provider: providerId,
+                ...(p.text ? { text: p.text } : {}),
+                ...(p.voiceId ? { voiceId: p.voiceId } : {}),
+                volume: current.audio.voice?.volume ?? 1,
+                startFrame: current.audio.voice?.startFrame ?? 0,
+              },
+            },
+          }).project
+        );
+      }
+    }
+    return {
+      asset: result.asset,
+      uri: `asset://${result.asset.id}`,
+      data: result.data ?? {},
+      cached: Boolean(result.cached),
+      costNote: provider.costNote,
+      ...(projectAssetId ? { projectAssetId } : {}),
+    };
+  }
+
+  // ---- keys -----------------------------------------------------------------
+
+  listKeys() {
+    return this.keys.list();
+  }
+  createKey(name: string, scopes: Scope[]) {
+    return this.keys.create(name, scopes);
+  }
+  deleteKey(id: string) {
+    return this.keys.delete(id);
+  }
+
+  /** Frames of every scene, for agents planning exact timing. */
+  static sceneTiming(p: Project) {
+    let cursor = 0;
+    return p.scenes.map((s) => {
+      const frames = sceneFrames(s, p.output.fps);
+      const t = { id: s.id, startFrame: cursor, durationFrames: frames, startSeconds: cursor / p.output.fps, durationSeconds: frames / p.output.fps };
+      cursor += frames;
+      return t;
+    });
+  }
+}

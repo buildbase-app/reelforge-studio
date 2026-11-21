@@ -5,15 +5,18 @@ import { fileURLToPath } from 'node:url';
 import { bundle } from '@remotion/bundler';
 import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer';
 import { PipelineError } from '@reelforge/media-pipeline';
-import type { OutputSettings, Scene } from '@reelforge/project-schema';
+import { packageVersion } from '@reelforge/core';
+import type { OutputSettings, RenderScene, ThemeTokens } from '@reelforge/project-schema';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const compositionsDir = resolve(here, '../compositions');
 const entryPoint = join(compositionsDir, 'Root.tsx');
 
 export interface RemotionRenderOptions {
-  scene: Scene;
+  scene: RenderScene;
   output: OutputSettings;
+  /** Theme tokens; templates read colours and fonts from them (props override). */
+  theme?: ThemeTokens;
   /** Where to write the clip (H.264 MP4, no audio). */
   out: string;
   /** Directory for the Webpack bundle. Reused between renders. */
@@ -39,12 +42,7 @@ export interface RemotionRenderResult {
 }
 
 export function remotionVersion(): string {
-  try {
-    const pkg = resolve(here, '../node_modules/remotion/package.json');
-    return (JSON.parse(readFileSync(pkg, 'utf8')) as { version: string }).version;
-  } catch {
-    return 'unknown';
-  }
+  return packageVersion('remotion', import.meta.url);
 }
 
 function sourceHash(): string {
@@ -83,8 +81,10 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
   const browserExecutable = opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH ?? null;
   mkdirSync(dirname(opts.out), { recursive: true });
 
+  if (!scene.template) throw new PipelineError(stage, 'Remotion scenes need a template');
   const inputProps = {
     ...(scene.props as Record<string, unknown>),
+    ...(opts.theme ? { __theme: opts.theme } : {}),
     __output: {
       width: output.width,
       height: output.height,
@@ -101,7 +101,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
     const serveUrl = await bundleCompositions(opts.cacheDir, opts.rebuild);
     const composition = await selectComposition({
       serveUrl,
-      id: scene.template,
+      id: scene.template!,
       inputProps,
       browserExecutable,
       logLevel: 'error',

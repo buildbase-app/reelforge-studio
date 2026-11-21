@@ -17,7 +17,11 @@ export interface AssembleOptions {
   height: number;
   fps: number;
   /** Optional music file the user has rights to use. Trimmed and faded to fit. */
-  music?: { file: string; volume: number } | null;
+  music?: { file: string; volume: number; fadeOutSeconds?: number } | null;
+  /** Optional voice-over, mixed on top of the music, starting at `startSeconds`. */
+  voice?: { file: string; volume: number; startSeconds?: number } | null;
+  /** Optional sound effects, each starting at `atSeconds`. */
+  sfx?: Array<{ file: string; volume: number; atSeconds: number }>;
   signal?: AbortSignal;
 }
 
@@ -61,6 +65,10 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
   } else {
     args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000');
   }
+  const overlays: Array<{ file: string; volume: number; at: number }> = [];
+  if (opts.voice) overlays.push({ file: opts.voice.file, volume: opts.voice.volume, at: opts.voice.startSeconds ?? 0 });
+  for (const s of opts.sfx ?? []) overlays.push({ file: s.file, volume: s.volume, at: s.atSeconds });
+  for (const o of overlays) args.push('-i', o.file);
 
   const filters: string[] = clips.map(
     (clip, i) =>
@@ -70,15 +78,34 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
   );
   filters.push(`${clips.map((_, i) => `[v${i}]`).join('')}concat=n=${clips.length}:v=1:a=0[vout]`);
 
-  const fadeStart = Math.max(totalSeconds - 1, 0).toFixed(3);
+  const T = totalSeconds.toFixed(3);
+  const base = overlays.length ? 'abase' : 'aout';
   if (opts.music) {
+    const fade = Math.min(opts.music.fadeOutSeconds ?? 1, totalSeconds);
+    const fadeStart = Math.max(totalSeconds - fade, 0).toFixed(3);
     filters.push(
       `[${audioIndex}:a]aformat=sample_rates=48000:channel_layouts=stereo,` +
-        `volume=${opts.music.volume},atrim=end=${totalSeconds.toFixed(3)},asetpts=PTS-STARTPTS,` +
-        `apad=whole_dur=${totalSeconds.toFixed(3)},afade=t=out:st=${fadeStart}:d=1[aout]`
+        `volume=${opts.music.volume},atrim=end=${T},asetpts=PTS-STARTPTS,` +
+        `apad=whole_dur=${T}` +
+        (fade > 0 ? `,afade=t=out:st=${fadeStart}:d=${fade.toFixed(3)}` : '') +
+        `[${base}]`
     );
   } else {
-    filters.push(`[${audioIndex}:a]atrim=end=${totalSeconds.toFixed(3)},asetpts=PTS-STARTPTS[aout]`);
+    filters.push(`[${audioIndex}:a]atrim=end=${T},asetpts=PTS-STARTPTS[${base}]`);
+  }
+  if (overlays.length) {
+    overlays.forEach((o, k) => {
+      const delayMs = Math.max(0, Math.round(o.at * 1000));
+      filters.push(
+        `[${audioIndex + 1 + k}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${o.volume},` +
+          `asetpts=PTS-STARTPTS,adelay=${delayMs}|${delayMs}[o${k}]`
+      );
+    });
+    // duration=first: the (padded) base track sets the length; normalize=0 keeps levels as given.
+    filters.push(
+      `[abase]${overlays.map((_, k) => `[o${k}]`).join('')}amix=inputs=${overlays.length + 1}:duration=first:dropout_transition=0:normalize=0,` +
+        `atrim=end=${T},asetpts=PTS-STARTPTS[aout]`
+    );
   }
 
   args.push(

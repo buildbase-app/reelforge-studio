@@ -6,7 +6,8 @@ import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import motionCanvasModule from '@motion-canvas/vite-plugin';
 import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
-import type { OutputSettings, Scene } from '@reelforge/project-schema';
+import { packageVersion } from '@reelforge/core';
+import type { OutputSettings, RenderScene, ThemeTokens } from '@reelforge/project-schema';
 import { chromium, type Browser } from 'playwright-core';
 import { build, type Plugin } from 'vite';
 import type {} from './protocol';
@@ -20,8 +21,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const scenesDir = resolve(here, '../scenes');
 
 export interface MotionCanvasRenderOptions {
-  scene: Scene;
+  scene: RenderScene;
   output: OutputSettings;
+  /** Theme tokens; templates read colours and fonts from them (props override). */
+  theme?: ThemeTokens;
   /** Where to write the clip (H.264 MP4, no audio). */
   out: string;
   /** Directory for the built browser bundle. Reused between renders. */
@@ -222,13 +225,13 @@ export async function renderMotionCanvasScene(
     const response = await page.evaluate(
       (req) => window.__reelforgeRender!(req),
       {
-        template: scene.template,
-        variables: { ...props, durationSeconds: scene.durationFrames / output.fps },
+        template: scene.template ?? '',
+        variables: { ...props, durationSeconds: scene.durationFrames / output.fps, ...(opts.theme ? { theme: opts.theme } : {}) },
         width: output.width,
         height: output.height,
         fps: output.fps,
         frames: scene.durationFrames,
-        background: (props.background as string | undefined) ?? null,
+        background: (props.background as string | undefined) ?? opts.theme?.colors.background ?? null,
       }
     );
 
@@ -269,11 +272,6 @@ export async function renderMotionCanvasScene(
   }
 }
 
-function motionCanvasVersion(): string {
-  try {
-    const pkg = resolve(here, '../node_modules/@motion-canvas/core/package.json');
-    return (JSON.parse(readFileSync(pkg, 'utf8')) as { version: string }).version;
-  } catch {
-    return 'unknown';
-  }
+export function motionCanvasVersion(): string {
+  return packageVersion('@motion-canvas/core', import.meta.url);
 }

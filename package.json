@@ -24,7 +24,8 @@
     "@reelforge/project-schema": "workspace:*",
     "@reelforge/media-pipeline": "workspace:*",
     "@reelforge/engine-motion-canvas": "workspace:*",
-    "@reelforge/engine-remotion": "workspace:*"
+    "@reelforge/engine-remotion": "workspace:*",
+    "@reelforge/core": "workspace:*"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

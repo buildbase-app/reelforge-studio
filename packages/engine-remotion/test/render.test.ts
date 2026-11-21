@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PipelineError, checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
-import type { OutputSettings, Scene } from '@reelforge/project-schema';
+import type { OutputSettings, RenderScene as Scene } from '@reelforge/project-schema';
 import { renderRemotionScene } from '../src/index';
 
 // Remotion downloads its own browser when none is configured; in CI we point

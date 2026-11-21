@@ -96,3 +96,40 @@ export function checkExpectation(info: MediaInfo, want: Expectation): string[] {
   if (want.audio === false && info.hasAudio) problems.push('expected no audio stream, found one');
   return problems;
 }
+
+export interface FrameStats {
+  yMin: number;
+  yMax: number;
+  yAvg: number;
+}
+
+/**
+ * Luma statistics of one frame (FFmpeg signalstats). A frame whose yMax and
+ * yMin are close is visually empty (a flat colour), e.g. a blank first frame.
+ */
+export async function frameStats(ffmpeg: string, file: string, frame: number): Promise<FrameStats> {
+  const { stdout } = await run(
+    ffmpeg,
+    [
+      '-hide_banner',
+      '-v',
+      'error',
+      '-i',
+      file,
+      '-vf',
+      `select=eq(n\\,${frame}),signalstats,metadata=print:file=-`,
+      '-frames:v',
+      '1',
+      '-f',
+      'null',
+      '-',
+    ],
+    'frame-stats'
+  );
+  const get = (k: string) => {
+    const m = new RegExp(`lavfi\\.signalstats\\.${k}=([0-9.]+)`).exec(stdout);
+    if (!m) throw new PipelineError('frame-stats', `no ${k} for frame ${frame} of ${file}`);
+    return Number(m[1]);
+  };
+  return { yMin: get('YMIN'), yMax: get('YMAX'), yAvg: get('YAVG') };
+}
