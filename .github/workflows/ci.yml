@@ -10,7 +10,10 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      # A missing browser fails the engine and end-to-end tests instead of skipping them.
+      REELFORGE_REQUIRE_BROWSER: '1'
     steps:
       - uses: actions/checkout@v4
 
@@ -37,8 +40,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
+      - name: Test (schema, core, media pipeline, engines)
+        run: pnpm -r --filter '!@reelforge/server' run test
+
+      - name: Server tests + MCP and REST end-to-end (real server process, all engines)
+        run: pnpm --filter @reelforge/server run test
 
       - name: End-to-end spike (Remotion + Motion Canvas -> MP4)
         run: pnpm spike
@@ -53,3 +59,29 @@ jobs:
             out/sample-reel/render-manifest.json
             out/sample-reel/review/
           if-no-files-found: warn
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t reelforge-studio:ci .
+
+      - name: Smoke test (starts, healthy, MCP card served)
+        run: |
+          docker run -d --name rf -p 127.0.0.1:4321:4321 -e REELFORGE_BOOTSTRAP_KEY=rf_ci_smoke_key_0123456789abcdef reelforge-studio:ci
+          for i in $(seq 1 60); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' rf)" = healthy ] && break
+            sleep 2
+          done
+          docker inspect -f '{{.State.Health.Status}}' rf | grep -q healthy
+          curl -sf http://127.0.0.1:4321/readyz
+          curl -sf http://127.0.0.1:4321/.well-known/mcp.json > /dev/null
+          curl -sf -H 'Authorization: Bearer rf_ci_smoke_key_0123456789abcdef' http://127.0.0.1:4321/v1/capabilities > /dev/null
+          docker exec rf id -u | grep -qx 10001
+
+      - name: Container logs
+        if: always()
+        run: docker logs rf || true

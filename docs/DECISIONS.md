@@ -238,3 +238,72 @@ UI is just another API client.\
 **Interpretation to confirm:** "hygiene" in the founder's note is read as
 HeyGen (avatar provider) and/or HyperFrames (HTML-to-video engine); both fit
 the plugin interfaces.
+
+## G. Agent platform v0.1 (2026-11-21)
+
+These are implementation choices made while building D-014. They are
+reversible unless noted.
+
+### D-015 --- Stateless MCP over Streamable HTTP with the v1 SDK
+
+**Status:** DECIDED for v0.1 (reversible).\
+`@modelcontextprotocol/sdk` 1.32.2 (the package's latest dist-tag; the brief
+asked for it), `WebStandardStreamableHTTPServerTransport` in stateless mode
+with JSON responses, a fresh server per request, Bearer keys checked before
+the transport, Host/Origin checks in our middleware. No sessions, so no
+server-pushed notifications; agents poll `get_job`. Revisit for the split v2
+packages (`@modelcontextprotocol/server`).
+
+### D-016 --- One service class; REST and MCP are thin layers, checked for parity
+
+**Status:** DECIDED.\
+Every capability is a method on `ReelforgeService` (`packages/core`). REST
+routes and MCP tools only translate. `apps/server/src/routes.ts` maps each
+route to its tool and scope; a test fails if they drift (founder requirement:
+agents must be able to do everything over MCP alone).
+
+### D-017 --- Filesystem state, one instance per data directory
+
+**Status:** DECIDED for v0.1 (reversible).\
+Projects (with every version), assets (content-addressed), renders, jobs,
+themes, keys and provider secrets live under `REELFORGE_DATA_DIR`; atomic
+temp-file + rename writes; renders are finalised by renaming a temp
+directory, so outputs are never overwritten. In-process job runner with
+concurrency 1 by default. Consequence: no horizontal scaling yet.
+
+### D-018 --- Manifest v0.2 is a superset of v0.1, validated against installed engines
+
+**Status:** DECIDED (contract marked experimental until v1.0).\
+v0.1 files are validated with the legacy schema, then migrated (same scene
+ids, frames and props). The engine field is an id checked against the
+engines installed on the server, so a new engine plugin needs no schema
+change beyond its template definitions. Transitions: only `cut`. Captions and
+music ducking are stored but not rendered yet (warnings say so).
+
+### D-019 --- HTML and HyperFrames engines render agent code in a no-network sandbox
+
+**Status:** DECIDED.\
+Agent-supplied HTML/CSS (html engine) and HyperFrames compositions are
+rendered with a Content-Security-Policy that blocks remote resources, all
+non-`data:` requests aborted (html) or only the local renderer allowed
+(HyperFrames), size limits, timeouts. HyperFrames uses only its local
+renderer, with its telemetry and update checks disabled. Our templates avoid
+GSAP (not OSI-licensed); agent compositions that load GSAP from a CDN are
+rejected rather than silently broken.
+
+### D-020 --- Chrome Headless Shell in Docker comes from Remotion's ensureBrowser()
+
+**Status:** DECIDED for the image (reversible).\
+Remotion's pinned build (downloaded from `remotion.media` at build time) is
+used by every engine via `REELFORGE_CHROMIUM_PATH`; Playwright's dependency
+list installs the system libraries. Implements the D-011 "next" item for
+Docker. Locally and in CI any Chrome Headless Shell works (tested with 157
+and 158). The server never downloads a browser at render time.
+
+### D-021 --- Provider keys can be set by an admin agent
+
+**Status:** DECIDED (founder requirement: no UI after first start).\
+`configure_provider` stores declared provider settings in
+`<data>/secrets.json` (mode 0600, plain text at rest), applied immediately,
+never returned. Environment variables still work; API-set values override
+them. Operators who prefer env-only can simply not grant `admin`.

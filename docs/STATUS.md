@@ -1,6 +1,6 @@
 # ReelForge: status record
 
-**Updated:** 2026-11-21. This is the single place to start. It covers both
+**Updated:** 2026-11-21 (agent platform v0.1). This is the single place to start. It covers both
 repositories, the infrastructure, decisions, the end-to-end goal and the
 backlog. Backlog items are GitHub issues in this repo (store issues live here
 too, because issues are disabled on the store repo).
@@ -25,11 +25,16 @@ HTML, HyperFrames) and providers (TTS such as ElevenLabs, ...). The
 
 ## 3. What exists (verified)
 
-**Studio**: manifest v0.1 (Zod, 24 tests), Remotion and Motion Canvas engines
-(Motion Canvas rendered headlessly through its own Renderer), media pipeline
-(normalise, exact-frame assembly, AAC, ffprobe and decode checks), `pnpm spike`
-renders a two-engine 9:16 MP4 with no AI key; 40 tests pass; CI green.
-In progress: the agent platform v0.1 (#9).
+**Studio** (agent platform v0.1, #9, branch `claude/eloquent-wright-tm3cs7`):
+REST `/v1` + MCP `/mcp` server (41 MCP tools, every REST route has one,
+checked by a parity test), API keys with scopes, manifest v0.2 with automatic
+v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
+theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
+decode checks, signed download links, provider configuration over the API,
+ElevenLabs TTS (mocked tests only), remotion-lambda skeleton, Docker image +
+compose. 184 tests pass locally with `REELFORGE_REQUIRE_BROWSER=1`, including
+MCP and REST journeys against a real server process. Per-item status:
+`docs/AGENT_PLATFORM.md` §10.
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,
@@ -90,10 +95,10 @@ end-to-end testing; production keeps live keys and is not used for tests.
 
 | Step | Status | Issue |
 | --- | --- | --- |
-| A1 one-command server + keys | in progress | #9 |
-| A2 MCP: create/edit/theme/render/output | in progress | #9 |
-| A3 engines: Remotion, Motion Canvas, HTML, HyperFrames | 2 of 4 done, rest in progress | #9 |
-| A4 Docker image + deploy docs | in progress (untested without Docker) | #9 |
+| A1 one-command server + keys | done (`pnpm dev` / `docker compose up`; bootstrap key env/_FILE or CLI) | #9 |
+| A2 MCP: create/edit/theme/render/output | done (SDK-client journey against a real server process); untested with Claude Code/Codex/Cursor themselves | #9 |
+| A3 engines: Remotion, Motion Canvas, HTML, HyperFrames | done (4 of 4, one MP4 in the e2e test) | #9 |
+| A4 Docker image + deploy docs | done for Docker/compose (built, healthy, offline render); cloud recipes untested | #9 |
 | B1 selling configured in test org | blocked: founder turns on Stripe Connect (test) | #8 |
 | B2 buy flow, order page, licences page | not started (after B1) | #2 |
 | B3 legal/trust pages | drafts possible; needs founder details | #3 |

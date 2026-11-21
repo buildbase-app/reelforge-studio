@@ -91,3 +91,31 @@ implementation or licensing decisions.
 14. **Motion Canvas source** (`@motion-canvas/core/lib/app/Renderer.js`,
     `bootstrap.js`, `@motion-canvas/vite-plugin/lib/plugins.js`, v3.17.2):
     basis for the headless harness (D-008).
+15. **npm registry metadata**, checked 2026-11-21 (agent platform v0.1):
+    `@modelcontextprotocol/sdk` 1.32.2 (latest dist-tag, published
+    2026-10-23, MIT; a split v2 line `@modelcontextprotocol/server` 2.4.0
+    also exists and is a candidate for a later upgrade); `hono` 4.13.19 and
+    `@hono/node-server` 2.1.11 (MIT); `hyperframes` 0.9.77 (published
+    2026-11-21, Apache-2.0; `@hyperframes/core|engine|producer` 0.9.77 exist,
+    `@hyperframes/cli` and `@hyperframes/renderer` do not).
+16. **MCP SDK source** (`@modelcontextprotocol/sdk` 1.32.2,
+    `dist/esm/server/webStandardStreamableHttp.d.ts`, `mcp.d.ts`): stateless
+    mode is `sessionIdGenerator: undefined`; `enableJsonResponse`; the
+    transport's own Host/Origin validation is deprecated in favour of
+    external middleware (done in `apps/server/src/app.ts`).
+17. **HyperFrames CLI** 0.9.77 (`hyperframes render --help`, `hyperframes docs
+    compositions`, `dist/telemetry-*.js`, `dist/chunk-*.js`): local render with
+    `--fps`, `--end`, `--workers`, `--refuse-outside-files`; browser from
+    `HYPERFRAMES_BROWSER_PATH`; opt-out PostHog telemetry
+    (`HYPERFRAMES_NO_TELEMETRY=1` / `DO_NOT_TRACK=1`), update checks
+    (`HYPERFRAMES_NO_UPDATE_CHECK=1`); runtime seeks CSS animations
+    (Web Animations), so compositions need no GSAP.
+18. **Remotion renderer source** (`@remotion/renderer` 4.0.545,
+    `dist/render-media.js`, `dist/browser/get-download-destination.js`):
+    usage events to Remotion's licensing service are sent only when a
+    `licenseKey` is passed; `ensureBrowser()` downloads Chrome Headless Shell
+    from `remotion.media` into `node_modules/.remotion`.
+19. **ElevenLabs API reference**, "Text to speech with timestamps"
+    (https://elevenlabs.io/docs/api-reference/text-to-speech/convert-with-timestamps):
+    endpoint and response shape used by the provider. Not called live
+    (VERIFY with a real key).
