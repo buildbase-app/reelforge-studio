@@ -556,6 +556,31 @@ export const TOOLS: ToolDef[] = [
     run: async (_a, { service, auth }) => service.deactivateLicence({ actorType: 'api_key', actorId: auth.keyId }),
   },
   {
+    name: 'get_storage',
+    title: 'Get storage driver, usage and health (admin)',
+    description:
+      'Returns where asset and render files are stored: driver ("local", "s3", "azure", "gcs"), location (bucket/container, endpoint, prefix, credential source; never secrets), how download links are made (bucket-signed or through this server), health (can the store be reached), usage (assets, renders, unfinished uploads, local cache in objects and bytes), the retention policy (storage.retention.*, change it with update_config) and the last scheduled sweep. Needs the admin scope.',
+    scope: 'admin',
+    input: {},
+    annotations: { readOnlyHint: true },
+    run: async (_a, { service }) => service.getStorage(),
+  },
+  {
+    name: 'run_storage_cleanup',
+    title: 'Apply the storage retention policy now (admin)',
+    description:
+      'Deletes renders the retention policy no longer keeps (older than storage.retention.renderDays; the newest keepLastRendersPerProject of each project and renders of running jobs are always kept), unfinished uploads and stale staging directories older than tempHours, and local cached copies unused for cacheDays. Call with dryRun: true first and show the user what would be deleted; deleting renders cannot be undone. renderDays / keepLastRendersPerProject try another policy for this run only (to set the policy, use update_config). Returns every render removed with its size and reason. Audit-logged. Needs the admin scope.',
+    scope: 'admin',
+    input: {
+      dryRun: z.boolean().optional().describe('true: only report what would be deleted. Default false.'),
+      renderDays: z.number().int().min(0).max(36500).optional().describe('Override storage.retention.renderDays for this run (0 = no age limit).'),
+      keepLastRendersPerProject: z.number().int().min(0).max(36500).optional().describe('Override storage.retention.keepLastRendersPerProject for this run.'),
+    },
+    annotations: { destructiveHint: true },
+    run: async (a, { service, auth }) =>
+      service.runStorageCleanup({ dryRun: a.dryRun, renderDays: a.renderDays, keepLastRendersPerProject: a.keepLastRendersPerProject }, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
     name: 'list_keys',
     title: 'List API keys (admin)',
     description: 'Lists API keys (id, name, scopes, prefix, created/last used). Never returns secrets. Needs the admin scope.',

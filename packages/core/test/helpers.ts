@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run } from '@reelforge/media-pipeline';
 import { TEMPLATES, type RenderScene } from '@reelforge/project-schema';
-import type { EnginePlugin, EngineRenderContext, ClipResult } from '../src/index';
+import { checkKey, type EnginePlugin, type EngineRenderContext, type ClipResult } from '../src/index';
 
 export function tempDir(prefix = 'reelforge-core-'): { dir: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -53,4 +53,68 @@ export function fakeEngine(id: string, opts: { delayPerFrameMs?: number; fail?: 
 export async function makeTone(file: string, seconds: number) {
   const { resolveTools } = await import('@reelforge/media-pipeline');
   await run(resolveTools().ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`, '-c:a', 'libmp3lame', file], 'fixture');
+}
+
+/**
+ * An in-memory "remote" storage driver for fast tests of the remote code paths
+ * (no local paths, signed URLs). `failOn` makes chosen operations throw.
+ */
+export function memoryStorage(opts: { sign?: boolean; failOn?: (op: string, key: string) => boolean } = {}) {
+  const objects = new Map<string, { data: Buffer; modifiedAt: string }>();
+  const fail = (op: string, key: string) => {
+    if (opts.failOn?.(op, key)) throw new Error(`injected ${op} failure for ${key}`);
+  };
+  const driver = {
+    id: 'memory',
+    objects,
+    describe: () => ({ kind: 'memory' }),
+    async put(key: string, data: Buffer) {
+      checkKey(key);
+      fail('put', key);
+      objects.set(key, { data: Buffer.from(data), modifiedAt: new Date().toISOString() });
+      return { bytes: data.length };
+    },
+    async putFile(key: string, file: string) {
+      const { readFile } = await import('node:fs/promises');
+      return driver.put(key, await readFile(file));
+    },
+    async get(key: string, range?: { start: number; end: number }) {
+      fail('get', key);
+      const o = objects.get(checkKey(key));
+      if (!o) throw Object.assign(new Error(`no such key ${key}`), { code: 404 });
+      const { Readable } = await import('node:stream');
+      return Readable.from([range ? o.data.subarray(range.start, range.end + 1) : o.data]);
+    },
+    async stat(key: string) {
+      const o = objects.get(checkKey(key));
+      return o ? { bytes: o.data.length, modifiedAt: o.modifiedAt } : null;
+    },
+    async list(prefix: string) {
+      return [...objects.entries()]
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([key, o]) => ({ key, bytes: o.data.length, modifiedAt: o.modifiedAt }))
+        .sort((a, b) => (a.key < b.key ? -1 : 1));
+    },
+    async copy(from: string, to: string) {
+      fail('copy', to);
+      const o = objects.get(checkKey(from));
+      if (!o) throw new Error(`no such key ${from}`);
+      objects.set(checkKey(to), { data: o.data, modifiedAt: new Date().toISOString() });
+    },
+    async delete(key: string) {
+      fail('delete', key);
+      objects.delete(checkKey(key));
+    },
+    async signedUrl(key: string, ttl: number) {
+      return opts.sign === false ? null : `https://bucket.example/${key}?sig=test&ttl=${ttl}`;
+    },
+    localPath: () => null,
+    health: async () => ({ ok: true }),
+    /** Set an object's modification time (retention tests). */
+    age(key: string, iso: string) {
+      const o = objects.get(key);
+      if (o) o.modifiedAt = iso;
+    },
+  };
+  return driver;
 }

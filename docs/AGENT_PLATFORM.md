@@ -228,7 +228,7 @@ that was run; "partial" says what is missing.
 | §3 Backend: remotion-lambda | partial (skeleton) | Configuration check only; submitting returns `not_implemented` (501). Nothing faked |
 | §3 Storage: local fs | done | `LocalStorageDriver` for asset and render files |
 | Database (#23, D-022) | done | Repository interfaces in core; Prisma 7: SQLite (default), PostgreSQL, MySQL by `DATABASE_URL`; migrations on start / `reelforge migrate`; one-time v0.1 import; contract tests on all three; Docker e2e on all three. MongoDB: not yet (Prisma 7) |
-| §3 Storage: S3-compatible, signed URLs | missing | `signedUrl` returns null |
+| §3 Storage: S3-compatible, Azure Blob, GCS, signed URLs (#27, D-065..D-069) | done (MinIO tested; Azure/GCS on emulators) | `storage.driver` local / s3 / azure / gcs; bucket-signed `downloadUrl`; atomic render commit; retention (`get_storage`, `run_storage_cleanup`); `reelforge storage migrate`. Provider matrix and test cases: docs/providers/storage.md. AWS S3, R2, B2, Wasabi, Spaces untested |
 | §3 Docker image + compose | done | Built and run here: healthy, four-engine render via REST, MCP tools/list. Cloud recipes in docs/DEPLOY.md untested |
 | §4 Templates expose props JSON Schema, durations, theme tokens | done | `list_templates` |
 | §5 Manifest v0.2 + automatic v0.1 migration | done | 44 schema tests |
@@ -242,7 +242,7 @@ that was run; "partial" says what is missing.
 | §6 Preview (one scene or frame range, low res) | partial | One scene or the whole project at a scale (default 1/3); frame ranges not supported |
 | §6 Errors `{ error: { code, message, details } }` | done | |
 | §6 SSE job events | done | `GET /v1/jobs/:id/events` |
-| §6 Outputs: MP4, render manifest, poster; signed URL when remote | done (local) | Download with Range and Bearer key, or a signed time-limited `downloadUrl` (HMAC, one file, 1 h) that needs no key; no remote storage yet |
+| §6 Outputs: MP4, render manifest, poster; signed URL when remote | done | Download with Range and Bearer key (streamed from any driver), or a time-limited `downloadUrl` that needs no key: signed by the bucket on remote storage, else by the server (HMAC, one file, 1 h) |
 | Provider configuration over the API (agent-only operation) | done | `configure_provider` / `PUT /v1/providers/:id/config` (admin); values stored encrypted (AES-256-GCM, `REELFORGE_SECRET_KEY`, D-033) and never returned; `list_providers` reports set/source |
 | Configuration everywhere (#24, D-029, D-031..D-034) | done | One schema (docs/CONFIG.md); defaults < `REELFORGE_CONFIG` file < env (`_FILE` for secrets) < runtime settings in the database; `get_config` / `update_config`, `GET`/`PATCH /v1/config` (admin, audit-logged); start-up-only keys refused with where to set them; `reelforge config check` / `show`; Docker e2e on SQLite and PostgreSQL |
 | Licence activation (#25, D-028, D-035..D-038) | done | BuildBase licence API (key + instance id only), `LicenceState` table on all three databases, daily validate, 14-day offline grace, backoff, clock checks; renders/previews refused with `licence_required` / `licence_invalid` + fix; `get_licence` / `activate_licence` / `deactivate_licence`, `/v1/licence`, `reelforge licence`; unit tests (mock LicensesApi), server tests (mock licence server, injected clock), Docker e2e on SQLite and PostgreSQL, one live check against the dev environment. `licence.mode: trial` reserved |

@@ -787,3 +787,138 @@ cache) and the Trivy DB are cached. Verified on GitHub (manual run
 44921945693): every heavy job on amd64 and arm64. Not run yet: publish and
 cosign (main/tags only). Distribution of the image to buyers (pull access by
 licence, update channel) is still open (#11).
+
+## M. Storage drivers, retention and migration (2026-11-21, issue #27)
+
+Founder direction: several providers for everything, chosen by configuration;
+where there is no clear winner, a recommended default. Provider matrix, test
+cases and results: [docs/providers/storage.md](providers/storage.md).
+
+### D-065 --- Four storage drivers behind one interface; one S3 driver for every S3-compatible service
+
+**Status:** DECIDED (reversible).\
+`storage.driver` picks `local` (default: the data directory), `s3`, `azure`
+or `gcs`. The `StorageDriver` interface (`packages/core/src/plugins.ts`)
+grew from five methods to put/putFile/get with a byte range/stat/list with
+sizes/copy/delete/signedUrl/localPath/health/describe, and every driver passes
+the same contract suite (`packages/core/test/storage.contract.test.ts`).
+**One S3 driver** (endpoint, region, bucket, path-style, prefix) covers AWS S3,
+Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, MinIO and GCS
+through its XML API with HMAC keys: they speak the same protocol, and one
+driver tested well beats seven tested thinly. It uses the official
+`@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner` 3.1164.0 (Apache-2.0)
+rather than a hand-written SigV4 client: retries, the credential chain
+(IRSA, ECS, instance roles), multipart and presigning are what an enterprise
+deployment needs and what a small client would get wrong. Checksums are sent
+only when required (`WHEN_REQUIRED`), because newer SDK defaults break several
+S3-compatible services. **Azure Blob** uses `@azure/storage-blob` 12.34.0 and
+`@azure/identity` 4.14.1 (MIT); **GCS native** `@google-cloud/storage` 8.4.0
+(Apache-2.0; 9.0.0 was 9 days old). The SDKs are dependencies of
+`@reelforge/core`, but each driver imports its SDK with `import()` only when
+it is selected, so a local-storage server never loads them (the files are in
+the image, about +40 MB of `node_modules`; no LGPL module among them).
+**Key layout** is the same everywhere: `assets/<assetId>/file.<ext>` and
+`projects/<projectId>/renders/<runId>/...`, under an optional prefix, so a
+migration is a copy and the local layout did not change. `project://` asset
+folders stay local (a v0.1 feature; see storage.md, limits).
+
+### D-066 --- Credentials: secrets of the config system, or the cloud's ambient identity
+
+**Status:** DECIDED (reversible).\
+Keys are secret settings (`storage.s3.accessKeyId` / `secretAccessKey` /
+`sessionToken`, `storage.azure.connectionString`, `storage.gcs.credentialsJson`),
+so they come from the config file, the environment, `<NAME>_FILE`, or the
+database encrypted with `REELFORGE_SECRET_KEY` (D-033). They are **runtime**
+settings: `update_config` rotates them and the driver is rebuilt without a
+restart (operations in flight finish on the old one). With no keys the driver
+uses the ambient identity: the AWS default credential chain (instance/task
+role, IRSA/web identity, `AWS_*`), Azure `DefaultAzureCredential` (managed
+identity, workload identity, optional `managedIdentityClientId`), Google
+Application Default Credentials (workload identity). Everything that says
+*where* (driver, bucket, endpoint, prefix, encryption, timeouts) is start-up
+only, so no API key can point the server at another endpoint (an SSRF or
+exfiltration path). Endpoints are also validated: http(s) only, no
+credentials, query or fragment in the URL, and plain `http://` only for
+internal hosts (loopback, private addresses, single-label names, `*.local`,
+`*.internal`, `*.svc`). Keys come in pairs (`accessKeyId` needs
+`secretAccessKey`). Encryption at rest on the provider side is passed through:
+`storage.s3.serverSideEncryption` (`AES256`, `aws:kms`, `aws:kms:dsse`) with
+`kmsKeyId`, `storage.azure.encryptionScope`, `storage.gcs.kmsKeyName`.
+Timeouts and retries: connect timeout, a socket-inactivity timeout (not a
+total timeout, so large uploads are not cut off) and `storage.maxAttempts`
+with each SDK's exponential backoff with jitter. `get_storage`, logs, errors
+and `describe()` never contain keys (tested, STO-24).
+
+### D-067 --- Renders on remote storage: local staging, upload to temporary keys, commit with the manifest last; downloads signed by the bucket
+
+**Status:** DECIDED (reversible).\
+Engines and FFmpeg need files, so a render for remote storage runs in
+`<cacheDir>/render-staging/<project>/` exactly as before (every check passes
+first), then `RenderStore.commit` uploads every file under
+`projects/<id>/renders/.tmp-<runId>/`, copies them to `<runId>/` (server-side
+copy on S3 and GCS; download and upload on Azure, which works with every
+credential type) with `render-manifest.json` last, and deletes the temporary
+keys. A render exists when its manifest exists, so readers never see half a
+render; a failure deletes everything the commit wrote; an existing render is
+never overwritten (checked before the upload and again before the manifest).
+Local storage keeps the atomic directory rename. Assets that engines need are
+copied once into `<cacheDir>/storage/` (content-addressed, so a copy never
+goes stale; its mtime marks the last use). **Downloads:** `storage.downloads`
+`auto` (default) gives a `downloadUrl` signed by the bucket (SigV4 presigned,
+Azure service or user delegation SAS, GCS V4) when the driver can sign, else a
+server-signed link; `proxy` always uses the server. `RenderSummary.downloadVia`
+says which. `GET /v1/renders/:id/output` (Bearer key or server signature)
+always streams through the server from the driver, with Range; it does not
+redirect, because clients forward or drop the `Authorization` header on
+cross-host redirects inconsistently and S3 rejects a request with two
+authorisations. A presigned URL made with temporary ambient credentials stops
+working when those credentials expire (documented).
+
+### D-068 --- Retention: keep the newest N per project, delete older than D days; scheduled sweep and an admin API
+
+**Status:** DECIDED (reversible).\
+Runtime settings `storage.retention.renderDays` (0 = keep),
+`keepLastRendersPerProject` (0 = no minimum), `tempHours` (default 24) and
+`cacheDays` (default 30), and `sweepIntervalMinutes` (default 60, 0 = off).
+A render (or preview) is **kept** when it is among the newest
+`keepLastRendersPerProject` of its project or belongs to a queued or running
+job; otherwise it is deleted when it is older than `renderDays`, or, with
+`renderDays` 0 and keep-last set, because it is beyond the newest N. Age is the
+commit time (the manifest object's write time). Both default to 0, so no
+render is ever deleted until an operator sets a policy. The sweep also removes
+unfinished uploads (`.tmp-*`) and incomplete render directories older than
+`tempHours`, stale staging directories, and cached copies unused for
+`cacheDays`; it never touches assets (a project may reference them) or the
+provider result cache (re-creating it costs money). Renders are deleted
+manifest first. `POST /v1/storage/cleanup` / MCP `run_storage_cleanup`
+(admin, `dryRun`, one-off `renderDays` / `keepLastRendersPerProject`) and
+`GET /v1/storage` / `get_storage` (admin, like `get_config`, D-034: it shows
+bucket names) are in the route table, so the parity test covers them; a real
+run and every sweep that removed something are audit-logged
+(`storage.cleanup`). One cleanup runs at a time. `/readyz` reports the
+driver's health (cached 10 s).
+
+### D-069 --- Migration by copy, idempotent and resumable; tests on emulators, and MinIO built from source
+
+**Status:** DECIDED (reversible).\
+`reelforge storage migrate --to <driver> [--from local] [--dry-run]` copies
+`assets/` and finished renders (not `.tmp-*`, not `project://` folders) from
+one driver to another using the target's settings from the configuration,
+including encrypted credentials in the database. An object that exists in the
+target with the same size is skipped, so a second run copies nothing and an
+interrupted run continues where it stopped; manifests are copied last and only
+for renders whose files all arrived. Nothing is deleted from the source; the
+operator then switches `storage.driver` and restarts. Audit-logged
+(`storage.migrate`). **Tests:** the contract suite runs on local always and on
+MinIO, Azurite and fake-gcs-server when `TEST_S3_*`, `TEST_AZURE_CONNECTION_STRING`
+and `TEST_GCS_ENDPOINT` are set (`REELFORGE_REQUIRE_STORAGE` makes a missing
+one fail); Azure managed identity and GCS workload identity, SSE-KMS and the
+retry/timeout behaviour are unit-tested with mocked SDKs and stub servers.
+**MinIO images:** MinIO stopped publishing images in late 2025;
+`mirror.gcr.io/minio/minio` and `quay.io/minio/minio` were not available here
+(not found / not reachable on 2026-11-21), so `e2e/minio/build-image.sh`
+builds the server from MinIO's official source (Go module, last upstream
+commit 2026-02-12, AGPL-3.0, a test fixture only) when `MINIO_IMAGE` cannot be
+pulled. `STORAGE=s3 e2e/docker/run.sh` adds the MinIO phase to the Docker e2e;
+adding it, and the emulator service containers, to CI is a change to
+`.github/workflows/` for a maintainer.

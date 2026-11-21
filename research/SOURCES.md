@@ -186,3 +186,22 @@ implementation or licensing decisions.
     observed 2026-11-21 on Node 22.23.5: the live licence check went through
     the sandbox proxy only with it, with the warning "EnvHttpProxyAgent is
     experimental"). https://nodejs.org/api/cli.html#node_use_env_proxy1
+30. **Storage SDKs and services** (consulted 2026-11-21, for #27, D-065..D-069):
+    npm registry metadata for `@aws-sdk/client-s3` / `s3-request-presigner`
+    (3.1164.0 published 2026-11-06, Apache-2.0), `@azure/storage-blob` 12.34.0
+    (2026-09-24, MIT), `@azure/identity` 4.14.1 (2026-10-29, MIT),
+    `@google-cloud/storage` 8.4.0 (2026-10-09, Apache-2.0; 9.0.0 of 2026-11-12
+    not taken). Behaviour verified in this repo's tests rather than from docs:
+    `@smithy/node-http-handler` only *warns* when `requestTimeout` is exceeded
+    unless `throwOnRequestTimeout` is set, and aborts on `socketTimeout`
+    (inactivity) — observed with a hanging stub server; SigV4 presigned URLs
+    last at most 7 days (AWS S3 docs, "Sharing objects with presigned URLs");
+    `requestChecksumCalculation: WHEN_REQUIRED` restores the pre-2025 checksum
+    behaviour that S3-compatible services expect (AWS SDK for JavaScript v3
+    "Data integrity protections" announcement). MinIO no longer publishes
+    container images (Docker Hub `minio/minio` answered "repository does not
+    exist", `mirror.gcr.io/minio/minio` "not found", quay.io not reachable from
+    the build sandbox on 2026-11-21); its source builds with `go install
+    github.com/minio/minio@v0.0.0-20260212201848-7aac2a2c5b7c` (Go 1.24.7).
+    Emulators: Azurite (`mcr.microsoft.com/azure-storage/azurite:latest`),
+    fake-gcs-server (`mirror.gcr.io/fsouza/fake-gcs-server:latest`).

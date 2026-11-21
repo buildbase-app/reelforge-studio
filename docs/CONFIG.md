@@ -61,12 +61,39 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `storage.dataDir` | `REELFORGE_DATA_DIR` | path | `./data` (`/data` in Docker) | startup |  | Asset and render files, caches, the URL signing key, and the SQLite database by default. |
 | `storage.cacheDir` | `REELFORGE_CACHE_DIR` | path | `<dataDir>/cache` | startup |  | Engine bundle and provider result cache. |
-| `storage.driver` | `REELFORGE_STORAGE_DRIVER` | `local` \| `s3` | `local` | startup |  | Where asset and render files are kept. Only `local` works today; `s3` is refused until #27 is built. |
-| `storage.s3.bucket` | `REELFORGE_S3_BUCKET` | string | (none) | startup |  | S3 bucket. _(Reserved for #27.)_ |
-| `storage.s3.region` | `REELFORGE_S3_REGION` | string | (none) | startup |  | S3 region. _(Reserved for #27.)_ |
-| `storage.s3.endpoint` | `REELFORGE_S3_ENDPOINT` | url | (none) | startup |  | S3-compatible endpoint (MinIO, R2, ...). Empty for AWS. _(Reserved for #27.)_ |
-| `storage.s3.accessKeyId` | `REELFORGE_S3_ACCESS_KEY_ID` (each also as `_FILE`) | string | (none) | startup | yes | S3 access key id. _(Reserved for #27.)_ |
-| `storage.s3.secretAccessKey` | `REELFORGE_S3_SECRET_ACCESS_KEY` (each also as `_FILE`) | string | (none) | startup | yes | S3 secret access key. _(Reserved for #27.)_ |
+| `storage.driver` | `REELFORGE_STORAGE_DRIVER` | `local` \| `s3` \| `azure` \| `gcs` | `local` | startup |  | Where asset and render files are kept (D-065): `local` (the data directory), `s3` (any S3-compatible API: AWS S3, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, MinIO, GCS with HMAC keys), `azure` (Azure Blob Storage) or `gcs` (Google Cloud Storage, native). Move existing files with `reelforge storage migrate --to <driver>`. |
+| `storage.downloads` | `REELFORGE_STORAGE_DOWNLOADS` | `auto` \| `presigned` \| `proxy` | `auto` | runtime |  | How `downloadUrl` links are made. `auto`/`presigned`: a time-limited URL signed by the bucket when the driver can sign (falls back to the server otherwise); `proxy`: always a signed link to this server, which streams the file (with Range support). |
+| `storage.requestTimeoutSeconds` | `REELFORGE_STORAGE_REQUEST_TIMEOUT_SECONDS` | integer | `120` | startup |  | Remote storage: a request whose connection stays silent this long (a stalled transfer) is aborted and retried. Not a limit on the total transfer time. |
+| `storage.connectTimeoutSeconds` | `REELFORGE_STORAGE_CONNECT_TIMEOUT_SECONDS` | integer | `10` | startup |  | Remote storage: connection timeout in seconds. |
+| `storage.maxAttempts` | `REELFORGE_STORAGE_MAX_ATTEMPTS` | integer | `4` | startup |  | Remote storage: attempts per request (the first plus retries with exponential backoff and jitter) on throttling, 5xx and network errors. |
+| `storage.s3.bucket` | `REELFORGE_S3_BUCKET` | string | (none) | startup |  | Bucket (required for `s3`). |
+| `storage.s3.region` | `REELFORGE_S3_REGION` | string | `us-east-1` | startup |  | Region (`auto` for Cloudflare R2; any value for MinIO). |
+| `storage.s3.endpoint` | `REELFORGE_S3_ENDPOINT` | url | (none) | startup |  | S3-compatible endpoint (R2, B2, Wasabi, Spaces, MinIO, `https://storage.googleapis.com` for GCS interop). Empty for AWS. Example: `https://<account>.r2.cloudflarestorage.com`. |
+| `storage.s3.publicEndpoint` | `REELFORGE_S3_PUBLIC_ENDPOINT` | url | (none) | startup |  | Endpoint used only in signed download URLs, when clients reach the bucket under another name than the server does. Default: `endpoint`. |
+| `storage.s3.forcePathStyle` | `REELFORGE_S3_FORCE_PATH_STYLE` | boolean | `false` | startup |  | Path-style URLs (`https://host/bucket/key`); needed for MinIO and most self-hosted endpoints. |
+| `storage.s3.serverSideEncryption` | `REELFORGE_S3_SSE` | enum | (none) | startup |  | Server-side encryption sent with every write: `AES256` (SSE-S3), `aws:kms` (SSE-KMS) or `aws:kms:dsse`. Unset: the bucket default. Not every S3-compatible service supports KMS. |
+| `storage.s3.kmsKeyId` | `REELFORGE_S3_KMS_KEY_ID` | string | (none) | startup |  | KMS key id or ARN for `aws:kms` / `aws:kms:dsse` (optional: the account's AWS managed key otherwise). |
+| `storage.s3.prefix` | `REELFORGE_S3_PREFIX` | string | (none) | startup |  | Key prefix inside the bucket (share a bucket). Example: `studio`. |
+| `storage.s3.accessKeyId` | `REELFORGE_S3_ACCESS_KEY_ID` (each also as `_FILE`) | string | (none) | runtime | yes | Access key id. Leave unset to use the ambient identity (IAM role, IRSA / web identity, `AWS_*` variables). |
+| `storage.s3.secretAccessKey` | `REELFORGE_S3_SECRET_ACCESS_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Secret access key (with `accessKeyId`). |
+| `storage.s3.sessionToken` | `REELFORGE_S3_SESSION_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | Session token for temporary keys (optional). |
+| `storage.azure.container` | `REELFORGE_AZURE_STORAGE_CONTAINER` | string | (none) | startup |  | Blob container (required for `azure`). |
+| `storage.azure.connectionString` | `REELFORGE_AZURE_STORAGE_CONNECTION_STRING`, `AZURE_STORAGE_CONNECTION_STRING` (each also as `_FILE`) | string | (none) | runtime | yes | Connection string (with an account key for signed URLs). Leave unset to use managed identity with `accountUrl`. |
+| `storage.azure.accountUrl` | `REELFORGE_AZURE_STORAGE_ACCOUNT_URL` | url | (none) | startup |  | Account URL, used with the ambient identity (managed identity, workload identity) when there is no connection string. Example: `https://<account>.blob.core.windows.net`. |
+| `storage.azure.managedIdentityClientId` | `REELFORGE_AZURE_MANAGED_IDENTITY_CLIENT_ID` | string | (none) | startup |  | Client id of a user-assigned managed identity (optional). |
+| `storage.azure.prefix` | `REELFORGE_AZURE_STORAGE_PREFIX` | string | (none) | startup |  | Blob name prefix inside the container. |
+| `storage.azure.encryptionScope` | `REELFORGE_AZURE_STORAGE_ENCRYPTION_SCOPE` | string | (none) | startup |  | Encryption scope for every write (customer-managed keys). Unset: the container default. |
+| `storage.gcs.bucket` | `REELFORGE_GCS_BUCKET` | string | (none) | startup |  | Bucket (required for `gcs`). |
+| `storage.gcs.projectId` | `REELFORGE_GCS_PROJECT_ID` | string | (none) | startup |  | Google Cloud project (optional; detected from the credentials). |
+| `storage.gcs.prefix` | `REELFORGE_GCS_PREFIX` | string | (none) | startup |  | Object name prefix inside the bucket. |
+| `storage.gcs.kmsKeyName` | `REELFORGE_GCS_KMS_KEY_NAME` | string | (none) | startup |  | Cloud KMS key for every write (CMEK). Unset: the bucket default. Example: `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>`. |
+| `storage.gcs.credentialsJson` | `REELFORGE_GCS_CREDENTIALS_JSON` (each also as `_FILE`) | string | (none) | runtime | yes | Service-account key (the JSON file's contents; `_FILE` takes the file). Leave unset to use workload identity / Application Default Credentials. |
+| `storage.gcs.apiEndpoint` | `REELFORGE_GCS_API_ENDPOINT` | url | (none) | startup |  | Another API endpoint (an emulator); empty for Google Cloud. |
+| `storage.retention.renderDays` | `REELFORGE_STORAGE_RETENTION_RENDER_DAYS` | integer | `0` | runtime |  | Delete renders and previews older than this many days (`0`: keep). The newest `keepLastRendersPerProject` of each project are always kept (D-068). |
+| `storage.retention.keepLastRendersPerProject` | `REELFORGE_STORAGE_RETENTION_KEEP_LAST` | integer | `0` | runtime |  | Always keep the newest N renders of each project (`0`: no minimum). Without `renderDays`, everything older than the newest N is deleted. |
+| `storage.retention.tempHours` | `REELFORGE_STORAGE_RETENTION_TEMP_HOURS` | integer | `24` | runtime |  | Remove unfinished render uploads and staging directories (crashed or killed renders) older than this many hours. |
+| `storage.retention.cacheDays` | `REELFORGE_STORAGE_RETENTION_CACHE_DAYS` | integer | `30` | runtime |  | Remove local copies of remote assets and renders (`<cacheDir>/storage`) unused for this many days (`0`: keep). |
+| `storage.retention.sweepIntervalMinutes` | `REELFORGE_STORAGE_SWEEP_INTERVAL_MINUTES` | integer | `60` | runtime |  | Run the storage cleanup on this schedule (`0`: only on demand with `run_storage_cleanup` / `POST /v1/storage/cleanup`). |
 
 ## database
 

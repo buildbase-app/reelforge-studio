@@ -1,4 +1,3 @@
-import { createReadStream, statSync } from 'node:fs';
 import { access, constants } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { ApiError, TERMINAL, hasScope, type AuthContext, type ReelforgeService, type Scope } from '@reelforge/core';
@@ -113,6 +112,15 @@ export function createApp({ service, config }: AppDeps) {
   };
   const project = (stored: { meta: unknown; manifest: unknown; warnings?: unknown }) => stored;
 
+  // Storage health for /readyz, cached briefly so frequent probes do not hit the bucket every time.
+  let healthCache: { at: number; value: { ok: boolean; message?: string } } | null = null;
+  const storageHealth = async () => {
+    if (healthCache && Date.now() - healthCache.at < 10_000) return healthCache.value;
+    const value = await service.storage.driver.health().catch((e: Error) => ({ ok: false, message: e.message }));
+    healthCache = { at: Date.now(), value };
+    return value;
+  };
+
   // ---- health (no auth) -------------------------------------------------------
   app.get('/healthz', (c) => c.json({ ok: true, version: service.serverVersion }));
   app.get('/readyz', async (c) => {
@@ -129,6 +137,8 @@ export function createApp({ service, config }: AppDeps) {
     } catch {
       checks.database = 'unreachable (see the server log)';
     }
+    const storage = await storageHealth();
+    checks.storage = storage.ok ? 'ok' : `unavailable (${service.storage.driver.id}): ${storage.message ?? 'unknown error'}`;
     try {
       service.tools();
       checks.ffmpeg = 'ok';
@@ -293,8 +303,8 @@ export function createApp({ service, config }: AppDeps) {
   v1.get('/renders/:id', need('read'), async (c) => c.json(await service.getRender(c.req.param('id'))));
   v1.get('/renders/:id/output', need('read'), async (c) => {
     const file = c.req.query('file') ?? 'final.mp4';
-    const { path, contentType } = await service.renderFile(c.req.param('id'), file);
-    return sendFile(c, path, contentType, file.split('/').pop()!);
+    const o = await service.renderObject(c.req.param('id'), file);
+    return sendStored(c, service, o, file.split('/').pop()!);
   });
 
   v1.get('/assets', need('read'), async (c) => c.json({ assets: await service.listAssets({ projectId: c.req.query('projectId') }) }));
@@ -361,6 +371,12 @@ export function createApp({ service, config }: AppDeps) {
   });
   v1.delete('/licence', need('admin'), async (c) => c.json(await service.deactivateLicence(actor(c))));
 
+  v1.get('/storage', need('admin'), async (c) => c.json(await service.getStorage()));
+  v1.post('/storage/cleanup', need('admin'), json, async (c) => {
+    const b = await body(c);
+    return c.json(await service.runStorageCleanup({ dryRun: b.dryRun ?? (c.req.query('dryRun') === 'true' ? true : undefined), renderDays: b.renderDays, keepLastRendersPerProject: b.keepLastRendersPerProject }, actor(c)));
+  });
+
   v1.get('/keys', need('admin'), async (c) => c.json({ keys: await service.listKeys() }));
   v1.post('/keys', need('admin'), json, async (c) => {
     const b = await body(c);
@@ -386,11 +402,11 @@ function parseLicense(s: string) {
   }
 }
 
-/** Stream a file with Range support (video players seek). */
-function sendFile(c: Context, path: string, contentType: string, name: string) {
-  const size = statSync(path).size;
+/** Stream a stored file through the server, with Range support (video players seek); works on every storage driver. */
+async function sendStored(c: Context, service: ReelforgeService, o: { key: string; contentType: string; bytes: number }, name: string) {
+  const size = o.bytes;
   const headers: Record<string, string> = {
-    'Content-Type': contentType,
+    'Content-Type': o.contentType,
     'Accept-Ranges': 'bytes',
     'Content-Disposition': `inline; filename="${name}"`,
     'Cache-Control': 'private, max-age=0',
@@ -402,9 +418,9 @@ function sendFile(c: Context, path: string, contentType: string, name: string) {
     start = Math.max(0, start);
     end = Math.min(size - 1, end);
     if (start > end) return c.body(null, 416, { 'Content-Range': `bytes */${size}` });
-    const stream = Readable.toWeb(createReadStream(path, { start, end })) as ReadableStream;
+    const stream = Readable.toWeb(await service.storage.driver.get(o.key, { start, end })) as ReadableStream;
     return c.body(stream, 206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(end - start + 1) });
   }
-  const stream = Readable.toWeb(createReadStream(path)) as ReadableStream;
+  const stream = Readable.toWeb(await service.storage.driver.get(o.key)) as ReadableStream;
   return c.body(stream, 200, { ...headers, 'Content-Length': String(size) });
 }

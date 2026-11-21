@@ -249,10 +249,7 @@ export function resolveConfig(input: ResolveInput): ResolvedConfig {
     settings.set(def.key, { def, value: value === undefined ? undefined : structuredClone(value), source: 'default' });
   }
 
-  const s3 = settings.get('storage.driver');
-  if (s3?.value === 's3') {
-    issues.push({ key: 'storage.driver', source: s3.source, origin: s3.origin, message: 'S3 storage is not implemented yet (#27); use "local"' });
-  }
+  issues.push(...storageIssues(settings));
 
   if (issues.length) throw new ConfigError(issues);
   const nested: Record<string, unknown> = {};
@@ -275,4 +272,67 @@ export function parseSettingValue(def: SettingDef, value: unknown): { ok: true; 
   const r = def.schema.safeParse(value);
   if (r.success) return { ok: true, value: r.data };
   return { ok: false, message: zodMessage(def, r.error) };
+}
+
+/** Settings the chosen storage driver needs, and credentials that only come in pairs (D-066). */
+function storageIssues(settings: Map<string, ResolvedSetting>): ConfigIssue[] {
+  const out: ConfigIssue[] = [];
+  const v = (key: string) => settings.get(key)?.value;
+  const issue = (key: string, message: string) => {
+    const s = settings.get(key);
+    out.push({ key, source: s?.source ?? 'default', origin: s?.origin, message });
+  };
+  const driver = v('storage.driver');
+  if (driver === 's3' && !v('storage.s3.bucket')) issue('storage.s3.bucket', 'storage.driver is "s3": set storage.s3.bucket (REELFORGE_S3_BUCKET)');
+  if (driver === 'azure') {
+    if (!v('storage.azure.container')) issue('storage.azure.container', 'storage.driver is "azure": set storage.azure.container (REELFORGE_AZURE_STORAGE_CONTAINER)');
+    if (!v('storage.azure.connectionString') && !v('storage.azure.accountUrl')) {
+      issue('storage.azure.accountUrl', 'storage.driver is "azure": set storage.azure.connectionString, or storage.azure.accountUrl to use managed identity');
+    }
+  }
+  if (driver === 'gcs' && !v('storage.gcs.bucket')) issue('storage.gcs.bucket', 'storage.driver is "gcs": set storage.gcs.bucket (REELFORGE_GCS_BUCKET)');
+  for (const key of ['storage.s3.endpoint', 'storage.s3.publicEndpoint', 'storage.azure.accountUrl', 'storage.gcs.apiEndpoint']) {
+    const url = v(key);
+    if (typeof url === 'string') {
+      const problem = endpointProblem(url);
+      if (problem) issue(key, problem);
+    }
+  }
+  if (v('storage.s3.kmsKeyId') && !String(v('storage.s3.serverSideEncryption') ?? '').startsWith('aws:kms')) {
+    issue('storage.s3.kmsKeyId', 'storage.s3.kmsKeyId needs storage.s3.serverSideEncryption "aws:kms" or "aws:kms:dsse"');
+  }
+  if (Boolean(v('storage.s3.accessKeyId')) !== Boolean(v('storage.s3.secretAccessKey'))) {
+    issue(v('storage.s3.accessKeyId') ? 'storage.s3.secretAccessKey' : 'storage.s3.accessKeyId', 'set both storage.s3.accessKeyId and storage.s3.secretAccessKey, or neither (ambient identity)');
+  }
+  return out;
+}
+
+/**
+ * A storage endpoint is operator configuration (start-up only, never set over
+ * the API), but still checked (D-066): http(s) only, no credentials, query or
+ * fragment in the URL, and plain http only to internal hosts (loopback,
+ * private addresses, single-label names such as a Compose service, *.local,
+ * *.internal, *.svc, *.cluster.local) so keys never cross the internet unencrypted.
+ */
+export function endpointProblem(url: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return 'not a valid URL';
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return 'must be an http:// or https:// URL';
+  if (u.username || u.password) return 'must not contain credentials (use the secret settings instead)';
+  if (u.search || u.hash) return 'must not contain a query string or fragment';
+  if (u.protocol === 'http:' && !isInternalHost(u.hostname)) return 'plain http:// is only allowed for internal hosts (loopback, private addresses, single-label or *.local/*.internal/*.svc names); use https://';
+  return null;
+}
+
+function isInternalHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+  if (h === 'localhost' || !h.includes('.') && !h.includes(':')) return true;
+  if (/\.(local|internal|svc|cluster\.local|localhost)$/.test(h)) return true;
+  if (/^(127\.|10\.|192\.168\.|169\.254\.)/.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  if (h === '::1' || /^f[cd][0-9a-f]{2}:/.test(h)) return true;
+  return false;
 }

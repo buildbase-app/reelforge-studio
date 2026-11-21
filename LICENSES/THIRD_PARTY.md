@@ -5,7 +5,9 @@ Direct runtime dependencies only. The complete list with transitive
 dependencies and OS packages is the CycloneDX SBOM CI writes for every
 release image (artifact `sbom-<arch>`; 591 components on 2026-11-21), and a
 licence review of it is still to do before a release
-(research/LICENSING_AND_COSTS.md §6).
+(research/LICENSING_AND_COSTS.md §6). The storage SDKs added for #27 bring
+about 110 transitive packages, all Apache-2.0, MIT or BSD-3-Clause (checked
+from the installed `package.json` files on 2026-11-21; no LGPL/GPL).
 
 **Release image (issue #26, D-040):** dependencies are installed from npm with
 pnpm (`--prod`, lockfile), unmodified and **not bundled or minified**; only
@@ -31,6 +33,10 @@ build plugins) are devDependencies and are not in the image. The image ships
 | better-sqlite3 | 12.11.1 (via the adapter) | MIT | Installed from npm | SQLite driver; native module (prebuilt binary downloaded from the project's GitHub releases at install, or compiled). Bundles SQLite (public domain). |
 | pg | 8.23.1 (via the adapter) | MIT | Installed from npm | PostgreSQL driver. |
 | mariadb (MariaDB Connector/Node.js) | 3.5.4 (via the adapter) | **LGPL-2.1-or-later** | Installed from npm; in the release image as its own unmodified module (`/app/node_modules/.pnpm/mariadb@3.5.4/`) | MySQL/MariaDB driver. LGPL: fine as an unmodified, separately replaceable npm module. The image does not bundle or minify any dependency (D-040), so it stays replaceable: its source is on npm, and a user can swap the files in a derived image. |
+| @aws-sdk/client-s3, @aws-sdk/s3-request-presigner | 3.1164.0 (pinned) | Apache-2.0 | Installed from npm | S3-compatible storage driver (D-065), imported only when `storage.driver` is `s3`. Pulls the `@smithy/*` and `@aws-sdk/*` runtime packages (Apache-2.0), `fast-xml-parser` (MIT), `tslib` (0BSD). Checked on the npm registry 2026-11-21. |
+| @azure/storage-blob, @azure/identity | 12.34.0, 4.14.1 (pinned) | MIT | Installed from npm | Azure Blob storage driver and managed identity (D-065), imported only when `storage.driver` is `azure`. Pulls `@azure/core-*`, `@azure/msal-node` / `msal-browser`, `open` and others (MIT). Checked on the npm registry 2026-11-21. |
+| @google-cloud/storage | 8.4.0 (pinned) | Apache-2.0 | Installed from npm | Google Cloud Storage driver (D-065), imported only when `storage.driver` is `gcs`. Pulls `google-auth-library`, `gaxios`, `teeny-request`, `retry-request` (Apache-2.0/MIT) and others. Checked on the npm registry 2026-11-21. |
+| MinIO server (test fixture only) | source commit 7aac2a2 (2026-02-12) | AGPL-3.0 | **Not distributed**: built by `e2e/minio/build-image.sh` for the Docker e2e when no MinIO image can be pulled | Never in the release image. |
 | Chromium / Chrome Headless Shell | 157.0.8103.78 (tested; 153 earlier); the image has the build Remotion 4.0.545 pins | BSD-3-Clause + others | **In the Docker image** (`/opt/chrome-headless-shell`, unmodified, downloaded by Remotion's `ensureBrowser()` at build time); outside Docker the user installs it | Its own licence files are in that directory. |
 | FFmpeg (system) | 6.1.1 (tested outside Docker); Debian bookworm 5.1.x in the image | LGPL-2.1+ / GPL depending on build | **In the Docker image** (Debian package, unmodified, with its copyright files in `/usr/share/doc/`); outside Docker the user installs it | Debian's and Ubuntu's builds are configured with GPL components (libx264), so the binaries are GPL: the image redistributes them unmodified with Debian's notices; their source is Debian's `ffmpeg` source package. |
 | Debian bookworm packages (fonts, libc, Chrome's libraries, tini) | as in the pinned base image plus `apt-get upgrade` at build time | various (DFSG-free) | In the Docker image, unmodified | Licences in `/usr/share/doc/*/copyright`; the CycloneDX SBOM (CI artifact `sbom-<arch>`) lists every package and version. |
