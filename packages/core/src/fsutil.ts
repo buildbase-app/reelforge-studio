@@ -75,6 +75,12 @@ const publishing = new Map<string, Promise<string>>();
  * finished first wins and our copy is dropped. Renders that are serving
  * `outDir` therefore keep finding their files (before this, a second build
  * emptied the directory under a running render: 404s and a timeout).
+ *
+ * Guarantee: the published directory is never emptied or half-written, and a
+ * build of sources that are already published never replaces it. Replacing it
+ * with *different* sources (a source change in development, or `force`) is two
+ * renames, so `outDir` is absent for that instant; production images ship the
+ * bundles prebuilt with matching stamps and never take that path.
  */
 export function publishDirAtomically(outDir: string, hash: string, build: (dir: string) => Promise<void>, opts: { force?: boolean } = {}): Promise<string> {
   const key = `${outDir}\0${hash}`;
