@@ -60,7 +60,7 @@ describe.skipIf(!hasBrowser)('MCP end to end with real engines (needs REELFORGE_
     expect(tools.length).toBeGreaterThanOrEqual(24);
 
     const caps = (await call('get_capabilities', {})).data;
-    for (const e of caps.engines.filter((x: any) => ['remotion', 'motion-canvas', 'html'].includes(x.id))) expect(e.available, e.reason).toBe(true);
+    for (const e of caps.engines.filter((x: any) => ['remotion', 'motion-canvas', 'html', 'hyperframes'].includes(x.id))) expect(e.available, e.reason).toBe(true);
 
     const created = (await call('create_project', { manifest: sample })).data;
     expect(created.migratedFrom).toBe('0.1');
@@ -83,6 +83,7 @@ describe.skipIf(!hasBrowser)('MCP end to end with real engines (needs REELFORGE_
       },
     });
     await call('add_scene', { projectId: 'sample-reel', scene: { id: 'card', engine: 'html', template: 'html-title', durationFrames: 45, props: { headline: 'Four engines, one timeline', kicker: 'HTML' } } });
+    await call('add_scene', { projectId: 'sample-reel', scene: { id: 'hf', engine: 'hyperframes', template: 'hyperframes-title', durationSeconds: 1.5, props: { headline: 'HyperFrames, rendered locally' } } });
     const report = (await call('validate_project', { projectId: 'sample-reel' })).data;
     expect(report.ok, JSON.stringify(report.errors)).toBe(true);
 
@@ -108,10 +109,10 @@ describe.skipIf(!hasBrowser)('MCP end to end with real engines (needs REELFORGE_
     writeFileSync(file, Buffer.from(await res.arrayBuffer()));
     const tools2 = resolveTools();
     const info = await probe(tools2.ffprobe, file);
-    expect(checkExpectation(info, { width: 1080, height: 1920, fps: 30, frames: 345, audio: true })).toEqual([]);
+    expect(checkExpectation(info, { width: 1080, height: 1920, fps: 30, frames: 390, audio: true })).toEqual([]);
     expect(info.videoCodec).toBe('h264');
     expect(info.audioCodec).toBe('aac');
-    expect(info.durationSeconds).toBeCloseTo(11.5, 1);
+    expect(info.durationSeconds).toBeCloseTo(13, 1);
     await assertDecodable(tools2.ffmpeg, file);
   }, 600_000);
 });

@@ -10,10 +10,13 @@ automated scan (SBOM) before any release (research/LICENSING_AND_COSTS.md §6).
 | @remotion/compositor-linux-x64-gnu | 4.0.545 | Remotion License; contains FFmpeg shared libraries | Installed from npm | Ships its own `ffmpeg`, `ffprobe` and `libav*` builds. Record their FFmpeg configuration before distributing anything. |
 | @motion-canvas/core, 2d, ui, vite-plugin | 3.17.2 | MIT | Installed from npm | Last npm release 2024-12-14 (maintenance risk, see DECISIONS D-008). |
 | vite | 5.4.21 (engine), 7.x (tooling) | MIT | Installed from npm | |
-| playwright-core | 1.65.1 | Apache-2.0 | Installed from npm | Drives headless Chromium for Motion Canvas. |
+| playwright-core | 1.65.1 | Apache-2.0 | Installed from npm | Drives headless Chromium for Motion Canvas and the html engine. |
 | react, react-dom | 19.2.3 | MIT | Installed from npm | |
+| hyperframes (HeyGen) | 0.9.77 (pinned) | Apache-2.0 | Installed from npm | HyperFrames engine; local renderer only. Pulls puppeteer-core 25 and @puppeteer/browsers (Apache-2.0), esbuild, undici, hono and others. Its CLI has **opt-out PostHog telemetry**: ReelForge always runs it with `HYPERFRAMES_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, `HYPERFRAMES_NO_UPDATE_CHECK=1`, `HYPERFRAMES_NO_AUTO_INSTALL=1`. HyperFrames' own templates load GSAP from a CDN; ReelForge's templates do not use GSAP (GSAP's licence is not OSI; review before bundling it). |
+| hono, @hono/node-server | 4.13.19, 2.1.11 | MIT | Installed from npm | HTTP server. |
+| @modelcontextprotocol/sdk | 1.32.2 | MIT | Installed from npm | MCP server (Streamable HTTP). Pulls express, ajv, jose, cors and others (MIT/ISC/BSD). |
 | zod | 4.x | MIT | Installed from npm | |
-| Chromium / Chrome Headless Shell | 153 (tested) | BSD-3-Clause + others | **Not bundled**; user installs or Remotion downloads | |
+| Chromium / Chrome Headless Shell | 157.0.8103.78 (tested; 153 earlier) | BSD-3-Clause + others | **Not bundled**; user installs or Remotion downloads | |
 | FFmpeg (system) | 6.1.1 (tested) | LGPL-2.1+ / GPL depending on build | **Not bundled**; user installs | Ubuntu's build is configured with GPL components (libx264). |
 
 ## Assets

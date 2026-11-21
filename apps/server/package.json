@@ -19,6 +19,7 @@
     "@modelcontextprotocol/sdk": "1.32.2",
     "@reelforge/core": "workspace:*",
     "@reelforge/engine-html": "workspace:*",
+    "@reelforge/engine-hyperframes": "workspace:*",
     "@reelforge/engine-motion-canvas": "workspace:*",
     "@reelforge/engine-remotion": "workspace:*",
     "@reelforge/media-pipeline": "workspace:*",

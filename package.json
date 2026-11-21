@@ -31,7 +31,8 @@
     "@reelforge/engine-remotion": "workspace:*",
     "@reelforge/core": "workspace:*",
     "@reelforge/server": "workspace:*",
-    "@reelforge/engine-html": "workspace:*"
+    "@reelforge/engine-html": "workspace:*",
+    "@reelforge/engine-hyperframes": "workspace:*"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
