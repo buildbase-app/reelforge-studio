@@ -149,6 +149,8 @@ export class JobRunner {
   private lastHeartbeatOk = Date.now();
   private lastHeartbeatAt: string | undefined;
   private queuedCount = 0;
+  /** Jobs handed back to the queue since shutdown() started. */
+  private released = 0;
   /** Jobs running on other instances that someone here is waiting for (polled from the database). */
   private watchers = new Map<string, { timer: NodeJS.Timeout; refs: number; last: string }>();
 
@@ -398,6 +400,7 @@ export class JobRunner {
     if (this.pollTimer) clearTimeout(this.pollTimer);
     this.pollTimer = null;
     const runningAtStart = this.running.size;
+    this.released = 0;
     if (runningAtStart) this.log('info', `shutting down: waiting up to ${Math.round(graceMs / 1000)} s for ${runningAtStart} running job(s)`);
     const deadline = Date.now() + graceMs;
     while (this.running.size && Date.now() < deadline) await sleep(Math.min(200, deadline - Date.now()));
@@ -414,7 +417,7 @@ export class JobRunner {
     for (const w of this.watchers.values()) clearInterval(w.timer);
     this.watchers.clear();
     await this.flush();
-    return { finished: runningAtStart - left.length, released: left.length };
+    return { finished: runningAtStart - this.released, released: this.released };
   }
 
   private emit(e: JobEvent) {
@@ -672,7 +675,9 @@ export class JobRunner {
       if (controller.signal.aborted && reason === 'lost') {
         // Another worker owns the job now (or will): write nothing, forget it here.
         this.drop(job, 'lease lost');
-      } else if (controller.signal.aborted && reason === 'release' && fence) {
+      } else if (fence && (reason === 'release' || (this.stopping && reason !== 'cancel'))) {
+        // Shutting down: whatever ended the job now (our abort, or a tool killed by the same signal) is not
+        // the job's fault. Hand it back so another worker runs it, instead of failing it.
         await this.chains.get(job.id);
         const released = await this.repo.release(job.id, fence, new Date().toISOString()).catch((x: Error) => {
           this.log('warn', `queue: could not release job ${job.id} (its lease expires on its own): ${x.message}`);
@@ -681,6 +686,7 @@ export class JobRunner {
         if (released) {
           coreInstruments(this.telemetry.meter).jobsRequeued.add(1, { 'reelforge.reason': 'released' });
           this.queuedCount++;
+          this.released++;
           job.status = 'queued';
           this.emit({ jobId: job.id, type: 'status', job });
         }

@@ -166,6 +166,20 @@ describe('JobRunner, database queue', () => {
     expect(await w2.waitFor(slow.id, 5000)).toMatchObject({ status: 'succeeded', attempts: 1, workerId: 'w2' });
   });
 
+  it('SCL-10u a job that dies during shutdown (its browser got the same SIGTERM) is handed back, not failed', async () => {
+    const repo = createMemoryRepositories().jobs;
+    let killTools!: () => void;
+    const toolsKilled = new Promise<void>((r) => (killTools = r));
+    const w1 = make(repo, { render: async () => (await toolsKilled, Promise.reject(new Error('Target page, context or browser has been closed'))) }, { workerId: 'w1' });
+    await w1.init();
+    const job = await w1.submit('render', {});
+    await until(async () => (await repo.get(job.id))?.status === 'running');
+    const stopping = w1.shutdown(5000);
+    killTools();
+    expect(await stopping).toEqual({ finished: 0, released: 1 });
+    expect(await repo.get(job.id)).toMatchObject({ status: 'queued', attempts: 0 });
+  });
+
   it('SCL-07u database errors: backoff, one warning, lastError in the status, then recovery', async () => {
     const repo = createMemoryRepositories().jobs;
     let down = true;

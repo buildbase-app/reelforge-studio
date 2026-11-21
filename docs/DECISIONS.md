@@ -270,7 +270,8 @@ Projects (with every version), assets (content-addressed), renders, jobs,
 themes, keys and provider secrets live under `REELFORGE_DATA_DIR`; atomic
 temp-file + rename writes; renders are finalised by renaming a temp
 directory, so outputs are never overwritten. In-process job runner with
-concurrency 1 by default. Consequence: no horizontal scaling yet.
+concurrency 1 by default. Consequence: no horizontal scaling yet (since D-075:
+the database queue and the api/worker roles scale out).
 
 ### D-018 --- Manifest v0.2 is a superset of v0.1, validated against installed engines
 
@@ -1068,7 +1069,8 @@ for that key (0: none); **render quotas** count `render` and `preview` jobs the
 key started in the current UTC day / calendar month (`Job.apiKeyId`, indexed),
 refused with `429 quota_exceeded` and `details {period, limit, used,
 resetsAt}`; check and insert are serialised per key in the process (another
-process may overshoot by its in-flight renders). **IP allowlist** (IPv4/IPv6
+process may overshoot by its in-flight renders; fixed by D-078: counted under a
+row lock in the database). **IP allowlist** (IPv4/IPv6
 CIDR, `node:net` `BlockList`, IPv4-mapped addresses normalised) refuses other
 addresses with `403 ip_not_allowed`; the address is the TCP peer, or the last
 `X-Forwarded-For` entry when `server.trustProxy` is on (off by default, so a
@@ -1123,3 +1125,117 @@ to 100 000 entries per request, so memory stays flat); `list_audit_events`
 with `format` returns up to 10 000 entries in one MCP result; `reelforge audit
 export` streams any range to a file. CSV cells starting with `= + - @` are
 prefixed with `'` (spreadsheet formula injection).
+
+## O. Job queue and scaling: more than one instance (2026-11-21, issue #36)
+
+Founder direction (#36 comment, #17 standing rule): providers for the queue
+(in-process, database, Redis), the rate-limit store (memory, database, Redis)
+and roles (`all`, `api`, `worker`), chosen by configuration; the database
+queue recommended for more than one server; every supported combination
+backed by a passing test case. Matrix, settings, test cases and results:
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md).
+
+### D-075 --- The job queue lives in the database: row locks with SKIP LOCKED, leases, fenced writes
+
+**Status:** DECIDED (reversible).\
+`queue.driver` `inprocess` (one instance, unchanged behaviour) or `database`;
+`auto` (default) picks `database` for the `api` and `worker` roles. Database
+jobs are `Job` rows with `queue = 'database'`; migration `0006_job_queue` adds
+`queue`, `attempts`, `workerId`, `leaseExpiresAt`, `cancelRequestedAt` and two
+indexes on all three databases (numbered 0006 because 0005 is reserved for the
+webhooks work running in parallel; the migrator applies ids in order and
+tolerates the gap). **Claim:** PostgreSQL and MySQL 8 use
+`SELECT ... ORDER BY createdAt, id LIMIT 1 FOR UPDATE SKIP LOCKED` in a
+read-committed transaction followed by the update, so workers never block each
+other and never take the same job; SQLite uses one conditional
+`UPDATE ... WHERE id = (SELECT ...) AND status = 'queued' RETURNING id` under its
+write lock and is documented as single-instance. These are the only raw SQL
+statements (identifier quoting and placeholders per dialect); everything else
+stays on the Prisma model API. **Leases:** a claim holds the job until
+`leaseExpiresAt` (`queue.leaseSeconds`, 60), renewed every quarter by the
+worker's heartbeat, which also delivers cancel requests made on other
+instances. Every instance re-queues jobs whose lease ran out (compare-and-set
+on the lease it read, so each is handled once), failing them with
+`lease_expired` after `queue.maxAttempts` (3) claims. **Fencing:** a worker's
+progress and final writes carry `(workerId, attempts)` and only apply while it
+still holds that claim; a worker that cannot renew its lease for a whole lease
+period aborts its renders, so a frozen or partitioned worker cannot overwrite
+the next holder or keep rendering a job someone else runs. Long-polls and SSE
+for a job on another instance re-read the row every `queue.pollIntervalMs`.
+**Why not Redis/BullMQ:** it adds a service to deploy, secure and back up, and
+job rates here are renders per minute, not thousands per second; the database
+is already required and shared. Not built; the `JobRepository` methods are the
+seam if it is ever needed. **Why keep `inprocess`:** a single instance keeps
+exactly today's behaviour and tests; the in-process start-up sweep skips
+database jobs, and the roles refuse a mixed setup.
+
+### D-076 --- Roles of one image; refuse to scale on SQLite or per-instance storage
+
+**Status:** DECIDED (reversible).\
+`server.role` (`REELFORGE_ROLE`, start-up): `all` (default), `api` (REST + MCP,
+enqueues, never claims), `worker` (claims and renders; only `/healthz`,
+`/readyz`, `/metrics`, anything else `404` naming the api). Same image, same
+settings otherwise; `server.workerConcurrency` sets a worker's slots (default
+`limits.renderConcurrency`). **Guard:** `api`/`worker` refuse to start on SQLite
+("needs a shared database"), with `queue.driver: inprocess`, or with local
+storage unless `storage.localShared: true` declares the data directory one
+shared volume (NFS, EFS, Azure Files, RWX); the messages name the setting to
+change and never contain the database password. A refused start exits with
+status 1 and that message (the orchestrator restarts it, but every restart logs
+the reason). `/readyz` gains `dependencies.queue` (role, mode, worker id,
+running, cluster queue depth, pause reason, last error); it is required (503)
+while a worker drains or cannot claim. Workers pause claiming while their
+storage health check fails, so jobs wait rather than burn attempts.
+
+### D-077 --- Shared state for several instances: signing key from the secret key, settings re-read, graceful drain
+
+**Status:** DECIDED (reversible).\
+With the database queue, download links are signed with a key derived from
+`REELFORGE_SECRET_KEY` (HMAC-SHA256 of a fixed label) instead of the random
+`<dataDir>/signing.key`, so any api instance verifies another's links;
+single-instance setups keep their key (existing links stay valid). Runtime
+settings are re-read from the database every 15 s and applied like a local
+`update_config` (listeners get the changed keys), so a change on one instance
+reaches all. **Graceful shutdown** (SIGTERM, database queue): stop claiming,
+`/readyz` 503, wait `queue.shutdownGraceSeconds` (30) for running jobs, abort
+the rest and **release** them (back to `queued`, the attempt not counted) so
+another worker starts at once; leases end either way. The in-process queue
+keeps its old shutdown (unfinished jobs become `interrupted` on the next start).
+A retried render whose earlier attempt already committed its output finishes
+with that render instead of failing on "render exists".
+
+### D-078 --- Render quotas and rate limits counted in the database
+
+**Status:** DECIDED (reversible). Fixes the limit recorded in D-056
+("serialised per key in the process; another process may overshoot").\
+Quota check and job insert are one transaction that first takes a lock on the
+key's row (a no-op `UPDATE ApiKey SET id = id WHERE id = ?`: row lock on
+PostgreSQL/MySQL, the write lock on SQLite), then counts and inserts, so
+instances racing for the last slot serialise (tested with two processes and two
+api servers). The in-process lock is gone. `limits.rateLimitStore`:
+`memory` (token bucket per instance), `database` (one `RateLimitWindow` row per
+key and calendar minute, atomic increment; swept after an hour) or `auto`
+(default: `database` with the database queue). A fixed window was chosen over
+a shared token bucket because it needs one atomic statement and no clock
+agreement between instances; the cost (bursts at a minute boundary) is
+documented. A database outage lets requests through rather than failing them
+on the limiter (they would fail on their own database work) and logs a warning
+once a minute. Redis as a store: not built (same reasoning as D-075).
+
+### D-079 --- Kubernetes: a Kustomize base with api and worker Deployments; HPA on CPU and the queue depth
+
+**Status:** DECIDED (reversible); manifests schema-validated, not yet applied to
+a cluster (VERIFY).\
+`deployment/kubernetes/`: Pod Security `restricted` namespace, a service
+account without token, the hardened pod spec (UID/GID 10001, `fsGroup`,
+`RuntimeDefault` seccomp with the Localhost Chromium profile as a commented
+option, read-only root, no capabilities, memory `emptyDir` for `/tmp` and
+`/dev/shm`), secrets as files (`*_FILE`), api and worker Deployments with
+startup/liveness/readiness probes, PDBs, and HPAs: api on CPU; workers on CPU
+and `reelforge_jobs_queued` as an External metric. `reelforge_jobs_queued` is
+cluster-wide in database mode (every instance reports the same number), so the
+adapter rule uses `max`, not `sum`. Kustomize rather than Helm: a small base
+operators patch with overlays; a chart can follow if buyers ask. Validated with
+kubeconform 0.7.0 (strict, 1.31 schemas) on the files and on `kubectl
+kustomize` output. A compose file for an api with N workers is in
+`deployment/compose/docker-compose.scale.yml`.

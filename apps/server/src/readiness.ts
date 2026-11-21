@@ -29,9 +29,18 @@ const cachedVersion = (bin: string) => {
   return v;
 };
 
+/** A probe never waits longer than this for one dependency (a hung database or bucket must not hang /readyz). */
+const CHECK_TIMEOUT_MS = 5000;
+
 async function timed(fn: () => Promise<DependencyStatus>): Promise<DependencyStatus> {
   const t = performance.now();
-  const r = await fn().catch((e): DependencyStatus => ({ status: 'error', required: true, detail: (e as Error).message }));
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<DependencyStatus>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer within ${CHECK_TIMEOUT_MS / 1000} s`)), CHECK_TIMEOUT_MS);
+  });
+  const r = await Promise.race([fn(), timeout])
+    .catch((e): DependencyStatus => ({ status: 'error', required: true, detail: (e as Error).message }))
+    .finally(() => clearTimeout(timer));
   return { ...r, latencyMs: Math.round((performance.now() - t) * 10) / 10 };
 }
 
@@ -52,10 +61,10 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
   let storageCheck = 'ok';
   dependencies.database = await timed(async () => {
     try {
-      await service.repos.keys.count();
+      await Promise.race([service.repos.keys.count(), new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), CHECK_TIMEOUT_MS - 500).unref())]);
       return { status: 'ok', required: true };
-    } catch {
-      return { status: 'error', required: true, detail: 'unreachable (see the server log)' };
+    } catch (e) {
+      return { status: 'error', required: true, detail: (e as Error).message === 'timeout' ? 'unreachable (no answer within 4.5 s)' : 'unreachable (see the server log)' };
     }
   });
   dependencies.storage = await timed(async () => {

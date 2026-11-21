@@ -236,6 +236,10 @@ export async function renderMotionCanvasScene(
       // Chromium's own sandbox unless REELFORGE_CHROMIUM_NO_SANDBOX=1 or root (same rule as every engine).
       chromiumSandbox: chromiumSandbox(),
       args: ['--disable-dev-shm-usage', '--hide-scrollbars', '--mute-audio'],
+      // The server owns shutdown (a worker hands running jobs back on SIGTERM); the job's abort signal closes the browser.
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
     });
     const page = await browser.newPage({ viewport: { width: 640, height: 640 } });
     page.on('console', (m) => {

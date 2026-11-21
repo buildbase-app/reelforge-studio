@@ -1,0 +1,20 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: reelforge-api
+  namespace: reelforge
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: reelforge, app.kubernetes.io/component: api }
+---
+# Node drains take one worker at a time; its running render finishes or is handed back.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: reelforge-worker
+  namespace: reelforge
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: reelforge, app.kubernetes.io/component: worker }

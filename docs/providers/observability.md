@@ -102,9 +102,12 @@ OpenTelemetry names; the Prometheus name is what `GET /metrics` shows.
 | `http.server.request.duration` (s) | `http_server_request_duration_seconds_{bucket,sum,count}` | histogram | `http_request_method`, `http_route` (template or `unmatched`), `http_response_status_code` |
 | `reelforge.jobs.finished` | `reelforge_jobs_finished_total` | counter | `reelforge_job_type` (`render`/`preview`), `reelforge_job_status` (`succeeded`/`failed`/`cancelled`) |
 | `reelforge.job.duration` (s) | `reelforge_job_duration_seconds_*` | histogram | `reelforge_job_type`, `reelforge_job_status` |
-| `reelforge.jobs.queued` | `reelforge_jobs_queued` | gauge | — (queue depth) |
+| `reelforge.jobs.queued` | `reelforge_jobs_queued` | gauge | — (queue depth; with the database queue: all instances, docs/providers/queue-and-scaling.md) |
 | `reelforge.jobs.running` | `reelforge_jobs_running` | gauge | — |
 | `reelforge.jobs.concurrency` | `reelforge_jobs_concurrency` | gauge | — (render slots) |
+| `reelforge.server.role` | `reelforge_server_role` | gauge | `reelforge_role` (`all`/`api`/`worker`): 1 for this instance's role (#36) |
+| `reelforge.jobs.requeued` | `reelforge_jobs_requeued_total` | counter | `reelforge_reason` (`lease_expired`, `released`): database queue (#36) |
+| `reelforge.queue.errors` | `reelforge_queue_errors_total` | counter | `reelforge_operation` (`claim`, `heartbeat`, `recover`): database queue (#36) |
 | `reelforge.render.scene.duration` (s) | `reelforge_render_scene_duration_seconds_*` | histogram | `reelforge_engine`, `reelforge_outcome` (`ok`/`error`) |
 | `reelforge.render.frames` | `reelforge_render_frames_total` | counter | `reelforge_engine` |
 | `reelforge.render.fps` | `reelforge_render_fps_*` | histogram | `reelforge_engine` (frames per wall-clock second per scene) |

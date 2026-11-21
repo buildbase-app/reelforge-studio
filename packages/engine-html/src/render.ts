@@ -103,6 +103,10 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
       headless: true,
       chromiumSandbox: chromiumSandbox(),
       args: ['--disable-dev-shm-usage', '--hide-scrollbars', '--mute-audio', '--disable-gpu', '--font-render-hinting=none'],
+      // The server owns shutdown (a worker hands running jobs back on SIGTERM); the job's abort signal closes the browser.
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
     });
     const context = await browser.newContext({
       viewport: { width: output.width, height: output.height },

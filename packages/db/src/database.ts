@@ -165,6 +165,8 @@ async function createClient(p: ParsedDatabaseUrl): Promise<AnyPrismaClient> {
     const adapter = new PrismaPg(
       {
         connectionString: p.driverUrl!,
+        // A database that does not answer (host down, network partition) fails a query after 10 s instead of hanging it.
+        connectionTimeoutMillis: 10_000,
         ...(p.connectionLimit ? { max: p.connectionLimit } : {}),
         ...(p.schema ? { options: `-c search_path="${p.schema}"` } : {}),
       },

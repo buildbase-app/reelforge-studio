@@ -26,6 +26,7 @@
 #   RELEASE_IMAGE=reelforge-studio:release e2e/docker/run.sh   # also check the published release image:
 #                                     # production licence settings fixed, same layers as the tested image but one
 #   E2E_PREFIX=obs PORT=4331 e2e/docker/run.sh   # other container/network/volume names and host port (parallel runs)
+#   SCALE=1 E2E_PREFIX=que PORT=4335 e2e/docker/run.sh   # issue #36: api + 2 workers on PostgreSQL + MinIO (scale.sh)
 #   STORAGE=s3 e2e/docker/run.sh      # issue #27: then migrate to a MinIO container, restart on storage.driver s3,
 #                                     # render -> MinIO -> signed download -> ffprobe, retention, readyz (storage.mjs)
 #
@@ -44,6 +45,8 @@
 # Extra docker build args (proxy, CA secret, BASE_IMAGE mirror) go in BUILD_ARGS.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# Issue #36: SCALE=1 runs the multi-instance e2e instead (api + two workers, PostgreSQL, MinIO): e2e/docker/scale.sh.
+[ "${SCALE:-}" = 1 ] && exec e2e/docker/scale.sh
 IMAGE=${IMAGE:-reelforge-studio:e2e}
 CLIENT_IMAGE=${CLIENT_IMAGE:-node:22-bookworm-slim}
 DB=${DB:-sqlite}
