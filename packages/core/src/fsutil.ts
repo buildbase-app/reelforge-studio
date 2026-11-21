@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, basename } from 'node:path';
 
@@ -51,4 +52,64 @@ export class KeyedMutex {
 /** Sortable, URL-safe id: <prefix>_<base36 time><random hex>. */
 export function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${randomBytes(5).toString('hex')}`;
+}
+
+/** Whether a build directory carries this source hash in its `.source-hash` stamp. */
+export function stampMatches(dir: string, hash: string): boolean {
+  const stamp = join(dir, '.source-hash');
+  try {
+    return existsSync(stamp) && readFileSync(stamp, 'utf8') === hash;
+  } catch {
+    return false;
+  }
+}
+
+const publishing = new Map<string, Promise<string>>();
+
+/**
+ * Build a cache directory (an engine's browser bundle) without ever exposing
+ * a half-built or emptied directory at `outDir`: `build` writes into a fresh
+ * temporary directory next to it, which must end with the `.source-hash`
+ * stamp, and that directory is renamed into place. Concurrent builds of the
+ * same `outDir` in this process share one build; another process that
+ * finished first wins and our copy is dropped. Renders that are serving
+ * `outDir` therefore keep finding their files (before this, a second build
+ * emptied the directory under a running render: 404s and a timeout).
+ */
+export function publishDirAtomically(outDir: string, hash: string, build: (dir: string) => Promise<void>, opts: { force?: boolean } = {}): Promise<string> {
+  const key = `${outDir}\0${hash}`;
+  const running = publishing.get(key);
+  if (running) return running;
+  const p = (async () => {
+    await mkdir(dirname(outDir), { recursive: true });
+    const tag = `${process.pid}-${randomBytes(4).toString('hex')}`;
+    const tmp = `${outDir}.tmp-${tag}`;
+    try {
+      await build(tmp);
+      if (!stampMatches(tmp, hash)) throw new Error(`build of ${basename(outDir)} did not write its .source-hash stamp`);
+      // Another process published the same sources meanwhile: use that one, leave it alone.
+      if (!opts.force && stampMatches(outDir, hash)) return outDir;
+      const old = `${outDir}.old-${tag}`;
+      let moved = false;
+      try {
+        await rename(outDir, old);
+        moved = true;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      }
+      try {
+        await rename(tmp, outDir);
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if ((code === 'ENOTEMPTY' || code === 'EEXIST') && stampMatches(outDir, hash)) return outDir;
+        throw e;
+      }
+      if (moved) await rm(old, { recursive: true, force: true });
+      return outDir;
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  })().finally(() => publishing.delete(key));
+  publishing.set(key, p);
+  return p;
 }
