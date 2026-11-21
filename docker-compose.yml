@@ -7,6 +7,19 @@
 #
 # With TLS (Caddy, automatic HTTPS): set REELFORGE_DOMAIN and
 #   docker compose --profile tls up -d --build
+#
+# Database: SQLite in the reelforge-data volume by default (nothing to set up).
+# To use PostgreSQL or MySQL in this compose project (see docs/DEPLOY.md):
+#   export POSTGRES_PASSWORD=$(openssl rand -hex 16)
+#   export DATABASE_URL=postgresql://reelforge:$POSTGRES_PASSWORD@postgres:5432/reelforge
+#   docker compose --profile postgres up -d --build
+# or
+#   export MYSQL_PASSWORD=$(openssl rand -hex 16) MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16)
+#   export DATABASE_URL="mysql://reelforge:$MYSQL_PASSWORD@mysql:3306/reelforge?allowPublicKeyRetrieval=true"
+#   docker compose --profile mysql up -d --build
+# Your own database server elsewhere: set DATABASE_URL only (no profile).
+# POSTGRES_IMAGE / MYSQL_IMAGE pick a mirror of the official images, e.g.
+# mirror.gcr.io/library/postgres:17 or public.ecr.aws/docker/library/mysql:8.4.
 services:
   reelforge:
     build: .
@@ -21,12 +34,56 @@ services:
       REELFORGE_PUBLIC_URL: ${REELFORGE_PUBLIC_URL:-}
       REELFORGE_ALLOWED_HOSTS: ${REELFORGE_ALLOWED_HOSTS:-}
       REELFORGE_RENDER_CONCURRENCY: ${REELFORGE_RENDER_CONCURRENCY:-1}
+      # Empty = SQLite at /data/reelforge.db. postgresql://... or mysql://... otherwise.
+      DATABASE_URL: ${DATABASE_URL:-}
       # Optional providers / backends (leave empty to keep them off):
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
     volumes:
       - reelforge-data:/data
     # Chromium needs more shared memory than Docker's 64 MB default.
     shm_size: 1gb
+    depends_on:
+      # Only when the profile is active (required: false); the server also retries the first connection.
+      postgres:
+        condition: service_healthy
+        required: false
+      mysql:
+        condition: service_healthy
+        required: false
+
+  postgres:
+    profiles: ["postgres"]
+    image: ${POSTGRES_IMAGE:-postgres:17}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: reelforge
+      POSTGRES_USER: reelforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}  # required with this profile
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reelforge -d reelforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  mysql:
+    profiles: ["mysql"]
+    image: ${MYSQL_IMAGE:-mysql:8.4}
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: reelforge
+      MYSQL_USER: reelforge
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-}  # required with this profile
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-}  # required with this profile
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # TCP, not the socket: the entrypoint's temporary server listens on the socket only.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u reelforge -p\"$$MYSQL_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
 
   caddy:
     profiles: ["tls"]
@@ -46,3 +103,5 @@ services:
 volumes:
   reelforge-data:
   caddy-data:
+  postgres-data:
+  mysql-data:

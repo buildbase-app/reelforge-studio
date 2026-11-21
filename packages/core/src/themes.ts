@@ -1,5 +1,3 @@
-import { readdir, rm } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
 import {
   BUILTIN_THEMES,
   builtinTheme,
@@ -10,31 +8,18 @@ import {
   type ThemeTokens,
 } from '@reelforge/project-schema';
 import { ApiError, conflict, invalidManifest, notFound } from './errors';
-import { readJson, writeJsonAtomic } from './fsutil';
+import type { ThemeRepository } from './repositories';
 
 export interface ThemeEntry extends Theme {
   builtin: boolean;
 }
 
-/** Built-in themes (read-only) plus operator/agent themes in <dataDir>/themes/<id>.json. */
+/** Built-in themes (read-only, in code) plus operator/agent themes (ThemeRepository). */
 export class ThemeStore {
-  readonly root: string;
-
-  constructor(dataDir: string) {
-    this.root = resolve(dataDir, 'themes');
-  }
+  constructor(private readonly repo: ThemeRepository) {}
 
   async list(): Promise<ThemeEntry[]> {
-    const custom: ThemeEntry[] = [];
-    try {
-      for (const f of (await readdir(this.root)).sort()) {
-        if (!f.endsWith('.json')) continue;
-        const t = await readJson<Theme>(join(this.root, f));
-        if (t) custom.push({ ...t, builtin: false });
-      }
-    } catch {
-      // no custom themes yet
-    }
+    const custom = (await this.repo.list()).map((t) => ({ ...t, builtin: false }));
     return [...BUILTIN_THEMES.map((t) => ({ ...t, builtin: true })), ...custom];
   }
 
@@ -42,7 +27,7 @@ export class ThemeStore {
     const b = builtinTheme(id);
     if (b) return { ...b, builtin: true };
     if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(id)) throw notFound('theme', id);
-    const t = await readJson<Theme>(join(this.root, `${id}.json`));
+    const t = await this.repo.get(id);
     if (!t) throw notFound('theme', id, { available: (await this.list()).map((x) => x.id) });
     return { ...t, builtin: false };
   }
@@ -61,22 +46,20 @@ export class ThemeStore {
   async create(input: unknown): Promise<ThemeEntry> {
     const t = this.parse(input);
     if (builtinTheme(t.id)) throw conflict(`"${t.id}" is a built-in theme; choose another id`);
-    if (await readJson(join(this.root, `${t.id}.json`))) throw conflict(`theme "${t.id}" already exists`);
-    await writeJsonAtomic(join(this.root, `${t.id}.json`), t);
+    await this.repo.insert(t, new Date().toISOString());
     return { ...t, builtin: false };
   }
 
   async put(id: string, input: unknown): Promise<ThemeEntry> {
     if (builtinTheme(id)) throw new ApiError('builtin_theme', 409, `"${id}" is a built-in theme and cannot be changed; create a new theme instead`);
     const t = this.parse({ ...(input as object), id });
-    await writeJsonAtomic(join(this.root, `${id}.json`), t);
+    await this.repo.put(t, new Date().toISOString());
     return { ...t, builtin: false };
   }
 
   async delete(id: string): Promise<void> {
     if (builtinTheme(id)) throw new ApiError('builtin_theme', 409, `"${id}" is a built-in theme and cannot be deleted`);
-    await this.get(id);
-    await rm(join(this.root, `${id}.json`), { force: true });
+    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(id) || !(await this.repo.delete(id))) throw notFound('theme', id);
   }
 
   /** Tokens for a project's theme reference (id, or base + inline tokens). */

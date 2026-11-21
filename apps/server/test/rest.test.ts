@@ -2,11 +2,20 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ElevenLabsTts, PluginRegistry, RemotionLambdaBackend, ReelforgeService } from '@reelforge/core';
+import { prepareDatabase, type Database } from '@reelforge/db';
 import { createApp, loadConfig, type ServerConfig } from '../src/index';
+import { testDatabase } from './serverProcess';
 import { fakeEngine, makeTone, tempDir } from '../../../packages/core/test/helpers';
 
 const { dir, cleanup } = tempDir('reelforge-rest-');
-afterAll(cleanup);
+let db: Database;
+let dropDb: () => Promise<void> = async () => undefined;
+afterAll(async () => {
+  await service?.jobs.flush();
+  await db?.close();
+  await dropDb();
+  cleanup();
+});
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
 
 let app: ReturnType<typeof createApp>;
@@ -25,7 +34,10 @@ beforeAll(async () => {
     .registerProvider(new ElevenLabsTts(providerEnv))
     .registerBackend(new RemotionLambdaBackend({}));
   config = { ...loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_PUBLIC_URL: 'https://studio.example.com' }), maxJsonBytes: 64 * 1024 };
-  service = await ReelforgeService.create(registry, { dataDir: config.dataDir, publicUrl: config.publicUrl, providerEnv });
+  const database = await testDatabase(dir);
+  dropDb = database.drop;
+  db = (await prepareDatabase({ url: database.url ?? config.databaseUrl, dataDir: config.dataDir })).db;
+  service = await ReelforgeService.create(registry, { repositories: db.repositories(), dataDir: config.dataDir, publicUrl: config.publicUrl, providerEnv });
   admin = (await service.keys.create('admin', ['admin'])).key;
   reader = (await service.keys.create('reader', ['read'])).key;
   app = createApp({ service, config });
@@ -267,8 +279,12 @@ describe('REST v1', () => {
     expect(setText).not.toContain('sk_secret_value_123');
     expect(JSON.parse(setText)).toMatchObject({ configured: true, settings: [{ name: 'ELEVENLABS_API_KEY', set: true, source: 'api' }] });
     for (const path of ['/v1/providers', '/v1/capabilities']) expect(await (await req('GET', path)).text()).not.toContain('sk_secret_value_123');
-    const { statSync } = await import('node:fs');
-    expect(statSync(join(config.dataDir, 'secrets.json')).mode & 0o777).toBe(0o600);
+    // Stored in the database (provider_setting), restricted like the old secrets.json.
+    expect((await service.repos.providerSettings.values()).ELEVENLABS_API_KEY).toBe('sk_secret_value_123');
+    if (db.kind === 'sqlite') {
+      const { statSync } = await import('node:fs');
+      expect(statSync(join(config.dataDir, 'reelforge.db')).mode & 0o777).toBe(0o600);
+    }
     // The provider is now configured: the call stops at the cost acknowledgement, not at configuration.
     const tts = await req('POST', '/v1/providers/elevenlabs/run', { body: { params: { text: 'Hi', voiceId: 'abc' } } });
     expect(((await tts.json()) as any).error.code).toBe('cost_acknowledgement_required');

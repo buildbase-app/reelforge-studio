@@ -27,6 +27,7 @@ import { JobRunner, type JobContext, type JobRecord } from './jobs';
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
 import { KeyStore, type Scope } from './keys';
+import type { AuditEntryInput, Repositories } from './repositories';
 import { applyMergePatch, isPlainObject } from './mergePatch';
 import type { BackendContext, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
 import { PluginRegistry } from './registry';
@@ -36,6 +37,13 @@ import { ProjectStore } from './store';
 import { ThemeStore } from './themes';
 
 export interface ServiceConfig {
+  /**
+   * Where state is persisted (projects, keys, jobs, themes, settings, asset
+   * metadata, audit). @reelforge/db opens SQLite/PostgreSQL/MySQL ones;
+   * createMemoryRepositories() keeps everything in memory (tests).
+   */
+  repositories: Repositories;
+  /** Binary files: assets, renders, caches, the URL signing key. */
   dataDir: string;
   /** Engine bundle cache. Default <dataDir>/cache. */
   cacheDir?: string;
@@ -122,6 +130,7 @@ export class ReelforgeService {
   readonly secrets: SecretStore;
   readonly signer: UrlSigner;
   readonly providerEnv: NodeJS.ProcessEnv;
+  readonly repos: Repositories;
   private readonly baseEnv: NodeJS.ProcessEnv;
   private toolsCache: Tools | null = null;
   private renderIndex = new Map<string, string>();
@@ -133,24 +142,25 @@ export class ReelforgeService {
   ) {
     this.dataDir = resolve(config.dataDir);
     this.cacheDir = resolve(config.cacheDir ?? join(this.dataDir, 'cache'));
-    this.projects = new ProjectStore(this.dataDir);
-    this.themes = new ThemeStore(this.dataDir);
-    this.assets = new AssetStore(this.dataDir, {
+    this.repos = config.repositories;
+    this.projects = new ProjectStore(this.repos.projects, this.dataDir);
+    this.themes = new ThemeStore(this.repos.themes);
+    this.assets = new AssetStore(this.repos.assets, this.dataDir, {
       maxBytes: config.maxUploadBytes ?? DEFAULT_MAX_UPLOAD,
       timeoutMs: config.fetchTimeoutMs ?? 30_000,
       maxRedirects: 3,
       allowInsecureForTests: config.allowInsecureFetchForTests,
     });
-    this.keys = new KeyStore(this.dataDir);
+    this.keys = new KeyStore(this.repos.keys);
     this.serverVersion = config.serverVersion ?? '0.1.0';
     this.publicUrl = (config.publicUrl ?? '').replace(/\/+$/, '');
     this.fetchImpl = config.fetch ?? fetch;
     this.providerEnv = config.providerEnv ?? { ...process.env };
     this.baseEnv = { ...this.providerEnv };
-    this.secrets = new SecretStore(this.dataDir);
+    this.secrets = new SecretStore(this.repos.providerSettings);
     this.signer = new UrlSigner(this.dataDir);
     this.jobs = new JobRunner({
-      dataDir: this.dataDir,
+      repo: this.repos.jobs,
       concurrency: config.renderConcurrency ?? 1,
       handlers: { render: (ctx) => this.runRenderJob(ctx), preview: (ctx) => this.runRenderJob(ctx) },
     });
@@ -271,13 +281,12 @@ export class ReelforgeService {
   }
 
   async listProjects() {
-    const metas = await this.projects.list();
-    const out = [];
-    for (const m of metas) {
-      const { manifest } = await this.projects.get(m.id);
-      out.push({ ...m, title: manifest.title, scenes: manifest.scenes.length, durationSeconds: totalFrames(manifest) / manifest.output.fps });
-    }
-    return out;
+    return (await this.projects.listWithManifests()).map(({ meta, manifest }) => ({
+      ...meta,
+      title: manifest.title,
+      scenes: manifest.scenes.length,
+      durationSeconds: totalFrames(manifest) / manifest.output.fps,
+    }));
   }
 
   async createProject(input: unknown) {
@@ -610,8 +619,8 @@ export class ReelforgeService {
     return { runId: res.runId, dir: res.dir, outputFile: res.outputFile, manifestFile: res.manifestFile };
   }
 
-  getJob(id: string) {
-    const job = this.jobs.get(id);
+  async getJob(id: string) {
+    const job = await this.jobs.get(id);
     const pos = this.jobs.queuePosition(id);
     return { ...job, ...(pos !== null ? { queuePosition: pos } : {}) };
   }
@@ -625,7 +634,7 @@ export class ReelforgeService {
     if (secs > 0) await this.jobs.waitFor(id, secs * 1000).catch(() => undefined);
     return this.getJob(id);
   }
-  listJobs(filter: { projectId?: string } = {}) {
+  async listJobs(filter: { projectId?: string } = {}) {
     return this.jobs.list(filter);
   }
   cancelJob(id: string) {
@@ -886,7 +895,7 @@ export class ReelforgeService {
       else if (typeof v === 'string' && v.length > 0 && v.length <= 1000 && !/[\r\n]/.test(v)) changes[name] = v;
       else throw badRequest(`${name} must be a non-empty single-line string (max 1000 characters) or null`);
     }
-    await this.secrets.set(changes);
+    await this.secrets.set(changes, providerId);
     for (const [name, v] of Object.entries(changes)) {
       if (v === null) {
         if (this.baseEnv[name] !== undefined) this.providerEnv[name] = this.baseEnv[name];
@@ -894,6 +903,13 @@ export class ReelforgeService {
       } else this.providerEnv[name] = v;
     }
     return this.listProviders().find((p) => p.id === providerId)!;
+  }
+
+  // ---- audit ----------------------------------------------------------------
+
+  /** Append to the audit log (helper for issue #17; never pass secrets in `data`). */
+  audit(entry: AuditEntryInput) {
+    return this.repos.audit.write(entry);
   }
 
   // ---- keys -----------------------------------------------------------------

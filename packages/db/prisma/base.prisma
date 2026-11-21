@@ -1,0 +1,212 @@
+// ReelForge database schema: the ONE source of truth for every provider.
+//
+// Prisma needs one schema per provider, so `pnpm --filter @reelforge/db schemas`
+// writes prisma/{sqlite,postgresql,mysql}/schema.prisma from this file,
+// replacing the placeholders below. Edit this file, never the generated ones.
+// Then run `pnpm --filter @reelforge/db generate` and
+// `pnpm --filter @reelforge/db migration <name>` (see docs/DECISIONS.md D-022).
+//
+// Placeholders (column types that differ between databases):
+//   @@TEXT@@      text up to 64 KB:   MySQL TEXT,     PostgreSQL text (default)
+//   @@LONGTEXT@@  JSON documents:     MySQL LONGTEXT, PostgreSQL text (default)
+//   @@ID@@        short identifiers:  MySQL VARCHAR(191), PostgreSQL text (default)
+//
+// Conventions:
+// - Every row has workspaceId. There is one workspace ("default") today, so
+//   teams/SSO later need no data migration.
+// - JSON payloads (manifests, job params, metadata) are stored as text, not as
+//   a native JSON type, so they round-trip byte for byte on every database
+//   (PostgreSQL jsonb reorders keys) and stay portable to document stores.
+// - Timestamps are DateTime (millisecond precision everywhere).
+// - Binary files (assets, renders) are NOT in the database: they stay in the
+//   storage driver; Asset.storageKey says where.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../../src/generated/@@PROVIDER@@"
+  moduleFormat = "esm"
+  runtime      = "nodejs"
+}
+
+datasource db {
+  provider = "@@PROVIDER@@"
+}
+
+model Workspace {
+  id        String   @id @@ID@@
+  name      String   @@ID@@
+  createdAt DateTime @default(now())
+
+  projects         Project[]
+  apiKeys          ApiKey[]
+  jobs             Job[]
+  themes           Theme[]
+  providerSettings ProviderSetting[]
+  assets           Asset[]
+  auditLogs        AuditLog[]
+}
+
+/// A project; its manifests live in ProjectVersion (one row per saved version).
+model Project {
+  workspaceId String   @@ID@@
+  id          String   @@ID@@
+  /// Current version; bumped in the same transaction that inserts the ProjectVersion.
+  version     Int
+  title       String   @@TEXT@@
+  createdAt   DateTime
+  updatedAt   DateTime
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  versions  ProjectVersion[]
+
+  @@id([workspaceId, id])
+  @@index([workspaceId, updatedAt])
+}
+
+model ProjectVersion {
+  workspaceId String   @@ID@@
+  projectId   String   @@ID@@
+  version     Int
+  /// The manifest (latest schema version) as JSON text.
+  manifest    String   @@LONGTEXT@@
+  createdAt   DateTime
+
+  project Project @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@id([workspaceId, projectId, version])
+}
+
+/// API keys: salted SHA-256 hashes only; the key itself is never stored.
+model ApiKey {
+  id          String    @id @@ID@@
+  workspaceId String    @@ID@@
+  name        String    @@ID@@
+  /// JSON array of scopes.
+  scopes      String    @@TEXT@@
+  /// First characters of the key (lookup index; not secret on its own).
+  prefix      String    @@ID@@
+  salt        String    @@ID@@
+  hash        String    @@ID@@
+  createdAt   DateTime
+  lastUsedAt  DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([prefix])
+}
+
+model Job {
+  id          String    @id @@ID@@
+  workspaceId String    @@ID@@
+  type        String    @@ID@@
+  /// queued | running | succeeded | failed | cancelled
+  status      String    @@ID@@
+  projectId   String?   @@ID@@
+  params      String    @@LONGTEXT@@
+  progress    String    @@TEXT@@
+  result      String?   @@LONGTEXT@@
+  error       String?   @@LONGTEXT@@
+  retryOf     String?   @@ID@@
+  createdAt   DateTime
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  events    JobEvent[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, projectId])
+  @@index([status])
+}
+
+/// Status changes and log lines of a job, in order (id is monotonic).
+model JobEvent {
+  id          Int      @id @default(autoincrement())
+  workspaceId String   @@ID@@
+  jobId       String   @@ID@@
+  at          DateTime
+  /// "status" (message = new status) or "log" (message = the line)
+  type        String   @@ID@@
+  message     String   @@LONGTEXT@@
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, id])
+}
+
+/// Operator/agent themes (built-in themes live in code).
+model Theme {
+  workspaceId String   @@ID@@
+  id          String   @@ID@@
+  definition  String   @@LONGTEXT@@
+  createdAt   DateTime
+  updatedAt   DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, id])
+}
+
+/// Provider settings set through the API (e.g. ELEVENLABS_API_KEY). Values are
+/// never returned by the API. `scheme` says how `value` is stored: "plain"
+/// today; encryption at rest (D-018) adds a scheme without a schema change.
+model ProviderSetting {
+  workspaceId String   @@ID@@
+  name        String   @@ID@@
+  providerId  String?  @@ID@@
+  value       String   @@TEXT@@
+  scheme      String   @default("plain") @@ID@@
+  updatedAt   DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, name])
+}
+
+/// Asset metadata. The bytes are in the storage driver at storageKey.
+model Asset {
+  workspaceId     String   @@ID@@
+  id              String   @@ID@@
+  sha256          String   @@ID@@
+  bytes           BigInt
+  contentType     String   @@ID@@
+  mediaType       String   @@ID@@
+  storageKey      String   @@TEXT@@
+  source          String   @@TEXT@@
+  originalName    String?  @@TEXT@@
+  license         String?  @@TEXT@@
+  durationSeconds Float?
+  metadata        String?  @@LONGTEXT@@
+  createdAt       DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, id])
+  @@index([workspaceId, createdAt])
+}
+
+/// Audit trail (schema and write helper now; the feature is issue #17).
+model AuditLog {
+  id          String   @id @@ID@@
+  workspaceId String   @@ID@@
+  at          DateTime
+  /// "api_key" | "cli" | "system"
+  actorType   String   @@ID@@
+  actorId     String?  @@ID@@
+  action      String   @@ID@@
+  targetType  String?  @@ID@@
+  targetId    String?  @@ID@@
+  data        String?  @@LONGTEXT@@
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, at])
+}
+
+/// Instance-wide state (e.g. that the v0.1 filesystem import ran).
+model SystemState {
+  key       String   @id @@ID@@
+  value     String   @@LONGTEXT@@
+  updatedAt DateTime
+}

@@ -3,10 +3,9 @@ import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { BlockList, isIP, type LookupFunction } from 'node:net';
-import { readdir } from 'node:fs/promises';
 import { ApiError, notFound } from './errors';
-import { readJson, writeJsonAtomic } from './fsutil';
 import type { PutAssetInput, StoredAsset } from './plugins';
+import type { AssetRecord, AssetRepository } from './repositories';
 import { LocalStorageDriver } from './storage';
 
 /**
@@ -196,15 +195,19 @@ function getOnce(u: URL, limits: FetchLimits): Promise<IncomingMessage> {
 
 const ASSET_ID = /^ast-[0-9a-f]{16}$/;
 
+const toStored = ({ storageKey: _k, ...asset }: AssetRecord): StoredAsset => asset;
+
 /**
- * Content-addressed asset store: <dataDir>/assets/<id>/{file, meta.json}
- * where id = "ast-" + first 16 hex digits of the sha256. Uploading the same
- * bytes twice returns the same asset.
+ * Content-addressed asset store. The bytes go to the storage driver at
+ * <id>/file.<ext> (local: <dataDir>/assets/<id>/file.<ext>), the metadata to
+ * AssetRepository, where id = "ast-" + first 16 hex digits of the sha256.
+ * Uploading the same bytes twice returns the same asset.
  */
 export class AssetStore {
   readonly storage: LocalStorageDriver;
 
   constructor(
+    private readonly repo: AssetRepository,
     dataDir: string,
     readonly limits: FetchLimits
   ) {
@@ -229,7 +232,8 @@ export class AssetStore {
     const id = `ast-${sha256.slice(0, 16)}`;
     const existing = await this.find(id);
     if (existing) return existing;
-    const meta: StoredAsset = {
+    const storageKey = `${id}/file.${sniffed.ext}`;
+    const record: AssetRecord = {
       id,
       sha256,
       bytes: input.data.length,
@@ -237,13 +241,14 @@ export class AssetStore {
       mediaType: sniffed.mediaType,
       createdAt: new Date().toISOString(),
       source: input.source,
+      storageKey,
       ...(input.originalName ? { originalName: input.originalName.slice(0, 200) } : {}),
       ...(input.license ? { license: input.license } : {}),
       ...(input.metadata ? { metadata: input.metadata } : {}),
     };
-    await this.storage.put(`${id}/file.${sniffed.ext}`, input.data);
-    await writeJsonAtomic(this.storage.localPath(`${id}/meta.json`), meta);
-    return meta;
+    // Bytes first: a row never points at a missing file.
+    await this.storage.put(storageKey, input.data);
+    return toStored(await this.repo.insertIfAbsent(record));
   }
 
   async fromUrl(url: string, extra: Omit<PutAssetInput, 'data' | 'source'> = {}): Promise<StoredAsset> {
@@ -253,7 +258,8 @@ export class AssetStore {
 
   async find(id: string): Promise<StoredAsset | undefined> {
     if (!ASSET_ID.test(id)) return undefined;
-    return readJson<StoredAsset>(this.storage.localPath(`${id}/meta.json`));
+    const a = await this.repo.get(id);
+    return a ? toStored(a) : undefined;
   }
 
   async get(id: string): Promise<StoredAsset> {
@@ -264,32 +270,19 @@ export class AssetStore {
 
   /** Absolute path of the asset's bytes. */
   async file(id: string): Promise<string> {
-    await this.get(id);
-    const files = await readdir(this.storage.localPath(id));
-    const f = files.find((x) => x.startsWith('file.'));
-    if (!f) throw notFound('asset file', id);
-    return this.storage.localPath(`${id}/${f}`);
+    const a = ASSET_ID.test(id) ? await this.repo.get(id) : null;
+    if (!a) throw notFound('asset', id);
+    if (!(await this.storage.stat(a.storageKey))) throw notFound('asset file', id);
+    return this.storage.localPath(a.storageKey);
   }
 
   async list(): Promise<StoredAsset[]> {
-    let ids: string[];
-    try {
-      ids = await readdir(this.storage.root);
-    } catch {
-      return [];
-    }
-    const out: StoredAsset[] = [];
-    for (const id of ids) {
-      const a = await this.find(id);
-      if (a) out.push(a);
-    }
-    return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return (await this.repo.list()).map(toStored);
   }
 
   async updateMetadata(id: string, patch: Partial<Pick<StoredAsset, 'durationSeconds' | 'metadata' | 'license'>>): Promise<StoredAsset> {
-    const a = await this.get(id);
-    const next = { ...a, ...patch };
-    await writeJsonAtomic(this.storage.localPath(`${id}/meta.json`), next);
-    return next;
+    const a = ASSET_ID.test(id) ? await this.repo.update(id, patch) : null;
+    if (!a) throw notFound('asset', id);
+    return toStored(a);
   }
 }

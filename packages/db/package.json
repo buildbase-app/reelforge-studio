@@ -1,0 +1,29 @@
+{
+  "name": "@reelforge/db",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "schemas": "tsx scripts/schemas.ts",
+    "generate": "tsx scripts/schemas.ts && pnpm dlx prisma@7.10.1 generate --schema prisma/sqlite/schema.prisma && pnpm dlx prisma@7.10.1 generate --schema prisma/postgresql/schema.prisma && pnpm dlx prisma@7.10.1 generate --schema prisma/mysql/schema.prisma",
+    "migration": "tsx scripts/migration.ts",
+    "check": "tsx scripts/schemas.ts --check && tsx scripts/migration.ts --check"
+  },
+  "dependencies": {
+    "@prisma/adapter-better-sqlite3": "7.10.1",
+    "@prisma/adapter-mariadb": "7.10.1",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "@reelforge/core": "workspace:*",
+    "@reelforge/project-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

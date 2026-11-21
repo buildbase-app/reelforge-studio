@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertDecodable, checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
 import { tempDir } from '../../../packages/core/test/helpers';
-import { cliCreateKey, startServerProcess, type ServerProcess } from './serverProcess';
+import { cliCreateKey, startServerProcess, testDatabase, type ServerProcess } from './serverProcess';
 
 /**
  * The REST twin of mcp.e2e.test.ts: the same agent journey with plain HTTP
@@ -18,11 +18,14 @@ describe.skipIf(!hasBrowser)('agent journey over REST against a real server proc
   let server: ServerProcess;
   let key: string;
   let readOnlyKey: string;
+  let database: Awaited<ReturnType<typeof testDatabase>>;
 
   beforeAll(async () => {
-    key = cliCreateKey(dataDir, 'agent', 'read,write,render');
-    readOnlyKey = cliCreateKey(dataDir, 'viewer', 'read');
+    database = await testDatabase(dir);
+    key = cliCreateKey(dataDir, 'agent', 'read,write,render', database.env);
+    readOnlyKey = cliCreateKey(dataDir, 'viewer', 'read', database.env);
     server = await startServerProcess({
+      ...database.env,
       REELFORGE_DATA_DIR: dataDir,
       REELFORGE_CACHE_DIR: resolve(__dirname, '../../../.render-cache'),
       REELFORGE_CHROMIUM_PATH: browser!,
@@ -30,6 +33,7 @@ describe.skipIf(!hasBrowser)('agent journey over REST against a real server proc
   }, 120_000);
   afterAll(async () => {
     await server?.stop();
+    await database?.drop();
     cleanup();
   });
 

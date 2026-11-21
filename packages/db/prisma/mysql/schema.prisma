@@ -1,0 +1,190 @@
+// GENERATED from prisma/base.prisma for mysql. Do not edit; run `pnpm --filter @reelforge/db schemas`.
+generator client {
+  provider     = "prisma-client"
+  output       = "../../src/generated/mysql"
+  moduleFormat = "esm"
+  runtime      = "nodejs"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Workspace {
+  id        String   @id @db.VarChar(191)
+  name      String   @db.VarChar(191)
+  createdAt DateTime @default(now())
+
+  projects         Project[]
+  apiKeys          ApiKey[]
+  jobs             Job[]
+  themes           Theme[]
+  providerSettings ProviderSetting[]
+  assets           Asset[]
+  auditLogs        AuditLog[]
+}
+
+/// A project; its manifests live in ProjectVersion (one row per saved version).
+model Project {
+  workspaceId String   @db.VarChar(191)
+  id          String   @db.VarChar(191)
+  /// Current version; bumped in the same transaction that inserts the ProjectVersion.
+  version     Int
+  title       String   @db.Text
+  createdAt   DateTime
+  updatedAt   DateTime
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  versions  ProjectVersion[]
+
+  @@id([workspaceId, id])
+  @@index([workspaceId, updatedAt])
+}
+
+model ProjectVersion {
+  workspaceId String   @db.VarChar(191)
+  projectId   String   @db.VarChar(191)
+  version     Int
+  /// The manifest (latest schema version) as JSON text.
+  manifest    String   @db.LongText
+  createdAt   DateTime
+
+  project Project @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@id([workspaceId, projectId, version])
+}
+
+/// API keys: salted SHA-256 hashes only; the key itself is never stored.
+model ApiKey {
+  id          String    @id @db.VarChar(191)
+  workspaceId String    @db.VarChar(191)
+  name        String    @db.VarChar(191)
+  /// JSON array of scopes.
+  scopes      String    @db.Text
+  /// First characters of the key (lookup index; not secret on its own).
+  prefix      String    @db.VarChar(191)
+  salt        String    @db.VarChar(191)
+  hash        String    @db.VarChar(191)
+  createdAt   DateTime
+  lastUsedAt  DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([prefix])
+}
+
+model Job {
+  id          String    @id @db.VarChar(191)
+  workspaceId String    @db.VarChar(191)
+  type        String    @db.VarChar(191)
+  /// queued | running | succeeded | failed | cancelled
+  status      String    @db.VarChar(191)
+  projectId   String?   @db.VarChar(191)
+  params      String    @db.LongText
+  progress    String    @db.Text
+  result      String?   @db.LongText
+  error       String?   @db.LongText
+  retryOf     String?   @db.VarChar(191)
+  createdAt   DateTime
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  events    JobEvent[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, projectId])
+  @@index([status])
+}
+
+/// Status changes and log lines of a job, in order (id is monotonic).
+model JobEvent {
+  id          Int      @id @default(autoincrement())
+  workspaceId String   @db.VarChar(191)
+  jobId       String   @db.VarChar(191)
+  at          DateTime
+  /// "status" (message = new status) or "log" (message = the line)
+  type        String   @db.VarChar(191)
+  message     String   @db.LongText
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, id])
+}
+
+/// Operator/agent themes (built-in themes live in code).
+model Theme {
+  workspaceId String   @db.VarChar(191)
+  id          String   @db.VarChar(191)
+  definition  String   @db.LongText
+  createdAt   DateTime
+  updatedAt   DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, id])
+}
+
+/// Provider settings set through the API (e.g. ELEVENLABS_API_KEY). Values are
+/// never returned by the API. `scheme` says how `value` is stored: "plain"
+/// today; encryption at rest (D-018) adds a scheme without a schema change.
+model ProviderSetting {
+  workspaceId String   @db.VarChar(191)
+  name        String   @db.VarChar(191)
+  providerId  String?  @db.VarChar(191)
+  value       String   @db.Text
+  scheme      String   @default("plain") @db.VarChar(191)
+  updatedAt   DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, name])
+}
+
+/// Asset metadata. The bytes are in the storage driver at storageKey.
+model Asset {
+  workspaceId     String   @db.VarChar(191)
+  id              String   @db.VarChar(191)
+  sha256          String   @db.VarChar(191)
+  bytes           BigInt
+  contentType     String   @db.VarChar(191)
+  mediaType       String   @db.VarChar(191)
+  storageKey      String   @db.Text
+  source          String   @db.Text
+  originalName    String?  @db.Text
+  license         String?  @db.Text
+  durationSeconds Float?
+  metadata        String?  @db.LongText
+  createdAt       DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, id])
+  @@index([workspaceId, createdAt])
+}
+
+/// Audit trail (schema and write helper now; the feature is issue #17).
+model AuditLog {
+  id          String   @id @db.VarChar(191)
+  workspaceId String   @db.VarChar(191)
+  at          DateTime
+  /// "api_key" | "cli" | "system"
+  actorType   String   @db.VarChar(191)
+  actorId     String?  @db.VarChar(191)
+  action      String   @db.VarChar(191)
+  targetType  String?  @db.VarChar(191)
+  targetId    String?  @db.VarChar(191)
+  data        String?  @db.LongText
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, at])
+}
+
+/// Instance-wide state (e.g. that the v0.1 filesystem import ran).
+model SystemState {
+  key       String   @id @db.VarChar(191)
+  value     String   @db.LongText
+  updatedAt DateTime
+}

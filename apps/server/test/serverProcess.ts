@@ -1,14 +1,27 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { join, resolve } from 'node:path';
+import { createTestDatabase, serverTestDatabaseKind } from '@reelforge/db';
 
 /** Helpers that run the server and CLI exactly as an operator does: separate processes. */
 const repo = resolve(__dirname, '../../..');
 const tsx = join(repo, 'node_modules/.bin/tsx');
 
-export function cliCreateKey(dataDir: string, name: string, scopes: string): string {
+/**
+ * The database a server test runs against: REELFORGE_TEST_DB=sqlite (default:
+ * the SQLite file in the data directory), postgres (TEST_POSTGRES_URL) or
+ * mysql (TEST_MYSQL_URL), each a fresh empty database.
+ */
+export async function testDatabase(dir: string): Promise<{ env: Record<string, string>; url?: string; drop: () => Promise<void> }> {
+  const kind = serverTestDatabaseKind();
+  if (kind === 'sqlite') return { env: {}, drop: async () => undefined };
+  const t = await createTestDatabase(kind, dir);
+  return { env: { DATABASE_URL: t.url }, url: t.url, drop: t.drop };
+}
+
+export function cliCreateKey(dataDir: string, name: string, scopes: string, env: Record<string, string> = {}): string {
   const r = spawnSync(tsx, ['apps/server/src/cli.ts', 'keys', 'create', '--name', name, '--scopes', scopes], {
     cwd: repo,
-    env: { ...process.env, REELFORGE_DATA_DIR: dataDir },
+    env: { ...process.env, REELFORGE_DATA_DIR: dataDir, ...env },
     encoding: 'utf8',
     timeout: 60_000,
   });

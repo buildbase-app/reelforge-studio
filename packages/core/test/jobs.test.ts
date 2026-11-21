@@ -1,13 +1,8 @@
-import { afterAll, describe, expect, it } from 'vitest';
-import { JobRunner, type JobEvent } from '../src/index';
-import { tempDir } from './helpers';
+import { describe, expect, it } from 'vitest';
+import { JobRunner, createMemoryRepositories, type JobEvent } from '../src/index';
 
-const dirs: Array<() => void> = [];
-afterAll(() => dirs.forEach((c) => c()));
 function runner(handlers: ConstructorParameters<typeof JobRunner>[0]['handlers'], concurrency = 1) {
-  const t = tempDir('reelforge-jobs-');
-  dirs.push(t.cleanup);
-  return { dir: t.dir, jobs: new JobRunner({ dataDir: t.dir, concurrency, handlers }) };
+  return { jobs: new JobRunner({ repo: createMemoryRepositories().jobs, concurrency, handlers }) };
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -22,7 +17,7 @@ describe('JobRunner', () => {
     });
     await jobs.init();
     const events: JobEvent[] = [];
-    const job = jobs.submit('work', { x: 1 });
+    const job = await jobs.submit('work', { x: 1 });
     jobs.subscribe(job.id, (e) => events.push(e));
     const done = await jobs.waitFor(job.id);
     expect(done.status).toBe('succeeded');
@@ -37,7 +32,7 @@ describe('JobRunner', () => {
   it('records failures with a code and message', async () => {
     const { jobs } = runner({ work: async () => { throw new Error('boom'); } });
     await jobs.init();
-    const done = await jobs.waitFor(jobs.submit('work', {}).id);
+    const done = await jobs.waitFor((await jobs.submit('work', {})).id);
     expect(done.status).toBe('failed');
     expect(done.error).toMatchObject({ code: 'job_failed', message: 'boom' });
   });
@@ -57,7 +52,8 @@ describe('JobRunner', () => {
       },
     });
     await jobs.init();
-    const ids = [1, 2, 3].map((n) => jobs.submit('work', { n }).id);
+    const ids: string[] = [];
+    for (const n of [1, 2, 3]) ids.push((await jobs.submit('work', { n })).id);
     expect(jobs.queuePosition(ids[2]!)).not.toBeNull();
     await Promise.all(ids.map((id) => jobs.waitFor(id)));
     expect(order).toEqual(['1', '2', '3']);
@@ -77,7 +73,8 @@ describe('JobRunner', () => {
       },
     }, 2);
     await jobs.init();
-    const ids = [1, 2, 3, 4].map((n) => jobs.submit('work', { n }).id);
+    const ids: string[] = [];
+    for (const n of [1, 2, 3, 4]) ids.push((await jobs.submit('work', { n })).id);
     await Promise.all(ids.map((id) => jobs.waitFor(id)));
     expect(maxConcurrent).toBe(2);
   });
@@ -90,10 +87,10 @@ describe('JobRunner', () => {
         }),
     });
     await jobs.init();
-    const a = jobs.submit('work', {});
-    const b = jobs.submit('work', {});
+    const a = await jobs.submit('work', {});
+    const b = await jobs.submit('work', {});
     await sleep(10);
-    expect(jobs.get(a.id).status).toBe('running');
+    expect((await jobs.get(a.id)).status).toBe('running');
     expect((await jobs.cancel(b.id)).status).toBe('cancelled');
     await jobs.cancel(a.id);
     const done = await jobs.waitFor(a.id);
@@ -110,29 +107,29 @@ describe('JobRunner', () => {
       },
     });
     await jobs.init();
-    const first = await jobs.waitFor(jobs.submit('work', { p: 1 }).id);
+    const first = await jobs.waitFor((await jobs.submit('work', { p: 1 })).id);
     expect(first.status).toBe('failed');
-    const retry = jobs.retry(first.id);
+    const retry = await jobs.retry(first.id);
     expect(retry.retryOf).toBe(first.id);
     expect(retry.params).toEqual({ p: 1 });
     const second = await jobs.waitFor(retry.id);
     expect(second.status).toBe('succeeded');
-    expect(jobs.get(first.id).status).toBe('failed');
-    expect(() => jobs.retry(second.id)).toThrow(/only failed or cancelled/);
+    expect((await jobs.get(first.id)).status).toBe('failed');
+    await expect(jobs.retry(second.id)).rejects.toThrow(/only failed or cancelled/);
   });
 
   it('marks jobs interrupted by a restart as failed', async () => {
-    const t = tempDir('reelforge-jobs-');
-    dirs.push(t.cleanup);
-    const first = new JobRunner({ dataDir: t.dir, handlers: { work: () => new Promise(() => undefined) } });
+    const repo = createMemoryRepositories().jobs;
+    const first = new JobRunner({ repo, handlers: { work: () => new Promise(() => undefined) } });
     await first.init();
-    const job = first.submit('work', {});
+    const job = await first.submit('work', {});
     await sleep(20);
     await first.flush();
-    const second = new JobRunner({ dataDir: t.dir, handlers: { work: async () => ({}) } });
+    const second = new JobRunner({ repo, handlers: { work: async () => ({}) } });
     await second.init();
-    const after = second.get(job.id);
+    const after = await second.get(job.id);
     expect(after.status).toBe('failed');
     expect(after.error?.code).toBe('interrupted');
+    expect((await second.logs(job.id)).at(-1)).toMatch(/interrupted/);
   });
 });

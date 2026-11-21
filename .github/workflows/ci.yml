@@ -64,6 +64,78 @@ jobs:
             out/sample-reel/review/
           if-no-files-found: warn
 
+  database:
+    # Repository contract tests and the server end-to-end suite (MCP + REST journeys,
+    # real engines) against PostgreSQL and MySQL. SQLite runs in the test job above.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [postgres, mysql]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: reelforge
+          POSTGRES_PASSWORD: reelforge
+          POSTGRES_DB: reelforge
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U reelforge" --health-interval 5s --health-timeout 5s --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: reelforge
+          MYSQL_DATABASE: reelforge
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -preelforge --silent" --health-interval 5s --health-timeout 5s --health-retries 60
+    env:
+      REELFORGE_REQUIRE_BROWSER: '1'
+      REELFORGE_CHROMIUM_NO_SANDBOX: '1'
+      REELFORGE_TEST_DB: ${{ matrix.db }}
+      # Root: the tests create and drop a database (MySQL) or schema (PostgreSQL) per run.
+      TEST_POSTGRES_URL: ${{ matrix.db == 'postgres' && 'postgresql://reelforge:reelforge@127.0.0.1:5432/reelforge' || '' }}
+      TEST_MYSQL_URL: ${{ matrix.db == 'mysql' && 'mysql://root:reelforge@127.0.0.1:3306/reelforge?allowPublicKeyRetrieval=true' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chrome Headless Shell
+        run: |
+          pnpm --filter @reelforge/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
+          BIN=$(find ~/.cache/ms-playwright -type f -name chrome-headless-shell -perm -u+x | head -n 1)
+          test -n "$BIN"
+          echo "REELFORGE_CHROMIUM_PATH=$BIN" >> "$GITHUB_ENV"
+
+      - name: Schemas, migrations and generated clients are up to date
+        if: matrix.db == 'postgres'
+        env:
+          CHECKPOINT_DISABLE: '1'
+        run: |
+          pnpm --filter @reelforge/db run check
+          pnpm --filter @reelforge/db run generate
+          git diff --exit-code -- packages/db
+
+      - name: Repository contract tests (memory, SQLite, ${{ matrix.db }})
+        run: pnpm --filter @reelforge/db run test
+
+      - name: Server tests + MCP and REST end-to-end on ${{ matrix.db }}
+        run: pnpm --filter @reelforge/server run test
+
   docker:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -89,3 +161,10 @@ jobs:
       - name: Container logs
         if: always()
         run: docker logs rf || true
+
+      - name: Docker end-to-end on SQLite, PostgreSQL and MySQL (compose profiles)
+        run: |
+          docker rm -f rf
+          for db in sqlite postgres mysql; do
+            DB=$db IMAGE=reelforge-studio:ci SKIP_BUILD=1 PORT=4322 e2e/docker/run.sh
+          done

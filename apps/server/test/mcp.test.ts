@@ -7,6 +7,7 @@ import { PluginRegistry, RemotionLambdaBackend, ElevenLabsTts } from '@reelforge
 import { TOOLS, WORKFLOW_GUIDE, startServer, type StartedServer } from '../src/index';
 import { parseProject } from '@reelforge/project-schema';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
+import { testDatabase } from './serverProcess';
 
 /** MCP over real HTTP with the official SDK client; fake engines so it runs without a browser. */
 const { dir, cleanup } = tempDir('reelforge-mcp-');
@@ -14,6 +15,7 @@ const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.js
 let server: StartedServer;
 let adminKey: string;
 let readKey: string;
+let dropDb: () => Promise<void> = async () => undefined;
 
 async function connect(key: string) {
   const client = new Client({ name: 'reelforge-test', version: '0.0.0' });
@@ -35,12 +37,15 @@ beforeAll(async () => {
     .registerEngine(fakeEngine('motion-canvas'))
     .registerProvider(new ElevenLabsTts({}))
     .registerBackend(new RemotionLambdaBackend({}));
-  server = await startServer({ dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' }, { registry, env: {}, quiet: true });
+  const database = await testDatabase(dir);
+  dropDb = database.drop;
+  server = await startServer({ dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' }, { registry, env: database.env, quiet: true });
   adminKey = (await server.service.keys.create('admin', ['admin'])).key;
   readKey = (await server.service.keys.create('reader', ['read'])).key;
 });
 afterAll(async () => {
   await server?.close();
+  await dropDb();
   cleanup();
 });
 

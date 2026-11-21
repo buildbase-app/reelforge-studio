@@ -1,8 +1,7 @@
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { afterAll, describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@reelforge/project-schema';
-import { ApiError, ProjectStore, applyMergePatch, KeyedMutex } from '../src/index';
+import { ApiError, ProjectStore, applyMergePatch, KeyedMutex, createMemoryRepositories } from '../src/index';
 import { tempDir } from './helpers';
 
 const { dir, cleanup } = tempDir();
@@ -16,7 +15,8 @@ function manifest(id = 'sample-reel'): Project {
 }
 
 describe('ProjectStore', () => {
-  const store = new ProjectStore(dir);
+  const repos = createMemoryRepositories();
+  const store = new ProjectStore(repos.projects, dir);
 
   it('creates, reads and lists projects with version 1', async () => {
     const created = await store.create(manifest('one'));
@@ -24,7 +24,6 @@ describe('ProjectStore', () => {
     const got = await store.get('one');
     expect(got.manifest.title).toBe(sample.title);
     expect((await store.list()).map((m) => m.id)).toContain('one');
-    expect(readdirSync(join(dir, 'projects/one'))).toEqual(expect.arrayContaining(['project.json', 'meta.json', 'versions', 'assets']));
   });
 
   it('refuses duplicates', async () => {
@@ -47,6 +46,28 @@ describe('ProjectStore', () => {
     const { meta, manifest: m } = await store.get('one');
     expect(meta.version).toBe(12);
     expect(m.title.split('.').length).toBe(11);
+  });
+
+  it('retries a save that lost a race with another process, unless expectedVersion was given', async () => {
+    // A second store on the same repository has its own in-process lock: like another server process.
+    const other = new ProjectStore(repos.projects, dir);
+    let interfered = false;
+    const r = await store.update('one', async (m) => {
+      if (!interfered) {
+        interfered = true;
+        await other.update('one', (x) => ({ ...x, title: 'other process' }));
+      }
+      return { ...m, title: `${m.title}+mine` };
+    });
+    expect(r.manifest.title).toBe('other process+mine');
+    expect(r.meta.version).toBe(14);
+    const v = r.meta.version;
+    await expect(
+      store.update('one', async (m) => {
+        await other.update('one', (x) => ({ ...x, title: 'again' }));
+        return m;
+      }, v)
+    ).rejects.toMatchObject({ code: 'version_conflict', status: 409 });
   });
 
   it('refuses to change projectId and rejects unsafe ids', async () => {

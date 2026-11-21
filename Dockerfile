@@ -28,19 +28,24 @@ RUN --mount=type=secret,id=extra_ca,required=false \
 
 WORKDIR /app
 
-# Dependencies first, for layer caching.
+# Dependencies first, for layer caching. better-sqlite3 (SQLite driver) installs a
+# prebuilt native module here; the Prisma clients are generated and committed
+# (packages/db/src/generated), so nothing Prisma-related runs or downloads later.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/server/package.json apps/server/
 COPY packages/core/package.json packages/core/
+COPY packages/db/package.json packages/db/
 COPY packages/project-schema/package.json packages/project-schema/
 COPY packages/media-pipeline/package.json packages/media-pipeline/
 COPY packages/engine-remotion/package.json packages/engine-remotion/
 COPY packages/engine-motion-canvas/package.json packages/engine-motion-canvas/
 COPY packages/engine-html/package.json packages/engine-html/
 COPY packages/engine-hyperframes/package.json packages/engine-hyperframes/
+# --prod: no test runner, TypeScript compiler or Prisma CLI in the image (tsx, the
+# runtime TypeScript loader, is a dependency of @reelforge/server).
 RUN --mount=type=secret,id=extra_ca,required=false \
     if [ -f /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
-    pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --prod
 
 # Chrome Headless Shell: system libraries via Playwright's dependency list (apt only),
 # the browser itself via Remotion's ensureBrowser() (the pinned build for Remotion
@@ -60,14 +65,17 @@ RUN --mount=type=secret,id=extra_ca,required=false \
 
 COPY . .
 
-# `docker exec <container> reelforge keys create --name agent` (CLI, see docs/DEPLOY.md).
-RUN printf '#!/bin/sh\nexec /app/node_modules/.bin/tsx /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/reelforge \
+# `docker exec <container> reelforge keys create --name agent`, `reelforge migrate` (CLI, see docs/DEPLOY.md).
+RUN printf '#!/bin/sh\nexec /app/apps/server/node_modules/.bin/tsx /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/reelforge \
  && chmod 755 /usr/local/bin/reelforge
 
 RUN groupadd --system --gid 10001 reelforge \
  && useradd --system --uid 10001 --gid reelforge --home-dir /home/reelforge --create-home reelforge \
  && mkdir -p /data && chown -R reelforge:reelforge /data
 
+# Database: SQLite at /data/reelforge.db by default; DATABASE_URL (or DATABASE_URL_FILE)
+# selects PostgreSQL or MySQL/MariaDB. Migrations run on start (REELFORGE_MIGRATE_ON_START)
+# or with `reelforge migrate` / `--migrate-only`; no Prisma CLI or engine binary is used.
 # The container is the isolation boundary; Chromium's own sandbox needs privileges
 # containers rarely grant, so it is off (REELFORGE_CHROMIUM_NO_SANDBOX=1).
 ENV NODE_ENV=production \
@@ -77,6 +85,7 @@ ENV NODE_ENV=production \
     REELFORGE_CHROMIUM_PATH=/usr/local/bin/chrome-headless-shell \
     REELFORGE_CHROMIUM_NO_SANDBOX=1 \
     HYPERFRAMES_NO_TELEMETRY=1 \
+    CHECKPOINT_DISABLE=1 \
     DO_NOT_TRACK=1
 
 USER reelforge
@@ -85,4 +94,5 @@ EXPOSE 4321
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.REELFORGE_PORT||4321)+'/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["node_modules/.bin/tsx", "apps/server/src/main.ts"]
+# `--migrate-only` after main.ts: apply migrations and exit (release step / init container).
+CMD ["apps/server/node_modules/.bin/tsx", "apps/server/src/main.ts"]

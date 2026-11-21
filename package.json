@@ -32,12 +32,14 @@
     "@reelforge/core": "workspace:*",
     "@reelforge/server": "workspace:*",
     "@reelforge/engine-html": "workspace:*",
-    "@reelforge/engine-hyperframes": "workspace:*"
+    "@reelforge/engine-hyperframes": "workspace:*",
+    "@reelforge/db": "workspace:*"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild",
-      "@remotion/compositor-linux-x64-gnu"
+      "@remotion/compositor-linux-x64-gnu",
+      "better-sqlite3",
+      "esbuild"
     ]
   }
 }

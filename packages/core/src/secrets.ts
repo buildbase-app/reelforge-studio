@@ -1,23 +1,21 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmod, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { readJson, writeFileAtomic } from './fsutil';
+import { writeFileAtomic } from './fsutil';
+import type { ProviderSettingRepository } from './repositories';
 
 /**
- * Provider settings set through the API (e.g. ELEVENLABS_API_KEY), stored in
- * <dataDir>/secrets.json with mode 0600. Values are never returned by the API;
- * only whether a name is set and where it comes from.
+ * Provider settings set through the API (e.g. ELEVENLABS_API_KEY), stored with
+ * ProviderSettingRepository. Values are never returned by the API; only
+ * whether a name is set and where it comes from.
  */
 export class SecretStore {
-  readonly file: string;
   private values: Record<string, string> = {};
 
-  constructor(dataDir: string) {
-    this.file = resolve(dataDir, 'secrets.json');
-  }
+  constructor(private readonly repo: ProviderSettingRepository) {}
 
   async load(): Promise<Record<string, string>> {
-    this.values = (await readJson<Record<string, string>>(this.file)) ?? {};
+    this.values = await this.repo.values();
     return { ...this.values };
   }
 
@@ -25,14 +23,13 @@ export class SecretStore {
     return typeof this.values[name] === 'string' && this.values[name] !== '';
   }
 
-  async set(changes: Record<string, string | null>): Promise<void> {
+  async set(changes: Record<string, string | null>, providerId?: string): Promise<void> {
+    await this.repo.apply(changes, new Date().toISOString(), providerId);
     const next = { ...this.values };
     for (const [k, v] of Object.entries(changes)) {
       if (v === null) delete next[k];
       else next[k] = v;
     }
-    await writeFileAtomic(this.file, JSON.stringify(next, null, 2) + '\n');
-    await chmod(this.file, 0o600).catch(() => undefined);
     this.values = next;
   }
 }

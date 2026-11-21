@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { resolveDatabaseUrl } from '@reelforge/db';
 
 /** REELFORGE_BOOTSTRAP_KEY, or the contents of REELFORGE_BOOTSTRAP_KEY_FILE (Docker/K8s secrets). */
 function bootstrapKey(env: NodeJS.ProcessEnv): string | undefined {
@@ -16,6 +17,12 @@ function bootstrapKey(env: NodeJS.ProcessEnv): string | undefined {
 
 export interface ServerConfig {
   dataDir: string;
+  /** DATABASE_URL / DATABASE_URL_FILE; default file:<dataDir>/reelforge.db (SQLite). */
+  databaseUrl: string;
+  /** Apply pending migrations on start (REELFORGE_MIGRATE_ON_START, default on). */
+  migrateOnStart: boolean;
+  /** How long to keep retrying the first database connection (REELFORGE_DB_CONNECT_TIMEOUT_SECONDS, default 30). */
+  dbConnectTimeoutSeconds: number;
   cacheDir?: string;
   host: string;
   port: number;
@@ -45,8 +52,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const allowedHosts = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
   if (publicUrl) allowedHosts.add(new URL(publicUrl).hostname);
   for (const h of (env.REELFORGE_ALLOWED_HOSTS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)) allowedHosts.add(h);
+  const dataDir = resolve(env.REELFORGE_DATA_DIR || 'data');
+  const migrate = (env.REELFORGE_MIGRATE_ON_START ?? '1').trim().toLowerCase();
+  if (!['1', '0', 'true', 'false', 'yes', 'no', ''].includes(migrate)) throw new Error('REELFORGE_MIGRATE_ON_START must be 1 or 0');
   return {
-    dataDir: resolve(env.REELFORGE_DATA_DIR || 'data'),
+    dataDir,
+    databaseUrl: resolveDatabaseUrl(env, dataDir),
+    migrateOnStart: !['0', 'false', 'no'].includes(migrate),
+    dbConnectTimeoutSeconds: int(env.REELFORGE_DB_CONNECT_TIMEOUT_SECONDS, 30, 'REELFORGE_DB_CONNECT_TIMEOUT_SECONDS'),
     cacheDir: env.REELFORGE_CACHE_DIR ? resolve(env.REELFORGE_CACHE_DIR) : undefined,
     host: env.REELFORGE_HOST || '127.0.0.1',
     port: int(env.REELFORGE_PORT, 4321, 'REELFORGE_PORT'),

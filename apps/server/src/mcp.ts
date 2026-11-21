@@ -348,7 +348,7 @@ export const TOOLS: ToolDef[] = [
     run: async (a, { service }) => {
       let renderId = a.renderId as string | undefined;
       if (!renderId && a.jobId) {
-        const job = service.getJob(a.jobId);
+        const job = await service.getJob(a.jobId);
         if (job.status !== 'succeeded') throw new ApiError('job_not_finished', 409, `job ${a.jobId} is ${job.status}; call get_job with waitSeconds: 45 until it succeeds`, { error: job.error });
         renderId = job.result?.renderId as string;
       }
@@ -379,7 +379,7 @@ export const TOOLS: ToolDef[] = [
     scope: 'read',
     input: { projectId: projectId.optional() },
     annotations: { readOnlyHint: true },
-    run: async (a, { service }) => ({ jobs: service.listJobs({ projectId: a.projectId }) }),
+    run: async (a, { service }) => ({ jobs: await service.listJobs({ projectId: a.projectId }) }),
   },
   {
     name: 'retry_job',
@@ -387,7 +387,7 @@ export const TOOLS: ToolDef[] = [
     description: 'Starts a new job with the same parameters as a failed or cancelled one (same project version). Earlier outputs are never overwritten.',
     scope: 'render',
     input: { jobId: z.string() },
-    run: async (a, { service }) => ({ job: service.retryJob(a.jobId) }),
+    run: async (a, { service }) => ({ job: await service.retryJob(a.jobId) }),
   },
   {
     name: 'list_project_versions',

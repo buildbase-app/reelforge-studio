@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
 import { ReelforgeService, type PluginRegistry } from '@reelforge/core';
+import { prepareDatabase, resolveDatabaseUrl, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { loadConfig, type ServerConfig } from './config';
 import { createDefaultRegistry } from './registry';
@@ -13,6 +14,7 @@ export interface StartedServer {
   port: number;
   service: ReelforgeService;
   config: ServerConfig;
+  db: Database;
   close(): Promise<void>;
 }
 
@@ -21,11 +23,25 @@ export async function startServer(
   overrides: Partial<ServerConfig> = {},
   opts: { registry?: PluginRegistry; env?: NodeJS.ProcessEnv; quiet?: boolean } = {}
 ): Promise<StartedServer> {
-  const config = { ...loadConfig(opts.env ?? process.env), ...overrides };
+  const env = opts.env ?? process.env;
+  const config = { ...loadConfig(env), ...overrides };
+  // A data directory given in code (tests) also moves the default SQLite file.
+  if (overrides.dataDir && !overrides.databaseUrl) config.databaseUrl = resolveDatabaseUrl(env, config.dataDir);
   await mkdir(config.dataDir, { recursive: true });
+  const log = (line: string) => {
+    if (!opts.quiet) console.log(`[reelforge] ${line}`);
+  };
+  const { db, imported } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds, log });
+  if (imported) {
+    const { warnings, ...counts } = imported;
+    log(`imported v0.1 data from ${config.dataDir}: ${JSON.stringify(counts)}${warnings.length ? ` (${warnings.length} warnings)` : ''}`);
+  }
   // Providers read their keys from this object; keys set through the API are written into it.
-  const providerEnv: NodeJS.ProcessEnv = { ...(opts.env ?? process.env) };
-  const service = await ReelforgeService.create(opts.registry ?? createDefaultRegistry(providerEnv), {
+  const providerEnv: NodeJS.ProcessEnv = { ...env };
+  let service: ReelforgeService;
+  try {
+    service = await ReelforgeService.create(opts.registry ?? createDefaultRegistry(providerEnv), {
+    repositories: db.repositories(),
     providerEnv,
     dataDir: config.dataDir,
     cacheDir: config.cacheDir,
@@ -34,6 +50,10 @@ export async function startServer(
     publicUrl: config.publicUrl,
     maxUploadBytes: config.maxUploadBytes,
   });
+  } catch (e) {
+    await db.close().catch(() => undefined);
+    throw e;
+  }
   if (await service.keys.bootstrap(config.bootstrapKey)) {
     if (!opts.quiet) console.log('[reelforge] stored REELFORGE_BOOTSTRAP_KEY as admin key "bootstrap"');
   }
@@ -52,6 +72,7 @@ export async function startServer(
   if (!opts.quiet) {
     console.log(`[reelforge] ReelForge Studio ${SERVER_VERSION} listening on ${url} (data: ${config.dataDir})`);
     console.log(`[reelforge] REST ${url}/v1  MCP ${url}/mcp`);
+    console.log(`[reelforge] database: ${db.kind} ${db.displayUrl}`);
     if ((await service.keys.count()) === 0) {
       console.log('[reelforge] no API keys yet: run `pnpm keys:create --name me` or set REELFORGE_BOOTSTRAP_KEY');
     }
@@ -61,10 +82,14 @@ export async function startServer(
     port,
     service,
     config,
-    close: () =>
-      new Promise<void>((resolve) => {
+    db,
+    close: async () => {
+      await new Promise<void>((resolve) => {
         server.close(() => resolve());
         (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
-      }),
+      });
+      await service.jobs.flush();
+      await db.close();
+    },
   };
 }

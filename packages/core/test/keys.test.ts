@@ -1,13 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { afterAll, describe, expect, it } from 'vitest';
-import { KeyStore, generateKey, hasScope } from '../src/index';
-import { tempDir } from './helpers';
-
-const { dir, cleanup } = tempDir();
-afterAll(cleanup);
+import { describe, expect, it } from 'vitest';
+import { KeyStore, createMemoryRepositories, generateKey, hasScope } from '../src/index';
 
 describe('KeyStore', () => {
-  const keys = new KeyStore(dir);
+  const repo = createMemoryRepositories().keys;
+  const keys = new KeyStore(repo);
 
   it('generates rf_ keys with 256 bits of randomness', () => {
     const k = generateKey();
@@ -18,9 +14,9 @@ describe('KeyStore', () => {
   it('stores only salted hashes and verifies keys', async () => {
     const { key, record } = await keys.create('agent', ['read', 'render']);
     expect(record.scopes).toEqual(['read', 'render']);
-    const onDisk = readFileSync(keys.file, 'utf8');
-    expect(onDisk).not.toContain(key);
-    expect(onDisk).toContain('"hash"');
+    const stored = JSON.stringify(await repo.list());
+    expect(stored).not.toContain(key);
+    expect(stored).toContain('"hash"');
     const auth = await keys.verify(key);
     expect(auth?.name).toBe('agent');
     expect(hasScope(auth!, 'read')).toBe(true);
@@ -42,8 +38,8 @@ describe('KeyStore', () => {
     await expect(keys.create('', ['read'])).rejects.toMatchObject({ code: 'bad_request' });
   });
 
-  it('sees keys created by another process (the CLI) without a restart', async () => {
-    const other = new KeyStore(dir);
+  it('sees keys created by another instance (the CLI) without a restart', async () => {
+    const other = new KeyStore(repo);
     await keys.list(); // warm this instance's cache
     const { key } = await other.create('from-cli', ['read']);
     expect((await keys.verify(key))?.name).toBe('from-cli');
@@ -56,18 +52,16 @@ describe('KeyStore', () => {
   });
 
   it('bootstraps an admin key only when no key exists', async () => {
-    const fresh = tempDir();
-    try {
-      const store = new KeyStore(fresh.dir);
+    const freshRepo = createMemoryRepositories().keys;
+    {
+      const store = new KeyStore(freshRepo);
       const boot = 'rf_bootstrap_key_for_tests_0123456789';
       expect(await store.bootstrap(boot)).toBe(true);
       expect((await store.verify(boot))?.scopes).toEqual(['admin']);
       expect(await store.bootstrap('rf_another_bootstrap_key_0123456789')).toBe(false);
       expect(await store.bootstrap(undefined)).toBe(false);
-      // A fresh instance reads the same file.
-      expect((await new KeyStore(fresh.dir).verify(boot))?.name).toBe('bootstrap');
-    } finally {
-      fresh.cleanup();
+      // A fresh instance reads the same repository.
+      expect((await new KeyStore(freshRepo).verify(boot))?.name).toBe('bootstrap');
     }
   });
 });

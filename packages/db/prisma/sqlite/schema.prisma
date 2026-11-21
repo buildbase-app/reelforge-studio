@@ -1,0 +1,190 @@
+// GENERATED from prisma/base.prisma for sqlite. Do not edit; run `pnpm --filter @reelforge/db schemas`.
+generator client {
+  provider     = "prisma-client"
+  output       = "../../src/generated/sqlite"
+  moduleFormat = "esm"
+  runtime      = "nodejs"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Workspace {
+  id        String   @id
+  name      String
+  createdAt DateTime @default(now())
+
+  projects         Project[]
+  apiKeys          ApiKey[]
+  jobs             Job[]
+  themes           Theme[]
+  providerSettings ProviderSetting[]
+  assets           Asset[]
+  auditLogs        AuditLog[]
+}
+
+/// A project; its manifests live in ProjectVersion (one row per saved version).
+model Project {
+  workspaceId String
+  id          String
+  /// Current version; bumped in the same transaction that inserts the ProjectVersion.
+  version     Int
+  title       String
+  createdAt   DateTime
+  updatedAt   DateTime
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  versions  ProjectVersion[]
+
+  @@id([workspaceId, id])
+  @@index([workspaceId, updatedAt])
+}
+
+model ProjectVersion {
+  workspaceId String
+  projectId   String
+  version     Int
+  /// The manifest (latest schema version) as JSON text.
+  manifest    String
+  createdAt   DateTime
+
+  project Project @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@id([workspaceId, projectId, version])
+}
+
+/// API keys: salted SHA-256 hashes only; the key itself is never stored.
+model ApiKey {
+  id          String    @id
+  workspaceId String
+  name        String
+  /// JSON array of scopes.
+  scopes      String
+  /// First characters of the key (lookup index; not secret on its own).
+  prefix      String
+  salt        String
+  hash        String
+  createdAt   DateTime
+  lastUsedAt  DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([prefix])
+}
+
+model Job {
+  id          String    @id
+  workspaceId String
+  type        String
+  /// queued | running | succeeded | failed | cancelled
+  status      String
+  projectId   String?
+  params      String
+  progress    String
+  result      String?
+  error       String?
+  retryOf     String?
+  createdAt   DateTime
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  events    JobEvent[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, projectId])
+  @@index([status])
+}
+
+/// Status changes and log lines of a job, in order (id is monotonic).
+model JobEvent {
+  id          Int      @id @default(autoincrement())
+  workspaceId String
+  jobId       String
+  at          DateTime
+  /// "status" (message = new status) or "log" (message = the line)
+  type        String
+  message     String
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, id])
+}
+
+/// Operator/agent themes (built-in themes live in code).
+model Theme {
+  workspaceId String
+  id          String
+  definition  String
+  createdAt   DateTime
+  updatedAt   DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, id])
+}
+
+/// Provider settings set through the API (e.g. ELEVENLABS_API_KEY). Values are
+/// never returned by the API. `scheme` says how `value` is stored: "plain"
+/// today; encryption at rest (D-018) adds a scheme without a schema change.
+model ProviderSetting {
+  workspaceId String
+  name        String
+  providerId  String?
+  value       String
+  scheme      String   @default("plain")
+  updatedAt   DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, name])
+}
+
+/// Asset metadata. The bytes are in the storage driver at storageKey.
+model Asset {
+  workspaceId     String
+  id              String
+  sha256          String
+  bytes           BigInt
+  contentType     String
+  mediaType       String
+  storageKey      String
+  source          String
+  originalName    String?
+  license         String?
+  durationSeconds Float?
+  metadata        String?
+  createdAt       DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, id])
+  @@index([workspaceId, createdAt])
+}
+
+/// Audit trail (schema and write helper now; the feature is issue #17).
+model AuditLog {
+  id          String   @id
+  workspaceId String
+  at          DateTime
+  /// "api_key" | "cli" | "system"
+  actorType   String
+  actorId     String?
+  action      String
+  targetType  String?
+  targetId    String?
+  data        String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, at])
+}
+
+/// Instance-wide state (e.g. that the v0.1 filesystem import ran).
+model SystemState {
+  key       String   @id
+  value     String
+  updatedAt DateTime
+}

@@ -12,3 +12,6 @@ data/
 .env.*
 !.env.example
 .claude/settings.local.json
+
+# Prisma tooling placeholder database (packages/db/prisma.config.ts)
+packages/db/tooling.db*

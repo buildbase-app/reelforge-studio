@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AssetStore, fetchRemoteFile, isPrivateAddress, sniffContentType } from '../src/index';
+import { AssetStore, fetchRemoteFile, isPrivateAddress, sniffContentType, createMemoryRepositories } from '../src/index';
 import { makeTone, tempDir } from './helpers';
 
 const { dir, cleanup } = tempDir('reelforge-assets-');
@@ -82,7 +82,8 @@ describe('AssetStore', () => {
   });
   afterAll(() => server.close());
 
-  const store = () => new AssetStore(dir, { maxBytes: 64 * 1024, timeoutMs: 2000, maxRedirects: 2, allowInsecureForTests: true });
+  const repo = createMemoryRepositories().assets;
+  const store = () => new AssetStore(repo, dir, { maxBytes: 64 * 1024, timeoutMs: 2000, maxRedirects: 2, allowInsecureForTests: true });
 
   it('stores uploads content-addressed and deduplicates', async () => {
     const a = await store().put({ data: mp3, source: 'upload', originalName: 'tone.mp3' });
@@ -112,7 +113,7 @@ describe('AssetStore', () => {
   });
 
   it('stops downloads over the size limit', async () => {
-    const small = new AssetStore(dir, { maxBytes: 1000, timeoutMs: 2000, maxRedirects: 0, allowInsecureForTests: true });
+    const small = new AssetStore(repo, dir, { maxBytes: 1000, timeoutMs: 2000, maxRedirects: 0, allowInsecureForTests: true });
     await expect(small.fromUrl(`${base}/big`)).rejects.toMatchObject({ code: 'too_large' });
   });
 });
