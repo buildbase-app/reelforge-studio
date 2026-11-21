@@ -20,13 +20,13 @@
    - once the pilot ends, a Grow/Scale plan;
    - TrustMRR connected to the **same Stripe account** the own store charges. Own-store orders are "charged on your own Stripe account … with no transfer and no fee".
 
-   STATUS says test selling is "blocked on Stripe Connect". Re-test the **own-store** path in the test org before waiting on Connect. Ask BuildBase today to add the production org (`6b01478bb42d2c444e99fcd8`) to the pilot.
+   STATUS says test selling is "blocked on Stripe Connect". Re-test the **own-store** path in the dev environment (`fsyqdskf`) before waiting on Connect. Ask BuildBase today to add the production org (`6b01478bb42d2c444e99fcd8`) to the pilot.
 3. **The BuildBase docs contradict themselves on licence keys.** In https://docs.buildbase.app/billing/orders:
    - the intro lists "files to download and license keys" as deliverable;
    - the same page later says: "**License keys, bundles and transfers are not delivered yet: checkout refuses an option that includes one** (`CHECKOUT_REFUSED`, problem `benefit_not_delivered`)";
    - meanwhile `commerce.licenses.validate/activate/deactivate` exist in the server SDK (https://docs.buildbase.app/server-sdk/commerce).
 
-   **Next step:** test a `license_key` benefit in the test org first. If checkout refuses it, fall back to a `webhook_only` benefit plus our own key issuing on `grant.created`, stored in D1.
+   **Next step:** test a `license_key` benefit in the dev environment first. If checkout refuses it, fall back to a `webhook_only` benefit plus our own key issuing on `grant.created`, stored in D1.
 4. **The positioning has to change to match the delivery model.**
    - **Decided model:** a locked Docker image plus a licence key.
    - **Where the site still assumes source code:** `siteConfig.description`, the hero copy, `llms.txt` and BRIEF §0/§3. Lines such as "you get the source code and the templates" or "templates are code you own" must go.
@@ -277,7 +277,7 @@ The order follows BRIEF §4. Layout specifics:
 | Sign-in (hosted, OAuth server) | Header, `/dashboard`, buy flow | `SaaSOSProvider`, `useSaaSAuth`, `/api/auth/*` routes | Sign-in client exists; add GitHub + Google social (`/authentication/social-providers`), Turnstile bot protection (`/authentication/bot-protection`) | **yes** | S | Developers expect GitHub sign-in |
 | Own-store selling | `/pricing`, home, `/compare` | `usePublishedItems({ seller:{type:'org'} })`, `<BuyButton>`, server `commerce.items.list` | Billing → Credentials (Stripe keys); Selling → Settings → **Your own store** on; item type with "Your own store"; items Solo/Studio/Agency; "Order page" URL = `/order` (needed for receipts) | **code yes, no items** | M | No Connect needed for own store; **live needs the pilot** (`LIVE_SELLING_NOT_ALLOWED`) and later Grow/Scale (`/billing/selling`) |
 | Guest checkout | `/pricing` | `<BuyButton guest={{name,email}}>`, `useOrderByToken`, `orderLinkFromUrl` | Selling → Settings → "Who can buy" → guests | /order handles tokens; pricing forces sign-in | S | Big conversion lever |
-| Orders, order page | `/order`, `/dashboard` | `useMyOrder({waitForPayment})`, `useMyOrders`, `orderDisplayStatus`, `useHoldings` | — | **yes** | — | Verify with a test card in the test org |
+| Orders, order page | `/order`, `/dashboard` | `useMyOrder({waitForPayment})`, `useMyOrders`, `orderDisplayStatus`, `useHoldings` | — | **yes** | — | Verify with a test card in the dev environment |
 | File releases (downloads) | `/order`, `/dashboard/licences` | `<HoldingFiles>`, `useReleases`, `useDownloadFile`; server `commerce.files/releases` | Release series `reelforge`, one release per version (≤ 20 files) | **UI yes** | M | Max file size isn't stated in the docs: **VERIFY** before planning to ship a `docker save` tarball. Alternative: a `link`/`manual` benefit with registry pull instructions plus per-buyer registry tokens issued on `grant.created` |
 | Licence keys | `/order`, `/dashboard/licences`, image activation | `<HoldingKeys>`; server `commerce.licenses.validate/activate/deactivate` | `license_key` benefit (`activationLimit`, `expiresInDays`) | **UI yes** | M | **Docs say "not delivered yet"** (`benefit_not_delivered`). Test first; fallback `webhook_only` + own keys in D1 + `/api/licence/activate` |
 | Coupons | `/pricing` | `<BuyButton coupons>` (renders `<CouponField>`), `couponCode` | Selling → Coupons → New coupon (start/end dates, uses) | no | S | Launch code only with a **real end date**. Lowers hackathon revenue per sale |
@@ -311,7 +311,7 @@ The order follows BRIEF §4. Layout specifics:
 | Deploy hooks | — | — | — | — | — | Only Vercel/Netlify/CF Pages/Render hooks. The store is a Worker deployed by GitHub Actions and reads content at runtime, so no hook is needed |
 | Webhooks | `/api/webhooks/buildbase` (orders), `/api/webhooks/content` | `parseWebhookEvent`, `createNextWebhookHandler` | Settings → Webhooks | **yes** | — | Subscribe content + collection + `order.*`/`grant.*` events |
 | SEO helpers / sitemap | — | `discovery.sitemap.urls` in the agent stack; blog SEO fields | — | — | — | **No SEO or sitemap module**; we build `app/sitemap.ts` ourselves |
-| Environments | Test org instead of the stuck dev env | — | — | (test org) | — | saas-os/os#2737 |
+| Environments | Test site on the production org's `development` environment (`fsyqdskf`), replacing the test org | `NEXT_PUBLIC_BUILDBASE_ENVIRONMENT` | — | (dev env) | — | saas-os/os#2737 (fixed 2026-11-21) |
 
 ---
 
@@ -437,7 +437,7 @@ The order follows BRIEF §4. Layout specifics:
 | Date (2026) | Channel / action | Owner prerequisite |
 | --- | --- | --- |
 | Sat 21 – Sun 22 Nov | Ask BuildBase for live-selling pilot (prod org). Connect TrustMRR to the Stripe account used by the own store. Create X, YouTube and Product Hunt maker accounts; reserve handles. GSC + Bing verification | founder |
-| Mon 23 Nov | Own-store test purchase in the test org (Stripe test card) → `/order` → receipt; licence-key benefit test. First 3 gallery reels rendered and on R2 | Issue 1, 3 |
+| Mon 23 Nov | Own-store test purchase in the dev environment (Stripe test card) → `/order` → receipt; licence-key benefit test. First 3 gallery reels rendered and on R2 | Issue 1, 3 |
 | Tue 24 Nov | X build-in-public thread #1 (the agent → MCP → MP4 loop, with a real reel). First YouTube Short made with ReelForge (daily from here, with descriptions linking to `/gallery/...`) | Issue 3 |
 | Wed 25 Nov | Free directory submissions with long review times: AlternativeTo, SaaSHub, There's An AI For That (free tier), Futurepedia (free), Toolify, DevHunt, Uneed (free queue), MicroLaunch, Peerlist Launchpad, BetaList (slow). Track them in a BB Collection `directories` | positioning copy final |
 | Thu 26 – Sun 29 Nov | (US holiday) Ship homepage v2 + pricing polish + docs quick start. Product Hunt "coming soon" page. Indie Hackers build-log post | Issues 2, 4, 6 |
@@ -521,7 +521,8 @@ The order follows BRIEF §4. Layout specifics:
 
 #### 1. Selling go-live path: own store in Staging, licence-key check, live-selling readiness. **Order 1 · M · deps: none · relates #2 #8**
 **Body:**
-- [ ] In the test org (`6b016b04b42d2c444e9a13b9`) follow https://docs.buildbase.app/billing/selling#turn-it-on for the **own store** only: Stripe test keys saved, "Sell your own items" on, item type with "Your own store". Check whether Connect is really required (the docs say it isn't).
+- [x] Move the test site to the production org's `development` environment (`fsyqdskf`): done 2026-11-21 in store commit 62e9ff3 (sign-in client, webhook, Stripe test keys, Worker secrets; `environmentId` in the routes that call the HTTP API).
+- [ ] In the dev environment (`fsyqdskf`) follow https://docs.buildbase.app/billing/selling#turn-it-on for the **own store** only: Stripe test keys saved, "Sell your own items" on, item type with "Your own store". Check whether Connect is really required (the docs say it isn't).
 - [ ] Create item "ReelForge" with variants Solo/Studio/Agency (founder sets prices; nothing hard-coded in code).
 - [ ] Set "Order page" = `https://reelforge-dev.buildbase.app/order` and connect an email sender, so receipts send.
 - [ ] Turn on guests under "Who can buy".
@@ -639,7 +640,7 @@ The order follows BRIEF §4. Layout specifics:
 **Acceptance criteria:**
 - [ ] Every "Planned" label comes from data.
 - [ ] The calculator shows a SaaS-cheaper scenario at low volume.
-- [ ] A guest can buy without an account (test org) and reach `/order` from the receipt link.
+- [ ] A guest can buy without an account (dev environment) and reach `/order` from the receipt link.
 
 #### 10. Programmatic SEO pages from Collections. **Order 10 · L · deps: 3, 7, 9**
 **Body:**
