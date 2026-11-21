@@ -1,0 +1,45 @@
+# ReelForge Studio on one host. See docs/DEPLOY.md.
+#
+#   export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+#   docker compose up -d --build
+#
+# With TLS (Caddy, automatic HTTPS): set REELFORGE_DOMAIN and
+#   docker compose --profile tls up -d --build
+services:
+  reelforge:
+    build: .
+    image: ${REELFORGE_IMAGE:-reelforge-studio:latest}
+    restart: unless-stopped
+    ports:
+      # Loopback only by default; put a TLS proxy in front for remote agents.
+      - "127.0.0.1:${REELFORGE_PORT:-4321}:4321"
+    environment:
+      REELFORGE_BOOTSTRAP_KEY: ${REELFORGE_BOOTSTRAP_KEY:?set REELFORGE_BOOTSTRAP_KEY (rf_ followed by 20+ random characters)}
+      REELFORGE_PUBLIC_URL: ${REELFORGE_PUBLIC_URL:-}
+      REELFORGE_ALLOWED_HOSTS: ${REELFORGE_ALLOWED_HOSTS:-}
+      REELFORGE_RENDER_CONCURRENCY: ${REELFORGE_RENDER_CONCURRENCY:-1}
+      # Optional providers / backends (leave empty to keep them off):
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+    volumes:
+      - reelforge-data:/data
+    # Chromium needs more shared memory than Docker's 64 MB default.
+    shm_size: 1gb
+
+  caddy:
+    profiles: ["tls"]
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      REELFORGE_DOMAIN: ${REELFORGE_DOMAIN:-localhost}
+    volumes:
+      - ./deployment/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - reelforge
+
+volumes:
+  reelforge-data:
+  caddy-data:

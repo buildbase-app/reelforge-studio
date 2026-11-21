@@ -1,0 +1,53 @@
+# Privacy and network egress
+
+**ReelForge Studio has no telemetry.** It does not phone home, collect
+analytics, check for updates or report errors anywhere. Projects, assets,
+renders, logs and keys stay in the operator's data directory.
+
+Below is every network connection the software can make, when, and how to
+avoid it. Checked against the code and dependencies on 2026-11-21. If you
+find another one, it is a bug: please report it.
+
+## At install / build time
+
+| Destination | When | Why | Avoid by |
+| --- | --- | --- | --- |
+| `registry.npmjs.org` | `pnpm install`, `corepack` fetching pnpm | Dependencies | A private npm mirror |
+| Docker Hub (`registry-1.docker.io`) | `docker build` | `node:22-bookworm-slim` base image | `--build-arg BASE_IMAGE=<mirror>` |
+| `deb.debian.org` | `docker build` | FFmpeg, fonts, Chrome's system libraries | An apt mirror |
+| `remotion.media` | `docker build` (Remotion `ensureBrowser()`) | Chrome Headless Shell download | Copy a browser into the image and set `REELFORGE_CHROMIUM_PATH` |
+| `cdn.playwright.dev` | CI, or if you run `playwright-core install chromium-headless-shell` | Chrome Headless Shell download | Same as above |
+
+## At run time
+
+| Destination | When | Why | Control |
+| --- | --- | --- | --- |
+| None | Default | Rendering, validation and storage are local | — |
+| The URL an agent passes to `add_asset_from_url` / `POST /v1/assets {url}` | Only on that call | Import an asset | https only, private/loopback/link-local addresses refused (checked at connect time), size and type limits. Restrict by not granting `write` |
+| `api.elevenlabs.io` | Only when `ELEVENLABS_API_KEY` is set **and** an agent calls `generate_voice` / `run_provider` with `acknowledgeCost: true` | Text-to-speech. Sends the text, voice id and model id with the operator's key | Leave `ELEVENLABS_API_KEY` unset. Identical requests are served from the local cache |
+| Remotion browser download (`remotion.media`) | Never in the server: the Remotion engine refuses to render without `REELFORGE_CHROMIUM_PATH` instead of downloading. The standalone `pnpm spike` script lets Remotion download its pinned browser if the variable is unset | Chrome Headless Shell | Set `REELFORGE_CHROMIUM_PATH` |
+| Remotion licence usage events (`www.remotion.pro`) | Never today: ReelForge does not pass a `licenseKey` to `renderMedia()`, and Remotion only sends usage events when one is given (checked in `@remotion/renderer` 4.0.545, `render-media.js`). If a future version adds a licence-key setting, every render will send a usage event to Remotion | Remotion's usage-based licensing | — |
+| HyperFrames telemetry (`us.i.posthog.com`) and update checks | Never: the HyperFrames CLI has opt-out telemetry; ReelForge always runs it with `HYPERFRAMES_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, `HYPERFRAMES_NO_UPDATE_CHECK=1`, `HYPERFRAMES_NO_AUTO_INSTALL=1`, `HYPERFRAMES_SKIP_SKILLS=1` and a filtered environment (no provider keys) | — | Tested: env construction in `packages/engine-hyperframes/test`. Network silence of the CLI itself is not independently verified |
+| Remotion Lambda (AWS) | Never in v0.1: the backend only checks its configuration and refuses to render | — | — |
+
+## Inside renders
+
+Scene code never reaches the network:
+
+- **html engine:** agent HTML runs in a Content-Security-Policy shell that
+  blocks scripts and every non-`data:` resource; the browser context is
+  offline and every request except `data:` is aborted.
+- **hyperframes engine:** a CSP allows only the renderer's own local file
+  server and `data:`/`blob:` URLs; external `<script src>` is rejected; files
+  outside the scene folder are refused.
+- **Remotion and Motion Canvas:** built-in templates only (no agent code);
+  they load their bundles from a local server on 127.0.0.1.
+
+## Secrets
+
+- API keys are stored as salted SHA-256 hashes in `keys.json`; the plain key
+  is shown once.
+- Provider keys come from environment variables. They are never written to
+  manifests, render manifests, job logs or API responses, and the HyperFrames
+  child process does not receive them.
+- Logs contain project ids, scene ids and tool output, not request bodies.
