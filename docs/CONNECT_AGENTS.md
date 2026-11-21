@@ -102,7 +102,18 @@ of those host names. A `403 forbidden_host` means: set `REELFORGE_PUBLIC_URL`.
    `add_asset_from_url`, `generate_voice` (asks for `acknowledgeCost`).
 5. `validate_project` until `ok: true`.
 6. `render_project` → poll `get_job` every few seconds → `get_render_output`
-   (download URL, poster image, checks).
+   (poster image, checks, `outputUrl` that needs the Bearer key, and
+   `downloadUrl`: a signed link to the MP4 that works without a key for about
+   an hour, for the user's browser or `curl`).
+
+An agent with no other documentation can read the MCP resource
+`reelforge://guide/workflow` (or use the prompt `make_reel`): the whole
+workflow, a minimal valid manifest and rules of thumb.
+
+Admin agents (key with the `admin` scope) can also manage keys
+(`create_key`, `list_keys`, `delete_key`) and provider settings
+(`list_providers` shows which settings are set and where from, never values;
+`configure_provider` sets or clears them, e.g. `ELEVENLABS_API_KEY`).
 
 Errors come back as `{ "error": { "code", "message", "details" } }`, in REST
 bodies and in MCP tool results (`isError: true`). Validation errors list every

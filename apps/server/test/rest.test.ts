@@ -14,16 +14,18 @@ let service: ReelforgeService;
 let admin: string;
 let reader: string;
 let config: ServerConfig;
+let providerEnv: NodeJS.ProcessEnv;
 
 beforeAll(async () => {
   await makeTone(join(dir, 'tone.mp3'), 2);
+  providerEnv = {};
   const registry = new PluginRegistry()
     .registerEngine(fakeEngine('remotion'))
     .registerEngine(fakeEngine('motion-canvas'))
-    .registerProvider(new ElevenLabsTts({}))
+    .registerProvider(new ElevenLabsTts(providerEnv))
     .registerBackend(new RemotionLambdaBackend({}));
   config = { ...loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_PUBLIC_URL: 'https://studio.example.com' }), maxJsonBytes: 64 * 1024 };
-  service = await ReelforgeService.create(registry, { dataDir: config.dataDir, publicUrl: config.publicUrl });
+  service = await ReelforgeService.create(registry, { dataDir: config.dataDir, publicUrl: config.publicUrl, providerEnv });
   admin = (await service.keys.create('admin', ['admin'])).key;
   reader = (await service.keys.create('reader', ['read'])).key;
   app = createApp({ service, config });
@@ -228,6 +230,18 @@ describe('REST v1', () => {
     const part = await req('GET', `/v1/renders/${renderId}/output`, { headers: { range: 'bytes=0-99' } });
     expect(part.status).toBe(206);
     expect((await part.arrayBuffer()).byteLength).toBe(100);
+    // Signed link: works without a key, only for that file, only until it expires.
+    const signed = new URL(done.result.downloadUrl);
+    expect(signed.searchParams.get('sig')).toBeTruthy();
+    const viaLink = await req('GET', signed.pathname + signed.search, { key: null });
+    expect(viaLink.status).toBe(200);
+    expect(viaLink.headers.get('content-type')).toBe('video/mp4');
+    const tampered = new URL(signed);
+    tampered.searchParams.set('file', 'render-manifest.json');
+    expect((await req('GET', tampered.pathname + tampered.search, { key: null })).status).toBe(401);
+    tampered.searchParams.delete('file');
+    tampered.searchParams.set('expires', String(Number(signed.searchParams.get('expires')) + 1));
+    expect((await req('GET', tampered.pathname + tampered.search, { key: null })).status).toBe(401);
     const manifest = (await (await req('GET', `/v1/renders/${renderId}/output?file=render-manifest.json`)).json()) as any;
     expect(manifest.audio.music.asset).toBe('music');
     expect((await req('GET', `/v1/renders/${renderId}/output?file=../../keys.json`)).status).toBe(400);
@@ -240,6 +254,35 @@ describe('REST v1', () => {
     const tts = await req('POST', '/v1/providers/elevenlabs/run', { body: { params: { text: 'Hi', voiceId: 'abc' } } });
     expect(tts.status).toBe(409);
     expect(((await tts.json()) as any).error.code).toBe('provider_not_configured');
+  });
+
+  it('configures providers over the API without ever returning key values (admin only)', async () => {
+    const before = (await (await req('GET', '/v1/providers')).json()) as any;
+    expect(before.providers[0]).toMatchObject({ id: 'elevenlabs', configured: false, settings: [{ name: 'ELEVENLABS_API_KEY', set: false, source: 'unset' }] });
+    expect((await req('PUT', '/v1/providers/elevenlabs/config', { key: reader, body: { values: { ELEVENLABS_API_KEY: 'sk_secret_value_123' } } })).status).toBe(403);
+    expect((await req('PUT', '/v1/providers/elevenlabs/config', { body: { values: { OTHER: 'x' } } })).status).toBe(400);
+    const set = await req('PUT', '/v1/providers/elevenlabs/config', { body: { values: { ELEVENLABS_API_KEY: 'sk_secret_value_123' } } });
+    expect(set.status).toBe(200);
+    const setText = await set.text();
+    expect(setText).not.toContain('sk_secret_value_123');
+    expect(JSON.parse(setText)).toMatchObject({ configured: true, settings: [{ name: 'ELEVENLABS_API_KEY', set: true, source: 'api' }] });
+    for (const path of ['/v1/providers', '/v1/capabilities']) expect(await (await req('GET', path)).text()).not.toContain('sk_secret_value_123');
+    const { statSync } = await import('node:fs');
+    expect(statSync(join(config.dataDir, 'secrets.json')).mode & 0o777).toBe(0o600);
+    // The provider is now configured: the call stops at the cost acknowledgement, not at configuration.
+    const tts = await req('POST', '/v1/providers/elevenlabs/run', { body: { params: { text: 'Hi', voiceId: 'abc' } } });
+    expect(((await tts.json()) as any).error.code).toBe('cost_acknowledgement_required');
+    const cleared = (await (await req('PUT', '/v1/providers/elevenlabs/config', { body: { values: { ELEVENLABS_API_KEY: null } } })).json()) as any;
+    expect(cleared).toMatchObject({ configured: false, settings: [{ set: false, source: 'unset' }] });
+  });
+
+  it('reads the bootstrap key from REELFORGE_BOOTSTRAP_KEY_FILE', async () => {
+    const { writeFileSync } = await import('node:fs');
+    const f = join(dir, 'bootstrap.key');
+    writeFileSync(f, 'rf_from_a_file_0123456789abcdef\n');
+    expect(loadConfig({ REELFORGE_BOOTSTRAP_KEY_FILE: f }).bootstrapKey).toBe('rf_from_a_file_0123456789abcdef');
+    expect(loadConfig({ REELFORGE_BOOTSTRAP_KEY: 'rf_env_wins_0123456789abcdef', REELFORGE_BOOTSTRAP_KEY_FILE: f }).bootstrapKey).toBe('rf_env_wins_0123456789abcdef');
+    expect(() => loadConfig({ REELFORGE_BOOTSTRAP_KEY_FILE: join(dir, 'missing') })).toThrow(/BOOTSTRAP_KEY_FILE/);
   });
 
   it('cancels a job', async () => {

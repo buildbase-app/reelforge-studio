@@ -4,7 +4,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PluginRegistry, RemotionLambdaBackend, ElevenLabsTts } from '@reelforge/core';
-import { TOOLS, startServer, type StartedServer } from '../src/index';
+import { TOOLS, WORKFLOW_GUIDE, startServer, type StartedServer } from '../src/index';
+import { parseProject } from '@reelforge/project-schema';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 
 /** MCP over real HTTP with the official SDK client; fake engines so it runs without a browser. */
@@ -102,7 +103,11 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
     const project = await client.readResource({ uri: 'reelforge://projects/sample-reel' });
     expect(JSON.parse((project.contents[0] as any).text).manifest.projectId).toBe('sample-reel');
     const { prompts } = await client.listPrompts();
-    expect(prompts.map((p) => p.name).sort()).toEqual(['plan_reel', 'review_reel']);
+    expect(prompts.map((p) => p.name).sort()).toEqual(['make_reel', 'plan_reel', 'review_reel']);
+    const guide = await client.readResource({ uri: 'reelforge://guide/workflow' });
+    expect((guide.contents[0] as any).text).toContain('render_project');
+    const make = await client.getPrompt({ name: 'make_reel', arguments: { topic: 'a bakery opening' } });
+    expect((make.messages[0]!.content as any).text).toContain('a bakery opening');
     const plan = await client.getPrompt({ name: 'plan_reel', arguments: { brief: 'Launch of a coffee app', targetSeconds: '12' } });
     expect((plan.messages[0]!.content as any).text).toContain('kinetic-title');
     const review = await client.getPrompt({ name: 'review_reel', arguments: { projectId: 'sample-reel' } });
@@ -117,5 +122,13 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     });
     expect(r.status).toBe(401);
+  });
+});
+
+describe('workflow guide', () => {
+  it('contains a minimal manifest that is valid as written', () => {
+    const json = WORKFLOW_GUIDE.split('## Minimal manifest\n')[1]!.split('\n\n## ')[0]!;
+    const r = parseProject(JSON.parse(json));
+    expect(r.ok, JSON.stringify(!r.ok && r.issues)).toBe(true);
   });
 });

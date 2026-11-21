@@ -1,7 +1,9 @@
 # ReelForge Studio on one host. See docs/DEPLOY.md.
 #
-#   export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+#   export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)   # first admin key (optional)
 #   docker compose up -d --build
+#   # or, without a bootstrap key, create the first key with the CLI:
+#   docker compose exec reelforge reelforge keys create --name admin --scopes admin
 #
 # With TLS (Caddy, automatic HTTPS): set REELFORGE_DOMAIN and
 #   docker compose --profile tls up -d --build
@@ -14,7 +16,8 @@ services:
       # Loopback only by default; put a TLS proxy in front for remote agents.
       - "127.0.0.1:${REELFORGE_PORT:-4321}:4321"
     environment:
-      REELFORGE_BOOTSTRAP_KEY: ${REELFORGE_BOOTSTRAP_KEY:?set REELFORGE_BOOTSTRAP_KEY (rf_ followed by 20+ random characters)}
+      # rf_ followed by 20+ URL-safe characters; stored hashed on first start if no key exists.
+      REELFORGE_BOOTSTRAP_KEY: ${REELFORGE_BOOTSTRAP_KEY:-}
       REELFORGE_PUBLIC_URL: ${REELFORGE_PUBLIC_URL:-}
       REELFORGE_ALLOWED_HOSTS: ${REELFORGE_ALLOWED_HOSTS:-}
       REELFORGE_RENDER_CONCURRENCY: ${REELFORGE_RENDER_CONCURRENCY:-1}

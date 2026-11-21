@@ -21,7 +21,8 @@ behaviour, marked VERIFY), macOS, Windows, ARM.
 | `REELFORGE_PORT` | `4321` | Port (`0` picks a free one) |
 | `REELFORGE_PUBLIC_URL` | (none) | `https://studio.example.com`: used in output links and allowed as Host on `/mcp` |
 | `REELFORGE_ALLOWED_HOSTS` | (none) | Extra comma-separated host names accepted on `/mcp` |
-| `REELFORGE_BOOTSTRAP_KEY` | (none) | `rf_` + 20 or more URL-safe characters. Stored as an admin key on first start if no key exists |
+| `REELFORGE_BOOTSTRAP_KEY` | (none) | `rf_` + 20 or more URL-safe characters. Stored (hashed) as an admin key named `bootstrap` on first start if no key exists |
+| `REELFORGE_BOOTSTRAP_KEY_FILE` | (none) | Same, read from a file (Docker/Kubernetes secrets). The variable wins if both are set |
 | `REELFORGE_CHROMIUM_PATH` | (none; set in Docker) | Chrome Headless Shell binary used by every engine |
 | `REELFORGE_CHROMIUM_NO_SANDBOX` | (unset; `1` in Docker) | Turn Chromium's own sandbox off (containers) |
 | `REELFORGE_RENDER_CONCURRENCY` | `1` | Renders at the same time. Each uses several CPU cores and 1-2 GB RAM |
@@ -29,12 +30,23 @@ behaviour, marked VERIFY), macOS, Windows, ARM.
 | `REELFORGE_MAX_UPLOAD_BYTES` | `209715200` | Asset upload / URL import limit |
 | `REELFORGE_CACHE_DIR` | `<data>/cache` | Engine bundle cache |
 | `FFMPEG_PATH`, `FFPROBE_PATH` | `ffmpeg`, `ffprobe` on PATH | System FFmpeg (6.1 and 5.1.9 tested) |
-| `ELEVENLABS_API_KEY` | (none) | Enables the ElevenLabs TTS provider |
+| `ELEVENLABS_API_KEY` | (none) | Enables the ElevenLabs TTS provider. Can also be set by an admin agent with `configure_provider` / `PUT /v1/providers/elevenlabs/config` (stored in `<data>/secrets.json`, mode 0600, never returned) |
 | `REMOTION_LAMBDA_REGION`, `REMOTION_LAMBDA_FUNCTION_NAME`, `REMOTION_LAMBDA_SERVE_URL` | (none) | Marks the remotion-lambda backend configured. Rendering on it is **not implemented in v0.1** |
 
-Keys: `pnpm keys:create --name agent --scopes read,write,render` (prints the key
-once), or `POST /v1/keys` with an admin key. Scopes: `read`, `write`, `render`,
-`admin` (implies all).
+### The first key, then everything from the agent
+
+The only step outside an agent is the first admin key. Either:
+
+- set `REELFORGE_BOOTSTRAP_KEY` (or `REELFORGE_BOOTSTRAP_KEY_FILE`) before the
+  first start: `export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)`; or
+- run the CLI: `pnpm keys:create --name admin --scopes admin` (Docker:
+  `docker exec <container> reelforge keys create --name admin --scopes admin`).
+  The running server picks up CLI-created keys without a restart.
+
+After that an agent with the admin key can create, list and revoke keys
+(`create_key`/`list_keys`/`delete_key`, `/v1/keys`), configure providers, and
+do everything else. Give day-to-day agents a key without `admin`
+(`read,write,render`). Scopes: `read`, `write`, `render`, `admin` (implies all).
 
 ## 1. Local (pnpm)
 
@@ -58,7 +70,7 @@ docker run -d --name reelforge -p 127.0.0.1:4321:4321 --shm-size=1g \
   -v reelforge-data:/data \
   -e REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) \
   reelforge-studio
-docker exec reelforge node_modules/.bin/tsx apps/server/src/cli.ts keys create --name agent
+docker exec reelforge reelforge keys create --name agent   # a non-admin key for the agent
 ```
 
 The image: `node:22-bookworm-slim`, Debian bookworm's FFmpeg 5.1.9 (the
@@ -69,15 +81,27 @@ non-root user `reelforge` (uid 10001), data in the `/data` volume, `HEALTHCHECK`
 on `/healthz`, `tini` as PID 1. About 2.4 GB.
 
 Building needs network access to Docker Hub, `deb.debian.org`,
-`registry.npmjs.org` and `remotion.media` (Chrome download). Behind a proxy
-with its own CA, build `FROM` a copy of the base image that trusts the CA and
-pass it with `--build-arg BASE_IMAGE=...`.
+`registry.npmjs.org` and `remotion.media` (Chrome download). **Running needs
+none**: a container started with `--network none` rendered a four-engine
+project (Remotion, Motion Canvas, html, HyperFrames) to a valid MP4 here.
+
+Behind an HTTPS proxy that re-signs TLS, pass the proxy and its CA (the CA is a
+build secret, not stored in the image):
+
+```bash
+docker build --network host \
+  --build-arg HTTPS_PROXY=$HTTPS_PROXY --build-arg NO_PROXY=$NO_PROXY \
+  --secret id=extra_ca,src=/path/to/proxy-ca.crt \
+  -t reelforge-studio .
+```
 
 `docker compose`:
 
 ```bash
-export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)   # optional, see "The first key"
 docker compose up -d --build
+docker compose ps                                          # reelforge ... (healthy)
+# Tested here with a prebuilt image: REELFORGE_IMAGE=reelforge-studio:latest docker compose up -d --no-build
 ```
 
 ## 3. VPS with Caddy (automatic HTTPS)

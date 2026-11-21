@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import { mkdir, readdir, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { resolveTools, toolVersion, type Tools } from '@reelforge/media-pipeline';
 import {
@@ -28,6 +28,7 @@ import { applyMergePatch, isPlainObject } from './mergePatch';
 import type { BackendContext, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
 import { PluginRegistry } from './registry';
 import { runRenderPipeline } from './render';
+import { SecretStore, UrlSigner } from './secrets';
 import { ProjectStore } from './store';
 import { ThemeStore } from './themes';
 
@@ -45,6 +46,22 @@ export interface ServiceConfig {
   allowInsecureFetchForTests?: boolean;
   /** fetch used by providers (injectable for tests). */
   fetch?: typeof fetch;
+  /**
+   * The environment object the providers were constructed with. Settings
+   * stored through configure_provider are written into it, so providers see
+   * them immediately. Defaults to a copy of process.env (then API-set keys
+   * only reach providers that read this object).
+   */
+  providerEnv?: NodeJS.ProcessEnv;
+  /** Lifetime of signed download links, seconds. Default 3600. */
+  signedUrlTtlSeconds?: number;
+}
+
+export interface ProviderSetting {
+  name: string;
+  set: boolean;
+  /** Where the value comes from; the value itself is never returned. */
+  source: 'api' | 'env' | 'unset';
 }
 
 export interface ValidationReport {
@@ -74,9 +91,13 @@ export interface RenderSummary {
   height: number;
   fps: number;
   files: string[];
+  /** Needs `Authorization: Bearer <key>`. */
   outputUrl: string;
   posterUrl: string;
   manifestUrl: string;
+  /** Works without a key until downloadUrlExpiresAt (signed, read-only, this file only). */
+  downloadUrl: string;
+  downloadUrlExpiresAt: string;
 }
 
 const DEFAULT_MAX_UPLOAD = 200 * 1024 * 1024;
@@ -95,6 +116,10 @@ export class ReelforgeService {
   readonly jobs: JobRunner;
   readonly serverVersion: string;
   readonly publicUrl: string;
+  readonly secrets: SecretStore;
+  readonly signer: UrlSigner;
+  readonly providerEnv: NodeJS.ProcessEnv;
+  private readonly baseEnv: NodeJS.ProcessEnv;
   private toolsCache: Tools | null = null;
   private renderIndex = new Map<string, string>();
   private readonly fetchImpl: typeof fetch;
@@ -117,6 +142,10 @@ export class ReelforgeService {
     this.serverVersion = config.serverVersion ?? '0.1.0';
     this.publicUrl = (config.publicUrl ?? '').replace(/\/+$/, '');
     this.fetchImpl = config.fetch ?? fetch;
+    this.providerEnv = config.providerEnv ?? { ...process.env };
+    this.baseEnv = { ...this.providerEnv };
+    this.secrets = new SecretStore(this.dataDir);
+    this.signer = new UrlSigner(this.dataDir);
     this.jobs = new JobRunner({
       dataDir: this.dataDir,
       concurrency: config.renderConcurrency ?? 1,
@@ -129,7 +158,10 @@ export class ReelforgeService {
 
   static async create(registry: PluginRegistry, config: ServiceConfig): Promise<ReelforgeService> {
     const s = new ReelforgeService(registry, config);
+    await mkdir(s.dataDir, { recursive: true });
     await s.jobs.init();
+    await s.signer.init();
+    Object.assign(s.providerEnv, await s.secrets.load());
     return s;
   }
 
@@ -167,14 +199,7 @@ export class ReelforgeService {
         };
       }),
       templates: this.registry.templateInfos().map(({ propsSchema: _p, ...t }) => t),
-      providers: this.registry.listProviders().map((p) => ({
-        id: p.id,
-        kind: p.kind,
-        displayName: p.displayName,
-        configured: p.configured(),
-        costNote: p.costNote,
-        env: p.env,
-      })),
+      providers: this.listProviders(),
       backends: this.registry.listBackends().map((b) => ({
         id: b.id,
         displayName: b.displayName,
@@ -642,7 +667,19 @@ export class ReelforgeService {
       outputUrl: this.url(base),
       posterUrl: this.url(`${base}?file=poster.png`),
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
+      ...this.signedDownload(runId),
     };
+  }
+
+  /** A time-limited link to one render file that needs no API key. */
+  signedDownload(runId: string, file = 'final.mp4', ttlSeconds = this.config.signedUrlTtlSeconds ?? 3600) {
+    const { expires, sig } = this.signer.sign([runId, file], ttlSeconds);
+    const q = new URLSearchParams({ ...(file !== 'final.mp4' ? { file } : {}), expires: String(expires), sig });
+    return { downloadUrl: this.url(`/v1/renders/${runId}/output?${q}`), downloadUrlExpiresAt: new Date(expires * 1000).toISOString() };
+  }
+
+  verifySignedDownload(runId: string, file: string, expires: number, sig: string): boolean {
+    return this.signer.verify([runId, file], expires, sig);
   }
 
   async getRenderManifest(runId: string): Promise<unknown> {
@@ -800,6 +837,50 @@ export class ReelforgeService {
       costNote: provider.costNote,
       ...(projectAssetId ? { projectAssetId } : {}),
     };
+  }
+
+  /** Providers, whether they are configured, and which settings are set (never their values). */
+  listProviders() {
+    return this.registry.listProviders().map((p) => ({
+      id: p.id,
+      kind: p.kind,
+      displayName: p.displayName,
+      configured: p.configured(),
+      costNote: p.costNote,
+      env: p.env,
+      settings: p.env.map((name): ProviderSetting => {
+        if (this.secrets.has(name)) return { name, set: true, source: 'api' };
+        if (this.baseEnv[name]) return { name, set: true, source: 'env' };
+        return { name, set: false, source: 'unset' };
+      }),
+    }));
+  }
+
+  /**
+   * Set or clear provider settings (admin). Only the names the provider
+   * declares are accepted. API-set values override environment variables;
+   * clearing one falls back to the environment variable, if any.
+   */
+  async configureProvider(providerId: string, values: unknown) {
+    const provider = this.registry.provider(providerId);
+    if (!isPlainObject(values) || Object.keys(values).length === 0) {
+      throw badRequest(`values must be an object of settings, e.g. { "${provider.env[0] ?? 'NAME'}": "..." } (null clears one)`);
+    }
+    const changes: Record<string, string | null> = {};
+    for (const [name, v] of Object.entries(values)) {
+      if (!provider.env.includes(name)) throw badRequest(`provider "${providerId}" has no setting "${name}"; settings: ${provider.env.join(', ')}`);
+      if (v === null) changes[name] = null;
+      else if (typeof v === 'string' && v.length > 0 && v.length <= 1000 && !/[\r\n]/.test(v)) changes[name] = v;
+      else throw badRequest(`${name} must be a non-empty single-line string (max 1000 characters) or null`);
+    }
+    await this.secrets.set(changes);
+    for (const [name, v] of Object.entries(changes)) {
+      if (v === null) {
+        if (this.baseEnv[name] !== undefined) this.providerEnv[name] = this.baseEnv[name];
+        else delete this.providerEnv[name];
+      } else this.providerEnv[name] = v;
+    }
+    return this.listProviders().find((p) => p.id === providerId)!;
   }
 
   // ---- keys -----------------------------------------------------------------

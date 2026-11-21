@@ -23,7 +23,10 @@ export async function startServer(
 ): Promise<StartedServer> {
   const config = { ...loadConfig(opts.env ?? process.env), ...overrides };
   await mkdir(config.dataDir, { recursive: true });
-  const service = await ReelforgeService.create(opts.registry ?? createDefaultRegistry(opts.env ?? process.env), {
+  // Providers read their keys from this object; keys set through the API are written into it.
+  const providerEnv: NodeJS.ProcessEnv = { ...(opts.env ?? process.env) };
+  const service = await ReelforgeService.create(opts.registry ?? createDefaultRegistry(providerEnv), {
+    providerEnv,
     dataDir: config.dataDir,
     cacheDir: config.cacheDir,
     renderConcurrency: config.renderConcurrency,
@@ -38,6 +41,11 @@ export async function startServer(
   const server: ServerType = await new Promise((resolve) => {
     const s = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, () => resolve(s));
   });
+  // Agents poll with keep-alive connections; a short server keep-alive races with
+  // their next request (ECONNRESET) while a render keeps the event loop busy.
+  const http = server as unknown as { keepAliveTimeout: number; headersTimeout: number };
+  http.keepAliveTimeout = 65_000;
+  http.headersTimeout = 66_000;
   const port = (server.address() as AddressInfo).port;
   const shownHost = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
   const url = `http://${shownHost.includes(':') ? `[${shownHost}]` : shownHost}:${port}`;

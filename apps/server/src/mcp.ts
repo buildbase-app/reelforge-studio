@@ -331,7 +331,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_render_output',
     title: 'Get a render output',
     description:
-      'Returns the output of a finished render: download URL of the MP4 (needs the same Bearer key), poster and render-manifest URLs, size, fps, frame count and duration. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG of the first frame.',
+      'Returns the output of a finished render: downloadUrl (a signed link to the MP4 that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG of the first frame so you can look at it.',
     scope: 'read',
     input: { renderId: z.string().optional(), jobId: z.string().optional(), includePoster: z.boolean().optional() },
     annotations: { readOnlyHint: true },
@@ -462,7 +462,19 @@ export const TOOLS: ToolDef[] = [
     scope: 'read',
     input: {},
     annotations: { readOnlyHint: true },
-    run: async (_a, { service }) => ({ providers: service.capabilities().providers }),
+    run: async (_a, { service }) => ({ providers: service.listProviders() }),
+  },
+  {
+    name: 'configure_provider',
+    title: 'Configure a media provider (admin)',
+    description:
+      'Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider\'s setting names). Values are stored on the server (file mode 0600) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the admin scope. Only do this with a key the user gave you for this purpose.',
+    scope: 'admin',
+    input: {
+      providerId: z.string(),
+      values: z.record(z.string(), z.string().nullable()).describe('Setting name -> value, or null to clear.'),
+    },
+    run: async (a, { service }) => service.configureProvider(a.providerId, a.values),
   },
   {
     name: 'run_provider',
@@ -514,6 +526,63 @@ export const TOOLS: ToolDef[] = [
   },
 ];
 
+/** Served as the resource reelforge://guide/workflow and inside the make_reel prompt. */
+export const WORKFLOW_GUIDE = `# ReelForge Studio: making a reel with MCP tools only
+
+You decide the scenes; the server validates, renders and checks. Everything is
+done with tools; there is no UI.
+
+## Steps
+1. get_capabilities: engines that can render here (available: true), templates,
+   themes, providers (configured? cost?), limits (fps 24/25/30/60, max 180 s).
+2. list_templates: props JSON Schema, duration range (seconds) and theme tokens
+   of each template. list_themes: built-in "default", "midnight" and custom ones.
+3. create_project with a manifest (minimal example below). Errors come back as
+   { error: { code: "invalid_manifest", details: { issues: [{ path, message }] } } };
+   fix every issue and call again.
+4. Edit: add_scene / update_scene (JSON merge patch) / remove_scene /
+   reorder_scenes. Timing per scene: durationSeconds (rounded to frames) or
+   durationFrames. Scenes play back to back with hard cuts. Every edit returns
+   "timing" (start frame and duration of every scene).
+5. Look: set_theme ("midnight" or { base, tokens: { colors: { accent: "#ff8800" } } }),
+   create_theme for a brand.
+6. Sound (optional): add_asset_from_url or upload_asset (base64) with licence
+   metadata, then set_audio { music: { asset, volume } }. generate_voice needs a
+   configured TTS provider and acknowledgeCost: true after the user agreed.
+7. validate_project until ok: true (warnings are fine but read them).
+8. Optional quick look: preview_scene (low resolution), then get_render_output.
+9. render_project -> poll get_job every 3-5 s until succeeded/failed ->
+   get_render_output. Give the user downloadUrl (works without a key for ~1 h).
+   If it failed: get_job_logs, fix, render again (or retry_job).
+
+## Minimal manifest
+{
+  "schemaVersion": "0.2",
+  "projectId": "my-reel",
+  "title": "My reel",
+  "theme": "midnight",
+  "output": { "width": 1080, "height": 1920, "fps": 30, "format": "mp4" },
+  "scenes": [
+    { "id": "hook", "engine": "remotion", "template": "kinetic-title", "durationSeconds": 3,
+      "props": { "headline": "Make reels with agents", "subline": "Self-hosted" } },
+    { "id": "steps", "engine": "motion-canvas", "template": "animated-explainer", "durationSeconds": 5,
+      "props": { "title": "How it works", "points": ["Plan", "Render", "Post"] } },
+    { "id": "card", "engine": "html", "html": "<h1 class='t'>Your own HTML</h1>",
+      "css": ".t{color:var(--rf-accent);font-size:120px;margin:40%  8%;animation:in .6s both}@keyframes in{from{opacity:0}}",
+      "durationSeconds": 2 }
+  ]
+}
+
+## Rules of thumb
+- Open with a hook; about 3 words per second of on-screen text.
+- Use only engines with available: true; never invent templates or props.
+- html/hyperframes scenes have no network: inline everything (data: URLs);
+  CSS animations and the Web Animations API are seeked frame by frame. Theme
+  tokens are CSS variables: --rf-bg, --rf-text, --rf-muted, --rf-accent,
+  --rf-accent2, --rf-font, --rf-unit (1% of the width).
+- Ask the user before anything that costs money (providers) or deletes data.
+`;
+
 const DELIVERY_CHECKLIST = [
   'Size and frame rate match the target platform (default 1080x1920 at 30 fps).',
   'The first frame is not empty (platforms use it as a thumbnail).',
@@ -532,7 +601,8 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
     {
       instructions:
         'ReelForge Studio renders short vertical videos from a JSON manifest. You decide the scenes; the server validates, renders and checks. ' +
-        'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output. ' +
+        'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
+        'Full guide with a minimal manifest: resource reelforge://guide/workflow or prompt make_reel. ' +
         'Tools are experimental until v1.0.',
     }
   );
@@ -602,6 +672,33 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
       const p = await service.getProject(id);
       return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(p, null, 2) }] };
     }
+  );
+
+  server.registerResource(
+    'workflow-guide',
+    'reelforge://guide/workflow',
+    { title: 'How to make a reel with these tools', description: 'Step-by-step workflow, a minimal manifest and rules of thumb. Read this first if you have no other docs.', mimeType: 'text/markdown' },
+    async (uri) => ({ contents: [{ uri: uri.href, mimeType: 'text/markdown', text: WORKFLOW_GUIDE }] })
+  );
+
+  server.registerPrompt(
+    'make_reel',
+    {
+      title: 'Make a reel end to end',
+      description: 'The full workflow (discover, create, edit, validate, render, deliver) for a topic, using only these tools.',
+      argsSchema: { topic: z.string().describe('What the reel is about and who it is for.') },
+    },
+    async ({ topic }) => ({
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Make a short vertical reel about: ${topic}\n\nFollow this guide exactly, using only the ReelForge tools. Show me the scene list with timings before rendering, and give me the downloadUrl at the end.\n\n${WORKFLOW_GUIDE}`,
+          },
+        },
+      ],
+    })
   );
 
   server.registerPrompt(
@@ -695,8 +792,8 @@ export function serverCard(service: ReelforgeService, config: ServerConfig) {
     status: 'experimental',
     schemaVersion: SCHEMA_VERSION,
     tools: TOOLS.map((t) => ({ name: t.name, title: t.title, scope: t.scope, status: 'experimental' })),
-    resources: ['reelforge://schema/project', 'reelforge://templates', 'reelforge://projects/{id}'],
-    prompts: ['plan_reel', 'review_reel'],
+    resources: ['reelforge://guide/workflow', 'reelforge://schema/project', 'reelforge://templates', 'reelforge://projects/{id}'],
+    prompts: ['make_reel', 'plan_reel', 'review_reel'],
     rest: { base: `${base}/v1`, capabilities: `${base}/v1/capabilities` },
   };
 }

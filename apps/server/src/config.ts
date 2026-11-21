@@ -1,4 +1,18 @@
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+/** REELFORGE_BOOTSTRAP_KEY, or the contents of REELFORGE_BOOTSTRAP_KEY_FILE (Docker/K8s secrets). */
+function bootstrapKey(env: NodeJS.ProcessEnv): string | undefined {
+  if (env.REELFORGE_BOOTSTRAP_KEY) return env.REELFORGE_BOOTSTRAP_KEY;
+  if (env.REELFORGE_BOOTSTRAP_KEY_FILE) {
+    try {
+      return readFileSync(env.REELFORGE_BOOTSTRAP_KEY_FILE, 'utf8').trim() || undefined;
+    } catch (e) {
+      throw new Error(`cannot read REELFORGE_BOOTSTRAP_KEY_FILE: ${(e as Error).message}`);
+    }
+  }
+  return undefined;
+}
 
 export interface ServerConfig {
   dataDir: string;
@@ -37,7 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     host: env.REELFORGE_HOST || '127.0.0.1',
     port: int(env.REELFORGE_PORT, 4321, 'REELFORGE_PORT'),
     publicUrl,
-    bootstrapKey: env.REELFORGE_BOOTSTRAP_KEY || undefined,
+    bootstrapKey: bootstrapKey(env),
     allowedHosts: [...allowedHosts],
     rateLimitPerMinute: int(env.REELFORGE_RATE_LIMIT_PER_MINUTE, 300, 'REELFORGE_RATE_LIMIT_PER_MINUTE'),
     renderConcurrency: Math.max(1, int(env.REELFORGE_RENDER_CONCURRENCY, 1, 'REELFORGE_RENDER_CONCURRENCY')),

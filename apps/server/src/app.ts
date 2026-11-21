@@ -54,6 +54,15 @@ export function createApp({ service, config }: AppDeps) {
   });
 
   const authenticate: MiddlewareHandler<Env> = async (c, next) => {
+    // Signed download links (get_render_output's downloadUrl) work without a key,
+    // for exactly one file of one render, until they expire.
+    const signed = /^\/v1\/renders\/([^/]+)\/output$/.exec(c.req.path);
+    if (signed && c.req.method === 'GET' && c.req.query('sig')) {
+      const ok = service.verifySignedDownload(signed[1]!, c.req.query('file') ?? 'final.mp4', Number(c.req.query('expires')), c.req.query('sig')!);
+      if (!ok) return c.json(errorBody('unauthorized', 'the download link is invalid or has expired; get a new one with get_render_output'), 401);
+      c.set('auth', { keyId: 'signed-url', name: 'signed download link', scopes: ['read'] });
+      return next();
+    }
     const token = bearer(c);
     const auth = token ? await service.keys.verify(token) : null;
     if (!auth) {
@@ -306,7 +315,11 @@ export function createApp({ service, config }: AppDeps) {
     }
   );
 
-  v1.get('/providers', need('read'), (c) => c.json({ providers: service.capabilities().providers }));
+  v1.get('/providers', need('read'), (c) => c.json({ providers: service.listProviders() }));
+  v1.put('/providers/:id/config', need('admin'), json, async (c) => {
+    const b = await body(c);
+    return c.json(await service.configureProvider(c.req.param('id'), b.values));
+  });
   v1.post('/providers/:id/run', need('render'), json, async (c) => {
     const b = await body(c);
     const r = await service.runProvider(c.req.param('id'), b.params ?? {}, {

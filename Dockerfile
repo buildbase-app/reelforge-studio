@@ -5,6 +5,9 @@
 #     -e REELFORGE_BOOTSTRAP_KEY=rf_<random> reelforge-studio
 #
 # See docs/DEPLOY.md. BASE_IMAGE lets operators use a mirror of the same image.
+# Behind a TLS-intercepting proxy, pass its CA as an optional build secret (not
+# stored in the image):  --secret id=extra_ca,src=/path/to/ca.crt
+# Everything renders offline once built: Chromium and FFmpeg are in the image.
 ARG BASE_IMAGE=node:22-bookworm-slim
 
 FROM ${BASE_IMAGE}
@@ -19,7 +22,9 @@ RUN apt-get update \
       fonts-dejavu-core fonts-liberation2 fonts-noto-core fonts-noto-color-emoji \
  && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
+RUN --mount=type=secret,id=extra_ca,required=false \
+    if [ -f /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
+    corepack enable && corepack prepare pnpm@10.28.0 --activate
 
 WORKDIR /app
 
@@ -33,14 +38,18 @@ COPY packages/engine-remotion/package.json packages/engine-remotion/
 COPY packages/engine-motion-canvas/package.json packages/engine-motion-canvas/
 COPY packages/engine-html/package.json packages/engine-html/
 COPY packages/engine-hyperframes/package.json packages/engine-hyperframes/
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=secret,id=extra_ca,required=false \
+    if [ -f /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
+    pnpm install --frozen-lockfile
 
 # Chrome Headless Shell: system libraries via Playwright's dependency list (apt only),
 # the browser itself via Remotion's ensureBrowser() (the pinned build for Remotion
 # 4.0.545, downloaded from remotion.media), moved to a fixed path for every engine.
 RUN pnpm --filter @reelforge/engine-motion-canvas exec playwright-core install-deps chromium-headless-shell \
  && rm -rf /var/lib/apt/lists/*
-RUN cd packages/engine-remotion \
+RUN --mount=type=secret,id=extra_ca,required=false \
+    if [ -f /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
+    cd packages/engine-remotion \
  && node --input-type=module -e "import { ensureBrowser } from '@remotion/renderer'; await ensureBrowser();" \
  && BIN="$(find /app -path '*/.remotion/*' -type f -name chrome-headless-shell | head -n 1)" \
  && test -n "$BIN" \
@@ -50,6 +59,10 @@ RUN cd packages/engine-remotion \
  && /usr/local/bin/chrome-headless-shell --version
 
 COPY . .
+
+# `docker exec <container> reelforge keys create --name agent` (CLI, see docs/DEPLOY.md).
+RUN printf '#!/bin/sh\nexec /app/node_modules/.bin/tsx /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/reelforge \
+ && chmod 755 /usr/local/bin/reelforge
 
 RUN groupadd --system --gid 10001 reelforge \
  && useradd --system --uid 10001 --gid reelforge --home-dir /home/reelforge --create-home reelforge \

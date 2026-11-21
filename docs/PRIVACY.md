@@ -47,7 +47,15 @@ Scene code never reaches the network:
 
 - API keys are stored as salted SHA-256 hashes in `keys.json`; the plain key
   is shown once.
-- Provider keys come from environment variables. They are never written to
+- Provider keys come from environment variables, or are set by an admin agent
+  with `configure_provider` and stored in `<data>/secrets.json` (mode 0600,
+  plain text at rest: protect the data volume). The API only reports whether a
+  setting is set and its source (`api`/`env`), never the value.
+- Signed download links are HMAC-SHA256 with a random key in
+  `<data>/signing.key` (mode 0600); each link covers one file of one render
+  and expires (1 hour by default). Anyone holding a link can download that
+  file until it expires.
+- Provider keys are never written to
   manifests, render manifests, job logs or API responses, and the HyperFrames
   child process does not receive them.
 - Logs contain project ids, scene ids and tool output, not request bodies.

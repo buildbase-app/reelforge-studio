@@ -46,8 +46,8 @@ this repo".
 ## What works today
 
 - **Server** (`apps/server`): REST `/v1` and MCP `/mcp` (official MCP SDK,
-  Streamable HTTP) over the same handlers; 40 MCP tools, resources, prompts
-  `plan_reel`/`review_reel`; API keys with scopes; per-key rate limit; jobs
+  Streamable HTTP) over the same handlers; 41 MCP tools, resources (incl. a workflow guide), prompts
+  `make_reel`/`plan_reel`/`review_reel`; API keys with scopes; per-key rate limit; jobs
   with progress (SSE), logs, cancel and retry; output download with Range.
 - **Manifest v0.2** (`packages/project-schema`): brief, theme, per-scene
   `durationSeconds` or `durationFrames`, voice/music/sfx, assets, captions

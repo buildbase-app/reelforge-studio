@@ -15,3 +15,4 @@ export * from './versions';
 export * from './backends/local';
 export * from './backends/remotion-lambda';
 export * from './providers/elevenlabs';
+export * from './secrets';

@@ -65,6 +65,7 @@ export const REST_ROUTES: RouteEntry[] = [
     note: 'Multipart upload in REST; base64 (a few MB) in MCP. JSON {url} maps to add_asset_from_url.',
   },
   { method: 'GET', path: '/v1/providers', scope: 'read', tool: 'list_providers' },
+  { method: 'PUT', path: '/v1/providers/:id/config', scope: 'admin', tool: 'configure_provider' },
   { method: 'POST', path: '/v1/providers/:id/run', scope: 'render', tool: 'run_provider', note: 'generate_voice is a TTS shortcut.' },
   { method: 'GET', path: '/v1/keys', scope: 'admin', tool: 'list_keys' },
   { method: 'POST', path: '/v1/keys', scope: 'admin', tool: 'create_key' },
