@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PipelineError, checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
+import { PipelineError, checkExpectation, frameStats, probe, resolveTools } from '@reelforge/media-pipeline';
+import { builtinTheme } from '@reelforge/project-schema';
 import type { OutputSettings, RenderScene as Scene } from '@reelforge/project-schema';
 import { renderRemotionScene } from '../src/index';
 
@@ -43,6 +44,16 @@ describe.skipIf(!hasBrowser)('renderRemotionScene (needs REELFORGE_CHROMIUM_PATH
       (p) => !p.startsWith('pixel format')
     );
     expect(problems).toEqual([]);
+  }, 180_000);
+
+  it('reads the theme and never starts with a blank frame', async () => {
+    const tools = resolveTools();
+    const out = join(dir, 'themed.mp4');
+    await renderRemotionScene({ scene, output, theme: builtinTheme('midnight')!.tokens, out, cacheDir, concurrency: 2 });
+    const first = await frameStats(tools.ffmpeg, out, 0);
+    expect(first.yMax - first.yMin).toBeGreaterThan(40);
+    // Midnight's background is darker than the default theme's.
+    expect(first.yMin).toBeLessThan(30);
   }, 180_000);
 
   it('fails with a PipelineError naming the stage for an unknown composition', async () => {

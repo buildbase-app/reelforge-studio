@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PipelineError, checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
+import { PipelineError, checkExpectation, frameStats, probe, resolveTools } from '@reelforge/media-pipeline';
+import { builtinTheme } from '@reelforge/project-schema';
 import type { OutputSettings, RenderScene as Scene } from '@reelforge/project-schema';
 import { renderMotionCanvasScene, resolveBrowser } from '../src/index';
 
@@ -83,6 +84,25 @@ describe.skipIf(!browserAvailable())('renderMotionCanvasScene (needs Chromium)',
     expect((err as PipelineError).stage).toBe('render:contract');
     expect(String((err as PipelineError).log)).toMatch(/unknown Motion Canvas template/);
     expect(existsSync(out) && (await probe(tools.ffprobe, out).catch(() => null))).toBeFalsy();
+  }, 120_000);
+
+  it('scales to other sizes, wraps long points, reads the theme and never starts blank', async () => {
+    const tools = resolveTools();
+    const out = join(dir, 'mc-landscape.mp4');
+    const long = 'A long point that has to wrap onto a second line to fit the width';
+    const res = await renderMotionCanvasScene({
+      scene: { ...scene, props: { title: 'A longer title that has to wrap as well', points: [long, long, long, long] } },
+      output: { width: 640, height: 360, fps: 30, format: 'mp4' },
+      theme: builtinTheme('midnight')!.tokens,
+      out,
+      cacheDir,
+      ffmpeg: tools.ffmpeg,
+    });
+    expect(res.frames).toBe(60);
+    const info = await probe(tools.ffprobe, out);
+    expect(checkExpectation(info, { width: 640, height: 360, fps: 30, frames: 60, audio: false })).toEqual([]);
+    const first = await frameStats(tools.ffmpeg, out, 0);
+    expect(first.yMax - first.yMin).toBeGreaterThan(40);
   }, 120_000);
 
   it('can be cancelled', async () => {

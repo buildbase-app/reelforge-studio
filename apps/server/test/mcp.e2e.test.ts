@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { assertDecodable, checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
+import { assertDecodable, checkExpectation, frameStats, probe, resolveTools } from '@reelforge/media-pipeline';
 import { startServer, type StartedServer } from '../src/index';
 import { tempDir } from '../../../packages/core/test/helpers';
 
@@ -114,5 +114,8 @@ describe.skipIf(!hasBrowser)('MCP end to end with real engines (needs REELFORGE_
     expect(info.audioCodec).toBe('aac');
     expect(info.durationSeconds).toBeCloseTo(13, 1);
     await assertDecodable(tools2.ffmpeg, file);
+    // Non-empty first frame (platforms use it as the thumbnail).
+    const first = await frameStats(tools2.ffmpeg, file, 0);
+    expect(first.yMax - first.yMin).toBeGreaterThan(40);
   }, 600_000);
 });

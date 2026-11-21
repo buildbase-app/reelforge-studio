@@ -7,22 +7,45 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import type { KineticTitleProps } from '@reelforge/project-schema';
+import type { KineticTitleProps, ThemeTokens } from '@reelforge/project-schema';
+
+type ThemeLike = Pick<ThemeTokens, 'colors' | 'fontFamily' | 'headingWeight'>;
+
+const FALLBACK: ThemeLike = {
+  colors: {
+    background: '#0b0b14',
+    surface: '#1a1a2b',
+    text: '#ffffff',
+    mutedText: '#c9c9d6',
+    accent: '#ff3d71',
+    accent2: '#00d1b2',
+  },
+  fontFamily: 'Inter, "Helvetica Neue", Arial, sans-serif',
+  headingWeight: 800,
+};
 
 /**
  * Template "kinetic-title": the headline springs in word by word, an accent
  * bar sweeps under it, the subline fades up, and everything exits in the last
  * 15% of the scene so the cut to the next scene is clean.
  *
- * Uses the system sans-serif stack on purpose: no font files are bundled until
- * their licenses are recorded (research/LICENSING_AND_COSTS.md §4).
+ * Colours, font family and heading weight come from the project theme; the
+ * `accent` and `background` props override it per scene. The first frame
+ * already shows a faint headline, the accent bar and a background glow, so
+ * thumbnails are never blank.
+ *
+ * Uses system font stacks on purpose: no font files are bundled until their
+ * licenses are recorded (research/LICENSING_AND_COSTS.md §4).
  */
-export const KineticTitle: React.FC<KineticTitleProps> = ({
+export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> = ({
   headline,
   subline,
-  accent = '#ff3d71',
-  background = '#0b0b14',
+  accent: accentProp,
+  background: backgroundProp,
+  theme = FALLBACK,
 }) => {
+  const accent = accentProp ?? theme.colors.accent;
+  const background = backgroundProp ?? theme.colors.background;
   const frame = useCurrentFrame();
   const { fps, durationInFrames, width } = useVideoConfig();
   const words = headline.split(/\s+/).filter(Boolean);
@@ -35,7 +58,8 @@ export const KineticTitle: React.FC<KineticTitleProps> = ({
     easing: Easing.in(Easing.cubic),
   });
 
-  const barIn = spring({ frame: frame - words.length * stagger, fps, config: { damping: 200 } });
+  const barIn = 0.15 + 0.85 * spring({ frame: frame - words.length * stagger, fps, config: { damping: 200 } });
+  const glow = interpolate(frame, [0, durationInFrames], [1, 1.12]);
   const sublineIn = interpolate(
     frame,
     [words.length * stagger + fps * 0.2, words.length * stagger + fps * 0.6],
@@ -51,11 +75,27 @@ export const KineticTitle: React.FC<KineticTitleProps> = ({
         backgroundColor: background,
         justifyContent: 'center',
         padding: width * 0.09,
-        fontFamily: 'Inter, "Helvetica Neue", Arial, sans-serif',
+        fontFamily: theme.fontFamily,
+        overflow: 'hidden',
       }}
     >
       <div
         style={{
+          position: 'absolute',
+          width: width * 0.9,
+          height: width * 0.9,
+          right: -width * 0.35,
+          top: -width * 0.2,
+          borderRadius: '50%',
+          background: accent,
+          opacity: 0.18,
+          filter: `blur(${Math.round(width * 0.06)}px)`,
+          transform: `scale(${glow})`,
+        }}
+      />
+      <div
+        style={{
+          position: 'relative',
           opacity: 1 - exit,
           transform: `translateY(${-exit * 80}px)`,
         }}
@@ -63,10 +103,10 @@ export const KineticTitle: React.FC<KineticTitleProps> = ({
         <h1
           style={{
             margin: 0,
-            color: '#ffffff',
+            color: theme.colors.text,
             fontSize,
             lineHeight: 1.05,
-            fontWeight: 800,
+            fontWeight: theme.headingWeight,
             letterSpacing: -fontSize * 0.02,
             display: 'flex',
             flexWrap: 'wrap',
@@ -80,7 +120,7 @@ export const KineticTitle: React.FC<KineticTitleProps> = ({
                 key={`${word}-${i}`}
                 style={{
                   display: 'inline-block',
-                  opacity: Math.min(1, s * 1.5),
+                  opacity: 0.35 + 0.65 * Math.min(1, s * 1.5),
                   transform: `translateY(${(1 - s) * fontSize * 0.6}px) scale(${0.85 + 0.15 * s})`,
                 }}
               >
@@ -103,7 +143,7 @@ export const KineticTitle: React.FC<KineticTitleProps> = ({
             style={{
               marginTop: fontSize * 0.4,
               marginBottom: 0,
-              color: '#c9c9d6',
+              color: theme.colors.mutedText,
               fontSize: Math.round(fontSize * 0.45),
               fontWeight: 500,
               opacity: sublineIn,
