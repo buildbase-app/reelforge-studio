@@ -16,6 +16,7 @@ automated scan (SBOM) before any release (research/LICENSING_AND_COSTS.md §6).
 | hono, @hono/node-server | 4.13.19, 2.1.11 | MIT | Installed from npm | HTTP server. |
 | @modelcontextprotocol/sdk | 1.32.2 | MIT | Installed from npm | MCP server (Streamable HTTP). Pulls express, ajv, jose, cors and others (MIT/ISC/BSD). |
 | zod | 4.x | MIT | Installed from npm | |
+| yaml (eemeli/yaml) | 2.9.1 (pinned) | ISC | Installed from npm | Parses the YAML config file (`REELFORGE_CONFIG`). No dependencies. Checked on the npm registry 2026-11-21. |
 | prisma (CLI, dev only), @prisma/client, @prisma/adapter-better-sqlite3, @prisma/adapter-pg, @prisma/adapter-mariadb | 7.10.1 (pinned) | Apache-2.0 | Installed from npm | Database layer (D-022). The generated clients (packages/db/src/generated) embed Prisma's query compiler as WebAssembly; no engine binary or network access at runtime. The CLI is only used by developers (`generate`, `migrate diff`); its schema-engine binary is downloaded on first use, not at install. |
 | better-sqlite3 | 12.11.1 (via the adapter) | MIT | Installed from npm | SQLite driver; native module (prebuilt binary downloaded from the project's GitHub releases at install, or compiled). Bundles SQLite (public domain). |
 | pg | 8.23.1 (via the adapter) | MIT | Installed from npm | PostgreSQL driver. |

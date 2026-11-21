@@ -59,6 +59,7 @@ export const ModelName = {
   JobEvent: 'JobEvent',
   Theme: 'Theme',
   ProviderSetting: 'ProviderSetting',
+  Setting: 'Setting',
   Asset: 'Asset',
   AuditLog: 'AuditLog',
   SystemState: 'SystemState'
@@ -179,6 +180,18 @@ export const ProviderSettingScalarFieldEnum = {
 } as const
 
 export type ProviderSettingScalarFieldEnum = (typeof ProviderSettingScalarFieldEnum)[keyof typeof ProviderSettingScalarFieldEnum]
+
+
+export const SettingScalarFieldEnum = {
+  workspaceId: 'workspaceId',
+  key: 'key',
+  value: 'value',
+  scheme: 'scheme',
+  updatedAt: 'updatedAt',
+  updatedBy: 'updatedBy'
+} as const
+
+export type SettingScalarFieldEnum = (typeof SettingScalarFieldEnum)[keyof typeof SettingScalarFieldEnum]
 
 
 export const AssetScalarFieldEnum = {
@@ -323,6 +336,17 @@ export const ProviderSettingOrderByRelevanceFieldEnum = {
 } as const
 
 export type ProviderSettingOrderByRelevanceFieldEnum = (typeof ProviderSettingOrderByRelevanceFieldEnum)[keyof typeof ProviderSettingOrderByRelevanceFieldEnum]
+
+
+export const SettingOrderByRelevanceFieldEnum = {
+  workspaceId: 'workspaceId',
+  key: 'key',
+  value: 'value',
+  scheme: 'scheme',
+  updatedBy: 'updatedBy'
+} as const
+
+export type SettingOrderByRelevanceFieldEnum = (typeof SettingOrderByRelevanceFieldEnum)[keyof typeof SettingOrderByRelevanceFieldEnum]
 
 
 export const AssetOrderByRelevanceFieldEnum = {

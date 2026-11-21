@@ -15,8 +15,9 @@ import type * as Prisma from "../internal/prismaNamespace"
 /**
  * Model ProviderSetting
  * Provider settings set through the API (e.g. ELEVENLABS_API_KEY). Values are
- * never returned by the API. `scheme` says how `value` is stored: "plain"
- * today; encryption at rest (D-018) adds a scheme without a schema change.
+ * never returned by the API. `scheme` says how `value` is stored: "aes-256-gcm"
+ * (REELFORGE_SECRET_KEY, D-031) or "plain" (v0.1 imports and rows written
+ * before encryption; encrypted at start once the key is set).
  */
 export type ProviderSettingModel = runtime.Types.Result.DefaultSelection<Prisma.$ProviderSettingPayload>
 

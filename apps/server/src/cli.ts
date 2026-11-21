@@ -8,14 +8,17 @@
  *   reelforge keys create [--name NAME] [--scopes read,write,render,admin]
  *   reelforge keys list
  *   reelforge keys delete <keyId>
+ *   reelforge config check [--file PATH]   validate the config file and environment (no server, no database)
+ *   reelforge config show [--json] [--offline]   effective configuration, secrets redacted
  *
  * Uses DATABASE_URL (default: SQLite in REELFORGE_DATA_DIR, ./data) like the
  * server. The key is printed once.
  */
-import { KeyStore, SCOPES, type Scope } from '@reelforge/core';
-import { Database, prepareDatabase } from '@reelforge/db';
+import { existsSync } from 'node:fs';
+import { ConfigError, KeyStore, RuntimeConfig, SCOPES, formatIssue, type ConfigReport, type Scope } from '@reelforge/core';
+import { Database, parseDatabaseUrl, prepareDatabase } from '@reelforge/db';
 import { resolve } from 'node:path';
-import { loadConfig } from './config';
+import { loadConfig, type ServerConfig } from './config';
 
 function arg(name: string, args: string[]): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -30,11 +33,95 @@ const USAGE = `usage:
   reelforge backup <file>   (SQLite; use pg_dump / mysqldump for the others)
   reelforge keys create [--name NAME] [--scopes ${SCOPES.join(',')}]
   reelforge keys list
-  reelforge keys delete <keyId>`;
+  reelforge keys delete <keyId>
+  reelforge config check [--file PATH]
+  reelforge config show [--json] [--offline]`;
+
+/** `reelforge config check`: validate the file and environment without starting anything. Exit 1 on errors. */
+function configCheck(argv: string[]): void {
+  const file = arg('file', argv);
+  const env = file ? { ...process.env, REELFORGE_CONFIG: file } : process.env;
+  let config: ServerConfig;
+  try {
+    config = loadConfig(env);
+  } catch (e) {
+    if (!(e instanceof ConfigError)) throw e;
+    console.error(`configuration is INVALID (${e.issues.length} problem${e.issues.length === 1 ? '' : 's'}):`);
+    for (const i of e.issues) console.error(`  ✘ ${formatIssue(i)}`);
+    process.exitCode = 1;
+    return;
+  }
+  const problems: string[] = [];
+  try {
+    parseDatabaseUrl(config.databaseUrl);
+  } catch (e) {
+    // parseDatabaseUrl messages redact the URL.
+    problems.push(`database.url: ${(e as Error).message}`);
+  }
+  const counts: Record<string, number> = {};
+  for (const s of config.resolved.settings.values()) counts[s.source] = (counts[s.source] ?? 0) + 1;
+  const warnings = [...config.resolved.warnings];
+  if (!config.resolved.config.security.secretKey) warnings.push('REELFORGE_SECRET_KEY is not set: provider keys and other secrets cannot be stored over the API');
+  if (!existsSync(config.dataDir)) warnings.push(`storage.dataDir ${config.dataDir} does not exist yet (the server creates it)`);
+  if (problems.length) {
+    console.error('configuration is INVALID:');
+    for (const p of problems) console.error(`  ✘ ${p}`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`configuration is valid${config.sources.file ? ` (config file ${config.sources.file.path})` : ' (no config file; REELFORGE_CONFIG is not set)'}`);
+  console.log(`  ${Object.entries(counts).map(([k, v]) => `${v} from ${k}`).join(', ')}`);
+  for (const w of warnings) console.log(`  ! ${w}`);
+}
+
+function printReport(r: ConfigReport, note?: string) {
+  console.log(`config file: ${r.configFile ?? '(none)'}    secret key: ${r.secretKey}${note ? `    ${note}` : ''}`);
+  const width = Math.max(...r.settings.map((s) => s.key.length));
+  for (const s of r.settings) {
+    const where = s.source === 'default' ? 'default' : `${s.source}${s.origin && s.origin !== 'database' ? `: ${s.origin}` : ''}`;
+    console.log(`${s.key.padEnd(width)}  ${JSON.stringify(s.value)}  (${where}${s.scope === 'startup' ? ', start-up only' : ''}${s.error ? `; ${s.error}` : ''})`);
+  }
+  for (const w of r.warnings) console.log(`! ${w}`);
+}
+
+/** `reelforge config show`: the effective configuration with the database's runtime settings (unless --offline), secrets redacted. */
+async function configShow(argv: string[], config: ServerConfig): Promise<void> {
+  let db: Database | undefined;
+  let note: string | undefined;
+  try {
+    const sqlite = (() => {
+      try {
+        return parseDatabaseUrl(config.databaseUrl).file;
+      } catch {
+        return undefined;
+      }
+    })();
+    if (sqlite && !existsSync(sqlite)) note = `no database yet (${sqlite}); showing file and environment only`;
+    else if (!argv.includes('--offline')) {
+      try {
+        db = await Database.open({ url: config.databaseUrl });
+        await db.assertMigrated();
+      } catch (e) {
+        note = `runtime settings not read (${(e as Error).message.split('\n')[0]}); showing file and environment only`;
+        await db?.close().catch(() => undefined);
+        db = undefined;
+      }
+    } else note = 'offline: runtime settings from the database not included';
+    const runtime = new RuntimeConfig(db ? db.repositories() : (await import('@reelforge/core')).createMemoryRepositories(), config.sources);
+    await runtime.load();
+    const report = runtime.report();
+    if (argv.includes('--json')) console.log(JSON.stringify(note ? { ...report, note } : report, null, 2));
+    else printReport(report, note);
+  } finally {
+    await db?.close();
+  }
+}
 
 async function main(argv: string[]) {
   const [group, cmd, ...rest] = argv;
+  if (group === 'config' && cmd === 'check') return configCheck(rest);
   const config = loadConfig();
+  if (group === 'config' && cmd === 'show') return configShow(rest, config);
   const log = (line: string) => console.log(line);
 
   if (group === 'migrate' && argv.includes('--status')) {

@@ -18,7 +18,8 @@
     "dev": "tsx watch --clear-screen=false apps/server/src/main.ts",
     "start": "tsx apps/server/src/main.ts",
     "keys:create": "tsx apps/server/src/cli.ts keys create",
-    "reelforge": "tsx apps/server/src/cli.ts"
+    "reelforge": "tsx apps/server/src/cli.ts",
+    "docs:config": "tsx scripts/config-docs.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

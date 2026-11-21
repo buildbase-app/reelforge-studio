@@ -55,10 +55,20 @@ export type Theme = Prisma.ThemeModel
 /**
  * Model ProviderSetting
  * Provider settings set through the API (e.g. ELEVENLABS_API_KEY). Values are
- * never returned by the API. `scheme` says how `value` is stored: "plain"
- * today; encryption at rest (D-018) adds a scheme without a schema change.
+ * never returned by the API. `scheme` says how `value` is stored: "aes-256-gcm"
+ * (REELFORGE_SECRET_KEY, D-031) or "plain" (v0.1 imports and rows written
+ * before encryption; encrypted at start once the key is set).
  */
 export type ProviderSetting = Prisma.ProviderSettingModel
+/**
+ * Model Setting
+ * Runtime configuration set over REST/MCP (update_config, D-029/D-031), by
+ * dotted key (e.g. "limits.rateLimitPerMinute"). `value` is JSON text; for
+ * secrets it is encrypted ("aes-256-gcm"). Highest precedence: overrides the
+ * config file and environment variables. Instance-wide settings are stored in
+ * the default workspace.
+ */
+export type Setting = Prisma.SettingModel
 /**
  * Model Asset
  * Asset metadata. The bytes are in the storage driver at storageKey.

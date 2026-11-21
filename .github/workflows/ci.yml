@@ -44,6 +44,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: docs/CONFIG.md matches the configuration schema
+        run: pnpm docs:config --check
+
       - name: Test (schema, core, media pipeline, engines)
         run: pnpm -r --filter '!@reelforge/server' run test
 

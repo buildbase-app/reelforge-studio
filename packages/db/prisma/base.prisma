@@ -42,6 +42,7 @@ model Workspace {
   jobs             Job[]
   themes           Theme[]
   providerSettings ProviderSetting[]
+  settings         Setting[]
   assets           Asset[]
   auditLogs        AuditLog[]
 }
@@ -149,8 +150,9 @@ model Theme {
 }
 
 /// Provider settings set through the API (e.g. ELEVENLABS_API_KEY). Values are
-/// never returned by the API. `scheme` says how `value` is stored: "plain"
-/// today; encryption at rest (D-018) adds a scheme without a schema change.
+/// never returned by the API. `scheme` says how `value` is stored: "aes-256-gcm"
+/// (REELFORGE_SECRET_KEY, D-031) or "plain" (v0.1 imports and rows written
+/// before encryption; encrypted at start once the key is set).
 model ProviderSetting {
   workspaceId String   @@ID@@
   name        String   @@ID@@
@@ -162,6 +164,24 @@ model ProviderSetting {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@id([workspaceId, name])
+}
+
+/// Runtime configuration set over REST/MCP (update_config, D-029/D-031), by
+/// dotted key (e.g. "limits.rateLimitPerMinute"). `value` is JSON text; for
+/// secrets it is encrypted ("aes-256-gcm"). Highest precedence: overrides the
+/// config file and environment variables. Instance-wide settings are stored in
+/// the default workspace.
+model Setting {
+  workspaceId String   @@ID@@
+  key         String   @@ID@@
+  value       String   @@TEXT@@
+  scheme      String   @default("plain") @@ID@@
+  updatedAt   DateTime
+  updatedBy   String?  @@ID@@
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, key])
 }
 
 /// Asset metadata. The bytes are in the storage driver at storageKey.

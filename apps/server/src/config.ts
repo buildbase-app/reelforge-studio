@@ -1,23 +1,16 @@
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { resolveDatabaseUrl } from '@reelforge/db';
+import { loadConfigFile, resolveConfig, type ConfigSources, type ResolvedConfig } from '@reelforge/core';
 
-/** REELFORGE_BOOTSTRAP_KEY, or the contents of REELFORGE_BOOTSTRAP_KEY_FILE (Docker/K8s secrets). */
-function bootstrapKey(env: NodeJS.ProcessEnv): string | undefined {
-  if (env.REELFORGE_BOOTSTRAP_KEY) return env.REELFORGE_BOOTSTRAP_KEY;
-  if (env.REELFORGE_BOOTSTRAP_KEY_FILE) {
-    try {
-      return readFileSync(env.REELFORGE_BOOTSTRAP_KEY_FILE, 'utf8').trim() || undefined;
-    } catch (e) {
-      throw new Error(`cannot read REELFORGE_BOOTSTRAP_KEY_FILE: ${(e as Error).message}`);
-    }
-  }
-  return undefined;
-}
-
+/**
+ * The server's view of the configuration. Every value comes from the one
+ * schema in @reelforge/core (packages/core/src/config/schema.ts; reference:
+ * docs/CONFIG.md): defaults < config file (REELFORGE_CONFIG) < environment.
+ * Runtime settings from the database are applied on top once the database is
+ * open (applyServerSettings).
+ */
 export interface ServerConfig {
   dataDir: string;
-  /** DATABASE_URL / DATABASE_URL_FILE; default file:<dataDir>/reelforge.db (SQLite). */
+  /** database.url: REELFORGE_DATABASE_URL / DATABASE_URL (or _FILE); default file:<dataDir>/reelforge.db (SQLite). */
   databaseUrl: string;
   /** Apply pending migrations on start (REELFORGE_MIGRATE_ON_START, default on). */
   migrateOnStart: boolean;
@@ -28,47 +21,107 @@ export interface ServerConfig {
   port: number;
   publicUrl?: string;
   bootstrapKey?: string;
-  /** Host names accepted on /mcp (DNS-rebinding protection). */
+  /** Host names accepted on /mcp (DNS-rebinding protection): localhost, the public URL host and server.allowedHosts. Runtime. */
   allowedHosts: string[];
-  /** Requests per minute per API key. */
+  /** Requests per minute per API key. Runtime. */
   rateLimitPerMinute: number;
+  /** Runtime. */
   renderConcurrency: number;
+  /** Runtime. */
   maxUploadBytes: number;
-  /** Max JSON body size in bytes. */
+  /** Max JSON body size in bytes. Runtime. */
   maxJsonBytes: number;
+  /** Runtime. */
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+  logFormat: 'text' | 'json';
+  /** The file and environment the configuration was read from (for the runtime layer and get_config). */
+  sources: ConfigSources;
+  /** The resolved configuration (file + env) this ServerConfig was made from. */
+  resolved: ResolvedConfig;
 }
 
-function int(v: string | undefined, def: number, name: string): number {
-  if (v === undefined || v === '') return def;
-  const n = Number(v);
-  if (!Number.isInteger(n) || n < 0) throw new Error(`${name} must be a non-negative integer (got "${v}")`);
-  return n;
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
+
+export function allowedHostsFor(publicUrl: string | undefined, extra: string[]): string[] {
+  const hosts = new Set(LOCAL_HOSTS);
+  if (publicUrl) hosts.add(new URL(publicUrl).hostname.toLowerCase());
+  for (const h of extra) hosts.add(h.toLowerCase());
+  return [...hosts];
 }
 
-/** Configuration from environment variables (see docs/DEPLOY.md). */
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const publicUrl = env.REELFORGE_PUBLIC_URL?.replace(/\/+$/, '') || undefined;
-  if (publicUrl && !/^https?:\/\//.test(publicUrl)) throw new Error('REELFORGE_PUBLIC_URL must start with http:// or https://');
-  const allowedHosts = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
-  if (publicUrl) allowedHosts.add(new URL(publicUrl).hostname);
-  for (const h of (env.REELFORGE_ALLOWED_HOSTS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)) allowedHosts.add(h);
-  const dataDir = resolve(env.REELFORGE_DATA_DIR || 'data');
-  const migrate = (env.REELFORGE_MIGRATE_ON_START ?? '1').trim().toLowerCase();
-  if (!['1', '0', 'true', 'false', 'yes', 'no', ''].includes(migrate)) throw new Error('REELFORGE_MIGRATE_ON_START must be 1 or 0');
+/** ServerConfig from a resolved configuration. */
+export function serverConfigFrom(resolved: ResolvedConfig, sources: ConfigSources): ServerConfig {
+  const c = resolved.config;
+  const cacheSource = resolved.settings.get('storage.cacheDir')?.source;
   return {
-    dataDir,
-    databaseUrl: resolveDatabaseUrl(env, dataDir),
-    migrateOnStart: !['0', 'false', 'no'].includes(migrate),
-    dbConnectTimeoutSeconds: int(env.REELFORGE_DB_CONNECT_TIMEOUT_SECONDS, 30, 'REELFORGE_DB_CONNECT_TIMEOUT_SECONDS'),
-    cacheDir: env.REELFORGE_CACHE_DIR ? resolve(env.REELFORGE_CACHE_DIR) : undefined,
-    host: env.REELFORGE_HOST || '127.0.0.1',
-    port: int(env.REELFORGE_PORT, 4321, 'REELFORGE_PORT'),
-    publicUrl,
-    bootstrapKey: bootstrapKey(env),
-    allowedHosts: [...allowedHosts],
-    rateLimitPerMinute: int(env.REELFORGE_RATE_LIMIT_PER_MINUTE, 300, 'REELFORGE_RATE_LIMIT_PER_MINUTE'),
-    renderConcurrency: Math.max(1, int(env.REELFORGE_RENDER_CONCURRENCY, 1, 'REELFORGE_RENDER_CONCURRENCY')),
-    maxUploadBytes: int(env.REELFORGE_MAX_UPLOAD_BYTES, 200 * 1024 * 1024, 'REELFORGE_MAX_UPLOAD_BYTES'),
-    maxJsonBytes: int(env.REELFORGE_MAX_JSON_BYTES, 2 * 1024 * 1024, 'REELFORGE_MAX_JSON_BYTES'),
+    dataDir: resolve(c.storage.dataDir),
+    databaseUrl: c.database.url,
+    migrateOnStart: c.database.migrateOnStart,
+    dbConnectTimeoutSeconds: c.database.connectTimeoutSeconds,
+    cacheDir: cacheSource === 'default' ? undefined : resolve(c.storage.cacheDir),
+    host: c.server.host,
+    port: c.server.port,
+    publicUrl: c.server.publicUrl,
+    bootstrapKey: c.security.bootstrapKey,
+    allowedHosts: allowedHostsFor(c.server.publicUrl, c.server.allowedHosts),
+    rateLimitPerMinute: c.limits.rateLimitPerMinute,
+    renderConcurrency: c.limits.renderConcurrency,
+    maxUploadBytes: c.limits.maxUploadBytes,
+    maxJsonBytes: c.limits.maxJsonBytes,
+    logLevel: c.logging.level,
+    logFormat: c.logging.format,
+    sources,
+    resolved,
+  };
+}
+
+/**
+ * Configuration from the config file (REELFORGE_CONFIG) and environment
+ * variables (see docs/CONFIG.md). Throws ConfigError listing every problem.
+ */
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
+  const sources: ConfigSources = { env, file: loadConfigFile(env) };
+  return serverConfigFrom(resolveConfig(sources), sources);
+}
+
+/**
+ * Apply runtime-changeable settings to a running server's config object (the
+ * app reads it on every request). At start (`keys` null) only values set at
+ * runtime are applied; after a change, the new effective value of each key.
+ */
+export function applyServerSettings(config: ServerConfig, resolved: ResolvedConfig, keys: string[] | null): void {
+  const use = (key: string) => (keys === null ? resolved.settings.get(key)?.source === 'runtime' : keys.includes(key));
+  const c = resolved.config;
+  if (use('server.allowedHosts')) config.allowedHosts = allowedHostsFor(config.publicUrl, c.server.allowedHosts);
+  if (use('limits.rateLimitPerMinute')) config.rateLimitPerMinute = c.limits.rateLimitPerMinute;
+  if (use('limits.maxUploadBytes')) config.maxUploadBytes = c.limits.maxUploadBytes;
+  if (use('limits.maxJsonBytes')) config.maxJsonBytes = c.limits.maxJsonBytes;
+  if (use('limits.renderConcurrency')) config.renderConcurrency = c.limits.renderConcurrency;
+  if (use('logging.level')) config.logLevel = c.logging.level;
+}
+
+/**
+ * Engines and the media pipeline read a few settings from process.env
+ * (REELFORGE_CHROMIUM_PATH, FFMPEG_PATH, ...). Values from the config file or a
+ * REELFORGE_* name are exported under the name that code reads.
+ */
+export function exportProcessEnv(resolved: ResolvedConfig, target: NodeJS.ProcessEnv = process.env): void {
+  for (const s of resolved.settings.values()) {
+    const name = s.def.processEnv;
+    if (!name || s.source === 'default' || s.value === undefined) continue;
+    target[name] = typeof s.value === 'boolean' ? (s.value ? '1' : '0') : String(s.value);
+  }
+}
+
+export type LogLevel = ServerConfig['logLevel'];
+const LEVELS: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
+
+/** `[reelforge] ...` lines or JSON lines, filtered by the (runtime) log level. Never pass secrets. */
+export function createLogger(config: Pick<ServerConfig, 'logLevel' | 'logFormat'>, quiet = false) {
+  return (level: LogLevel, line: string) => {
+    if (quiet || LEVELS[level] < LEVELS[config.logLevel]) return;
+    const out = level === 'error' || level === 'warn' ? console.error : console.log;
+    if (config.logFormat === 'json') out(JSON.stringify({ time: new Date().toISOString(), level, msg: line }));
+    else out(`[reelforge] ${level === 'info' ? '' : `${level}: `}${line}`);
   };
 }

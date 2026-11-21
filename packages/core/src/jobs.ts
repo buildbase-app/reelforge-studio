@@ -47,7 +47,7 @@ export interface JobRunnerOptions {
  * database.
  */
 export class JobRunner {
-  readonly concurrency: number;
+  private _concurrency: number;
   private readonly repo: JobRepository;
   private handlers: Record<string, JobHandler>;
   /** Queued and running jobs of this process. */
@@ -62,9 +62,19 @@ export class JobRunner {
 
   constructor(opts: JobRunnerOptions) {
     this.repo = opts.repo;
-    this.concurrency = Math.max(1, opts.concurrency ?? 1);
+    this._concurrency = Math.max(1, opts.concurrency ?? 1);
     this.handlers = opts.handlers;
     this.events.setMaxListeners(0);
+  }
+
+  get concurrency(): number {
+    return this._concurrency;
+  }
+
+  /** Change how many jobs run at once (runtime setting limits.renderConcurrency). Running jobs are never stopped. */
+  setConcurrency(n: number): void {
+    this._concurrency = Math.max(1, Math.floor(n));
+    queueMicrotask(() => this.pump());
   }
 
   async init(): Promise<void> {

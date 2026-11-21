@@ -37,7 +37,13 @@ beforeAll(async () => {
   const database = await testDatabase(dir);
   dropDb = database.drop;
   db = (await prepareDatabase({ url: database.url ?? config.databaseUrl, dataDir: config.dataDir })).db;
-  service = await ReelforgeService.create(registry, { repositories: db.repositories(), dataDir: config.dataDir, publicUrl: config.publicUrl, providerEnv });
+  service = await ReelforgeService.create(registry, {
+    repositories: db.repositories(),
+    dataDir: config.dataDir,
+    publicUrl: config.publicUrl,
+    providerEnv,
+    configSources: { env: { REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij' } },
+  });
   admin = (await service.keys.create('admin', ['admin'])).key;
   reader = (await service.keys.create('reader', ['read'])).key;
   app = createApp({ service, config });
@@ -279,8 +285,15 @@ describe('REST v1', () => {
     expect(setText).not.toContain('sk_secret_value_123');
     expect(JSON.parse(setText)).toMatchObject({ configured: true, settings: [{ name: 'ELEVENLABS_API_KEY', set: true, source: 'api' }] });
     for (const path of ['/v1/providers', '/v1/capabilities']) expect(await (await req('GET', path)).text()).not.toContain('sk_secret_value_123');
-    // Stored in the database (provider_setting), restricted like the old secrets.json.
-    expect((await service.repos.providerSettings.values()).ELEVENLABS_API_KEY).toBe('sk_secret_value_123');
+    // Stored in the database (ProviderSetting), encrypted with REELFORGE_SECRET_KEY.
+    const stored = (await service.repos.providerSettings.values()).ELEVENLABS_API_KEY!;
+    expect(stored.scheme).toBe('aes-256-gcm');
+    expect(stored.value).not.toContain('sk_secret_value_123');
+    expect(providerEnv.ELEVENLABS_API_KEY).toBe('sk_secret_value_123');
+    // Audit-logged without the value.
+    const audit = await service.repos.audit.list({ limit: 5 });
+    expect(audit[0]).toMatchObject({ action: 'provider.configure', actorType: 'api_key', targetId: 'elevenlabs', data: { settings: { ELEVENLABS_API_KEY: 'set' } } });
+    expect(JSON.stringify(audit)).not.toContain('sk_secret_value_123');
     if (db.kind === 'sqlite') {
       const { statSync } = await import('node:fs');
       expect(statSync(join(config.dataDir, 'reelforge.db')).mode & 0o777).toBe(0o600);

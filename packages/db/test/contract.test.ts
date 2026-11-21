@@ -15,6 +15,7 @@ import { parseProject, type Project } from '@reelforge/project-schema';
 import {
   JobRunner,
   KeyStore,
+  RuntimeConfig,
   ProjectStore,
   createMemoryRepositories,
   importFilesystemV01,
@@ -244,14 +245,60 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
   });
 
   describe('provider settings', () => {
-    it('sets and clears several settings at once and never lists values', async () => {
-      await repos.providerSettings.apply({ ELEVENLABS_API_KEY: 'secret-1', OTHER: 'x' }, now(), 'elevenlabs');
-      expect(await repos.providerSettings.values()).toEqual({ ELEVENLABS_API_KEY: 'secret-1', OTHER: 'x' });
-      await repos.providerSettings.apply({ OTHER: null, ELEVENLABS_API_KEY: 'secret-2' }, later(5));
-      expect(await repos.providerSettings.values()).toEqual({ ELEVENLABS_API_KEY: 'secret-2' });
+    it('sets and clears several settings at once, keeps the scheme, and never lists values', async () => {
+      await repos.providerSettings.apply({ ELEVENLABS_API_KEY: { value: 'secret-1', scheme: 'plain' }, OTHER: { value: 'x', scheme: 'plain' } }, now(), 'elevenlabs');
+      expect(await repos.providerSettings.values()).toEqual({ ELEVENLABS_API_KEY: { value: 'secret-1', scheme: 'plain' }, OTHER: { value: 'x', scheme: 'plain' } });
+      await repos.providerSettings.apply({ OTHER: null, ELEVENLABS_API_KEY: { value: 'v1.kid.iv.tag.ct', scheme: 'aes-256-gcm' } }, later(5));
+      expect(await repos.providerSettings.values()).toEqual({ ELEVENLABS_API_KEY: { value: 'v1.kid.iv.tag.ct', scheme: 'aes-256-gcm' } });
       const list = await repos.providerSettings.list();
-      expect(list).toEqual([expect.objectContaining({ name: 'ELEVENLABS_API_KEY', providerId: 'elevenlabs' })]);
-      expect(JSON.stringify(list)).not.toContain('secret');
+      // A set without providerId keeps the stored one.
+      expect(list).toEqual([expect.objectContaining({ name: 'ELEVENLABS_API_KEY', providerId: 'elevenlabs', scheme: 'aes-256-gcm' })]);
+      expect(JSON.stringify(list)).not.toContain('v1.kid');
+      await repos.providerSettings.apply({ ELEVENLABS_API_KEY: null }, later(6));
+      expect(await repos.providerSettings.values()).toEqual({});
+    });
+  });
+
+  describe('runtime settings', () => {
+    it('sets, replaces and clears settings atomically with who and when, sorted by key', async () => {
+      const t1 = now();
+      await repos.settings.apply(
+        { 'limits.rateLimitPerMinute': { value: '120', scheme: 'plain' }, 'server.allowedHosts': { value: '["a.example","b"]', scheme: 'plain' } },
+        t1,
+        'key_admin'
+      );
+      expect(await repos.settings.list()).toEqual([
+        { key: 'limits.rateLimitPerMinute', value: '120', scheme: 'plain', updatedAt: t1, updatedBy: 'key_admin' },
+        { key: 'server.allowedHosts', value: '["a.example","b"]', scheme: 'plain', updatedAt: t1, updatedBy: 'key_admin' },
+      ]);
+      const t2 = later(10);
+      const long = 'v1.' + 'x'.repeat(5000);
+      await repos.settings.apply({ 'server.allowedHosts': null, 'licence.key': { value: long, scheme: 'aes-256-gcm' }, 'limits.rateLimitPerMinute': { value: '7', scheme: 'plain' } }, t2);
+      expect(await repos.settings.list()).toEqual([
+        { key: 'licence.key', value: long, scheme: 'aes-256-gcm', updatedAt: t2 },
+        { key: 'limits.rateLimitPerMinute', value: '7', scheme: 'plain', updatedAt: t2 },
+      ]);
+      await repos.settings.apply({ 'licence.key': null, 'limits.rateLimitPerMinute': null, 'not.there': null }, later(20));
+      expect(await repos.settings.list()).toEqual([]);
+    });
+
+    it('RuntimeConfig: stores runtime values and encrypted secrets that a second instance reads back', async () => {
+      const sources = { env: { REELFORGE_SECRET_KEY: 'k'.repeat(40), REELFORGE_RATE_LIMIT_PER_MINUTE: '50' } };
+      const a = new RuntimeConfig(repos, sources);
+      await a.load();
+      expect(a.config.limits.rateLimitPerMinute).toBe(50);
+      await a.update({ 'limits.rateLimitPerMinute': 9, 'licence.key': 'LIC-123-secret', 'providers.elevenlabs.apiKey': 'sk_contract_secret' }, 'key_x');
+      const b = new RuntimeConfig(repos, sources);
+      await b.load();
+      expect(b.config.limits.rateLimitPerMinute).toBe(9);
+      expect(b.config.licence.key).toBe('LIC-123-secret');
+      expect(b.config.providers.elevenlabs.apiKey).toBe('sk_contract_secret');
+      const stored = JSON.stringify([await repos.settings.list(), await repos.providerSettings.values()]);
+      expect(stored).not.toContain('LIC-123-secret');
+      expect(stored).not.toContain('sk_contract_secret');
+      await b.update({ 'limits.rateLimitPerMinute': null, 'licence.key': null, 'providers.elevenlabs.apiKey': null });
+      expect(await repos.settings.list()).toEqual([]);
+      expect(await repos.providerSettings.values()).toEqual({});
     });
   });
 
@@ -310,7 +357,7 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
         '2026-11-01T10:00:01.000Z ffmpeg says',
         '2026-11-01T10:00:01.000Z   a continuation line',
       ]);
-      expect((await repos.providerSettings.values()).LEGACY_KEY).toBe('legacy-value');
+      expect((await repos.providerSettings.values()).LEGACY_KEY).toEqual({ value: 'legacy-value', scheme: 'plain' });
       expect((await repos.assets.get('ast-aaaaaaaaaaaaaaaa'))?.storageKey).toBe('ast-aaaaaaaaaaaaaaaa/file.png');
 
       const again = await importFilesystemV01(repos, legacy);
@@ -347,7 +394,7 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
           // other's event loop, so SQLite migrates one after the other here (separate
           // processes, like the server and the CLI, wait on SQLite's lock instead).
           const ran = kind === 'sqlite' ? [await a.migrate(), await b.migrate()] : await Promise.all([a.migrate(), b.migrate()]);
-          expect(ran.flat()).toEqual(['0001_init']);
+          expect(ran.flat()).toEqual(['0001_init', '0002_runtime_settings']);
           const first = await a.importFilesystemOnce(legacy);
           expect(first?.projects).toBe(1);
           expect(await b.importFilesystemOnce(legacy)).toBeNull();

@@ -283,20 +283,39 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     providerSettings: {
       async values() {
         const rows = await prisma.providerSetting.findMany({ where: ws, orderBy: { name: 'asc' } });
-        return Object.fromEntries(rows.map((r) => [r.name, r.value]));
+        return Object.fromEntries(rows.map((r) => [r.name, { value: r.value, scheme: r.scheme }]));
       },
       async list() {
-        const rows = await prisma.providerSetting.findMany({ where: ws, orderBy: { name: 'asc' }, select: { name: true, providerId: true, updatedAt: true } });
-        return rows.map((r) => ({ name: r.name, updatedAt: iso(r.updatedAt), ...(r.providerId !== null ? { providerId: r.providerId } : {}) }));
+        const rows = await prisma.providerSetting.findMany({ where: ws, orderBy: { name: 'asc' }, select: { name: true, providerId: true, scheme: true, updatedAt: true } });
+        return rows.map((r) => ({ name: r.name, scheme: r.scheme, updatedAt: iso(r.updatedAt), ...(r.providerId !== null ? { providerId: r.providerId } : {}) }));
       },
       async apply(changes, at, providerId) {
-        const ops = Object.entries(changes).map(([name, value]) =>
-          value === null
+        const ops = Object.entries(changes).map(([name, v]) =>
+          v === null
             ? prisma.providerSetting.deleteMany({ where: { ...ws, name } })
             : prisma.providerSetting.upsert({
                 where: { workspaceId_name: { workspaceId, name } },
-                create: { ...ws, name, value, scheme: 'plain', providerId: providerId ?? null, updatedAt: new Date(at) },
-                update: { value, scheme: 'plain', ...(providerId ? { providerId } : {}), updatedAt: new Date(at) },
+                create: { ...ws, name, value: v.value, scheme: v.scheme, providerId: providerId ?? null, updatedAt: new Date(at) },
+                update: { value: v.value, scheme: v.scheme, ...(providerId ? { providerId } : {}), updatedAt: new Date(at) },
+              })
+        );
+        if (ops.length) await prisma.$transaction(ops);
+      },
+    },
+
+    settings: {
+      async list() {
+        const rows = await prisma.setting.findMany({ where: ws, orderBy: { key: 'asc' } });
+        return rows.map((r) => ({ key: r.key, value: r.value, scheme: r.scheme, updatedAt: iso(r.updatedAt), ...(r.updatedBy !== null ? { updatedBy: r.updatedBy } : {}) }));
+      },
+      async apply(changes, at, updatedBy) {
+        const ops = Object.entries(changes).map(([key, v]) =>
+          v === null
+            ? prisma.setting.deleteMany({ where: { ...ws, key } })
+            : prisma.setting.upsert({
+                where: { workspaceId_key: { workspaceId, key } },
+                create: { ...ws, key, value: v.value, scheme: v.scheme, updatedAt: new Date(at), updatedBy: updatedBy ?? null },
+                update: { value: v.value, scheme: v.scheme, updatedAt: new Date(at), updatedBy: updatedBy ?? null },
               })
         );
         if (ops.length) await prisma.$transaction(ops);

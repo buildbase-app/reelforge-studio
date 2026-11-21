@@ -19,3 +19,4 @@ export * from './backends/remotion-lambda';
 export * from './providers/elevenlabs';
 export * from './secrets';
 export * from './import-v01';
+export * from './config/index';

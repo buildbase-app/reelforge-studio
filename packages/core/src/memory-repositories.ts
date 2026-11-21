@@ -9,6 +9,8 @@ import {
   type JobRecord,
   type ProjectMeta,
   type ProviderSettingInfo,
+  type StoredSetting,
+  type StoredValue,
   type Repositories,
   type StoredProject,
 } from './repositories';
@@ -27,7 +29,8 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
   const jobs = new Map<string, JobRecord>();
   const jobLogs = new Map<string, string[]>();
   const themes = new Map<string, Theme>();
-  const settings = new Map<string, { value: string; info: ProviderSettingInfo }>();
+  const settings = new Map<string, { value: StoredValue; info: ProviderSettingInfo }>();
+  const runtimeSettings = new Map<string, StoredSetting>();
   const assets = new Map<string, AssetRecord>();
   const audit: AuditEntry[] = [];
 
@@ -143,7 +146,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
     },
     providerSettings: {
       async values() {
-        return Object.fromEntries([...settings].map(([k, v]) => [k, v.value]));
+        return Object.fromEntries([...settings].map(([k, v]) => [k, clone(v.value)]));
       },
       async list() {
         return [...settings.values()].map((s) => clone(s.info)).sort((a, b) => a.name.localeCompare(b.name));
@@ -153,8 +156,19 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
           if (value === null) settings.delete(name);
           else {
             const keep = providerId ?? settings.get(name)?.info.providerId;
-            settings.set(name, { value, info: { name, updatedAt: at, ...(keep ? { providerId: keep } : {}) } });
+            settings.set(name, { value: clone(value), info: { name, scheme: value.scheme, updatedAt: at, ...(keep ? { providerId: keep } : {}) } });
           }
+        }
+      },
+    },
+    settings: {
+      async list() {
+        return [...runtimeSettings.values()].map(clone).sort((a, b) => a.key.localeCompare(b.key));
+      },
+      async apply(changes, at, updatedBy) {
+        for (const [key, value] of Object.entries(changes)) {
+          if (value === null) runtimeSettings.delete(key);
+          else runtimeSettings.set(key, { key, value: value.value, scheme: value.scheme, updatedAt: at, ...(updatedBy ? { updatedBy } : {}) });
         }
       },
     },

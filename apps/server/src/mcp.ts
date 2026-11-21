@@ -478,13 +478,34 @@ export const TOOLS: ToolDef[] = [
     name: 'configure_provider',
     title: 'Configure a media provider (admin)',
     description:
-      'Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider\'s setting names). Values are stored on the server (file mode 0600) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the admin scope. Only do this with a key the user gave you for this purpose.',
+      'Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider\'s setting names). Values are stored encrypted in the server database (needs REELFORGE_SECRET_KEY on the server) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the admin scope. Only do this with a key the user gave you for this purpose.',
     scope: 'admin',
     input: {
       providerId: z.string(),
       values: z.record(z.string(), z.string().nullable()).describe('Setting name -> value, or null to clear.'),
     },
-    run: async (a, { service }) => service.configureProvider(a.providerId, a.values),
+    run: async (a, { service, auth }) => service.configureProvider(a.providerId, a.values, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'get_config',
+    title: 'Get the server configuration (admin)',
+    description:
+      'Returns every server setting with its effective value and where it comes from: source "default", "file" (REELFORGE_CONFIG), "env" (origin names the variable) or "runtime" (set with update_config, stored in the database; wins over the others). scope "runtime" settings can be changed with update_config; scope "startup" ones only in the config file or environment, then a restart. Secrets are only "set" / "not set". Optional prefix filters keys, e.g. "limits". Needs the admin scope.',
+    scope: 'admin',
+    input: { prefix: z.string().optional().describe('Only keys under this group, e.g. "limits" or "providers.elevenlabs".') },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => service.getConfig({ prefix: a.prefix }),
+  },
+  {
+    name: 'update_config',
+    title: 'Change runtime settings (admin)',
+    description:
+      'Changes runtime settings at once and stores them in the database (they survive restarts and override the config file and environment). settings maps dotted keys from get_config to values, e.g. { "limits.rateLimitPerMinute": 120 }; null clears a runtime value (the file/env/default applies again). All or nothing: start-up-only keys (port, database URL, data directory, ...) are refused with where to set them. Secrets (provider keys, licence key) are stored encrypted and need REELFORGE_SECRET_KEY on the server. Every change is audit-logged. Needs the admin scope. Only change what the user asked for.',
+    scope: 'admin',
+    input: {
+      settings: z.record(z.string(), z.unknown()).describe('Dotted setting key -> new value (JSON type of the setting), or null to clear the runtime value.'),
+    },
+    run: async (a, { service, auth }) => service.updateConfig(a.settings, { actorType: 'api_key', actorId: auth.keyId }),
   },
   {
     name: 'run_provider',

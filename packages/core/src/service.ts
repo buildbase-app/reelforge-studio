@@ -32,7 +32,9 @@ import { applyMergePatch, isPlainObject } from './mergePatch';
 import type { BackendContext, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
 import { PluginRegistry } from './registry';
 import { runRenderPipeline } from './render';
-import { SecretStore, UrlSigner } from './secrets';
+import { UrlSigner } from './secrets';
+import { RuntimeConfig, type ConfigSources } from './config/runtime';
+import type { ResolvedConfig } from './config/load';
 import { ProjectStore } from './store';
 import { ThemeStore } from './themes';
 
@@ -66,13 +68,27 @@ export interface ServiceConfig {
   providerEnv?: NodeJS.ProcessEnv;
   /** Lifetime of signed download links, seconds. Default 3600. */
   signedUrlTtlSeconds?: number;
+  /**
+   * Configuration file and environment (get_config / update_config and the
+   * runtime layer stored in the database). Default: { env: providerEnv }.
+   */
+  configSources?: ConfigSources;
+  log?: (level: 'info' | 'warn' | 'error', line: string) => void;
+}
+
+/** Who made a change (audit log). */
+export interface Actor {
+  actorType: 'api_key' | 'cli' | 'system';
+  actorId?: string;
 }
 
 export interface ProviderSetting {
   name: string;
   set: boolean;
   /** Where the value comes from; the value itself is never returned. */
-  source: 'api' | 'env' | 'unset';
+  source: 'api' | 'env' | 'file' | 'unset';
+  /** A stored value that cannot be used (e.g. it cannot be decrypted with the current REELFORGE_SECRET_KEY). */
+  error?: string;
 }
 
 export interface ValidationReport {
@@ -127,7 +143,8 @@ export class ReelforgeService {
   readonly jobs: JobRunner;
   readonly serverVersion: string;
   readonly publicUrl: string;
-  readonly secrets: SecretStore;
+  /** Effective configuration: defaults < file < env < runtime settings in the database. */
+  readonly settings: RuntimeConfig;
   readonly signer: UrlSigner;
   readonly providerEnv: NodeJS.ProcessEnv;
   readonly repos: Repositories;
@@ -157,7 +174,7 @@ export class ReelforgeService {
     this.fetchImpl = config.fetch ?? fetch;
     this.providerEnv = config.providerEnv ?? { ...process.env };
     this.baseEnv = { ...this.providerEnv };
-    this.secrets = new SecretStore(this.repos.providerSettings);
+    this.settings = new RuntimeConfig(this.repos, config.configSources ?? { env: { ...this.providerEnv } }, config.log);
     this.signer = new UrlSigner(this.dataDir);
     this.jobs = new JobRunner({
       repo: this.repos.jobs,
@@ -174,8 +191,32 @@ export class ReelforgeService {
     await mkdir(s.dataDir, { recursive: true });
     await s.jobs.init();
     await s.signer.init();
-    Object.assign(s.providerEnv, await s.secrets.load());
+    await s.settings.load();
+    const encrypted = await s.settings.encryptPlaintext();
+    if (encrypted.length) {
+      config.log?.('info', `encrypted ${encrypted.length} stored secret(s) with REELFORGE_SECRET_KEY: ${encrypted.join(', ')}`);
+      await s.audit({ actorType: 'system', action: 'config.secrets.encrypt', data: { names: encrypted } });
+    }
+    for (const w of s.settings.warnings()) config.log?.('warn', w);
+    s.applySettings(s.settings.current, null);
+    s.settings.onChange((resolved, keys) => s.applySettings(resolved, keys));
     return s;
+  }
+
+  /**
+   * Apply runtime-changeable settings to the running service. At start
+   * (`keys` null) only values set at runtime are applied, so explicit
+   * ServiceConfig values keep working; after a change, the new effective value.
+   */
+  private applySettings(resolved: ResolvedConfig, keys: string[] | null) {
+    const use = (key: string) => (keys === null ? resolved.settings.get(key)?.source === 'runtime' : keys.includes(key));
+    if (use('limits.renderConcurrency')) this.jobs.setConcurrency(resolved.config.limits.renderConcurrency);
+    if (use('limits.maxUploadBytes')) this.assets.limits.maxBytes = resolved.config.limits.maxUploadBytes;
+    for (const [name, v] of Object.entries(this.settings.providerEnvOverlay())) {
+      if (v !== undefined) this.providerEnv[name] = v;
+      else if (this.baseEnv[name] !== undefined) this.providerEnv[name] = this.baseEnv[name];
+      else delete this.providerEnv[name];
+    }
   }
 
   tools(): Tools {
@@ -871,19 +912,24 @@ export class ReelforgeService {
       costNote: p.costNote,
       env: p.env,
       settings: p.env.map((name): ProviderSetting => {
-        if (this.secrets.has(name)) return { name, set: true, source: 'api' };
+        const error = this.settings.providerError(name);
+        const def = RuntimeConfig.settingForProviderEnv(name);
+        const r = def ? this.settings.current.settings.get(def.key) : undefined;
+        if (r && r.value !== undefined && r.source !== 'default') return { name, set: true, source: r.source === 'runtime' ? 'api' : r.source };
+        if (this.settings.hasProviderValue(name)) return { name, set: true, source: 'api' };
         if (this.baseEnv[name]) return { name, set: true, source: 'env' };
-        return { name, set: false, source: 'unset' };
+        return { name, set: false, source: 'unset', ...(error ? { error } : {}) };
       }),
     }));
   }
 
   /**
    * Set or clear provider settings (admin). Only the names the provider
-   * declares are accepted. API-set values override environment variables;
-   * clearing one falls back to the environment variable, if any.
+   * declares are accepted. Values are stored encrypted (REELFORGE_SECRET_KEY
+   * is required) and override the file and environment; clearing one falls
+   * back to them.
    */
-  async configureProvider(providerId: string, values: unknown) {
+  async configureProvider(providerId: string, values: unknown, actor?: Actor) {
     const provider = this.registry.provider(providerId);
     if (!isPlainObject(values) || Object.keys(values).length === 0) {
       throw badRequest(`values must be an object of settings, e.g. { "${provider.env[0] ?? 'NAME'}": "..." } (null clears one)`);
@@ -895,14 +941,40 @@ export class ReelforgeService {
       else if (typeof v === 'string' && v.length > 0 && v.length <= 1000 && !/[\r\n]/.test(v)) changes[name] = v;
       else throw badRequest(`${name} must be a non-empty single-line string (max 1000 characters) or null`);
     }
-    await this.secrets.set(changes, providerId);
-    for (const [name, v] of Object.entries(changes)) {
-      if (v === null) {
-        if (this.baseEnv[name] !== undefined) this.providerEnv[name] = this.baseEnv[name];
-        else delete this.providerEnv[name];
-      } else this.providerEnv[name] = v;
-    }
+    await this.settings.setProviderValues(changes, providerId);
+    await this.audit({
+      actorType: actor?.actorType ?? 'system',
+      ...(actor?.actorId ? { actorId: actor.actorId } : {}),
+      action: 'provider.configure',
+      targetType: 'provider',
+      targetId: providerId,
+      data: { settings: Object.fromEntries(Object.entries(changes).map(([k, v]) => [k, v === null ? 'cleared' : 'set'])) },
+    });
     return this.listProviders().find((p) => p.id === providerId)!;
+  }
+
+  // ---- configuration ----------------------------------------------------------
+
+  /** Every setting with its effective value and source (defaults < file < env < runtime); secrets only as set / not set. */
+  getConfig(opts: { prefix?: string } = {}) {
+    return this.settings.report(opts);
+  }
+
+  /**
+   * Change runtime settings (admin), all or nothing; null clears a runtime
+   * value. Start-up-only keys are refused with where to set them. Every change
+   * is written to the audit log (secrets as set / cleared).
+   */
+  async updateConfig(patch: unknown, actor?: Actor) {
+    const r = await this.settings.update(patch, actor?.actorId);
+    await this.audit({
+      actorType: actor?.actorType ?? 'system',
+      ...(actor?.actorId ? { actorId: actor.actorId } : {}),
+      action: 'config.update',
+      targetType: 'config',
+      data: { changes: r.changes },
+    });
+    return r;
   }
 
   // ---- audit ----------------------------------------------------------------

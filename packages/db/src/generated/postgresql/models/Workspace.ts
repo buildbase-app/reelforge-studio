@@ -171,6 +171,7 @@ export type WorkspaceWhereInput = {
   jobs?: Prisma.JobListRelationFilter
   themes?: Prisma.ThemeListRelationFilter
   providerSettings?: Prisma.ProviderSettingListRelationFilter
+  settings?: Prisma.SettingListRelationFilter
   assets?: Prisma.AssetListRelationFilter
   auditLogs?: Prisma.AuditLogListRelationFilter
 }
@@ -184,6 +185,7 @@ export type WorkspaceOrderByWithRelationInput = {
   jobs?: Prisma.JobOrderByRelationAggregateInput
   themes?: Prisma.ThemeOrderByRelationAggregateInput
   providerSettings?: Prisma.ProviderSettingOrderByRelationAggregateInput
+  settings?: Prisma.SettingOrderByRelationAggregateInput
   assets?: Prisma.AssetOrderByRelationAggregateInput
   auditLogs?: Prisma.AuditLogOrderByRelationAggregateInput
 }
@@ -200,6 +202,7 @@ export type WorkspaceWhereUniqueInput = Prisma.AtLeast<{
   jobs?: Prisma.JobListRelationFilter
   themes?: Prisma.ThemeListRelationFilter
   providerSettings?: Prisma.ProviderSettingListRelationFilter
+  settings?: Prisma.SettingListRelationFilter
   assets?: Prisma.AssetListRelationFilter
   auditLogs?: Prisma.AuditLogListRelationFilter
 }, "id">
@@ -231,6 +234,7 @@ export type WorkspaceCreateInput = {
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
 }
@@ -244,6 +248,7 @@ export type WorkspaceUncheckedCreateInput = {
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
 }
@@ -257,6 +262,7 @@ export type WorkspaceUpdateInput = {
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
 }
@@ -270,6 +276,7 @@ export type WorkspaceUncheckedUpdateInput = {
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
@@ -393,6 +400,20 @@ export type WorkspaceUpdateOneRequiredWithoutProviderSettingsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.WorkspaceUpdateToOneWithWhereWithoutProviderSettingsInput, Prisma.WorkspaceUpdateWithoutProviderSettingsInput>, Prisma.WorkspaceUncheckedUpdateWithoutProviderSettingsInput>
 }
 
+export type WorkspaceCreateNestedOneWithoutSettingsInput = {
+  create?: Prisma.XOR<Prisma.WorkspaceCreateWithoutSettingsInput, Prisma.WorkspaceUncheckedCreateWithoutSettingsInput>
+  connectOrCreate?: Prisma.WorkspaceCreateOrConnectWithoutSettingsInput
+  connect?: Prisma.WorkspaceWhereUniqueInput
+}
+
+export type WorkspaceUpdateOneRequiredWithoutSettingsNestedInput = {
+  create?: Prisma.XOR<Prisma.WorkspaceCreateWithoutSettingsInput, Prisma.WorkspaceUncheckedCreateWithoutSettingsInput>
+  connectOrCreate?: Prisma.WorkspaceCreateOrConnectWithoutSettingsInput
+  upsert?: Prisma.WorkspaceUpsertWithoutSettingsInput
+  connect?: Prisma.WorkspaceWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.WorkspaceUpdateToOneWithWhereWithoutSettingsInput, Prisma.WorkspaceUpdateWithoutSettingsInput>, Prisma.WorkspaceUncheckedUpdateWithoutSettingsInput>
+}
+
 export type WorkspaceCreateNestedOneWithoutAssetsInput = {
   create?: Prisma.XOR<Prisma.WorkspaceCreateWithoutAssetsInput, Prisma.WorkspaceUncheckedCreateWithoutAssetsInput>
   connectOrCreate?: Prisma.WorkspaceCreateOrConnectWithoutAssetsInput
@@ -429,6 +450,7 @@ export type WorkspaceCreateWithoutProjectsInput = {
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
 }
@@ -441,6 +463,7 @@ export type WorkspaceUncheckedCreateWithoutProjectsInput = {
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
 }
@@ -469,6 +492,7 @@ export type WorkspaceUpdateWithoutProjectsInput = {
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
 }
@@ -481,6 +505,7 @@ export type WorkspaceUncheckedUpdateWithoutProjectsInput = {
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
@@ -493,6 +518,7 @@ export type WorkspaceCreateWithoutApiKeysInput = {
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
 }
@@ -505,6 +531,7 @@ export type WorkspaceUncheckedCreateWithoutApiKeysInput = {
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
 }
@@ -533,6 +560,7 @@ export type WorkspaceUpdateWithoutApiKeysInput = {
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
 }
@@ -545,6 +573,7 @@ export type WorkspaceUncheckedUpdateWithoutApiKeysInput = {
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
@@ -557,6 +586,7 @@ export type WorkspaceCreateWithoutJobsInput = {
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
 }
@@ -569,6 +599,7 @@ export type WorkspaceUncheckedCreateWithoutJobsInput = {
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
 }
@@ -597,6 +628,7 @@ export type WorkspaceUpdateWithoutJobsInput = {
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
 }
@@ -609,6 +641,7 @@ export type WorkspaceUncheckedUpdateWithoutJobsInput = {
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
@@ -621,6 +654,7 @@ export type WorkspaceCreateWithoutThemesInput = {
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
 }
@@ -633,6 +667,7 @@ export type WorkspaceUncheckedCreateWithoutThemesInput = {
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
 }
@@ -661,6 +696,7 @@ export type WorkspaceUpdateWithoutThemesInput = {
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
 }
@@ -673,6 +709,7 @@ export type WorkspaceUncheckedUpdateWithoutThemesInput = {
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
@@ -685,6 +722,7 @@ export type WorkspaceCreateWithoutProviderSettingsInput = {
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
 }
@@ -697,6 +735,7 @@ export type WorkspaceUncheckedCreateWithoutProviderSettingsInput = {
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
 }
@@ -725,6 +764,7 @@ export type WorkspaceUpdateWithoutProviderSettingsInput = {
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
 }
@@ -737,6 +777,75 @@ export type WorkspaceUncheckedUpdateWithoutProviderSettingsInput = {
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
+  auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
+}
+
+export type WorkspaceCreateWithoutSettingsInput = {
+  id: string
+  name: string
+  createdAt?: Date | string
+  projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
+  apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
+  jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
+  themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
+  providerSettings?: Prisma.ProviderSettingCreateNestedManyWithoutWorkspaceInput
+  assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
+  auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
+}
+
+export type WorkspaceUncheckedCreateWithoutSettingsInput = {
+  id: string
+  name: string
+  createdAt?: Date | string
+  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
+  apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
+  jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
+  themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
+  providerSettings?: Prisma.ProviderSettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
+  auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
+}
+
+export type WorkspaceCreateOrConnectWithoutSettingsInput = {
+  where: Prisma.WorkspaceWhereUniqueInput
+  create: Prisma.XOR<Prisma.WorkspaceCreateWithoutSettingsInput, Prisma.WorkspaceUncheckedCreateWithoutSettingsInput>
+}
+
+export type WorkspaceUpsertWithoutSettingsInput = {
+  update: Prisma.XOR<Prisma.WorkspaceUpdateWithoutSettingsInput, Prisma.WorkspaceUncheckedUpdateWithoutSettingsInput>
+  create: Prisma.XOR<Prisma.WorkspaceCreateWithoutSettingsInput, Prisma.WorkspaceUncheckedCreateWithoutSettingsInput>
+  where?: Prisma.WorkspaceWhereInput
+}
+
+export type WorkspaceUpdateToOneWithWhereWithoutSettingsInput = {
+  where?: Prisma.WorkspaceWhereInput
+  data: Prisma.XOR<Prisma.WorkspaceUpdateWithoutSettingsInput, Prisma.WorkspaceUncheckedUpdateWithoutSettingsInput>
+}
+
+export type WorkspaceUpdateWithoutSettingsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
+  apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
+  jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
+  themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
+  providerSettings?: Prisma.ProviderSettingUpdateManyWithoutWorkspaceNestedInput
+  assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
+  auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
+}
+
+export type WorkspaceUncheckedUpdateWithoutSettingsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
+  apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
+  jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
+  themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
+  providerSettings?: Prisma.ProviderSettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
@@ -750,6 +859,7 @@ export type WorkspaceCreateWithoutAssetsInput = {
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
 }
 
@@ -762,6 +872,7 @@ export type WorkspaceUncheckedCreateWithoutAssetsInput = {
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
   auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
@@ -790,6 +901,7 @@ export type WorkspaceUpdateWithoutAssetsInput = {
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
 }
 
@@ -802,6 +914,7 @@ export type WorkspaceUncheckedUpdateWithoutAssetsInput = {
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
@@ -814,6 +927,7 @@ export type WorkspaceCreateWithoutAuditLogsInput = {
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
 }
 
@@ -826,6 +940,7 @@ export type WorkspaceUncheckedCreateWithoutAuditLogsInput = {
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
   providerSettings?: Prisma.ProviderSettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
   assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
@@ -854,6 +969,7 @@ export type WorkspaceUpdateWithoutAuditLogsInput = {
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
 }
 
@@ -866,6 +982,7 @@ export type WorkspaceUncheckedUpdateWithoutAuditLogsInput = {
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
   providerSettings?: Prisma.ProviderSettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
   assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
@@ -880,6 +997,7 @@ export type WorkspaceCountOutputType = {
   jobs: number
   themes: number
   providerSettings: number
+  settings: number
   assets: number
   auditLogs: number
 }
@@ -890,6 +1008,7 @@ export type WorkspaceCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensi
   jobs?: boolean | WorkspaceCountOutputTypeCountJobsArgs
   themes?: boolean | WorkspaceCountOutputTypeCountThemesArgs
   providerSettings?: boolean | WorkspaceCountOutputTypeCountProviderSettingsArgs
+  settings?: boolean | WorkspaceCountOutputTypeCountSettingsArgs
   assets?: boolean | WorkspaceCountOutputTypeCountAssetsArgs
   auditLogs?: boolean | WorkspaceCountOutputTypeCountAuditLogsArgs
 }
@@ -942,6 +1061,13 @@ export type WorkspaceCountOutputTypeCountProviderSettingsArgs<ExtArgs extends ru
 /**
  * WorkspaceCountOutputType without action
  */
+export type WorkspaceCountOutputTypeCountSettingsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.SettingWhereInput
+}
+
+/**
+ * WorkspaceCountOutputType without action
+ */
 export type WorkspaceCountOutputTypeCountAssetsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.AssetWhereInput
 }
@@ -963,6 +1089,7 @@ export type WorkspaceSelect<ExtArgs extends runtime.Types.Extensions.InternalArg
   jobs?: boolean | Prisma.Workspace$jobsArgs<ExtArgs>
   themes?: boolean | Prisma.Workspace$themesArgs<ExtArgs>
   providerSettings?: boolean | Prisma.Workspace$providerSettingsArgs<ExtArgs>
+  settings?: boolean | Prisma.Workspace$settingsArgs<ExtArgs>
   assets?: boolean | Prisma.Workspace$assetsArgs<ExtArgs>
   auditLogs?: boolean | Prisma.Workspace$auditLogsArgs<ExtArgs>
   _count?: boolean | Prisma.WorkspaceCountOutputTypeDefaultArgs<ExtArgs>
@@ -993,6 +1120,7 @@ export type WorkspaceInclude<ExtArgs extends runtime.Types.Extensions.InternalAr
   jobs?: boolean | Prisma.Workspace$jobsArgs<ExtArgs>
   themes?: boolean | Prisma.Workspace$themesArgs<ExtArgs>
   providerSettings?: boolean | Prisma.Workspace$providerSettingsArgs<ExtArgs>
+  settings?: boolean | Prisma.Workspace$settingsArgs<ExtArgs>
   assets?: boolean | Prisma.Workspace$assetsArgs<ExtArgs>
   auditLogs?: boolean | Prisma.Workspace$auditLogsArgs<ExtArgs>
   _count?: boolean | Prisma.WorkspaceCountOutputTypeDefaultArgs<ExtArgs>
@@ -1008,6 +1136,7 @@ export type $WorkspacePayload<ExtArgs extends runtime.Types.Extensions.InternalA
     jobs: Prisma.$JobPayload<ExtArgs>[]
     themes: Prisma.$ThemePayload<ExtArgs>[]
     providerSettings: Prisma.$ProviderSettingPayload<ExtArgs>[]
+    settings: Prisma.$SettingPayload<ExtArgs>[]
     assets: Prisma.$AssetPayload<ExtArgs>[]
     auditLogs: Prisma.$AuditLogPayload<ExtArgs>[]
   }
@@ -1414,6 +1543,7 @@ export interface Prisma__WorkspaceClient<T, Null = never, ExtArgs extends runtim
   jobs<T extends Prisma.Workspace$jobsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$jobsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$JobPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   themes<T extends Prisma.Workspace$themesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$themesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ThemePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   providerSettings<T extends Prisma.Workspace$providerSettingsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$providerSettingsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ProviderSettingPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  settings<T extends Prisma.Workspace$settingsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$settingsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SettingPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   assets<T extends Prisma.Workspace$assetsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$assetsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AssetPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   auditLogs<T extends Prisma.Workspace$auditLogsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$auditLogsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AuditLogPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
@@ -1958,6 +2088,30 @@ export type Workspace$providerSettingsArgs<ExtArgs extends runtime.Types.Extensi
   take?: number
   skip?: number
   distinct?: Prisma.ProviderSettingScalarFieldEnum | Prisma.ProviderSettingScalarFieldEnum[]
+}
+
+/**
+ * Workspace.settings
+ */
+export type Workspace$settingsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the Setting
+   */
+  select?: Prisma.SettingSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the Setting
+   */
+  omit?: Prisma.SettingOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.SettingInclude<ExtArgs> | null
+  where?: Prisma.SettingWhereInput
+  orderBy?: Prisma.SettingOrderByWithRelationInput | Prisma.SettingOrderByWithRelationInput[]
+  cursor?: Prisma.SettingWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.SettingScalarFieldEnum | Prisma.SettingScalarFieldEnum[]
 }
 
 /**

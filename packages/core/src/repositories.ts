@@ -152,19 +152,51 @@ export interface ThemeRepository {
 
 // ---- provider settings ------------------------------------------------------
 
+/**
+ * A stored setting value. `scheme` says how `value` is stored: "plain", or
+ * "aes-256-gcm" (SecretCipher in config/crypto.ts; REELFORGE_SECRET_KEY).
+ * Repositories store both opaquely; encryption happens above them.
+ */
+export interface StoredValue {
+  value: string;
+  scheme: string;
+}
+
 export interface ProviderSettingInfo {
   name: string;
   providerId?: string;
+  scheme: string;
   updatedAt: string;
 }
 
 export interface ProviderSettingRepository {
-  /** Every stored value, by setting name (e.g. ELEVENLABS_API_KEY). */
-  values(): Promise<Record<string, string>>;
-  /** Names and timestamps only; never values. */
+  /** Every stored value, by setting name (e.g. ELEVENLABS_API_KEY), as stored (possibly encrypted). */
+  values(): Promise<Record<string, StoredValue>>;
+  /** Names, schemes and timestamps only; never values. */
   list(): Promise<ProviderSettingInfo[]>;
-  /** Set (string) or clear (null) several settings atomically. */
-  apply(changes: Record<string, string | null>, at: string, providerId?: string): Promise<void>;
+  /** Set or clear (null) several settings atomically. A set without providerId keeps the stored one. */
+  apply(changes: Record<string, StoredValue | null>, at: string, providerId?: string): Promise<void>;
+}
+
+// ---- runtime settings -------------------------------------------------------
+
+/**
+ * A runtime configuration value set over REST/MCP (update_config), by dotted
+ * key (e.g. "limits.rateLimitPerMinute"). `value` is JSON text, or the
+ * encrypted JSON text when `scheme` is not "plain" (secrets).
+ */
+export interface StoredSetting extends StoredValue {
+  key: string;
+  updatedAt: string;
+  /** Who set it, e.g. an API key id. */
+  updatedBy?: string;
+}
+
+export interface SettingRepository {
+  /** Every stored runtime setting, sorted by key. */
+  list(): Promise<StoredSetting[]>;
+  /** Set or clear (null) several settings atomically. */
+  apply(changes: Record<string, StoredValue | null>, at: string, updatedBy?: string): Promise<void>;
 }
 
 // ---- assets -----------------------------------------------------------------
@@ -216,6 +248,7 @@ export interface Repositories {
   readonly jobs: JobRepository;
   readonly themes: ThemeRepository;
   readonly providerSettings: ProviderSettingRepository;
+  readonly settings: SettingRepository;
   readonly assets: AssetRepository;
   readonly audit: AuditRepository;
 }

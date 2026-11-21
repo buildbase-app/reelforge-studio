@@ -36,7 +36,8 @@ export function hostName(hostHeader: string | undefined): string {
 
 export function createApp({ service, config }: AppDeps) {
   const app = new Hono<Env>();
-  const limiter = new RateLimiter(config.rateLimitPerMinute);
+  // config is the live object: runtime settings (PATCH /v1/config) change it while the server runs.
+  const limiter = new RateLimiter(() => config.rateLimitPerMinute);
 
   app.onError((err, c) => {
     if (err instanceof ApiError) return c.json(errorBody(err.code, err.message, err.details), err.status as 400);
@@ -87,7 +88,11 @@ export function createApp({ service, config }: AppDeps) {
       await next();
     };
 
-  const json = bodyLimit({ maxSize: config.maxJsonBytes, onError: (c) => c.json(errorBody('too_large', `JSON body larger than ${config.maxJsonBytes} bytes`), 413) });
+  const json: MiddlewareHandler<Env> = (c, next) =>
+    bodyLimit({ maxSize: config.maxJsonBytes, onError: (c) => c.json(errorBody('too_large', `JSON body larger than ${config.maxJsonBytes} bytes`), 413) })(c, next);
+  const upload: MiddlewareHandler<Env> = (c, next) =>
+    bodyLimit({ maxSize: config.maxUploadBytes + 64 * 1024, onError: (c) => c.json(errorBody('too_large', `upload larger than ${config.maxUploadBytes} bytes`), 413) })(c, next);
+  const actor = (c: Context<Env>) => ({ actorType: 'api_key' as const, actorId: c.get('auth').keyId });
   const body = async (c: Context): Promise<Record<string, unknown>> => {
     const text = await c.req.text();
     if (!text.trim()) return {};
@@ -297,7 +302,7 @@ export function createApp({ service, config }: AppDeps) {
   v1.post(
     '/assets',
     need('write'),
-    bodyLimit({ maxSize: config.maxUploadBytes + 64 * 1024, onError: (c) => c.json(errorBody('too_large', `upload larger than ${config.maxUploadBytes} bytes`), 413) }),
+    upload,
     async (c) => {
       const type = c.req.header('content-type') ?? '';
       if (type.startsWith('multipart/form-data')) {
@@ -328,7 +333,7 @@ export function createApp({ service, config }: AppDeps) {
   v1.get('/providers', need('read'), (c) => c.json({ providers: service.listProviders() }));
   v1.put('/providers/:id/config', need('admin'), json, async (c) => {
     const b = await body(c);
-    return c.json(await service.configureProvider(c.req.param('id'), b.values));
+    return c.json(await service.configureProvider(c.req.param('id'), b.values, actor(c)));
   });
   v1.post('/providers/:id/run', need('render'), json, async (c) => {
     const b = await body(c);
@@ -339,6 +344,14 @@ export function createApp({ service, config }: AppDeps) {
       assetId: typeof b.assetId === 'string' ? b.assetId : undefined,
     });
     return c.json(r, 201);
+  });
+
+  v1.get('/config', need('admin'), (c) => c.json(service.getConfig({ prefix: c.req.query('prefix') || undefined })));
+  v1.patch('/config', need('admin'), json, async (c) => {
+    const b = await body(c);
+    // { "settings": { "limits.rateLimitPerMinute": 120 } }; a bare object of settings works too.
+    const patch = 'settings' in b && b.settings && typeof b.settings === 'object' ? b.settings : b;
+    return c.json(await service.updateConfig(patch, actor(c)));
   });
 
   v1.get('/keys', need('admin'), async (c) => c.json({ keys: await service.listKeys() }));
