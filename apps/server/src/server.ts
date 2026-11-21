@@ -37,6 +37,9 @@ export async function startServer(
     licence?: ServiceConfig['licence'];
     /** Storage driver factory / sweep (tests; ServiceConfig.storage). */
     storage?: ServiceConfig['storage'];
+    /** Audit sink plugins (selected by audit.sinks) and the clock (tests). */
+    auditSinks?: ServiceConfig['auditSinks'];
+    now?: ServiceConfig['now'];
   } = {}
 ): Promise<StartedServer> {
   const env = opts.env ?? process.env;
@@ -76,6 +79,8 @@ export async function startServer(
       configSources: config.sources,
       licence: opts.licence,
       storage: opts.storage,
+      auditSinks: opts.auditSinks,
+      now: opts.now,
       log: logger.log,
       telemetry: obs.telemetry,
     });
@@ -135,8 +140,7 @@ export async function startServer(
         server.close(() => resolve());
         (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
       });
-      service.licence.stop();
-      service.storage.stopSweeper();
+      await service.stop();
       await service.jobs.flush();
       await obs.shutdown();
       await db.close();

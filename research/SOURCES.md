@@ -236,3 +236,15 @@ implementation or licensing decisions.
     github.com/minio/minio@v0.0.0-20260212201848-7aac2a2c5b7c` (Go 1.24.7).
     Emulators: Azurite (`mcr.microsoft.com/azure-storage/azurite:latest`),
     fake-gcs-server (`mirror.gcr.io/fsouza/fake-gcs-server:latest`).
+
+34. **OTLP/HTTP logs, JSON encoding** (read 2026-11-21: OpenTelemetry protocol
+    specification, https://opentelemetry.io/docs/specs/otlp/#otlphttp, and the
+    logs data model, https://opentelemetry.io/docs/specs/otel/logs/data-model/):
+    `POST <endpoint>` (default path `/v1/logs`, port 4318) with
+    `Content-Type: application/json`, body `ExportLogsServiceRequest`
+    (`resourceLogs[].scopeLogs[].logRecords[]`, `timeUnixNano` as a decimal
+    string, attributes as `{key, value: {stringValue|intValue|boolValue}}`).
+    Verified 2026-11-21 against `otel/opentelemetry-collector:0.140.0`
+    (reports 0.140.1) with the `otlp` receiver and `debug` exporter: our
+    records arrive with scope `reelforge.audit`, event name, body and
+    attributes (D-058).

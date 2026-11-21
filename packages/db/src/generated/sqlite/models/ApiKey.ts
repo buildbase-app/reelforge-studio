@@ -15,13 +15,30 @@ import type * as Prisma from "../internal/prismaNamespace"
 /**
  * Model ApiKey
  * API keys: salted SHA-256 hashes only; the key itself is never stored.
+ * Lifecycle (#65, D-055): optional expiry, rotation with a grace window for
+ * the previous secret, revocation (the row stays for the audit trail),
+ * per-key rate limit, render quotas and IP allowlist.
  */
 export type ApiKeyModel = runtime.Types.Result.DefaultSelection<Prisma.$ApiKeyPayload>
 
 export type AggregateApiKey = {
   _count: ApiKeyCountAggregateOutputType | null
+  _avg: ApiKeyAvgAggregateOutputType | null
+  _sum: ApiKeySumAggregateOutputType | null
   _min: ApiKeyMinAggregateOutputType | null
   _max: ApiKeyMaxAggregateOutputType | null
+}
+
+export type ApiKeyAvgAggregateOutputType = {
+  rateLimitPerMinute: number | null
+  rendersPerDay: number | null
+  rendersPerMonth: number | null
+}
+
+export type ApiKeySumAggregateOutputType = {
+  rateLimitPerMinute: number | null
+  rendersPerDay: number | null
+  rendersPerMonth: number | null
 }
 
 export type ApiKeyMinAggregateOutputType = {
@@ -34,6 +51,17 @@ export type ApiKeyMinAggregateOutputType = {
   hash: string | null
   createdAt: Date | null
   lastUsedAt: Date | null
+  expiresAt: Date | null
+  revokedAt: Date | null
+  prevPrefix: string | null
+  prevSalt: string | null
+  prevHash: string | null
+  prevExpiresAt: Date | null
+  rotatedAt: Date | null
+  rateLimitPerMinute: number | null
+  rendersPerDay: number | null
+  rendersPerMonth: number | null
+  ipAllowlist: string | null
 }
 
 export type ApiKeyMaxAggregateOutputType = {
@@ -46,6 +74,17 @@ export type ApiKeyMaxAggregateOutputType = {
   hash: string | null
   createdAt: Date | null
   lastUsedAt: Date | null
+  expiresAt: Date | null
+  revokedAt: Date | null
+  prevPrefix: string | null
+  prevSalt: string | null
+  prevHash: string | null
+  prevExpiresAt: Date | null
+  rotatedAt: Date | null
+  rateLimitPerMinute: number | null
+  rendersPerDay: number | null
+  rendersPerMonth: number | null
+  ipAllowlist: string | null
 }
 
 export type ApiKeyCountAggregateOutputType = {
@@ -58,9 +97,32 @@ export type ApiKeyCountAggregateOutputType = {
   hash: number
   createdAt: number
   lastUsedAt: number
+  expiresAt: number
+  revokedAt: number
+  prevPrefix: number
+  prevSalt: number
+  prevHash: number
+  prevExpiresAt: number
+  rotatedAt: number
+  rateLimitPerMinute: number
+  rendersPerDay: number
+  rendersPerMonth: number
+  ipAllowlist: number
   _all: number
 }
 
+
+export type ApiKeyAvgAggregateInputType = {
+  rateLimitPerMinute?: true
+  rendersPerDay?: true
+  rendersPerMonth?: true
+}
+
+export type ApiKeySumAggregateInputType = {
+  rateLimitPerMinute?: true
+  rendersPerDay?: true
+  rendersPerMonth?: true
+}
 
 export type ApiKeyMinAggregateInputType = {
   id?: true
@@ -72,6 +134,17 @@ export type ApiKeyMinAggregateInputType = {
   hash?: true
   createdAt?: true
   lastUsedAt?: true
+  expiresAt?: true
+  revokedAt?: true
+  prevPrefix?: true
+  prevSalt?: true
+  prevHash?: true
+  prevExpiresAt?: true
+  rotatedAt?: true
+  rateLimitPerMinute?: true
+  rendersPerDay?: true
+  rendersPerMonth?: true
+  ipAllowlist?: true
 }
 
 export type ApiKeyMaxAggregateInputType = {
@@ -84,6 +157,17 @@ export type ApiKeyMaxAggregateInputType = {
   hash?: true
   createdAt?: true
   lastUsedAt?: true
+  expiresAt?: true
+  revokedAt?: true
+  prevPrefix?: true
+  prevSalt?: true
+  prevHash?: true
+  prevExpiresAt?: true
+  rotatedAt?: true
+  rateLimitPerMinute?: true
+  rendersPerDay?: true
+  rendersPerMonth?: true
+  ipAllowlist?: true
 }
 
 export type ApiKeyCountAggregateInputType = {
@@ -96,6 +180,17 @@ export type ApiKeyCountAggregateInputType = {
   hash?: true
   createdAt?: true
   lastUsedAt?: true
+  expiresAt?: true
+  revokedAt?: true
+  prevPrefix?: true
+  prevSalt?: true
+  prevHash?: true
+  prevExpiresAt?: true
+  rotatedAt?: true
+  rateLimitPerMinute?: true
+  rendersPerDay?: true
+  rendersPerMonth?: true
+  ipAllowlist?: true
   _all?: true
 }
 
@@ -137,6 +232,18 @@ export type ApiKeyAggregateArgs<ExtArgs extends runtime.Types.Extensions.Interna
   /**
    * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
    * 
+   * Select which fields to average
+  **/
+  _avg?: ApiKeyAvgAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
+   * Select which fields to sum
+  **/
+  _sum?: ApiKeySumAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
    * Select which fields to find the minimum value
   **/
   _min?: ApiKeyMinAggregateInputType
@@ -167,6 +274,8 @@ export type ApiKeyGroupByArgs<ExtArgs extends runtime.Types.Extensions.InternalA
   take?: number
   skip?: number
   _count?: ApiKeyCountAggregateInputType | true
+  _avg?: ApiKeyAvgAggregateInputType
+  _sum?: ApiKeySumAggregateInputType
   _min?: ApiKeyMinAggregateInputType
   _max?: ApiKeyMaxAggregateInputType
 }
@@ -181,7 +290,20 @@ export type ApiKeyGroupByOutputType = {
   hash: string
   createdAt: Date
   lastUsedAt: Date | null
+  expiresAt: Date | null
+  revokedAt: Date | null
+  prevPrefix: string | null
+  prevSalt: string | null
+  prevHash: string | null
+  prevExpiresAt: Date | null
+  rotatedAt: Date | null
+  rateLimitPerMinute: number | null
+  rendersPerDay: number | null
+  rendersPerMonth: number | null
+  ipAllowlist: string | null
   _count: ApiKeyCountAggregateOutputType | null
+  _avg: ApiKeyAvgAggregateOutputType | null
+  _sum: ApiKeySumAggregateOutputType | null
   _min: ApiKeyMinAggregateOutputType | null
   _max: ApiKeyMaxAggregateOutputType | null
 }
@@ -214,6 +336,17 @@ export type ApiKeyWhereInput = {
   hash?: Prisma.StringFilter<"ApiKey"> | string
   createdAt?: Prisma.DateTimeFilter<"ApiKey"> | Date | string
   lastUsedAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  expiresAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  revokedAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  prevPrefix?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  prevSalt?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  prevHash?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  prevExpiresAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  rotatedAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  rateLimitPerMinute?: Prisma.IntNullableFilter<"ApiKey"> | number | null
+  rendersPerDay?: Prisma.IntNullableFilter<"ApiKey"> | number | null
+  rendersPerMonth?: Prisma.IntNullableFilter<"ApiKey"> | number | null
+  ipAllowlist?: Prisma.StringNullableFilter<"ApiKey"> | string | null
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
 }
 
@@ -227,6 +360,17 @@ export type ApiKeyOrderByWithRelationInput = {
   hash?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   lastUsedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  expiresAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  revokedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  prevPrefix?: Prisma.SortOrderInput | Prisma.SortOrder
+  prevSalt?: Prisma.SortOrderInput | Prisma.SortOrder
+  prevHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  prevExpiresAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  rotatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  rateLimitPerMinute?: Prisma.SortOrderInput | Prisma.SortOrder
+  rendersPerDay?: Prisma.SortOrderInput | Prisma.SortOrder
+  rendersPerMonth?: Prisma.SortOrderInput | Prisma.SortOrder
+  ipAllowlist?: Prisma.SortOrderInput | Prisma.SortOrder
   workspace?: Prisma.WorkspaceOrderByWithRelationInput
 }
 
@@ -243,6 +387,17 @@ export type ApiKeyWhereUniqueInput = Prisma.AtLeast<{
   hash?: Prisma.StringFilter<"ApiKey"> | string
   createdAt?: Prisma.DateTimeFilter<"ApiKey"> | Date | string
   lastUsedAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  expiresAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  revokedAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  prevPrefix?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  prevSalt?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  prevHash?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  prevExpiresAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  rotatedAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  rateLimitPerMinute?: Prisma.IntNullableFilter<"ApiKey"> | number | null
+  rendersPerDay?: Prisma.IntNullableFilter<"ApiKey"> | number | null
+  rendersPerMonth?: Prisma.IntNullableFilter<"ApiKey"> | number | null
+  ipAllowlist?: Prisma.StringNullableFilter<"ApiKey"> | string | null
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
 }, "id">
 
@@ -256,9 +411,22 @@ export type ApiKeyOrderByWithAggregationInput = {
   hash?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   lastUsedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  expiresAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  revokedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  prevPrefix?: Prisma.SortOrderInput | Prisma.SortOrder
+  prevSalt?: Prisma.SortOrderInput | Prisma.SortOrder
+  prevHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  prevExpiresAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  rotatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  rateLimitPerMinute?: Prisma.SortOrderInput | Prisma.SortOrder
+  rendersPerDay?: Prisma.SortOrderInput | Prisma.SortOrder
+  rendersPerMonth?: Prisma.SortOrderInput | Prisma.SortOrder
+  ipAllowlist?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.ApiKeyCountOrderByAggregateInput
+  _avg?: Prisma.ApiKeyAvgOrderByAggregateInput
   _max?: Prisma.ApiKeyMaxOrderByAggregateInput
   _min?: Prisma.ApiKeyMinOrderByAggregateInput
+  _sum?: Prisma.ApiKeySumOrderByAggregateInput
 }
 
 export type ApiKeyScalarWhereWithAggregatesInput = {
@@ -274,6 +442,17 @@ export type ApiKeyScalarWhereWithAggregatesInput = {
   hash?: Prisma.StringWithAggregatesFilter<"ApiKey"> | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ApiKey"> | Date | string
   lastUsedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ApiKey"> | Date | string | null
+  expiresAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ApiKey"> | Date | string | null
+  revokedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ApiKey"> | Date | string | null
+  prevPrefix?: Prisma.StringNullableWithAggregatesFilter<"ApiKey"> | string | null
+  prevSalt?: Prisma.StringNullableWithAggregatesFilter<"ApiKey"> | string | null
+  prevHash?: Prisma.StringNullableWithAggregatesFilter<"ApiKey"> | string | null
+  prevExpiresAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ApiKey"> | Date | string | null
+  rotatedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ApiKey"> | Date | string | null
+  rateLimitPerMinute?: Prisma.IntNullableWithAggregatesFilter<"ApiKey"> | number | null
+  rendersPerDay?: Prisma.IntNullableWithAggregatesFilter<"ApiKey"> | number | null
+  rendersPerMonth?: Prisma.IntNullableWithAggregatesFilter<"ApiKey"> | number | null
+  ipAllowlist?: Prisma.StringNullableWithAggregatesFilter<"ApiKey"> | string | null
 }
 
 export type ApiKeyCreateInput = {
@@ -285,6 +464,17 @@ export type ApiKeyCreateInput = {
   hash: string
   createdAt: Date | string
   lastUsedAt?: Date | string | null
+  expiresAt?: Date | string | null
+  revokedAt?: Date | string | null
+  prevPrefix?: string | null
+  prevSalt?: string | null
+  prevHash?: string | null
+  prevExpiresAt?: Date | string | null
+  rotatedAt?: Date | string | null
+  rateLimitPerMinute?: number | null
+  rendersPerDay?: number | null
+  rendersPerMonth?: number | null
+  ipAllowlist?: string | null
   workspace: Prisma.WorkspaceCreateNestedOneWithoutApiKeysInput
 }
 
@@ -298,6 +488,17 @@ export type ApiKeyUncheckedCreateInput = {
   hash: string
   createdAt: Date | string
   lastUsedAt?: Date | string | null
+  expiresAt?: Date | string | null
+  revokedAt?: Date | string | null
+  prevPrefix?: string | null
+  prevSalt?: string | null
+  prevHash?: string | null
+  prevExpiresAt?: Date | string | null
+  rotatedAt?: Date | string | null
+  rateLimitPerMinute?: number | null
+  rendersPerDay?: number | null
+  rendersPerMonth?: number | null
+  ipAllowlist?: string | null
 }
 
 export type ApiKeyUpdateInput = {
@@ -309,6 +510,17 @@ export type ApiKeyUpdateInput = {
   hash?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  expiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  prevPrefix?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevSalt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rotatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rateLimitPerMinute?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workspace?: Prisma.WorkspaceUpdateOneRequiredWithoutApiKeysNestedInput
 }
 
@@ -322,6 +534,17 @@ export type ApiKeyUncheckedUpdateInput = {
   hash?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  expiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  prevPrefix?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevSalt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rotatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rateLimitPerMinute?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type ApiKeyCreateManyInput = {
@@ -334,6 +557,17 @@ export type ApiKeyCreateManyInput = {
   hash: string
   createdAt: Date | string
   lastUsedAt?: Date | string | null
+  expiresAt?: Date | string | null
+  revokedAt?: Date | string | null
+  prevPrefix?: string | null
+  prevSalt?: string | null
+  prevHash?: string | null
+  prevExpiresAt?: Date | string | null
+  rotatedAt?: Date | string | null
+  rateLimitPerMinute?: number | null
+  rendersPerDay?: number | null
+  rendersPerMonth?: number | null
+  ipAllowlist?: string | null
 }
 
 export type ApiKeyUpdateManyMutationInput = {
@@ -345,6 +579,17 @@ export type ApiKeyUpdateManyMutationInput = {
   hash?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  expiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  prevPrefix?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevSalt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rotatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rateLimitPerMinute?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type ApiKeyUncheckedUpdateManyInput = {
@@ -357,6 +602,17 @@ export type ApiKeyUncheckedUpdateManyInput = {
   hash?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  expiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  prevPrefix?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevSalt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rotatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rateLimitPerMinute?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type ApiKeyListRelationFilter = {
@@ -379,6 +635,23 @@ export type ApiKeyCountOrderByAggregateInput = {
   hash?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   lastUsedAt?: Prisma.SortOrder
+  expiresAt?: Prisma.SortOrder
+  revokedAt?: Prisma.SortOrder
+  prevPrefix?: Prisma.SortOrder
+  prevSalt?: Prisma.SortOrder
+  prevHash?: Prisma.SortOrder
+  prevExpiresAt?: Prisma.SortOrder
+  rotatedAt?: Prisma.SortOrder
+  rateLimitPerMinute?: Prisma.SortOrder
+  rendersPerDay?: Prisma.SortOrder
+  rendersPerMonth?: Prisma.SortOrder
+  ipAllowlist?: Prisma.SortOrder
+}
+
+export type ApiKeyAvgOrderByAggregateInput = {
+  rateLimitPerMinute?: Prisma.SortOrder
+  rendersPerDay?: Prisma.SortOrder
+  rendersPerMonth?: Prisma.SortOrder
 }
 
 export type ApiKeyMaxOrderByAggregateInput = {
@@ -391,6 +664,17 @@ export type ApiKeyMaxOrderByAggregateInput = {
   hash?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   lastUsedAt?: Prisma.SortOrder
+  expiresAt?: Prisma.SortOrder
+  revokedAt?: Prisma.SortOrder
+  prevPrefix?: Prisma.SortOrder
+  prevSalt?: Prisma.SortOrder
+  prevHash?: Prisma.SortOrder
+  prevExpiresAt?: Prisma.SortOrder
+  rotatedAt?: Prisma.SortOrder
+  rateLimitPerMinute?: Prisma.SortOrder
+  rendersPerDay?: Prisma.SortOrder
+  rendersPerMonth?: Prisma.SortOrder
+  ipAllowlist?: Prisma.SortOrder
 }
 
 export type ApiKeyMinOrderByAggregateInput = {
@@ -403,6 +687,23 @@ export type ApiKeyMinOrderByAggregateInput = {
   hash?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   lastUsedAt?: Prisma.SortOrder
+  expiresAt?: Prisma.SortOrder
+  revokedAt?: Prisma.SortOrder
+  prevPrefix?: Prisma.SortOrder
+  prevSalt?: Prisma.SortOrder
+  prevHash?: Prisma.SortOrder
+  prevExpiresAt?: Prisma.SortOrder
+  rotatedAt?: Prisma.SortOrder
+  rateLimitPerMinute?: Prisma.SortOrder
+  rendersPerDay?: Prisma.SortOrder
+  rendersPerMonth?: Prisma.SortOrder
+  ipAllowlist?: Prisma.SortOrder
+}
+
+export type ApiKeySumOrderByAggregateInput = {
+  rateLimitPerMinute?: Prisma.SortOrder
+  rendersPerDay?: Prisma.SortOrder
+  rendersPerMonth?: Prisma.SortOrder
 }
 
 export type ApiKeyCreateNestedManyWithoutWorkspaceInput = {
@@ -451,6 +752,18 @@ export type NullableDateTimeFieldUpdateOperationsInput = {
   set?: Date | string | null
 }
 
+export type NullableStringFieldUpdateOperationsInput = {
+  set?: string | null
+}
+
+export type NullableIntFieldUpdateOperationsInput = {
+  set?: number | null
+  increment?: number
+  decrement?: number
+  multiply?: number
+  divide?: number
+}
+
 export type ApiKeyCreateWithoutWorkspaceInput = {
   id: string
   name: string
@@ -460,6 +773,17 @@ export type ApiKeyCreateWithoutWorkspaceInput = {
   hash: string
   createdAt: Date | string
   lastUsedAt?: Date | string | null
+  expiresAt?: Date | string | null
+  revokedAt?: Date | string | null
+  prevPrefix?: string | null
+  prevSalt?: string | null
+  prevHash?: string | null
+  prevExpiresAt?: Date | string | null
+  rotatedAt?: Date | string | null
+  rateLimitPerMinute?: number | null
+  rendersPerDay?: number | null
+  rendersPerMonth?: number | null
+  ipAllowlist?: string | null
 }
 
 export type ApiKeyUncheckedCreateWithoutWorkspaceInput = {
@@ -471,6 +795,17 @@ export type ApiKeyUncheckedCreateWithoutWorkspaceInput = {
   hash: string
   createdAt: Date | string
   lastUsedAt?: Date | string | null
+  expiresAt?: Date | string | null
+  revokedAt?: Date | string | null
+  prevPrefix?: string | null
+  prevSalt?: string | null
+  prevHash?: string | null
+  prevExpiresAt?: Date | string | null
+  rotatedAt?: Date | string | null
+  rateLimitPerMinute?: number | null
+  rendersPerDay?: number | null
+  rendersPerMonth?: number | null
+  ipAllowlist?: string | null
 }
 
 export type ApiKeyCreateOrConnectWithoutWorkspaceInput = {
@@ -511,6 +846,17 @@ export type ApiKeyScalarWhereInput = {
   hash?: Prisma.StringFilter<"ApiKey"> | string
   createdAt?: Prisma.DateTimeFilter<"ApiKey"> | Date | string
   lastUsedAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  expiresAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  revokedAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  prevPrefix?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  prevSalt?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  prevHash?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  prevExpiresAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  rotatedAt?: Prisma.DateTimeNullableFilter<"ApiKey"> | Date | string | null
+  rateLimitPerMinute?: Prisma.IntNullableFilter<"ApiKey"> | number | null
+  rendersPerDay?: Prisma.IntNullableFilter<"ApiKey"> | number | null
+  rendersPerMonth?: Prisma.IntNullableFilter<"ApiKey"> | number | null
+  ipAllowlist?: Prisma.StringNullableFilter<"ApiKey"> | string | null
 }
 
 export type ApiKeyCreateManyWorkspaceInput = {
@@ -522,6 +868,17 @@ export type ApiKeyCreateManyWorkspaceInput = {
   hash: string
   createdAt: Date | string
   lastUsedAt?: Date | string | null
+  expiresAt?: Date | string | null
+  revokedAt?: Date | string | null
+  prevPrefix?: string | null
+  prevSalt?: string | null
+  prevHash?: string | null
+  prevExpiresAt?: Date | string | null
+  rotatedAt?: Date | string | null
+  rateLimitPerMinute?: number | null
+  rendersPerDay?: number | null
+  rendersPerMonth?: number | null
+  ipAllowlist?: string | null
 }
 
 export type ApiKeyUpdateWithoutWorkspaceInput = {
@@ -533,6 +890,17 @@ export type ApiKeyUpdateWithoutWorkspaceInput = {
   hash?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  expiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  prevPrefix?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevSalt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rotatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rateLimitPerMinute?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type ApiKeyUncheckedUpdateWithoutWorkspaceInput = {
@@ -544,6 +912,17 @@ export type ApiKeyUncheckedUpdateWithoutWorkspaceInput = {
   hash?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  expiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  prevPrefix?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevSalt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rotatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rateLimitPerMinute?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type ApiKeyUncheckedUpdateManyWithoutWorkspaceInput = {
@@ -555,6 +934,17 @@ export type ApiKeyUncheckedUpdateManyWithoutWorkspaceInput = {
   hash?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  expiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  prevPrefix?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevSalt?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  prevExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rotatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  rateLimitPerMinute?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 
@@ -569,6 +959,17 @@ export type ApiKeySelect<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   hash?: boolean
   createdAt?: boolean
   lastUsedAt?: boolean
+  expiresAt?: boolean
+  revokedAt?: boolean
+  prevPrefix?: boolean
+  prevSalt?: boolean
+  prevHash?: boolean
+  prevExpiresAt?: boolean
+  rotatedAt?: boolean
+  rateLimitPerMinute?: boolean
+  rendersPerDay?: boolean
+  rendersPerMonth?: boolean
+  ipAllowlist?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["apiKey"]>
 
@@ -582,6 +983,17 @@ export type ApiKeySelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extens
   hash?: boolean
   createdAt?: boolean
   lastUsedAt?: boolean
+  expiresAt?: boolean
+  revokedAt?: boolean
+  prevPrefix?: boolean
+  prevSalt?: boolean
+  prevHash?: boolean
+  prevExpiresAt?: boolean
+  rotatedAt?: boolean
+  rateLimitPerMinute?: boolean
+  rendersPerDay?: boolean
+  rendersPerMonth?: boolean
+  ipAllowlist?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["apiKey"]>
 
@@ -595,6 +1007,17 @@ export type ApiKeySelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extens
   hash?: boolean
   createdAt?: boolean
   lastUsedAt?: boolean
+  expiresAt?: boolean
+  revokedAt?: boolean
+  prevPrefix?: boolean
+  prevSalt?: boolean
+  prevHash?: boolean
+  prevExpiresAt?: boolean
+  rotatedAt?: boolean
+  rateLimitPerMinute?: boolean
+  rendersPerDay?: boolean
+  rendersPerMonth?: boolean
+  ipAllowlist?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["apiKey"]>
 
@@ -608,9 +1031,20 @@ export type ApiKeySelectScalar = {
   hash?: boolean
   createdAt?: boolean
   lastUsedAt?: boolean
+  expiresAt?: boolean
+  revokedAt?: boolean
+  prevPrefix?: boolean
+  prevSalt?: boolean
+  prevHash?: boolean
+  prevExpiresAt?: boolean
+  rotatedAt?: boolean
+  rateLimitPerMinute?: boolean
+  rendersPerDay?: boolean
+  rendersPerMonth?: boolean
+  ipAllowlist?: boolean
 }
 
-export type ApiKeyOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "name" | "scopes" | "prefix" | "salt" | "hash" | "createdAt" | "lastUsedAt", ExtArgs["result"]["apiKey"]>
+export type ApiKeyOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "name" | "scopes" | "prefix" | "salt" | "hash" | "createdAt" | "lastUsedAt" | "expiresAt" | "revokedAt" | "prevPrefix" | "prevSalt" | "prevHash" | "prevExpiresAt" | "rotatedAt" | "rateLimitPerMinute" | "rendersPerDay" | "rendersPerMonth" | "ipAllowlist", ExtArgs["result"]["apiKey"]>
 export type ApiKeyInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }
@@ -642,6 +1076,35 @@ export type $ApiKeyPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs
     hash: string
     createdAt: Date
     lastUsedAt: Date | null
+    /**
+     * The key stops working after this time (null: never expires).
+     */
+    expiresAt: Date | null
+    /**
+     * Revoked keys never authenticate again; the row stays for the audit trail.
+     */
+    revokedAt: Date | null
+    /**
+     * The secret before the last rotation: prefix, salt and hash, valid until prevExpiresAt.
+     */
+    prevPrefix: string | null
+    prevSalt: string | null
+    prevHash: string | null
+    prevExpiresAt: Date | null
+    rotatedAt: Date | null
+    /**
+     * Requests per minute for this key (null: limits.rateLimitPerMinute).
+     */
+    rateLimitPerMinute: number | null
+    /**
+     * Render and preview jobs per UTC day / month (null: unlimited).
+     */
+    rendersPerDay: number | null
+    rendersPerMonth: number | null
+    /**
+     * JSON array of CIDR blocks the key may be used from (null: anywhere).
+     */
+    ipAllowlist: string | null
   }, ExtArgs["result"]["apiKey"]>
   composites: {}
 }
@@ -1075,6 +1538,17 @@ export interface ApiKeyFieldRefs {
   readonly hash: Prisma.FieldRef<"ApiKey", 'String'>
   readonly createdAt: Prisma.FieldRef<"ApiKey", 'DateTime'>
   readonly lastUsedAt: Prisma.FieldRef<"ApiKey", 'DateTime'>
+  readonly expiresAt: Prisma.FieldRef<"ApiKey", 'DateTime'>
+  readonly revokedAt: Prisma.FieldRef<"ApiKey", 'DateTime'>
+  readonly prevPrefix: Prisma.FieldRef<"ApiKey", 'String'>
+  readonly prevSalt: Prisma.FieldRef<"ApiKey", 'String'>
+  readonly prevHash: Prisma.FieldRef<"ApiKey", 'String'>
+  readonly prevExpiresAt: Prisma.FieldRef<"ApiKey", 'DateTime'>
+  readonly rotatedAt: Prisma.FieldRef<"ApiKey", 'DateTime'>
+  readonly rateLimitPerMinute: Prisma.FieldRef<"ApiKey", 'Int'>
+  readonly rendersPerDay: Prisma.FieldRef<"ApiKey", 'Int'>
+  readonly rendersPerMonth: Prisma.FieldRef<"ApiKey", 'Int'>
+  readonly ipAllowlist: Prisma.FieldRef<"ApiKey", 'String'>
 }
     
 

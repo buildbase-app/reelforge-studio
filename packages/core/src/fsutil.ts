@@ -54,6 +54,22 @@ export function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${randomBytes(5).toString('hex')}`;
 }
 
+let seqTime = 0;
+let seq = 0;
+/**
+ * Like newId, but strictly increasing within this process even inside one
+ * millisecond (audit entries: "newest first" stays exact for entries written
+ * in the same millisecond). Format: <prefix>_<base36 time, 9><base36 counter, 4><random hex, 6>.
+ */
+export function newSequentialId(prefix: string): string {
+  const now = Date.now();
+  if (now > seqTime) {
+    seqTime = now;
+    seq = 0;
+  } else seq++;
+  return `${prefix}_${seqTime.toString(36).padStart(9, '0')}${seq.toString(36).padStart(4, '0')}${randomBytes(3).toString('hex')}`;
+}
+
 /** Whether a build directory carries this source hash in its `.source-hash` stamp. */
 export function stampMatches(dir: string, hash: string): boolean {
   const stamp = join(dir, '.source-hash');

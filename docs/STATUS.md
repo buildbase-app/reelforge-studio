@@ -224,6 +224,27 @@ missing bucket). AWS S3, R2, B2, Wasabi, Spaces and real Azure/GCS are
 untested. Matrix and test cases: docs/providers/storage.md. CI does not start
 the emulators yet (a `.github/` change for a maintainer).
 
+### Enterprise E2: audit log, key lifecycle, idempotency (2026-11-21, issue #65)
+
+Built (D-055..D-059; operator reference and test record:
+docs/providers/audit-and-keys.md): an append-only audit log for every admin
+and write call over REST, MCP and the CLI (key id and name, action, target,
+result, IP, user agent, request id, UTC time; never secrets), read with
+`GET /v1/audit` / `list_audit_events` (filters, cursor paging, streamed
+JSONL/CSV export); sinks database (always) + `stdout` + `otlp` + plugins,
+several at once; `audit.retentionDays` (365) with an hourly sweep. API keys:
+optional expiry, last used, rotation with a grace window, revoke, per-key rate
+limit, render quotas, IP allowlist; REST, MCP and CLI. `Idempotency-Key` /
+`idempotencyKey` on create and render calls (24 h, per key). Migration
+`0004_audit_keys_idempotency` on all three databases.
+
+| Check | Result |
+| --- | --- |
+| `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` | pass (core 127, db 71, server 78 tests, engines with Chrome Headless Shell) |
+| Contract tests on memory, SQLite, PostgreSQL 17, MySQL 8.4 | 137 passed |
+| Server tests (`enterprise`, `rest`, `mcp`, `parity`) on PostgreSQL and MySQL | 54 passed on each |
+| Docker e2e, release edition, hardened flags, `E2E_PREFIX=aud` | **ALL DOCKER E2E CHECKS PASSED** on SQLite (137 checks) and PostgreSQL (141): an agent over MCP creates a key with an expiry, rotates it, uses the old key inside the grace window, revokes it, sees the IP allowlist allow and deny, the rate limit and the render quota, reads the trail (no secret in it or its exports), repeats a create and a render with the same idempotency key (one project, one job; other arguments refused); the stdout sink's JSON lines are parsed from the container log, an OpenTelemetry Collector 0.140.1 container receives the OTLP entries, an unreachable collector leaves the requests unaffected and a warning in the log; the trail survives a restart. MySQL Docker e2e not run here |
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |

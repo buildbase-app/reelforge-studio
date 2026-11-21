@@ -5,9 +5,17 @@
  *   reelforge migrate [--status]       apply database migrations (and import v0.1 data once)
  *   reelforge import-v01 [--data-dir DIR]  import a v0.1 filesystem data directory again (existing rows are kept)
  *   reelforge backup <file>            SQLite: consistent copy of the live database
- *   reelforge keys create [--name NAME] [--scopes read,write,render,admin]
- *   reelforge keys list
+ *   reelforge keys create [--name NAME] [--scopes read,write,render,admin] [limits]
+ *   reelforge keys list | show <keyId>
+ *   reelforge keys update <keyId> [--name NAME] [limits]
+ *   reelforge keys rotate <keyId> [--grace-hours N]
+ *   reelforge keys revoke <keyId>
  *   reelforge keys delete <keyId>
+ *     limits: --expires-in 30d|12h | --expires-at ISO | --rate-limit N | --renders-per-day N
+ *             --renders-per-month N | --ip-allow CIDR,CIDR   ("none" clears one in update)
+ *   reelforge audit list [--from ISO] [--to ISO] [--actor KEYID] [--action key.*] [--target ID] [--result R] [--limit N] [--json]
+ *   reelforge audit export [--format jsonl|csv] [--out FILE] [same filters]   (streamed)
+ *   reelforge audit sweep              delete entries past audit.retentionDays and expired idempotency keys
  *   reelforge config check [--file PATH]   validate the config file and environment (no server, no database)
  *   reelforge config show [--json] [--offline]   effective configuration, secrets redacted
  *   reelforge licence status [--json] [--check]   licence status (exit 2 when renders are refused)
@@ -20,8 +28,31 @@
  * Uses DATABASE_URL (default: SQLite in REELFORGE_DATA_DIR, ./data) like the
  * server. The key is printed once.
  */
-import { existsSync } from 'node:fs';
-import { ConfigError, KeyStore, RuntimeConfig, SCOPES, STORAGE_DRIVERS, StorageManager, createLicenceManager, createStorageDriver, formatIssue, migrateStorage, type ConfigReport, type LicenceReport, type Scope, type StorageDriverId } from '@reelforge/core';
+import { createWriteStream, existsSync } from 'node:fs';
+import { userInfo } from 'node:os';
+import {
+  AuditLog,
+  ConfigError,
+  KeyStore,
+  RuntimeConfig,
+  SCOPES,
+  STORAGE_DRIVERS,
+  StorageManager,
+  auditToCsv,
+  auditToJsonl,
+  createLicenceManager,
+  createStorageDriver,
+  formatIssue,
+  migrateStorage,
+  parseAuditQuery,
+  type ConfigReport,
+  type KeyOptions,
+  type LicenceReport,
+  type PublicKey,
+  type Repositories,
+  type Scope,
+  type StorageDriverId,
+} from '@reelforge/core';
 import { Database, parseDatabaseUrl, prepareDatabase } from '@reelforge/db';
 import { resolve } from 'node:path';
 import { loadConfig, type ServerConfig } from './config';
@@ -37,9 +68,17 @@ const USAGE = `usage:
   reelforge migrate [--status]
   reelforge import-v01 [--data-dir DIR]
   reelforge backup <file>   (SQLite; use pg_dump / mysqldump for the others)
-  reelforge keys create [--name NAME] [--scopes ${SCOPES.join(',')}]
+  reelforge keys create [--name NAME] [--scopes ${SCOPES.join(',')}] [LIMITS]
   reelforge keys list
+  reelforge keys show <keyId>
+  reelforge keys update <keyId> [--name NAME] [LIMITS]   ("none" clears a limit)
+  reelforge keys rotate <keyId> [--grace-hours N]
+  reelforge keys revoke <keyId>
   reelforge keys delete <keyId>
+    LIMITS: --expires-in 30d|12h  --expires-at ISO  --rate-limit N  --renders-per-day N  --renders-per-month N  --ip-allow CIDR,CIDR
+  reelforge audit list [--from ISO] [--to ISO] [--actor KEYID] [--action ACTION|prefix.*] [--target-type T] [--target ID] [--result success|failure|denied] [--limit N] [--json]
+  reelforge audit export [--format jsonl|csv] [--out FILE] [same filters]
+  reelforge audit sweep
   reelforge config check [--file PATH]
   reelforge config show [--json] [--offline]
   reelforge licence status [--json] [--check]
@@ -328,32 +367,173 @@ async function main(argv: string[]) {
     }
     return;
   }
-  if (group !== 'keys' || !['create', 'list', 'delete'].includes(cmd ?? '')) {
+  if (group === 'audit') return audit(cmd, rest, config);
+  if (group !== 'keys' || !['create', 'list', 'show', 'update', 'rotate', 'revoke', 'delete'].includes(cmd ?? '')) {
     console.log(USAGE);
     process.exitCode = group ? 1 : 0;
     return;
   }
+  return keys(cmd!, rest, config);
+}
 
+/** The CLI as an audit actor: actorType "cli", named after the OS user. */
+function cliAuditLog(repos: Repositories) {
+  const log = new AuditLog(repos.audit);
+  let who = 'cli';
+  try {
+    who = `cli:${userInfo().username}`;
+  } catch {
+    // no passwd entry (container with an arbitrary UID)
+  }
+  return { log, write: (e: Parameters<AuditLog['write']>[0]) => log.write({ ...e, actorType: 'cli', actorName: who }) };
+}
+
+/** --expires-in 30d / 12h / 90m -> ISO time. */
+function expiresIn(v: string): string {
+  const m = /^(\d+(?:\.\d+)?)([dhm])$/.exec(v.trim());
+  if (!m) throw new Error('--expires-in must look like 30d, 12h or 90m');
+  const ms = Number(m[1]) * (m[2] === 'd' ? 86_400_000 : m[2] === 'h' ? 3_600_000 : 60_000);
+  return new Date(Date.now() + ms).toISOString();
+}
+
+function keyLimits(args: string[]): KeyOptions {
+  const o: KeyOptions = {};
+  const num = (name: string): number | null | undefined => {
+    const v = arg(name, args);
+    if (v === undefined) return undefined;
+    if (v === 'none') return null;
+    const n = Number(v);
+    if (!Number.isInteger(n)) throw new Error(`--${name} must be an integer or "none"`);
+    return n;
+  };
+  const exp = arg('expires-in', args);
+  const at = arg('expires-at', args);
+  if (exp !== undefined) o.expiresAt = exp === 'none' ? null : expiresIn(exp);
+  else if (at !== undefined) o.expiresAt = at === 'none' ? null : at;
+  const rl = num('rate-limit');
+  if (rl !== undefined) o.rateLimitPerMinute = rl;
+  const d = num('renders-per-day');
+  if (d !== undefined) o.rendersPerDay = d;
+  const mo = num('renders-per-month');
+  if (mo !== undefined) o.rendersPerMonth = mo;
+  const ip = arg('ip-allow', args);
+  if (ip !== undefined) o.ipAllowlist = ip === 'none' ? null : ip.split(',').map((s) => s.trim()).filter(Boolean);
+  return o;
+}
+
+function describeKey(k: PublicKey): string {
+  const limits = [
+    k.expiresAt ? `expires ${k.expiresAt}` : '',
+    k.rateLimitPerMinute !== undefined ? `${k.rateLimitPerMinute}/min` : '',
+    k.rendersPerDay !== undefined ? `${k.rendersPerDay} renders/day` : '',
+    k.rendersPerMonth !== undefined ? `${k.rendersPerMonth} renders/month` : '',
+    k.ipAllowlist?.length ? `from ${k.ipAllowlist.join(',')}` : '',
+    k.previousSecretExpiresAt ? `old secret valid until ${k.previousSecretExpiresAt}` : '',
+  ].filter(Boolean);
+  return `${k.id}  ${k.prefix}…  ${k.name.padEnd(20)} ${k.status.padEnd(8)} ${k.scopes.join(',').padEnd(24)} created ${k.createdAt}${k.lastUsedAt ? `, last used ${k.lastUsedAt}` : ''}${limits.length ? `  [${limits.join('; ')}]` : ''}`;
+}
+
+/** `reelforge keys ...`: the same lifecycle as create_key / rotate_key / revoke_key, audit-logged as the CLI. */
+async function keys(cmd: string, rest: string[], config: ServerConfig): Promise<void> {
   const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds });
   try {
-    const keys = new KeyStore(db.repositories().keys);
+    const repos = db.repositories();
+    const settings = new RuntimeConfig(repos, config.sources);
+    await settings.load();
+    const audit = cliAuditLog(repos);
+    const store = new KeyStore(repos.keys, { audit: audit.write, rotationGraceHours: () => settings.current.config.keys.rotationGraceHours });
+    const actor = { actorType: 'cli' as const };
+    const id = rest.find((a, i) => !a.startsWith('--') && !(i > 0 && rest[i - 1]!.startsWith('--') && !rest[i - 1]!.includes('=')));
     if (cmd === 'create') {
       const name = arg('name', rest) ?? 'default';
       const scopes = (arg('scopes', rest) ?? 'read,write,render').split(',').map((s) => s.trim()) as Scope[];
-      const { key, record } = await keys.create(name, scopes);
-      await db.repositories().audit.write({ actorType: 'cli', action: 'key.create', targetType: 'key', targetId: record.id, data: { name: record.name, scopes: record.scopes } });
+      const { key, record } = await store.create(name, scopes, keyLimits(rest), actor);
       console.log(`Created API key "${record.name}" (${record.id}) with scopes ${record.scopes.join(', ')}.`);
+      console.log(describeKey(record));
       console.log('Store it now; it is not shown again:\n');
       console.log(key);
     } else if (cmd === 'list') {
-      for (const k of await keys.list()) console.log(`${k.id}  ${k.prefix}…  ${k.name.padEnd(20)} ${k.scopes.join(',').padEnd(24)} created ${k.createdAt}${k.lastUsedAt ? `, last used ${k.lastUsedAt}` : ''}`);
-    } else if (cmd === 'delete' && rest[0]) {
-      await keys.delete(rest[0]);
-      await db.repositories().audit.write({ actorType: 'cli', action: 'key.delete', targetType: 'key', targetId: rest[0] });
-      console.log(`Deleted ${rest[0]}`);
-    } else {
+      for (const k of await store.list()) console.log(describeKey(k));
+    } else if (!id) {
       console.log(USAGE);
       process.exitCode = 1;
+    } else if (cmd === 'show') {
+      console.log(JSON.stringify(await store.get(id), null, 2));
+    } else if (cmd === 'update') {
+      const name = arg('name', rest);
+      console.log(describeKey(await store.update(id, { ...keyLimits(rest), ...(name !== undefined ? { name } : {}) }, actor)));
+    } else if (cmd === 'rotate') {
+      const g = arg('grace-hours', rest);
+      const { key, record } = await store.rotate(id, g === undefined ? {} : { graceHours: Number(g) }, actor);
+      console.log(`Rotated ${record.id}. ${record.previousSecretExpiresAt ? `The old key works until ${record.previousSecretExpiresAt}.` : 'The old key stopped working.'}`);
+      console.log('Store the new key now; it is not shown again:\n');
+      console.log(key);
+    } else if (cmd === 'revoke') {
+      const k = await store.revoke(id, actor);
+      console.log(`Revoked ${k.id} (${k.name}) at ${k.revokedAt}`);
+    } else if (cmd === 'delete') {
+      await store.delete(id, actor);
+      console.log(`Deleted ${id}`);
+    }
+  } finally {
+    await db.close();
+  }
+}
+
+/** `reelforge audit list|export|sweep`. */
+async function audit(cmd: string | undefined, rest: string[], config: ServerConfig): Promise<void> {
+  if (!['list', 'export', 'sweep'].includes(cmd ?? '')) {
+    console.log(USAGE);
+    process.exitCode = 1;
+    return;
+  }
+  const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds });
+  try {
+    const repos = db.repositories();
+    const { log, write } = cliAuditLog(repos);
+    const query = {
+      from: arg('from', rest),
+      to: arg('to', rest),
+      actorId: arg('actor', rest),
+      action: arg('action', rest),
+      targetType: arg('target-type', rest),
+      targetId: arg('target', rest),
+      result: arg('result', rest),
+    };
+    if (cmd === 'sweep') {
+      const settings = new RuntimeConfig(repos, config.sources);
+      await settings.load();
+      const days = settings.current.config.audit.retentionDays;
+      const auditDeleted = await log.sweep(days);
+      const idempotencyDeleted = await repos.idempotency.deleteExpired(new Date().toISOString());
+      if (auditDeleted) await write({ actorType: 'cli', action: 'audit.sweep', data: { deleted: auditDeleted, retentionDays: days } });
+      console.log(`deleted ${auditDeleted} audit entr${auditDeleted === 1 ? 'y' : 'ies'} older than ${days} days${days ? '' : ' (retention 0: kept forever)'} and ${idempotencyDeleted} expired idempotency key(s)`);
+    } else if (cmd === 'list') {
+      const limit = arg('limit', rest);
+      const { events, nextCursor } = await log.list(parseAuditQuery({ ...query, limit: limit ?? 50 }));
+      if (rest.includes('--json')) console.log(JSON.stringify({ events, nextCursor }, null, 2));
+      else {
+        for (const e of events) {
+          console.log(`${e.at}  ${e.result.padEnd(7)} ${e.action.padEnd(22)} ${(e.actorName ?? e.actorId ?? e.actorType).padEnd(20)} ${e.targetType ? `${e.targetType}:${e.targetId ?? ''}` : ''}${e.ip ? `  ip ${e.ip}` : ''}${e.requestId ? `  ${e.requestId}` : ''}`);
+        }
+      }
+    } else {
+      const format = arg('format', rest) ?? 'jsonl';
+      if (format !== 'jsonl' && format !== 'csv') throw new Error('--format must be jsonl or csv');
+      const out = arg('out', rest);
+      const sink = out ? createWriteStream(resolve(out), { mode: 0o600 }) : process.stdout;
+      const write = (s: string) => new Promise<void>((ok) => (sink.write(s) ? ok() : sink.once('drain', () => ok())));
+      let n = 0;
+      if (format === 'csv') await write(auditToCsv([]));
+      // One database page at a time: memory stays flat for any range.
+      for await (const page of log.pages(parseAuditQuery(query), Number(arg('limit', rest) ?? Number.MAX_SAFE_INTEGER))) {
+        await write(format === 'csv' ? auditToCsv(page, false) : auditToJsonl(page));
+        n += page.length;
+      }
+      if (out) {
+        await new Promise<void>((ok) => (sink as ReturnType<typeof createWriteStream>).end(ok));
+        console.error(`wrote ${n} entries to ${resolve(out)}`);
+      }
     }
   } finally {
     await db.close();

@@ -32,6 +32,10 @@
 # Issue #64 (observability): JSON logs, GET /metrics checked with promtool and scraped by an OpenTelemetry
 # Collector container ("otel", OTEL_IMAGE), OTLP traces/logs/metrics selected at runtime over MCP and
 # received by that collector, then the collector stopped: the studio must keep serving.
+#   E2E_PREFIX=aud PORT=4333 e2e/docker/run.sh   # same, for the audit run
+#
+# Issue #65: audit log, key lifecycle and idempotency (audit.mjs) with the stdout and OTLP audit sinks on;
+# the same collector receives the OTLP audit logs (debug exporter, detailed) and must show the entries.
 #
 # The data volume starts as a v0.1 filesystem data directory (seed-v01.mjs): the
 # server must import it once into the database, and the e2e key is that imported
@@ -51,7 +55,7 @@ STORAGE=${STORAGE:-local} STORAGE_DRIVER=local MINIO=$P-minio MINIO_IMAGE=${MINI
 case "$STORAGE" in local|s3) ;; *) echo "STORAGE must be local or s3"; exit 2 ;; esac
 # Licence (#25): a mock of the BuildBase licence API in its own container; the server only knows its URL.
 LIC=$P-licence LIC_ORG=6b01478bb42d2c444e99fcd8-mocklice
-# Observability (#64): an OpenTelemetry Collector and promtool (Prometheus image).
+# Observability (#64) and audit sinks (#65): one OpenTelemetry Collector ("otel") and promtool (Prometheus image).
 OTEL=$P-otel OTEL_IMAGE=${OTEL_IMAGE:-mirror.gcr.io/otel/opentelemetry-collector-contrib:0.140.0} PROM_IMAGE=${PROM_IMAGE:-mirror.gcr.io/prom/prometheus:v3.7.3}
 lkey() { openssl rand -hex 13 | cut -c1-25 | tr 'a-f01' 'A-FGH' | sed 's/.\{5\}/&-/g;s/-$//'; }
 KEY_A=$(lkey) KEY_B=$(lkey) KEY_C=$(lkey)
@@ -121,7 +125,7 @@ start() {
     -v $VOL:/data -v "$WORK/secret/key:/run/secrets/key:ro" -e REELFORGE_BOOTSTRAP_KEY_FILE=/run/secrets/key "${dbenv[@]}" \
     -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secretkey \
     -v "$WORK/config/reelforge.yaml:/config/reelforge.yaml:ro" -e REELFORGE_CONFIG=/config/reelforge.yaml \
-    "${LIC_ENV[@]}" "${s3env[@]}" \
+    "${LIC_ENV[@]}" "${s3env[@]}" -e REELFORGE_AUDIT_SINKS=stdout,otlp -e REELFORGE_AUDIT_OTLP_ENDPOINT=http://otel:4318/v1/logs \
     -e REELFORGE_ALLOWED_HOSTS=reelforge,reelforge:4321 "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && return; sleep 2; done
   docker logs $NAME; echo "server did not become healthy"; exit 1
@@ -158,6 +162,11 @@ if [ "$STORAGE" = s3 ]; then
     await new S3Client({ endpoint: 'http://minio:9000', region: 'us-east-1', forcePathStyle: true, credentials: { accessKeyId: process.env.S3_ID, secretAccessKey: process.env.S3_SECRET } }).send(new CreateBucketCommand({ Bucket: '$S3_BUCKET' }));
     console.log('✔ bucket $S3_BUCKET created ($MINIO_IMAGE)');"
 fi
+echo "== OpenTelemetry Collector (container \"otel\", $OTEL_IMAGE): OTLP audit logs (#65) and telemetry (#64)"
+docker run -d --name $OTEL --network $NET --network-alias otel --user 10001 -v "$WORK/config/collector.yaml:/etc/otelcol/config.yaml:ro" -v "$WORK/otel:/out" \
+  "$OTEL_IMAGE" --config /etc/otelcol/config.yaml >/dev/null
+for _ in $(seq 1 30); do logs_have $OTEL 'Everything is ready' && break; sleep 1; done
+logs_have $OTEL 'Everything is ready' && echo "✔ collector $OTEL_IMAGE is up" || { docker logs $OTEL | tail -20; echo "✘ the collector did not start"; exit 1; }
 echo "== seed a v0.1 data directory"
 docker run --rm -v $VOL:/data -v "$WORK/client:/c:ro" -w /c -e KEY="$KEY" -e PLAIN_V01="$PLAIN_V01" -e SAMPLE=sample-reel.json "$CLIENT_IMAGE" \
   sh -c 'node seed-v01.mjs && chown -R 10001:10001 /data'
@@ -201,6 +210,24 @@ echo "== licence: unlicensed, activate over MCP, render (mock licence server)"; 
 echo "== MCP journey (separate container)"; client journey.mjs
 echo "== ffprobe"; docker run --rm -v "$WORK/out:/o:ro" --entrypoint ffprobe "$IMAGE" -v error -count_frames \
   -show_entries stream=codec_name,width,height,r_frame_rate,nb_read_frames:format=duration -of compact /o/docker-e2e.mp4
+echo "== audit log, key lifecycle, idempotency over MCP (#65, separate container)"; client audit.mjs
+AUD_KEY=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["keyId"])' "$WORK/out/audit.json")
+docker logs $NAME > "$WORK/server.log" 2>&1 || true
+python3 - "$WORK/server.log" "$AUD_KEY" "$WORK/out/audit.json" <<'PY' || exit 1
+import json, re, sys
+log, key, secrets = open(sys.argv[1]).read(), sys.argv[2], json.load(open(sys.argv[3]))["secrets"]
+entries = [json.loads(l) for l in log.splitlines() if l.startswith('{"type":"audit"')]
+mine = [e for e in entries if e.get("targetId") == key]
+ok = {"key.create", "key.rotate", "key.revoke", "auth.denied"} <= {e["action"] for e in mine} and all(e["at"].endswith("Z") and e.get("requestId") for e in mine)
+print(("✔" if ok else "✘") + f" stdout sink: {len(entries)} JSON audit lines in the container log; key {key}: {sorted({e['action'] for e in mine})}")
+leak = [s[:8] for s in secrets if s in log] or re.findall(r"rf_[A-Za-z0-9_-]{20,}", log)
+print(("✘ the server log contains key material" if leak else "✔ no API key secret or rf_ key material in the server log (stdout sink included)"))
+sys.exit(0 if ok and not leak else 1)
+PY
+docker logs $OTEL > "$WORK/otel.log" 2>&1 || true
+grep -q "audit.target.id: Str($AUD_KEY)" "$WORK/otel.log" && grep -q 'audit.action: Str(key.rotate)' "$WORK/otel.log" && grep -q 'InstrumentationScope reelforge.audit' "$WORK/otel.log" \
+  && echo "✔ OTLP sink: the collector received the key's audit entries ($(grep -c 'EventName: reelforge.audit' "$WORK/otel.log") log records)" || { echo "✘ OTLP entries missing in the collector"; tail -40 "$WORK/otel.log"; exit 1; }
+logs_have $NAME 'audit sink otlp: .* not delivered to http://otel-down.invalid:4318' && echo "✔ a failing sink is visible in the server log (and the request succeeded)" || { echo "✘ the failing OTLP sink left no warning"; exit 1; }
 echo "== auth, scopes, validation"; client neg.mjs
 echo "== observability (#64): JSON logs, Prometheus /metrics, OTLP to an OpenTelemetry Collector (container \"otel\")"
 docker logs $NAME > "$WORK/container.log" 2>&1 || true
@@ -216,10 +243,8 @@ for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'reel
 grep -o '="[^"]*"' "$WORK/metrics.txt" | sort -u > "$WORK/labels.txt"
 grep -Eq "(job|run|prv|key|ast)_[a-z0-9]{8,}|rf_|e2e-docker-" "$WORK/labels.txt" && { echo "✘ ids or keys in metric labels: $(grep -E '(job|run|prv|key|ast)_[a-z0-9]{8,}|rf_|e2e-docker-' "$WORK/labels.txt" | head -3)"; exit 1; } \
   || echo "✔ no ids or keys in metric labels ($(wc -l < "$WORK/labels.txt") distinct label values, bounded cardinality)"
-docker run -d --name $OTEL --network $NET --network-alias otel --user 10001 -v "$WORK/config/collector.yaml:/etc/otelcol/config.yaml:ro" -v "$WORK/otel:/out" \
-  "$OTEL_IMAGE" --config /etc/otelcol/config.yaml >/dev/null
-for _ in $(seq 1 30); do logs_have $OTEL 'Everything is ready' && break; sleep 1; done
-logs_have $OTEL 'Everything is ready' && echo "✔ collector $OTEL_IMAGE is up" || { docker logs $OTEL | tail -20; echo "✘ collector did not start"; exit 1; }
+# The collector started before the server (it already took the OTLP audit logs, #65).
+docker inspect -f '{{.State.Running}}' $OTEL 2>/dev/null | grep -q true && echo "✔ collector $OTEL_IMAGE is running" || { echo "✘ collector not running"; exit 1; }
 PHASE=on client obs.mjs
 PHASE=check client obs.mjs || { docker logs $OTEL 2>&1 | tail -20; exit 1; }
 PHASE=metrics-otlp client obs.mjs
@@ -262,12 +287,20 @@ logs_have $NAME 'imported v0.1' && { echo "✘ v0.1 data imported a second time"
 logs_have $NAME 'encrypted .* stored secret' && { echo "✘ secrets encrypted a second time"; exit 1; } || echo "✔ no second encryption pass after the restart"
 echo "== configuration after the restart"; PHASE=after client config.mjs
 echo "== licence after the restart"; PHASE=restart client licence.mjs
+[ "$(api "/v1/audit?targetId=$AUD_KEY&action=key.rotate&result=success" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["events"]))')" = 1 ] \
+  && echo "✔ the audit trail survives the restart" || { echo "✘ audit trail lost after the restart"; exit 1; }
 case "$DB" in
   postgres) n=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT count(*) FROM "Project"') ;;
   mysql) n=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT count(*) FROM Project') ;;
   *) n=skip ;;
 esac
 [ "$n" = skip ] || { [ "$n" -ge 2 ] && echo "✔ $n projects are rows in $DB" || { echo "✘ expected projects in $DB, got $n"; exit 1; }; }
+case "$DB" in
+  postgres) aud=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc "SELECT (SELECT count(*) FROM \"AuditLog\" WHERE \"targetId\" = '$AUD_KEY'), (SELECT count(*) FROM \"IdempotencyKey\")" | tr '|' ' ') ;;
+  mysql) aud=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e "SELECT (SELECT count(*) FROM AuditLog WHERE targetId = '$AUD_KEY'), (SELECT count(*) FROM IdempotencyKey)" | tr '\t' ' ') ;;
+  *) aud=skip ;;
+esac
+[ "$aud" = skip ] || { set -- $aud; [ "$1" -ge 4 ] && [ "$2" -ge 2 ] && echo "✔ audit entries ($1 for the rotated key) and idempotency keys ($2) are rows in $DB" || { echo "✘ unexpected AuditLog/IdempotencyKey rows in $DB: $aud"; exit 1; }; }
 case "$DB" in
   postgres) rows=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT name, scheme, value FROM "ProviderSetting" UNION ALL SELECT key, scheme, value FROM "Setting"') ;;
   mysql) rows=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT name, scheme, value FROM ProviderSetting UNION ALL SELECT `key`, scheme, value FROM Setting') ;;

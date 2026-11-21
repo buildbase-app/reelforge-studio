@@ -1,6 +1,7 @@
 # OpenTelemetry Collector for the Docker e2e (issue #64): receives OTLP/HTTP
 # (traces, logs, metrics) from the studio and scrapes its Prometheus /metrics,
-# then writes everything as OTLP JSON lines to /out for the checks.
+# then writes everything as OTLP JSON lines to /out for the checks. Logs also go
+# to a detailed debug exporter: the audit checks (issue #65) read those lines.
 receivers:
   otlp:
     protocols:
@@ -22,6 +23,8 @@ exporters:
     path: /out/metrics.jsonl
   debug:
     verbosity: basic
+  debug/detailed:
+    verbosity: detailed
 service:
   pipelines:
     traces:
@@ -29,7 +32,7 @@ service:
       exporters: [file/traces, debug]
     logs:
       receivers: [otlp]
-      exporters: [file/logs]
+      exporters: [file/logs, debug/detailed]
     metrics:
       receivers: [otlp, prometheus]
       exporters: [file/metrics]

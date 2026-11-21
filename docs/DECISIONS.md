@@ -1014,3 +1014,112 @@ commit 2026-02-12, AGPL-3.0, a test fixture only) when `MINIO_IMAGE` cannot be
 pulled. `STORAGE=s3 e2e/docker/run.sh` adds the MinIO phase to the Docker e2e;
 adding it, and the emulator service containers, to CI is a change to
 `.github/workflows/` for a maintainer.
+
+## N. Enterprise E2: audit log, API key lifecycle, idempotency (2026-11-21, issue #65)
+
+Founder direction for this work: every provider selectable by configuration,
+several at once where that makes sense; the recommended default where there is
+no clear winner; every supported provider backed by a passing test case
+(docs/providers/audit-and-keys.md lists them with results).
+
+### D-055 --- One append-only audit log, written by the transport and the service
+
+**Status:** DECIDED (reversible in mechanism; "never secrets" is not).\
+Every admin-scope call (reads included: `get_config`, `list_keys`,
+`list_audit_events`) and every write/render-scope call over REST or MCP writes
+one `AuditLog` row: actor (key id **and** the key's name at that time), action
+(dotted, from the MCP tool: `create_project` → `project.create`, exceptions in
+`apps/server/src/audit.ts`), target (type + id, from the arguments or the
+created object), result (`success`, `failure`, `denied`), client IP, user
+agent, request id (`X-Request-Id` when the caller sends a safe one, else
+`req_<random>`; echoed in the response) and `data` (status, error code,
+`via: rest|mcp`, replay flag). Read-scope calls are not logged. When the
+service already wrote a more detailed entry for the call (`config.update` with
+the changed keys, `key.rotate` with the grace window, `licence.activate`, ...),
+the transport writes none, so there is one entry per call. Keys that exist but
+may not be used (revoked, expired, wrong address) are logged as `auth.denied`;
+unknown keys are not (that would let anyone fill the log). The request
+context travels in `AsyncLocalStorage` (`runWithRequest` / `currentRequest`),
+so service code needs no extra parameters. The CLI writes the same entries
+with `actorType: cli` and `actorName: cli:<os user>`.
+**Never secret values:** callers pass only names and `set`/`cleared`
+markers; `AuditLog.write` also runs `redactSecrets` (properties named like a
+secret, `rf_` keys, bearer tokens, PEM private keys) as a second line of
+defence. **Append-only:** `AuditRepository` has `write`, `list` and
+`deleteOlderThan` (retention) only; there is no REST route or MCP tool that
+changes or deletes an entry (tested). Times are UTC (`DateTime(3)`, ISO with
+`Z`). Columns added by migration `0004_audit_keys_idempotency`: `actorName`,
+`result`, `ip`, `userAgent`, `requestId`, indexes on action and actor.
+
+### D-056 --- API key lifecycle: expiry, rotation with one grace secret, revoke keeps the row
+
+**Status:** DECIDED (reversible).\
+`ApiKey` gains `expiresAt`, `revokedAt`, `rotatedAt`, the previous secret
+(`prevPrefix`, `prevSalt`, `prevHash`, `prevExpiresAt`), `rateLimitPerMinute`,
+`rendersPerDay`, `rendersPerMonth` and `ipAllowlist` (JSON). **Rotation** gives
+a new secret (shown once) and keeps the old one for `graceHours` (default
+`keys.rotationGraceHours`, 24; 0 ends it at once). One previous secret per key:
+rotating again inside the window ends the older one (simpler than a secrets
+table; enough for "switch clients, then rotate again"). **Revoke** sets
+`revokedAt`, drops the previous secret and keeps the row, so the audit trail
+still names the key; `delete_key` still removes it. Neither may target the key
+making the request. **Per-key rate limit** replaces `limits.rateLimitPerMinute`
+for that key (0: none); **render quotas** count `render` and `preview` jobs the
+key started in the current UTC day / calendar month (`Job.apiKeyId`, indexed),
+refused with `429 quota_exceeded` and `details {period, limit, used,
+resetsAt}`; check and insert are serialised per key in the process (another
+process may overshoot by its in-flight renders). **IP allowlist** (IPv4/IPv6
+CIDR, `node:net` `BlockList`, IPv4-mapped addresses normalised) refuses other
+addresses with `403 ip_not_allowed`; the address is the TCP peer, or the last
+`X-Forwarded-For` entry when `server.trustProxy` is on (off by default, so a
+forged header changes nothing). Every lifecycle action exists as REST route,
+MCP tool (parity test) and CLI command. Scopes cannot change after creation.
+
+### D-057 --- Idempotency keys in the database, per API key, 24 hours
+
+**Status:** DECIDED (reversible).\
+`create_project`, `create_theme`, `add_scene`, `render_project`,
+`preview_scene`, `retry_job`, `run_provider` / `generate_voice` and
+`add_asset_from_url` take an `Idempotency-Key` header (REST) or
+`idempotencyKey` argument (MCP). Rows in `IdempotencyKey` are keyed by
+(workspace, API key, idempotency key), so callers never collide; the hash is
+SHA-256 of the operation and its canonical arguments (sorted keys, undefined
+dropped), built the same way by REST and MCP, so the two share keys. Same key
+and arguments: the stored result (`Idempotent-Replayed: true` in REST); other
+arguments: `422 idempotency_conflict`; while the first call runs: `409
+idempotency_in_progress`. A failed first call stores nothing, so it can be
+retried. Records expire after `idempotency.ttlHours` (24) and are swept
+hourly; an expired one no longer counts even before the sweep. Not offered
+for `create_key` / `rotate_key`: storing their result would store a secret.
+Upload (multipart) is content-addressed already and takes no key.
+
+### D-058 --- Audit sinks: database always, plus stdout, OTLP and plugins, several at once
+
+**Status:** DECIDED (reversible).\
+`audit.sinks` (runtime) selects extra sinks: `stdout` (one `{"type":"audit",
+...}` JSON line per entry, for container log collectors), `otlp` (OTLP/HTTP
+JSON logs to `audit.otlpEndpoint`, batched up to 100 entries or 1 s, 5 s
+timeout) and the id of any `AuditSink` plugin passed as
+`ServiceConfig.auditSinks` (the interface for the signed webhook of E3 and the
+S3 export of #27). The database is always written first and is the record of
+truth; sinks are best-effort: a failing sink never fails or delays the request
+and is reported in the server log (at most once a minute per sink). **Why our
+own 120-line OTLP exporter and not the OpenTelemetry SDK:** it needs no new
+dependency and works today; verified against OpenTelemetry Collector 0.140.1
+in the Docker e2e. When observability (#64) brings a shared OTLP
+configuration, the sink can read it instead of `audit.otlpEndpoint`.
+Sending audit entries is new network egress and is opt-in (docs/PRIVACY.md).
+
+### D-059 --- Retention, sweeps and exports
+
+**Status:** DECIDED (reversible).\
+`audit.retentionDays` (default 365, 0 keeps everything) and expired
+idempotency keys are swept hourly (first run 5 s after start; `reelforge audit
+sweep` on demand); a sweep that deleted entries writes `audit.sweep`.
+`GET /v1/audit` returns pages (newest first, `nextCursor`, max 1000) with
+filters (time, actor, action or `prefix.*`, target, result); with
+`?format=jsonl|csv` it **streams** an export one database page at a time (up
+to 100 000 entries per request, so memory stays flat); `list_audit_events`
+with `format` returns up to 10 000 entries in one MCP result; `reelforge audit
+export` streams any range to a file. CSV cells starting with `= + - @` are
+prefixed with `'` (spreadsheet formula injection).

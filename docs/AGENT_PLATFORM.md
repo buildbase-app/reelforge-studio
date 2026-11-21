@@ -135,6 +135,8 @@ All JSON; `Authorization: Bearer rf_<key>`. Errors: `{ error: { code, message, d
 | `POST /v1/assets` (upload or `{url}`), `GET /v1/assets/:id` | assets with licence metadata and checksum |
 | `POST /v1/providers/:id/run` | run a configured provider (e.g. TTS) to create an asset; returns cost note |
 | `GET/POST/DELETE /v1/keys` | API keys (admin scope) |
+| `GET/PATCH /v1/keys/:id`, `POST /v1/keys/:id/rotate`, `POST /v1/keys/:id/revoke` | key lifecycle: expiry, limits, quotas, IP allowlist, rotation with a grace window, revocation (#65, D-056) |
+| `GET /v1/audit` (`?format=jsonl|csv` streams an export) | audit log (admin scope, #65, D-055) |
 | `GET /healthz`, `GET /readyz` | health |
 
 Implemented extras (v0.1): `GET /v1/templates`, `GET /v1/projects/:id/versions`,
@@ -163,7 +165,7 @@ Implemented extras (v0.1), so every REST route has a tool: `list_projects`,
 `delete_project`, `list_project_versions`, `get_theme`, `update_theme`,
 `delete_theme`, `list_renders`, `list_jobs`, `retry_job`, `upload_asset`,
 `get_asset`, `list_providers`, `configure_provider`, `run_provider`,
-`list_keys`, `create_key`, `delete_key`, `get_config`, `update_config` (43 tools in total). Resource
+`list_keys`, `create_key`, `delete_key`, `get_config`, `update_config`, `get_licence`, `activate_licence`, `deactivate_licence`; key lifecycle and audit (#65): `get_key`, `update_key`, `rotate_key`, `revoke_key`, `list_audit_events` (51 tools in total). Create and render tools take an optional `idempotencyKey` (D-057). Resource
 `reelforge://guide/workflow` and prompt `make_reel` explain the workflow to an
 agent with no other docs.
 
@@ -253,6 +255,7 @@ that was run; "partial" says what is missing.
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |
 | §8 API keys: random 32 bytes, hashed, scopes, CLI, admin API, bootstrap key | done | `REELFORGE_BOOTSTRAP_KEY` or `_FILE`; CLI `pnpm keys:create` / `reelforge keys create` in Docker (picked up without restart); admin tools create/list/revoke |
+| Enterprise E2 (#65, D-055..D-059): audit log, key lifecycle, idempotency keys | done | Append-only audit log for every admin and write call (REST, MCP, CLI) with key id/name, target, result, IP, user agent, request id; `GET /v1/audit` / `list_audit_events` with filters and JSONL/CSV export; sinks database + stdout + OTLP (+ plugins); retention sweep. Keys: expiry, rotation grace, revoke, per-key rate limit, render quotas, IP allowlist (REST, MCP, CLI). `Idempotency-Key` / `idempotencyKey` on create and render calls. Test cases: docs/providers/audit-and-keys.md |
 | §8 Bind 127.0.0.1 by default; Host/Origin checks on /mcp | done | REST tests |
 | §8 Rate limits per key | done (basic) | In-memory token bucket, single instance; the limit is a runtime setting (`limits.rateLimitPerMinute`) |
 | §8 Provider keys only in env; never in logs/manifests | done | HyperFrames child gets a filtered env (tested) |

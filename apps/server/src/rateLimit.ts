@@ -5,9 +5,12 @@ export class RateLimiter {
   /** A number, or a function read on every request (the limit is a runtime setting). */
   constructor(private readonly limit: number | (() => number)) {}
 
-  /** Returns 0 if allowed, else seconds to wait. A limit of 0 disables limiting. */
-  take(key: string, now = Date.now()): number {
-    const perMinute = typeof this.limit === 'function' ? this.limit() : this.limit;
+  /**
+   * Returns 0 if allowed, else seconds to wait. A limit of 0 disables limiting.
+   * `override` is the key's own limit (rateLimitPerMinute on the key), if any.
+   */
+  take(key: string, override?: number, now = Date.now()): number {
+    const perMinute = override ?? (typeof this.limit === 'function' ? this.limit() : this.limit);
     if (perMinute <= 0) return 0;
     const rate = perMinute / 60_000;
     const b = this.buckets.get(key) ?? { tokens: perMinute, updated: now, limit: perMinute };
