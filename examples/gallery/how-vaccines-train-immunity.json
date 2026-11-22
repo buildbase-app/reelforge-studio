@@ -1,0 +1,84 @@
+{
+  "gallery": {
+    "slug": "how-vaccines-train-immunity",
+    "title": "How the immune system learns",
+    "description": "A friendly biology explainer on how the immune system learns to recognise germs, in three steps, using a timeline.",
+    "category": "Explainer",
+    "tags": [
+      "education",
+      "biology",
+      "health"
+    ],
+    "prompt": "A friendly biology explainer on how the immune system learns to recognise germs, in three steps, using a timeline. General education only. Rose palette, 15 seconds.",
+    "palette": "rose",
+    "theme": "default + inline tokens (Rose)",
+    "engines": [
+      "remotion",
+      "html"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 15
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "how-vaccines-train-immunity",
+    "title": "How the immune system learns",
+    "brief": {
+      "title": "How the immune system learns",
+      "goal": "A friendly biology explainer on how the immune system learns to recognise germs, in three steps, using a timeline. General education only. Rose palette, 15 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 15
+    },
+    "theme": {
+      "base": "default",
+      "tokens": {
+        "colors": {
+          "background": "#f8f1f0",
+          "surface": "#fffaf9",
+          "text": "#2a1a1c",
+          "mutedText": "#74605f",
+          "accent": "#c8323f",
+          "accent2": "#9a8785"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-kinetic",
+        "engine": "remotion",
+        "durationSeconds": 2.5,
+        "template": "kinetic-title",
+        "props": {
+          "headline": "How your body learns to fight",
+          "subline": "A 15-second biology lesson"
+        }
+      },
+      {
+        "id": "s2-timeline",
+        "engine": "html",
+        "durationSeconds": 7,
+        "html": "<div class=\"bd\"><div class=\"bd-split\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><h2><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.35s\">Learning</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.41s\">a</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.47s\">germ</span></span></span></h2><div class=\"tl\"><div class=\"tl-l\"></div><div class=\"ts\"><span class=\"td\" style=\"animation-delay:0.95s\"></span><div class=\"slide-r\" style=\"animation-delay:1s\"><b>Day 1</b><span>Cells spot something new</span></div></div><div class=\"ts\"><span class=\"td\" style=\"animation-delay:1.5s\"></span><div class=\"slide-r\" style=\"animation-delay:1.55s\"><b>Days 3–7</b><span>They build matching antibodies</span></div></div><div class=\"ts\"><span class=\"td\" style=\"animation-delay:2.05s\"></span><div class=\"slide-r\" style=\"animation-delay:2.1s\"><b>Later</b><span>Memory cells remember it</span></div></div></div></div></div></div><div class=\"tx tx-out\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#ddcfcd;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-fadein 0.5s ease-out both;}.cam{position:absolute;inset:0;animation:st-cam 7s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-split{position:absolute;left:0;right:0;bottom:0;height:38%;background:var(--rf-surface)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-out{transform:translateY(101%);animation:tx-out 0.5s cubic-bezier(.76,0,.24,1) 6.5s both}@keyframes tx-out{to{transform:translateY(0)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}h2{margin:0 0 70px;font-size:100px;line-height:.95;letter-spacing:-.045em;font-weight:var(--rf-heading-weight)}\n.tl{position:relative;padding-left:90px}\n.tl-l{position:absolute;left:28px;top:20px;bottom:20px;width:8px;border-radius:4px;background:color-mix(in srgb,var(--rf-text) 18%,transparent);transform-origin:top;animation:tll 2.05s linear 0.85s both}\n@keyframes tll{from{transform:scaleY(0)}}\n.ts{position:relative;margin-bottom:56px}\n.td{position:absolute;left:-84px;top:8px;width:52px;height:52px;border-radius:50%;background:var(--rf-bg);border:8px solid color-mix(in srgb,var(--rf-text) 40%,transparent);animation:k-pop .5s cubic-bezier(.16,1,.3,1) both}.ts:last-child .td{border-color:var(--rf-accent)}\n.ts b{display:block;font:500 32px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}\n.ts span{display:block;margin-top:12px;font-size:50px;font-weight:600;line-height:1.1;letter-spacing:-.02em}",
+        "notes": "agent-written html scene (timeline)"
+      },
+      {
+        "id": "s3-tip",
+        "engine": "html",
+        "durationSeconds": 5.5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"tp-n\">01</div><div class=\"wrap\"><div class=\"tp-top rise\" style=\"animation-delay:0.35s\"><span class=\"tp-ic\"><svg class=\"ic\" width=\"56\" height=\"56\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M16 3l11 4v8c0 7-5 12-11 14C10 27 5 22 5 15V7z\"/><path d=\"M11 16l4 4 7-8\"/></svg></span>Biology · tip 1</div><h1><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.55s\">Memory</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.615s\">makes</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.68s\">the</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.745s\">second</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.81s\">time</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.875s\">faster</span></span></span></h1><p class=\"sub rise\" style=\"animation-delay:1.14s\">That is the idea behind <em class=\"acc\">immunity</em></p></div></div></div><div class=\"tx tx-in\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#ddcfcd;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-rise 0.8s cubic-bezier(.16,1,.3,1) both;}.cam{position:absolute;inset:0;animation:st-cam 5.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-in{transform:translateY(0);animation:tx-in 0.55s cubic-bezier(.76,0,.24,1) both}@keyframes tx-in{to{transform:translateY(-101%)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}h1{margin:0;font-size:112px;line-height:.95;font-weight:var(--rf-heading-weight);letter-spacing:-.03em;color:var(--rf-text)}.sub{margin:44px 0 0;font-size:48px;line-height:1.25;font-weight:400;color:var(--rf-muted);max-width:860px}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.acc{color:var(--rf-accent);font-style:normal}.tp-n{position:absolute;right:-40px;top:120px;font-size:720px;font-weight:600;letter-spacing:-.08em;line-height:1;color:transparent;-webkit-text-stroke:4px color-mix(in srgb,var(--rf-text) 12%,transparent)}\n.tp-top{display:flex;align-items:center;gap:22px;margin-bottom:60px;font:500 32px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}\n.tp-ic{width:100px;height:100px;border-radius:30px;background:var(--rf-accent);color:var(--rf-bg);display:flex;align-items:center;justify-content:center}",
+        "notes": "agent-written html scene (tip)"
+      }
+    ]
+  }
+}

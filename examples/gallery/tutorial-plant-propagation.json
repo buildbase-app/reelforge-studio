@@ -1,0 +1,73 @@
+{
+  "gallery": {
+    "slug": "tutorial-plant-propagation",
+    "title": "Tutorial: propagate a pothos",
+    "description": "A plant tutorial: propagate a pothos cutting in water in four steps, as a timeline.",
+    "category": "Tutorial",
+    "tags": [
+      "tutorial",
+      "plants",
+      "home"
+    ],
+    "prompt": "A plant tutorial: propagate a pothos cutting in water in four steps, as a timeline. Forest palette, 14 seconds.",
+    "palette": "forest",
+    "theme": "midnight + inline tokens (Forest)",
+    "engines": [
+      "html"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 14
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "tutorial-plant-propagation",
+    "title": "Tutorial: propagate a pothos",
+    "brief": {
+      "title": "Tutorial: propagate a pothos",
+      "goal": "A plant tutorial: propagate a pothos cutting in water in four steps, as a timeline. Forest palette, 14 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 14
+    },
+    "theme": {
+      "base": "midnight",
+      "tokens": {
+        "colors": {
+          "background": "#101410",
+          "surface": "#1a201a",
+          "text": "#eef3ec",
+          "mutedText": "#a4b0a1",
+          "accent": "#8fd16a",
+          "accent2": "#7f8a7c"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-timeline",
+        "engine": "html",
+        "durationSeconds": 7.5,
+        "html": "<div class=\"bd\"><div class=\"bd-split\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><h2><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.1s\">Pothos</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.16s\">in</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.22s\">four</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.28s\">steps</span></span></span></h2><div class=\"tl\"><div class=\"tl-l\"></div><div class=\"ts\"><span class=\"td\" style=\"animation-delay:0.7s\"></span><div class=\"slide-r\" style=\"animation-delay:0.75s\"><b>Step 1</b><span>Cut below a node</span></div></div><div class=\"ts\"><span class=\"td\" style=\"animation-delay:1.25s\"></span><div class=\"slide-r\" style=\"animation-delay:1.3s\"><b>Step 2</b><span>Put it in water</span></div></div><div class=\"ts\"><span class=\"td\" style=\"animation-delay:1.8s\"></span><div class=\"slide-r\" style=\"animation-delay:1.85s\"><b>Weeks 2–4</b><span>Roots appear</span></div></div><div class=\"ts\"><span class=\"td\" style=\"animation-delay:2.35s\"></span><div class=\"slide-r\" style=\"animation-delay:2.4s\"><b>Then</b><span>Pot it in soil</span></div></div></div></div></div></div><div class=\"tx tx-out\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#4a5447;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;}.cam{position:absolute;inset:0;animation:st-cam 7.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-split{position:absolute;left:0;right:0;bottom:0;height:44%;background:var(--rf-surface)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-out{transform:translateY(101%);animation:tx-out 0.5s cubic-bezier(.76,0,.24,1) 7s both}@keyframes tx-out{to{transform:translateY(0)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}h2{margin:0 0 70px;font-size:100px;line-height:.95;letter-spacing:-.045em;font-weight:var(--rf-heading-weight)}\n.tl{position:relative;padding-left:90px}\n.tl-l{position:absolute;left:28px;top:20px;bottom:20px;width:8px;border-radius:4px;background:color-mix(in srgb,var(--rf-text) 18%,transparent);transform-origin:top;animation:tll 2.6s linear 0.6s both}\n@keyframes tll{from{transform:scaleY(0)}}\n.ts{position:relative;margin-bottom:56px}\n.td{position:absolute;left:-84px;top:8px;width:52px;height:52px;border-radius:50%;background:var(--rf-bg);border:8px solid color-mix(in srgb,var(--rf-text) 40%,transparent);animation:k-pop .5s cubic-bezier(.16,1,.3,1) both}.ts:last-child .td{border-color:var(--rf-accent)}\n.ts b{display:block;font:500 32px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}\n.ts span{display:block;margin-top:12px;font-size:50px;font-weight:600;line-height:1.1;letter-spacing:-.02em}",
+        "notes": "agent-written html scene (timeline)"
+      },
+      {
+        "id": "s2-tip",
+        "engine": "html",
+        "durationSeconds": 6.5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"tp-n\">01</div><div class=\"wrap\"><div class=\"tp-top rise\" style=\"animation-delay:0.35s\"><span class=\"tp-ic\"><svg class=\"ic\" width=\"56\" height=\"56\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 26C6 12 14 5 27 5c0 13-7 21-21 21zM6 26l12-12\"/></svg></span>Plants · tip 1</div><h1><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.55s\">Change</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.615s\">the</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.68s\">water</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.745s\">every</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.81s\">week</span></span></span></h1><p class=\"sub rise\" style=\"animation-delay:1.075s\">Bright, <em class=\"acc\">indirect</em> light</p></div></div></div><div class=\"tx tx-in\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#4a5447;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-rise 0.8s cubic-bezier(.16,1,.3,1) both;}.cam{position:absolute;inset:0;animation:st-cam 6.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-in{transform:translateY(0);animation:tx-in 0.55s cubic-bezier(.76,0,.24,1) both}@keyframes tx-in{to{transform:translateY(-101%)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}h1{margin:0;font-size:112px;line-height:.95;font-weight:var(--rf-heading-weight);letter-spacing:-.03em;color:var(--rf-text)}.sub{margin:44px 0 0;font-size:48px;line-height:1.25;font-weight:400;color:var(--rf-muted);max-width:860px}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.acc{color:var(--rf-accent);font-style:normal}.tp-n{position:absolute;right:-40px;top:120px;font-size:720px;font-weight:600;letter-spacing:-.08em;line-height:1;color:transparent;-webkit-text-stroke:4px color-mix(in srgb,var(--rf-text) 12%,transparent)}\n.tp-top{display:flex;align-items:center;gap:22px;margin-bottom:60px;font:500 32px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}\n.tp-ic{width:100px;height:100px;border-radius:30px;background:var(--rf-accent);color:var(--rf-bg);display:flex;align-items:center;justify-content:center}",
+        "notes": "agent-written html scene (tip)"
+      }
+    ]
+  }
+}

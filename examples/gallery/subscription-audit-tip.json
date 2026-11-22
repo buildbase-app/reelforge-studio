@@ -1,0 +1,81 @@
+{
+  "gallery": {
+    "slug": "subscription-audit-tip",
+    "title": "Subscription audit",
+    "description": "A tip reel about auditing your subscriptions: notification stack of renewals, a yearly-cost stat, and a 3-step checklist.",
+    "category": "Finance tip",
+    "tags": [
+      "finance",
+      "subscriptions",
+      "tip"
+    ],
+    "prompt": "A tip reel about auditing your subscriptions: notification stack of renewals, a yearly-cost stat, and a 3-step checklist. Volt palette, 15 seconds.",
+    "palette": "volt",
+    "theme": "default + inline tokens (Volt)",
+    "engines": [
+      "html"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 15
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "subscription-audit-tip",
+    "title": "Subscription audit",
+    "brief": {
+      "title": "Subscription audit",
+      "goal": "A tip reel about auditing your subscriptions: notification stack of renewals, a yearly-cost stat, and a 3-step checklist. Volt palette, 15 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 15
+    },
+    "theme": {
+      "base": "default",
+      "tokens": {
+        "colors": {
+          "background": "#111310",
+          "surface": "#1b1e19",
+          "text": "#f3f6ee",
+          "mutedText": "#a9b0a1",
+          "accent": "#c8f03c",
+          "accent2": "#858c7e"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-notifications",
+        "engine": "html",
+        "durationSeconds": 4.5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"nt-hd\"><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.1s\">Renews</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.16s\">tomorrow…</span></span></span></div><div class=\"nts\"><div class=\"nt\" style=\"animation-delay:0.7s\"><svg class=\"bm\" width=\"84\" height=\"84\" viewBox=\"0 0 64 64\"><circle cx=\"24\" cy=\"32\" r=\"16\" fill=\"var(--rf-accent)\"/><circle cx=\"42\" cy=\"32\" r=\"13\" fill=\"none\" stroke=\"var(--rf-accent)\" stroke-width=\"6\"/></svg><div><div class=\"nt-a\">Streamly<span>now</span></div><div class=\"nt-t\">$15.99 renews tomorrow</div></div></div><div class=\"nt\" style=\"animation-delay:1.3s\"><svg class=\"bm\" width=\"84\" height=\"84\" viewBox=\"0 0 64 64\"><rect x=\"8\" y=\"8\" width=\"48\" height=\"48\" rx=\"14\" fill=\"var(--rf-accent)\"/><circle cx=\"32\" cy=\"32\" r=\"12\" fill=\"var(--rf-bg)\"/></svg><div><div class=\"nt-a\">FitPlus<span>now</span></div><div class=\"nt-t\">$29 renews Friday</div></div></div><div class=\"nt\" style=\"animation-delay:1.9s\"><svg class=\"bm\" width=\"84\" height=\"84\" viewBox=\"0 0 64 64\"><rect x=\"8\" y=\"8\" width=\"22\" height=\"22\" rx=\"6\" fill=\"var(--rf-accent)\"/><rect x=\"34\" y=\"8\" width=\"22\" height=\"22\" rx=\"11\" fill=\"var(--rf-accent)\"/><rect x=\"8\" y=\"34\" width=\"22\" height=\"22\" rx=\"11\" fill=\"var(--rf-accent)\"/><rect x=\"34\" y=\"34\" width=\"22\" height=\"22\" rx=\"6\" fill=\"var(--rf-accent)\"/></svg><div><div class=\"nt-a\">CloudBox<span>now</span></div><div class=\"nt-t\">$9.99 renews Monday</div></div></div></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#4d5347;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-zoomout 0.5s cubic-bezier(.7,0,.84,0) 4s both;}.cam{position:absolute;inset:0;animation:st-cam 4.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.nt-hd{position:absolute;left:90px;right:90px;top:250px;font-size:100px;font-weight:var(--rf-heading-weight);letter-spacing:-.045em;line-height:.95}\n.nts{position:absolute;left:70px;right:70px;top:640px;display:flex;flex-direction:column;gap:26px}\n.nt{display:flex;gap:28px;align-items:center;padding:32px;border-radius:40px;background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 8%,transparent);animation:nt-in .8s cubic-bezier(.16,1,.3,1) both}\n@keyframes nt-in{from{transform:translateY(-60px);opacity:0}}\n.nt .bm{flex:none;border-radius:22px}\n.nt>div{flex:1}\n.nt-a{display:flex;justify-content:space-between;font-size:30px;font-weight:600;color:var(--rf-muted);letter-spacing:.06em}.nt-a span{text-transform:none;letter-spacing:0;font-weight:500}\n.nt-t{margin-top:8px;font-size:40px;font-weight:600;line-height:1.2}",
+        "notes": "agent-written html scene (notifications)"
+      },
+      {
+        "id": "s2-stat",
+        "engine": "html",
+        "durationSeconds": 4.5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><div class=\"num pop\" style=\"animation-delay:0.45s\"><span class=\"aff\">$</span><span class=\"cnt n68\"></span></div><div class=\"lbl\"><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.95s\">a</span></span> <span class=\"mk-w\"><span style=\"animation-delay:1s\">year</span></span> <span class=\"mk-w\"><span style=\"animation-delay:1.05s\">for</span></span> <span class=\"mk-w\"><span style=\"animation-delay:1.1s\">those</span></span> <span class=\"mk-w\"><span style=\"animation-delay:1.15s\">three</span></span></span></div><p class=\"note rise\" style=\"animation-delay:1.45s\">Fictional services</p></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#4d5347;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-zoomin 0.7s cubic-bezier(.16,1,.3,1) both,st-zoomout 0.5s cubic-bezier(.7,0,.84,0) 4s both;}.cam{position:absolute;inset:0;animation:st-cam 4.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}@property --n68{syntax:'<integer>';inherits:false;initial-value:0}\n.n68{counter-reset:n68 var(--n68);animation:n68-c 2.025s cubic-bezier(.16,1,.3,1) 0.55s both}\n.n68::after{content:counter(n68,decimal)}\n@keyframes n68-c{from{--n68:0}to{--n68:659}}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.eb{display:inline-block;font:500 32px/1.2 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}.acc{color:var(--rf-accent);font-style:normal}.wrap>div:first-child{margin-bottom:40px}\n.num{font-size:330px;line-height:.9;font-weight:600;letter-spacing:-.06em;color:var(--rf-text);font-variant-numeric:tabular-nums;transform-origin:left bottom}\n.aff{font-size:.5em;letter-spacing:-.02em;margin:0 .04em;color:var(--rf-accent)}\n.meter{height:22px;border-radius:99px;background:color-mix(in srgb,var(--rf-text) 12%,transparent);margin:40px 0 10px;overflow:hidden}\n.meter i{display:block;height:100%;border-radius:99px;background:var(--rf-accent);transform-origin:left;animation:mt 2.025s cubic-bezier(.16,1,.3,1) 0.55s both}\n@keyframes mt{from{transform:scaleX(0)}to{transform:none}}\n.lbl{margin-top:36px;font-size:66px;line-height:1.08;font-weight:600;letter-spacing:-.02em;color:var(--rf-text)}\n.note{margin:36px 0 0;font-size:42px;line-height:1.3;color:var(--rf-muted)}",
+        "notes": "agent-written html scene (stat)"
+      },
+      {
+        "id": "s3-checklist",
+        "engine": "html",
+        "durationSeconds": 6,
+        "html": "<div class=\"bd\"><div class=\"bd-grid\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><h2><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.45s\">Audit</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.5s\">in</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.55s\">10</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.6s\">min</span></span></span></h2><ul><li class=\"slide-l\" style=\"animation-delay:1.05s\"><span class=\"mk2\"><svg viewBox=\"0 0 32 32\"><path d=\"M7 17l6 6L25 10\" pathLength=\"1\" style=\"animation-delay:1.3s\"/></svg></span><span>List every renewal</span></li><li class=\"slide-l\" style=\"animation-delay:1.6s\"><span class=\"mk2\"><svg viewBox=\"0 0 32 32\"><path d=\"M7 17l6 6L25 10\" pathLength=\"1\" style=\"animation-delay:1.85s\"/></svg></span><span>Cancel what you did not open</span></li><li class=\"slide-l\" style=\"animation-delay:2.15s\"><span class=\"mk2\"><svg viewBox=\"0 0 32 32\"><path d=\"M7 17l6 6L25 10\" pathLength=\"1\" style=\"animation-delay:2.4s\"/></svg></span><span>Set reminders for trials</span></li></ul></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#4d5347;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-zoomin 0.7s cubic-bezier(.16,1,.3,1) both;}.cam{position:absolute;inset:0;animation:st-cam 6s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-grid{position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px),linear-gradient(90deg,color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px);background-size:108px 108px;background-position:-2px -2px}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.eb{display:inline-block;font:500 32px/1.2 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}.acc{color:var(--rf-accent);font-style:normal}.wrap>div:first-child{margin-bottom:40px}\nh2{margin:0 0 64px;font-size:96px;line-height:1;letter-spacing:-.04em;font-weight:var(--rf-heading-weight)}\nul{list-style:none;margin:0;padding:0}\nli{display:flex;align-items:center;gap:36px;font-size:52px;line-height:1.15;font-weight:500;padding:32px 36px;margin-bottom:24px;border-radius:28px;background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 8%,transparent)}\n.mk2{flex:0 0 88px;height:88px;border-radius:20px;background:color-mix(in srgb,var(--rf-text) 8%,transparent);display:flex;align-items:center;justify-content:center;color:var(--rf-accent)}\n.mk2.x{color:var(--rf-muted)}\n.mk2 b{font:600 40px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace}\n.mk2 svg{width:58px;height:58px;fill:none;stroke:currentColor;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}\n.mk2 path{stroke-dasharray:1;stroke-dashoffset:1;animation:ck .45s cubic-bezier(.16,1,.3,1) both}\n@keyframes ck{to{stroke-dashoffset:0}}",
+        "notes": "agent-written html scene (checklist)"
+      }
+    ]
+  }
+}
