@@ -1,0 +1,37 @@
+[
+  {
+    "id": "TUT-26",
+    "what": "REST with fetch instead of curl (examples/tutorials/rest-fetch.mjs) makes the HTML reel; same checks as TUT-18",
+    "how": "`TUTORIAL_REST_CLIENT=fetch pnpm tutorials:prove rest html`",
+    "result": "📝 not run yet",
+    "date": "n/a"
+  },
+  {
+    "id": "TUT-27",
+    "what": "Assertion helpers of the proof scripts: ffprobe parsing, reel checks (size, fps, codecs, frame count vs duration, duration bounds), engine checks, transcript parsing (Claude stream-json, Codex JSON), RESULT lines, redaction of signed links and keys, local-agent schema conversion and loop state",
+    "how": "`pnpm tutorials:test` (scripts/tutorials/test/*.test.ts)",
+    "result": "✅ pass",
+    "date": "2026-11-21"
+  },
+  {
+    "id": "TUT-28",
+    "what": "Every relative link and #anchor in docs/tutorials resolves",
+    "how": "`pnpm tsx scripts/tutorials/links.ts` (also inside `pnpm tutorials:test`)",
+    "result": "✅ pass",
+    "date": "2026-11-21"
+  },
+  {
+    "id": "TUT-29",
+    "what": "The generated pages match cells.ts and the recorded proofs (no page claims a result that is not in proofs/*.json)",
+    "how": "`pnpm tutorials:docs --check` (also inside `pnpm tutorials:test`)",
+    "result": "✅ pass",
+    "date": "2026-11-21"
+  },
+  {
+    "id": "TUT-30",
+    "what": "A proof fails loudly: when the render fails, `pnpm tutorials:prove` exits 1 and records the cause",
+    "how": "Observed: the first `pnpm tutorials:prove rest multi-engine` run failed because the HyperFrames scene stopped on low disk space (0.7 GB free, the machine is shared); the script exited 1 and recorded the failed job. The re-run with 14 GB free passed (TUT-20)",
+    "result": "✅ pass",
+    "date": "2026-11-21"
+  }
+]

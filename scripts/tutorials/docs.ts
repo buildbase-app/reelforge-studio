@@ -144,7 +144,7 @@ Test case: ${id} in [TEST_CASES.md](../TEST_CASES.md).`;
     `| Reproduce | \`pnpm tutorials:prove ${agent} ${engine}\` |`,
     `| Command the proof ran | \`${p.command.replace(/\|/g, '\\|')}\` |`,
   ];
-  if (p.llm) lines.push(`| Model | ${p.llm.model ?? 'n/a'}; ${p.llm.turns ?? 'n/a'} turns; ${p.llm.durationMs ? Math.round(p.llm.durationMs / 1000) + ' s' : 'n/a'} agent time${p.llm.costUsd ? `; ${p.llm.costUsd.toFixed(3)} USD` : ''} |`);
+  if (p.llm) lines.push(`| Model | ${p.llm.model ?? 'n/a'}; ${p.llm.turns ?? 'n/a'} turns; ${p.toolCalls.length} tool calls; ${p.llm.durationMs ? Math.round(p.llm.durationMs / 1000) + ' s' : 'n/a'} agent time${p.llm.costUsd ? `; ${p.llm.costUsd.toFixed(3)} USD` : ''} |`);
   lines.push(
     `| Project / job / render | \`${p.projectId}\` / \`${p.jobId}\` / \`${p.renderId}\` |`,
     `| Render time | ${p.renderSeconds ?? 'n/a'} s (job start to finish, shared 4-core CPU, one render at a time) |`,
@@ -156,6 +156,8 @@ Test case: ${id} in [TEST_CASES.md](../TEST_CASES.md).`;
     );
   lines.push('', `Tool calls, in order (${p.toolCalls.length}):`, '', p.toolCalls.map((c, i) => `${i + 1}. \`${c}\``).join('\n'));
   if (p.llm?.reply) lines.push('', 'The agent\'s final reply (signed links redacted):', '', p.llm.reply.split('\n').map((l) => `> ${l}`).join('\n'));
+  const note = loadNotes()[`${agent}-${engine}`];
+  if (note) lines.push('', `**Note on this proof:** ${note}`);
   if (p.poster) lines.push('', `Poster frame (40 % into the reel, 270 px wide):`, '', `![Poster frame of the ${agent} ${engine} proof](../proofs/${p.poster})`);
   lines.push('', `The full transcript, the MP4 and \`proof.json\` stay outside the repository (\`$TUTORIAL_OUT/${agent}/${engine}/\`); re-run the command to get your own.`);
   return lines.join('\n');
@@ -651,6 +653,12 @@ needs; the duration is exact for scripted rows (240 or 270 frames) and within
 | --- | --- | --- | --- | --- |
 ${rows.join('\n')}
 `;
+}
+
+/** Notes on individual proofs (earlier failed attempts and their causes), keyed `<agent>-<engine>`. */
+function loadNotes(): Record<string, string> {
+  const f = join(DOCS, 'proofs/notes.json');
+  return existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : {};
 }
 
 /** Extra cases (not cells): recorded in proofs/extra.json by hand after running them. */

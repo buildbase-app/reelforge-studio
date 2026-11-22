@@ -1,0 +1,38 @@
+{
+  "agent": "rest",
+  "engine": "motion-canvas",
+  "status": "passed",
+  "date": "2026-11-21T19:36:34.058Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "examples/tutorials/rest.sh examples/tutorials/motion-canvas.json tut-rest-motion-canvas final.mp4",
+  "projectId": "tut-rest-motion-canvas",
+  "jobId": "job_mwqt6v2387e93b7f9b",
+  "renderId": "run_mwqt6v2232e9a02ee7",
+  "renderSeconds": 33.7,
+  "sceneEngines": [
+    "motion-canvas"
+  ],
+  "toolCalls": [
+    "GET /v1/capabilities()",
+    "POST /v1/projects()",
+    "POST /v1/projects/tut-rest-motion-canvas/validate()",
+    "POST /v1/projects/tut-rest-motion-canvas/renders()",
+    "GET /v1/jobs/job_mwqt6v2387e93b7f9b?wait=50()",
+    "GET /v1/renders/run_mwqt6v2232e9a02ee7/output()"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 199304
+  },
+  "poster": "rest-motion-canvas.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/rest/motion-canvas"
+}

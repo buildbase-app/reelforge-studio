@@ -236,6 +236,11 @@ async function runLlamaCpp(client, tools, prompt, state) {
     try {
       reply = await session.prompt(message, { functions, signal: controller.signal, stopOnAbortSignal: true, maxTokens: 1500, temperature: 0.2 });
     } catch (e) {
+      // The loop aborts generation itself once the render is fetched (or the budget is spent).
+      if (controller.signal.aborted) {
+        turns += state.toolCalls.length - before;
+        break;
+      }
       // The history no longer fits the context (long tool results): start over from the system
       // prompt with a recap of the progress, instead of failing the whole run.
       if (!/context/i.test(String(e?.message))) throw e;

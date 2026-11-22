@@ -1,0 +1,48 @@
+{
+  "agent": "claude-code",
+  "engine": "motion-canvas",
+  "status": "passed",
+  "date": "2026-11-21T19:48:01.998Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "claude -p \"<prompt>\" --model sonnet --mcp-config mcp.json --strict-mcp-config --tools \"\" --allowedTools mcp__reelforge --max-turns 25 --output-format stream-json --verbose",
+  "projectId": "tut-claude-code-motion-canvas",
+  "jobId": "job_mwqtlqr4d655dbd2fc",
+  "renderId": "run_mwqtlqr4da672b6b75",
+  "renderSeconds": 38.3,
+  "sceneEngines": [
+    "motion-canvas"
+  ],
+  "toolCalls": [
+    "list_templates(engine)",
+    "create_project(manifest)",
+    "validate_project(projectId)",
+    "render_project(projectId)",
+    "get_job(jobId, waitSeconds)",
+    "get_render_output(renderId)"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 224782
+  },
+  "poster": "claude-code-motion-canvas.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/claude-code/motion-canvas",
+  "prompt": "You are connected to a ReelForge video studio through the \"reelforge\" MCP server. Make a vertical reel (1080x1920, 30 fps) about three steps to plan a product demo: an 8-second reel with one scene using only the motion-canvas engine (template animated-explainer, three points). Use the project id \"tut-claude-code-motion-canvas\". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.",
+  "llm": {
+    "model": "claude-sonnet-5-5",
+    "turns": 7,
+    "durationMs": 51606,
+    "costUsd": 0.0457938,
+    "isError": false,
+    "reply": "The reel rendered, and the render's duration, metadata and decode checks all passed.\n\n- **Project id:** `tut-claude-code-motion-canvas`\n- **Job id:** `job_mwqtlqr4d655dbd2fc`\n- **Render id:** `run_mwqtlqr4da672b6b75`\n- **Duration:** 8 seconds\n- **Frame count:** 240 frames (1080x1920, 30 fps, h264 MP4)\n\nIt has one `animated-explainer` scene on the motion-canvas engine, titled \"Plan a product demo in 3 steps\". The three points are \"Define your audience and goal\", \"Script the key moments\" and \"Rehearse and test the setup\".\n\nThe poster image is the first frame, so it shows only the title. I haven't seen the frames where the three points appear.\n\nThe download link works without a key until 2026-11-21 20:48 UTC: `/v1/renders/run_mwqtlqr4da672b6b75/output?expires=1795294128&sig=<redacted>`. It is a path on the ReelForge server, so put the server's address in front of it.",
+    "exitCode": 0
+  }
+}
