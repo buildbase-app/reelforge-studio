@@ -83,7 +83,9 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   },
 ];
 
-const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();
+// Markdown table cell: escape backslashes first, then pipes; one line.
+const cell = (s: string) =>
+  s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();
 
 function frontMatter(fields: Record<string, string | number | string[]>): string {
   const lines = Object.entries(fields).map(([k, v]) => {

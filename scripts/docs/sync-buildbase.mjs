@@ -124,10 +124,11 @@ export function checkTokenEnvironment(token, envName, expectedOrgId) {
   const orgId = dash === -1 ? tenant : tenant.slice(0, dash);
   const tokenEnv = dash === -1 ? 'production' : tenant.slice(dash + 1);
   if (tokenEnv !== envName) {
-    throw new Error(`--env ${envName} was given, but the API token belongs to the environment "${tokenEnv}"`);
+    // Name only the expected values: nothing derived from the token is printed.
+    throw new Error(`the API token does not belong to the environment given with --env ${envName}`);
   }
   if (expectedOrgId && orgId !== expectedOrgId) {
-    throw new Error(`the API token belongs to organization ${orgId}, not BUILDBASE_ORG_ID ${expectedOrgId}`);
+    throw new Error(`the API token does not belong to BUILDBASE_ORG_ID ${expectedOrgId}`);
   }
   return orgId;
 }
@@ -190,12 +191,29 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   return result.docs.conflicts.length ? 2 : 0;
 }
 
+/** Defence in depth: never print the API token (or its secret part) in an error. */
+export function redactToken(message, env = process.env) {
+  let token = env.BUILDBASE_API_TOKEN ?? '';
+  if (!token && env.BUILDBASE_API_TOKEN_FILE) {
+    try {
+      token = readFileSync(env.BUILDBASE_API_TOKEN_FILE, 'utf8').trim();
+    } catch {
+      token = '';
+    }
+  }
+  let out = String(message);
+  for (const part of [token, token.slice(token.indexOf(':') + 1)]) {
+    if (part.length >= 8) out = out.split(part).join('[redacted]');
+  }
+  return out;
+}
+
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   main().then(
     (code) => process.exit(code),
     (e) => {
-      console.error(`docs sync failed: ${e instanceof Error ? e.message : String(e)}`);
+      console.error(`docs sync failed: ${redactToken(e instanceof Error ? e.message : String(e))}`);
       process.exit(1);
     }
   );

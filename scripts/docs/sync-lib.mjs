@@ -87,7 +87,7 @@ export function excludeSections(body, titles) {
 export function stripLeadingH1(body) {
   const lines = body.split('\n');
   let i = 0;
-  while (i < lines.length && (!lines[i].trim() || /^<!--.*-->$/.test(lines[i].trim()))) i++;
+  while (i < lines.length && (!lines[i].trim() || /^<!--[\s\S]*?--!?>$/.test(lines[i].trim()))) i++;
   const m = lines[i]?.match(/^#\s+(.+?)\s*#*\s*$/);
   if (!m) return { title: null, body };
   lines.splice(i, 1);
@@ -96,10 +96,8 @@ export function stripLeadingH1(body) {
 
 /** Drops whole-line HTML comments (generator notes); they mean nothing on the site. */
 export function stripCommentLines(body) {
-  return body
-    .split('\n')
-    .filter((l) => !/^\s*<!--.*-->\s*$/.test(l))
-    .join('\n');
+  // Comments that start a line may span several lines; `--!>` also closes one.
+  return body.replace(/^[ \t]*<!--[\s\S]*?--!?>[ \t]*(?:\r?\n|$)/gm, '');
 }
 
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;

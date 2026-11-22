@@ -7,10 +7,12 @@ import {
   excludeSections,
   parseFrontMatter,
   rewriteLinks,
+  stripCommentLines,
+  stripLeadingH1,
   summarize,
   syncDocs,
 } from './sync-lib.mjs';
-import { checkTokenEnvironment, createDocsApi } from './sync-buildbase.mjs';
+import { checkTokenEnvironment, createDocsApi, redactToken } from './sync-buildbase.mjs';
 
 /**
  * A fake of the org API's docs routes with the rules the sync relies on: a
@@ -395,9 +397,13 @@ describe('credentials and HTTP', () => {
   it('checks that the token belongs to the named environment', () => {
     assert.equal(checkTokenEnvironment('org1-abcdefgh:s3cret', 'abcdefgh'), 'org1');
     assert.equal(checkTokenEnvironment('org1:s3cret', 'production'), 'org1');
-    assert.throws(() => checkTokenEnvironment('org1:s3cret', 'abcdefgh'), /belongs to the environment "production"/);
-    assert.throws(() => checkTokenEnvironment('org1-abcdefgh:s3cret', 'production'), /"abcdefgh"/);
-    assert.throws(() => checkTokenEnvironment('org1-abcdefgh:s3cret', 'abcdefgh', 'org2'), /not BUILDBASE_ORG_ID org2/);
+    assert.throws(() => checkTokenEnvironment('org1:s3cret', 'abcdefgh'), /does not belong to the environment given with --env abcdefgh/);
+    assert.throws(() => checkTokenEnvironment('org1-abcdefgh:s3cret', 'production'), /--env production/);
+    assert.throws(() => checkTokenEnvironment('org1-abcdefgh:s3cret', 'abcdefgh', 'org2'), /does not belong to BUILDBASE_ORG_ID org2/);
+    // Nothing derived from the token itself appears in the errors.
+    for (const [token, env, org] of [['org1:s3cret', 'abcdefgh'], ['org1-abcdefgh:s3cret', 'production'], ['org1-abcdefgh:s3cret', 'abcdefgh', 'org2']]) {
+      assert.throws(() => checkTokenEnvironment(token, env, org), (e) => !/org1|s3cret/.test(e.message) && !(env !== 'abcdefgh' && /abcdefgh/.test(e.message)));
+    }
     assert.throws(() => checkTokenEnvironment('nocolon', 'production'), /form/);
     try {
       checkTokenEnvironment('org1:s3cret', 'abcdefgh');
@@ -442,5 +448,21 @@ describe('credentials and HTTP', () => {
     assert.equal(posts, 1);
     assert.deepEqual(await api.listTags(), []);
     assert.equal(gets, 2);
+  });
+});
+
+describe('output hygiene', () => {
+  it('redacts the API token and its secret from printed errors', () => {
+    const env = { BUILDBASE_API_TOKEN: 'org1-env:supersecretvalue123' };
+    const msg = redactToken('failed with org1-env:supersecretvalue123 and supersecretvalue123', env);
+    assert.equal(msg.includes('supersecretvalue123'), false);
+    assert.match(msg, /\[redacted\]/);
+    assert.equal(redactToken('nothing to hide', {}), 'nothing to hide');
+  });
+
+  it('drops HTML comments that start a line, including multi-line and --!> forms', () => {
+    const body = 'a\n<!-- one -->\n<!-- two\nlines -->\nb\n<!-- three --!>\nc';
+    assert.equal(stripCommentLines(body), 'a\nb\nc');
+    assert.deepEqual(stripLeadingH1('<!-- note -->\n# Title\ntext'), { title: 'Title', body: '<!-- note -->\ntext' });
   });
 });
