@@ -46,9 +46,13 @@ export interface CoreInstruments {
   queueErrors: Counter;
   /** Requests refused by a resource limit (reason: LimitReason, a fixed set). */
   limitRejections: Counter;
+  /** Enqueue to first claim of render and preview jobs, by type and priority only (bounded labels; D-103). */
+  queueWait: Histogram;
 }
 
 const SECONDS_BUCKETS = [0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600];
+/** Queue wait: fine below a minute (preview SLO 60 s), coarse up to an hour (render SLO 300 s). */
+const QUEUE_WAIT_BUCKETS = [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
 const FPS_BUCKETS = [1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 240];
 
 const cache = new WeakMap<Meter, CoreInstruments>();
@@ -79,7 +83,13 @@ export function coreInstruments(meter: Meter): CoreInstruments {
       queueErrors: meter.createCounter('reelforge.queue.errors', { description: 'Database queue: failed queue operations (claim, heartbeat, recover), e.g. while the database is unreachable.' }),
       limitRejections: meter.createCounter('reelforge.limits.rejections', {
         description:
-          'Requests refused by a resource limit (D-090, D-091), by reason: render_limit, jobs_per_key, queue_full, render_quota, upload_too_large, provider_runs_per_key, provider_budget.',
+          'Requests refused by a resource limit (D-090, D-091, D-103), by reason: render_limit, jobs_per_key, queue_full, queue_wait, render_quota, upload_too_large, provider_runs_per_key, provider_budget.',
+      }),
+      queueWait: meter.createHistogram('reelforge.job.queue_wait', {
+        unit: 's',
+        description:
+          'Time from enqueue to the first claim of render and preview jobs, by type and priority (fan-out units and joins are not measured). Recorded by the instance that claims. SLO: p95 < 60 s for previews, < 300 s for renders.',
+        advice: { explicitBucketBoundaries: QUEUE_WAIT_BUCKETS },
       }),
     };
     cache.set(meter, i);

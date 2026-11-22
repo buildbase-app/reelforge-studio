@@ -146,7 +146,7 @@ describe('ReelforgeService limits', () => {
       // 0 turns a cap off.
       await svc.updateConfig({ 'limits.maxQueuedJobs': 0, 'limits.maxQueuedJobsPerKey': 0 });
       expect((await as('key_a', () => svc.startRender('sample-reel'))).status).toBe('queued');
-      expect(svc.capabilities().limits.jobs).toEqual({ maxQueuedJobsPerKey: null, maxQueuedJobs: null, maxRunningJobsPerKey: null });
+      expect(svc.capabilities().limits.jobs).toEqual({ maxQueuedJobsPerKey: null, maxQueuedJobs: null, maxRunningJobsPerKey: null, maxEstimatedWaitSeconds: null });
     } finally {
       await svc.updateConfig({ 'limits.maxQueuedJobsPerKey': null, 'limits.maxQueuedJobs': null });
       for (const j of (await svc.listJobs({}, { limit: 200 })).jobs) if (j.status === 'queued' || j.status === 'running') await svc.cancelJob(j.id);

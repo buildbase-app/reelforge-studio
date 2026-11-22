@@ -23,7 +23,7 @@ export const isTerminal = (status: string) => TERMINAL.has(status);
 export const isFannedOut = (j: JobRecord) => j.status === 'running' && j.pendingChildren !== undefined && !j.leaseExpiresAt;
 
 /**
- * Child rows for a parent: same project, API key and queue. Their queue
+ * Child rows for a parent: same project, API key, queue and priority. Their queue
  * position (`createdAt`) is just after the parent's, in the given order, so a
  * render already in progress finishes before renders submitted after it start,
  * while fair claiming across keys (D-090) still applies.
@@ -46,6 +46,8 @@ function child(parent: JobRecord, s: ChildSpec, createdAt: string): JobRecord {
     attempts: 0,
     ...(parent.projectId ? { projectId: parent.projectId } : {}),
     ...(parent.apiKeyId ? { apiKeyId: parent.apiKeyId } : {}),
+    // Units and the join keep their render's class (D-103), so a render in progress is not overtaken at a lower class.
+    ...(parent.priority ? { priority: parent.priority } : {}),
   };
 }
 

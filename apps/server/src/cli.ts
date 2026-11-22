@@ -12,7 +12,8 @@
  *   reelforge keys revoke <keyId>
  *   reelforge keys delete <keyId>
  *     limits: --expires-in 30d|12h | --expires-at ISO | --rate-limit N | --renders-per-day N
- *             --renders-per-month N | --ip-allow CIDR,CIDR   ("none" clears one in update)
+ *             --renders-per-month N | --ip-allow CIDR,CIDR | --max-priority interactive|standard|batch
+ *             ("none" clears one in update)
  *   reelforge audit list [--from ISO] [--to ISO] [--actor KEYID] [--action key.*] [--target ID] [--result R] [--limit N] [--json]
  *   reelforge audit export [--format jsonl|csv] [--out FILE] [same filters]   (streamed)
  *   reelforge audit sweep              delete entries past audit.retentionDays and expired idempotency keys
@@ -85,7 +86,7 @@ const USAGE = `usage:
   reelforge keys rotate <keyId> [--grace-hours N]
   reelforge keys revoke <keyId>
   reelforge keys delete <keyId>
-    LIMITS: --expires-in 30d|12h  --expires-at ISO  --rate-limit N  --renders-per-day N  --renders-per-month N  --ip-allow CIDR,CIDR
+    LIMITS: --expires-in 30d|12h  --expires-at ISO  --rate-limit N  --renders-per-day N  --renders-per-month N  --ip-allow CIDR,CIDR  --max-priority interactive|standard|batch
   reelforge audit list [--from ISO] [--to ISO] [--actor KEYID] [--action ACTION|prefix.*] [--target-type T] [--target ID] [--result success|failure|denied] [--limit N] [--json]
   reelforge audit export [--format jsonl|csv] [--out FILE] [same filters]
   reelforge audit sweep
@@ -546,6 +547,8 @@ function keyLimits(args: string[]): KeyOptions {
   if (mo !== undefined) o.rendersPerMonth = mo;
   const ip = arg('ip-allow', args);
   if (ip !== undefined) o.ipAllowlist = ip === 'none' ? null : ip.split(',').map((s) => s.trim()).filter(Boolean);
+  const mp = arg('max-priority', args);
+  if (mp !== undefined) o.maxPriority = mp === 'none' ? null : (mp as KeyOptions['maxPriority']);
   return o;
 }
 
@@ -556,6 +559,7 @@ function describeKey(k: PublicKey): string {
     k.rendersPerDay !== undefined ? `${k.rendersPerDay} renders/day` : '',
     k.rendersPerMonth !== undefined ? `${k.rendersPerMonth} renders/month` : '',
     k.ipAllowlist?.length ? `from ${k.ipAllowlist.join(',')}` : '',
+    k.maxPriority ? `priority up to ${k.maxPriority}` : '',
     k.previousSecretExpiresAt ? `old secret valid until ${k.previousSecretExpiresAt}` : '',
   ].filter(Boolean);
   return `${k.id}  ${k.prefix}…  ${k.name.padEnd(20)} ${k.status.padEnd(8)} ${k.scopes.join(',').padEnd(24)} created ${k.createdAt}${k.lastUsedAt ? `, last used ${k.lastUsedAt}` : ''}${limits.length ? `  [${limits.join('; ')}]` : ''}`;

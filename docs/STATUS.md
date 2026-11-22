@@ -428,6 +428,24 @@ listing, keys of the owning render only. `list_jobs` now really takes `parentId`
 join of a fanned-out render), keyset-paged with the filter bound into the cursor (D-102); no new
 index, because a render has at most 51 children (50 scenes and a join) and `parentId` is indexed.
 
+### Overload protection: priorities, admission, queue-wait SLO (2026-11-22, issue #155)
+
+Built (D-103) on top of the fair claim and caps of #161/#171/#183: three classes (`interactive`
+previews > `standard` renders > `batch`), `priority` on `render_project` / `preview_scene`, a
+per-key `maxPriority` only an admin can raise (`403 priority_not_allowed` otherwise); the claim
+orders by class, then fairness across keys, then age on memory, SQLite, PostgreSQL and MySQL
+(MySQL keeps its one-row locking), units inherit their render's class, and `batch` ages into
+`standard` after `queue.priorityAgingSeconds` (600). Admission by estimated wait
+(`limits.maxEstimatedWaitSeconds`, off by default): `429 queue_full` with `Retry-After` and
+`details` when min(oldest job ahead's wait, jobs ahead ÷ measured claim rate) exceeds it, counted
+in the existing one cap statement; the claim rate is shared through a per-minute counter in the
+database. Histogram `reelforge_job_queue_wait_seconds` (type and priority labels only), SLO p95 <
+60 s previews / < 5 min renders, Grafana panel and promtool-tested alert rules in
+`deployment/observability/`. Migration `0010_job_priority`. Test cases PRI-01..09 (4 targets),
+PRIS-01..05, PRS-01..03 (SQLite, PostgreSQL 17, MySQL 8.4):
+[queue-and-scaling.md](providers/queue-and-scaling.md#priorities-fairness-and-admission-d-103).
+Not measured: the SLO itself on a real fleet at maximum replicas.
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |

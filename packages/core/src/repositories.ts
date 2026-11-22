@@ -1,5 +1,6 @@
 import type { Project, Theme } from '@reelforge/project-schema';
 import type { PageRequest } from './paging';
+import type { JobPriority } from './priority';
 import type { StoredAsset } from './plugins';
 import type { WebhookRepository } from './webhooks/types';
 
@@ -112,6 +113,8 @@ export interface ApiKeyRecord {
   rendersPerMonth?: number;
   /** CIDR blocks the key may be used from (unset: anywhere). */
   ipAllowlist?: string[];
+  /** Highest job priority the key may use (unset: each job type's default class; D-103). */
+  maxPriority?: JobPriority;
 }
 
 /** A key's secret as stored: lookup prefix, salt and sha256(salt + key). */
@@ -134,6 +137,7 @@ export interface ApiKeyPatch {
   rendersPerDay?: number | null;
   rendersPerMonth?: number | null;
   ipAllowlist?: string[] | null;
+  maxPriority?: JobPriority | null;
 }
 
 export interface ApiKeyRepository {
@@ -196,6 +200,11 @@ export interface JobRecord {
    * its join finishes it.
    */
   pendingChildren?: number;
+  /**
+   * Claim class (D-103): `interactive` > `standard` > `batch`; unset reads as
+   * `standard`. Fan-out units and the join inherit their render's class.
+   */
+  priority?: JobPriority;
 }
 
 /** What a child's final state did to its parent, in the same transaction (D-097). */
@@ -230,12 +239,21 @@ export interface QuotaWindow {
 export interface JobCaps {
   maxActivePerKey?: number;
   maxQueuedTotal?: number;
+  /**
+   * Admission by estimated wait (limits.maxEstimatedWaitSeconds, D-103): refuse
+   * when the estimated queue wait of the new job (estimateWaitSeconds, from the
+   * queued jobs of its class or higher and `claimsPerSecond`) exceeds `seconds`.
+   * Counted in the same statement as the other caps.
+   */
+  maxEstimatedWait?: { seconds: number; claimsPerSecond: number; now: string };
 }
 
 export type QuotaResult =
   | { ok: true }
   | { ok: false; window: number; used: number }
-  | { ok: false; cap: 'active_per_key' | 'queued_total'; used: number };
+  | { ok: false; cap: 'active_per_key' | 'queued_total'; used: number }
+  /** `used`: queued jobs ahead of the new one (its class or higher, any key); `oldestQueuedAt`: the oldest of them. */
+  | { ok: false; cap: 'estimated_wait'; used: number; oldestQueuedAt: string; estimatedWaitSeconds: number };
 
 export interface JobFilter {
   projectId?: string;
@@ -337,6 +355,8 @@ export interface JobRepository {
     maxRunningPerKey?: number;
     /** Only this job, and only while it is queued (`worker --once --job`, D-100); the per-key cap still applies. */
     id?: string;
+    /** queue.priorityAgingSeconds (D-103): a `batch` job queued this long counts as `standard`. Unset or 0: strict classes. */
+    priorityAgingSeconds?: number;
   }): Promise<JobRecord | null>;
   /**
    * Renew the lease of `ids` still running and held by `workerId`. Returns the
@@ -357,8 +377,12 @@ export interface JobRepository {
   cancelQueued(id: string, at: string, error: { code: string; message: string }): Promise<JobRecord | null>;
   /** Ask the worker holding a running job to stop it. Returns false when the job is not running. */
   requestCancel(id: string, at: string): Promise<boolean>;
-  /** Queued database-queue jobs; with `before`, only those ahead of it (queue position). */
-  countQueued(before?: { createdAt: string; id: string }): Promise<number>;
+  /**
+   * Queued database-queue jobs; with `before`, only those ahead of it (queue
+   * position): a higher class, or the same class and older (D-103; fairness
+   * across keys and aging are not predicted).
+   */
+  countQueued(before?: { createdAt: string; id: string; priority?: JobPriority }): Promise<number>;
   /** How many jobs of these types `apiKeyId` started at or after `since` (render quotas). */
   countByApiKey(apiKeyId: string, since: string, types: string[]): Promise<number>;
   appendLog(jobId: string, at: string, line: string): Promise<void>;
@@ -578,8 +602,10 @@ export interface IdempotencyRepository {
 
 /** Per-key request counters shared by every instance (limits.rateLimitStore "database", D-078). */
 export interface RateLimitRepository {
-  /** Count one request for `key` in the window starting at `windowStart`; returns the window's count including it (atomic increment). */
-  hit(key: string, windowStart: string): Promise<number>;
+  /** Count one request (or `by`) for `key` in the window starting at `windowStart`; returns the window's count including it (atomic increment). */
+  hit(key: string, windowStart: string, by?: number): Promise<number>;
+  /** The windows of one key that started at or after `since`, oldest first (shared statistics such as the claim counter, D-103). */
+  windows(key: string, since: string): Promise<Array<{ windowStart: string; count: number }>>;
   /**
    * Delete windows that started before `cutoff`. Returns how many. Usage
    * counters (keys starting with `usage:`) are only deleted with `usage: true`,

@@ -99,6 +99,8 @@ model ApiKey {
   rendersPerMonth    Int?
   /// JSON array of CIDR blocks the key may be used from (null: anywhere).
   ipAllowlist        String?
+  /// Highest job priority the key may use: interactive | standard | batch (null: each job type's default; D-103).
+  maxPriority        String?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -141,6 +143,8 @@ model Job {
   /// Render and preview jobs: the run id of the render they produce (params.runId), so get_render finds its project
   /// with one indexed read instead of a scan (#184).
   runId             String?
+  /// Claim class (D-103): 0 interactive, 1 standard, 2 batch. The claim orders by it, then fairness, then age.
+  priority          Int       @default(1)
 
   workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   events    JobEvent[]
@@ -153,6 +157,8 @@ model Job {
   @@index([status])
   @@index([workspaceId, apiKeyId, createdAt])
   @@index([workspaceId, queue, status, createdAt])
+  /// The claim order (D-103) and the admission count: queued jobs of one queue by class, oldest first.
+  @@index([workspaceId, queue, status, priority, createdAt])
   @@index([status, leaseExpiresAt])
   @@index([parentId])
   @@index([workspaceId, runId])

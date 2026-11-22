@@ -80,8 +80,8 @@ describe('configuration over REST', () => {
     expect(r.text).not.toContain('reelforge.db');
     const limits = await rest('GET', '/v1/config?prefix=limits');
     expect(limits.json.settings.map((s: any) => s.key)).toEqual(['limits.rateLimitPerMinute', 'limits.rateLimitStore', 'limits.maxUploadBytes', 'limits.maxJsonBytes', 'limits.renderConcurrency',
-      // resource limits (D-090, D-091)
-      'limits.maxQueuedJobsPerKey', 'limits.maxQueuedJobs', 'limits.maxRunningJobsPerKey', 'limits.maxRenderSeconds', 'limits.maxRenderFrames',
+      // resource limits (D-090, D-091, D-103)
+      'limits.maxQueuedJobsPerKey', 'limits.maxQueuedJobs', 'limits.maxRunningJobsPerKey', 'limits.maxEstimatedWaitSeconds', 'limits.maxRenderSeconds', 'limits.maxRenderFrames',
       'limits.maxScenes', 'limits.maxRenderDimension', 'limits.maxRenderFps', 'limits.providerRunsPerKeyPerDay', 'limits.providerRunsPerDay',
     ]);
   });

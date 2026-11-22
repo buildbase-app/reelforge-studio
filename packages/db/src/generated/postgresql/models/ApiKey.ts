@@ -62,6 +62,7 @@ export type ApiKeyMinAggregateOutputType = {
   rendersPerDay: number | null
   rendersPerMonth: number | null
   ipAllowlist: string | null
+  maxPriority: string | null
 }
 
 export type ApiKeyMaxAggregateOutputType = {
@@ -85,6 +86,7 @@ export type ApiKeyMaxAggregateOutputType = {
   rendersPerDay: number | null
   rendersPerMonth: number | null
   ipAllowlist: string | null
+  maxPriority: string | null
 }
 
 export type ApiKeyCountAggregateOutputType = {
@@ -108,6 +110,7 @@ export type ApiKeyCountAggregateOutputType = {
   rendersPerDay: number
   rendersPerMonth: number
   ipAllowlist: number
+  maxPriority: number
   _all: number
 }
 
@@ -145,6 +148,7 @@ export type ApiKeyMinAggregateInputType = {
   rendersPerDay?: true
   rendersPerMonth?: true
   ipAllowlist?: true
+  maxPriority?: true
 }
 
 export type ApiKeyMaxAggregateInputType = {
@@ -168,6 +172,7 @@ export type ApiKeyMaxAggregateInputType = {
   rendersPerDay?: true
   rendersPerMonth?: true
   ipAllowlist?: true
+  maxPriority?: true
 }
 
 export type ApiKeyCountAggregateInputType = {
@@ -191,6 +196,7 @@ export type ApiKeyCountAggregateInputType = {
   rendersPerDay?: true
   rendersPerMonth?: true
   ipAllowlist?: true
+  maxPriority?: true
   _all?: true
 }
 
@@ -301,6 +307,7 @@ export type ApiKeyGroupByOutputType = {
   rendersPerDay: number | null
   rendersPerMonth: number | null
   ipAllowlist: string | null
+  maxPriority: string | null
   _count: ApiKeyCountAggregateOutputType | null
   _avg: ApiKeyAvgAggregateOutputType | null
   _sum: ApiKeySumAggregateOutputType | null
@@ -347,6 +354,7 @@ export type ApiKeyWhereInput = {
   rendersPerDay?: Prisma.IntNullableFilter<"ApiKey"> | number | null
   rendersPerMonth?: Prisma.IntNullableFilter<"ApiKey"> | number | null
   ipAllowlist?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  maxPriority?: Prisma.StringNullableFilter<"ApiKey"> | string | null
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
 }
 
@@ -371,6 +379,7 @@ export type ApiKeyOrderByWithRelationInput = {
   rendersPerDay?: Prisma.SortOrderInput | Prisma.SortOrder
   rendersPerMonth?: Prisma.SortOrderInput | Prisma.SortOrder
   ipAllowlist?: Prisma.SortOrderInput | Prisma.SortOrder
+  maxPriority?: Prisma.SortOrderInput | Prisma.SortOrder
   workspace?: Prisma.WorkspaceOrderByWithRelationInput
 }
 
@@ -398,6 +407,7 @@ export type ApiKeyWhereUniqueInput = Prisma.AtLeast<{
   rendersPerDay?: Prisma.IntNullableFilter<"ApiKey"> | number | null
   rendersPerMonth?: Prisma.IntNullableFilter<"ApiKey"> | number | null
   ipAllowlist?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  maxPriority?: Prisma.StringNullableFilter<"ApiKey"> | string | null
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
 }, "id">
 
@@ -422,6 +432,7 @@ export type ApiKeyOrderByWithAggregationInput = {
   rendersPerDay?: Prisma.SortOrderInput | Prisma.SortOrder
   rendersPerMonth?: Prisma.SortOrderInput | Prisma.SortOrder
   ipAllowlist?: Prisma.SortOrderInput | Prisma.SortOrder
+  maxPriority?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.ApiKeyCountOrderByAggregateInput
   _avg?: Prisma.ApiKeyAvgOrderByAggregateInput
   _max?: Prisma.ApiKeyMaxOrderByAggregateInput
@@ -453,6 +464,7 @@ export type ApiKeyScalarWhereWithAggregatesInput = {
   rendersPerDay?: Prisma.IntNullableWithAggregatesFilter<"ApiKey"> | number | null
   rendersPerMonth?: Prisma.IntNullableWithAggregatesFilter<"ApiKey"> | number | null
   ipAllowlist?: Prisma.StringNullableWithAggregatesFilter<"ApiKey"> | string | null
+  maxPriority?: Prisma.StringNullableWithAggregatesFilter<"ApiKey"> | string | null
 }
 
 export type ApiKeyCreateInput = {
@@ -475,6 +487,7 @@ export type ApiKeyCreateInput = {
   rendersPerDay?: number | null
   rendersPerMonth?: number | null
   ipAllowlist?: string | null
+  maxPriority?: string | null
   workspace: Prisma.WorkspaceCreateNestedOneWithoutApiKeysInput
 }
 
@@ -499,6 +512,7 @@ export type ApiKeyUncheckedCreateInput = {
   rendersPerDay?: number | null
   rendersPerMonth?: number | null
   ipAllowlist?: string | null
+  maxPriority?: string | null
 }
 
 export type ApiKeyUpdateInput = {
@@ -521,6 +535,7 @@ export type ApiKeyUpdateInput = {
   rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  maxPriority?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workspace?: Prisma.WorkspaceUpdateOneRequiredWithoutApiKeysNestedInput
 }
 
@@ -545,6 +560,7 @@ export type ApiKeyUncheckedUpdateInput = {
   rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  maxPriority?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type ApiKeyCreateManyInput = {
@@ -568,6 +584,7 @@ export type ApiKeyCreateManyInput = {
   rendersPerDay?: number | null
   rendersPerMonth?: number | null
   ipAllowlist?: string | null
+  maxPriority?: string | null
 }
 
 export type ApiKeyUpdateManyMutationInput = {
@@ -590,6 +607,7 @@ export type ApiKeyUpdateManyMutationInput = {
   rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  maxPriority?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type ApiKeyUncheckedUpdateManyInput = {
@@ -613,6 +631,7 @@ export type ApiKeyUncheckedUpdateManyInput = {
   rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  maxPriority?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type ApiKeyListRelationFilter = {
@@ -646,6 +665,7 @@ export type ApiKeyCountOrderByAggregateInput = {
   rendersPerDay?: Prisma.SortOrder
   rendersPerMonth?: Prisma.SortOrder
   ipAllowlist?: Prisma.SortOrder
+  maxPriority?: Prisma.SortOrder
 }
 
 export type ApiKeyAvgOrderByAggregateInput = {
@@ -675,6 +695,7 @@ export type ApiKeyMaxOrderByAggregateInput = {
   rendersPerDay?: Prisma.SortOrder
   rendersPerMonth?: Prisma.SortOrder
   ipAllowlist?: Prisma.SortOrder
+  maxPriority?: Prisma.SortOrder
 }
 
 export type ApiKeyMinOrderByAggregateInput = {
@@ -698,6 +719,7 @@ export type ApiKeyMinOrderByAggregateInput = {
   rendersPerDay?: Prisma.SortOrder
   rendersPerMonth?: Prisma.SortOrder
   ipAllowlist?: Prisma.SortOrder
+  maxPriority?: Prisma.SortOrder
 }
 
 export type ApiKeySumOrderByAggregateInput = {
@@ -776,6 +798,7 @@ export type ApiKeyCreateWithoutWorkspaceInput = {
   rendersPerDay?: number | null
   rendersPerMonth?: number | null
   ipAllowlist?: string | null
+  maxPriority?: string | null
 }
 
 export type ApiKeyUncheckedCreateWithoutWorkspaceInput = {
@@ -798,6 +821,7 @@ export type ApiKeyUncheckedCreateWithoutWorkspaceInput = {
   rendersPerDay?: number | null
   rendersPerMonth?: number | null
   ipAllowlist?: string | null
+  maxPriority?: string | null
 }
 
 export type ApiKeyCreateOrConnectWithoutWorkspaceInput = {
@@ -850,6 +874,7 @@ export type ApiKeyScalarWhereInput = {
   rendersPerDay?: Prisma.IntNullableFilter<"ApiKey"> | number | null
   rendersPerMonth?: Prisma.IntNullableFilter<"ApiKey"> | number | null
   ipAllowlist?: Prisma.StringNullableFilter<"ApiKey"> | string | null
+  maxPriority?: Prisma.StringNullableFilter<"ApiKey"> | string | null
 }
 
 export type ApiKeyCreateManyWorkspaceInput = {
@@ -872,6 +897,7 @@ export type ApiKeyCreateManyWorkspaceInput = {
   rendersPerDay?: number | null
   rendersPerMonth?: number | null
   ipAllowlist?: string | null
+  maxPriority?: string | null
 }
 
 export type ApiKeyUpdateWithoutWorkspaceInput = {
@@ -894,6 +920,7 @@ export type ApiKeyUpdateWithoutWorkspaceInput = {
   rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  maxPriority?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type ApiKeyUncheckedUpdateWithoutWorkspaceInput = {
@@ -916,6 +943,7 @@ export type ApiKeyUncheckedUpdateWithoutWorkspaceInput = {
   rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  maxPriority?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type ApiKeyUncheckedUpdateManyWithoutWorkspaceInput = {
@@ -938,6 +966,7 @@ export type ApiKeyUncheckedUpdateManyWithoutWorkspaceInput = {
   rendersPerDay?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   rendersPerMonth?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   ipAllowlist?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  maxPriority?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 
@@ -963,6 +992,7 @@ export type ApiKeySelect<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   rendersPerDay?: boolean
   rendersPerMonth?: boolean
   ipAllowlist?: boolean
+  maxPriority?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["apiKey"]>
 
@@ -987,6 +1017,7 @@ export type ApiKeySelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extens
   rendersPerDay?: boolean
   rendersPerMonth?: boolean
   ipAllowlist?: boolean
+  maxPriority?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["apiKey"]>
 
@@ -1011,6 +1042,7 @@ export type ApiKeySelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extens
   rendersPerDay?: boolean
   rendersPerMonth?: boolean
   ipAllowlist?: boolean
+  maxPriority?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["apiKey"]>
 
@@ -1035,9 +1067,10 @@ export type ApiKeySelectScalar = {
   rendersPerDay?: boolean
   rendersPerMonth?: boolean
   ipAllowlist?: boolean
+  maxPriority?: boolean
 }
 
-export type ApiKeyOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "name" | "scopes" | "prefix" | "salt" | "hash" | "createdAt" | "lastUsedAt" | "expiresAt" | "revokedAt" | "prevPrefix" | "prevSalt" | "prevHash" | "prevExpiresAt" | "rotatedAt" | "rateLimitPerMinute" | "rendersPerDay" | "rendersPerMonth" | "ipAllowlist", ExtArgs["result"]["apiKey"]>
+export type ApiKeyOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "name" | "scopes" | "prefix" | "salt" | "hash" | "createdAt" | "lastUsedAt" | "expiresAt" | "revokedAt" | "prevPrefix" | "prevSalt" | "prevHash" | "prevExpiresAt" | "rotatedAt" | "rateLimitPerMinute" | "rendersPerDay" | "rendersPerMonth" | "ipAllowlist" | "maxPriority", ExtArgs["result"]["apiKey"]>
 export type ApiKeyInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }
@@ -1098,6 +1131,10 @@ export type $ApiKeyPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs
      * JSON array of CIDR blocks the key may be used from (null: anywhere).
      */
     ipAllowlist: string | null
+    /**
+     * Highest job priority the key may use: interactive | standard | batch (null: each job type's default; D-103).
+     */
+    maxPriority: string | null
   }, ExtArgs["result"]["apiKey"]>
   composites: {}
 }
@@ -1542,6 +1579,7 @@ export interface ApiKeyFieldRefs {
   readonly rendersPerDay: Prisma.FieldRef<"ApiKey", 'Int'>
   readonly rendersPerMonth: Prisma.FieldRef<"ApiKey", 'Int'>
   readonly ipAllowlist: Prisma.FieldRef<"ApiKey", 'String'>
+  readonly maxPriority: Prisma.FieldRef<"ApiKey", 'String'>
 }
     
 

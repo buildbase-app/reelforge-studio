@@ -1715,7 +1715,8 @@ export const ApiKeyScalarFieldEnum = {
   rateLimitPerMinute: 'rateLimitPerMinute',
   rendersPerDay: 'rendersPerDay',
   rendersPerMonth: 'rendersPerMonth',
-  ipAllowlist: 'ipAllowlist'
+  ipAllowlist: 'ipAllowlist',
+  maxPriority: 'maxPriority'
 } as const
 
 export type ApiKeyScalarFieldEnum = (typeof ApiKeyScalarFieldEnum)[keyof typeof ApiKeyScalarFieldEnum]
@@ -1743,7 +1744,8 @@ export const JobScalarFieldEnum = {
   cancelRequestedAt: 'cancelRequestedAt',
   parentId: 'parentId',
   pendingChildren: 'pendingChildren',
-  runId: 'runId'
+  runId: 'runId',
+  priority: 'priority'
 } as const
 
 export type JobScalarFieldEnum = (typeof JobScalarFieldEnum)[keyof typeof JobScalarFieldEnum]
@@ -2005,7 +2007,8 @@ export const ApiKeyOrderByRelevanceFieldEnum = {
   prevPrefix: 'prevPrefix',
   prevSalt: 'prevSalt',
   prevHash: 'prevHash',
-  ipAllowlist: 'ipAllowlist'
+  ipAllowlist: 'ipAllowlist',
+  maxPriority: 'maxPriority'
 } as const
 
 export type ApiKeyOrderByRelevanceFieldEnum = (typeof ApiKeyOrderByRelevanceFieldEnum)[keyof typeof ApiKeyOrderByRelevanceFieldEnum]

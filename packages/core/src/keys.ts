@@ -3,6 +3,7 @@ import { BlockList, isIP } from 'node:net';
 import { ApiError, badRequest, notFound } from './errors';
 import { newId } from './fsutil';
 import { weakKeyReason } from './keyStrength';
+import { PRIORITIES, isPriority, type JobPriority } from './priority';
 import {
   SCOPES,
   type ApiKeyPatch,
@@ -32,6 +33,8 @@ export interface AuthContext {
   rateLimitPerMinute?: number;
   rendersPerDay?: number;
   rendersPerMonth?: number;
+  /** Highest job priority this key may ask for (unset: each job type's default class; D-103). */
+  maxPriority?: JobPriority;
   /** The request used the previous secret of a rotated key (inside the grace window). */
   previousSecret?: boolean;
 }
@@ -51,6 +54,11 @@ export interface KeyOptions {
   rendersPerMonth?: number | null;
   /** CIDR blocks ("10.0.0.0/8", "2001:db8::/32", or a single address); null or []: anywhere. */
   ipAllowlist?: string[] | null;
+  /**
+   * Highest job priority the key may use (`interactive`, `standard`, `batch`); null: each job type's default
+   * (previews `interactive`, renders `standard`), so the key can lower a job's class but not raise it (D-103).
+   */
+  maxPriority?: JobPriority | null;
 }
 
 /** Who did something (audit log). */
@@ -160,6 +168,10 @@ export function validateKeyOptions(o: KeyOptions, now: number): Omit<ApiKeyPatch
   if (d !== undefined) out.rendersPerDay = d;
   const m = optionalCount('rendersPerMonth', o.rendersPerMonth, 10_000_000);
   if (m !== undefined) out.rendersPerMonth = m;
+  if (o.maxPriority !== undefined) {
+    if (o.maxPriority !== null && !isPriority(o.maxPriority)) throw badRequest(`maxPriority must be one of ${PRIORITIES.join(', ')}, or null`);
+    out.maxPriority = o.maxPriority;
+  }
   if (o.ipAllowlist !== undefined) {
     if (o.ipAllowlist === null || (Array.isArray(o.ipAllowlist) && o.ipAllowlist.length === 0)) out.ipAllowlist = null;
     else {
@@ -273,7 +285,7 @@ export class KeyStore {
     if (name !== undefined && (typeof name !== 'string' || !name || name.length > 80)) throw badRequest('name must be 1-80 characters');
     const fields = validateKeyOptions(options, this.now());
     const change: ApiKeyPatch = { ...fields, ...(name !== undefined ? { name } : {}) };
-    if (Object.keys(change).length === 0) throw badRequest('nothing to change: send name, expiresAt, rateLimitPerMinute, rendersPerDay, rendersPerMonth or ipAllowlist');
+    if (Object.keys(change).length === 0) throw badRequest('nothing to change: send name, expiresAt, rateLimitPerMinute, rendersPerDay, rendersPerMonth, ipAllowlist or maxPriority');
     const updated = await this.repo.update(id, change);
     if (!updated) throw notFound('key', id);
     await this.audit(actor, 'key.update', id, { changed: change });
@@ -358,6 +370,7 @@ export class KeyStore {
           ...(k.rateLimitPerMinute !== undefined ? { rateLimitPerMinute: k.rateLimitPerMinute } : {}),
           ...(k.rendersPerDay !== undefined ? { rendersPerDay: k.rendersPerDay } : {}),
           ...(k.rendersPerMonth !== undefined ? { rendersPerMonth: k.rendersPerMonth } : {}),
+          ...(k.maxPriority !== undefined ? { maxPriority: k.maxPriority } : {}),
           ...(previous ? { previousSecret: true } : {}),
         },
       };

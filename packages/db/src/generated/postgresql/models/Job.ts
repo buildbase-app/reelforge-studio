@@ -29,11 +29,13 @@ export type AggregateJob = {
 export type JobAvgAggregateOutputType = {
   attempts: number | null
   pendingChildren: number | null
+  priority: number | null
 }
 
 export type JobSumAggregateOutputType = {
   attempts: number | null
   pendingChildren: number | null
+  priority: number | null
 }
 
 export type JobMinAggregateOutputType = {
@@ -59,6 +61,7 @@ export type JobMinAggregateOutputType = {
   parentId: string | null
   pendingChildren: number | null
   runId: string | null
+  priority: number | null
 }
 
 export type JobMaxAggregateOutputType = {
@@ -84,6 +87,7 @@ export type JobMaxAggregateOutputType = {
   parentId: string | null
   pendingChildren: number | null
   runId: string | null
+  priority: number | null
 }
 
 export type JobCountAggregateOutputType = {
@@ -109,6 +113,7 @@ export type JobCountAggregateOutputType = {
   parentId: number
   pendingChildren: number
   runId: number
+  priority: number
   _all: number
 }
 
@@ -116,11 +121,13 @@ export type JobCountAggregateOutputType = {
 export type JobAvgAggregateInputType = {
   attempts?: true
   pendingChildren?: true
+  priority?: true
 }
 
 export type JobSumAggregateInputType = {
   attempts?: true
   pendingChildren?: true
+  priority?: true
 }
 
 export type JobMinAggregateInputType = {
@@ -146,6 +153,7 @@ export type JobMinAggregateInputType = {
   parentId?: true
   pendingChildren?: true
   runId?: true
+  priority?: true
 }
 
 export type JobMaxAggregateInputType = {
@@ -171,6 +179,7 @@ export type JobMaxAggregateInputType = {
   parentId?: true
   pendingChildren?: true
   runId?: true
+  priority?: true
 }
 
 export type JobCountAggregateInputType = {
@@ -196,6 +205,7 @@ export type JobCountAggregateInputType = {
   parentId?: true
   pendingChildren?: true
   runId?: true
+  priority?: true
   _all?: true
 }
 
@@ -308,6 +318,7 @@ export type JobGroupByOutputType = {
   parentId: string | null
   pendingChildren: number | null
   runId: string | null
+  priority: number
   _count: JobCountAggregateOutputType | null
   _avg: JobAvgAggregateOutputType | null
   _sum: JobSumAggregateOutputType | null
@@ -356,6 +367,7 @@ export type JobWhereInput = {
   parentId?: Prisma.StringNullableFilter<"Job"> | string | null
   pendingChildren?: Prisma.IntNullableFilter<"Job"> | number | null
   runId?: Prisma.StringNullableFilter<"Job"> | string | null
+  priority?: Prisma.IntFilter<"Job"> | number
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
   events?: Prisma.JobEventListRelationFilter
 }
@@ -383,6 +395,7 @@ export type JobOrderByWithRelationInput = {
   parentId?: Prisma.SortOrderInput | Prisma.SortOrder
   pendingChildren?: Prisma.SortOrderInput | Prisma.SortOrder
   runId?: Prisma.SortOrderInput | Prisma.SortOrder
+  priority?: Prisma.SortOrder
   workspace?: Prisma.WorkspaceOrderByWithRelationInput
   events?: Prisma.JobEventOrderByRelationAggregateInput
 }
@@ -413,6 +426,7 @@ export type JobWhereUniqueInput = Prisma.AtLeast<{
   parentId?: Prisma.StringNullableFilter<"Job"> | string | null
   pendingChildren?: Prisma.IntNullableFilter<"Job"> | number | null
   runId?: Prisma.StringNullableFilter<"Job"> | string | null
+  priority?: Prisma.IntFilter<"Job"> | number
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
   events?: Prisma.JobEventListRelationFilter
 }, "id">
@@ -440,6 +454,7 @@ export type JobOrderByWithAggregationInput = {
   parentId?: Prisma.SortOrderInput | Prisma.SortOrder
   pendingChildren?: Prisma.SortOrderInput | Prisma.SortOrder
   runId?: Prisma.SortOrderInput | Prisma.SortOrder
+  priority?: Prisma.SortOrder
   _count?: Prisma.JobCountOrderByAggregateInput
   _avg?: Prisma.JobAvgOrderByAggregateInput
   _max?: Prisma.JobMaxOrderByAggregateInput
@@ -473,6 +488,7 @@ export type JobScalarWhereWithAggregatesInput = {
   parentId?: Prisma.StringNullableWithAggregatesFilter<"Job"> | string | null
   pendingChildren?: Prisma.IntNullableWithAggregatesFilter<"Job"> | number | null
   runId?: Prisma.StringNullableWithAggregatesFilter<"Job"> | string | null
+  priority?: Prisma.IntWithAggregatesFilter<"Job"> | number
 }
 
 export type JobCreateInput = {
@@ -497,6 +513,7 @@ export type JobCreateInput = {
   parentId?: string | null
   pendingChildren?: number | null
   runId?: string | null
+  priority?: number
   workspace: Prisma.WorkspaceCreateNestedOneWithoutJobsInput
   events?: Prisma.JobEventCreateNestedManyWithoutJobInput
 }
@@ -524,6 +541,7 @@ export type JobUncheckedCreateInput = {
   parentId?: string | null
   pendingChildren?: number | null
   runId?: string | null
+  priority?: number
   events?: Prisma.JobEventUncheckedCreateNestedManyWithoutJobInput
 }
 
@@ -549,6 +567,7 @@ export type JobUpdateInput = {
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
   workspace?: Prisma.WorkspaceUpdateOneRequiredWithoutJobsNestedInput
   events?: Prisma.JobEventUpdateManyWithoutJobNestedInput
 }
@@ -576,6 +595,7 @@ export type JobUncheckedUpdateInput = {
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
   events?: Prisma.JobEventUncheckedUpdateManyWithoutJobNestedInput
 }
 
@@ -602,6 +622,7 @@ export type JobCreateManyInput = {
   parentId?: string | null
   pendingChildren?: number | null
   runId?: string | null
+  priority?: number
 }
 
 export type JobUpdateManyMutationInput = {
@@ -626,6 +647,7 @@ export type JobUpdateManyMutationInput = {
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
 }
 
 export type JobUncheckedUpdateManyInput = {
@@ -651,6 +673,7 @@ export type JobUncheckedUpdateManyInput = {
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
 }
 
 export type JobListRelationFilter = {
@@ -686,11 +709,13 @@ export type JobCountOrderByAggregateInput = {
   parentId?: Prisma.SortOrder
   pendingChildren?: Prisma.SortOrder
   runId?: Prisma.SortOrder
+  priority?: Prisma.SortOrder
 }
 
 export type JobAvgOrderByAggregateInput = {
   attempts?: Prisma.SortOrder
   pendingChildren?: Prisma.SortOrder
+  priority?: Prisma.SortOrder
 }
 
 export type JobMaxOrderByAggregateInput = {
@@ -716,6 +741,7 @@ export type JobMaxOrderByAggregateInput = {
   parentId?: Prisma.SortOrder
   pendingChildren?: Prisma.SortOrder
   runId?: Prisma.SortOrder
+  priority?: Prisma.SortOrder
 }
 
 export type JobMinOrderByAggregateInput = {
@@ -741,11 +767,13 @@ export type JobMinOrderByAggregateInput = {
   parentId?: Prisma.SortOrder
   pendingChildren?: Prisma.SortOrder
   runId?: Prisma.SortOrder
+  priority?: Prisma.SortOrder
 }
 
 export type JobSumOrderByAggregateInput = {
   attempts?: Prisma.SortOrder
   pendingChildren?: Prisma.SortOrder
+  priority?: Prisma.SortOrder
 }
 
 export type JobScalarRelationFilter = {
@@ -831,6 +859,7 @@ export type JobCreateWithoutWorkspaceInput = {
   parentId?: string | null
   pendingChildren?: number | null
   runId?: string | null
+  priority?: number
   events?: Prisma.JobEventCreateNestedManyWithoutJobInput
 }
 
@@ -856,6 +885,7 @@ export type JobUncheckedCreateWithoutWorkspaceInput = {
   parentId?: string | null
   pendingChildren?: number | null
   runId?: string | null
+  priority?: number
   events?: Prisma.JobEventUncheckedCreateNestedManyWithoutJobInput
 }
 
@@ -911,6 +941,7 @@ export type JobScalarWhereInput = {
   parentId?: Prisma.StringNullableFilter<"Job"> | string | null
   pendingChildren?: Prisma.IntNullableFilter<"Job"> | number | null
   runId?: Prisma.StringNullableFilter<"Job"> | string | null
+  priority?: Prisma.IntFilter<"Job"> | number
 }
 
 export type JobCreateWithoutEventsInput = {
@@ -935,6 +966,7 @@ export type JobCreateWithoutEventsInput = {
   parentId?: string | null
   pendingChildren?: number | null
   runId?: string | null
+  priority?: number
   workspace: Prisma.WorkspaceCreateNestedOneWithoutJobsInput
 }
 
@@ -961,6 +993,7 @@ export type JobUncheckedCreateWithoutEventsInput = {
   parentId?: string | null
   pendingChildren?: number | null
   runId?: string | null
+  priority?: number
 }
 
 export type JobCreateOrConnectWithoutEventsInput = {
@@ -1001,6 +1034,7 @@ export type JobUpdateWithoutEventsInput = {
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
   workspace?: Prisma.WorkspaceUpdateOneRequiredWithoutJobsNestedInput
 }
 
@@ -1027,6 +1061,7 @@ export type JobUncheckedUpdateWithoutEventsInput = {
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
 }
 
 export type JobCreateManyWorkspaceInput = {
@@ -1051,6 +1086,7 @@ export type JobCreateManyWorkspaceInput = {
   parentId?: string | null
   pendingChildren?: number | null
   runId?: string | null
+  priority?: number
 }
 
 export type JobUpdateWithoutWorkspaceInput = {
@@ -1075,6 +1111,7 @@ export type JobUpdateWithoutWorkspaceInput = {
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
   events?: Prisma.JobEventUpdateManyWithoutJobNestedInput
 }
 
@@ -1100,6 +1137,7 @@ export type JobUncheckedUpdateWithoutWorkspaceInput = {
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
   events?: Prisma.JobEventUncheckedUpdateManyWithoutJobNestedInput
 }
 
@@ -1125,6 +1163,7 @@ export type JobUncheckedUpdateManyWithoutWorkspaceInput = {
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
 }
 
 
@@ -1181,6 +1220,7 @@ export type JobSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   parentId?: boolean
   pendingChildren?: boolean
   runId?: boolean
+  priority?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
   events?: boolean | Prisma.Job$eventsArgs<ExtArgs>
   _count?: boolean | Prisma.JobCountOutputTypeDefaultArgs<ExtArgs>
@@ -1209,6 +1249,7 @@ export type JobSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extension
   parentId?: boolean
   pendingChildren?: boolean
   runId?: boolean
+  priority?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["job"]>
 
@@ -1235,6 +1276,7 @@ export type JobSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extension
   parentId?: boolean
   pendingChildren?: boolean
   runId?: boolean
+  priority?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["job"]>
 
@@ -1261,9 +1303,10 @@ export type JobSelectScalar = {
   parentId?: boolean
   pendingChildren?: boolean
   runId?: boolean
+  priority?: boolean
 }
 
-export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "type" | "status" | "projectId" | "params" | "progress" | "result" | "error" | "retryOf" | "apiKeyId" | "createdAt" | "startedAt" | "finishedAt" | "queue" | "attempts" | "workerId" | "leaseExpiresAt" | "cancelRequestedAt" | "parentId" | "pendingChildren" | "runId", ExtArgs["result"]["job"]>
+export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "type" | "status" | "projectId" | "params" | "progress" | "result" | "error" | "retryOf" | "apiKeyId" | "createdAt" | "startedAt" | "finishedAt" | "queue" | "attempts" | "workerId" | "leaseExpiresAt" | "cancelRequestedAt" | "parentId" | "pendingChildren" | "runId" | "priority", ExtArgs["result"]["job"]>
 export type JobInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
   events?: boolean | Prisma.Job$eventsArgs<ExtArgs>
@@ -1336,6 +1379,10 @@ export type $JobPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
      * with one indexed read instead of a scan (#184).
      */
     runId: string | null
+    /**
+     * Claim class (D-103): 0 interactive, 1 standard, 2 batch. The claim orders by it, then fairness, then age.
+     */
+    priority: number
   }, ExtArgs["result"]["job"]>
   composites: {}
 }
@@ -1783,6 +1830,7 @@ export interface JobFieldRefs {
   readonly parentId: Prisma.FieldRef<"Job", 'String'>
   readonly pendingChildren: Prisma.FieldRef<"Job", 'Int'>
   readonly runId: Prisma.FieldRef<"Job", 'String'>
+  readonly priority: Prisma.FieldRef<"Job", 'Int'>
 }
     
 

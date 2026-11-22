@@ -29,6 +29,12 @@ import {
   runIdOf,
   type Scope,
   type StoredProject,
+  AGED_RANK,
+  effectiveRank,
+  estimateWaitSeconds,
+  isPriority,
+  priorityOfRank,
+  priorityRank,
 } from '@reelforge/core';
 // One client type for all three databases: the generated clients share the
 // same model API (only the SQL dialect differs), so the repositories are
@@ -131,6 +137,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     cancelRequestedAt: Date | null;
     parentId: string | null;
     pendingChildren: number | null;
+    priority: number;
   }): JobRecord => ({
     id: r.id,
     type: r.type,
@@ -151,6 +158,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     ...(r.cancelRequestedAt ? { cancelRequestedAt: iso(r.cancelRequestedAt) } : {}),
     ...(r.parentId !== null ? { parentId: r.parentId } : {}),
     ...(r.pendingChildren !== null ? { pendingChildren: r.pendingChildren } : {}),
+    priority: priorityOfRank(r.priority),
   });
   /** Columns a fenced (worker) write may change: the lease and a cancel request belong to the heartbeat and other instances. */
   const workerJobData = (j: JobRecord) => {
@@ -178,6 +186,8 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     parentId: j.parentId ?? null,
     pendingChildren: j.pendingChildren ?? null,
     runId: runIdOf(j),
+    // Only when set: a record without it never resets a stored class (new rows default to standard).
+    ...(j.priority ? { priority: priorityRank(j.priority) } : {}),
   });
   const statusEvent = (jobId: string, at: string, status: string) => ({ ...ws, jobId, at: new Date(at), type: 'status', message: status });
   const logEvent = (jobId: string, at: string, line: string) => ({ ...ws, jobId, at: new Date(at), type: 'log', message: line });
@@ -296,6 +306,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     rendersPerDay: number | null;
     rendersPerMonth: number | null;
     ipAllowlist: string | null;
+    maxPriority: string | null;
   };
   const toKey = (r: KeyRow): ApiKeyRecord => ({
     id: r.id,
@@ -316,6 +327,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     ...(r.rendersPerDay !== null ? { rendersPerDay: r.rendersPerDay } : {}),
     ...(r.rendersPerMonth !== null ? { rendersPerMonth: r.rendersPerMonth } : {}),
     ...(r.ipAllowlist !== null ? { ipAllowlist: parse<string[]>(r.ipAllowlist) } : {}),
+    ...(isPriority(r.maxPriority) ? { maxPriority: r.maxPriority } : {}),
   });
   const date = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(v));
   const keyPatch = (p: ApiKeyPatch) => {
@@ -334,6 +346,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     if (p.rendersPerDay !== undefined) d.rendersPerDay = p.rendersPerDay;
     if (p.rendersPerMonth !== undefined) d.rendersPerMonth = p.rendersPerMonth;
     if (p.ipAllowlist !== undefined) d.ipAllowlist = p.ipAllowlist === null ? null : json(p.ipAllowlist);
+    if (p.maxPriority !== undefined) d.maxPriority = p.maxPriority;
     return d;
   };
 
@@ -492,6 +505,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
                 rendersPerDay: k.rendersPerDay ?? null,
                 rendersPerMonth: k.rendersPerMonth ?? null,
                 ipAllowlist: k.ipAllowlist ?? null,
+                maxPriority: k.maxPriority ?? null,
               }),
             } as never,
           });
@@ -559,6 +573,18 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           parts.push(count('q', () => `${qi('status')} = 'queued'`));
           checks.push({ col: 'q', limit: quota.maxQueuedTotal!, refuse: (used) => ({ ok: false, cap: 'queued_total', used }) });
         }
+        // Admission by estimated wait (D-103): the queued jobs that would be claimed before the new one (same queue,
+        // same or higher class, any type: units take slots too) and the oldest of them, in the same statement.
+        const wait = quota.maxEstimatedWait;
+        if (wait) {
+          // Built per use: each subquery pushes its own placeholder values, in order.
+          const ahead = () =>
+            `FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${p(workspaceId)} AND ${qi('id')} <> ${p(job.id)} AND ` +
+            (job.queue ? `${qi('queue')} = ${p(job.queue)}` : `${qi('queue')} IS NULL`) +
+            ` AND ${qi('status')} = 'queued' AND ${qi('priority')} <= ${p(priorityRank(job.priority))}`;
+          parts.push(`(SELECT COUNT(*) ${ahead()}) AS ${qi('ea')}`);
+          parts.push(`(SELECT MIN(${qi('createdAt')}) ${ahead()}) AS ${qi('eo')}`);
+        }
         const refusal = new Error('job cap reached');
         const lockMissing = new Error('queue lock row missing');
         let refused: QuotaResult | undefined;
@@ -576,6 +602,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
               // The lock (a no-op update): with a total queue cap one shared row (every start waits here), else the
               // key's row (starts for this key wait). It is not the Workspace row: every insert holds a foreign-key
               // lock on that, which on MySQL would turn this into a lock upgrade that deadlocks concurrent starts.
+              // (Admission by estimated wait alone, without a key: no lock; it is an estimate, not a count to enforce.)
               if (total) {
                 const n = await tx.$executeRawUnsafe(
                   `UPDATE ${qi('RateLimitWindow')} SET ${qi('count')} = ${qi('count')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('key')} = ${ph(2)}`,
@@ -583,7 +610,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
                   QUEUE_LOCK_KEY
                 );
                 if (!n) throw lockMissing;
-              } else {
+              } else if (key) {
                 await tx.$executeRawUnsafe(`UPDATE ${qi('ApiKey')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, key);
               }
               // A statement after the lock sees every job committed by the previous holder (read committed).
@@ -593,6 +620,15 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
                 if (used >= c.limit) {
                   refused = c.refuse(used);
                   throw refusal; // roll back the job and its event
+                }
+              }
+              if (wait) {
+                const n = Number(row?.['ea'] ?? 0);
+                const oldest = row?.['eo'] == null ? null : new Date(row['eo'] as string | Date).toISOString();
+                const est = estimateWaitSeconds({ ahead: n, oldestQueuedAt: oldest, claimsPerSecond: wait.claimsPerSecond, nowMs: Date.parse(wait.now) });
+                if (est > wait.seconds && oldest) {
+                  refused = { ok: false, cap: 'estimated_wait', used: n, oldestQueuedAt: oldest, estimatedWaitSeconds: est };
+                  throw refusal;
                 }
               }
               return { ok: true as const };
@@ -657,15 +693,18 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           return [r.parent!, ...r.cancelled];
         }, lockingTx);
       },
-      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey, id: only }) {
+      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey, id: only, priorityAgingSeconds }) {
         if (!types.length) return null;
         if (only !== undefined) return claimOne({ workerId, types, now, leaseUntil, maxRunningPerKey, id: only });
         return prisma.$transaction(async (tx) => {
-          // Fair across API keys (D-090): the queued job whose key has the fewest running database-queue jobs,
+          // Priority first (D-103): the highest class, a batch job queued before `agedBefore` counting as standard.
+          // Then fair across API keys (D-090): the queued job whose key has the fewest running database-queue jobs,
           // oldest first among equals (jobs without a key count as a key with none running). Optionally only
           // keys below a running cap. Placeholders start at `first`: workspace id (running counts), workspace id,
-          // the types, then the cap.
+          // the types, the cap, then the aging cut-off.
           const capped = maxRunningPerKey !== undefined;
+          const aging = priorityAgingSeconds !== undefined && priorityAgingSeconds > 0;
+          const agedBefore = aging ? new Date(Date.parse(now) - priorityAgingSeconds! * 1000) : undefined;
           const j = qi('j');
           const running =
             `LEFT JOIN (SELECT ${qi('apiKeyId')}, COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = PH0` +
@@ -676,8 +715,12 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
               ` WHERE ${j}.${qi('workspaceId')} = ${ph(first + 1)} AND ${j}.${qi('queue')} = 'database' AND ${j}.${qi('status')} = 'queued'` +
               ` AND ${j}.${qi('type')} IN (${types.map((_, i) => ph(first + 2 + i)).join(', ')})` +
               (capped ? ` AND COALESCE(${qi('r')}.${qi('n')}, 0) < ${ph(first + 2 + types.length)}` : '') +
-              ` ORDER BY COALESCE(${qi('r')}.${qi('n')}, 0), ${j}.${qi('createdAt')}, ${j}.${qi('id')} LIMIT 1`).replace('PH0', ph(first));
-          const args = [workspaceId, workspaceId, ...types, ...(capped ? [maxRunningPerKey] : [])];
+              ` ORDER BY ` +
+              (aging
+                ? `CASE WHEN ${j}.${qi('priority')} > ${AGED_RANK} AND ${j}.${qi('createdAt')} < ${ph(first + 2 + types.length + (capped ? 1 : 0))} THEN ${AGED_RANK} ELSE ${j}.${qi('priority')} END`
+                : `${j}.${qi('priority')}`) +
+              `, COALESCE(${qi('r')}.${qi('n')}, 0), ${j}.${qi('createdAt')}, ${j}.${qi('id')} LIMIT 1`).replace('PH0', ph(first));
+          const args = [workspaceId, workspaceId, ...types, ...(capped ? [maxRunningPerKey] : []), ...(aging ? [agedBefore] : [])];
           let rows: Array<{ id: string }> = [];
           if (kind === 'sqlite') {
             // One statement under the write lock (the first write of the transaction waits for it): atomic, no lost claims.
@@ -692,19 +735,26 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
               workspaceId
             );
             const busy = new Map(runningRows.map((r) => [r.k, Number(r.n)]));
-            const queuedRows: Array<{ k: string | null; t: unknown }> = await tx.$queryRawUnsafe(
-              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, MIN(${qi('createdAt')}) AS ${qi('t')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} GROUP BY ${qi('apiKeyId')}`,
+            // One row per (key, class): the class orders first (aged by its oldest job), then the key's running jobs, then age.
+            const queuedRows: Array<{ k: string | null; p: unknown; t: unknown }> = await tx.$queryRawUnsafe(
+              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, ${qi('priority')} AS ${qi('p')}, MIN(${qi('createdAt')}) AS ${qi('t')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} GROUP BY ${qi('apiKeyId')}, ${qi('priority')}`,
               workspaceId,
               ...types
             );
+            const nowMs = Date.parse(now);
             const order = queuedRows
-              .map((r) => ({ k: r.k, n: r.k ? (busy.get(r.k) ?? 0) : 0, t: new Date(r.t as string).getTime() }))
+              .map((r) => {
+                const t = new Date(r.t as string).getTime();
+                const p = Number(r.p);
+                return { k: r.k, p, e: effectiveRank(p, t, nowMs, priorityAgingSeconds), n: r.k ? (busy.get(r.k) ?? 0) : 0, t };
+              })
               .filter((r) => !capped || r.k === null || r.n < maxRunningPerKey!)
-              .sort((a, b) => a.n - b.n || a.t - b.t);
+              .sort((a, b) => a.e - b.e || a.n - b.n || a.t - b.t);
             for (const c of order) {
-              const keyWhere = c.k === null ? `${qi('apiKeyId')} IS NULL` : `${qi('apiKeyId')} = ${ph(2 + types.length)}`;
+              // Placeholders in text order (MySQL's are positional): the class, then the key.
+              const keyWhere = `${qi('priority')} = ${ph(2 + types.length)} AND ` + (c.k === null ? `${qi('apiKeyId')} IS NULL` : `${qi('apiKeyId')} = ${ph(3 + types.length)}`);
               const queuedOfKey = `FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${keyWhere}`;
-              const keyArgs = [workspaceId, ...types, ...(c.k === null ? [] : [c.k])];
+              const keyArgs = [workspaceId, ...types, c.p, ...(c.k === null ? [] : [c.k])];
               if (kind === 'postgresql') {
                 // PostgreSQL locks only the rows the LIMIT lets through, whatever the plan.
                 rows = await tx.$queryRawUnsafe(`SELECT ${qi('id')} ${queuedOfKey} ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT 1 FOR UPDATE SKIP LOCKED`, ...keyArgs);
@@ -818,7 +868,10 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         return (await prisma.job.count({ where: { ...ws, id, status: 'running' } })) > 0;
       },
       async countQueued(before) {
-        const ahead = before ? { OR: [{ createdAt: { lt: new Date(before.createdAt) } }, { createdAt: new Date(before.createdAt), id: { lt: before.id } }] } : {};
+        const rank = priorityRank(before?.priority);
+        const older = before ? { OR: [{ createdAt: { lt: new Date(before.createdAt) } }, { createdAt: new Date(before.createdAt), id: { lt: before.id } }] } : {};
+        // Ahead of it: a higher class, or the same class and older (D-103).
+        const ahead = before ? { OR: [{ priority: { lt: rank } }, { priority: rank, ...older }] } : {};
         return prisma.job.count({ where: { ...ws, queue: 'database', status: 'queued', ...ahead } });
       },
       async get(id) {
@@ -1141,23 +1194,27 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     },
 
     rateLimits: {
-      async hit(key, windowStart) {
+      async hit(key, windowStart, by = 1) {
         const at = new Date(windowStart);
         for (let i = 0; ; i++) {
           // Atomic increment of an existing window; the first request of a window creates it.
-          const r = await prisma.rateLimitWindow.updateMany({ where: { ...ws, key, windowStart: at }, data: { count: { increment: 1 } } });
+          const r = await prisma.rateLimitWindow.updateMany({ where: { ...ws, key, windowStart: at }, data: { count: { increment: by } } });
           if (!r.count) {
             try {
-              await prisma.rateLimitWindow.create({ data: { ...ws, key, windowStart: at, count: 1 } });
-              return 1;
+              await prisma.rateLimitWindow.create({ data: { ...ws, key, windowStart: at, count: by } });
+              return by;
             } catch (e) {
               if (!isUniqueViolation(e) || i >= 3) throw e; // another instance created it first: increment that row
               continue;
             }
           }
           const row = await prisma.rateLimitWindow.findUnique({ where: { workspaceId_key_windowStart: { workspaceId, key, windowStart: at } }, select: { count: true } });
-          return row?.count ?? 1;
+          return row?.count ?? by;
         }
+      },
+      async windows(key, since) {
+        const rows = await prisma.rateLimitWindow.findMany({ where: { ...ws, key, windowStart: { gte: new Date(since) } }, orderBy: { windowStart: 'asc' }, select: { windowStart: true, count: true } });
+        return rows.map((r) => ({ windowStart: iso(r.windowStart), count: r.count }));
       },
       async deleteOlderThan(cutoff, opts = {}) {
         const usage = { key: { startsWith: USAGE_PREFIX } };

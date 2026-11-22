@@ -1878,3 +1878,51 @@ The cursor's filter is then `<projectId>|parent:<parentId>` (`|` cannot occur in
 the projectId-only filter string is unchanged, so earlier cursors stay valid and a cursor of one
 filter is refused by another. No index for it: the existing `parentId` index finds at most 51 rows
 (50 scenes and the join), which are sorted in memory by the database.
+
+## W. Overload protection: priorities, admission, queue-wait SLO (2026-11-22, issue #155)
+
+Builds on the fair claim and caps of D-090 (#161, #171, #183). Settings, claim SQL, test cases and results:
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#priorities-fairness-and-admission-d-103);
+SLO and alerts: [docs/providers/observability.md](providers/observability.md#queue-wait-slo).
+
+### D-103 --- Three priority classes before fairness; batch ages into standard; admission by a measured wait estimate; a queue-wait histogram with two labels
+
+**Status:** DECIDED (reversible).\
+**Classes:** `interactive` > `standard` > `batch`, stored as `Job.priority` 0/1/2 (migration `0010_job_priority` on
+all three databases, previews backfilled to 0, index `(workspaceId, queue, status, priority, createdAt)`). Previews
+default to `interactive`, renders to `standard`; `render_project` / `preview_scene` take `priority`. **Who may raise a
+class:** a key's `maxPriority` (new `ApiKey` column; set by an admin through `create_key` / `update_key` or the CLI)
+is the highest class it may ask for; unset, the job type's default. So a normal key can lower its jobs but never raise
+them (`403 priority_not_allowed`, before any job exists), and an admin can let one key render at `interactive`. No
+admin exemption (D-090's reasoning). Retries keep the class, lowered to the retrier's maximum; fan-out units and the
+join inherit their render's class (D-097), so a render in progress is not overtaken at a lower class. **Claim order:**
+class, then fairness across keys (D-090), then age, on every queue: SQLite in its one conditional `UPDATE`; PostgreSQL
+and MySQL group the queued jobs by `(apiKeyId, priority)` in the unlocked read that already chose the key, then lock
+one job of the best group exactly as before (MySQL one candidate at a time, #171). **Starvation:** strict classes
+would let a steady stream of renders starve `batch` forever, so a `batch` job that has waited
+`queue.priorityAgingSeconds` (600, runtime) counts as `standard`; it is never promoted to `interactive`, because
+aging renders into the preview class would put every old render ahead of new previews exactly when the render
+backlog is long, which defeats the preview SLO. Documented, not prevented: `interactive` traffic that alone saturates
+the workers delays everything else. *Rejected:* a weighted share per class (every Nth claim ignores the class):
+per-worker counters do not compose into a deployment-wide share and make the order untestable; aging computed in SQL
+from timestamps (dialect-specific date arithmetic) instead of one bound cut-off parameter.\
+**Admission:** `limits.maxEstimatedWaitSeconds` (0 = off). Estimated wait = min(age of the oldest queued job of the
+same or a higher class, jobs ahead ÷ measured claims per second). Both inputs are measured; neither alone is used
+because the throughput is demand-limited after idle periods (overestimates) and one job held back by a per-key cap
+makes the head look old (overestimates); only a queue that is both old and slow to drain is refused. The count and the
+oldest timestamp are two more subqueries in the **one statement** `insertWithQuota` already runs under its lock
+(#180), so the lock is not held longer by another round trip; without a key or `maxQueuedJobs` no lock is taken,
+because an estimate needs no exactness. The throughput is shared through the database: claiming instances add their
+claims to a per-minute counter row (`RateLimitWindow` key `stats:claims`, at most one write per 5 s per instance,
+swept with request windows after an hour) and readers take an exponentially decayed average of the last 10 minutes
+(half-life 2 min). `Retry-After` is the estimate's excess over the limit (30 s .. 1 h). The estimate is
+deployment-wide, not per key (a flooding key raises it for everyone; `maxQueuedJobsPerKey` bounds that). *Rejected:*
+a decayed average of observed waits as the estimate (stale exactly when workers stop claiming: no new observations);
+a configured "seconds per job" (invented numbers); a count cap derived from the estimate under a global lock (would
+serialise every start of the deployment like `maxQueuedJobs`).\
+**Metric:** `reelforge_job_queue_wait_seconds` (OTel `reelforge.job.queue_wait`), labels job type and priority only,
+recorded by the instance that claims at a render's or preview's first claim; units and joins are not measured
+(their `createdAt` is their render's, by design of D-097's ordering, so their wait would include the render's run).
+Buckets 0.1 s .. 1 h with 60 and 300 as boundaries, so the SLO quantiles (p95 < 60 s previews, < 300 s renders at
+maximum replicas) are exact at the threshold. Grafana panel and Prometheus alert rules in
+`deployment/observability/`, unit-tested with `promtool test rules`.

@@ -51,12 +51,12 @@ Manifest problems are reported all at once, each with its path in the manifest.
 | 400 | `bad_request`, `unknown_engine`, `unknown_backend`, `url_not_allowed`, `licence_key_missing` |
 | 401 | `unauthorized`, `key_expired`, `key_revoked` |
 | 402 | `cost_acknowledgement_required` (a paid provider call without `acknowledgeCost: true`) |
-| 403 | `forbidden` (missing scope), `forbidden_host`, `ip_not_allowed`, `licence_required`, `licence_invalid` |
+| 403 | `forbidden` (missing scope), `forbidden_host`, `ip_not_allowed`, `licence_required`, `licence_invalid`, `priority_not_allowed` |
 | 404 | `not_found`, `unknown_provider` |
 | 409 | `conflict`, `version_conflict`, `idempotency_in_progress`, `job_not_finished`, `builtin_theme`, `provider_not_configured`, `backend_not_configured`, `secret_key_required`, `key_revoked`, `build_locked_setting` |
 | 413 | `too_large` |
 | 422 | `invalid_manifest`, `validation_failed`, `invalid_params`, `idempotency_conflict`, `asset_missing`, `asset_not_imported` |
-| 429 | `rate_limited` (with `Retry-After`), `quota_exceeded` |
+| 429 | `rate_limited` (with `Retry-After`), `quota_exceeded`, `too_many_jobs`, `queue_full` (with `Retry-After`) |
 | 501 | `not_implemented` |
 | 502, 504 | `fetch_failed`, `provider_failed` |
 
@@ -127,6 +127,15 @@ seconds. Render quotas answer `429 quota_exceeded` with `details.resetsAt`.
 
 Renders and previews are jobs: `queued`, `running`, then `succeeded`, `failed` or
 `cancelled`.
+
+Queued jobs start by priority, then fairly across keys, then oldest first: send
+`"priority": "interactive" | "standard" | "batch"` in the body of
+`POST /v1/projects/:id/renders` or `/preview` (previews default to `interactive`,
+renders to `standard`). A key may ask for its type's default or lower; a higher
+class needs an admin to set the key's `maxPriority`, else `403
+priority_not_allowed`. When the server is busy, a start is refused with `429
+too_many_jobs` or `429 queue_full` and `Retry-After`; `details` says which limit
+and, for `limits.maxEstimatedWaitSeconds`, the estimated wait and the jobs ahead.
 
 ```bash
 JOB=$(curl -s -X POST -H "Authorization: Bearer $KEY" -H 'content-type: application/json' -d '{}' \

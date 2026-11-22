@@ -147,6 +147,12 @@ Lists (`GET /v1/projects`, `GET /v1/jobs`, `GET /v1/assets` and their MCP tools)
 keyset pages: `limit` (default 50, max 200), `cursor`, and `nextCursor` in the answer,
 null on the last page (#179, D-102).
 
+Render and preview starts take `priority` (`interactive` > `standard` > `batch`; previews
+default to interactive, renders to standard; up to the key's `maxPriority`), and the queue
+claims by class, then fairly across keys, then by age; with `limits.maxEstimatedWaitSeconds`
+a start whose estimated queue wait is too long is refused with `429 queue_full` and
+`Retry-After` (#155, D-103).
+
 Implemented extras (v0.1): `GET /v1/templates`, `GET /v1/projects/:id/versions`,
 `PUT /v1/projects/:id/theme`, `PATCH /v1/projects/:id/audio`, `GET /v1/jobs`,
 `POST /v1/jobs/:id/retry`, `GET /v1/renders/:id`, `GET /v1/assets`,
