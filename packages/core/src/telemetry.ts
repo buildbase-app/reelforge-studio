@@ -44,6 +44,8 @@ export interface CoreInstruments {
   jobsRequeued: Counter;
   /** Database queue: claim, heartbeat or recovery calls that failed (operation). */
   queueErrors: Counter;
+  /** Requests refused by a resource limit (reason: LimitReason, a fixed set). */
+  limitRejections: Counter;
 }
 
 const SECONDS_BUCKETS = [0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600];
@@ -75,6 +77,10 @@ export function coreInstruments(meter: Meter): CoreInstruments {
       providerCalls: meter.createCounter('reelforge.provider.calls', { description: 'Provider runs (TTS, ...), by provider and outcome (ok, cached, error).' }),
       jobsRequeued: meter.createCounter('reelforge.jobs.requeued', { description: 'Database queue: jobs queued again, by reason (lease_expired: the worker stopped renewing its lease; released: a worker shut down).' }),
       queueErrors: meter.createCounter('reelforge.queue.errors', { description: 'Database queue: failed queue operations (claim, heartbeat, recover), e.g. while the database is unreachable.' }),
+      limitRejections: meter.createCounter('reelforge.limits.rejections', {
+        description:
+          'Requests refused by a resource limit (D-090, D-091), by reason: render_limit, jobs_per_key, queue_full, render_quota, upload_too_large, provider_runs_per_key, provider_budget.',
+      }),
     };
     cache.set(meter, i);
   }
