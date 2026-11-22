@@ -235,7 +235,13 @@ importers:
       '@reelforge/project-schema':
         specifier: workspace:*
         version: link:../project-schema
+      pg:
+        specifier: 8.23.1
+        version: 8.23.1
     devDependencies:
+      '@types/pg':
+        specifier: 8.23.1
+        version: 8.23.1
       tsx:
         specifier: ^4.19.2
         version: 4.23.15

@@ -1670,7 +1670,9 @@ not Remotion Cloud Run:** Alpha and "not actively being developed" (Remotion doc
 
 ### D-096 --- The database stays the queue of record; dispatch is pluggable
 
-**Status:** PROPOSED (2026-11-22). Extends D-075.\
+**Status:** PROPOSED (2026-11-22). Extends D-075. **Step 1 built (#158, D-104):** `poll` with backoff on
+empty polls, `notify` (PostgreSQL LISTEN/NOTIFY), the generic dispatch outbox and relay, and the shared
+dispatch contract suite; SQS, Redis Streams and NATS JetStream are not built yet.\
 Job state, leases, fencing, attempts, quotas and history stay in the `Job` table (D-075). A
 `queue.dispatch` driver only tells workers that work is ready: `poll` (default, today's
 behaviour, with backoff on empty polls), `notify` (PostgreSQL LISTEN/NOTIFY on a direct session
@@ -1926,3 +1928,56 @@ recorded by the instance that claims at a render's or preview's first claim; uni
 Buckets 0.1 s .. 1 h with 60 and 300 as boundaries, so the SLO quantiles (p95 < 60 s previews, < 300 s renders at
 maximum replicas) are exact at the threshold. Grafana panel and Prometheus alert rules in
 `deployment/observability/`, unit-tested with `promtool test rules`.
+
+## X. Queue dispatch: poll backoff and LISTEN/NOTIFY (2026-11-22, issue #158)
+
+Step 1 of D-096. Settings, how it works, test cases and results:
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#queue-dispatch-poll-and-notify-d-104);
+measured idle load and queue wait: [docs/PERFORMANCE.md](PERFORMANCE.md#queue-dispatch-158-poll-backoff-and-notify).
+
+### D-104 --- Dispatch wakes the normal claim; `poll` backs off; `notify` sends NOTIFY inside the job's transaction; external brokers publish through an outbox
+
+**Status:** DECIDED (reversible) for `poll` and `notify`; the outbox is built and tested, its drivers (SQS,
+Redis Streams, NATS JetStream) are follow-ups.\
+`queue.dispatch` `poll` (default) or `notify`. **A message never chooses the job.** A worker that receives
+"job X is ready" runs the ordinary claim (class, then fairness across keys, then age; D-090, D-103), which may
+take X, another job, or nothing. *Rejected:* claiming the received id with the claim-by-id query of D-100: it
+would let the order of messages decide the order of work, so a render announced before a preview would run
+first and a key that floods the queue would get its jobs announced, and claimed, first; preserving D-090 and
+D-103 under it would need the fair query anyway. The cost of the wake model is that every idle worker receives
+every message (NOTIFY is a broadcast), so one job would cost one claim per idle worker. Workers therefore wait a
+random 0..`queue.notifyJitterMs` (50) before claiming, and the claim of a job queued less than 2 s ago
+(`max(2 s, 4 × jitter)`) announces `c:<id>` in its transaction; a worker
+whose announced jobs were all claimed meanwhile skips its claim (DSP-09). A worker without a free slot ignores
+messages and claims when its job ends. Duplicate and stale ids cost at most one ordinary claim (no-ops for the
+job). **Busy workers do not listen:** a worker with no free slot `UNLISTEN`s and `LISTEN`s again before its next
+claim, because PostgreSQL runs a short transaction in every listening backend per delivered message; the first
+measurement without this (200 busy workers draining 2 000 jobs, each claim announced to all) cost ~10 000
+transactions/s. **`poll`:** after an empty claim the next poll waits twice as long, from `queue.pollIntervalMs` to
+`queue.pollMaxIntervalMs` (5 s, 10 % spread); a claim that gets a job resets it, so a busy queue polls as before;
+it also applies everywhere (MySQL, SQLite) and while a `notify` listener is down. **`notify` without an outbox:**
+NOTIFY is transactional (queued with the transaction, delivered on commit, dropped on rollback), which is the
+guarantee the outbox exists to give; an outbox relay for `notify` would itself have to poll the outbox (the load
+`notify` removes) or be woken by NOTIFY, and it would not help the one real loss case, a listener that was
+disconnected when the message went out, which the fallback poll (`queue.dispatchFallbackSeconds`, 30) and the
+claim after every reconnect cover. Every path that makes a job claimable sends it (enqueue and retry, fan-out
+units, the join, lease-expiry re-queue, shutdown hand-back), in one statement per transaction. **Listen
+connection:** one node-postgres session per claiming process, outside the Prisma pool, on `database.directUrl`
+(named to sit next to a future `database.readUrl`, #152) or `database.url`; reconnect with backoff, a ping every
+fallback interval, and an end-to-end delivery check (a NOTIFY sent through the Prisma pool must arrive) after
+every connect; the first failing check refuses the start. This is what catches PgBouncer transaction mode, where
+`LISTEN` succeeds but notifications never reach the client (measured, NTF-04); no URL or port heuristics.
+`/readyz` reports the listener but never requires it (a disconnected worker still claims, by polling). `notify`
+is refused at start on MySQL and SQLite (no equivalent; MySQL has none, SQLite is one process). Channels are per
+database, so a `?schema=` deployment gets `reelforge_jobs_<hash of schema>`. **Outbox (generic):** for brokers
+outside the database the job transaction writes a `DispatchOutbox` row (`0011_dispatch_outbox`), `OutboxRelay`
+claims due rows with a lease (optimistic compare-and-set like the webhook outbox, D-071), publishes the ids in
+one call, deletes them, and retries with exponential backoff and full jitter (1 s .. 5 min), dropping a row after
+10 attempts because the job itself stays claimable through the fallback poll. Broker consumers will acknowledge
+after the claim a message triggered. **Metrics** (bounded labels: driver, reason, kind, trigger, result):
+`reelforge_queue_claims_total`, `reelforge_queue_dispatch_{published,received,duplicates,fallback_claims,publish_failures}_total`.
+**Known cost:** PostgreSQL serialises the commits of NOTIFY-sending transactions on one lock; immaterial at this
+queue's rates (hundreds of claims per second at most), relevant at thousands. *Rejected:* a NOTIFY payload with
+more than the id (priority, key) so workers could pre-filter: it duplicates the record and goes stale; a
+listener per process shared by its runners (fewer connections, but one worker container is one process in
+every recipe here).

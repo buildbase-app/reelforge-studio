@@ -27,6 +27,7 @@ build plugins) are devDependencies and are not in the image. The image ships
 | react, react-dom | 19.2.3 | MIT | Installed from npm | |
 | hyperframes (HeyGen) | 0.9.77 (pinned) | Apache-2.0 | Installed from npm | HyperFrames engine; local renderer only. Pulls puppeteer-core 25 and @puppeteer/browsers (Apache-2.0), esbuild, undici, hono and others. Its CLI has **opt-out PostHog telemetry**: ReelForge always runs it with `HYPERFRAMES_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, `HYPERFRAMES_NO_UPDATE_CHECK=1`, `HYPERFRAMES_NO_AUTO_INSTALL=1`. HyperFrames' own templates load GSAP from a CDN; ReelForge's templates do not use GSAP (GSAP's licence is not OSI; review before bundling it). |
 | hono, @hono/node-server | 4.13.19, 2.1.11 | MIT | Installed from npm | HTTP server. |
+| pg (node-postgres) | 8.23.1 (pinned) | MIT | Installed from npm | The dedicated PostgreSQL `LISTEN` connection of `queue.dispatch: notify` (D-104); the same version @prisma/adapter-pg already pulled in. Checked on the npm registry 2026-11-22. |
 | busboy (+ streamsearch) | 1.6.0 (+ 1.1.0) | MIT | Installed from npm | Streaming multipart parser for asset uploads (D-092). Checked on the npm registry 2026-11-22. |
 | @modelcontextprotocol/sdk | 1.32.2 | MIT | Installed from npm | MCP server (Streamable HTTP). Pulls express, ajv, jose, cors and others (MIT/ISC/BSD). |
 | zod | 4.x | MIT | Installed from npm | |

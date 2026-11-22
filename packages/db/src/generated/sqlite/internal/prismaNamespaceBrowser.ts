@@ -68,7 +68,8 @@ export const ModelName = {
   SystemState: 'SystemState',
   WebhookEndpoint: 'WebhookEndpoint',
   WebhookDelivery: 'WebhookDelivery',
-  WebhookAttempt: 'WebhookAttempt'
+  WebhookAttempt: 'WebhookAttempt',
+  DispatchOutbox: 'DispatchOutbox'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -375,6 +376,20 @@ export const WebhookAttemptScalarFieldEnum = {
 } as const
 
 export type WebhookAttemptScalarFieldEnum = (typeof WebhookAttemptScalarFieldEnum)[keyof typeof WebhookAttemptScalarFieldEnum]
+
+
+export const DispatchOutboxScalarFieldEnum = {
+  id: 'id',
+  workspaceId: 'workspaceId',
+  jobId: 'jobId',
+  attempts: 'attempts',
+  nextAttemptAt: 'nextAttemptAt',
+  lockedUntil: 'lockedUntil',
+  lastError: 'lastError',
+  createdAt: 'createdAt'
+} as const
+
+export type DispatchOutboxScalarFieldEnum = (typeof DispatchOutboxScalarFieldEnum)[keyof typeof DispatchOutboxScalarFieldEnum]
 
 
 export const SortOrder = {

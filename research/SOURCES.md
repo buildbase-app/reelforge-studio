@@ -371,3 +371,15 @@ implementation or licensing decisions.
     cgroup v1 by default since 1.35) and containerd's CRI `restrict_oom_score_adj` (as rootless kind
     sets it), both needed only in the cgroup v1 sandbox. Developer and CI tools only; nothing added
     to the image.
+42. **Queue dispatch: LISTEN/NOTIFY** (read 2026-11-22, issue #158, D-104): PostgreSQL 17 `NOTIFY`
+    (https://www.postgresql.org/docs/17/sql-notify.html): notifications of a transaction are
+    delivered only if it commits; transactions' notifications arrive in commit order; a listening
+    session gets its own notifications; payloads under 8000 bytes; a full notification queue (8 GB)
+    makes NOTIFY transactions fail at commit; a NOTIFY transaction cannot be prepared for two-phase
+    commit. PgBouncer feature map (https://www.pgbouncer.org/features.html): `LISTEN` session
+    pooling only ("Never" in transaction mode), `NOTIFY` in both. Measured here instead of assumed:
+    `LISTEN` through PgBouncer 1.26.1 in transaction mode is accepted but its notifications never
+    arrive (NTF-04). node-postgres `pg` 8.23.1 (npm registry, MIT; already in the lockfile through
+    @prisma/adapter-pg) for the dedicated listen connection. That PostgreSQL serialises the commits of
+    NOTIFY-sending transactions on one lock is from its source (src/backend/commands/async.c), not the
+    docs page (VERIFY at thousands of commits per second).

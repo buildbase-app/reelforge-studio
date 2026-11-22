@@ -446,6 +446,22 @@ PRIS-01..05, PRS-01..03 (SQLite, PostgreSQL 17, MySQL 8.4):
 [queue-and-scaling.md](providers/queue-and-scaling.md#priorities-fairness-and-admission-d-103).
 Not measured: the SLO itself on a real fleet at maximum replicas.
 
+### Queue dispatch: poll backoff and LISTEN/NOTIFY (2026-11-22, issue #158, step 1)
+
+Built (D-104): `queue.dispatch` `poll` (default; empty polls now back off from
+`queue.pollIntervalMs` to `queue.pollMaxIntervalMs`, 5 s, everywhere) and `notify` (PostgreSQL only:
+NOTIFY inside every transaction that makes a job claimable, LISTEN on one direct session connection
+per worker, `database.directUrl` for PgBouncer transaction mode, a delivery check that refuses a
+listen connection that does not receive, a fallback poll every 30 s, `/readyz` `dispatch` and
+dispatch metrics). A message only wakes the normal fair claim, so priorities and fairness are
+unchanged; busy workers stop listening. The generic dispatch outbox (`0011_dispatch_outbox`) and
+relay for SQS / Redis Streams / NATS are built and tested with a fake broker; those drivers are not.
+Shared dispatch contract suite on the memory bus and PostgreSQL 17 (DSP-01..11, NTF-01..05,
+OUT-01..12, DSP-20..24). Measured on the shared sandbox (lower bound): 200 idle workers 219 tx/s
+before, 69 with backoff, 47 with notify; queue wait p95 with 2 mostly idle workers 946 ms before,
+103 ms with notify ([PERFORMANCE.md](PERFORMANCE.md#queue-dispatch-158-poll-backoff-and-notify)).
+Not built: the external drivers, fewer instances running lease recovery (the rest of idle load).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |

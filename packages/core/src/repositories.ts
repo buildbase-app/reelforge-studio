@@ -623,6 +623,36 @@ export interface RateLimitRepository {
   usage(key: string, windowStart: string): Promise<number>;
 }
 
+// ---- queue dispatch outbox ------------------------------------------------------
+
+/** One job id waiting to be published to an external dispatch broker (D-104). */
+export interface DispatchOutboxRow {
+  id: string;
+  jobId: string;
+  /** Failed publishes so far. */
+  attempts: number;
+  nextAttemptAt: string;
+  lockedUntil?: string;
+  lastError?: string;
+  createdAt: string;
+}
+
+/**
+ * The dispatch outbox (D-104): rows are written by the job repository inside
+ * the transaction that makes a job claimable (ReadySignal `outbox`); the
+ * OutboxRelay publishes and removes them. Generic for every external driver.
+ */
+export interface DispatchOutboxRepository {
+  /** Up to `limit` due rows (next attempt at or before `now`, no lease or an expired one), oldest first, leased until `leaseUntil`; each row to one caller. */
+  claim(now: string, leaseUntil: string, limit: number): Promise<DispatchOutboxRow[]>;
+  /** Published (or given up): delete the rows. */
+  remove(ids: string[]): Promise<void>;
+  /** A failed publish: drop the lease, store the attempt count and error, try again at `nextAttemptAt`. */
+  retry(id: string, attempts: number, nextAttemptAt: string, error: string): Promise<void>;
+  /** Rows waiting (metrics, tests). */
+  count(): Promise<number>;
+}
+
 // ---- the bundle -------------------------------------------------------------
 
 export interface Repositories {
@@ -640,4 +670,6 @@ export interface Repositories {
   readonly rateLimits: RateLimitRepository;
   /** Outbound event endpoints, the outbox and the delivery log (#66). */
   readonly webhooks: WebhookRepository;
+  /** Queue dispatch outbox (D-104): job ids for external brokers. */
+  readonly dispatchOutbox: DispatchOutboxRepository;
 }

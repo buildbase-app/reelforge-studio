@@ -35,6 +35,11 @@ import {
   isPriority,
   priorityOfRank,
   priorityRank,
+  CLAIMED_PREFIX,
+  READY_PREFIX,
+  newOutboxId,
+  announceClaim,
+  type ReadySignal,
 } from '@reelforge/core';
 // One client type for all three databases: the generated clients share the
 // same model API (only the SQL dialect differs), so the repositories are
@@ -106,8 +111,21 @@ function toLicence(r: {
 }
 
 /** Repositories for one workspace on any of the Prisma-supported databases. */
-export function createPrismaRepositories(prisma: PrismaClient, workspaceId: string, kind: DatabaseKind = 'sqlite'): Repositories {
+export interface PrismaRepositoryOptions {
+  /**
+   * Queue dispatch (D-104): how the transactions that make a job claimable tell the workers. `notify`
+   * (PostgreSQL only): `pg_notify(channel, 'r:<id>')` in the same transaction (sent on commit, dropped on
+   * rollback), and `'c:<id>'` in each claim's transaction; `outbox`: a DispatchOutbox row in the same transaction.
+   * Unset: nothing (workers poll).
+   */
+  readySignal?: ReadySignal;
+}
+
+export function createPrismaRepositories(prisma: PrismaClient, workspaceId: string, kind: DatabaseKind = 'sqlite', opts: PrismaRepositoryOptions = {}): Repositories {
   const ws = { workspaceId };
+  const signal = opts.readySignal;
+  if (signal?.kind === 'notify' && kind !== 'postgresql') throw new Error(`queue.dispatch "notify" needs PostgreSQL (LISTEN/NOTIFY); this database is ${kind}`);
+  if (signal?.kind === 'bus') throw new Error('readySignal "bus" is for the in-memory repositories');
   // Raw SQL (the queue's row locks): identifier quoting and placeholders differ per database.
   const qi = (n: string) => (kind === 'mysql' ? `\`${n}\`` : `"${n}"`);
   const ph = (i: number) => (kind === 'postgresql' ? `$${i}` : '?');
@@ -191,6 +209,33 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
   });
   const statusEvent = (jobId: string, at: string, status: string) => ({ ...ws, jobId, at: new Date(at), type: 'status', message: status });
   const logEvent = (jobId: string, at: string, line: string) => ({ ...ws, jobId, at: new Date(at), type: 'log', message: line });
+  // Queue dispatch (D-104). NOTIFY is transactional: queued with the transaction, delivered when it commits, never
+  // when it rolls back, so it needs no outbox. Ids are joined with "," (job ids never contain one) to send them in one
+  // statement; COUNT(*) because pg_notify returns void, which the driver cannot map.
+  const notifySql = `SELECT COUNT(*) AS n FROM (SELECT pg_notify($1, $2 || x) FROM unnest(string_to_array($3, ',')) AS x) s`;
+  const outboxRows = (ids: string[]) => {
+    const at = new Date();
+    return ids.map((jobId) => ({ ...ws, id: newOutboxId(), jobId, attempts: 0, nextAttemptAt: at, createdAt: at }));
+  };
+  /** Inside the transaction that makes `ids` claimable: tell the workers (nothing without a ready signal). */
+  const ready = async (tx: Tx, ids: string[]) => {
+    if (!signal || !ids.length) return;
+    if (signal.kind === 'notify') await tx.$queryRawUnsafe(notifySql, signal.channel, READY_PREFIX, ids.join(','));
+    else if (signal.kind === 'outbox') await tx.dispatchOutbox.createMany({ data: outboxRows(ids) });
+  };
+  /** The same, as statements of a batch transaction. */
+  const readyBatch = (ids: string[]) =>
+    !signal || !ids.length
+      ? []
+      : signal.kind === 'notify'
+        ? [prisma.$queryRawUnsafe(notifySql, signal.channel, READY_PREFIX, ids.join(','))]
+        : signal.kind === 'outbox'
+          ? [prisma.dispatchOutbox.createMany({ data: outboxRows(ids) })]
+          : [];
+  /** Inside a claim's transaction (notify only, a freshly queued job): idle workers about to claim it can skip their claim. */
+  const claimed = async (tx: Tx, row: { id: string; createdAt: Date }, now: string) => {
+    if (signal?.kind === 'notify' && announceClaim(signal, row.createdAt, now)) await tx.$queryRawUnsafe(notifySql, signal.channel, CLAIMED_PREFIX, row.id);
+  };
   /** Row lock on a job (a no-op update): PostgreSQL/MySQL lock the row, SQLite takes the write lock. Fan-out locks the parent before any child. */
   const lockJob = (tx: Tx, id: string) => tx.$executeRawUnsafe(`UPDATE ${qi('Job')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, id);
   /** Write a fan-out settlement (D-097) inside the caller's transaction, which already holds the parent's row lock. */
@@ -202,6 +247,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     if (plan.join) {
       await tx.job.create({ data: { ...ws, id: plan.join.id, ...jobData(plan.join) } });
       await tx.jobEvent.create({ data: statusEvent(plan.join.id, at, 'queued') });
+      await ready(tx, [plan.join.id]);
     }
     const cancelled: JobRecord[] = [];
     const stop = [...plan.stop];
@@ -283,6 +329,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         },
       });
       await tx.jobEvent.create({ data: statusEvent(id, o.now, 'running') });
+      await claimed(tx, row, o.now);
       return toJob(row);
     }, lockingTx);
 
@@ -397,6 +444,41 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
 
   return {
     webhooks: createPrismaWebhookRepository(prisma, workspaceId),
+    dispatchOutbox: {
+      async claim(now, leaseUntil, limit) {
+        const at = new Date(now);
+        const candidates = await prisma.dispatchOutbox.findMany({
+          where: { ...ws, nextAttemptAt: { lte: at }, OR: [{ lockedUntil: null }, { lockedUntil: { lt: at } }] },
+          orderBy: [{ nextAttemptAt: 'asc' }, { id: 'asc' }],
+          take: limit,
+        });
+        const out = [];
+        for (const c of candidates) {
+          // Optimistic claim (as the webhook outbox, D-071): only the relay whose conditional update changes the row owns it.
+          const n = await prisma.dispatchOutbox.updateMany({ where: { ...ws, id: c.id, lockedUntil: c.lockedUntil }, data: { lockedUntil: new Date(leaseUntil) } });
+          if (n.count === 1)
+            out.push({
+              id: c.id,
+              jobId: c.jobId,
+              attempts: c.attempts,
+              nextAttemptAt: iso(c.nextAttemptAt),
+              lockedUntil: leaseUntil,
+              ...(c.lastError !== null ? { lastError: c.lastError } : {}),
+              createdAt: iso(c.createdAt),
+            });
+        }
+        return out;
+      },
+      async remove(ids) {
+        if (ids.length) await prisma.dispatchOutbox.deleteMany({ where: { ...ws, id: { in: ids } } });
+      },
+      async retry(id, attempts, nextAttemptAt, error) {
+        await prisma.dispatchOutbox.updateMany({ where: { ...ws, id }, data: { attempts, nextAttemptAt: new Date(nextAttemptAt), lockedUntil: null, lastError: error.slice(0, 1000) } });
+      },
+      async count() {
+        return prisma.dispatchOutbox.count({ where: ws });
+      },
+    },
     workspaceId,
 
     projects: {
@@ -537,6 +619,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           await prisma.$transaction([
             prisma.job.create({ data: { ...ws, id: job.id, ...jobData(job) } }),
             prisma.jobEvent.create({ data: { ...ws, jobId: job.id, at: new Date(at), type: 'status', message: job.status } }),
+            ...readyBatch(job.status === 'queued' && job.queue === 'database' ? [job.id] : []),
           ]);
         } catch (e) {
           if (isUniqueViolation(e)) throw conflict(`job "${job.id}" already exists`);
@@ -598,6 +681,8 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
                 throw e;
               }
               await tx.jobEvent.createMany({ data: [statusEvent(job.id, at, job.status)] });
+              // Before the lock, so it is not held for one more round trip; a refusal rolls it back with the job.
+              if (job.status === 'queued' && job.queue === 'database') await ready(tx, [job.id]);
               if (!parts.length) return { ok: true as const };
               // The lock (a no-op update): with a total queue cap one shared row (every start waits here), else the
               // key's row (starts for this key wait). It is not the Workspace row: every insert holds a foreign-key
@@ -680,6 +765,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
             await tx.job.create({ data: { ...ws, id: c.id, ...jobData(c) } });
             await tx.jobEvent.create({ data: statusEvent(c.id, at, c.status) });
           }
+          await ready(tx, children.filter((c) => c.status === 'queued').map((c) => c.id));
           return 'ok' as const;
         }, lockingTx);
       },
@@ -798,6 +884,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
             },
           });
           await tx.jobEvent.create({ data: statusEvent(id, now, 'running') });
+          await claimed(tx, row, now);
           return toJob(row);
         }, lockingTx);
       },
@@ -827,6 +914,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
             if (!res.count) return false;
             await tx.jobEvent.create({ data: logEvent(r.id, now, u.line) });
             await tx.jobEvent.create({ data: statusEvent(r.id, now, next.status) });
+            if (next.status === 'queued') await ready(tx, [r.id]);
             if (child) {
               const s = await settleIn(tx, next, now);
               if (s.parentFinished && s.parent) settled.push(s.parent);
@@ -847,6 +935,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           if (!r.count) return false;
           await tx.jobEvent.create({ data: logEvent(id, at, `released by worker ${fence.workerId} (shutting down); queued again`) });
           await tx.jobEvent.create({ data: statusEvent(id, at, 'queued') });
+          await ready(tx, [id]);
           return true;
         }, TX);
       },

@@ -156,3 +156,14 @@ export type WebhookDelivery = Prisma.WebhookDeliveryModel
  * The delivery log (#66): one row per attempt, append-only (removed only by retention with its delivery).
  */
 export type WebhookAttempt = Prisma.WebhookAttemptModel
+/**
+ * Model DispatchOutbox
+ * Queue dispatch outbox (#158, D-104): one row per job that became claimable,
+ * written in the same transaction as the job, for dispatch drivers that publish
+ * to an external broker (SQS, Redis Streams, NATS JetStream: follow-ups). A
+ * relay claims due rows with a lease, publishes the job ids and deletes the
+ * rows; a failed publish is retried with backoff. `notify` does not use it
+ * (its NOTIFY is part of the job's own transaction). The Job table stays the
+ * record: a row lost here only delays a job until the workers' fallback poll.
+ */
+export type DispatchOutbox = Prisma.DispatchOutboxModel

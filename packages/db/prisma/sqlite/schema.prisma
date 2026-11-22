@@ -29,6 +29,7 @@ model Workspace {
   webhookDeliveries WebhookDelivery[]
   webhookAttempts  WebhookAttempt[]
   rateLimitWindows RateLimitWindow[]
+  dispatchOutbox   DispatchOutbox[]
 }
 
 /// A project; its manifests live in ProjectVersion (one row per saved version).
@@ -439,4 +440,27 @@ model WebhookAttempt {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, deliveryId])
+}
+
+/// Queue dispatch outbox (#158, D-104): one row per job that became claimable,
+/// written in the same transaction as the job, for dispatch drivers that publish
+/// to an external broker (SQS, Redis Streams, NATS JetStream: follow-ups). A
+/// relay claims due rows with a lease, publishes the job ids and deletes the
+/// rows; a failed publish is retried with backoff. `notify` does not use it
+/// (its NOTIFY is part of the job's own transaction). The Job table stays the
+/// record: a row lost here only delays a job until the workers' fallback poll.
+model DispatchOutbox {
+  id            String    @id
+  workspaceId   String
+  jobId         String
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime
+  /// While a relay publishes: its lease (a crashed relay's rows are picked up after it).
+  lockedUntil   DateTime?
+  lastError     String?
+  createdAt     DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, nextAttemptAt])
 }

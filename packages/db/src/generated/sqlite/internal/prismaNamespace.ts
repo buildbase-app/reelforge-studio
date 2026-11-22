@@ -414,7 +414,8 @@ export const ModelName = {
   SystemState: 'SystemState',
   WebhookEndpoint: 'WebhookEndpoint',
   WebhookDelivery: 'WebhookDelivery',
-  WebhookAttempt: 'WebhookAttempt'
+  WebhookAttempt: 'WebhookAttempt',
+  DispatchOutbox: 'DispatchOutbox'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -430,7 +431,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "workspace" | "project" | "projectVersion" | "apiKey" | "job" | "jobEvent" | "theme" | "providerSetting" | "setting" | "asset" | "auditLog" | "idempotencyKey" | "rateLimitWindow" | "licenceState" | "systemState" | "webhookEndpoint" | "webhookDelivery" | "webhookAttempt"
+    modelProps: "workspace" | "project" | "projectVersion" | "apiKey" | "job" | "jobEvent" | "theme" | "providerSetting" | "setting" | "asset" | "auditLog" | "idempotencyKey" | "rateLimitWindow" | "licenceState" | "systemState" | "webhookEndpoint" | "webhookDelivery" | "webhookAttempt" | "dispatchOutbox"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1766,6 +1767,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    DispatchOutbox: {
+      payload: Prisma.$DispatchOutboxPayload<ExtArgs>
+      fields: Prisma.DispatchOutboxFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.DispatchOutboxFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.DispatchOutboxFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        findFirst: {
+          args: Prisma.DispatchOutboxFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.DispatchOutboxFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        findMany: {
+          args: Prisma.DispatchOutboxFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>[]
+        }
+        create: {
+          args: Prisma.DispatchOutboxCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        createMany: {
+          args: Prisma.DispatchOutboxCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.DispatchOutboxCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>[]
+        }
+        delete: {
+          args: Prisma.DispatchOutboxDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        update: {
+          args: Prisma.DispatchOutboxUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        deleteMany: {
+          args: Prisma.DispatchOutboxDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.DispatchOutboxUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.DispatchOutboxUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>[]
+        }
+        upsert: {
+          args: Prisma.DispatchOutboxUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        aggregate: {
+          args: Prisma.DispatchOutboxAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateDispatchOutbox>
+        }
+        groupBy: {
+          args: Prisma.DispatchOutboxGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.DispatchOutboxGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.DispatchOutboxCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.DispatchOutboxCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -2095,6 +2170,20 @@ export const WebhookAttemptScalarFieldEnum = {
 export type WebhookAttemptScalarFieldEnum = (typeof WebhookAttemptScalarFieldEnum)[keyof typeof WebhookAttemptScalarFieldEnum]
 
 
+export const DispatchOutboxScalarFieldEnum = {
+  id: 'id',
+  workspaceId: 'workspaceId',
+  jobId: 'jobId',
+  attempts: 'attempts',
+  nextAttemptAt: 'nextAttemptAt',
+  lockedUntil: 'lockedUntil',
+  lastError: 'lastError',
+  createdAt: 'createdAt'
+} as const
+
+export type DispatchOutboxScalarFieldEnum = (typeof DispatchOutboxScalarFieldEnum)[keyof typeof DispatchOutboxScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -2327,6 +2416,7 @@ export type GlobalOmitConfig = {
   webhookEndpoint?: Prisma.WebhookEndpointOmit
   webhookDelivery?: Prisma.WebhookDeliveryOmit
   webhookAttempt?: Prisma.WebhookAttemptOmit
+  dispatchOutbox?: Prisma.DispatchOutboxOmit
 }
 
 /* Types for Logging */

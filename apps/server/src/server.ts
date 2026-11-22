@@ -3,8 +3,8 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
-import { ReelforgeService, chromiumSandbox, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
-import { defaultDatabaseUrl, prepareDatabase, type Database } from '@reelforge/db';
+import { ReelforgeService, chromiumSandbox, effectiveQueueMode, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
+import { createNotifyListener, defaultDatabaseUrl, notifyChannel, prepareDatabase, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
 import { secretValues } from './observability/logger';
@@ -80,7 +80,22 @@ export async function startServer(
   const role = config.resolved.config.server.role;
   // Exporters from the file and env now; runtime settings from the database are applied once it is open.
   const obs = new Observability(observabilitySettings(config.resolved.config, SERVER_VERSION, edition), logger);
-  const { db, imported } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds, log });
+  // Queue dispatch (D-104): with `notify` every transaction that queues a job sends NOTIFY (api and workers alike).
+  const queueCfg = config.resolved.config.queue;
+  const notify = queueCfg.dispatch === 'notify' && (opts.queue?.mode ?? effectiveQueueMode(role, queueCfg.driver)) === 'database';
+  const { db, imported } = await prepareDatabase({
+    url: config.databaseUrl,
+    dataDir: config.dataDir,
+    migrate: config.migrateOnStart,
+    connectTimeoutSeconds: config.dbConnectTimeoutSeconds,
+    log,
+    ...(notify ? { readySignal: { kind: 'notify' as const, channel: notifyChannel(config.databaseUrl), announceClaimsWithinMs: Math.max(2000, queueCfg.notifyJitterMs * 4) } } : {}),
+  });
+  // Claiming instances LISTEN on their own direct session connection (database.directUrl, else database.url).
+  const listener =
+    notify && role !== 'api'
+      ? createNotifyListener(db, { directUrl: config.resolved.config.database.directUrl, pingMs: queueCfg.dispatchFallbackSeconds * 1000, log: (level, line) => logger.log(level, line) })
+      : undefined;
   if (imported) {
     const { warnings, ...counts } = imported;
     log(`imported v0.1 data from ${config.dataDir}: ${JSON.stringify(counts)}${warnings.length ? ` (${warnings.length} warnings)` : ''}`);
@@ -106,7 +121,9 @@ export async function startServer(
       now: opts.now,
       log: logger.log,
       telemetry: obs.telemetry,
-      ...(opts.queue || opts.once ? { queue: { ...opts.queue, ...(opts.once ? { once: true } : {}) } } : {}),
+      ...(opts.queue || opts.once || listener
+        ? { queue: { ...opts.queue, ...(opts.once ? { once: true } : {}), ...(listener ? { dispatch: { driver: 'notify', ...opts.queue?.dispatch, listener } } : {}) } }
+        : {}),
       ...(opts.once ? { webhooks: { worker: false }, maintenance: false, storage: { ...opts.storage, sweep: false } } : {}),
     });
   } catch (e) {
@@ -152,6 +169,13 @@ export async function startServer(
     log('licence: this worker never calls the licence server; it applies the licence state the api instances store in the database (re-read every minute)');
   } else if (server) log(`REST ${url}/v1  MCP ${url}/mcp`);
   log(`role: ${role}; job queue: ${service.jobs.mode}${service.jobs.mode === 'database' ? ` (worker ${service.jobs.workerId}, ${service.jobs.runJobs ? `renders ${service.jobs.concurrency} at a time` : 'enqueues only, never renders'})` : ''}`);
+  if (service.jobs.mode === 'database') {
+    log(
+      notify
+        ? `queue dispatch: notify (PostgreSQL LISTEN/NOTIFY${listener ? `; listening on ${config.resolved.config.database.directUrl ? 'database.directUrl' : 'database.url'}, fallback poll every ${queueCfg.dispatchFallbackSeconds} s` : '; this instance only publishes'})`
+        : `queue dispatch: poll (every ${queueCfg.pollIntervalMs} ms, backing off to ${queueCfg.pollMaxIntervalMs} ms when idle)`
+    );
+  }
   log(`database: ${db.kind} ${db.displayUrl}`);
   log(`storage: ${service.storage.driver.id} ${JSON.stringify(service.storage.driver.describe())}`);
   if (existsSync(join(config.dataDir, 'secrets.json'))) {

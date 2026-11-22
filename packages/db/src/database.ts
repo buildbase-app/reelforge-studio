@@ -1,6 +1,6 @@
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DEFAULT_WORKSPACE_ID, hasFilesystemData, importFilesystemV01, type ImportReport, type Repositories } from '@reelforge/core';
+import { DEFAULT_WORKSPACE_ID, hasFilesystemData, importFilesystemV01, type ImportReport, type ReadySignal, type Repositories } from '@reelforge/core';
 import { MIGRATIONS } from './generated/migrations';
 import { applyMigrations, migrationStatus, type MigrationStatus, type RawClient } from './migrate';
 import { createPrismaRepositories, isUniqueViolation, type AnyPrismaClient } from './prisma-repositories';
@@ -9,6 +9,8 @@ import { parseDatabaseUrl, redactDatabaseUrl, type DatabaseKind, type ParsedData
 export interface OpenDatabaseOptions {
   /** file:..., postgresql://..., mysql://... (see resolveDatabaseUrl). */
   url: string;
+  /** Queue dispatch (D-104): what the job repository's transactions signal (PrismaRepositoryOptions.readySignal). */
+  readySignal?: ReadySignal;
 }
 
 /** Marker in SystemState once the v0.1 filesystem data was imported. */
@@ -25,13 +27,14 @@ export class Database {
   private constructor(
     readonly kind: DatabaseKind,
     readonly url: string,
-    readonly prisma: AnyPrismaClient
+    readonly prisma: AnyPrismaClient,
+    private readonly readySignal?: ReadySignal
   ) {}
 
   static async open(opts: OpenDatabaseOptions): Promise<Database> {
     const parsed = parseDatabaseUrl(opts.url);
     const prisma = await createClient(parsed);
-    const db = new Database(parsed.kind, opts.url, prisma);
+    const db = new Database(parsed.kind, opts.url, prisma, opts.readySignal);
     try {
       if (parsed.kind === 'sqlite') {
         // WAL: the server and the CLI can use the file at the same time.
@@ -96,7 +99,7 @@ export class Database {
   repositories(workspaceId = DEFAULT_WORKSPACE_ID): Repositories {
     let r = this.repos.get(workspaceId);
     if (!r) {
-      r = createPrismaRepositories(this.prisma, workspaceId, this.kind);
+      r = createPrismaRepositories(this.prisma, workspaceId, this.kind, this.readySignal ? { readySignal: this.readySignal } : {});
       this.repos.set(workspaceId, r);
     }
     return r;
@@ -189,15 +192,17 @@ export interface PrepareOptions {
   /** Keep retrying the first connection this long (a database container may still be starting). Default 30. */
   connectTimeoutSeconds?: number;
   log?: (line: string) => void;
+  /** Queue dispatch (D-104): see OpenDatabaseOptions.readySignal. */
+  readySignal?: ReadySignal;
 }
 
 /** Database.open, retried with backoff until `timeoutMs` (configuration errors fail at once). */
-export async function openWithRetry(url: string, timeoutMs: number, log?: (line: string) => void): Promise<Database> {
+export async function openWithRetry(url: string, timeoutMs: number, log?: (line: string) => void, readySignal?: ReadySignal): Promise<Database> {
   parseDatabaseUrl(url); // bad URLs are not worth waiting for
   const deadline = Date.now() + timeoutMs;
   for (let delay = 500; ; delay = Math.min(delay * 2, 5000)) {
     try {
-      return await Database.open({ url });
+      return await Database.open({ url, ...(readySignal ? { readySignal } : {}) });
     } catch (e) {
       if (Date.now() + delay > deadline) throw e;
       log?.(`waiting for the database (${redactDatabaseUrl(url)}): ${(e as Error).message.split('\n').pop()}`);
@@ -208,7 +213,7 @@ export async function openWithRetry(url: string, timeoutMs: number, log?: (line:
 
 /** What the server and the CLI do on start: connect, migrate, import v0.1 data once. */
 export async function prepareDatabase(opts: PrepareOptions): Promise<{ db: Database; migrated: string[]; imported: ImportReport | null }> {
-  const db = await openWithRetry(opts.url, (opts.connectTimeoutSeconds ?? 30) * 1000, opts.log);
+  const db = await openWithRetry(opts.url, (opts.connectTimeoutSeconds ?? 30) * 1000, opts.log, opts.readySignal);
   try {
     let migrated: string[] = [];
     if (opts.migrate ?? true) migrated = await db.migrate(opts.log);

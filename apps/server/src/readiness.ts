@@ -156,6 +156,28 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
     ...(q.lastError ? { detail: `queue ${q.lastError.operation} failing since ${q.lastError.at}: ${q.lastError.message}` } : q.paused ? { detail: q.paused } : {}),
   };
 
+  // Queue dispatch (D-104): the LISTEN connection of a `notify` worker. Reported, never required: while it is down the
+  // worker polls (queue.pollIntervalMs with backoff), so it keeps claiming; only the wake-up latency is lost.
+  const d = q.dispatch;
+  if (d && d.listener) {
+    const l = d.listener;
+    dependencies.dispatch = {
+      status: d.listening ? 'ok' : 'error',
+      required: false,
+      driver: d.driver,
+      connected: l.connected,
+      ...(l.since ? { since: l.since } : {}),
+      reconnects: l.reconnects,
+      fallbackSeconds: (d.fallbackMs ?? 0) / 1000,
+      received: d.received,
+      duplicates: d.duplicates,
+      fallbackClaims: d.fallbackClaims,
+      ...(d.listening ? {} : { detail: `the ${d.driver} listener is disconnected${l.lastError ? ` (${l.lastError})` : ''}; polling every ${q.dispatch!.pollMs} ms until it reconnects` }),
+    };
+  } else if (d) {
+    dependencies.dispatch = { status: 'ok', required: false, driver: d.driver, ...(d.driver === 'poll' ? { pollMs: d.pollMs } : { detail: 'publishes only (this instance does not claim jobs)' }) };
+  }
+
   if (obs) {
     // OTLP exporters: reported, never required (a telemetry backend being down must not take the studio out of rotation).
     const signals = obs.exportHealth();

@@ -21,9 +21,11 @@
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "@reelforge/core": "workspace:*",
-    "@reelforge/project-schema": "workspace:*"
+    "@reelforge/project-schema": "workspace:*",
+    "pg": "8.23.1"
   },
   "devDependencies": {
+    "@types/pg": "8.23.1",
     "tsx": "^4.19.2"
   }
 }

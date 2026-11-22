@@ -11,6 +11,7 @@ export * from './store';
 export * from './themes';
 export * from './assets';
 export * from './jobs';
+export * from './dispatch';
 export * from './fanout';
 export * from './keys';
 export * from './keyStrength';
