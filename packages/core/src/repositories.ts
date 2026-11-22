@@ -325,8 +325,8 @@ export interface LicenceStateRecord {
   lastCheckedAt?: string;
   /** Last answer with valid: true; the offline grace period counts from here. */
   lastSuccessAt?: string;
-  /** The last failed attempt (unreachable, rate limited, server error); cleared by an answer. */
-  lastError?: { kind: string; message: string; status?: number; code?: string; at: string };
+  /** The last failed attempt (unreachable, rate limited, server error); cleared by an answer. `by`: the instance that tried. */
+  lastError?: { kind: string; message: string; status?: number; code?: string; at: string; by?: string };
   activatedAt?: string;
   deactivatedAt?: string;
   nextCheckAt?: string;
@@ -342,8 +342,19 @@ export interface LicenceRepository {
    * (atomic: two processes starting together end up with the same instance id).
    */
   init(instanceId: string, at: string): Promise<LicenceStateRecord>;
-  /** Replace the stored state (the instance id never changes once stored). */
-  save(state: LicenceStateRecord): Promise<void>;
+  /**
+   * Replace the stored state (the instance id never changes once stored).
+   * With `ifUpdatedAt`, only when the stored `updatedAt` is still that value
+   * (compare-and-set); returns whether the state was written.
+   */
+  save(state: LicenceStateRecord, opts?: { ifUpdatedAt?: string }): Promise<boolean>;
+  /**
+   * Take the next licence check for this deployment (single flight across
+   * instances, D-098): one atomic update that sets `nextCheckAt` (and
+   * `updatedAt`) to `leaseUntil` when `nextCheckAt` is unset, at or before
+   * `now`, or later than `orLaterThan`. True for the one caller that won.
+   */
+  claimCheck(at: { now: string; leaseUntil: string; orLaterThan?: string }): Promise<boolean>;
 }
 
 // ---- assets -----------------------------------------------------------------

@@ -46,7 +46,7 @@ start-up-only keys refused with where to set them, runtime changes applied
 live; secrets in the database AES-256-GCM with `REELFORGE_SECRET_KEY` (refused
 without it; plaintext rows encrypted once); `reelforge config check` / `show`.
 **Licence activation (#25, D-028, D-035..D-038):** BuildBase licence API
-(activate on first start / key change, validate at start and daily, only the
+(activate on first start / key change, validate daily, only the
 key and a random instance id sent), state in a `LicenceState` table on all
 three databases, 14-day offline grace from the last success, backoff on
 429/5xx, clock checks; `render_project` / `preview_scene` / `retry_job`
@@ -60,6 +60,16 @@ Live check against the dev environment with a test-purchase key passed
 MCP and REST journeys against a real server process. GitHub CI green on 9f62297 (run 44901451314: tests with
 `REELFORGE_REQUIRE_BROWSER=1` incl. MCP/REST e2e, spike, Docker build + smoke).
 Per-item status: `docs/AGENT_PLATFORM.md` §10.
+**Licence at scale (#154, D-098, 2026-11-22):** one deployment (one shared
+database) = one activation for any number of api and worker instances; only
+`api`/`all` instances call the licence server, single flight per deployment
+(compare-and-set lease on `LicenceState.nextCheckAt`: about one call a day
+however many api replicas); workers never call it, read and verify the sealed
+state every 60 s and claim no render job while it disallows renders (reason in
+the log, `/readyz` admin view and metrics). Measured on the mock licence
+server: 2 api + 3 worker licence managers on SQLite, PostgreSQL 17 and MySQL
+8.4, and 2 api + 3 worker server instances on PostgreSQL 17 and MySQL 8.4 = 1
+activate, 1 validate per day, 0 worker calls (`apps/server/test/licence-scale.test.ts`).
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,

@@ -135,7 +135,10 @@ export async function startServer(
   const shownHost = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
   const url = `http://${shownHost.includes(':') ? `[${shownHost}]` : shownHost}:${port}`;
   log(`ReelForge Studio ${SERVER_VERSION} listening on ${url} (data: ${config.dataDir})`);
-  if (role === 'worker') log(`role worker: renders jobs from the database queue (worker ${service.jobs.workerId}, ${service.jobs.concurrency} at a time); serves only /healthz, /readyz and /metrics`);
+  if (role === 'worker') {
+    log(`role worker: renders jobs from the database queue (worker ${service.jobs.workerId}, ${service.jobs.concurrency} at a time); serves only /healthz, /readyz and /metrics`);
+    log('licence: this worker never calls the licence server; it applies the licence state the api instances store in the database (re-read every minute)');
+  }
   else log(`REST ${url}/v1  MCP ${url}/mcp`);
   log(`role: ${role}; job queue: ${service.jobs.mode}${service.jobs.mode === 'database' ? ` (worker ${service.jobs.workerId}, ${service.jobs.runJobs ? `renders ${service.jobs.concurrency} at a time` : 'enqueues only, never renders'})` : ''}`);
   log(`database: ${db.kind} ${db.displayUrl}`);

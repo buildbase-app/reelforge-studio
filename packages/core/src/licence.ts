@@ -1,4 +1,5 @@
 import { createHmac, hkdfSync, randomUUID, timingSafeEqual } from 'node:crypto';
+import { hostname } from 'node:os';
 import { ApiError } from './errors';
 import type { RuntimeConfig } from './config/runtime';
 import type { LicenceRepository, LicenceStateRecord, Repositories } from './repositories';
@@ -12,12 +13,21 @@ import type { LicenceRepository, LicenceStateRecord, Repositories } from './repo
  * instance id (created once, stored in the database) are ever sent.
  *
  *   - activate on first start and whenever the key changes;
- *   - validate at start and then daily;
+ *   - validate daily (and at start when the stored answer is not fresh);
  *   - the last good answer and its time are stored (LicenceState), so the
  *     server keeps rendering for up to `offlineGraceDays` (14) while the
  *     licence server cannot be reached;
  *   - start-up never waits for the network; a render waits briefly for a
  *     check that is already running.
+ *
+ * Several instances on one database (D-098): one deployment = one shared
+ * LicenceState = one activation, however many instances run. The automatic
+ * checks (start, daily, key change) are single flight per deployment: an
+ * instance first takes the check with a compare-and-set on `nextCheckAt`
+ * (LicenceRepository.claimCheck), so N api instances make one call a day;
+ * the others read the stored, sealed state. A `worker` instance (`readOnly`)
+ * never calls the licence server: it reads the stored state every minute and
+ * applies it like the api would.
  */
 
 // ---- the licence server's contract ---------------------------------------------
@@ -175,7 +185,7 @@ export interface LicenceReport {
   /** Whether render_project / preview_scene are allowed right now. */
   renderAllowed: boolean;
   mode: LicenceMode;
-  /** null when valid; a BuildBase reason (revoked, limit_reached, ...) or grace_expired, unreachable, clock_skew, state_untrusted, deactivated, no_key, not_checked. */
+  /** null when valid; a BuildBase reason (revoked, limit_reached, ...) or grace_expired, unreachable, clock_skew, state_untrusted, deactivated, no_key, not_checked, waiting_for_api (worker). */
   reason: string | null;
   message: string;
   /** What to do about it, when something is wrong. */
@@ -187,6 +197,10 @@ export interface LicenceReport {
   keySource: string | null;
   instanceId: string;
   lastCheckedAt: string | null;
+  /** Which instance of the deployment ran the last licence check (D-098). */
+  checkedBy: string | null;
+  /** Whether this instance calls the licence server (api / all) or only reads the stored state (worker, D-098). */
+  checksLicenceServer: boolean;
   lastSuccessAt: string | null;
   /** Renders keep working until then without reaching the licence server. */
   graceUntil: string | null;
@@ -210,6 +224,10 @@ const BACKOFF_MAX_MS = 6 * 3_600_000;
 const RENDER_WAIT_MS = 20_000;
 /** How often a running server records the latest clock time it has seen (besides every start and check). */
 const CLOCK_MARK_INTERVAL_MS = 3_600_000;
+/** How often an instance re-reads the stored state (a check another instance ran; workers). */
+const REFRESH_MS = 60_000;
+/** How long an instance holds the deployment's licence check (D-098); another instance takes over after it. */
+const CHECK_LEASE_MS = 2 * 60_000;
 
 /** "ABCDE-FGHJK-..." → "ABCDE-*****-...": the first group only. */
 export function maskLicenceKey(key: string): string {
@@ -281,6 +299,12 @@ function explain(reason: string, ctx: { host: string; graceDays: number; lastSuc
       };
     case 'not_checked':
       return { message: 'The licence key has not been checked yet.', fix: `Wait a moment, or check at once with ${ACTIVATE_HOW}.` };
+    case 'waiting_for_api':
+      return {
+        message:
+          'This worker has not found a licence check in the shared database yet. Workers never call the licence server: an api (or all) instance checks the licence and stores the result, and workers read it.',
+        fix: `Start an api instance on the same database with the licence key, or activate it there with ${ACTIVATE_HOW}. This worker starts claiming render jobs within a minute of a successful check.`,
+      };
     default:
       return { message: `The licence server refused the licence key (${reason}).`, fix: 'Contact ReelForge support with this reason.' };
   }
@@ -381,6 +405,15 @@ export interface LicenceManagerOptions {
   timers?: boolean;
   /** security.secretKey: keys the seal of the stored state (D-089). */
   sealSecret?: string;
+  /**
+   * Worker role (D-098): never call the licence server, only read the stored
+   * state (every `refreshMs`) and apply it. Never writes the state.
+   */
+  readOnly?: boolean;
+  /** This instance's name in `checkedBy` (default `<hostname>-<pid>`; the server passes its worker id). */
+  instanceName?: string;
+  /** How often the stored state is re-read (default 60 s). */
+  refreshMs?: number;
 }
 
 /**
@@ -396,17 +429,28 @@ export class LicenceManager {
   private pending = false;
   private timer: NodeJS.Timeout | null = null;
   private clockTimer: NodeJS.Timeout | null = null;
+  private refreshTimer: NodeJS.Timeout | null = null;
   private failures = 0;
   private stopped = false;
   private lastLogged = '';
   private readonly now: () => number;
   private readonly interval: number;
   private readonly log: NonNullable<LicenceManagerOptions['log']>;
+  private readonly name: string;
+  /** When this instance got its current key (start or key change): a check of another key stored later is a conflict. */
+  private keySeenAt = 0;
+  private conflictLogged = false;
 
   constructor(private readonly opts: LicenceManagerOptions) {
     this.now = opts.now ?? Date.now;
     this.interval = opts.checkIntervalMs ?? DAY;
     this.log = opts.log ?? (() => undefined);
+    this.name = opts.instanceName ?? `${hostname()}-${process.pid}`;
+  }
+
+  /** Whether this instance only reads the stored state (worker role, D-098). */
+  get readOnly(): boolean {
+    return Boolean(this.opts.readOnly);
   }
 
   get mode(): LicenceMode {
@@ -422,9 +466,15 @@ export class LicenceManager {
   private verify(stored: LicenceStateRecord): LicenceStateRecord & { serverTimeAt?: string } {
     const { state, untrusted } = unsealLicenceState(stored, this.opts.sealSecret);
     if (untrusted && !this.untrusted) {
-      this.log('error', 'licence: the stored licence state failed its integrity check (changed outside ReelForge, REELFORGE_SECRET_KEY changed, or written by an older version); an online licence check is needed before renders are allowed again.');
+      this.log(
+        'error',
+        this.readOnly
+          ? 'licence: the stored licence state failed its integrity check (changed outside ReelForge, or this worker has a different REELFORGE_SECRET_KEY than the api instances); this worker claims no render jobs until it reads a valid state.'
+          : 'licence: the stored licence state failed its integrity check (changed outside ReelForge, REELFORGE_SECRET_KEY changed, or written by an older version); an online licence check is needed before renders are allowed again.'
+      );
     }
-    if (untrusted) this.untrusted = true;
+    // Untrusted until a trusted state with an answer is read: this instance's or another instance's check (D-098).
+    this.untrusted = untrusted || (this.untrusted && !(state.answer || state.lastSuccessAt));
     return state;
   }
 
@@ -434,9 +484,33 @@ export class LicenceManager {
 
   /** Read (or create, once) the stored state and record the clock (markClock). No network. */
   async init(): Promise<void> {
+    this.keySeenAt = this.now();
     this.state = this.verify(await this.opts.repo.init((this.opts.newInstanceId ?? newInstanceId)(), new Date(this.now()).toISOString()));
     if (this.opts.mode === 'trial') this.log('warn', 'licence: licence.mode "trial" is not built yet; behaving as "required"');
+    if (this.readOnly) {
+      // A worker only reads (D-098); the clock check against the stored marker still applies in report().
+      this.announce();
+      return;
+    }
     await this.markClock('start');
+  }
+
+  /** Re-read the stored state (another instance's check, D-098). No network, no write. */
+  async refresh(): Promise<LicenceReport> {
+    const stored = await this.load();
+    if (stored && !this.inflight) {
+      this.state = stored;
+      if (this.pending && this.hasOutcome(stored)) this.pending = false;
+    }
+    this.announce();
+    return this.report();
+  }
+
+  /** Whether the stored state holds a check result for the configured key. */
+  private hasOutcome(s: LicenceStateRecord): boolean {
+    if (this.readOnly) return Boolean(s.keyHash && (s.answer || s.lastError || s.lastSuccessAt || s.deactivatedAt));
+    const key = this.opts.key().value?.trim();
+    return Boolean(key && s.keyHash === licenceKeyHash(key, s.instanceId) && (s.answer || s.lastError || s.lastSuccessAt));
   }
 
   /**
@@ -447,6 +521,7 @@ export class LicenceManager {
    * that passes while the server is stopped (docs/DEPLOY.md#licence).
    */
   async markClock(why: 'start' | 'timer' = 'timer'): Promise<void> {
+    if (this.readOnly) return;
     if (this.inflight) return; // a check is about to store the state (and the marker) anyway
     const stored = (await this.load()) ?? this.state;
     if (!stored) return;
@@ -465,8 +540,9 @@ export class LicenceManager {
     }
     const next = { ...stored, highWaterAt: this.iso(now), updatedAt: this.iso(now) };
     if (this.inflight) return;
-    await this.save(next);
-    this.state = next;
+    // Compare-and-set: never write back an older state over a check another instance just stored.
+    if (await this.opts.repo.save(sealLicenceState(next, this.opts.sealSecret), { ifUpdatedAt: stored.updatedAt })) this.state = next;
+    else this.state = (await this.load()) ?? stored;
   }
 
   get instanceId(): string {
@@ -474,13 +550,23 @@ export class LicenceManager {
     return this.state.instanceId;
   }
 
-  /** Start the background check (activate or validate) without waiting for it, then daily. */
+  /**
+   * Start the background check (activate or validate) without waiting for it,
+   * then daily; single flight per deployment (D-098). A worker (readOnly)
+   * only re-reads the stored state.
+   */
   start(): void {
     this.stopped = false;
-    void this.check('start').catch(() => undefined);
-    if (this.opts.timers !== false && !this.clockTimer) {
+    void this.check('start', { claim: true }).catch(() => undefined);
+    if (this.opts.timers === false) return;
+    if (!this.clockTimer && !this.readOnly) {
       this.clockTimer = setInterval(() => void this.markClock('timer').catch(() => undefined), CLOCK_MARK_INTERVAL_MS);
       this.clockTimer.unref?.();
+    }
+    if (!this.refreshTimer) {
+      // Re-read what another instance stored; an api instance also takes a check that is due (robust to timer drift and sleep).
+      this.refreshTimer = setInterval(() => void this.check('refresh', { claim: true }).catch(() => undefined), this.opts.refreshMs ?? REFRESH_MS);
+      this.refreshTimer.unref?.();
     }
   }
 
@@ -490,11 +576,19 @@ export class LicenceManager {
     this.timer = null;
     if (this.clockTimer) clearInterval(this.clockTimer);
     this.clockTimer = null;
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    this.refreshTimer = null;
   }
 
-  /** The configured key changed (update_config / activate_licence): check it now, in the background. */
+  /**
+   * The configured key changed (update_config / activate_licence, or another
+   * instance's change reached this one): check it now, in the background,
+   * unless another instance already did (D-098).
+   */
   keyChanged(): void {
-    void this.check('key changed').catch(() => undefined);
+    this.keySeenAt = this.now();
+    this.conflictLogged = false;
+    void this.check('key changed', { claim: true }).catch(() => undefined);
   }
 
   private schedule(at: number) {
@@ -504,7 +598,7 @@ export class LicenceManager {
     const delay = Math.min(Math.max(0, at - this.now()), 2 ** 31 - 1);
     this.timer = setTimeout(() => {
       this.timer = null;
-      void this.check('scheduled').catch(() => undefined);
+      void this.check('scheduled', { claim: true }).catch(() => undefined);
     }, delay);
     this.timer.unref?.();
   }
@@ -517,11 +611,15 @@ export class LicenceManager {
    * Activate (first time for this key, or after the activation was lost) or
    * validate the configured key. Single flight: a call while a check runs
    * gets that check's result. `force` also activates a deactivated key.
+   * `claim` (the automatic checks): only when the deployment's check is due
+   * and this instance wins it (D-098); otherwise the stored state is used.
+   * A readOnly manager (worker) never calls the licence server: it re-reads.
    */
-  check(why = 'manual', opts: { force?: boolean } = {}): Promise<LicenceReport> {
+  check(why = 'manual', opts: { force?: boolean; claim?: boolean } = {}): Promise<LicenceReport> {
     if (this.inflight && !opts.force) return this.inflight;
+    if (this.readOnly) return this.refresh();
     this.pending = true;
-    const run = (this.inflight ?? Promise.resolve()).catch(() => undefined).then(() => this.doCheck(why, Boolean(opts.force)));
+    const run = (this.inflight ?? Promise.resolve()).catch(() => undefined).then(() => this.doCheck(why, Boolean(opts.force), Boolean(opts.claim) && !opts.force));
     const p = run.finally(() => {
       if (this.inflight === p) this.inflight = null;
     });
@@ -529,9 +627,9 @@ export class LicenceManager {
     return p;
   }
 
-  private async doCheck(why: string, force: boolean): Promise<LicenceReport> {
+  private async doCheck(why: string, force: boolean, claim: boolean): Promise<LicenceReport> {
     if (!this.state) await this.init();
-    // Another process (the CLI) may have changed the stored state.
+    // Another process (another instance, the CLI) may have changed the stored state.
     const stored = await this.load();
     let s: LicenceStateRecord & { serverTimeAt?: string } = { ...(stored ?? this.state!) };
     const key = this.opts.key().value?.trim();
@@ -543,6 +641,33 @@ export class LicenceManager {
       return this.report();
     }
     const hash = licenceKeyHash(key, s.instanceId);
+    // The next check that was planned before this one (lease and backoff across instances).
+    const plannedAt = s.nextCheckAt ? Date.parse(s.nextCheckAt) : undefined;
+    if (claim && !(s.keyHash === hash && s.deactivatedAt)) {
+      // Single flight per deployment (D-098): due, or nothing usable is stored for this key and no other instance is
+      // about to check (a check planned within the lease window is a lease held by another instance, or a retry).
+      const usable = s.keyHash === hash && !this.untrusted && Boolean(s.answer || s.lastError);
+      const due = plannedAt === undefined || plannedAt <= now;
+      // Another instance checked a different key since this one got its key: instances disagree on the key. Taking the
+      // check would alternate activations between the keys on every refresh, so wait for the operator to fix it.
+      const conflict = Boolean(s.keyHash && s.keyHash !== hash && s.lastCheckedAt && Date.parse(s.lastCheckedAt) >= this.keySeenAt);
+      if (conflict && !this.conflictLogged) {
+        this.conflictLogged = true;
+        this.log('error', `licence: another instance of this deployment checked a different licence key at ${s.lastCheckedAt}; every instance must use the same key (licence.key). This instance does not check its own key, so that the two keys do not take turns.`);
+      }
+      const take = due || (!usable && !conflict && plannedAt > now + 2 * CHECK_LEASE_MS);
+      // orLaterThan only for "nothing usable stored": a due check is taken only while it is still due.
+      const won =
+        take && (await this.opts.repo.claimCheck({ now: this.iso(now), leaseUntil: this.iso(now + CHECK_LEASE_MS), ...(due ? {} : { orLaterThan: this.iso(now + 2 * CHECK_LEASE_MS) }) }));
+      if (!won) {
+        // Another instance checks (or already did): use what it stores; "checking" while its first check for this key runs.
+        this.state = stored ?? this.state;
+        this.pending = !conflict && !this.hasOutcome(this.state!);
+        this.schedule(take || !usable ? now + CHECK_LEASE_MS + Math.round(Math.random() * 5_000) : plannedAt! + Math.round(Math.random() * 5_000));
+        this.announce();
+        return this.report();
+      }
+    }
     if (s.keyHash !== hash) {
       // A different key: nothing stored applies to it.
       s = { instanceId: s.instanceId, keyHash: hash, ...(s.highWaterAt ? { highWaterAt: s.highWaterAt } : {}), updatedAt: this.iso(now) };
@@ -563,7 +688,7 @@ export class LicenceManager {
       // The activation was freed elsewhere (seller reset, store account): take a slot again.
       if (!activate && !answer.valid && answer.reason === 'not_activated') answer = await this.opts.api.activate(key, s.instanceId);
       const at = this.now();
-      s.answer = sanitize(answer);
+      s.answer = { ...sanitize(answer), checkedBy: this.name };
       s.lastCheckedAt = this.iso(at);
       delete s.lastError;
       // The licence server's clock: a local clock behind it gets no grace (clock_skew).
@@ -586,10 +711,12 @@ export class LicenceManager {
       const err =
         e instanceof LicenceServerError ? e : new LicenceServerError('unreachable', `licence check failed (${(e as Error)?.message ?? String(e)})`);
       this.failures++;
-      const backoff = Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** (this.failures - 1));
+      // The check may move between instances (D-098): double the wait the stored state planned after its last failure, too.
+      const planned = claim && s.lastError && plannedAt !== undefined ? plannedAt - Date.parse(s.lastError.at) : 0;
+      const backoff = Math.min(BACKOFF_MAX_MS, Math.max(BACKOFF_BASE_MS * 2 ** (this.failures - 1), planned > 0 ? planned * 2 : 0));
       const wait = Math.max(backoff, (err.retryAfterSeconds ?? 0) * 1000);
       s.lastCheckedAt = this.iso(at);
-      s.lastError = { kind: err.kind, message: err.message, ...(err.status ? { status: err.status } : {}), ...(err.code ? { code: err.code } : {}), at: this.iso(at) };
+      s.lastError = { kind: err.kind, message: err.message, ...(err.status ? { status: err.status } : {}), ...(err.code ? { code: err.code } : {}), at: this.iso(at), by: this.name };
       s.highWaterAt = this.iso(Math.max(at, s.highWaterAt ? Date.parse(s.highWaterAt) : 0));
       // Jitter (up to 10 %) so many servers behind one outage do not retry together.
       s.nextCheckAt = this.iso(at + Math.round(wait * (1 + Math.random() * 0.1)));
@@ -620,8 +747,9 @@ export class LicenceManager {
     const sig = `${r.status}|${r.reason}|${r.status === 'grace' ? r.lastError?.at : ''}`;
     if (sig === this.lastLogged) return;
     this.lastLogged = sig;
-    const level = r.status === 'valid' ? 'info' : r.status === 'grace' || r.renderAllowed || r.reason === 'deactivated' ? 'warn' : 'error';
-    this.log(level, why && why !== 'scheduled' && r.status === 'valid' ? `${line} [${why}]` : line);
+    const level = r.status === 'valid' ? 'info' : r.status === 'grace' || r.renderAllowed || r.reason === 'deactivated' || r.reason === 'waiting_for_api' ? 'warn' : 'error';
+    const suffix = this.readOnly ? ' [worker: read from the shared database; workers never call the licence server]' : why && why !== 'scheduled' && r.status === 'valid' ? ` [${why}]` : '';
+    this.log(level, `${line}${suffix}`);
   }
 
   /** The current status, from the stored state and the clock. */
@@ -635,7 +763,8 @@ export class LicenceManager {
     const now = this.now();
     const graceMs = this.opts.graceDays * DAY;
     const host = safeHost(this.opts.licenceServer.url);
-    const forKey = Boolean(key) && s.keyHash === licenceKeyHash(key!, s.instanceId);
+    // A worker applies whatever the api instances checked and stored (it may not know the key itself, D-098).
+    const forKey = this.readOnly ? Boolean(s.keyHash) : Boolean(key) && s.keyHash === licenceKeyHash(key!, s.instanceId);
     const answer = forKey ? (s.answer as LicenceAnswer | undefined) : undefined;
     const lastSuccess = forKey && s.lastSuccessAt ? Date.parse(s.lastSuccessAt) : undefined;
     const lastError = forKey ? (s.lastError ?? null) : null;
@@ -649,7 +778,11 @@ export class LicenceManager {
     let status: LicenceStatus;
     let reason: string | null = null;
     let graceUntil: number | undefined;
-    if (!key) {
+    if (this.readOnly && !forKey) {
+      status = 'checking';
+      reason = this.untrusted ? 'state_untrusted' : 'waiting_for_api';
+      if (this.untrusted) status = 'invalid';
+    } else if (!key && !this.readOnly) {
       status = 'unlicensed';
       reason = 'no_key';
     } else if (forKey && s.deactivatedAt) {
@@ -663,9 +796,12 @@ export class LicenceManager {
       if (lastError) {
         status = 'invalid';
         reason = this.untrusted ? 'state_untrusted' : 'unreachable';
+      } else if (this.untrusted) {
+        status = this.pending ? 'checking' : 'invalid';
+        reason = this.pending ? null : 'state_untrusted';
       } else {
         status = this.pending ? 'checking' : 'invalid';
-        reason = this.pending ? null : 'not_checked';
+        reason = this.pending ? null : this.readOnly ? 'waiting_for_api' : 'not_checked';
       }
     } else if (!clockOk) {
       status = 'invalid';
@@ -702,9 +838,11 @@ export class LicenceManager {
       keySource: key ? (k.source ?? null) : null,
       instanceId: s.instanceId,
       lastCheckedAt: forKey ? (s.lastCheckedAt ?? null) : null,
+      checkedBy: forKey ? (s.lastError?.by ?? (typeof s.answer?.checkedBy === 'string' ? s.answer.checkedBy : null)) : null,
+      checksLicenceServer: !this.readOnly,
       lastSuccessAt: forKey ? (s.lastSuccessAt ?? null) : null,
       graceUntil: graceUntil !== undefined ? new Date(graceUntil).toISOString() : null,
-      nextCheckAt: key && !s.deactivatedAt ? (s.nextCheckAt ?? null) : null,
+      nextCheckAt: (key || this.readOnly) && !s.deactivatedAt ? (s.nextCheckAt ?? null) : null,
       item: answer?.item ? { id: answer.item.id, title: answer.item.title } : null,
       activations: ak ? { used: ak.activations, limit: ak.activationLimit } : null,
       expiresAt: ak?.expiresAt ?? null,
@@ -740,7 +878,9 @@ export class LicenceManager {
       await Promise.race([this.inflight.catch(() => undefined), new Promise((r) => (t = setTimeout(r, RENDER_WAIT_MS)))]);
       clearTimeout(t);
     }
-    const r = this.report();
+    let r = this.report();
+    // Another instance of the deployment may have checked since this one last read the state (D-098).
+    if (!r.renderAllowed && !this.inflight) r = await this.refresh().catch(() => r);
     if (r.renderAllowed) return;
     const code = r.status === 'unlicensed' ? 'licence_required' : 'licence_invalid';
     throw new ApiError(code, 403, `Rendering is disabled: ${r.message}${r.fix ? ` Fix: ${r.fix}` : ''} Existing projects and renders can still be read, listed and downloaded.`, {
@@ -755,6 +895,7 @@ export class LicenceManager {
 
   /** Give this server's activation back. The key stays configured but is not activated again by itself. */
   async deactivate(): Promise<LicenceReport> {
+    if (this.readOnly) throw new ApiError('licence_read_only', 409, 'This worker never calls the licence server; deactivate the licence on an api instance.');
     if (this.inflight) await this.inflight.catch(() => undefined);
     if (!this.state) await this.init();
     const key = this.opts.key().value?.trim();
@@ -782,6 +923,7 @@ export class LicenceManager {
     delete s.activatedAt;
     delete s.lastError;
     delete s.nextCheckAt;
+    s.answer = { ...s.answer, checkedBy: this.name };
     await this.save(s);
     this.state = s;
     if (this.timer) clearTimeout(this.timer);
@@ -798,7 +940,7 @@ export class LicenceManager {
 export function createLicenceManager(
   settings: RuntimeConfig,
   repos: Repositories,
-  opts: { api?: LicenceApi; fetch?: typeof fetch; now?: () => number; checkIntervalMs?: number; timers?: boolean; log?: LicenceManagerOptions['log'] } = {}
+  opts: Pick<LicenceManagerOptions, 'now' | 'checkIntervalMs' | 'timers' | 'log' | 'readOnly' | 'instanceName' | 'refreshMs'> & { api?: LicenceApi; fetch?: typeof fetch } = {}
 ): LicenceManager {
   const lc = settings.config.licence;
   return new LicenceManager({
@@ -818,6 +960,9 @@ export function createLicenceManager(
     timers: opts.timers,
     log: opts.log,
     sealSecret: settings.config.security.secretKey,
+    readOnly: opts.readOnly,
+    instanceName: opts.instanceName,
+    refreshMs: opts.refreshMs,
   });
 }
 

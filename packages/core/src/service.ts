@@ -22,7 +22,7 @@ import { AssetStore } from './assets';
 import { LocalBackend } from './backends/local';
 import { ApiError, badRequest, invalidManifest, notFound } from './errors';
 import { newId, readJson, writeJsonAtomic } from './fsutil';
-import { JobRunner, QuotaExceeded, type DatabaseQueueOptions, type JobContext, type JobRecord, type QueueMode } from './jobs';
+import { JobRunner, QuotaExceeded, defaultWorkerId, type DatabaseQueueOptions, type JobContext, type JobRecord, type QueueMode } from './jobs';
 
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
@@ -105,6 +105,8 @@ export interface ServiceConfig {
     fetch?: typeof fetch;
     now?: () => number;
     checkIntervalMs?: number;
+    /** How often the stored licence state is re-read (default 60 s; tests shorten it). */
+    refreshMs?: number;
     /** Run the first check and the daily schedule (default true). */
     start?: boolean;
   };
@@ -305,12 +307,17 @@ export class ReelforgeService {
     const queueMode = config.queue?.mode ?? effectiveQueueMode(cfg.server.role, cfg.queue.driver);
     // Several instances must verify each other's signed links: derive the key from REELFORGE_SECRET_KEY when it is set.
     this.signer = new UrlSigner(this.dataDir, queueMode === 'database' ? cfg.security.secretKey : undefined);
+    const workerId = config.queue?.workerId ?? defaultWorkerId();
     this.licence = createLicenceManager(this.settings, this.repos, {
       api: config.licence?.api,
       fetch: config.licence?.fetch,
       now: config.licence?.now,
       checkIntervalMs: config.licence?.checkIntervalMs,
+      refreshMs: config.licence?.refreshMs,
       log: config.log,
+      // D-098: only api/all instances call the licence server (single flight per deployment); a worker reads the stored state.
+      readOnly: cfg.server.role === 'worker',
+      instanceName: workerId,
     });
     this.jobs = new JobRunner({
       repo: this.repos.jobs,
@@ -324,8 +331,14 @@ export class ReelforgeService {
         maxAttempts: cfg.queue.maxAttempts,
         pollMs: cfg.queue.pollIntervalMs,
         // Renders would only fail while the bucket is down: wait instead of burning attempts.
-        canClaim: () => this.storageReady(),
+        // A worker also claims nothing while the stored licence state disallows renders (D-098; the enqueue gate stays).
+        canClaim: async () => {
+          const lic = this.licence.report();
+          if (!lic.renderAllowed) return { ok: false, reason: `the licence does not allow renders (${lic.status}${lic.reason ? `, ${lic.reason}` : ''}): ${lic.message}` };
+          return this.storageReady();
+        },
         ...config.queue,
+        workerId,
       },
       log: (level, line) => config.log?.(level, line),
     });
