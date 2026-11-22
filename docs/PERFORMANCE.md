@@ -79,7 +79,7 @@ finding 8: [full run with a total queue cap](performance/2026-11-22-shared-sandb
 | CRUD req/s, full mix (create/update/get/list, get_job, list_renders), 200 keys | **297 req/s**, p50 208 ms, p95 332 ms, p99 426 ms, **0 errors** (PgBouncer: 285 req/s, p95 345 ms) |
 | CRUD req/s, steady mix (no create, no list) | **757 req/s**, p95 129 ms, 0 errors (PgBouncer: 681 req/s, p95 143 ms) |
 | One hot key at the default 300/min | 1 230 answers/s, of which 9.6/s 2xx and 36 609 `429` in 30 s, **0 errors**: the limiter answers fast and is counted apart |
-| What limits CRUD here | the **api processes' CPU** (each at 89 to 97 % of one core), then list_projects, which is unpaginated (finding 1); DB CPU stayed at ~1 vCPU of 4 |
+| What limits CRUD here | the **api processes' CPU** (each at 89 to 97 % of one core), then list_projects, which was unpaginated (finding 1, fixed by #179: [before and after](#list_projects-paging-179-before-and-after)); DB CPU stayed at ~1 vCPU of 4 |
 | Statements per CRUD request | **6** (5.7 for reads): key lookup, rate-limit UPDATE + SELECT, the work, an audit row for writes |
 | 500 renders during the CRUD mix, 50 workers | **550 jobs, 0 lost, 0 duplicated**, 1 `running` event per attempt, 0 re-claims; queue wait p50/p95/p99 **213 / 463 / 637 ms** (PgBouncer 265 / 527 / 710 ms) |
 | Real short reel during the CRUD mix | succeeded on attempt 1, H.264 1080×1920, 30 frames; exactly-once still holds over all 551 jobs; queue wait 269 ms (smoke run: 7.7 s from enqueue to done, 6.9 s rendering on the worker) |
@@ -203,7 +203,7 @@ PgBouncer transaction-mode probes [^s]:
 Each with its evidence (all numbers [^s]). Finding 1 matters most; 2 to 6 are the hot spots #151
 listed, in its order; 7 to 10 are what the run found besides.
 
-1. **list_projects (and list_jobs) are unpaginated, and that is the first CRUD ceiling.** Every
+1. **list_projects (and list_jobs) were unpaginated, and that was the first CRUD ceiling.** Every
    `GET /v1/projects` loads every project with its current manifest
    (`packages/db/src/prisma-repositories.ts` `projects.list`, `service.listProjects`). The mix
    creates ~26 projects/s, so list grows during the run: alone on a quiet server it went from
@@ -213,6 +213,8 @@ listed, in its order; 7 to 10 are what the run found besides.
    list, because each api instance is one event loop. `list_jobs` has the same shape
    (`jobs.list`, `findMany` without a limit). Fix (API change with MCP parity, so not in this
    PR): cursor pagination with a default page size and summaries without manifests: #179.
+   **Fixed by #179 (D-102):** the full mix went from 313 to 741 req/s on the same box, now within
+   6 % of the steady mix; see [before and after](#list_projects-paging-179-before-and-after).
 2. **The per-key `RateLimitWindow` row is a hot row, but not a bottleneck at these rates.** One
    key at a high limit against 200 keys, same steady mix: **766 vs 757 req/s** (no loss). The
    row shows the contention: its `UPDATE` took **1.39 ms** on average instead of **0.057 ms**
@@ -275,6 +277,56 @@ listed, in its order; 7 to 10 are what the run found besides.
     availability on the instance that takes the call, so an `api` role without Chrome Headless
     Shell refuses renders (422, "no browser") although it never renders. The release image
     always has one, so this only bites a slimmed api image; noted for #150/#158.
+
+## list_projects paging (#179): before and after
+
+[^p]: **Conditions of every number in this section:** lower bound, shared sandbox (not dedicated).
+    The same container as above (4 vCPU Intel Xeon @ 2.10 GHz, 15.7 GiB, Linux 6.18), shared with
+    other workloads: another agent's test suites and load tests ran on the same 4 vCPU during most
+    of these runs, so the host load average (in the table, mean over the 60 s full-mix run) was 4.5
+    to 14.2 and api CPU per instance 55 to 98 %. PostgreSQL 17.12 (`mirror.gcr.io/library/postgres:17`,
+    `max_connections=600`, `shared_buffers=512MB`), direct connections only, 2 api instances ×
+    `connection_limit=10`, 64 connections, 200 keys, Node 22.23.5, 2026-11-22 16:25Z to 17:17Z.
+    Command: `LOAD_POOLERS=direct LOAD_SCENARIOS=a pnpm load` (scenario (a), full profile), run
+    against `main` at 54ca013 ("before") and this branch ("after") in alternation: three pairs,
+    each pair back to back.
+
+Raw results: [pair 1 before](performance/2026-11-22-shared-sandbox-179-pair1-before.json) /
+[after](performance/2026-11-22-shared-sandbox-179-pair1-after.json),
+[pair 2 before](performance/2026-11-22-shared-sandbox-179-pair2-before.json) /
+[after](performance/2026-11-22-shared-sandbox-179-pair2-after.json),
+[pair 3 before](performance/2026-11-22-shared-sandbox-179-pair3-before.json) /
+[after](performance/2026-11-22-shared-sandbox-179-pair3-after.json).
+
+The box was noisy [^p], so compare within a pair, and mainly the **full / steady ratio**: the full mix
+(with list and create) against the steady mix (without them) in the same run, which cancels most
+of the host noise. Before, list made the full mix 2 to 2.6 times slower than the steady mix; after,
+it is within 6 to 13 %. Pair 3 ran on the quietest box (api CPU at 88 to 94 %, as in the main run).
+
+| Pair | Version | host load (mean) | api CPU % | full mix req/s | full mix p95 ms | steady mix req/s | full / steady | list_projects in the mix: req/s, p95 ms |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | before | 4.5 | 98, 98 | 299.5 | 332 | 762.4 | 0.39 | 25.7, 341 |
+| 1 | after | 12.6 | 55, 57 | 439.4 | 254 | 473.8 | 0.93 | 53.4, 186 |
+| 2 | before | 14.2 | 55, 57 | 202.6 | 596 | 529.3 | 0.38 | 18.3, 570 |
+| 2 | after | 12.6 | 71, 71 | 542.1 | 211 | 624.1 | 0.87 | 66.1, 155 |
+| 3 | before | 8.4 | 92, 94 | **312.7** | 321 | 595.0 | 0.53 | 27.0, 335 |
+| 3 | after | 8.6 | 88, 88 | **741.3** | 139 | 789.2 | **0.94** | 90.3, 96 |
+
+list_projects on its own after the 60 s full mix [^p] (quiet server, 3 calls, median). Before, the
+default call is every project with its manifest; after, it is the first page of 50 summaries, and
+the walk follows `nextCursor` at `limit=200` to the end:
+
+| Pair | Version | projects | default call: ms | default call: bytes | walk every page: pages, ms |
+| --- | --- | --- | --- | --- | --- |
+| 1 | before | 2 362 | 65.0 | 439 098 | n/a |
+| 1 | after | 2 766 | 11.9 | 9 496 | 14, 134 |
+| 3 | before | 2 284 | 77.7 | 424 512 | n/a |
+| 3 | after | 4 736 | 6.4 | 9 496 | 24, 152 |
+
+The default call now costs the same at 4 736 projects as at 500 (9.5 KB, 5 to 12 ms); creates also
+ran faster after (the mix created 3 763 projects in its 60 s instead of 1 659). Walking every project is
+still linear in the number of projects (24 pages, ~150 ms here), as it must be. What limits CRUD
+now is the api CPU per request again (finding 9), for the full and the steady mix alike.
 
 ## PgBouncer transaction mode (#152)
 

@@ -405,6 +405,17 @@ Found and fixed: worker pods ran under `RuntimeDefault`, where Chromium's
 sandbox (on in the image, D-086) cannot start, so every html render failed on
 Kubernetes; workers now use the Localhost profile `reelforge-chrome.json`.
 
+### Paged lists (2026-11-22, issue #179)
+
+Built (D-102): `list_projects`, `list_jobs` and `list_assets` (REST and MCP) return a keyset page,
+newest first by (createdAt, id), with `limit` (default 50, max 200), an opaque `cursor` and
+`nextCursor`; a call without them gets the newest 50 (a deliberate behaviour change; the tool
+descriptions tell agents how to page). Project summaries come from columns written with each
+version, not from manifests. Migration `0008_list_paging` (columns and keyset indexes, all three
+databases). Contract tests on memory, SQLite, PostgreSQL and MySQL walk every row exactly once while
+rows are inserted. Load test, lower bound, shared sandbox (not dedicated): full CRUD mix 313 → 741
+req/s on the same box ([PERFORMANCE.md](PERFORMANCE.md#list_projects-paging-179-before-and-after)).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |
