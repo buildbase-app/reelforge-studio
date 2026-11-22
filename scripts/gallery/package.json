@@ -1,0 +1,21 @@
+{
+  "name": "@reelforge/gallery",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Showcase gallery pipeline: manifests, render over MCP, quality gate, transcode, R2 upload, BuildBase publish (docs/GALLERY.md).",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@reelforge/engine-html": "workspace:*",
+    "@reelforge/engine-hyperframes": "workspace:*",
+    "@reelforge/media-pipeline": "workspace:*",
+    "@reelforge/project-schema": "workspace:*",
+    "playwright-core": "^1.57.0",
+    "zod": "^4.1.0"
+  }
+}

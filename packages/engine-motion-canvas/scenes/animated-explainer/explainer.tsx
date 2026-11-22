@@ -1,9 +1,8 @@
-import { Circle, Layout, Rect, Txt, makeScene2D } from '@motion-canvas/2d';
+import { Layout, Rect, Txt, makeScene2D } from '@motion-canvas/2d';
 import {
   all,
   createRef,
   easeInOutCubic,
-  easeOutBack,
   easeOutCubic,
   sequence,
   useScene,
@@ -31,7 +30,7 @@ const FALLBACK: ThemeVars = {
  *
  * Layout scales with the output size (designed at 1080x1920, scaled by the
  * smaller of width/1080 and height/1920), text wraps inside the content width,
- * and the first frame already shows the title and background shapes so a
+ * and the first frame already shows the title and its underline so a
  * thumbnail is never blank. Colours and font come from the theme; the
  * `accent` and `background` props override it.
  *
@@ -58,28 +57,11 @@ export default makeScene2D(function* (view) {
 
   const titleRef = createRef<Txt>();
   const underline = createRef<Rect>();
-  const glow = createRef<Circle>();
   const rows = points.map(() => createRef<Layout>());
   const titleSize = (title.length > 24 ? 92 : 110) * s;
   const pointSize = (points.some((p) => p.length > 40) ? 54 : 64) * s;
   const badge = 72 * s;
   const gap = 32 * s;
-
-  // Background shapes: visible from frame 0.
-  view.add(
-    <Circle
-      ref={glow}
-      width={width * 0.9}
-      height={width * 0.9}
-      x={width * 0.42}
-      y={-height * 0.38}
-      fill={accent}
-      opacity={0.18}
-    />
-  );
-  view.add(
-    <Circle width={width * 0.55} height={width * 0.55} x={-width * 0.45} y={height * 0.42} fill={theme.colors.accent2} opacity={0.12} />
-  );
 
   view.add(
     <Layout layout direction="column" gap={52 * s} width={contentWidth} alignItems="start">
@@ -135,13 +117,12 @@ export default makeScene2D(function* (view) {
   yield* all(
     titleRef().opacity(1, titleTime * 0.8, easeOutCubic),
     titleRef().x(0, titleTime * 0.8, easeOutCubic),
-    underline().width(260 * s, titleTime, easeInOutCubic),
-    glow().scale(1.06, titleTime, easeOutCubic)
+    underline().width(260 * s, titleTime, easeInOutCubic)
   );
   yield* sequence(
     perPoint,
     ...rows.map((row) =>
-      all(row().opacity(1, perPoint * 0.9, easeOutCubic), row().x(0, perPoint * 0.9, easeOutBack))
+      all(row().opacity(1, perPoint * 0.9, easeOutCubic), row().x(0, perPoint * 0.9, easeOutCubic))
     )
   );
   yield* waitFor(holdTime);

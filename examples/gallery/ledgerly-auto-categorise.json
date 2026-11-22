@@ -1,0 +1,87 @@
+{
+  "gallery": {
+    "slug": "ledgerly-auto-categorise",
+    "title": "Ledgerly auto-categorise",
+    "description": "A feature reel for Ledgerly, a fictional bookkeeping app: transactions sort themselves into categories.",
+    "category": "SaaS feature demo",
+    "tags": [
+      "saas",
+      "finance",
+      "automation"
+    ],
+    "prompt": "A feature reel for Ledgerly, a fictional bookkeeping app: transactions sort themselves into categories. Show a notification stack, a bar chart of categories, and a two-point summary. 15 seconds, fresh green palette.",
+    "palette": "mint",
+    "theme": "midnight + inline tokens (Fern)",
+    "engines": [
+      "html",
+      "motion-canvas"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 14.5
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "ledgerly-auto-categorise",
+    "title": "Ledgerly auto-categorise",
+    "brief": {
+      "title": "Ledgerly auto-categorise",
+      "goal": "A feature reel for Ledgerly, a fictional bookkeeping app: transactions sort themselves into categories. Show a notification stack, a bar chart of categories, and a two-point summary. 15 seconds, fresh green palette.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 14.5
+    },
+    "theme": {
+      "base": "midnight",
+      "tokens": {
+        "colors": {
+          "background": "#0f1412",
+          "surface": "#18201c",
+          "text": "#eef4f0",
+          "mutedText": "#a3b2aa",
+          "accent": "#3ddc97",
+          "accent2": "#7f8f87"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-notifications",
+        "engine": "html",
+        "durationSeconds": 4.5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"nt-hd\"><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.1s\">Receipts</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.16s\">in.</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.22s\">Books</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.28s\">done</span></span></span></div><div class=\"nts\"><div class=\"nt\" style=\"animation-delay:0.7s\"><svg class=\"bm\" width=\"84\" height=\"84\" viewBox=\"0 0 64 64\"><rect x=\"8\" y=\"8\" width=\"22\" height=\"22\" rx=\"6\" fill=\"var(--rf-accent)\"/><rect x=\"34\" y=\"8\" width=\"22\" height=\"22\" rx=\"11\" fill=\"var(--rf-accent)\"/><rect x=\"8\" y=\"34\" width=\"22\" height=\"22\" rx=\"11\" fill=\"var(--rf-accent)\"/><rect x=\"34\" y=\"34\" width=\"22\" height=\"22\" rx=\"6\" fill=\"var(--rf-accent)\"/></svg><div><div class=\"nt-a\">Ledgerly<span>9:02</span></div><div class=\"nt-t\">Coffee beans → Supplies</div></div></div><div class=\"nt\" style=\"animation-delay:1.3s\"><svg class=\"bm\" width=\"84\" height=\"84\" viewBox=\"0 0 64 64\"><rect x=\"8\" y=\"8\" width=\"22\" height=\"22\" rx=\"6\" fill=\"var(--rf-accent)\"/><rect x=\"34\" y=\"8\" width=\"22\" height=\"22\" rx=\"11\" fill=\"var(--rf-accent)\"/><rect x=\"8\" y=\"34\" width=\"22\" height=\"22\" rx=\"11\" fill=\"var(--rf-accent)\"/><rect x=\"34\" y=\"34\" width=\"22\" height=\"22\" rx=\"6\" fill=\"var(--rf-accent)\"/></svg><div><div class=\"nt-a\">Ledgerly<span>9:15</span></div><div class=\"nt-t\">Train ticket → Travel</div></div></div><div class=\"nt\" style=\"animation-delay:1.9s\"><svg class=\"bm\" width=\"84\" height=\"84\" viewBox=\"0 0 64 64\"><rect x=\"8\" y=\"8\" width=\"22\" height=\"22\" rx=\"6\" fill=\"var(--rf-accent)\"/><rect x=\"34\" y=\"8\" width=\"22\" height=\"22\" rx=\"11\" fill=\"var(--rf-accent)\"/><rect x=\"8\" y=\"34\" width=\"22\" height=\"22\" rx=\"11\" fill=\"var(--rf-accent)\"/><rect x=\"34\" y=\"34\" width=\"22\" height=\"22\" rx=\"6\" fill=\"var(--rf-accent)\"/></svg><div><div class=\"nt-a\">Ledgerly<span>10:40</span></div><div class=\"nt-t\">Laptop → Equipment</div></div></div></div></div></div><div class=\"tx tx-out\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#4c5a53;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;}.cam{position:absolute;inset:0;animation:st-cam 4.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-out{transform:translateY(101%);animation:tx-out 0.5s cubic-bezier(.76,0,.24,1) 4s both}@keyframes tx-out{to{transform:translateY(0)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.nt-hd{position:absolute;left:90px;right:90px;top:250px;font-size:100px;font-weight:var(--rf-heading-weight);letter-spacing:-.045em;line-height:.95}\n.nts{position:absolute;left:70px;right:70px;top:640px;display:flex;flex-direction:column;gap:26px}\n.nt{display:flex;gap:28px;align-items:center;padding:32px;border-radius:40px;background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 8%,transparent);animation:nt-in .8s cubic-bezier(.16,1,.3,1) both}\n@keyframes nt-in{from{transform:translateY(-60px);opacity:0}}\n.nt .bm{flex:none;border-radius:22px}\n.nt>div{flex:1}\n.nt-a{display:flex;justify-content:space-between;font-size:30px;font-weight:600;color:var(--rf-muted);letter-spacing:.06em}.nt-a span{text-transform:none;letter-spacing:0;font-weight:500}\n.nt-t{margin-top:8px;font-size:40px;font-weight:600;line-height:1.2}",
+        "notes": "agent-written html scene (notifications)"
+      },
+      {
+        "id": "s2-bars",
+        "engine": "html",
+        "durationSeconds": 5,
+        "html": "<div class=\"bd\"><div class=\"bd-grid\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><h2><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.45s\">This</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.5s\">month</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.55s\">by</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.6s\">category</span></span></span></h2><div class=\"rows\"><div class=\"row\"><div class=\"rl slide-l\" style=\"animation-delay:0.85s\">Supplies</div><div class=\"track\"><div class=\"fill\" style=\"width:59%;animation-delay:0.95s\"></div><div class=\"val fade\" style=\"animation-delay:1.05s\"><span class=\"cnt n8\"></span></div></div></div><div class=\"row\"><div class=\"rl slide-l\" style=\"animation-delay:1.03s\">Travel</div><div class=\"track\"><div class=\"fill\" style=\"width:41%;animation-delay:1.13s\"></div><div class=\"val fade\" style=\"animation-delay:1.23s\"><span class=\"cnt n9\"></span></div></div></div><div class=\"row\"><div class=\"rl slide-l\" style=\"animation-delay:1.21s\">Software</div><div class=\"track\"><div class=\"fill\" style=\"width:29%;animation-delay:1.31s\"></div><div class=\"val fade\" style=\"animation-delay:1.41s\"><span class=\"cnt n10\"></span></div></div></div><div class=\"row hi\"><div class=\"rl slide-l\" style=\"animation-delay:1.39s\">Equipment</div><div class=\"track\"><div class=\"fill\" style=\"width:100%;animation-delay:1.49s\"></div><div class=\"val fade\" style=\"animation-delay:1.59s\"><span class=\"cnt n11\"></span></div></div></div></div><div class=\"src fade\" style=\"animation-delay:1.75s\">Sample data</div></div></div></div><div class=\"tx tx-in\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#4c5a53;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-rise 0.8s cubic-bezier(.16,1,.3,1) both,st-fadeout 0.5s ease-in 4.5s both;}.cam{position:absolute;inset:0;animation:st-cam 5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-grid{position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px),linear-gradient(90deg,color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px);background-size:108px 108px;background-position:-2px -2px}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-in{transform:translateY(0);animation:tx-in 0.55s cubic-bezier(.76,0,.24,1) both}@keyframes tx-in{to{transform:translateY(-101%)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.eb{display:inline-block;font:500 32px/1.2 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}@property --n8{syntax:'<integer>';inherits:false;initial-value:0}\n.n8{counter-reset:n8 var(--n8);animation:n8-c 1.5s cubic-bezier(.16,1,.3,1) 0.95s both}\n.n8::after{content:counter(n8,decimal)}\n@keyframes n8-c{from{--n8:0}to{--n8:1240}}@property --n9{syntax:'<integer>';inherits:false;initial-value:0}\n.n9{counter-reset:n9 var(--n9);animation:n9-c 1.5s cubic-bezier(.16,1,.3,1) 1.13s both}\n.n9::after{content:counter(n9,decimal)}\n@keyframes n9-c{from{--n9:0}to{--n9:860}}@property --n10{syntax:'<integer>';inherits:false;initial-value:0}\n.n10{counter-reset:n10 var(--n10);animation:n10-c 1.5s cubic-bezier(.16,1,.3,1) 1.31s both}\n.n10::after{content:counter(n10,decimal)}\n@keyframes n10-c{from{--n10:0}to{--n10:610}}@property --n11{syntax:'<integer>';inherits:false;initial-value:0}\n.n11{counter-reset:n11 var(--n11);animation:n11-c 1.5s cubic-bezier(.16,1,.3,1) 1.49s both}\n.n11::after{content:counter(n11,decimal)}\n@keyframes n11-c{from{--n11:0}to{--n11:2100}}.wrap>div:first-child{margin-bottom:40px}\nh2{margin:0 0 70px;font-size:92px;line-height:1;letter-spacing:-.035em;font-weight:var(--rf-heading-weight)}\n.row{margin-bottom:44px}\n.rl{font-size:40px;font-weight:600;color:var(--rf-muted);margin-bottom:16px}\n.track{position:relative;height:96px;border-radius:16px;background:color-mix(in srgb,var(--rf-text) 7%,transparent)}\n.fill{height:100%;border-radius:16px;background:color-mix(in srgb,var(--rf-text) 22%,transparent);transform-origin:left;animation:bf 1.5s cubic-bezier(.16,1,.3,1) both}\n.hi .fill{background:var(--rf-accent)}\n.hi .rl{color:var(--rf-text)}\n@keyframes bf{from{transform:scaleX(0)}to{transform:none}}\n.val{position:absolute;right:28px;top:0;bottom:0;display:flex;align-items:center;font:500 46px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-text)}\n.src{margin-top:30px;font:500 28px/1.3 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted);opacity:.8}",
+        "notes": "agent-written html scene (bars)"
+      },
+      {
+        "id": "s3-animated",
+        "engine": "motion-canvas",
+        "durationSeconds": 5,
+        "template": "animated-explainer",
+        "props": {
+          "title": "Ledgerly does the sorting",
+          "points": [
+            "Learns your categories from 20 examples",
+            "Flags anything it is unsure about"
+          ]
+        }
+      }
+    ]
+  }
+}

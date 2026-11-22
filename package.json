@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json && pnpm -r run typecheck",
     "test": "pnpm -r run test && pnpm test:docs && pnpm test:capture",
     "spike": "tsx scripts/spike.ts",
+    "gallery": "tsx scripts/gallery/src/cli.ts",
     "prebuild:engines": "tsx apps/server/src/prebuild.ts",
     "check": "pnpm typecheck && pnpm test",
     "dev": "REELFORGE_LICENCE_MODE=${REELFORGE_LICENCE_MODE:-off} REELFORGE_LOGS_EXPORTER=${REELFORGE_LOGS_EXPORTER:-pretty} tsx watch --clear-screen=false apps/server/src/main.ts",
@@ -41,6 +42,7 @@
     "@reelforge/engine-html": "workspace:*",
     "@reelforge/engine-hyperframes": "workspace:*",
     "@reelforge/db": "workspace:*",
+    "@reelforge/gallery": "workspace:*",
     "zod": "^4.1.0",
     "playwright": "1.63.0"
   },
