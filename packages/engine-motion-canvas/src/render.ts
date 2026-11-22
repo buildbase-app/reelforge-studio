@@ -237,6 +237,10 @@ export async function renderMotionCanvasScene(
       chromiumSandbox: chromiumSandbox(),
       env: renderChildEnv(), // no server secrets in the browser's environment (D-086)
       args: ['--disable-dev-shm-usage', '--hide-scrollbars', '--mute-audio', '--disable-quic', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
+      // The server owns shutdown (a worker hands running jobs back on SIGTERM); the job's abort signal closes the browser.
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
     });
     const page = await browser.newPage({ viewport: { width: 640, height: 640 } });
     // Only the local bundle server (and data:/blob: URLs) is reachable (D-085).

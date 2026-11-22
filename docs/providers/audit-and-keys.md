@@ -121,8 +121,11 @@ Errors: expired key `401 key_expired`, revoked `401 key_revoked`, address not
 allowed `403 ip_not_allowed`, rate limit `429 rate_limited` (`Retry-After`),
 render quota `429 quota_exceeded` with `details {period, limit, used,
 resetsAt}`. Render quotas count render and preview jobs the key started in the
-current UTC day / calendar month. The per-key rate limit replaces
-`limits.rateLimitPerMinute` for that key (`0`: no limit). Revoking or deleting
+current UTC day / calendar month, counted in the database under a lock on the
+key's row, so the limit holds across instances (D-078). The per-key rate limit replaces
+`limits.rateLimitPerMinute` for that key (`0`: no limit); with several api
+instances use `limits.rateLimitStore: database` (default with the database
+queue) so the limit is shared (docs/providers/queue-and-scaling.md). Revoking or deleting
 the key you are using is refused (`409`); rotating it is allowed. One previous
 secret per key: rotating again inside the grace window ends the older one.
 

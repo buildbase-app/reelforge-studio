@@ -10,6 +10,7 @@ import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type S
 import { secretValues } from './observability/logger';
 import { Observability, observabilitySettings } from './observability/telemetry';
 import { createDefaultRegistry } from './registry';
+import { scalingProblems } from './scaling';
 
 export const SERVER_VERSION = '0.1.0';
 
@@ -40,6 +41,8 @@ export async function startServer(
     /** Audit sink plugins (selected by audit.sinks) and the clock (tests). */
     auditSinks?: ServiceConfig['auditSinks'];
     now?: ServiceConfig['now'];
+    /** Job queue overrides (tests: short leases, a fixed worker id; ServiceConfig.queue). */
+    queue?: ServiceConfig['queue'];
   } = {}
 ): Promise<StartedServer> {
   const env = opts.env ?? process.env;
@@ -63,6 +66,11 @@ export async function startServer(
     );
   }
   const edition = config.resolved.build.edition;
+  // More than one instance needs a shared database and shared storage (D-076): refuse a role that would lose jobs or files.
+  const scaling = scalingProblems(config.resolved, config.databaseUrl);
+  for (const w of scaling.warnings) logger.log('warn', w);
+  if (scaling.errors.length) throw new Error(`refusing to start: ${scaling.errors.join(' | ')}`);
+  const role = config.resolved.config.server.role;
   // Exporters from the file and env now; runtime settings from the database are applied once it is open.
   const obs = new Observability(observabilitySettings(config.resolved.config, SERVER_VERSION, edition), logger);
   const { db, imported } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds, log });
@@ -91,6 +99,7 @@ export async function startServer(
       now: opts.now,
       log: logger.log,
       telemetry: obs.telemetry,
+      ...(opts.queue ? { queue: opts.queue } : {}),
     });
   } catch (e) {
     await obs.shutdown();
@@ -126,7 +135,9 @@ export async function startServer(
   const shownHost = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
   const url = `http://${shownHost.includes(':') ? `[${shownHost}]` : shownHost}:${port}`;
   log(`ReelForge Studio ${SERVER_VERSION} listening on ${url} (data: ${config.dataDir})`);
-  log(`REST ${url}/v1  MCP ${url}/mcp`);
+  if (role === 'worker') log(`role worker: renders jobs from the database queue (worker ${service.jobs.workerId}, ${service.jobs.concurrency} at a time); serves only /healthz, /readyz and /metrics`);
+  else log(`REST ${url}/v1  MCP ${url}/mcp`);
+  log(`role: ${role}; job queue: ${service.jobs.mode}${service.jobs.mode === 'database' ? ` (worker ${service.jobs.workerId}, ${service.jobs.runJobs ? `renders ${service.jobs.concurrency} at a time` : 'enqueues only, never renders'})` : ''}`);
   log(`database: ${db.kind} ${db.displayUrl}`);
   log(`storage: ${service.storage.driver.id} ${JSON.stringify(service.storage.driver.describe())}`);
   if (existsSync(join(config.dataDir, 'secrets.json'))) {
@@ -144,6 +155,12 @@ export async function startServer(
     db,
     observability: obs,
     close: async () => {
+      if (service.jobs.mode === 'database') {
+        // Stop claiming; let running jobs finish within the grace period, hand the rest back to the queue.
+        const grace = config.resolved.config.queue.shutdownGraceSeconds;
+        const r = await service.jobs.shutdown(grace * 1000);
+        log(`shutdown: stopped claiming jobs; ${r.finished} running job(s) finished${r.released ? `, ${r.released} handed back to the queue after ${grace} s` : ''}`);
+      }
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
         (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();

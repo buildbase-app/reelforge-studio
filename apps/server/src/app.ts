@@ -25,7 +25,7 @@ import { handleMcp, serverCard } from './mcp';
 import { httpTelemetry } from './observability/http';
 import { StructuredLogger } from './observability/logger';
 import { Observability, observabilitySettings } from './observability/telemetry';
-import { RateLimiter } from './rateLimit';
+import { DatabaseRateLimiter, RateLimiter } from './rateLimit';
 import { publicReadiness, readiness } from './readiness';
 
 export type Env = { Variables: { auth: AuthContext; requestId: string } };
@@ -108,7 +108,15 @@ export function createApp({ service, config, observability }: AppDeps) {
       new StructuredLogger({ level: () => config.logLevel, quiet: true })
     );
   // config is the live object: runtime settings (PATCH /v1/config) change it while the server runs.
-  const limiter = new RateLimiter(() => config.rateLimitPerMinute);
+  const store = config.resolved.config.limits.rateLimitStore;
+  const limiter =
+    store === 'database' || (store === 'auto' && service.jobs?.mode === 'database')
+      ? new DatabaseRateLimiter(
+          (key, windowStart) => service.repos.rateLimits.hit(key, windowStart),
+          () => config.rateLimitPerMinute,
+          (line) => obs.logger.log('warn', line)
+        )
+      : new RateLimiter(() => config.rateLimitPerMinute);
 
   app.onError((err, c) => {
     if (err instanceof ApiError) return c.json(errorBody(err.code, err.message, err.details), err.status as 400);
@@ -149,7 +157,7 @@ export function createApp({ service, config, observability }: AppDeps) {
       const message = r && r.reason !== 'unknown' ? `${r.message}; ask an admin for a new key` : 'missing or invalid API key: send "Authorization: Bearer rf_..."';
       return { response: c.json(errorBody(r?.reason === 'expired' ? 'key_expired' : r?.reason === 'revoked' ? 'key_revoked' : 'unauthorized', message), 401) };
     }
-    const wait = limiter.take(r.auth.keyId, r.auth.rateLimitPerMinute);
+    const wait = await limiter.take(r.auth.keyId, r.auth.rateLimitPerMinute);
     if (wait > 0) {
       c.header('Retry-After', String(wait));
       return { response: c.json(errorBody('rate_limited', `too many requests for this key; retry in ${wait}s`), 429) };
@@ -290,6 +298,13 @@ export function createApp({ service, config, observability }: AppDeps) {
     }
     return c.body(await obs.prometheus(), 200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8', 'Cache-Control': 'no-store' });
   });
+  if (config.resolved.config.server.role === 'worker') {
+    // A worker renders from the database queue and serves nothing else (D-076).
+    app.all('*', (c) =>
+      c.json(errorBody('not_found', `this instance is a worker (server.role "worker"): it renders jobs and serves only /healthz, /readyz and /metrics; send REST and MCP calls to an api instance`), 404)
+    );
+    return app;
+  }
   app.get('/.well-known/mcp.json', (c) => c.json(serverCard(service, config)));
 
   // ---- MCP ------------------------------------------------------------------------

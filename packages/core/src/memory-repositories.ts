@@ -68,6 +68,30 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
   const projects = new Map<string, { meta: ProjectMeta; versions: Map<number, Project> }>();
   const keys = new Map<string, ApiKeyRecord>();
   const jobs = new Map<string, JobRecord>();
+  const rateWindows = new Map<string, { windowStart: string; count: number }>();
+  const holds = (id: string, fence?: { workerId: string; attempts: number }) => {
+    const j = jobs.get(id);
+    if (!j) return false;
+    return !fence || (j.status === 'running' && j.workerId === fence.workerId && (j.attempts ?? 0) === fence.attempts);
+  };
+  /** A fenced (worker) write keeps the lease, attempts and cancel request: they belong to the heartbeat and other instances. */
+  const workerWrite = (job: JobRecord, fence?: { workerId: string; attempts: number }): JobRecord => {
+    const next = clone(job);
+    if (!fence) return next;
+    const stored = jobs.get(job.id)!;
+    for (const k of ['leaseExpiresAt', 'cancelRequestedAt', 'attempts'] as const) {
+      if (stored[k] === undefined) delete next[k];
+      else (next as unknown as Record<string, unknown>)[k] = stored[k];
+    }
+    if (next.status !== 'running') delete next.leaseExpiresAt;
+    return next;
+  };
+  const appendLine = (jobId: string, at: string, line: string) => {
+    if (!jobs.has(jobId)) return;
+    const lines = jobLogs.get(jobId) ?? [];
+    lines.push(`${at} ${line}`);
+    jobLogs.set(jobId, lines);
+  };
   const jobLogs = new Map<string, string[]>();
   const themes = new Map<string, Theme>();
   const settings = new Map<string, { value: StoredValue; info: ProviderSettingInfo }>();
@@ -151,11 +175,84 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         if (jobs.has(job.id)) throw conflict(`job "${job.id}" already exists`);
         jobs.set(job.id, clone(job));
       },
-      async update(job) {
-        if (jobs.has(job.id)) jobs.set(job.id, clone(job));
+      async insertWithQuota(job, _at, quota) {
+        for (const [i, w] of quota.windows.entries()) {
+          const used = [...jobs.values()].filter((j) => j.apiKeyId === quota.apiKeyId && j.createdAt >= w.since && quota.types.includes(j.type)).length;
+          if (used >= w.limit) return { ok: false, window: i, used };
+        }
+        if (jobs.has(job.id)) throw conflict(`job "${job.id}" already exists`);
+        jobs.set(job.id, clone(job));
+        return { ok: true };
       },
-      async transition(job) {
-        if (jobs.has(job.id)) jobs.set(job.id, clone(job));
+      async update(job, fence) {
+        if (!holds(job.id, fence)) return false;
+        jobs.set(job.id, workerWrite(job, fence));
+        return true;
+      },
+      async transition(job, at, fence) {
+        if (!holds(job.id, fence)) return false;
+        jobs.set(job.id, workerWrite(job, fence));
+        return true;
+      },
+      async claim({ workerId, types, now, leaseUntil }) {
+        const next = [...jobs.values()]
+          .filter((j) => j.status === 'queued' && j.queue === 'database' && types.includes(j.type))
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];
+        if (!next) return null;
+        Object.assign(next, { status: 'running', workerId, leaseExpiresAt: leaseUntil, startedAt: now, attempts: (next.attempts ?? 0) + 1, progress: { stage: 'starting', fraction: 0 } });
+        return clone(next);
+      },
+      async heartbeat(workerId, ids, leaseUntil) {
+        const held: string[] = [];
+        const cancelRequested: string[] = [];
+        for (const id of ids) {
+          const j = jobs.get(id);
+          if (!j || j.status !== 'running' || j.workerId !== workerId) continue;
+          j.leaseExpiresAt = leaseUntil;
+          held.push(id);
+          if (j.cancelRequestedAt) cancelRequested.push(id);
+        }
+        return { held, cancelRequested };
+      },
+      async recoverExpired(now, maxAttempts) {
+        const requeued: JobRecord[] = [];
+        const failed: JobRecord[] = [];
+        for (const j of jobs.values()) {
+          if (j.status !== 'running' || j.queue !== 'database' || !j.leaseExpiresAt || j.leaseExpiresAt >= now) continue;
+          const lost = expiredUpdate(j, now, maxAttempts);
+          Object.assign(j, lost.patch);
+          for (const k of lost.unset) delete (j as unknown as Record<string, unknown>)[k];
+          appendLine(j.id, now, lost.line);
+          (lost.patch.status === 'queued' ? requeued : failed).push(clone(j));
+        }
+        return { requeued, failed };
+      },
+      async release(id, fence, at) {
+        const j = jobs.get(id);
+        if (!j || !holds(id, fence)) return false;
+        Object.assign(j, { status: 'queued', attempts: Math.max(0, (j.attempts ?? 1) - 1), progress: { stage: 'queued', fraction: 0 } });
+        delete j.workerId;
+        delete j.leaseExpiresAt;
+        delete j.startedAt;
+        appendLine(id, at, `released by worker ${fence.workerId} (shutting down); queued again`);
+        return true;
+      },
+      async cancelQueued(id, at, error) {
+        const j = jobs.get(id);
+        if (!j || j.status !== 'queued') return null;
+        Object.assign(j, { status: 'cancelled', finishedAt: at, error });
+        return clone(j);
+      },
+      async requestCancel(id, at) {
+        const j = jobs.get(id);
+        if (!j || j.status !== 'running') return false;
+        j.cancelRequestedAt ??= at;
+        return true;
+      },
+      async countQueued(before) {
+        return [...jobs.values()].filter(
+          (j) => j.status === 'queued' && j.queue === 'database' && (!before || j.createdAt < before.createdAt || (j.createdAt === before.createdAt && j.id < before.id))
+        ).length;
       },
       async get(id) {
         const j = jobs.get(id);
@@ -174,10 +271,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         return [...jobs.values()].filter((j) => j.apiKeyId === apiKeyId && j.createdAt >= since && types.includes(j.type)).length;
       },
       async appendLog(jobId, at, line) {
-        if (!jobs.has(jobId)) return;
-        const lines = jobLogs.get(jobId) ?? [];
-        lines.push(`${at} ${line}`);
-        jobLogs.set(jobId, lines);
+        appendLine(jobId, at, line);
       },
       async logs(jobId, tail) {
         const lines = jobLogs.get(jobId) ?? [];
@@ -311,5 +405,51 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         return n;
       },
     },
+    rateLimits: {
+      async hit(key, windowStart) {
+        const k = `${key}\n${windowStart}`;
+        const n = (rateWindows.get(k)?.count ?? 0) + 1;
+        rateWindows.set(k, { windowStart, count: n });
+        return n;
+      },
+      async deleteOlderThan(cutoff) {
+        let n = 0;
+        for (const [k, w] of rateWindows) {
+          if (w.windowStart < cutoff) {
+            rateWindows.delete(k);
+            n++;
+          }
+        }
+        return n;
+      },
+    },
+  };
+}
+
+/**
+ * What happens to a running database-queue job whose lease ended: queued
+ * again, or failed after `maxAttempts` claims. Shared by every repository.
+ */
+export function expiredUpdate(j: JobRecord, now: string, maxAttempts: number): { patch: Partial<JobRecord>; unset: Array<keyof JobRecord>; line: string } {
+  const attempts = j.attempts ?? 1;
+  const who = j.workerId ? `worker ${j.workerId}` : 'its worker';
+  if (attempts < maxAttempts) {
+    return {
+      patch: { status: 'queued', progress: { stage: 'queued', fraction: 0 } },
+      unset: ['workerId', 'leaseExpiresAt', 'startedAt', 'cancelRequestedAt'],
+      line: `lease expired: ${who} stopped renewing it (crashed, killed or lost the database); queued again (attempt ${attempts} of ${maxAttempts} used)`,
+    };
+  }
+  return {
+    patch: {
+      status: 'failed',
+      finishedAt: now,
+      error: {
+        code: 'lease_expired',
+        message: `the worker running this job stopped renewing its lease ${attempts} time(s) (crashed, killed, out of memory or lost the database); giving up after queue.maxAttempts = ${maxAttempts}. Check the workers' logs and memory limits, then retry_job`,
+      },
+    },
+    unset: ['leaseExpiresAt'],
+    line: `lease expired: ${who} stopped renewing it; failed after ${attempts} attempt(s) (queue.maxAttempts = ${maxAttempts})`,
   };
 }

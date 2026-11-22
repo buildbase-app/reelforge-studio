@@ -58,7 +58,7 @@ describe('config schema', () => {
     const r = resolveConfig({ env: {} });
     expect(ConfigSchema.safeParse(r.config).success).toBe(true);
     expect(r.config.server).toMatchObject({ host: '127.0.0.1', port: 4321, allowedHosts: [] });
-    expect(r.config.limits).toEqual({ rateLimitPerMinute: 300, maxUploadBytes: 209715200, maxJsonBytes: 2097152, renderConcurrency: 1 });
+    expect(r.config.limits).toEqual({ rateLimitPerMinute: 300, rateLimitStore: 'auto', maxUploadBytes: 209715200, maxJsonBytes: 2097152, renderConcurrency: 1 });
     expect(r.config.database.url).toMatch(/^file:\/.*\/data\/reelforge\.db$/);
     expect([...r.settings.values()].every((s) => s.source === 'default')).toBe(true);
   });
@@ -451,7 +451,7 @@ describe('ReelforgeService configuration', () => {
     // A new service on the same database starts with the runtime values.
     const again = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), { repositories: repos, dataDir: join(dir, 'svc'), configSources: { env: {} } });
     expect(again.jobs.concurrency).toBe(3);
-    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'runtime', 'default', 'runtime']);
+    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', 'runtime', 'default', 'runtime']);
   });
 
   it('configure_provider stores encrypted values that providers see, and get_config shows the same key as runtime', async () => {

@@ -215,6 +215,21 @@ export class RuntimeConfig {
   }
 
   /**
+   * Re-read the database and apply what another instance changed (several
+   * instances, D-077): listeners get the keys whose effective value changed.
+   * Returns those keys.
+   */
+  async refresh(): Promise<string[]> {
+    const before = new Map([...this.resolved.settings.values()].map((v) => [v.def.key, JSON.stringify(v.value ?? null)]));
+    const providersBefore = JSON.stringify(this.providerValues);
+    await this.load();
+    const keys = [...this.resolved.settings.values()].filter((v) => before.get(v.def.key) !== JSON.stringify(v.value ?? null)).map((v) => v.def.key);
+    if (keys.length) this.emit(keys);
+    else if (JSON.stringify(this.providerValues) !== providersBefore) this.emit([]);
+    return keys;
+  }
+
+  /**
    * Encrypt provider settings and secret runtime settings still stored in
    * plain text (v0.1 imports, rows from before D-031). Needs the secret key;
    * idempotent. Returns the names encrypted (never values).

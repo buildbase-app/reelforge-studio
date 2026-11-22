@@ -46,12 +46,25 @@ logging:
 | `server.publicUrl` | `REELFORGE_PUBLIC_URL` | url | (none) | startup |  | Public base URL: used in output links and allowed as Host on `/mcp`. Example: `https://studio.example.com`. |
 | `server.allowedHosts` | `REELFORGE_ALLOWED_HOSTS` | list (comma-separated in env) | (empty) | runtime |  | Extra host names accepted on `/mcp` (DNS-rebinding protection), besides localhost and the public URL host. Comma-separated in the environment. Example: `reelforge,studio.internal`. |
 | `server.trustProxy` | `REELFORGE_TRUST_PROXY` | boolean | `false` | runtime |  | Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists. Only turn it on behind a proxy that sets that header. |
+| `server.role` | `REELFORGE_ROLE` | `all` \| `api` \| `worker` | `all` | startup |  | What this instance does (D-076). `all`: serve REST/MCP and render (one instance). `api`: serve REST/MCP and enqueue jobs, never render. `worker`: claim and render jobs from the database queue; serves only `/healthz`, `/readyz` and `/metrics`. `api` and `worker` need PostgreSQL or MySQL and remote storage (or `storage.localShared`); see docs/providers/queue-and-scaling.md. |
+| `server.workerConcurrency` | `REELFORGE_WORKER_CONCURRENCY` | integer | `limits.renderConcurrency` | startup |  | Jobs one `worker` (or `all`) instance claims and renders at the same time. Unset: `limits.renderConcurrency` (which can then be changed at runtime). Scale out with more worker instances rather than a high value here. |
+
+## queue
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `queue.driver` | `REELFORGE_QUEUE_DRIVER` | `auto` \| `inprocess` \| `database` | `auto` | startup |  | Job queue (D-075). `inprocess`: the instance runs the jobs it accepted (one instance; jobs interrupted by a restart are marked failed). `database`: jobs are claimed from the database with leases (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL/MySQL, an atomic update on SQLite), so several workers share them and a crashed worker's job is retried. `auto`: `database` for the `api` and `worker` roles, else `inprocess`. |
+| `queue.leaseSeconds` | `REELFORGE_QUEUE_LEASE_SECONDS` | integer | `60` | startup |  | Database queue: how long a claimed job belongs to its worker without a heartbeat. Workers renew the lease every quarter of this; a job whose lease ran out (the worker crashed or lost the database) is queued again, or failed after `queue.maxAttempts`. |
+| `queue.maxAttempts` | `REELFORGE_QUEUE_MAX_ATTEMPTS` | integer | `3` | startup |  | Database queue: claims per job. A job whose lease expired this many times is failed with `lease_expired` instead of being queued again. |
+| `queue.pollIntervalMs` | `REELFORGE_QUEUE_POLL_INTERVAL_MS` | integer | `1000` | startup |  | Database queue: how often an idle worker looks for queued jobs, and how often `get_job waitSeconds` re-reads a job running on another instance. On database errors the interval backs off exponentially up to 30 s. |
+| `queue.shutdownGraceSeconds` | `REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS` | integer | `30` | startup |  | On SIGTERM a worker stops claiming and waits this long for its running jobs; jobs still running then are stopped and handed back to the queue (database queue), so another worker takes them at once. Keep the orchestrator's grace period (Kubernetes `terminationGracePeriodSeconds`) longer. |
 
 ## limits
 
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
 | `limits.rateLimitPerMinute` | `REELFORGE_RATE_LIMIT_PER_MINUTE` | integer | `300` | runtime |  | Requests per minute per API key (`0` disables the limit). |
+| `limits.rateLimitStore` | `REELFORGE_RATE_LIMIT_STORE` | `auto` \| `memory` \| `database` | `auto` | startup |  | Where per-key request counts live (D-078). `memory`: a token bucket per instance (with several API instances each allows the full limit). `database`: one counter per key and minute in the database, shared by every instance. `auto`: `database` when the job queue is `database`, else `memory`. |
 | `limits.maxUploadBytes` | `REELFORGE_MAX_UPLOAD_BYTES` | integer | `209715200` | runtime |  | Largest asset upload or URL import, in bytes. |
 | `limits.maxJsonBytes` | `REELFORGE_MAX_JSON_BYTES` | integer | `2097152` | runtime |  | Largest JSON request body, in bytes. |
 | `limits.renderConcurrency` | `REELFORGE_RENDER_CONCURRENCY` | integer | `1` | runtime |  | Renders at the same time. Each uses several CPU cores and 1-2 GB RAM. A lower value lets running renders finish. |
@@ -63,6 +76,7 @@ logging:
 | `storage.dataDir` | `REELFORGE_DATA_DIR` | path | `./data` (`/data` in Docker) | startup |  | Asset and render files, caches, the URL signing key, and the SQLite database by default. |
 | `storage.cacheDir` | `REELFORGE_CACHE_DIR` | path | `<dataDir>/cache` | startup |  | Engine bundle and provider result cache. |
 | `storage.driver` | `REELFORGE_STORAGE_DRIVER` | `local` \| `s3` \| `azure` \| `gcs` | `local` | startup |  | Where asset and render files are kept (D-065): `local` (the data directory), `s3` (any S3-compatible API: AWS S3, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, MinIO, GCS with HMAC keys), `azure` (Azure Blob Storage) or `gcs` (Google Cloud Storage, native). Move existing files with `reelforge storage migrate --to <driver>`. |
+| `storage.localShared` | `REELFORGE_STORAGE_LOCAL_SHARED` | boolean | `false` | startup |  | Declare that the local data directory is ONE shared volume mounted by every instance (NFS, Amazon EFS, Azure Files, a ReadWriteMany PVC). Only then may the `api` and `worker` roles start with `storage.driver: local`; without it they refuse, because each instance would see only its own files. |
 | `storage.downloads` | `REELFORGE_STORAGE_DOWNLOADS` | `auto` \| `presigned` \| `proxy` | `auto` | runtime |  | How `downloadUrl` links are made. `auto`/`presigned`: a time-limited URL signed by the bucket when the driver can sign (falls back to the server otherwise); `proxy`: always a signed link to this server, which streams the file (with Range support). |
 | `storage.requestTimeoutSeconds` | `REELFORGE_STORAGE_REQUEST_TIMEOUT_SECONDS` | integer | `120` | startup |  | Remote storage: a request whose connection stays silent this long (a stalled transfer) is aborted and retried. Not a limit on the total transfer time. |
 | `storage.connectTimeoutSeconds` | `REELFORGE_STORAGE_CONNECT_TIMEOUT_SECONDS` | integer | `10` | startup |  | Remote storage: connection timeout in seconds. |

@@ -409,6 +409,7 @@ export const ModelName = {
   Asset: 'Asset',
   AuditLog: 'AuditLog',
   IdempotencyKey: 'IdempotencyKey',
+  RateLimitWindow: 'RateLimitWindow',
   LicenceState: 'LicenceState',
   SystemState: 'SystemState',
   WebhookEndpoint: 'WebhookEndpoint',
@@ -429,7 +430,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "workspace" | "project" | "projectVersion" | "apiKey" | "job" | "jobEvent" | "theme" | "providerSetting" | "setting" | "asset" | "auditLog" | "idempotencyKey" | "licenceState" | "systemState" | "webhookEndpoint" | "webhookDelivery" | "webhookAttempt"
+    modelProps: "workspace" | "project" | "projectVersion" | "apiKey" | "job" | "jobEvent" | "theme" | "providerSetting" | "setting" | "asset" | "auditLog" | "idempotencyKey" | "rateLimitWindow" | "licenceState" | "systemState" | "webhookEndpoint" | "webhookDelivery" | "webhookAttempt"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1225,6 +1226,72 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    RateLimitWindow: {
+      payload: Prisma.$RateLimitWindowPayload<ExtArgs>
+      fields: Prisma.RateLimitWindowFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.RateLimitWindowFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RateLimitWindowPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.RateLimitWindowFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RateLimitWindowPayload>
+        }
+        findFirst: {
+          args: Prisma.RateLimitWindowFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RateLimitWindowPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.RateLimitWindowFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RateLimitWindowPayload>
+        }
+        findMany: {
+          args: Prisma.RateLimitWindowFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RateLimitWindowPayload>[]
+        }
+        create: {
+          args: Prisma.RateLimitWindowCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RateLimitWindowPayload>
+        }
+        createMany: {
+          args: Prisma.RateLimitWindowCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        delete: {
+          args: Prisma.RateLimitWindowDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RateLimitWindowPayload>
+        }
+        update: {
+          args: Prisma.RateLimitWindowUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RateLimitWindowPayload>
+        }
+        deleteMany: {
+          args: Prisma.RateLimitWindowDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.RateLimitWindowUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        upsert: {
+          args: Prisma.RateLimitWindowUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$RateLimitWindowPayload>
+        }
+        aggregate: {
+          args: Prisma.RateLimitWindowAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateRateLimitWindow>
+        }
+        groupBy: {
+          args: Prisma.RateLimitWindowGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.RateLimitWindowGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.RateLimitWindowCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.RateLimitWindowCountAggregateOutputType> | number
+        }
+      }
+    }
     LicenceState: {
       payload: Prisma.$LicenceStatePayload<ExtArgs>
       fields: Prisma.LicenceStateFieldRefs
@@ -1666,7 +1733,12 @@ export const JobScalarFieldEnum = {
   apiKeyId: 'apiKeyId',
   createdAt: 'createdAt',
   startedAt: 'startedAt',
-  finishedAt: 'finishedAt'
+  finishedAt: 'finishedAt',
+  queue: 'queue',
+  attempts: 'attempts',
+  workerId: 'workerId',
+  leaseExpiresAt: 'leaseExpiresAt',
+  cancelRequestedAt: 'cancelRequestedAt'
 } as const
 
 export type JobScalarFieldEnum = (typeof JobScalarFieldEnum)[keyof typeof JobScalarFieldEnum]
@@ -1771,6 +1843,16 @@ export const IdempotencyKeyScalarFieldEnum = {
 } as const
 
 export type IdempotencyKeyScalarFieldEnum = (typeof IdempotencyKeyScalarFieldEnum)[keyof typeof IdempotencyKeyScalarFieldEnum]
+
+
+export const RateLimitWindowScalarFieldEnum = {
+  workspaceId: 'workspaceId',
+  key: 'key',
+  windowStart: 'windowStart',
+  count: 'count'
+} as const
+
+export type RateLimitWindowScalarFieldEnum = (typeof RateLimitWindowScalarFieldEnum)[keyof typeof RateLimitWindowScalarFieldEnum]
 
 
 export const LicenceStateScalarFieldEnum = {
@@ -1935,7 +2017,9 @@ export const JobOrderByRelevanceFieldEnum = {
   result: 'result',
   error: 'error',
   retryOf: 'retryOf',
-  apiKeyId: 'apiKeyId'
+  apiKeyId: 'apiKeyId',
+  queue: 'queue',
+  workerId: 'workerId'
 } as const
 
 export type JobOrderByRelevanceFieldEnum = (typeof JobOrderByRelevanceFieldEnum)[keyof typeof JobOrderByRelevanceFieldEnum]
@@ -2028,6 +2112,14 @@ export const IdempotencyKeyOrderByRelevanceFieldEnum = {
 } as const
 
 export type IdempotencyKeyOrderByRelevanceFieldEnum = (typeof IdempotencyKeyOrderByRelevanceFieldEnum)[keyof typeof IdempotencyKeyOrderByRelevanceFieldEnum]
+
+
+export const RateLimitWindowOrderByRelevanceFieldEnum = {
+  workspaceId: 'workspaceId',
+  key: 'key'
+} as const
+
+export type RateLimitWindowOrderByRelevanceFieldEnum = (typeof RateLimitWindowOrderByRelevanceFieldEnum)[keyof typeof RateLimitWindowOrderByRelevanceFieldEnum]
 
 
 export const LicenceStateOrderByRelevanceFieldEnum = {
@@ -2309,6 +2401,7 @@ export type GlobalOmitConfig = {
   asset?: Prisma.AssetOmit
   auditLog?: Prisma.AuditLogOmit
   idempotencyKey?: Prisma.IdempotencyKeyOmit
+  rateLimitWindow?: Prisma.RateLimitWindowOmit
   licenceState?: Prisma.LicenceStateOmit
   systemState?: Prisma.SystemStateOmit
   webhookEndpoint?: Prisma.WebhookEndpointOmit
