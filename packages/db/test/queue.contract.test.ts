@@ -353,12 +353,12 @@ describe.each(availableTestDatabases().filter((k) => k !== 'sqlite'))('job queue
     return jobs;
   }
 
-  it('QUE-13 overlapping claims, jobs across keys, one locked elsewhere: every free job is claimed, each by one claim', async () => {
+  it('QUE-14 overlapping claims, jobs across keys, one locked elsewhere: every free job is claimed, each by one claim', async () => {
     const [locked, ...free] = await insert([...Array.from({ length: 6 }, () => queued()), ...Array.from({ length: 3 }, () => queued({ apiKeyId: 'key_a' })), ...Array.from({ length: 3 }, () => queued({ apiKeyId: 'key_b' }))]);
     await overlappingClaims([locked!], free);
   }, 120_000);
 
-  it('QUE-14 more jobs of a key locked elsewhere than a claim reads at once: the claims read on and take the free ones', async () => {
+  it('QUE-15 more jobs of a key locked elsewhere than a claim reads at once: the claims read on and take the free ones', async () => {
     const jobs = await insert([...Array.from({ length: 24 }, () => queued({ apiKeyId: 'key_c' })), ...Array.from({ length: 2 }, () => queued())]);
     await overlappingClaims(jobs.slice(0, 20), jobs.slice(20));
   }, 120_000);
