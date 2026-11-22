@@ -132,7 +132,7 @@ Unit and integration tests are named `SECT-xx` (`security` in the test name):
 
 | Id | Where | What |
 | --- | --- | --- |
-| SECT-01..04 | `packages/core/test/security.test.ts` | markup parsing: the CSP stays first in `<head>` against comment, title, attribute, noscript and case tricks; policy elements refused; normalisation |
+| SECT-01..04 | `packages/core/test/security.test.ts` | markup parsing: the CSP stays the first element of the parsed `<head>` for a range of full documents; policy elements refused; normalisation |
 | SECT-05 | same | SSRF guard, table of IPv4/IPv6 ranges |
 | SECT-06 | same | stored asset `source` without credentials or query |
 | SECT-07..08 | same | a spawned render process sees no secret; the process environment is scrubbed |

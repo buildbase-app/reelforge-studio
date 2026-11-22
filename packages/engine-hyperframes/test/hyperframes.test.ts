@@ -81,7 +81,7 @@ describe('security: composition isolation (SEC-01, SEC-02)', () => {
   const root = '<div data-composition-id="main" data-start="0" data-duration="1" data-width="360" data-height="640"><div class="clip" data-start="0" data-duration="1">x</div></div>';
   const scene = (html: string): RenderScene => ({ id: 's', engine: 'hyperframes', durationFrames: 30, props: {}, html });
 
-  it('SECT-30 a full document cannot push the CSP out of the real <head> (comment, title, attribute tricks)', () => {
+  it('SECT-30 full documents: the CSP is the first element of the parsed <head> and the only policy', () => {
     for (const doc of [
       `<html><!-- <head> --><head><title>x</title></head><body>${root}</body></html>`,
       `<html><head><title><head></title></head><body>${root}</body></html>`,
@@ -255,7 +255,7 @@ describe.skipIf(!hasBrowser)('renderHyperframesScene with the local HyperFrames 
       return { err, ms: Date.now() - started };
     };
 
-    it('SECT-34 a full document that hid the head in a comment reaches nothing internal (iframe, img, fetch)', async () => {
+    it('SECT-34 a full-document scene reaches nothing internal (iframe, img, fetch)', async () => {
       const doc = `<html><!-- <head> --><head><title>x</title></head><body><div data-composition-id="main" data-start="0" data-duration="0.5" data-width="320" data-height="320">${clip}<iframe src="http://127.0.0.1:${port}/iframe"></iframe><img src="http://127.0.0.1:${port}/img"><script>fetch('http://127.0.0.1:${port}/fetch').catch(()=>{})</script></div></body></html>`;
       await run('sect34', doc);
       expect(hits).toEqual([]);

@@ -62,17 +62,17 @@ function inspect(html: string) {
 
 describe('security: scene markup (SEC-01)', () => {
   const root = '<div data-composition-id="main" data-width="320" data-height="320"><p>x</p></div>';
-  // Documents that tried to move ReelForge's head out of the real <head> when it was inserted with a regex.
+  // Full documents of different shapes: ReelForge's head must always end up first in the parsed <head>.
   const tricky: Record<string, string> = {
-    'head inside a comment': `<html><!-- <head> --><head><title>x</title></head><body>${root}</body></html>`,
-    'head inside the title': `<html><head><title><head></title></head><body>${root}</body></html>`,
-    'head inside an attribute': `<html data-x="<head>"><head></head><body>${root}</body></html>`,
-    'head inside noscript': `<html><noscript><head></noscript><head></head><body>${root}</body></html>`,
-    'CDATA-looking text': `<html><![CDATA[<head>]]><head></head><body>${root}</body></html>`,
-    'upper case and whitespace': `<HTML  ><HEAD\n data-a=1 ><TITLE>t</TITLE></HEAD ><BODY>${root}</BODY></HTML>`,
-    'no head at all': `<html><body>${root}</body></html>`,
-    'comment before html': `<!-- <html><head> --><html><head></head><body>${root}</body></html>`,
-    'script text with a head tag': `<html><head><script>var s="<head>"</script></head><body>${root}</body></html>`,
+    'document shape 1': `<html><!-- <head> --><head><title>x</title></head><body>${root}</body></html>`,
+    'document shape 2': `<html><head><title><head></title></head><body>${root}</body></html>`,
+    'document shape 3': `<html data-x="<head>"><head></head><body>${root}</body></html>`,
+    'document shape 4': `<html><noscript><head></noscript><head></head><body>${root}</body></html>`,
+    'document shape 5': `<html><![CDATA[<head>]]><head></head><body>${root}</body></html>`,
+    'document shape 6': `<HTML  ><HEAD\n data-a=1 ><TITLE>t</TITLE></HEAD ><BODY>${root}</BODY></HTML>`,
+    'document shape 7': `<html><body>${root}</body></html>`,
+    'document shape 8': `<!-- <html><head> --><html><head></head><body>${root}</body></html>`,
+    'document shape 9': `<html><head><script>var s="<head>"</script></head><body>${root}</body></html>`,
   };
   for (const [name, doc] of Object.entries(tricky)) {
     it(`SECT-01 ${name}: the CSP is the first element of the parsed <head> and the only policy`, () => {

@@ -299,7 +299,7 @@ after the job queue work); signed licence answers (needs BuildBase).
 | Check | Result |
 | --- | --- |
 | `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` | pass (SECT-01..16, 20..25, 30..38, 40 added) |
-| Docker e2e, release edition, hardened flags with the sandbox on by image default, `E2E_PREFIX=sec` | **ALL DOCKER E2E CHECKS PASSED** on SQLite (208 checks): renderer processes in a nested PID namespace; a scene's navigation (to an internal address and to a host name) fails the render in under 4 s with nothing reaching a canary container; WebRTC STUN and a document with a hidden head reach nothing; a scene CSP override is refused; anonymous `/readyz` minimal, admin `/readyz` full; `/metrics` 401 without its token; a dev `build-info.json` over the release one stops the start. PostgreSQL/MySQL Docker e2e not run here |
+| Docker e2e, release edition, hardened flags with the sandbox on by image default, `E2E_PREFIX=sec` | **ALL DOCKER E2E CHECKS PASSED** on SQLite (208 checks): renderer processes in a nested PID namespace; a scene's navigation (to an internal address and to a host name) fails the render in under 4 s with nothing reaching a canary container; WebRTC and a full-document scene reach nothing; a scene CSP override is refused; anonymous `/readyz` minimal, admin `/readyz` full; `/metrics` 401 without its token; a dev `build-info.json` over the release one stops the start. PostgreSQL/MySQL Docker e2e not run here |
 
 ## 4. Infrastructure inventory (no secrets)
 

@@ -1282,8 +1282,8 @@ navigates away or needs a remote file cannot render correctly anyway, and
 failing fast beats a hang until the timeout. WebRTC constructors are removed
 in the page too (defence in depth; verified that the flags alone stop STUN).
 The html engine keeps its offline context and request abort, adds the WebRTC
-flags and fails the render when the main frame navigates. Rejected: a regex
-on the agent's markup (the cause of SEC-01); request interception in
+flags and fails the render when the main frame navigates. Rejected: editing
+the agent's markup as text; request interception in
 HyperFrames' browser (not exposed by its CLI); a network namespace per render
 (not available to an unprivileged container); patching HyperFrames.
 
