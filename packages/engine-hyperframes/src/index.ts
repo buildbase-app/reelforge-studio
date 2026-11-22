@@ -61,18 +61,15 @@ export function hyperframesTitle(props: HyperframesTitleProps, output: OutputSet
   const exitLen = Math.max(0.15, seconds * 0.12 - 0.02).toFixed(3);
   return `<style>
 #hf-wrap{${accent}${bg}position:absolute;inset:0;background:var(--rf-bg);display:flex;flex-direction:column;justify-content:center;padding:${9 * u}px;font-family:var(--rf-font)}
-#hf-ring{position:absolute;width:${70 * u}px;height:${70 * u}px;border-radius:50%;border:${3 * u}px solid var(--rf-accent);right:${-20 * u}px;top:${12 * u}px;opacity:.5;animation:hf-spin ${seconds}s linear both}
 #hf-head{color:var(--rf-text);font-size:${10.5 * u}px;font-weight:var(--rf-heading-weight);line-height:1.05;margin:0;animation:hf-in .8s cubic-bezier(.2,.8,.2,1) both, hf-out ${exitLen}s ease-in ${exitAt}s both}
 #hf-line{height:${1.4 * u}px;width:45%;background:var(--rf-accent);border-radius:999px;margin-top:${3.5 * u}px;transform-origin:left;animation:hf-grow .9s cubic-bezier(.3,.8,.2,1) .2s both, hf-out ${exitLen}s ease-in ${exitAt}s both}
 #hf-sub{color:var(--rf-muted);font-size:${4.8 * u}px;margin:${4 * u}px 0 0;animation:hf-fade .6s ease-out .45s both, hf-out ${exitLen}s ease-in ${exitAt}s both}
 @keyframes hf-in{from{opacity:.35;transform:translateX(${-6 * u}px)}to{opacity:1;transform:none}}
 @keyframes hf-grow{from{transform:scaleX(.15)}to{transform:scaleX(1)}}
 @keyframes hf-fade{from{opacity:0}to{opacity:1}}
-@keyframes hf-spin{from{transform:rotate(0) scale(.9)}to{transform:rotate(40deg) scale(1.1)}}
 @keyframes hf-out{to{opacity:0}}
 </style>
 <div id="hf-wrap" class="clip" data-start="0" data-duration="${seconds}">
-<div id="hf-ring"></div>
 <h1 id="hf-head">${escapeHtml(props.headline)}</h1>
 <div id="hf-line"></div>
 ${props.subline ? `<p id="hf-sub">${escapeHtml(props.subline)}</p>` : ''}

@@ -27,11 +27,12 @@ const FALLBACK: ThemeLike = {
 /**
  * Template "kinetic-title": the headline springs in word by word, an accent
  * bar sweeps under it, the subline fades up, and everything exits in the last
- * 15% of the scene so the cut to the next scene is clean.
+ * 15% of the scene so the cut to the next scene is clean. No background
+ * glow and no overshoot (design rules in AGENTS.md).
  *
  * Colours, font family and heading weight come from the project theme; the
  * `accent` and `background` props override it per scene. The first frame
- * already shows a faint headline, the accent bar and a background glow, so
+ * already shows a faint headline and the accent bar, so
  * thumbnails are never blank.
  *
  * Uses system font stacks on purpose: no font files are bundled until their
@@ -59,7 +60,6 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> =
   });
 
   const barIn = 0.15 + 0.85 * spring({ frame: frame - words.length * stagger, fps, config: { damping: 200 } });
-  const glow = interpolate(frame, [0, durationInFrames], [1, 1.12]);
   const sublineIn = interpolate(
     frame,
     [words.length * stagger + fps * 0.2, words.length * stagger + fps * 0.6],
@@ -81,20 +81,6 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> =
     >
       <div
         style={{
-          position: 'absolute',
-          width: width * 0.9,
-          height: width * 0.9,
-          right: -width * 0.35,
-          top: -width * 0.2,
-          borderRadius: '50%',
-          background: accent,
-          opacity: 0.18,
-          filter: `blur(${Math.round(width * 0.06)}px)`,
-          transform: `scale(${glow})`,
-        }}
-      />
-      <div
-        style={{
           position: 'relative',
           opacity: 1 - exit,
           transform: `translateY(${-exit * 80}px)`,
@@ -114,7 +100,7 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> =
           }}
         >
           {words.map((word, i) => {
-            const s = spring({ frame: frame - i * stagger, fps, config: { damping: 14, mass: 0.6 } });
+            const s = spring({ frame: frame - i * stagger, fps, config: { damping: 200 } });
             return (
               <span
                 key={`${word}-${i}`}

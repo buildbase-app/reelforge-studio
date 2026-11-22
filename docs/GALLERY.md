@@ -130,9 +130,11 @@ between y = 240 and y = 1520, clear of the platform UI. The catalog test fails
 on the mechanical signs (gradient text, `filter: blur`, `backdrop-filter`,
 glows, uppercase, 800/900 weights, overshoot easing, emoji).
 
-Known gap: the built-in Remotion `kinetic-title` and Motion Canvas
-`animated-explainer` templates still draw a soft background glow/circles. They
-are product templates (issue #12) and were left as they are here.
+The four built-in templates got the same pass while the gallery was made:
+Remotion `kinetic-title` and Motion Canvas `animated-explainer` lost their
+background glow and circles and their overshoot, `html-title` its blurred
+blobs, `hyperframes-title` its spinning ring. Their layout, timing and props
+are unchanged.
 
 ## Quality gate
 
