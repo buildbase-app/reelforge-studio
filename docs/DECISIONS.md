@@ -1490,10 +1490,13 @@ settings are re-read from the database every 15 s and applied like a local
 reaches all. **Graceful shutdown** (SIGTERM, database queue): stop claiming,
 `/readyz` 503, wait `queue.shutdownGraceSeconds` (30) for running jobs, abort
 the rest and **release** them (back to `queued`, the attempt not counted) so
-another worker starts at once; leases end either way. The in-process queue
-keeps its old shutdown (unfinished jobs become `interrupted` on the next start).
-A retried render whose earlier attempt already committed its output finishes
-with that render instead of failing on "render exists".
+another worker starts at once; leases end either way. A claim in flight when
+shutdown starts is waited for (bounded, 15 s) and its job released the same
+way instead of started (#172), so no job stays `running` until its lease
+ends. The in-process queue keeps its old shutdown (unfinished jobs become
+`interrupted` on the next start). A retried render whose earlier attempt
+already committed its output finishes with that render instead of failing on
+"render exists".
 
 ### D-078 --- Render quotas and rate limits counted in the database
 

@@ -14,6 +14,12 @@ export const TERMINAL: readonly JobStatus[] = ['succeeded', 'failed', 'cancelled
 const MAX_LOG_LINE = 64 * 1024;
 /** Longest wait between claim attempts while the database fails. */
 const MAX_BACKOFF_MS = 30_000;
+/** How long shutdown() waits, after the grace period, for aborted jobs and claims in flight to hand their jobs back. */
+const SETTLE_MS = 15_000;
+
+type ClaimInput = Parameters<JobRepository['claim']>[0];
+/** What claimJob() did: nothing claimed, started (`run`), or handed straight back on shutdown (`handedBack`). */
+type Claimed = { job: JobRecord | null; run?: Promise<void>; handedBack?: boolean };
 
 export interface JobEvent {
   jobId: string;
@@ -179,8 +185,12 @@ export class JobRunner {
   private lastHeartbeatOk = Date.now();
   private lastHeartbeatAt: string | undefined;
   private queuedCount = 0;
-  /** Jobs handed back to the queue since shutdown() started. */
+  /** Running jobs handed back to the queue since shutdown() started. */
   private released = 0;
+  /** Jobs claimed while shutdown() started, handed straight back since then (#172). */
+  private releasedClaims = 0;
+  /** Claims in flight (claimJob): shutdown() waits for them, so a job they take is handed back, not left `running`. */
+  private claims = new Set<Promise<unknown>>();
   /** Jobs running on other instances that someone here is waiting for (polled from the database). */
   private watchers = new Map<string, { timer: NodeJS.Timeout; refs: number; last: string }>();
 
@@ -450,7 +460,10 @@ export class JobRunner {
   /**
    * Graceful shutdown: stop claiming, wait up to `graceMs` for running jobs,
    * then stop the rest and (database queue) hand them back to the queue so
-   * another worker takes them at once. Leases are released either way.
+   * another worker takes them at once. Leases are released either way. A
+   * claim still in flight hands its job straight back too (#172); the wait for
+   * aborted jobs and claims is bounded (15 s), after which a job left behind
+   * waits for its lease to end.
    */
   async shutdown(graceMs: number): Promise<{ finished: number; released: number }> {
     this.stopping = true;
@@ -458,6 +471,7 @@ export class JobRunner {
     this.pollTimer = null;
     const runningAtStart = this.running.size;
     this.released = 0;
+    this.releasedClaims = 0;
     if (runningAtStart) this.log('info', `shutting down: waiting up to ${Math.round(graceMs / 1000)} s for ${runningAtStart} running job(s)`);
     const deadline = Date.now() + graceMs;
     while (this.running.size && Date.now() < deadline) await sleep(Math.min(200, deadline - Date.now()));
@@ -466,15 +480,17 @@ export class JobRunner {
       this.abortReasons.set(id, this.mode === 'database' ? 'release' : 'cancel');
       this.running.get(id)?.abort();
     }
-    // Aborted handlers settle quickly; the release (or final state) is written in start().
-    const settle = Date.now() + 15_000;
-    while (this.running.size && Date.now() < settle) await sleep(50);
+    // Aborted handlers settle quickly; the release (or final state) is written in start(). A claim in flight
+    // hands its job back in claimJob().
+    const settle = Date.now() + SETTLE_MS;
+    while ((this.running.size || this.claims.size) && Date.now() < settle) await sleep(50);
+    if (this.claims.size) this.log('warn', `shutting down: a job claim is still in flight after ${SETTLE_MS / 1000} s; a job it takes waits for its lease to end`);
     if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer);
     this.heartbeatTimer = null;
     for (const w of this.watchers.values()) clearInterval(w.timer);
     this.watchers.clear();
     await this.flush();
-    return { finished: runningAtStart - this.released, released: this.released };
+    return { finished: runningAtStart - this.released, released: this.released + this.releasedClaims };
   }
 
   private emit(e: JobEvent) {
@@ -559,7 +575,7 @@ export class JobRunner {
             this.pausedReason = undefined;
           }
           const now = Date.now();
-          const job = await this.repo.claim({
+          const { run } = await this.claimJob({
             workerId: this.workerId,
             types: Object.keys(this.handlers),
             now: new Date(now).toISOString(),
@@ -567,9 +583,9 @@ export class JobRunner {
             ...(this.maxRunningPerKey() !== undefined ? { maxRunningPerKey: this.maxRunningPerKey() } : {}),
           });
           this.ok('claim');
-          if (!job) break;
+          // Nothing claimed, or shutdown() started meanwhile and the job went straight back.
+          if (!run) break;
           this.queuedCount = Math.max(0, this.queuedCount - 1);
-          void this.start(job);
         }
       } while (this.claimAgain && !this.stopping);
       this.backoffMs = 0;
@@ -605,6 +621,7 @@ export class JobRunner {
         return { outcome: queued ? 'deferred' : 'none', reason: 'shutting down before a job was claimed' };
       }
       let job: JobRecord | null = null;
+      let claimed: Claimed | undefined;
       try {
         const can = this.db.canClaim ? await this.db.canClaim().catch((e: Error) => ({ ok: false, reason: e.message })) : { ok: true };
         if (!can.ok) {
@@ -615,7 +632,7 @@ export class JobRunner {
         } else {
           this.pausedReason = undefined;
           const now = Date.now();
-          job = await this.repo.claim({
+          claimed = await this.claimJob({
             workerId: this.workerId,
             types: Object.keys(this.handlers),
             now: new Date(now).toISOString(),
@@ -623,6 +640,7 @@ export class JobRunner {
             ...(this.maxRunningPerKey() !== undefined ? { maxRunningPerKey: this.maxRunningPerKey() } : {}),
             ...(opts.jobId !== undefined ? { id: opts.jobId } : {}),
           });
+          job = claimed.job;
           this.ok('claim');
           if (!job && opts.jobId !== undefined) {
             // A launcher started this container for one job: when that job is gone or finished there is nothing to wait for.
@@ -641,12 +659,9 @@ export class JobRunner {
         reason = `the queue could not be read: ${(e as Error).message.split('\n').filter(Boolean).pop() ?? 'unknown error'}`;
       }
       if (job) {
-        if (this.stopping) {
-          // SIGTERM arrived while the claim was in flight: hand it straight back.
-          const back = await this.repo.release(job.id, { workerId: this.workerId, attempts: job.attempts ?? 1 }, new Date().toISOString()).catch(() => false);
-          return { outcome: back ? 'released' : 'lost', job: { ...job, ...(back ? { status: 'queued' as const } : {}) } };
-        }
-        await this.start(job);
+        // SIGTERM arrived while the claim was in flight: claimJob() handed it straight back.
+        if (!claimed?.run) return { outcome: claimed?.handedBack ? 'released' : 'lost', job };
+        await claimed.run;
         await this.flush();
         const outcome: OnceOutcome = TERMINAL.includes(job.status) ? (job.status as OnceOutcome) : job.status === 'queued' ? 'released' : 'lost';
         return { outcome, job: structuredClone(job) };
@@ -655,6 +670,37 @@ export class JobRunner {
       if (left <= 0) return { outcome: stillQueued ? 'deferred' : 'none', reason };
       await sleep(Math.min(this.db.pollMs, left));
     }
+  }
+
+  /**
+   * One claim, tracked in `claims` until the job it took is either started
+   * (`run`, registered in `running` before the claim stops counting, so
+   * shutdown() always sees one or the other) or, when shutdown() started while
+   * the claim was in flight, handed straight back like a running job
+   * (`queued`, attempt not counted, D-077; `handedBack` false: the release
+   * failed and the lease ends on its own). Claims nothing once shutdown() has
+   * started.
+   */
+  private claimJob(input: ClaimInput): Promise<Claimed> {
+    const claim = (async (): Promise<Claimed> => {
+      if (this.stopping) return { job: null };
+      const job = await this.repo.claim(input);
+      if (!job) return { job };
+      if (!this.stopping) return { job, run: this.start(job) };
+      const handedBack = await this.repo.release(job.id, { workerId: this.workerId, attempts: job.attempts ?? 1 }, new Date().toISOString()).catch((e: Error) => {
+        this.log('warn', `queue: could not hand back job ${job.id}, claimed as shutdown began (its lease expires on its own): ${e.message}`);
+        return false;
+      });
+      if (!handedBack) return { job, handedBack };
+      coreInstruments(this.telemetry.meter).jobsRequeued.add(1, { 'reelforge.reason': 'released' });
+      this.releasedClaims++;
+      this.log('info', `queue: job ${job.id} was claimed as shutdown began; handed back to the queue`);
+      return { job: { ...job, status: 'queued' }, handedBack };
+    })();
+    this.claims.add(claim);
+    const done = () => void this.claims.delete(claim);
+    claim.then(done, done);
+    return claim;
   }
 
   private scheduleHeartbeat() {

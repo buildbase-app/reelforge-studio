@@ -12,7 +12,8 @@ import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
  * instance in this process enqueues renders on PostgreSQL or MySQL
  * (TEST_POSTGRES_URL / TEST_MYSQL_URL; skipped without them), and `--once`
  * processes claim them: three processes take one job each and exit, `--job`
- * takes only that id, SIGTERM hands the job back, an empty queue exits 0
+ * takes only that id, SIGTERM hands the job back (also when it arrives while
+ * the claim is in flight), an empty queue exits 0
  * within the configured wait. The renders use fake engines
  * (test/fixtures/once-worker.ts runs the same runWorkerOnce() as the CLI);
  * the empty-queue and guard cases run the real CLI and main.ts. Ids: BKD-nn in
@@ -164,6 +165,17 @@ for (const kind of kinds) describe(`worker --once processes on ${kind}`, () => {
     const next = spawnOnce(fixture, ['--job', id!], env);
     expect((await next.exited).code, next.out()).toBe(0);
     expect(await get(id!)).toMatchObject({ status: 'succeeded', attempts: 1 });
+  }, 120_000);
+
+  it('BKD-26 SIGTERM while the claim is in flight (#172): the job is handed back at once (attempt not counted) and the process exits 75', async () => {
+    const [id] = await enqueue(1);
+    const p = spawnOnce(fixture, [], { ...env, GATE_CLAIM: '1' });
+    await until(() => p.out().includes('claim gated'), 60_000, () => `the claim holds the job before its status event (${p.out()})`);
+    p.child.kill('SIGTERM');
+    const { code } = await p.exited;
+    expect(code, p.out()).toBe(75);
+    expect(p.out()).toMatch(/worker --once: released/);
+    expect(await get(id!)).toMatchObject({ status: 'queued', attempts: 0 } satisfies Partial<JobRecord>);
   }, 120_000);
 
   it('BKD-23 nothing queued: `reelforge worker --once` and REELFORGE_WORKER_ONCE=1 (main.ts) exit 0 within queue.pollIntervalMs x 3', async () => {

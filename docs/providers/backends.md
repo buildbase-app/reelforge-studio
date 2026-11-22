@@ -154,6 +154,7 @@ and `pnpm --filter @reelforge/db test` for QUE-13.
 | BKD-23 | nothing queued: the real CLI `reelforge worker --once` and `REELFORGE_WORKER_ONCE=1` through `main.ts` exit 0 within `pollIntervalMs` × 3 (+3 s for closing the database); `--wait-ms` overrides | processes (PostgreSQL, MySQL) | pass 2026-11-22 |
 | BKD-24 | a failing render: job `failed`, exit 1 | processes (PostgreSQL, MySQL) | pass 2026-11-22 |
 | BKD-25 | `worker --once` on SQLite refuses to start (exit 1, names the fix); `worker` without `--once` prints usage | processes (any) | pass 2026-11-22 |
+| BKD-26 | SIGTERM while the claim is in flight (the claim held before its status event, #172): handed back (`queued`, attempts 0), exit 75 | processes (PostgreSQL, MySQL) | pass 2026-11-22 |
 
 The process cases render with fake engines (real FFmpeg encodes, no browser)
 through the same `runWorkerOnce()` the CLI calls
