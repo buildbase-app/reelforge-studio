@@ -1,0 +1,97 @@
+# One Kubernetes Job per queued render (KEDA ScaledJob, "default" strategy:
+# new Jobs = min(query / targetQueryValue, maxReplicaCount) - Jobs still
+# running). The query counts queued and running database-queue jobs, so it
+# matches what the Jobs already hold. Each pod runs `worker --once`
+# (REELFORGE_WORKER_ONCE=1 with the image's default command, D-100): it claims
+# the oldest queued job, renders it and exits. Exit statuses:
+#   0  done, cancelled, or nothing was queued (a Job that started late finds the queue empty) -> Job complete
+#   1  the render failed (final in the database) or start-up failed            -> Job failed, not retried
+#   75 handed back (SIGTERM: node drain, preemption) or its lease was lost     -> queued again; the pod is retried
+# A once worker serves no HTTP, so there are no probes and nothing to scrape.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: reelforge-worker-once
+  namespace: reelforge
+spec:
+  pollingInterval: 10
+  maxReplicaCount: 20
+  successfulJobsHistoryLimit: 10
+  failedJobsHistoryLimit: 10
+  scalingStrategy: { strategy: default }
+  # "default" would delete running Jobs (and their renders) whenever this ScaledJob changes;
+  # "gradual" leaves them to finish and uses the new spec for new Jobs.
+  rollout: { strategy: gradual }
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 3
+    # Above the longest render plus queue.shutdownGraceSeconds.
+    activeDeadlineSeconds: 3600
+    podFailurePolicy:
+      rules:
+        - action: FailJob
+          onExitCodes: { containerName: reelforge, operator: In, values: [1] }
+        # Evicted or preempted: the job was handed back; do not count it against backoffLimit.
+        - action: Ignore
+          onPodConditions: [{ type: DisruptionTarget }]
+    template:
+      metadata:
+        labels: { app.kubernetes.io/name: reelforge, app.kubernetes.io/component: worker-once }
+      spec:
+        restartPolicy: Never
+        serviceAccountName: reelforge
+        automountServiceAccountToken: false
+        terminationGracePeriodSeconds: 330
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 10001
+          fsGroup: 10001
+          seccompProfile:
+            # Chromium's sandbox: the profile must be on every node (see ../../base/worker.yaml).
+            type: Localhost
+            localhostProfile: reelforge-chrome.json
+        containers:
+          - name: reelforge
+            image: ghcr.io/buildbase-app/reelforge-studio
+            imagePullPolicy: IfNotPresent
+            env:
+              - { name: REELFORGE_ROLE, value: worker }
+              - { name: REELFORGE_WORKER_ONCE, value: "1" }
+              - { name: REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS, value: "300" }
+              - { name: DATABASE_URL_FILE, value: /run/secrets/reelforge/database-url }
+              - { name: REELFORGE_SECRET_KEY_FILE, value: /run/secrets/reelforge/secret-key }
+              - { name: REELFORGE_S3_ACCESS_KEY_ID_FILE, value: /run/secrets/reelforge/s3-access-key-id }
+              - { name: REELFORGE_S3_SECRET_ACCESS_KEY_FILE, value: /run/secrets/reelforge/s3-secret-access-key }
+            envFrom:
+              - configMapRef: { name: reelforge }
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests: { cpu: "2", memory: 2Gi }
+              limits: { memory: 4Gi }
+            volumeMounts:
+              - { name: secrets, mountPath: /run/secrets/reelforge, readOnly: true }
+              - { name: data, mountPath: /data }
+              - { name: tmp, mountPath: /tmp }
+              - { name: shm, mountPath: /dev/shm }
+        volumes:
+          - name: secrets
+            secret: { secretName: reelforge, defaultMode: 0440 }
+          - { name: data, emptyDir: { sizeLimit: 20Gi } }
+          - { name: tmp, emptyDir: { medium: Memory, sizeLimit: 1Gi } }
+          - { name: shm, emptyDir: { medium: Memory, sizeLimit: 1Gi } }
+  triggers:
+    - type: postgresql
+      name: reelforge-queue
+      metadata:
+        query: >-
+          SELECT COUNT(*)::float / 1 FROM "Job"
+          WHERE queue = 'database' AND status IN ('queued', 'running')
+        targetQueryValue: "1"
+        activationTargetQueryValue: "0"
+      authenticationRef: { name: reelforge-database }

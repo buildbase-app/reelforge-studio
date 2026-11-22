@@ -1,0 +1,39 @@
+# Workers on the queue depth: desired pods = ceil(query / targetQueryValue).
+# The query counts the jobs of the database queue that need a worker (queued)
+# or hold one (running), divided by REELFORGE_WORKER_CONCURRENCY (1 in
+# worker.yaml: change the divisor with it). Counting running jobs keeps a busy
+# pool from being scaled in under its renders; a scale-in still picks pods at
+# random, and a removed busy worker hands its job back (D-077), so scale-in is
+# slow (behavior below). activationTargetQueryValue 0: one queued job wakes
+# the pool from zero; cooldownPeriod: idle time before going back to zero.
+# While the licence does not allow renders the workers claim nothing (#154)
+# and queued jobs keep up to maxReplicaCount idle pods running.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: reelforge-worker
+  namespace: reelforge
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: reelforge-worker }
+  minReplicaCount: 0
+  maxReplicaCount: 20
+  pollingInterval: 15
+  cooldownPeriod: 300
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          policies: [{ type: Pods, value: 4, periodSeconds: 60 }]
+        scaleDown:
+          stabilizationWindowSeconds: 600
+          policies: [{ type: Pods, value: 1, periodSeconds: 120 }]
+  triggers:
+    - type: postgresql
+      name: reelforge-queue
+      metadata:
+        query: >-
+          SELECT COUNT(*)::float / 1 FROM "Job"
+          WHERE queue = 'database' AND status IN ('queued', 'running')
+        targetQueryValue: "1"
+        activationTargetQueryValue: "0"
+      authenticationRef: { name: reelforge-database }

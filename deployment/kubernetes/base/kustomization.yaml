@@ -1,0 +1,22 @@
+# The base: an api Deployment (REST + MCP) and a worker Deployment (renders)
+# sharing one PostgreSQL/MySQL database and one S3 bucket (issue #36,
+# docs/providers/queue-and-scaling.md). Applied by ../kustomization.yaml (HPA
+# on CPU and the queue metric) or by the KEDA overlays in ../keda/.
+#
+# Validated with kubeconform 0.7.0 (strict, Kubernetes 1.31 schemas); applied
+# to a kind cluster (Kubernetes 1.37) through the KEDA overlay by
+# e2e/k8s/keda.sh (issue #153).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: reelforge
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - api.yaml
+  - worker.yaml
+  - hpa.yaml
+  - pdb.yaml
+images:
+  - name: ghcr.io/buildbase-app/reelforge-studio
+    newTag: "0.1.0" # pin the release you tested (or a digest)

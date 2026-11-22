@@ -1,24 +1,15 @@
 # ReelForge Studio on Kubernetes: an api Deployment (REST + MCP) and a worker
 # Deployment (renders) sharing one PostgreSQL/MySQL database and one S3 bucket
-# (issue #36, docs/providers/queue-and-scaling.md).
+# (issue #36, docs/providers/queue-and-scaling.md). Workers scale with the HPA
+# in base/hpa.yaml (CPU and the reelforge_jobs_queued External metric).
 #
-#   1. Create the secret (see secret.example.yaml; never commit real values).
-#   2. Edit configmap.yaml (public URL, bucket, endpoint) and the image tag below.
+#   1. Create the secret (see base/secret.example.yaml; never commit real values).
+#   2. Edit base/configmap.yaml (public URL, bucket, endpoint) and the image tag in base/kustomization.yaml.
 #   3. kubectl apply -k deployment/kubernetes/
 #
-# Validated with kubeconform 0.7.0 (strict, Kubernetes 1.31 schemas); not yet
-# applied to a real cluster (VERIFY before production use).
+# Scale to zero on the job queue instead: kubectl apply -k deployment/kubernetes/keda/
+# (KEDA, issue #153; variants in keda/mysql/ and keda/scaledjob/).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: reelforge
 resources:
-  - namespace.yaml
-  - serviceaccount.yaml
-  - configmap.yaml
-  - api.yaml
-  - worker.yaml
-  - hpa.yaml
-  - pdb.yaml
-images:
-  - name: ghcr.io/buildbase-app/reelforge-studio
-    newTag: "0.1.0" # pin the release you tested (or a digest)
+  - base

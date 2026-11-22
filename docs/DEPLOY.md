@@ -339,10 +339,11 @@ spec:
     - { name: shm, emptyDir: { medium: Memory, sizeLimit: 1Gi } }
 ```
 
-(VERIFY: the Kubernetes spec is not tested on a cluster here; the same flags are
-tested with Docker. Full manifests for an api and workers, schema-validated with
-kubeconform: `deployment/kubernetes/`, see
-[providers/queue-and-scaling.md](providers/queue-and-scaling.md#example-kubernetes).)
+Full manifests for an api and workers: `deployment/kubernetes/` (the workers use
+this Localhost profile, the api, which never renders, `RuntimeDefault`). They run
+on a kind cluster with the profile mounted on the node and Chromium's sandbox on
+(`e2e/k8s/keda.sh`, issue #153); see
+[providers/queue-and-scaling.md](providers/queue-and-scaling.md#example-kubernetes).
 
 ## Supply chain
 
@@ -493,6 +494,8 @@ database, so they hold across instances.
 docker compose -f deployment/compose/docker-compose.scale.yml up -d --scale worker=3
 # Kubernetes: api + worker Deployments, HPAs (CPU; workers also on reelforge_jobs_queued), PDBs
 kubectl apply -k deployment/kubernetes/
+# or workers that scale to zero on the job queue with KEDA (ScaledObject; keda/scaledjob/ for worker --once)
+kubectl apply -k deployment/kubernetes/keda/
 ```
 
 Matrix, settings, autoscaling on the queue depth, test cases and

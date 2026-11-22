@@ -355,3 +355,19 @@ implementation or licensing decisions.
     quotas, BullMQ, NATS JetStream, Azure Service Bus locks; gocardless/queue-shootout;
     FFmpeg concat demuxer; BuildBase rate limits and licence keys. Full list with URLs and
     what each was used for: docs/research/RENDER_SCALE.md §13.
+41. **Kubernetes + KEDA recipe and kind e2e** (read 2026-11-22, issue #153, D-101): KEDA 2.21
+    docs from the keda-docs repository (keda.sh itself was not reachable from the sandbox):
+    PostgreSQL scaler (`query`, `targetQueryValue`, `activationTargetQueryValue`, auth parameter
+    `connection`; https://github.com/kedacore/keda-docs/blob/main/content/docs/2.21/scalers/postgresql.md),
+    MySQL scaler (`queryValue`, `activationQueryValue`, `connectionString` as a Go-driver DSN;
+    .../2.21/scalers/mysql.md), ScaledJob spec (scaling strategies `default` = `min(maxReplicaCount,
+    ceil(queueLength / target)) - runningJobCount`, `rollout.strategy` `default` deletes running Jobs
+    on update, history limits default 100; .../2.21/reference/scaledjob-spec.md). KEDA release
+    v2.21.1 manifest (https://github.com/kedacore/keda/releases/download/v2.21.1/keda-2.21.1.yaml;
+    images ghcr.io/kedacore/keda, keda-metrics-apiserver, keda-admission-webhooks 2.21.1; the CRDs are
+    the schema source for kubeconform). kind v0.33.0 (release binary; default node image
+    `kindest/node:v1.37.0@sha256:a1ed56cf...` from pkg/apis/config/defaults/image.go at the tag),
+    kubectl 1.37.0 (dl.k8s.io), kubeconform 0.7.0. Kubernetes kubelet `failCgroupV1` (refuses
+    cgroup v1 by default since 1.35) and containerd's CRI `restrict_oom_score_adj` (as rootless kind
+    sets it), both needed only in the cgroup v1 sandbox. Developer and CI tools only; nothing added
+    to the image.

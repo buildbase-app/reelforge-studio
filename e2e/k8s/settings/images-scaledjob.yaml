@@ -1,0 +1,3 @@
+# Lets the images transformer rewrite the ScaledJob's container image too.
+images:
+  - { path: spec/jobTargetRef/template/spec/containers/image, kind: ScaledJob }
