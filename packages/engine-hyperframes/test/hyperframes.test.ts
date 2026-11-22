@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { createSocket } from 'node:dgram';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -13,8 +13,33 @@ const browser = process.env.REELFORGE_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const requireBrowser = process.env.REELFORGE_REQUIRE_BROWSER === '1';
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-hf-'));
-// Chrome can still be flushing its profile when the suite ends; retry ENOTEMPTY/EBUSY.
-afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
+// Best effort: renders reap their processes (SECT-38), but a cleanup problem must not fail the suite.
+afterAll(() => {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch (e) {
+    console.warn(`could not remove ${dir}: ${(e as Error).message}`);
+  }
+});
+
+/** PIDs of processes whose TMPDIR lies under `prefix` (Linux /proc; [] elsewhere). */
+function processesUnder(prefix: string): number[] {
+  const out: number[] = [];
+  let entries: string[] = [];
+  try {
+    entries = readdirSync('/proc');
+  } catch {
+    return out;
+  }
+  for (const e of entries.filter((x) => /^\d+$/.test(x))) {
+    try {
+      if (readFileSync(`/proc/${e}/environ`, 'latin1').split('\0').some((kv) => kv.startsWith(`TMPDIR=${prefix}`))) out.push(Number(e));
+    } catch {
+      // gone or not ours
+    }
+  }
+  return out;
+}
 const output: OutputSettings = { width: 360, height: 640, fps: 30, format: 'mp4' };
 const theme = builtinTheme('default')!.tokens;
 
@@ -170,6 +195,29 @@ describe.skipIf(!hasBrowser)('renderHyperframesScene with the local HyperFrames 
     expect(err).toBeInstanceOf(PipelineError);
     expect(err.message).toMatch(/cancelled/);
   }, 120_000);
+
+  it('SECT-38 no process of a render (CLI or browser) remains once it returns: success, cancel and timeout', async () => {
+    const tmpRoot = join(dir, 'cache38', 'hyperframes', 'tmp');
+    const base = { output, theme, workDir: join(dir, 'w38'), cacheDir: join(dir, 'cache38') };
+    let seenRunning = 0;
+    const watch = setInterval(() => (seenRunning = Math.max(seenRunning, processesUnder(tmpRoot).length)), 200);
+    try {
+      await renderHyperframesScene({ ...base, scene: { id: 'ok38', engine: 'hyperframes', template: 'hyperframes-title', durationFrames: 15, props: { headline: 'Done' } }, out: join(dir, 'ok38.mp4') });
+      expect(processesUnder(tmpRoot)).toEqual([]);
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 2500);
+      const cancelled = await renderHyperframesScene({ ...base, scene: { id: 'c38', engine: 'hyperframes', template: 'hyperframes-title', durationFrames: 600, props: { headline: 'Cancel' } }, out: join(dir, 'c38.mp4'), signal: controller.signal }).catch((e) => e);
+      expect(cancelled.message).toMatch(/cancelled/);
+      expect(processesUnder(tmpRoot)).toEqual([]);
+      const timedOut = await renderHyperframesScene({ ...base, scene: { id: 't38', engine: 'hyperframes', template: 'hyperframes-title', durationFrames: 600, props: { headline: 'Timeout' } }, out: join(dir, 't38.mp4'), timeoutMs: 2500 }).catch((e) => e);
+      expect(timedOut.message).toMatch(/timed out/);
+      expect(processesUnder(tmpRoot)).toEqual([]);
+      expect(seenRunning).toBeGreaterThan(0); // the check does see a render's processes while it runs
+      expect(readdirSync(tmpRoot)).toEqual([]); // per-render temp directories are removed
+    } finally {
+      clearInterval(watch);
+    }
+  }, 300_000);
 
   describe('security: no network from agent scenes (SEC-01, SEC-02)', () => {
     let hits: string[] = [];

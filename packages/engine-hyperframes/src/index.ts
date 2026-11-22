@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -26,8 +27,10 @@ import {
   type ThemeTokens,
 } from '@reelforge/project-schema';
 import { REFUSED_LINE, startNetworkSink } from './network';
+import { killRenderNow, reapRender } from './processes';
 
 export { startNetworkSink } from './network';
+export { processesWithEnv, reapRender } from './processes';
 
 /**
  * HyperFrames (HeyGen's Apache-2.0 HTML-to-video framework) as an engine.
@@ -182,7 +185,14 @@ export interface HyperframesRenderOptions {
  * checks or installs, no server secrets (allowlist), and, with `egressProxy`,
  * every outbound connection routed to ReelForge's deny-all sink.
  */
-export function hyperframesEnv(browser: string, cacheDir: string, base: NodeJS.ProcessEnv = process.env, egressProxy?: string): NodeJS.ProcessEnv {
+export function hyperframesEnv(
+  browser: string,
+  cacheDir: string,
+  base: NodeJS.ProcessEnv = process.env,
+  egressProxy?: string,
+  /** This render's own temp directory (also how its processes are found, processes.ts). */
+  tmpDir: string = join(cacheDir, 'hyperframes', 'tmp')
+): NodeJS.ProcessEnv {
   const env = renderChildEnv(base, {}, [...RENDER_ENV_ALLOWLIST, 'NODE_OPTIONS']);
   return {
     ...env,
@@ -201,7 +211,7 @@ export function hyperframesEnv(browser: string, cacheDir: string, base: NodeJS.P
     // Its temp files go to the cache directory (the data volume), not /tmp: in the
     // hardened container /tmp is a small tmpfs, and HyperFrames refuses to render
     // with less than 1 GB free in its temp directory.
-    TMPDIR: join(cacheDir, 'hyperframes', 'tmp'),
+    TMPDIR: tmpDir,
     CI: '1',
     // Outbound network (D-085): HyperFrames' capture proxy in front of the browser and
     // its own downloads, every address treated as non-public, upstream = deny-all sink.
@@ -221,7 +231,10 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   const doc = buildComposition(scene, output, theme);
   const project = join(opts.workDir, 'hyperframes');
   await mkdir(project, { recursive: true });
-  await mkdir(join(opts.cacheDir, 'hyperframes', 'tmp'), { recursive: true });
+  // One temp directory per render: the CLI and its browser inherit it, which is how
+  // every process of this render is found and killed when it ends (processes.ts).
+  const tmpDir = join(opts.cacheDir, 'hyperframes', 'tmp', `r-${randomUUID()}`);
+  await mkdir(tmpDir, { recursive: true });
   await writeFile(join(project, 'index.html'), doc);
   await mkdir(dirname(opts.out), { recursive: true });
 
@@ -256,9 +269,9 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   const sink = await startNetworkSink(onNetwork);
   const child = spawn(process.execPath, args, {
     cwd: project,
-    env: hyperframesEnv(browser, opts.cacheDir, process.env, sink.url),
+    env: hyperframesEnv(browser, opts.cacheDir, process.env, sink.url, tmpDir),
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true, // own process group, so Chrome children die with it
+    detached: true, // own process group; the browser is found by its TMPDIR (processes.ts)
   });
   let output_ = '';
   const collect = (d: Buffer) => {
@@ -271,11 +284,8 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   child.stdout.on('data', collect);
   child.stderr.on('data', collect);
   killTree = () => {
-    try {
-      if (child.pid) process.kill(-child.pid, 'SIGKILL');
-    } catch {
-      child.kill('SIGKILL');
-    }
+    killRenderNow(child.pid, tmpDir);
+    if (!child.pid) child.kill('SIGKILL');
   };
   const timer = setTimeout(() => {
     reason = 'timeout';
@@ -308,8 +318,12 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   } finally {
     clearTimeout(timer);
     opts.signal?.removeEventListener('abort', onAbort);
+    // Whatever the outcome, nothing of this render keeps running (or writing) after it returns.
+    const left = await reapRender(child.pid, tmpDir);
+    if (left.length) opts.log?.(`hyperframes: ${left.length} process(es) of the render did not exit after SIGKILL: ${left.join(', ')}`);
     await sink.close();
     await rm(project, { recursive: true, force: true }).catch(() => undefined);
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
   }
 }
 

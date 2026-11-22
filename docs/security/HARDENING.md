@@ -19,7 +19,7 @@ treats that markup as untrusted.
 | Outbound network (hyperframes) | All outbound connections are refused outside the page: HyperFrames' restricted network mode routes the browser and the renderer's own downloads through a local proxy whose upstream refuses everything. QUIC is off and WebRTC may only use proxied connections (so no UDP). WebRTC constructors are also removed from the page. | always on |
 | Outbound network (html) | The browser context is offline, every request is aborted, page scripts are blocked by the CSP, and WebRTC is limited to proxied connections. | always on |
 | Network attempts | A hyperframes scene that tries to reach the network (navigating away, or a remote image or font the renderer would download) fails the render at once with `the scene tried to reach the network (...)`. An html scene that navigates away from its document fails the same way. Put files in the project's assets and reference them locally. | always on |
-| Time limit | Each html or hyperframes scene has a hard time limit: the engine's per-frame estimate, never more than `render.sceneTimeoutSeconds`. | `REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS`, default `900`, allowed `30` to `3600` |
+| Time limit | Each html or hyperframes scene has a hard time limit: the engine's per-frame estimate, never more than `render.sceneTimeoutSeconds`. When a hyperframes render ends (success, failure, timeout or cancel), every process it started (the CLI, its browser, helpers) is killed and awaited before the job continues. | `REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS`, default `900`, allowed `30` to `3600` |
 
 What changes for agents: a scene that pointed at remote images, fonts or
 stylesheets used to render silently without them. Now the render fails and the
@@ -142,7 +142,7 @@ Unit and integration tests are named `SECT-xx` (`security` in the test name):
 | SECT-16 | same | webhook targets refused on the same IPv6 ranges |
 | SECT-12..15 | same | sealed licence state (edited row rejected, other secret key rejected), licence server time and clock rollback, Date header recorded |
 | SECT-20..25 | `apps/server/test/security.test.ts` | `/metrics` needs a token; minimal anonymous `/readyz`, full for admins; `/mcp` Origin with scheme and port; presigned URL redaction |
-| SECT-30..37 | `packages/engine-hyperframes/test/hyperframes.test.ts` | CSP placement and refusals; CLI environment; deny-all sink; with a browser: no request or UDP packet reaches a local canary from a document, navigation, WebRTC or a remote asset; navigation fails fast |
+| SECT-30..38 | `packages/engine-hyperframes/test/hyperframes.test.ts` | CSP placement and refusals; CLI environment; deny-all sink; with a browser: no request or UDP packet reaches a local canary from a document, navigation, WebRTC or a remote asset; navigation fails fast; no process of a render remains after success, cancel or timeout |
 | SECT-40 | `packages/engine-html/test/html.test.ts` | html scenes: policy elements refused, CSP first in `<head>` |
 
 The Docker end-to-end test (`e2e/docker/run.sh`, `e2e/docker/security.mjs`)

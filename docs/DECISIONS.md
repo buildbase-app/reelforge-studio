@@ -1313,8 +1313,12 @@ Private security review SEC-02 (part). html and hyperframes renders use
 min(their per-frame estimate, `render.sceneTimeoutSeconds`), default 900 s,
 allowed 30 to 3600 s (`REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS`, start-up
 setting exported to the engines). Before, a maximal scene could hold the
-renderer for hours. Queue and per-key limits (SEC-07) are deferred to the job
-queue work.
+renderer for hours. Every HyperFrames render gets its own TMPDIR, inherited by
+the CLI, its browser and any helper; when the render ends (success, failure,
+timeout, cancel) the CLI's process group and every process carrying that
+TMPDIR are killed and awaited, because the browser runs in a process group of
+its own and outlives a group kill. Queue and per-key limits (SEC-07) are
+deferred to the job queue work.
 
 ### D-088 --- Operational endpoints: /metrics needs its token, /readyz detail needs an admin key, /mcp Origin compares origins
 
