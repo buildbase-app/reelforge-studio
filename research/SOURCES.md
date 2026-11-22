@@ -344,3 +344,14 @@ implementation or licensing decisions.
     schema location for Kubernetes 1.31.0, and kubectl 1.31.4 (Kustomize
     5.4.2, https://dl.k8s.io) for `kubectl kustomize`; both used as
     developer tools only, nothing added to the image.
+40. **Render at any scale research** (read 2026-11-22, for the "Render at any scale" (#149)
+    epic, D-095..D-099): Remotion Lambda (docs/lambda, how-lambda-works, concurrency,
+    limits, cost-example), `@remotion/cloudrun` (docs/cloudrun, limits: Alpha, "not actively
+    being developed"), Remotion licence (docs/license/pricing, faq.md, terms.md v5.0,
+    LICENSE.md); AWS Lambda quotas and pricing, Fargate pricing and task sizes, AWS Batch;
+    Cloud Run task timeout and quotas (pricing page not readable); Azure Container Apps jobs;
+    KEDA 2.21 PostgreSQL scaler, ScaledObject spec, ScaledJob; Fly.io, Modal and Hetzner
+    pricing; PgBouncer features, Prisma 7 connection pool, node-postgres pool, RDS Proxy; SQS
+    quotas, BullMQ, NATS JetStream, Azure Service Bus locks; gocardless/queue-shootout;
+    FFmpeg concat demuxer; BuildBase rate limits and licence keys. Full list with URLs and
+    what each was used for: docs/research/RENDER_SCALE.md §13.
