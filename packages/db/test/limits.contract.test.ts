@@ -269,7 +269,7 @@ describe.each(targets)('resource limits contract: $name', ({ kind }) => {
 
   it.skipIf(kind === 'memory')('LIM-11 an enqueue holds the cap lock across one statement only (then commit), accepted or refused', async () => {
     const log: string[] = [];
-    const r = createPrismaRepositories(recording(db!.prisma, log), DEFAULT_WORKSPACE_ID, kind as 'sqlite');
+    const r = createPrismaRepositories(recording(db!.prisma, log), DEFAULT_WORKSPACE_ID, kind as 'sqlite', { schema: db!.schema });
     const afterLock = () => {
       const i = log.findIndex((s) => / SET .(id|count). = .(id|count). WHERE/.test(s));
       expect(i).toBeGreaterThan(-1);

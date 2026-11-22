@@ -1,8 +1,10 @@
 export * from './database';
 export * from './migrate';
 export * from './url';
+export { DEFAULT_PG_SCHEMA, PG_SCHEMA_PATTERN, pgIdent, pgTable, sqlNames, type SqlNames } from './sql';
 export { createPrismaRepositories, isUniqueViolation, type PrismaRepositoryOptions } from './prisma-repositories';
 export { PROVIDERS, renderSchema, type Provider } from './schema-source';
 export { MIGRATIONS } from './generated/migrations';
 export * from './testing';
 export * from './notify';
+export { pooledSchemaWarning, probeTransactionPooler } from './pooler-probe';

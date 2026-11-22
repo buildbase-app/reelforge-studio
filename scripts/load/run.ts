@@ -29,7 +29,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { newId, type JobRecord } from '@reelforge/core';
-import { Database, prepareDatabase } from '@reelforge/db';
+import { Database, pgTable, prepareDatabase } from '@reelforge/db';
 import { exactlyOnce } from './check';
 import { MIX, runCrud, type CrudTarget } from './crud';
 import { ContainerCpuSampler, DbSampler, env, envNum, hostFingerprint, LoadAvgSampler, num, pgFingerprint, round, sh, sleep } from './lib';
@@ -445,12 +445,12 @@ async function waitDrained(dbUrl: string, timeoutMs: number) {
   try {
     const end = Date.now() + timeoutMs;
     for (;;) {
-      const [r] = (await db.prisma.$queryRawUnsafe(`SELECT COUNT(*) AS n, MAX("finishedAt") AS last FROM "Job" WHERE status IN ('queued', 'running')`)) as Array<{ n: unknown }>;
+      const [r] = (await db.prisma.$queryRawUnsafe(`SELECT COUNT(*) AS n, MAX("finishedAt") AS last FROM ${pgTable(db.schema!, 'Job')} WHERE status IN ('queued', 'running')`)) as Array<{ n: unknown }>;
       if (num(r!.n) === 0) break;
       if (Date.now() > end) return { drained: false, left: num(r!.n) };
       await sleep(250);
     }
-    const [l] = (await db.prisma.$queryRawUnsafe(`SELECT MAX("finishedAt") AS last FROM "Job"`)) as Array<{ last: Date | null }>;
+    const [l] = (await db.prisma.$queryRawUnsafe(`SELECT MAX("finishedAt") AS last FROM ${pgTable(db.schema!, 'Job')}`)) as Array<{ last: Date | null }>;
     return { drained: true, left: 0, lastFinishedAt: l?.last ? new Date(l.last).getTime() : Date.now() };
   } finally {
     await db.close();

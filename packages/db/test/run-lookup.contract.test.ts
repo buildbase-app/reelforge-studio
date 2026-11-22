@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createMemoryRepositories, type JobRecord, type Repositories } from '@reelforge/core';
-import { Database, MIGRATIONS, availableTestDatabases, createTestDatabase, prepareDatabase, splitStatements, type TestDatabase } from '../src/index';
+import { Database, MIGRATIONS, availableTestDatabases, createTestDatabase, pgIdent, prepareDatabase, splitStatements, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-db-run-lookup-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -96,7 +96,12 @@ describe.each(targets)('render lookup by run id: $name', ({ kind }) => {
     const sql = MIGRATIONS[kind]!.find((m) => m.id === '0009_job_run_id')!.sql;
     const backfill = splitStatements(sql).filter((s) => /^UPDATE\b/i.test(s));
     expect(backfill).toHaveLength(1);
-    await (db!.prisma as unknown as { $executeRawUnsafe(q: string): Promise<number> }).$executeRawUnsafe(backfill[0]!);
+    // As the migrator runs it: on PostgreSQL in a transaction with SET LOCAL search_path (migration scripts name no schema, #191).
+    await db!.prisma.$transaction(async (tx) => {
+      const raw = tx as unknown as { $executeRawUnsafe(q: string): Promise<number> };
+      if (kind === 'postgresql') await raw.$executeRawUnsafe(`SET LOCAL search_path TO ${pgIdent(db!.schema!)}`);
+      await raw.$executeRawUnsafe(backfill[0]!);
+    });
     expect(await repos.jobs.projectOfRun('run_rlold')).toBe('rl-old');
     expect(await repos.jobs.projectOfRun('prv_rlold')).toBe('rl-old');
     const rows = await db!.prisma.job.findMany({ where: { id: { in: ['job_rl_norun', 'job_rl_oldunit', 'job_rl_old'] } }, select: { id: true, runId: true }, orderBy: { id: 'asc' } });

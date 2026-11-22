@@ -46,6 +46,7 @@ import {
 // written once against the SQLite client's types.
 import type { PrismaClient } from './generated/sqlite/client';
 import type { DatabaseKind } from './url';
+import { sqlNames } from './sql';
 import { createPrismaWebhookRepository } from './webhook-repository';
 
 export type AnyPrismaClient = PrismaClient;
@@ -125,6 +126,11 @@ export interface PrismaRepositoryOptions {
    * row in the same transaction. Unset: nothing (workers poll).
    */
   readySignal?: ReadySignal;
+  /**
+   * PostgreSQL: the schema the tables are in (Database.schema: the URL's `?schema=`, else `public`). Required there:
+   * every raw statement names it (#191). Ignored on SQLite and MySQL.
+   */
+  schema?: string | null;
 }
 
 export function createPrismaRepositories(prisma: PrismaClient, workspaceId: string, kind: DatabaseKind = 'sqlite', opts: PrismaRepositoryOptions = {}): Repositories {
@@ -134,9 +140,10 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
   const signal = opts.readySignal;
   if (signal?.kind === 'notify' && kind !== 'postgresql') throw new Error(`queue.dispatch "notify" needs PostgreSQL (LISTEN/NOTIFY); this database is ${kind}`);
   if (signal?.kind === 'bus') throw new Error('readySignal "bus" is for the in-memory repositories');
-  // Raw SQL (the queue's row locks): identifier quoting and placeholders differ per database.
-  const qi = (n: string) => (kind === 'mysql' ? `\`${n}\`` : `"${n}"`);
-  const ph = (i: number) => (kind === 'postgresql' ? `$${i}` : '?');
+  // Raw SQL (the queue's row locks): identifier quoting and placeholders differ per database. Every table goes
+  // through tbl(): on PostgreSQL it names the schema, so a statement never depends on the connection's search_path,
+  // which a transaction-mode pooler does not keep per client (#191; sql.ts).
+  const { qi, tbl, ph } = sqlNames(kind, kind === 'postgresql' ? (opts.schema ?? undefined) : undefined);
   // Read committed: a statement after a row lock sees what the previous holder committed (PostgreSQL's default; MySQL's is repeatable read).
   // (Typed against the SQLite client, which only knows Serializable; the PostgreSQL/MySQL clients take ReadCommitted.)
   const lockingTx = (kind === 'sqlite' ? TX : { ...TX, isolationLevel: 'ReadCommitted' }) as typeof TX;
@@ -245,7 +252,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     if (signal?.kind === 'notify' && announceClaim(signal, row.createdAt, now)) await tx.$queryRawUnsafe(notifySql, signal.channel, CLAIMED_PREFIX, row.id);
   };
   /** Row lock on a job (a no-op update): PostgreSQL/MySQL lock the row, SQLite takes the write lock. Fan-out locks the parent before any child. */
-  const lockJob = (tx: Tx, id: string) => tx.$executeRawUnsafe(`UPDATE ${qi('Job')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, id);
+  const lockJob = (tx: Tx, id: string) => tx.$executeRawUnsafe(`UPDATE ${tbl('Job')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, id);
   /** Write a fan-out settlement (D-097) inside the caller's transaction, which already holds the parent's row lock. */
   const applyPlan = async (tx: Tx, plan: SettlementPlan, at: string): Promise<ChildSettlement> => {
     if (plan.parent) {
@@ -305,10 +312,10 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       if (kind === 'sqlite') {
         // One statement under the write lock, the running cap included: atomic, no lost or double claims.
         const cap = capped
-          ? ` AND ("apiKeyId" IS NULL OR (SELECT COUNT(*) FROM "Job" "r" WHERE "r"."workspaceId" = "Job"."workspaceId" AND "r"."queue" = 'database' AND "r"."status" = 'running' AND "r"."leaseExpiresAt" IS NOT NULL AND "r"."apiKeyId" = "Job"."apiKeyId") < ?)`
+          ? ` AND ("apiKeyId" IS NULL OR (SELECT COUNT(*) FROM ${tbl('Job')} "r" WHERE "r"."workspaceId" = "Job"."workspaceId" AND "r"."queue" = 'database' AND "r"."status" = 'running' AND "r"."leaseExpiresAt" IS NOT NULL AND "r"."apiKeyId" = "Job"."apiKeyId") < ?)`
           : '';
         const rows: Array<{ id: string }> = await tx.$queryRawUnsafe(
-          `UPDATE "Job" SET "status" = 'running', "workerId" = ? WHERE ${where}${cap} RETURNING "id"`,
+          `UPDATE ${tbl('Job')} SET "status" = 'running', "workerId" = ? WHERE ${where}${cap} RETURNING "id"`,
           o.workerId,
           ...args,
           ...(capped ? [o.maxRunningPerKey] : [])
@@ -316,7 +323,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         id = rows[0]?.id;
       } else {
         const rows: Array<{ id: string; k: string | null }> = await tx.$queryRawUnsafe(
-          `SELECT ${qi('id')}, ${qi('apiKeyId')} AS ${qi('k')} FROM ${qi('Job')} WHERE ${where} FOR UPDATE SKIP LOCKED`,
+          `SELECT ${qi('id')}, ${qi('apiKeyId')} AS ${qi('k')} FROM ${tbl('Job')} WHERE ${where} FOR UPDATE SKIP LOCKED`,
           ...args
         );
         const one = rows[0];
@@ -647,7 +654,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         // COUNT of the other jobs (the new row is already in) of `types` matching `cond`; built left to right, so
         // the placeholders are numbered in the order their values are pushed.
         const count = (col: string, cond: () => string) =>
-          `(SELECT COUNT(*) FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${p(workspaceId)} AND ${qi('id')} <> ${p(job.id)}` +
+          `(SELECT COUNT(*) FROM ${tbl('Job')} WHERE ${qi('workspaceId')} = ${p(workspaceId)} AND ${qi('id')} <> ${p(job.id)}` +
           ` AND ${qi('type')} IN (${quota.types.map(p).join(', ')}) AND ${cond()}) AS ${qi(col)}`;
         const parts: string[] = [];
         if (key) {
@@ -670,7 +677,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         if (wait) {
           // Built per use: each subquery pushes its own placeholder values, in order.
           const ahead = () =>
-            `FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${p(workspaceId)} AND ${qi('id')} <> ${p(job.id)} AND ` +
+            `FROM ${tbl('Job')} WHERE ${qi('workspaceId')} = ${p(workspaceId)} AND ${qi('id')} <> ${p(job.id)} AND ` +
             (job.queue ? `${qi('queue')} = ${p(job.queue)}` : `${qi('queue')} IS NULL`) +
             ` AND ${qi('status')} = 'queued' AND ${qi('priority')} <= ${p(priorityRank(job.priority))}`;
           parts.push(`(SELECT COUNT(*) ${ahead()}) AS ${qi('ea')}`);
@@ -698,13 +705,13 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
               // (Admission by estimated wait alone, without a key: no lock; it is an estimate, not a count to enforce.)
               if (total) {
                 const n = await tx.$executeRawUnsafe(
-                  `UPDATE ${qi('RateLimitWindow')} SET ${qi('count')} = ${qi('count')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('key')} = ${ph(2)}`,
+                  `UPDATE ${tbl('RateLimitWindow')} SET ${qi('count')} = ${qi('count')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('key')} = ${ph(2)}`,
                   workspaceId,
                   QUEUE_LOCK_KEY
                 );
                 if (!n) throw lockMissing;
               } else if (key) {
-                await tx.$executeRawUnsafe(`UPDATE ${qi('ApiKey')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, key);
+                await tx.$executeRawUnsafe(`UPDATE ${tbl('ApiKey')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, key);
               }
               // A statement after the lock sees every job committed by the previous holder (read committed).
               const [row] = (await tx.$queryRawUnsafe(`SELECT ${parts.join(', ')}`, ...args)) as Array<Record<string, unknown>>;
@@ -801,11 +808,11 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           const agedBefore = aging ? new Date(Date.parse(now) - priorityAgingSeconds! * 1000) : undefined;
           const j = qi('j');
           const running =
-            `LEFT JOIN (SELECT ${qi('apiKeyId')}, COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = PH0` +
+            `LEFT JOIN (SELECT ${qi('apiKeyId')}, COUNT(*) AS ${qi('n')} FROM ${tbl('Job')} WHERE ${qi('workspaceId')} = PH0` +
             ` AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('leaseExpiresAt')} IS NOT NULL AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}) ${qi('r')}` +
             ` ON ${qi('r')}.${qi('apiKeyId')} = ${j}.${qi('apiKeyId')}`;
           const pick = (first: number) =>
-            (`SELECT ${j}.${qi('id')} FROM ${qi('Job')} ${j} ${running}` +
+            (`SELECT ${j}.${qi('id')} FROM ${tbl('Job')} ${j} ${running}` +
               ` WHERE ${j}.${qi('workspaceId')} = ${ph(first + 1)} AND ${j}.${qi('queue')} = 'database' AND ${j}.${qi('status')} = 'queued'` +
               ` AND ${j}.${qi('type')} IN (${types.map((_, i) => ph(first + 2 + i)).join(', ')})` +
               (capped ? ` AND COALESCE(${qi('r')}.${qi('n')}, 0) < ${ph(first + 2 + types.length)}` : '') +
@@ -818,20 +825,20 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           let rows: Array<{ id: string }> = [];
           if (kind === 'sqlite') {
             // One statement under the write lock (the first write of the transaction waits for it): atomic, no lost claims.
-            rows = await tx.$queryRawUnsafe(`UPDATE "Job" SET "status" = 'running', "workerId" = ? WHERE "id" = (${pick(2)}) AND "status" = 'queued' RETURNING "id"`, workerId, ...args);
+            rows = await tx.$queryRawUnsafe(`UPDATE ${tbl('Job')} SET "status" = 'running', "workerId" = ? WHERE "id" = (${pick(2)}) AND "status" = 'queued' RETURNING "id"`, workerId, ...args);
           } else {
             // Row locks: decide the key order with plain reads first, then lock one job of the best key that no
             // other transaction holds (SKIP LOCKED: a job another worker is claiming is skipped, never waited
             // for), falling through to the next key when all of this key's jobs are held.
             const typeIn = (first: number) => `${qi('type')} IN (${types.map((_, i) => ph(first + i)).join(', ')})`;
             const runningRows: Array<{ k: string; n: unknown }> = await tx.$queryRawUnsafe(
-              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('leaseExpiresAt')} IS NOT NULL AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}`,
+              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, COUNT(*) AS ${qi('n')} FROM ${tbl('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('leaseExpiresAt')} IS NOT NULL AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}`,
               workspaceId
             );
             const busy = new Map(runningRows.map((r) => [r.k, Number(r.n)]));
             // One row per (key, class): the class orders first (aged by its oldest job), then the key's running jobs, then age.
             const queuedRows: Array<{ k: string | null; p: unknown; t: unknown }> = await tx.$queryRawUnsafe(
-              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, ${qi('priority')} AS ${qi('p')}, MIN(${qi('createdAt')}) AS ${qi('t')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} GROUP BY ${qi('apiKeyId')}, ${qi('priority')}`,
+              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, ${qi('priority')} AS ${qi('p')}, MIN(${qi('createdAt')}) AS ${qi('t')} FROM ${tbl('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} GROUP BY ${qi('apiKeyId')}, ${qi('priority')}`,
               workspaceId,
               ...types
             );
@@ -847,7 +854,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
             for (const c of order) {
               // Placeholders in text order (MySQL's are positional): the class, then the key.
               const keyWhere = `${qi('priority')} = ${ph(2 + types.length)} AND ` + (c.k === null ? `${qi('apiKeyId')} IS NULL` : `${qi('apiKeyId')} = ${ph(3 + types.length)}`);
-              const queuedOfKey = `FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${keyWhere}`;
+              const queuedOfKey = `FROM ${tbl('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${keyWhere}`;
               const keyArgs = [workspaceId, ...types, c.p, ...(c.k === null ? [] : [c.k])];
               if (kind === 'postgresql') {
                 // PostgreSQL locks only the rows the LIMIT lets through, whatever the plan.
@@ -868,7 +875,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
                     ...(after ? [after.t, after.t, after.id] : [])
                   );
                   for (const cand of page) {
-                    rows = await tx.$queryRawUnsafe(`SELECT ${qi('id')} FROM ${qi('Job')} WHERE ${qi('id')} = ? AND ${qi('status')} = 'queued' FOR UPDATE SKIP LOCKED`, cand.id);
+                    rows = await tx.$queryRawUnsafe(`SELECT ${qi('id')} FROM ${tbl('Job')} WHERE ${qi('id')} = ? AND ${qi('status')} = 'queued' FOR UPDATE SKIP LOCKED`, cand.id);
                     if (rows.length) break;
                   }
                   after = page.length === CLAIM_CANDIDATES ? page[page.length - 1] : undefined;

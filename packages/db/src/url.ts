@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
+import { PG_SCHEMA_PATTERN } from './sql';
 
 export type DatabaseKind = 'sqlite' | 'postgresql' | 'mysql';
 
@@ -9,7 +10,7 @@ export interface ParsedDatabaseUrl {
   file?: string;
   /** PostgreSQL / MySQL: the URL to hand to the driver (our own parameters removed). */
   driverUrl?: string;
-  /** PostgreSQL `?schema=`: tables live in this schema (default: the user's search_path, normally public). */
+  /** PostgreSQL `?schema=`: tables live in this schema (default: `public`, as Prisma's model queries; every raw statement names it, #191). */
   schema?: string;
   /** `?connection_limit=`: pool size (PostgreSQL / MySQL). */
   connectionLimit?: number;
@@ -86,7 +87,7 @@ export function parseDatabaseUrl(url: string): ParsedDatabaseUrl {
   }
   if (scheme === 'postgres' || scheme === 'postgresql') {
     const schema = take('schema');
-    if (schema !== undefined && !/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(schema)) throw new Error('DATABASE_URL schema must be a plain identifier');
+    if (schema !== undefined && !PG_SCHEMA_PATTERN.test(schema)) throw new Error('DATABASE_URL schema must be a plain identifier');
     return { kind: 'postgresql', driverUrl: u.toString(), schema, connectionLimit };
   }
   if (scheme === 'mysql' || scheme === 'mariadb') {

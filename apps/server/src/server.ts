@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
 import { ReelforgeService, chromiumSandbox, effectiveQueueMode, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
-import { createNotifyListener, defaultDatabaseUrl, notifyChannel, prepareDatabase, READ_REPLICA_READS, type Database } from '@reelforge/db';
+import { createNotifyListener, defaultDatabaseUrl, notifyChannel, pooledSchemaWarning, prepareDatabase, READ_REPLICA_READS, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
 import { secretValues } from './observability/logger';
@@ -181,6 +181,9 @@ export async function startServer(
     );
   }
   log(`database: ${db.kind} ${db.displayUrl}${db.kind === 'sqlite' ? '' : ` (pool ${db.poolSize})`}`);
+  // ?schema= behind a transaction-mode pooler (#191): safe for this version, a warning for older processes and the operator's own SQL.
+  const pooled = await pooledSchemaWarning(config.databaseUrl);
+  if (pooled) logger.log('warn', pooled);
   if (db.readDisplayUrl) log(`database read replica: ${db.readDisplayUrl} (pool ${db.readPoolSize}); lists only: ${READ_REPLICA_READS.join(', ')}`);
   log(`storage: ${service.storage.driver.id} ${JSON.stringify(service.storage.driver.describe())}`);
   if (existsSync(join(config.dataDir, 'secrets.json'))) {

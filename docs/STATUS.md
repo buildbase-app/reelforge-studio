@@ -457,7 +457,10 @@ the primary (SQLite refuses it). Sizing rule, `connection_limit` per role, RDS P
 notes with sources:
 [queue-and-scaling.md](providers/queue-and-scaling.md#connection-pooling). Test cases REP-01..08
 (SQLite, PostgreSQL 17, MySQL 8.4) and SCL-19. Not tested: RDS Proxy, Cloud SQL, a streaming
-replica container (a second database fed by the test stands in).
+replica container (a second database fed by the test stands in). Since #191 every raw PostgreSQL
+statement names its schema, so `?schema=` behind PgBouncer transaction mode is supported (two
+schemas through one pool, exactly once each: PGB-04..08, SQL-01..03; run locally, CI has no
+PgBouncer).
 
 ### Queue dispatch: poll backoff and LISTEN/NOTIFY (2026-11-22, issue #158, step 1)
 

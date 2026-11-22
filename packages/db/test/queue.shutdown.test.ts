@@ -79,7 +79,7 @@ describe.each(availableTestDatabases())('shutdown with a claim in flight: %s', (
       },
     }) as unknown as Database['prisma'];
     cleanups.push(open);
-    return { jobs: createPrismaRepositories(gated, DEFAULT_WORKSPACE_ID, kind).jobs, held: () => held, written: () => written, open };
+    return { jobs: createPrismaRepositories(gated, DEFAULT_WORKSPACE_ID, kind, { schema: db.schema }).jobs, held: () => held, written: () => written, open };
   }
 
   /** After shutdown(): the claim has gone on (its status event is written) and the job still is not running here. */

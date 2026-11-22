@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { DEFAULT_PG_SCHEMA, pgIdent, pgTable } from './sql';
 import type { DatabaseKind } from './url';
 
 export interface Migration {
@@ -20,8 +21,20 @@ export interface RawClient {
 }
 
 const TABLE = '_reelforge_migrations';
-/** Arbitrary constant for PostgreSQL advisory locks ("rfmg"). */
+/**
+ * Arbitrary constant for PostgreSQL advisory locks ("rfmg"). One key for the whole database, whatever the schema:
+ * deployments in different schemas of one database only wait for each other's migrations (harmless), and versions
+ * before and after #191 still exclude each other during an upgrade.
+ */
 const PG_LOCK_ID = 0x72666d67;
+
+/**
+ * The bookkeeping table. PostgreSQL: schema-qualified (#191), so the migrator never reads another schema's table
+ * through a pooler that does not keep the client's search_path.
+ */
+function table(kind: DatabaseKind, schema: string): string {
+  return kind === 'postgresql' ? pgTable(schema, TABLE) : TABLE;
+}
 
 export function checksum(sql: string): string {
   return createHash('sha256').update(sql.replace(/\r\n/g, '\n')).digest('hex');
@@ -77,24 +90,24 @@ export function splitStatements(sql: string): string[] {
   return out;
 }
 
-async function ensureTable(client: RawClient) {
+async function ensureTable(client: RawClient, kind: DatabaseKind, schema: string) {
   await client.$executeRawUnsafe(
-    `CREATE TABLE IF NOT EXISTS ${TABLE} (id VARCHAR(191) NOT NULL PRIMARY KEY, checksum VARCHAR(64) NOT NULL, applied_at VARCHAR(40) NOT NULL)`
+    `CREATE TABLE IF NOT EXISTS ${table(kind, schema)} (id VARCHAR(191) NOT NULL PRIMARY KEY, checksum VARCHAR(64) NOT NULL, applied_at VARCHAR(40) NOT NULL)`
   );
 }
 
-async function appliedRows(client: RawClient): Promise<Array<{ id: string; checksum: string; applied_at: string }>> {
-  return client.$queryRawUnsafe(`SELECT id, checksum, applied_at FROM ${TABLE} ORDER BY id`);
+async function appliedRows(client: RawClient, kind: DatabaseKind, schema: string): Promise<Array<{ id: string; checksum: string; applied_at: string }>> {
+  return client.$queryRawUnsafe(`SELECT id, checksum, applied_at FROM ${table(kind, schema)} ORDER BY id`);
 }
 
-async function tableExists(client: RawClient, kind: DatabaseKind): Promise<boolean> {
+async function tableExists(client: RawClient, kind: DatabaseKind, schema: string): Promise<boolean> {
   const sql =
     kind === 'sqlite'
       ? `SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${TABLE}'`
       : kind === 'postgresql'
-        ? `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = '${TABLE}'`
+        ? `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name = '${TABLE}'` // not current_schema() (#191)
         : `SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = '${TABLE}'`;
-  return ((await client.$queryRawUnsafe<unknown[]>(sql)) ?? []).length > 0;
+  return ((await client.$queryRawUnsafe<unknown[]>(sql, ...(kind === 'postgresql' ? [schema] : []))) ?? []).length > 0;
 }
 
 function verify(migrations: Migration[], applied: Array<{ id: string; checksum: string }>) {
@@ -112,8 +125,9 @@ function verify(migrations: Migration[], applied: Array<{ id: string; checksum: 
   }
 }
 
-export async function migrationStatus(client: RawClient, kind: DatabaseKind, migrations: Migration[]): Promise<MigrationStatus> {
-  const applied = (await tableExists(client, kind)) ? await appliedRows(client) : [];
+/** `schema`: PostgreSQL only, the schema the tables are in (Database.schema; default `public`). */
+export async function migrationStatus(client: RawClient, kind: DatabaseKind, migrations: Migration[], schema: string = DEFAULT_PG_SCHEMA): Promise<MigrationStatus> {
+  const applied = (await tableExists(client, kind, schema)) ? await appliedRows(client, kind, schema) : [];
   verify(migrations, applied);
   const done = new Set(applied.map((a) => a.id));
   return {
@@ -131,16 +145,23 @@ export async function migrationStatus(client: RawClient, kind: DatabaseKind, mig
  * and SQLite roll back a failed migration completely. MySQL commits each DDL
  * statement implicitly, so a migration that fails half way must be repaired
  * by hand (restore the backup; see docs/DEPLOY.md).
+ *
+ * PostgreSQL: the bookkeeping statements name `schema`, and each migration's
+ * transaction starts with `SET LOCAL search_path` to it, because the migration
+ * scripts (generated DDL) name their tables without a schema. SET LOCAL lasts
+ * for the transaction only, which a transaction-mode pooler keeps on one
+ * server connection (#191).
  */
 export async function applyMigrations(
   client: RawClient,
   kind: DatabaseKind,
   migrations: Migration[],
-  log: (line: string) => void = () => undefined
+  log: (line: string) => void = () => undefined,
+  schema: string = DEFAULT_PG_SCHEMA
 ): Promise<string[]> {
   const ran: string[] = [];
   // Cheap check without a lock; every pending one is re-checked under the lock.
-  const { pending } = await migrationStatus(client, kind, migrations);
+  const { pending } = await migrationStatus(client, kind, migrations, schema);
   for (const m of [...migrations].sort((a, b) => a.id.localeCompare(b.id)).filter((x) => pending.includes(x.id))) {
     // SQLite: foreign key enforcement must be off while tables are rebuilt
     // (a DROP TABLE would cascade); it cannot change inside a transaction.
@@ -148,16 +169,19 @@ export async function applyMigrations(
     try {
       const applied = await client.$transaction(
         async (tx) => {
-          if (kind === 'postgresql') await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${PG_LOCK_ID})`);
+          if (kind === 'postgresql') {
+            await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${PG_LOCK_ID})`);
+            await tx.$executeRawUnsafe(`SET LOCAL search_path TO ${pgIdent(schema)}`);
+          }
           if (kind === 'mysql') {
             const [row] = await tx.$queryRawUnsafe<Array<{ l: unknown }>>(`SELECT GET_LOCK('reelforge_migrate', 300) AS l`);
             if (Number(row?.l) !== 1) throw new Error('could not get the migration lock within 300 s');
           }
           try {
-            await ensureTable(tx);
+            await ensureTable(tx, kind, schema);
             // SQLite: a write takes the database write lock before we read.
-            if (kind === 'sqlite') await tx.$executeRawUnsafe(`DELETE FROM ${TABLE} WHERE 1 = 0`);
-            const rows = await appliedRows(tx);
+            if (kind === 'sqlite') await tx.$executeRawUnsafe(`DELETE FROM ${table(kind, schema)} WHERE 1 = 0`);
+            const rows = await appliedRows(tx, kind, schema);
             verify(migrations, rows);
             if (rows.some((r) => r.id === m.id)) return false;
             log(`applying migration ${m.id}`);
@@ -169,7 +193,7 @@ export async function applyMigrations(
               const broken = await tx.$queryRawUnsafe<unknown[]>('PRAGMA foreign_key_check');
               if (broken.length) throw new Error(`migration ${m.id} left ${broken.length} rows with broken foreign keys`);
             }
-            await tx.$executeRawUnsafe(`INSERT INTO ${TABLE} (id, checksum, applied_at) VALUES ('${m.id}', '${checksum(m.sql)}', '${new Date().toISOString()}')`);
+            await tx.$executeRawUnsafe(`INSERT INTO ${table(kind, schema)} (id, checksum, applied_at) VALUES ('${m.id}', '${checksum(m.sql)}', '${new Date().toISOString()}')`);
             return true;
           } finally {
             if (kind === 'mysql') await tx.$queryRawUnsafe(`SELECT RELEASE_LOCK('reelforge_migrate') AS l`);

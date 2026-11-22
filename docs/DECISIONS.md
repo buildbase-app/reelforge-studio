@@ -1951,11 +1951,23 @@ image, compose overlay `deployment/compose/docker-compose.pgbouncer.yml` with it
 `pgbouncer.env`, shared with the Docker scale e2e). Migrations run once on the direct port
 (`--migrate-only`, then `REELFORGE_MIGRATE_ON_START=0`), although they also worked through PgBouncer:
 it keeps DDL off the app's pool and works with RDS Proxy on MySQL, where `GET_LOCK` pins.
-`?schema=` is not supported behind PgBouncer on PostgreSQL ≤ 17: measured here, the per-client
-`search_path` (sent as startup `options`) is not kept under concurrency and the raw SQL names tables
-without a schema (#151's probe had used schema-qualified model queries only); use the default schema
-or a role-level `search_path`. The db contract and server suites pass through PgBouncer with the
-default schema (a database per run, `TEST_POSTGRES_ISOLATION=database`). RDS Proxy (writer
+`?schema=` behind PgBouncer on PostgreSQL ≤ 17: measured here, the per-client `search_path` (sent
+as startup `options`) is not kept under concurrency, and the raw SQL named tables without a schema
+(#151's probe had used schema-qualified model queries only). **Amended by #191 (2026-11-22):** every
+raw PostgreSQL statement now names its schema (`packages/db/src/sql.ts`, the schema from the URL,
+default `public`, validated as a plain identifier and quoted), the migration scripts run under
+`SET LOCAL search_path` inside their transaction, and a source scan (SQL-01) fails on a new unqualified
+table; so `?schema=` behind a transaction-mode pooler is supported (two schemas through one PgBouncer
+pool: exactly once per schema, PGB-04/05). A server with a non-default schema that finds itself
+behind a transaction-mode pooler at start logs a warning for older processes that may share the
+pool. The earlier advice of a role-level `search_path` without `?schema=` is withdrawn: Prisma's
+model queries use `public` without `?schema=`, so it never worked. *Rejected:* refusing `?schema=`
+behind a pooler (not reliably detectable, and qualifying the SQL removes the cause); `SET LOCAL
+search_path` in every transaction instead of qualifying (statements outside a transaction would
+still depend on the connection). MySQL and SQLite are unchanged: on MySQL the database in the URL is
+the namespace of the connection, no search_path. The db contract and server suites pass through
+PgBouncer with the default schema (a database per run, `TEST_POSTGRES_ISOLATION=database`) and, since
+#191, with a schema per run. RDS Proxy (writer
 only on RDS; statements over 16 KB pin the session, and manifests can be larger; MySQL prepared
 statements pin) and Cloud SQL managed pooling are documented from their documentation and untested.
 A direct, non-pooled URL for LISTEN/NOTIFY belongs to the dispatch work (#158), not here.\

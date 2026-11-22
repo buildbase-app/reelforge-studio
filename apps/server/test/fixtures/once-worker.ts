@@ -39,7 +39,7 @@ if (process.env.GATE_CLAIM === '1') {
           },
         },
       }) as unknown as Database['prisma'];
-      r = createPrismaRepositories(gated, workspaceId, this.kind);
+      r = createPrismaRepositories(gated, workspaceId, this.kind, { schema: this.schema });
       gatedRepos.set(this, r);
     }
     return r;

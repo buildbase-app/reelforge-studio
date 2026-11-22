@@ -802,10 +802,11 @@ docker run --rm -e DATABASE_URL=postgresql://reelforge:...@db:5432/reelforge \
 # or: reelforge migrate (a Kubernetes Job / init container with the direct URL)
 ```
 
-The migrator's PostgreSQL lock is `pg_advisory_xact_lock` (transaction-scoped) and did run
-through PgBouncer 1.26.1 in transaction mode (#151), but a direct connection keeps DDL off the
-app's pool, works with any pooler, and is required for RDS Proxy on MySQL, where the
-migrator's `GET_LOCK` pins the session (below). Instances refuse to start while migrations are
+The migrator's PostgreSQL lock is `pg_advisory_xact_lock` (transaction-scoped, one key per
+database whatever the schema) and did run through PgBouncer 1.26.1 in transaction mode (#151;
+with two schemas at once since #191, PGB-04), but a direct connection keeps DDL off the app's
+pool, works with any pooler, and is required for RDS Proxy on MySQL, where the migrator's
+`GET_LOCK` pins the session (below). Instances refuse to start while migrations are
 pending (`assertMigrated`). The compose overlay below does this with a `migrate` service.
 
 ### PgBouncer (transaction mode)
@@ -853,26 +854,49 @@ read 2026-11-22; measurements: #151):
   once.
 - **`max_prepared_statements`** (PgBouncer default 200): with a non-zero value PgBouncer tracks
   protocol-level named prepared statements. Prisma's pg adapter also worked with 0 (#151).
-- **Do not use `?schema=` behind PgBouncer transaction mode (PostgreSQL 17 and older).**
-  ReelForge sends it as the startup parameter `options=-c search_path=...`, and its raw SQL (the
-  claim, the quota and cap statements) names tables without a schema. PgBouncer 1.26.1 accepts
-  the parameter, but on PostgreSQL 17 it does **not** keep it per client under concurrency
-  (measured here on 2026-11-22: four concurrent `psql` sessions with four different
-  `search_path` values through one pool each saw other clients' values in 3-7 of 300
-  statements; the db contract suite with a schema per run failed with
-  `relation "Job" does not exist`). The PgBouncer documentation says the same: before
-  PostgreSQL 18 it only knows `search_path` from the startup packet, so a server connection can
-  carry another client's value. #151's probe passed only because Prisma's model queries are
-  schema-qualified. Use the default schema (a database per deployment), or give the database
-  user its own schema with `ALTER ROLE reelforge SET search_path = reelforge` and leave
-  `?schema=` out (every server connection then starts with it). Do not list `options` in
-  `ignore_startup_parameters` either: that silently drops the schema. Qualifying the raw SQL
-  with the schema would lift this limit (follow-up).
+- **`?schema=` behind PgBouncer transaction mode is safe since #191.** PgBouncer 1.26.1 on
+  PostgreSQL 17 does **not** keep a client's `search_path` (sent by ReelForge as the startup
+  parameter `options=-c search_path=...`) under concurrency: four concurrent `psql` sessions with
+  four different values through one pool each saw other clients' values in 3-7 of 300
+  statements (2026-11-22), and the PgBouncer documentation says the same for PostgreSQL before
+  18. Prisma's model queries always name the schema; since #191 so does every raw statement:
+  the claims (`FOR UPDATE SKIP LOCKED`, claim by id), the quota, cap and admission statement and
+  its lock rows (`RateLimitWindow`, `ApiKey`), the fan-out row lock, and the migrator's
+  bookkeeping table (`packages/db/src/sql.ts`: `tbl('Job')` is `"<schema>"."Job"`, the schema
+  from the URL, default `public`, checked against `^[A-Za-z_][A-Za-z0-9_]{0,62}$` and quoted).
+  The migration scripts (generated DDL) run in a transaction that starts with
+  `SET LOCAL search_path TO "<schema>"`, which lasts for that transaction only, on the one server
+  connection the pooler gives it. Nothing else depends on `search_path`: NOTIFY names no table
+  and its channel is per schema (NTF-03), the outbox and the sweeps are model queries. Before
+  #191 the raw SQL named no schema: with two schemas on one pool, statements failed with
+  `relation "Job" does not exist`, and a claim could read the other deployment's queue (PGB-04,
+  PGB-05 on the old code). Two deployments in two schemas of one database through one PgBouncer
+  pool now claim each job exactly once, each in its own schema, with migrations through the
+  pooler at the same time (PGB-04) or on the direct port (PGB-05). Do not list `options` in
+  `ignore_startup_parameters`: that drops the schema for the direct-connection case and changes
+  nothing here.
+- **Upgrade every process before sharing a pool.** ReelForge versions before #191 still run the
+  unqualified SQL: with `?schema=` behind a transaction-mode pooler they can read or claim another
+  schema's rows. A server started with a non-default `?schema=` probes at start whether it goes
+  through a transaction-mode pooler (two short connections: a backend pid that changes between two
+  statements of one session, which never happens on a direct or session-mode connection; PGB-06)
+  and, if so, logs a warning saying that this version is safe and older processes are not. The
+  guard is not needed for this version's own safety; it stays as a hint for mixed-version
+  upgrades and for your own SQL through the pooler (psql, reporting tools), which must name the
+  schema too.
+- **No `ALTER ROLE ... SET search_path` without `?schema=`.** #188 suggested it; it does not work
+  with ReelForge, before or after #191: without `?schema=` Prisma's model queries use `public`, so
+  migrations would land in the role's schema and every model query would fail with
+  ``The table `public.Workspace` does not exist`` (checked 2026-11-22 on the old code). Since
+  #191 migrations always land in the URL's schema (default `public`), whatever the role's
+  `search_path`. To give a deployment its own schema, set `?schema=`.
 - **Tested through PgBouncer** with the default schema (2026-11-22, PgBouncer 1.26.1 with
   `pgbouncer.env`, PostgreSQL 17): the whole db contract suite (296 tests, a database per run:
   `TEST_POSTGRES_ISOLATION=database TEST_POSTGRES_POOLER=pgbouncer`) and the whole server suite
   including `scaling.test.ts` (api + two workers, quotas and rate limits across two api
-  instances), and the Docker scale e2e (SCL-19).
+  instances), and the Docker scale e2e (SCL-19). With a schema per run (`?schema=`, #191): the
+  db contract suite except the `notify` dispatch tests (LISTEN needs `database.directUrl`) and the
+  server suite (PGB-08).
 - **LISTEN/NOTIFY** dispatch (#158, separate) needs a direct, non-pooled connection of its own;
   it is not part of this recipe.
 
@@ -897,8 +921,9 @@ all read 2026-11-22. **Untested here** (no AWS account in CI): VERIFY before rec
   a bound parameter counts toward the "text size" is not stated (VERIFY).
 - **PostgreSQL pins** on session `SET`, SQL `PREPARE`, `LISTEN`, session advisory locks and
   sequence functions such as `nextval`; **not** on `pg_advisory_xact_lock`. ReelForge's queries
-  use none of the session-level ones. `?schema=` (startup `options`) is untested with the proxy:
-  use the default schema.
+  use none of the session-level ones. `?schema=` (startup `options`) is untested with the proxy;
+  since #191 no ReelForge statement depends on `search_path`, but the startup parameter itself
+  may pin or be refused (VERIFY).
 - **MySQL pins** on prepared statements ("whether the prepared statement uses SQL text or the
   binary protocol") and on `GET_LOCK`. The mariadb connector behind Prisma's adapter may use
   binary prepared statements (VERIFY), which would pin every session and remove the benefit; run
@@ -1141,7 +1166,15 @@ and a job that dies while its worker shuts down is handed back, never failed
 | SCL-18 | Docker: worker metrics (role, queue depth, finished jobs), bounded labels, no secret in any container log | Docker | pass 2026-11-21 |
 | PGB-01 | db contract suite through PgBouncer 1.26.1 (transaction mode, `pgbouncer.env`), default schema, a database per run (`TEST_POSTGRES_ISOLATION=database TEST_POSTGRES_POOLER=pgbouncer TEST_POSTGRES_URL=<pgbouncer>`): 296 passed | contract (PostgreSQL 17) | pass 2026-11-22 |
 | PGB-02 | server suite through PgBouncer, including `scaling.test.ts` (SCA-05..13: api + two workers, cancel, long-poll, quotas and rate limits across two api instances, graceful shutdown) and REP-06..08: 175 passed | server (PostgreSQL 17) | pass 2026-11-22 |
-| PGB-03 | `?schema=` behind PgBouncer on PostgreSQL 17: per-client `search_path` is not kept under concurrency (the contract suite with a schema per run fails with `relation ... does not exist`); hence the rule above | probe | finding 2026-11-22 |
+| PGB-03 | `?schema=` behind PgBouncer on PostgreSQL 17: per-client `search_path` is not kept under concurrency (the contract suite with a schema per run fails with `relation ... does not exist`) | probe | finding 2026-11-22; fixed by #191 (PGB-04..08) |
+| PGB-04 | two schemas of one database through one PgBouncer 1.26.1 pool (transaction mode, `pgbouncer.env`): migrations of both at once through the pooler, then 4 enqueue loops (plain and through the admission statement) and 6 claim loops over 3 pools per schema, 160 jobs each: every job claimed exactly once (one attempt), by a worker of its own schema, no error (`schema-isolation.pgbouncer.test.ts`, `TEST_PGBOUNCER_URL`) | contract (PostgreSQL 17 + PgBouncer) | pass 2026-11-22 (local; CI has no PgBouncer). On the code before #191 (4 runs, with `public` holding a migrated ReelForge and empty): fails every time, 239-329 errors per schema (`relation "Job" does not exist`, `relation "RateLimitWindow" does not exist`, and claims whose raw read returned another schema's row: "No record was found for an update"); migrations through the pooler left one or both schemas without tables, their DDL having run in a third schema that an earlier client's `search_path` had left on a server connection |
+| PGB-05 | the same with migrations on the direct port first (the documented recipe) | contract (PostgreSQL 17 + PgBouncer) | pass 2026-11-22 (local). Before #191: fails every time, 267-317 errors per schema, 8-26 of about 100 jobs claimed |
+| PGB-06 | the start-up probe: a direct connection is not a transaction pooler, PgBouncer transaction mode is; the warning only for `?schema=` through the pooler | contract (PostgreSQL 17 + PgBouncer) | pass 2026-11-22 (local; also a real `main.ts` start: the warning through PgBouncer, none on the direct port) |
+| PGB-07 | the warning: only a non-default PostgreSQL schema the probe finds pooled; no password in it | unit | pass 2026-11-22 |
+| PGB-08 | db contract suite (310 passed; the `notify` dispatch tests left out) and server suite (176 passed; `dispatch.test.ts` with `notify` is refused by its delivery check, as designed: LISTEN needs `database.directUrl`) with a schema per run through PgBouncer (`TEST_POSTGRES_URL=<pgbouncer> TEST_POSTGRES_POOLER=pgbouncer`) | contract, server (PostgreSQL 17 + PgBouncer) | pass 2026-11-22 (local) |
+| SQL-01 | source scan: no table in raw SQL in `packages/db/src` or `scripts/load` without a schema-qualifying helper (`tbl()`, `table()`, `pgTable()`); fails on the code before #191 (36 places) | unit | pass 2026-11-22 |
+| SQL-02 | the scan catches the known unqualified forms; the helper names the schema on PostgreSQL, refuses anything but a plain identifier, leaves MySQL and SQLite as they were; repositories on PostgreSQL without a schema are refused | unit | pass 2026-11-22 |
+| SQL-03 | every raw statement the claims, quota, cap and admission checks, row locks, NOTIFY and the migrator send, recorded on a schema per run (and on `public`), names that schema | contract (PostgreSQL 17) | pass 2026-11-22 |
 | SCL-19 | Docker, `POOLER=pgbouncer`: SCL-10..18 through PgBouncer 1.26.1 in transaction mode (the overlay's image and `pgbouncer.env`); migrations once with `--migrate-only` on the direct port, instances with `REELFORGE_MIGRATE_ON_START=0` (the api applies none); PostgreSQL sees only PgBouncer's connections, at most `DEFAULT_POOL_SIZE`; workers log `(pool 3)` | Docker | pass 2026-11-22 (also fixed for this run: `/readyz` detail and `/metrics` need an admin key and the metrics token since #146, which the script did not send yet) |
 | REP-01 | `database.readUrl` with SQLite is refused at once (no retries) naming the setting and the fix; a replica of another kind or a bad replica URL is refused; no password in the message | contract (SQLite) | pass 2026-11-22 |
 | REP-02 | replica = a database **without tables**: every write path and every read outside `READ_REPLICA_READS` works: projects (create, save, delete), keys, quota insert, claim, heartbeat, fenced progress and finish, cancel, recovery, counts, logs, rate limits and usage counters, idempotency, licence claim and compare-and-set, settings, provider settings, themes, assets, audit write and retention, webhooks, migrations and system state | contract (PostgreSQL, MySQL) | pass 2026-11-22 |

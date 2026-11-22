@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_WORKSPACE_ID, childJobs, createMemoryRepositories, newId, type JobRecord, type Repositories } from '@reelforge/core';
-import { Database, availableTestDatabases, createPrismaRepositories, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
+import { Database, availableTestDatabases, createPrismaRepositories, createTestDatabase, prepareDatabase, sqlNames, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-queue-contract-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -413,7 +413,9 @@ describe.each(availableTestDatabases().filter((k) => k !== 'sqlite'))('job queue
       const j = queued({ status: 'cancelled', finishedAt: iso(now) });
       await repos.jobs.insert(j, j.createdAt);
     }
-    await db.prisma.$executeRawUnsafe(kind === 'mysql' ? 'ANALYZE TABLE `Job`' : 'ANALYZE "Job"');
+    // Schema-qualified like the repositories' own raw SQL (#191): the suite also runs behind PgBouncer with a schema per run.
+    const job = sqlNames(kind, db.schema ?? undefined).tbl('Job');
+    await db.prisma.$executeRawUnsafe(kind === 'mysql' ? `ANALYZE TABLE ${job}` : `ANALYZE ${job}`);
   }, 60_000);
   afterAll(async () => {
     await db?.close();
@@ -435,7 +437,8 @@ describe.each(availableTestDatabases().filter((k) => k !== 'sqlite'))('job queue
     const held = new Promise<void>((r) => (holding = r));
     const holder = db.prisma.$transaction(
       async (tx) => {
-        for (const j of locked) await tx.$queryRawUnsafe(kind === 'mysql' ? 'SELECT `id` FROM `Job` WHERE `id` = ? FOR UPDATE' : 'SELECT "id" FROM "Job" WHERE "id" = $1 FOR UPDATE', j.id);
+        const { qi, tbl, ph } = sqlNames(kind, db.schema ?? undefined);
+        for (const j of locked) await tx.$queryRawUnsafe(`SELECT ${qi('id')} FROM ${tbl('Job')} WHERE ${qi('id')} = ${ph(1)} FOR UPDATE`, j.id);
         holding();
         await unlocked;
       },
@@ -457,7 +460,7 @@ describe.each(availableTestDatabases().filter((k) => k !== 'sqlite'))('job queue
         },
       },
     }) as unknown as Database['prisma'];
-    const claimer = createPrismaRepositories(gated, DEFAULT_WORKSPACE_ID, kind).jobs;
+    const claimer = createPrismaRepositories(gated, DEFAULT_WORKSPACE_ID, kind, { schema: db.schema }).jobs;
     let settled = 0;
     const started: Array<Promise<JobRecord | null>> = [];
     const start = (w: string) => started.push(claimer.claim({ workerId: w, types: ['render'], now: iso(now), leaseUntil: iso(now + 60_000) }).finally(() => settled++));
