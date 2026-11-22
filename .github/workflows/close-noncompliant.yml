@@ -7,16 +7,17 @@ on:
     - cron: '17 3 * * *'
   workflow_dispatch:
 
-permissions:
-  pull-requests: write
-  issues: write
+permissions: {}
 
 jobs:
   close:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      pull-requests: write
+      issues: write
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639 # v9.1.0
         with:
           only-pr-labels: 'policy: needs-changes'
           days-before-issue-stale: -1
