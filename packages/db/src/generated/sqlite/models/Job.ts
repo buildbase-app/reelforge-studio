@@ -20,8 +20,18 @@ export type JobModel = runtime.Types.Result.DefaultSelection<Prisma.$JobPayload>
 
 export type AggregateJob = {
   _count: JobCountAggregateOutputType | null
+  _avg: JobAvgAggregateOutputType | null
+  _sum: JobSumAggregateOutputType | null
   _min: JobMinAggregateOutputType | null
   _max: JobMaxAggregateOutputType | null
+}
+
+export type JobAvgAggregateOutputType = {
+  attempts: number | null
+}
+
+export type JobSumAggregateOutputType = {
+  attempts: number | null
 }
 
 export type JobMinAggregateOutputType = {
@@ -39,6 +49,11 @@ export type JobMinAggregateOutputType = {
   createdAt: Date | null
   startedAt: Date | null
   finishedAt: Date | null
+  queue: string | null
+  attempts: number | null
+  workerId: string | null
+  leaseExpiresAt: Date | null
+  cancelRequestedAt: Date | null
 }
 
 export type JobMaxAggregateOutputType = {
@@ -56,6 +71,11 @@ export type JobMaxAggregateOutputType = {
   createdAt: Date | null
   startedAt: Date | null
   finishedAt: Date | null
+  queue: string | null
+  attempts: number | null
+  workerId: string | null
+  leaseExpiresAt: Date | null
+  cancelRequestedAt: Date | null
 }
 
 export type JobCountAggregateOutputType = {
@@ -73,9 +93,22 @@ export type JobCountAggregateOutputType = {
   createdAt: number
   startedAt: number
   finishedAt: number
+  queue: number
+  attempts: number
+  workerId: number
+  leaseExpiresAt: number
+  cancelRequestedAt: number
   _all: number
 }
 
+
+export type JobAvgAggregateInputType = {
+  attempts?: true
+}
+
+export type JobSumAggregateInputType = {
+  attempts?: true
+}
 
 export type JobMinAggregateInputType = {
   id?: true
@@ -92,6 +125,11 @@ export type JobMinAggregateInputType = {
   createdAt?: true
   startedAt?: true
   finishedAt?: true
+  queue?: true
+  attempts?: true
+  workerId?: true
+  leaseExpiresAt?: true
+  cancelRequestedAt?: true
 }
 
 export type JobMaxAggregateInputType = {
@@ -109,6 +147,11 @@ export type JobMaxAggregateInputType = {
   createdAt?: true
   startedAt?: true
   finishedAt?: true
+  queue?: true
+  attempts?: true
+  workerId?: true
+  leaseExpiresAt?: true
+  cancelRequestedAt?: true
 }
 
 export type JobCountAggregateInputType = {
@@ -126,6 +169,11 @@ export type JobCountAggregateInputType = {
   createdAt?: true
   startedAt?: true
   finishedAt?: true
+  queue?: true
+  attempts?: true
+  workerId?: true
+  leaseExpiresAt?: true
+  cancelRequestedAt?: true
   _all?: true
 }
 
@@ -167,6 +215,18 @@ export type JobAggregateArgs<ExtArgs extends runtime.Types.Extensions.InternalAr
   /**
    * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
    * 
+   * Select which fields to average
+  **/
+  _avg?: JobAvgAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
+   * Select which fields to sum
+  **/
+  _sum?: JobSumAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
    * Select which fields to find the minimum value
   **/
   _min?: JobMinAggregateInputType
@@ -197,6 +257,8 @@ export type JobGroupByArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs
   take?: number
   skip?: number
   _count?: JobCountAggregateInputType | true
+  _avg?: JobAvgAggregateInputType
+  _sum?: JobSumAggregateInputType
   _min?: JobMinAggregateInputType
   _max?: JobMaxAggregateInputType
 }
@@ -216,7 +278,14 @@ export type JobGroupByOutputType = {
   createdAt: Date
   startedAt: Date | null
   finishedAt: Date | null
+  queue: string | null
+  attempts: number
+  workerId: string | null
+  leaseExpiresAt: Date | null
+  cancelRequestedAt: Date | null
   _count: JobCountAggregateOutputType | null
+  _avg: JobAvgAggregateOutputType | null
+  _sum: JobSumAggregateOutputType | null
   _min: JobMinAggregateOutputType | null
   _max: JobMaxAggregateOutputType | null
 }
@@ -254,6 +323,11 @@ export type JobWhereInput = {
   createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  queue?: Prisma.StringNullableFilter<"Job"> | string | null
+  attempts?: Prisma.IntFilter<"Job"> | number
+  workerId?: Prisma.StringNullableFilter<"Job"> | string | null
+  leaseExpiresAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  cancelRequestedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
   events?: Prisma.JobEventListRelationFilter
 }
@@ -273,6 +347,11 @@ export type JobOrderByWithRelationInput = {
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   finishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  queue?: Prisma.SortOrderInput | Prisma.SortOrder
+  attempts?: Prisma.SortOrder
+  workerId?: Prisma.SortOrderInput | Prisma.SortOrder
+  leaseExpiresAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  cancelRequestedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   workspace?: Prisma.WorkspaceOrderByWithRelationInput
   events?: Prisma.JobEventOrderByRelationAggregateInput
 }
@@ -295,6 +374,11 @@ export type JobWhereUniqueInput = Prisma.AtLeast<{
   createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  queue?: Prisma.StringNullableFilter<"Job"> | string | null
+  attempts?: Prisma.IntFilter<"Job"> | number
+  workerId?: Prisma.StringNullableFilter<"Job"> | string | null
+  leaseExpiresAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  cancelRequestedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
   events?: Prisma.JobEventListRelationFilter
 }, "id">
@@ -314,9 +398,16 @@ export type JobOrderByWithAggregationInput = {
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   finishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  queue?: Prisma.SortOrderInput | Prisma.SortOrder
+  attempts?: Prisma.SortOrder
+  workerId?: Prisma.SortOrderInput | Prisma.SortOrder
+  leaseExpiresAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  cancelRequestedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.JobCountOrderByAggregateInput
+  _avg?: Prisma.JobAvgOrderByAggregateInput
   _max?: Prisma.JobMaxOrderByAggregateInput
   _min?: Prisma.JobMinOrderByAggregateInput
+  _sum?: Prisma.JobSumOrderByAggregateInput
 }
 
 export type JobScalarWhereWithAggregatesInput = {
@@ -337,6 +428,11 @@ export type JobScalarWhereWithAggregatesInput = {
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Job"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Job"> | Date | string | null
+  queue?: Prisma.StringNullableWithAggregatesFilter<"Job"> | string | null
+  attempts?: Prisma.IntWithAggregatesFilter<"Job"> | number
+  workerId?: Prisma.StringNullableWithAggregatesFilter<"Job"> | string | null
+  leaseExpiresAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Job"> | Date | string | null
+  cancelRequestedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Job"> | Date | string | null
 }
 
 export type JobCreateInput = {
@@ -353,6 +449,11 @@ export type JobCreateInput = {
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
+  queue?: string | null
+  attempts?: number
+  workerId?: string | null
+  leaseExpiresAt?: Date | string | null
+  cancelRequestedAt?: Date | string | null
   workspace: Prisma.WorkspaceCreateNestedOneWithoutJobsInput
   events?: Prisma.JobEventCreateNestedManyWithoutJobInput
 }
@@ -372,6 +473,11 @@ export type JobUncheckedCreateInput = {
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
+  queue?: string | null
+  attempts?: number
+  workerId?: string | null
+  leaseExpiresAt?: Date | string | null
+  cancelRequestedAt?: Date | string | null
   events?: Prisma.JobEventUncheckedCreateNestedManyWithoutJobInput
 }
 
@@ -389,6 +495,11 @@ export type JobUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  queue?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  workerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   workspace?: Prisma.WorkspaceUpdateOneRequiredWithoutJobsNestedInput
   events?: Prisma.JobEventUpdateManyWithoutJobNestedInput
 }
@@ -408,6 +519,11 @@ export type JobUncheckedUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  queue?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  workerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   events?: Prisma.JobEventUncheckedUpdateManyWithoutJobNestedInput
 }
 
@@ -426,6 +542,11 @@ export type JobCreateManyInput = {
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
+  queue?: string | null
+  attempts?: number
+  workerId?: string | null
+  leaseExpiresAt?: Date | string | null
+  cancelRequestedAt?: Date | string | null
 }
 
 export type JobUpdateManyMutationInput = {
@@ -442,6 +563,11 @@ export type JobUpdateManyMutationInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  queue?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  workerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type JobUncheckedUpdateManyInput = {
@@ -459,6 +585,11 @@ export type JobUncheckedUpdateManyInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  queue?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  workerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type JobListRelationFilter = {
@@ -486,6 +617,15 @@ export type JobCountOrderByAggregateInput = {
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
+  queue?: Prisma.SortOrder
+  attempts?: Prisma.SortOrder
+  workerId?: Prisma.SortOrder
+  leaseExpiresAt?: Prisma.SortOrder
+  cancelRequestedAt?: Prisma.SortOrder
+}
+
+export type JobAvgOrderByAggregateInput = {
+  attempts?: Prisma.SortOrder
 }
 
 export type JobMaxOrderByAggregateInput = {
@@ -503,6 +643,11 @@ export type JobMaxOrderByAggregateInput = {
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
+  queue?: Prisma.SortOrder
+  attempts?: Prisma.SortOrder
+  workerId?: Prisma.SortOrder
+  leaseExpiresAt?: Prisma.SortOrder
+  cancelRequestedAt?: Prisma.SortOrder
 }
 
 export type JobMinOrderByAggregateInput = {
@@ -520,6 +665,15 @@ export type JobMinOrderByAggregateInput = {
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
+  queue?: Prisma.SortOrder
+  attempts?: Prisma.SortOrder
+  workerId?: Prisma.SortOrder
+  leaseExpiresAt?: Prisma.SortOrder
+  cancelRequestedAt?: Prisma.SortOrder
+}
+
+export type JobSumOrderByAggregateInput = {
+  attempts?: Prisma.SortOrder
 }
 
 export type JobScalarRelationFilter = {
@@ -597,6 +751,11 @@ export type JobCreateWithoutWorkspaceInput = {
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
+  queue?: string | null
+  attempts?: number
+  workerId?: string | null
+  leaseExpiresAt?: Date | string | null
+  cancelRequestedAt?: Date | string | null
   events?: Prisma.JobEventCreateNestedManyWithoutJobInput
 }
 
@@ -614,6 +773,11 @@ export type JobUncheckedCreateWithoutWorkspaceInput = {
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
+  queue?: string | null
+  attempts?: number
+  workerId?: string | null
+  leaseExpiresAt?: Date | string | null
+  cancelRequestedAt?: Date | string | null
   events?: Prisma.JobEventUncheckedCreateNestedManyWithoutJobInput
 }
 
@@ -660,6 +824,11 @@ export type JobScalarWhereInput = {
   createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  queue?: Prisma.StringNullableFilter<"Job"> | string | null
+  attempts?: Prisma.IntFilter<"Job"> | number
+  workerId?: Prisma.StringNullableFilter<"Job"> | string | null
+  leaseExpiresAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  cancelRequestedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
 }
 
 export type JobCreateWithoutEventsInput = {
@@ -676,6 +845,11 @@ export type JobCreateWithoutEventsInput = {
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
+  queue?: string | null
+  attempts?: number
+  workerId?: string | null
+  leaseExpiresAt?: Date | string | null
+  cancelRequestedAt?: Date | string | null
   workspace: Prisma.WorkspaceCreateNestedOneWithoutJobsInput
 }
 
@@ -694,6 +868,11 @@ export type JobUncheckedCreateWithoutEventsInput = {
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
+  queue?: string | null
+  attempts?: number
+  workerId?: string | null
+  leaseExpiresAt?: Date | string | null
+  cancelRequestedAt?: Date | string | null
 }
 
 export type JobCreateOrConnectWithoutEventsInput = {
@@ -726,6 +905,11 @@ export type JobUpdateWithoutEventsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  queue?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  workerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   workspace?: Prisma.WorkspaceUpdateOneRequiredWithoutJobsNestedInput
 }
 
@@ -744,6 +928,11 @@ export type JobUncheckedUpdateWithoutEventsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  queue?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  workerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type JobCreateManyWorkspaceInput = {
@@ -760,6 +949,11 @@ export type JobCreateManyWorkspaceInput = {
   createdAt: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
+  queue?: string | null
+  attempts?: number
+  workerId?: string | null
+  leaseExpiresAt?: Date | string | null
+  cancelRequestedAt?: Date | string | null
 }
 
 export type JobUpdateWithoutWorkspaceInput = {
@@ -776,6 +970,11 @@ export type JobUpdateWithoutWorkspaceInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  queue?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  workerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   events?: Prisma.JobEventUpdateManyWithoutJobNestedInput
 }
 
@@ -793,6 +992,11 @@ export type JobUncheckedUpdateWithoutWorkspaceInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  queue?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  workerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   events?: Prisma.JobEventUncheckedUpdateManyWithoutJobNestedInput
 }
 
@@ -810,6 +1014,11 @@ export type JobUncheckedUpdateManyWithoutWorkspaceInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  queue?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  workerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 
@@ -858,6 +1067,11 @@ export type JobSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
+  queue?: boolean
+  attempts?: boolean
+  workerId?: boolean
+  leaseExpiresAt?: boolean
+  cancelRequestedAt?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
   events?: boolean | Prisma.Job$eventsArgs<ExtArgs>
   _count?: boolean | Prisma.JobCountOutputTypeDefaultArgs<ExtArgs>
@@ -878,6 +1092,11 @@ export type JobSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extension
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
+  queue?: boolean
+  attempts?: boolean
+  workerId?: boolean
+  leaseExpiresAt?: boolean
+  cancelRequestedAt?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["job"]>
 
@@ -896,6 +1115,11 @@ export type JobSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extension
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
+  queue?: boolean
+  attempts?: boolean
+  workerId?: boolean
+  leaseExpiresAt?: boolean
+  cancelRequestedAt?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["job"]>
 
@@ -914,9 +1138,14 @@ export type JobSelectScalar = {
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
+  queue?: boolean
+  attempts?: boolean
+  workerId?: boolean
+  leaseExpiresAt?: boolean
+  cancelRequestedAt?: boolean
 }
 
-export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "type" | "status" | "projectId" | "params" | "progress" | "result" | "error" | "retryOf" | "apiKeyId" | "createdAt" | "startedAt" | "finishedAt", ExtArgs["result"]["job"]>
+export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "type" | "status" | "projectId" | "params" | "progress" | "result" | "error" | "retryOf" | "apiKeyId" | "createdAt" | "startedAt" | "finishedAt" | "queue" | "attempts" | "workerId" | "leaseExpiresAt" | "cancelRequestedAt", ExtArgs["result"]["job"]>
 export type JobInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
   events?: boolean | Prisma.Job$eventsArgs<ExtArgs>
@@ -956,6 +1185,26 @@ export type $JobPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
     createdAt: Date
     startedAt: Date | null
     finishedAt: Date | null
+    /**
+     * "database" for jobs of the database queue (#36, D-075); null for in-process jobs.
+     */
+    queue: string | null
+    /**
+     * Database queue: claims so far (a crashed worker's job is claimed again until queue.maxAttempts).
+     */
+    attempts: number
+    /**
+     * Database queue: the worker instance holding the job.
+     */
+    workerId: string | null
+    /**
+     * Database queue: the claim is the worker's until then; renewed by its heartbeat.
+     */
+    leaseExpiresAt: Date | null
+    /**
+     * cancel_job on another instance: the holding worker stops the job at its next heartbeat.
+     */
+    cancelRequestedAt: Date | null
   }, ExtArgs["result"]["job"]>
   composites: {}
 }
@@ -1395,6 +1644,11 @@ export interface JobFieldRefs {
   readonly createdAt: Prisma.FieldRef<"Job", 'DateTime'>
   readonly startedAt: Prisma.FieldRef<"Job", 'DateTime'>
   readonly finishedAt: Prisma.FieldRef<"Job", 'DateTime'>
+  readonly queue: Prisma.FieldRef<"Job", 'String'>
+  readonly attempts: Prisma.FieldRef<"Job", 'Int'>
+  readonly workerId: Prisma.FieldRef<"Job", 'String'>
+  readonly leaseExpiresAt: Prisma.FieldRef<"Job", 'DateTime'>
+  readonly cancelRequestedAt: Prisma.FieldRef<"Job", 'DateTime'>
 }
     
 

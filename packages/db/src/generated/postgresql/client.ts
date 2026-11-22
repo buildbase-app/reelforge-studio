@@ -116,6 +116,13 @@ export type AuditLog = Prisma.AuditLogModel
  */
 export type IdempotencyKey = Prisma.IdempotencyKeyModel
 /**
+ * Model RateLimitWindow
+ * Per-key request counters for the shared rate limit (limits.rateLimitStore
+ * "database", #36, D-078): one row per API key and minute, incremented
+ * atomically by every instance; old windows are swept.
+ */
+export type RateLimitWindow = Prisma.RateLimitWindowModel
+/**
  * Model LicenceState
  * Licence activation state (#25, D-028, D-035): one row per workspace (the
  * instance-wide licence lives in the default workspace). instanceId is random,

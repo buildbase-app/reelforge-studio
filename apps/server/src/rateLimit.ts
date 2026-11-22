@@ -27,3 +27,38 @@ export class RateLimiter {
     return Math.ceil((1 - b.tokens) / rate / 1000);
   }
 }
+
+/**
+ * The per-key limit shared by every instance (limits.rateLimitStore
+ * "database", D-078): one counter row per key and calendar minute,
+ * incremented atomically in the database. A key gets at most `perMinute`
+ * requests in each minute, whichever instance answers them. If the database
+ * cannot be reached the request is let through (it would fail on its own
+ * database work anyway) and a warning is logged at most once a minute.
+ */
+export class DatabaseRateLimiter {
+  private lastWarn = 0;
+
+  constructor(
+    private readonly hit: (key: string, windowStart: string) => Promise<number>,
+    private readonly limit: () => number,
+    private readonly warn: (line: string) => void = () => undefined
+  ) {}
+
+  async take(key: string, override?: number, now = Date.now()): Promise<number> {
+    const perMinute = override ?? this.limit();
+    if (perMinute <= 0) return 0;
+    const windowStart = Math.floor(now / 60_000) * 60_000;
+    let count: number;
+    try {
+      count = await this.hit(key, new Date(windowStart).toISOString());
+    } catch (e) {
+      if (now - this.lastWarn >= 60_000) {
+        this.lastWarn = now;
+        this.warn(`rate limit: the shared counter could not be updated (${(e as Error).message.split('\n').pop()}); requests are not limited until the database answers`);
+      }
+      return 0;
+    }
+    return count <= perMinute ? 0 : Math.max(1, Math.ceil((windowStart + 60_000 - now) / 1000));
+  }
+}

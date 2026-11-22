@@ -79,7 +79,7 @@ describe('configuration over REST', () => {
     expect(r.text).not.toContain(SECRET_KEY);
     expect(r.text).not.toContain('reelforge.db');
     const limits = await rest('GET', '/v1/config?prefix=limits');
-    expect(limits.json.settings.map((s: any) => s.key)).toEqual(['limits.rateLimitPerMinute', 'limits.maxUploadBytes', 'limits.maxJsonBytes', 'limits.renderConcurrency']);
+    expect(limits.json.settings.map((s: any) => s.key)).toEqual(['limits.rateLimitPerMinute', 'limits.rateLimitStore', 'limits.maxUploadBytes', 'limits.maxJsonBytes', 'limits.renderConcurrency']);
   });
 
   it('PATCH /v1/config changes a runtime setting at once: the rate limit', async () => {

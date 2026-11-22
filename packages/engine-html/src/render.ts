@@ -119,6 +119,10 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
         '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
         '--webrtc-ip-handling-policy=disable_non_proxied_udp',
       ],
+      // The server owns shutdown (a worker hands running jobs back on SIGTERM); the job's abort signal closes the browser.
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
     });
     const context = await browser.newContext({
       viewport: { width: output.width, height: output.height },

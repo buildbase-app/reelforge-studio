@@ -85,6 +85,8 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
 
   const tmp = join(input.rendersDir, `.tmp-${input.runId}`);
   const finalDir = join(input.rendersDir, input.runId);
+  // A worker that died mid-render (database queue, D-075) may have left this run's temp directory behind.
+  await rm(tmp, { recursive: true, force: true });
   await mkdir(join(tmp, 'clips'), { recursive: true });
   const started = Date.now();
   const rel = (p: string) => relative(tmp, p).split(sep).join('/');

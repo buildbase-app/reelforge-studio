@@ -1,0 +1,45 @@
+# api: CPU. worker: CPU and the queue depth. reelforge_jobs_queued is the
+# cluster-wide number of queued jobs (every instance reports the same value),
+# so it is an External metric: with prometheus-adapter, the rule in
+# docs/providers/queue-and-scaling.md#autoscaling exposes
+# max(reelforge_jobs_queued) to the HPA. Without the adapter the worker HPA
+# scales on CPU only (the External metric shows <unknown>).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: reelforge-api
+  namespace: reelforge
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: reelforge-api }
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: reelforge-worker
+  namespace: reelforge
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: reelforge-worker }
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 80 } }
+    - type: External
+      external:
+        metric:
+          name: reelforge_jobs_queued
+          selector: { matchLabels: { namespace: reelforge } }
+        # One more worker per queued job (each worker renders REELFORGE_WORKER_CONCURRENCY at a time).
+        target: { type: AverageValue, averageValue: "1" }
+  behavior:
+    scaleUp:
+      policies: [{ type: Pods, value: 4, periodSeconds: 60 }]
+    scaleDown:
+      # Renders take minutes: scale down slowly (a removed worker hands its job back, which costs a restart of that render).
+      stabilizationWindowSeconds: 600
+      policies: [{ type: Pods, value: 1, periodSeconds: 120 }]
