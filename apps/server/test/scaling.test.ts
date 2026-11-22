@@ -23,7 +23,10 @@ afterAll(() => cleanup());
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
 const SECRET_KEY = 'scaling-test-secret-key-0123456789abcdef';
 const DB_PASSWORD = 'Sup3rS3cretDbPassw0rd';
-const base = { REELFORGE_LICENCE_MODE: 'off', REELFORGE_SECRET_KEY: SECRET_KEY };
+const METRICS_TOKEN = 'sca-metrics-token-0123456789abcdef0123456789';
+const base = { REELFORGE_LICENCE_MODE: 'off', REELFORGE_SECRET_KEY: SECRET_KEY, REELFORGE_METRICS_TOKEN: METRICS_TOKEN };
+// /metrics needs its token and /readyz detail needs an admin key since #146 (D-088).
+const metrics = (url: string) => fetch(`${url}/metrics`, { headers: { authorization: `Bearer ${METRICS_TOKEN}` } });
 
 describe('start-up guard for the api and worker roles', () => {
   const start = (env: Record<string, string>) => startServer({ dataDir: join(dir, 'guard'), port: 0, host: '127.0.0.1' }, { registry: new PluginRegistry(), env: { ...base, ...env }, quiet: true });
@@ -156,14 +159,16 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
   it('SCA-05 a worker serves only /healthz, /readyz and /metrics', async () => {
     const w = workers[0]!;
     expect((await fetch(`${w.url}/healthz`)).status).toBe(200);
-    const ready = await (await fetch(`${w.url}/readyz`)).json();
+    expect((await fetch(`${w.url}/readyz`)).status).toBe(200); // anonymous: status only
+    const ready = await (await fetch(`${w.url}/readyz`, { headers: { authorization: `Bearer ${admin}` } })).json();
     expect(ready.dependencies.queue).toMatchObject({ status: 'ok', role: 'worker', mode: 'database', renders: true, workerId: 'worker-a' });
-    expect((await fetch(`${w.url}/metrics`)).status).toBe(200);
+    expect((await metrics(w.url)).status).toBe(200);
+    expect((await fetch(`${w.url}/metrics`)).status).toBe(401);
     const r = await rest(w, 'GET', '/v1/projects');
     expect(r.status).toBe(404);
     expect(r.json.error.message).toMatch(/this instance is a worker .* send REST and MCP calls to an api instance/);
     expect((await fetch(`${w.url}/mcp`, { method: 'POST' })).status).toBe(404);
-    const apiReady = await (await fetch(`${api.url}/readyz`)).json();
+    const apiReady = await (await fetch(`${api.url}/readyz`, { headers: { authorization: `Bearer ${admin}` } })).json();
     expect(apiReady.dependencies.queue).toMatchObject({ role: 'api', renders: false });
   });
 
@@ -262,11 +267,11 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
   }, 120_000);
 
   it('SCA-11 metrics: role gauge and cluster queue depth, bounded labels', async () => {
-    const text = await (await fetch(`${workers.at(-1)!.url}/metrics`)).text();
+    const text = await (await metrics(workers.at(-1)!.url)).text();
     expect(text).toMatch(/^reelforge_server_role\{reelforge_role="worker"\} 1$/m);
     expect(text).toMatch(/^reelforge_server_role\{reelforge_role="api"\} 0$/m);
     expect(text).toMatch(/^reelforge_jobs_queued \d+$/m);
-    const apiText = await (await fetch(`${api.url}/metrics`)).text();
+    const apiText = await (await metrics(api.url)).text();
     expect(apiText).toMatch(/^reelforge_server_role\{reelforge_role="api"\} 1$/m);
     const labels = new Set([...text.matchAll(/="([^"]*)"/g)].map((m) => m[1]));
     expect([...labels].some((l) => /^(job|run|prv|key)_[a-z0-9]{8,}|worker-/.test(l!))).toBe(false);
@@ -276,8 +281,11 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
     const all = logs.join('\n');
     expect(all).not.toContain(SECRET_KEY);
     expect(all).not.toContain(admin);
+    // The database password in credential form, and the whole URL (a CI password can be a plain word such as the product name).
     const pw = new URL(testDb.url).password;
-    if (pw) expect(all).not.toContain(pw);
+    if (pw) expect(all).not.toContain(`:${pw}@`);
+    expect(all).not.toContain(testDb.url);
+    expect(all).not.toContain(METRICS_TOKEN);
     expect(all).toMatch(/role: api; job queue: database \(worker api-1, enqueues only, never renders\)/);
     expect(all).toMatch(/role worker: renders jobs from the database queue \(worker worker-a, 1 at a time\)/);
   });
