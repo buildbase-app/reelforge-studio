@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { browserVersion, chromiumSandbox as coreChromiumSandbox, packageVersion, type EnginePlugin } from '@reelforge/core';
+import { browserVersion, chromiumSandbox as coreChromiumSandbox, packageVersion, renderChildEnv, sceneTimeoutCapMs, type EnginePlugin } from '@reelforge/core';
 import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
@@ -24,7 +24,7 @@ export interface HtmlRenderOptions {
   browserExecutable?: string;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
-  /** Whole-render timeout. Default: 30 s + 1 s per frame. */
+  /** Whole-render timeout. Default: 30 s + 1 s per frame, at most render.sceneTimeoutSeconds. */
   timeoutMs?: number;
 }
 
@@ -85,9 +85,14 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   }
 
   mkdirSync(dirname(opts.out), { recursive: true });
-  const timeoutMs = opts.timeoutMs ?? 30_000 + frames * 1000;
+  const timeoutMs = Math.min(opts.timeoutMs ?? 30_000 + frames * 1000, sceneTimeoutCapMs());
   const timeout = AbortSignal.timeout(timeoutMs);
-  const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
+  // The page leaving its document (meta refresh, a link) fails the render (D-085).
+  const navigation = new AbortController();
+  let navigatedTo = '';
+  const signal = AbortSignal.any([timeout, navigation.signal, ...(opts.signal ? [opts.signal] : [])]);
+  const navigationError = () =>
+    new PipelineError(stage, `the scene tried to navigate away from its document (${navigatedTo.slice(0, 120)}): scenes render without network access and must not navigate`);
   const encoder = startPngEncoder(opts.ffmpeg, opts.out, output.fps, stage);
   const blocked: string[] = [];
   let browser: Browser | undefined;
@@ -102,7 +107,18 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
       executablePath: executable,
       headless: true,
       chromiumSandbox: chromiumSandbox(),
-      args: ['--disable-dev-shm-usage', '--hide-scrollbars', '--mute-audio', '--disable-gpu', '--font-render-hinting=none'],
+      // No server secrets in the browser's environment (D-086).
+      env: renderChildEnv(),
+      args: [
+        '--disable-dev-shm-usage',
+        '--hide-scrollbars',
+        '--mute-audio',
+        '--disable-gpu',
+        '--font-render-hinting=none',
+        '--disable-quic',
+        '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+        '--webrtc-ip-handling-policy=disable_non_proxied_udp',
+      ],
     });
     const context = await browser.newContext({
       viewport: { width: output.width, height: output.height },
@@ -121,6 +137,15 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     const page = await context.newPage();
     page.on('popup', (p) => void p.close());
     await page.setContent(doc, { waitUntil: 'load', timeout: 20_000 });
+    const home = page.url();
+    const onNavigated = (frame: import('playwright-core').Frame) => {
+      if (frame === page.mainFrame() && frame.url() !== home && !navigation.signal.aborted) {
+        navigatedTo = frame.url();
+        navigation.abort();
+      }
+    };
+    page.on('framenavigated', onNavigated);
+    if (page.url() !== home) onNavigated(page.mainFrame());
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
 
     for (let f = 0; f < frames; f++) {
@@ -136,6 +161,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
       await encoder.write(png);
       opts.onProgress?.(f + 1, frames);
     }
+    if (navigation.signal.aborted) throw navigationError();
     if (timeout.aborted) throw new PipelineError(stage, `html render timed out after ${timeoutMs} ms`);
     if (signal.aborted) throw new PipelineError(stage, 'cancelled');
     await encoder.finish();
@@ -143,6 +169,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     return { out: opts.out, frames, millis: Date.now() - started, browser: version, blockedRequests: blocked };
   } catch (e) {
     encoder.kill();
+    if (navigation.signal.aborted) throw navigationError();
     if (timeout.aborted) throw new PipelineError(stage, `html render timed out after ${timeoutMs} ms`);
     if (signal.aborted) throw new PipelineError(stage, 'cancelled');
     if (e instanceof PipelineError) throw e;

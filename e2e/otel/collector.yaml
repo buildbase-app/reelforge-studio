@@ -12,6 +12,10 @@ receivers:
       scrape_configs:
         - job_name: reelforge
           scrape_interval: 5s
+          # /metrics needs the bearer token by default (D-088).
+          authorization:
+            type: Bearer
+            credentials_file: /etc/otelcol/metrics-token
           static_configs:
             - targets: ['reelforge:4321']
 exporters:

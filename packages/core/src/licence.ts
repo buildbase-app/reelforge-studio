@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHmac, hkdfSync, randomUUID, timingSafeEqual } from 'node:crypto';
 import { ApiError } from './errors';
 import type { RuntimeConfig } from './config/runtime';
 import type { LicenceRepository, LicenceStateRecord, Repositories } from './repositories';
@@ -32,6 +32,11 @@ export interface LicenceAnswer {
   key?: { status: string; activations: number; activationLimit: number | null; expiresAt: string | null };
   item?: { id: string; title: string };
   instance?: { instance: string; activatedAt: string } | null;
+  /**
+   * The licence server's clock (its HTTP `Date` header), added by
+   * BuildBaseLicenceClient; not part of BuildBase's answer body.
+   */
+  serverTime?: string;
 }
 
 /**
@@ -137,6 +142,8 @@ export class BuildBaseLicenceClient implements LicenceApi {
     } catch {
       parsed = null;
     }
+    const serverTime = res.headers.get('date') ?? undefined;
+    if (isAnswer(parsed) && serverTime && !Number.isNaN(Date.parse(serverTime))) parsed.serverTime = new Date(serverTime).toISOString();
     if (res.ok) {
       if (isAnswer(parsed)) return parsed;
       throw new LicenceServerError('bad_response', `licence server sent an unexpected answer (HTTP ${res.status})`, res.status);
@@ -168,7 +175,7 @@ export interface LicenceReport {
   /** Whether render_project / preview_scene are allowed right now. */
   renderAllowed: boolean;
   mode: LicenceMode;
-  /** null when valid; a BuildBase reason (revoked, limit_reached, ...) or grace_expired, unreachable, clock_skew, deactivated, no_key, not_checked. */
+  /** null when valid; a BuildBase reason (revoked, limit_reached, ...) or grace_expired, unreachable, clock_skew, state_untrusted, deactivated, no_key, not_checked. */
   reason: string | null;
   message: string;
   /** What to do about it, when something is wrong. */
@@ -266,11 +273,93 @@ function explain(reason: string, ctx: { host: string; graceDays: number; lastSuc
         message: 'The system clock is earlier than the last licence check, so the offline grace period cannot be trusted.',
         fix: `Correct the system clock (NTP), or let the server reach ${ctx.host} for a fresh check.`,
       };
+    case 'state_untrusted':
+      return {
+        message:
+          'The stored licence state failed its integrity check (it was changed outside ReelForge, REELFORGE_SECRET_KEY changed, or it was written by an older version), so the offline grace period does not apply until the licence server confirms the licence.',
+        fix: `Allow outbound HTTPS to ${ctx.host}; the next successful check restores normal operation (POST /v1/licence or activate_licence checks at once).`,
+      };
     case 'not_checked':
       return { message: 'The licence key has not been checked yet.', fix: `Wait a moment, or check at once with ${ACTIVATE_HOW}.` };
     default:
       return { message: `The licence server refused the licence key (${reason}).`, fix: 'Contact ReelForge support with this reason.' };
   }
+}
+
+// ---- integrity of the stored state (D-089) -------------------------------------------
+
+/** Where the seal lives inside the stored `answer` JSON (no schema change). */
+const SEAL_FIELD = '_reelforgeSeal';
+
+interface Seal {
+  v: 1;
+  serverTimeAt?: string;
+  mac: string;
+}
+
+/**
+ * Key for the stored-state seal: HKDF-SHA256 of REELFORGE_SECRET_KEY (a fixed
+ * label without it) with the instance id as salt. Anyone who knows the secret
+ * key can still forge a state; the point is that editing the database row
+ * alone no longer works, and a forged state needs code or the secret key.
+ */
+export function licenceSealKey(secret: string | undefined, instanceId: string): Buffer {
+  return Buffer.from(hkdfSync('sha256', secret ?? 'reelforge-licence-state-unkeyed-v1', instanceId, 'reelforge licence state seal v1', 32));
+}
+
+function sealMac(key: Buffer, s: LicenceStateRecord, answer: Record<string, unknown> | undefined, serverTimeAt: string | undefined): string {
+  const canonical = JSON.stringify([
+    s.instanceId,
+    s.keyHash ?? null,
+    answer ?? null,
+    s.lastCheckedAt ?? null,
+    s.lastSuccessAt ?? null,
+    s.activatedAt ?? null,
+    s.deactivatedAt ?? null,
+    s.highWaterAt ?? null,
+    serverTimeAt ?? null,
+  ]);
+  return createHmac('sha256', key).update(canonical).digest('hex');
+}
+
+/** The state as stored: the seal (and the licence server's time) inside `answer`. */
+export function sealLicenceState(s: LicenceStateRecord & { serverTimeAt?: string }, secret: string | undefined): LicenceStateRecord {
+  const { serverTimeAt, ...rest } = s;
+  const answer = rest.answer ? stripSeal(rest.answer) : undefined;
+  const seal: Seal = { v: 1, ...(serverTimeAt ? { serverTimeAt } : {}), mac: sealMac(licenceSealKey(secret, s.instanceId), rest, answer, serverTimeAt) };
+  return { ...rest, answer: { ...(answer ?? {}), [SEAL_FIELD]: seal } };
+}
+
+function stripSeal(answer: Record<string, unknown>): Record<string, unknown> | undefined {
+  const { [SEAL_FIELD]: _seal, ...rest } = answer;
+  return Object.keys(rest).length ? rest : undefined;
+}
+
+/**
+ * Read a stored state: verify its seal. A state that carries a licence answer
+ * or a last success and whose seal is missing or wrong is not trusted: those
+ * fields are dropped (`untrusted: true`), so the server needs an online check
+ * before it renders again.
+ */
+export function unsealLicenceState(stored: LicenceStateRecord, secret: string | undefined): { state: LicenceStateRecord & { serverTimeAt?: string }; untrusted: boolean } {
+  const raw = stored.answer;
+  const seal = raw?.[SEAL_FIELD] as Seal | undefined;
+  const answer = raw ? stripSeal(raw) : undefined;
+  const state: LicenceStateRecord & { serverTimeAt?: string } = { ...stored };
+  if (answer) state.answer = answer;
+  else delete state.answer;
+  if (seal && typeof seal === 'object' && seal.v === 1 && typeof seal.mac === 'string') {
+    const want = Buffer.from(sealMac(licenceSealKey(secret, stored.instanceId), state, answer, seal.serverTimeAt), 'hex');
+    const got = Buffer.from(seal.mac, 'hex');
+    if (got.length === want.length && timingSafeEqual(got, want)) {
+      if (seal.serverTimeAt) state.serverTimeAt = seal.serverTimeAt;
+      return { state, untrusted: false };
+    }
+  }
+  if (!answer && !state.lastSuccessAt) return { state, untrusted: false }; // nothing to trust yet (a new state)
+  delete state.answer;
+  delete state.lastSuccessAt;
+  return { state, untrusted: true };
 }
 
 // ---- the manager ---------------------------------------------------------------------
@@ -290,6 +379,8 @@ export interface LicenceManagerOptions {
   newInstanceId?: () => string;
   /** Schedule the daily check and retries (default true; the CLI turns it off). */
   timers?: boolean;
+  /** security.secretKey: keys the seal of the stored state (D-089). */
+  sealSecret?: string;
 }
 
 /**
@@ -297,7 +388,9 @@ export interface LicenceManagerOptions {
  * period and answers whether renders are allowed. One per running server.
  */
 export class LicenceManager {
-  private state: LicenceStateRecord | null = null;
+  private state: (LicenceStateRecord & { serverTimeAt?: string }) | null = null;
+  /** The stored state failed its integrity check and no answer has replaced it yet. */
+  private untrusted = false;
   private inflight: Promise<LicenceReport> | null = null;
   /** A check was asked for and has not produced its answer yet ("checking"). */
   private pending = false;
@@ -320,9 +413,28 @@ export class LicenceManager {
     return this.opts.mode;
   }
 
+  /** The stored state, its seal checked (see unsealLicenceState). */
+  private async load(): Promise<(LicenceStateRecord & { serverTimeAt?: string }) | null> {
+    const stored = await this.opts.repo.get();
+    return stored ? this.verify(stored) : null;
+  }
+
+  private verify(stored: LicenceStateRecord): LicenceStateRecord & { serverTimeAt?: string } {
+    const { state, untrusted } = unsealLicenceState(stored, this.opts.sealSecret);
+    if (untrusted && !this.untrusted) {
+      this.log('error', 'licence: the stored licence state failed its integrity check (changed outside ReelForge, REELFORGE_SECRET_KEY changed, or written by an older version); an online licence check is needed before renders are allowed again.');
+    }
+    if (untrusted) this.untrusted = true;
+    return state;
+  }
+
+  private async save(s: LicenceStateRecord & { serverTimeAt?: string }): Promise<void> {
+    await this.opts.repo.save(sealLicenceState(s, this.opts.sealSecret));
+  }
+
   /** Read (or create, once) the stored state and record the clock (markClock). No network. */
   async init(): Promise<void> {
-    this.state = await this.opts.repo.init((this.opts.newInstanceId ?? newInstanceId)(), new Date(this.now()).toISOString());
+    this.state = this.verify(await this.opts.repo.init((this.opts.newInstanceId ?? newInstanceId)(), new Date(this.now()).toISOString()));
     if (this.opts.mode === 'trial') this.log('warn', 'licence: licence.mode "trial" is not built yet; behaving as "required"');
     await this.markClock('start');
   }
@@ -336,7 +448,7 @@ export class LicenceManager {
    */
   async markClock(why: 'start' | 'timer' = 'timer'): Promise<void> {
     if (this.inflight) return; // a check is about to store the state (and the marker) anyway
-    const stored = (await this.opts.repo.get()) ?? this.state;
+    const stored = (await this.load()) ?? this.state;
     if (!stored) return;
     const now = this.now();
     const high = stored.highWaterAt ? Date.parse(stored.highWaterAt) : undefined;
@@ -353,7 +465,7 @@ export class LicenceManager {
     }
     const next = { ...stored, highWaterAt: this.iso(now), updatedAt: this.iso(now) };
     if (this.inflight) return;
-    await this.opts.repo.save(next);
+    await this.save(next);
     this.state = next;
   }
 
@@ -420,8 +532,8 @@ export class LicenceManager {
   private async doCheck(why: string, force: boolean): Promise<LicenceReport> {
     if (!this.state) await this.init();
     // Another process (the CLI) may have changed the stored state.
-    const stored = await this.opts.repo.get();
-    let s: LicenceStateRecord = { ...(stored ?? this.state!) };
+    const stored = await this.load();
+    let s: LicenceStateRecord & { serverTimeAt?: string } = { ...(stored ?? this.state!) };
     const key = this.opts.key().value?.trim();
     const now = this.now();
     if (!key) {
@@ -454,6 +566,10 @@ export class LicenceManager {
       s.answer = sanitize(answer);
       s.lastCheckedAt = this.iso(at);
       delete s.lastError;
+      // The licence server's clock: a local clock behind it gets no grace (clock_skew).
+      const serverTime = answer.serverTime ? Date.parse(answer.serverTime) : NaN;
+      if (Number.isFinite(serverTime)) s.serverTimeAt = this.iso(serverTime);
+      this.untrusted = false;
       if (answer.valid) {
         s.lastSuccessAt = this.iso(at);
         s.activatedAt = s.activatedAt ?? answer.instance?.activatedAt ?? this.iso(at);
@@ -480,7 +596,7 @@ export class LicenceManager {
     }
     s.updatedAt = this.iso(this.now());
     try {
-      await this.opts.repo.save(s);
+      await this.save(s);
     } finally {
       this.state = s;
       this.pending = false;
@@ -524,7 +640,11 @@ export class LicenceManager {
     const lastSuccess = forKey && s.lastSuccessAt ? Date.parse(s.lastSuccessAt) : undefined;
     const lastError = forKey ? (s.lastError ?? null) : null;
     const highWater = s.highWaterAt ? Date.parse(s.highWaterAt) : undefined;
-    const clockOk = (lastSuccess === undefined || lastSuccess <= now + CLOCK_TOLERANCE_MS) && (highWater === undefined || now >= highWater - CLOCK_TOLERANCE_MS);
+    const serverTime = forKey && s.serverTimeAt ? Date.parse(s.serverTimeAt) : undefined;
+    const clockOk =
+      (lastSuccess === undefined || lastSuccess <= now + CLOCK_TOLERANCE_MS) &&
+      (highWater === undefined || now >= highWater - CLOCK_TOLERANCE_MS) &&
+      (serverTime === undefined || now >= serverTime - CLOCK_TOLERANCE_MS);
 
     let status: LicenceStatus;
     let reason: string | null = null;
@@ -542,7 +662,7 @@ export class LicenceManager {
     } else if (lastSuccess === undefined) {
       if (lastError) {
         status = 'invalid';
-        reason = 'unreachable';
+        reason = this.untrusted ? 'state_untrusted' : 'unreachable';
       } else {
         status = this.pending ? 'checking' : 'invalid';
         reason = this.pending ? null : 'not_checked';
@@ -639,7 +759,7 @@ export class LicenceManager {
     if (!this.state) await this.init();
     const key = this.opts.key().value?.trim();
     if (!key) throw new ApiError('licence_key_missing', 409, 'No licence key is set, so there is no activation to give back.');
-    const stored = (await this.opts.repo.get()) ?? this.state!;
+    const stored = (await this.load()) ?? this.state!;
     let answer: LicenceAnswer;
     try {
       answer = await this.opts.api.deactivate(key, stored.instanceId);
@@ -652,7 +772,7 @@ export class LicenceManager {
     }
     const at = this.iso(this.now());
     const hash = licenceKeyHash(key, stored.instanceId);
-    const s: LicenceStateRecord = {
+    const s: LicenceStateRecord & { serverTimeAt?: string } = {
       ...(stored.keyHash === hash ? stored : { instanceId: stored.instanceId, keyHash: hash }),
       answer: sanitize(answer),
       lastCheckedAt: at,
@@ -662,7 +782,7 @@ export class LicenceManager {
     delete s.activatedAt;
     delete s.lastError;
     delete s.nextCheckAt;
-    await this.opts.repo.save(s);
+    await this.save(s);
     this.state = s;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
@@ -697,6 +817,7 @@ export function createLicenceManager(
     checkIntervalMs: opts.checkIntervalMs,
     timers: opts.timers,
     log: opts.log,
+    sealSecret: settings.config.security.secretKey,
   });
 }
 

@@ -5,7 +5,9 @@
  *
  *   - API keys (`rf_...`), `Bearer ...` and `Basic ...` credentials;
  *   - passwords in URLs (`postgresql://user:<password>@host`);
- *   - signatures and tokens in query strings (`?sig=`, `token=`, `key=` ...);
+ *   - signatures and tokens in query strings (`?sig=`, `token=`, `key=`,
+ *     presigned-URL parameters such as `X-Amz-Signature`, `X-Amz-Credential`,
+ *     `X-Goog-Signature` and Azure SAS `sig`/`se`/`sv`/`sp` ...);
  *   - the current value of every secret setting (database URL, provider keys,
  *     licence key, OTLP headers, metrics token, ...), wherever it appears;
  *   - fields whose name says they hold a secret (password, token, apiKey,
@@ -18,7 +20,7 @@ const TEXT_RULES: Array<[RegExp, string]> = [
   [/\brf_[A-Za-z0-9_-]{8,}/g, `rf_${REDACTED}`],
   [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{6,}/gi, `$1 ${REDACTED}`],
   [/\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+):[^\s@/]+@/gi, `$1:${REDACTED}@`],
-  [/([?&](?:sig|signature|token|access_token|key|api_key|apikey|password|secret)=)[^&\s"']+/gi, `$1${REDACTED}`],
+  [/([?&](?:[\w.-]*(?:signature|sig|token|key|credential|password|secret)[\w.-]*|se|sv|sp|st|skoid|sktid)=)[^&\s"']+/gi, `$1${REDACTED}`],
 ];
 
 const SECRET_FIELD = /pass(word)?|secret|token|api[-_]?key|authori[sz]ation|cookie|credential|private[-_]?key|^key$/i;

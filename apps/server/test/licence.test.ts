@@ -21,7 +21,9 @@ const KEY = 'MOCKA-BCDEF-GHJKL-MNPQR-STUVW';
 const KEY_TEAM = 'MOCKB-BCDEF-GHJKL-MNPQR-STUVW';
 const ORG = '6b01478bb42d2c444e99fcd8-mocklice';
 const DAY = 86_400_000;
-const clock = { t: Date.parse('2026-11-21T12:00:00.000Z') };
+// Starts at the real time: the mock server's HTTP Date is the real clock, and a local clock
+// behind the licence server's time gets no grace (clock_skew, D-089). Tests only move it forward.
+const clock = { t: Date.now() };
 let mock: MockLicenceServer;
 let server: StartedServer;
 let admin: string;

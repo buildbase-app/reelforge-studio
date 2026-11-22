@@ -22,7 +22,7 @@ OTLP provider can point; they have not been run against the vendors.
 | Logs | `stdout`: JSON lines (default) | **Tested** | none (`observability.logs.exporter: stdout`) | OBS-01, OBS-03, OBS-E2E-01 |
 | Logs | `pretty`: `[reelforge] ...` lines (development, `pnpm dev`) | **Tested** (unit) | `observability.logs.exporter: pretty` | OBS-01 |
 | Logs | `otlp`: OpenTelemetry log records (plus JSON lines on stdout) | **Tested** | `observability.logs.exporter: otlp`, `observability.otlp.endpoint` | OBS-08, OBS-E2E-05 |
-| Metrics | `prometheus`: `GET /metrics` scrape (default) | **Tested** | none; optional `observability.metrics.bearerToken` | OBS-04, OBS-05, OBS-06, OBS-E2E-02, OBS-E2E-03 |
+| Metrics | `prometheus`: `GET /metrics` scrape (default) | **Tested** | `observability.metrics.bearerToken` (or `observability.metrics.allowAnonymous`) | OBS-04, OBS-05, OBS-06, SECT-20, OBS-E2E-02, OBS-E2E-03 |
 | Metrics | `otlp`: push every `exportIntervalSeconds` | **Tested** | `observability.metrics.exporter: otlp`, `observability.otlp.endpoint` | OBS-09, OBS-E2E-06 |
 | Metrics | `off` | **Tested** | `observability.metrics.exporter: off` | OBS-06 |
 | Traces | `otlp` (default once an endpoint is set) | **Tested** | `observability.otlp.endpoint` | OBS-07, OBS-10, OBS-E2E-04 |
@@ -43,7 +43,8 @@ OTLP provider can point; they have not been run against the vendors.
 | `observability.serviceName` | `REELFORGE_OTEL_SERVICE_NAME`, `OTEL_SERVICE_NAME` | `reelforge-studio` | no (start-up) |
 | `observability.logs.exporter` | `REELFORGE_LOGS_EXPORTER` | `stdout` (`pretty` if `logging.format: text`) | yes |
 | `observability.metrics.exporter` | `REELFORGE_METRICS_EXPORTER` | `prometheus` | yes |
-| `observability.metrics.bearerToken` (secret) | `REELFORGE_METRICS_TOKEN` (+ `_FILE`) | unset (open `/metrics`) | yes |
+| `observability.metrics.bearerToken` (secret) | `REELFORGE_METRICS_TOKEN` (+ `_FILE`) | unset (`/metrics` answers 401) | yes |
+| `observability.metrics.allowAnonymous` | `REELFORGE_METRICS_ALLOW_ANONYMOUS` | `false` | yes |
 | `observability.metrics.exportIntervalSeconds` | `REELFORGE_METRICS_EXPORT_INTERVAL_SECONDS` | `60` | yes |
 | `observability.tracing.exporter` | `REELFORGE_TRACING_EXPORTER` | `off`, `otlp` when an endpoint is set | yes |
 | `observability.tracing.sampleRatio` | `REELFORGE_TRACING_SAMPLE_RATIO` | `1` | yes |
@@ -152,12 +153,19 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['reelforge:4321']
-    # with observability.metrics.bearerToken:
-    # authorization: { type: Bearer, credentials_file: /etc/prometheus/reelforge-metrics-token }
+    # observability.metrics.bearerToken (REELFORGE_METRICS_TOKEN):
+    authorization: { type: Bearer, credentials_file: /etc/prometheus/reelforge-metrics-token }
 ```
 
-Keep `/metrics` on the internal network (it is not behind the API key), or
-set `REELFORGE_METRICS_TOKEN` (16 or more characters, e.g. `openssl rand -hex 24`).
+`/metrics` needs the token by default (D-088): set `REELFORGE_METRICS_TOKEN`
+(16 or more characters, e.g. `openssl rand -hex 24`). Without a token it
+answers 401, unless `REELFORGE_METRICS_ALLOW_ANONYMOUS=true` (only for a
+scraper on a private network: the counts show who uses the studio how much).
+
+`GET /readyz` answers anonymous callers (probes) with `ok`, `checks` (`ok` /
+`error`) and each dependency's `status` and `required`; the details below
+(paths, versions, free space, export errors, the Chromium sandbox per engine)
+need an admin API key (`Authorization: Bearer rf_...`).
 
 ### Grafana
 
@@ -245,7 +253,7 @@ release image, the hardened run flags, an OpenTelemetry Collector container
 | OBS-12 | Timeouts and backoff: 503 retried after ~1 s backoff within the timeout; a hanging receiver cut off at the timeout without slowing requests; recovery logged and shown | observability.test.ts | pass, 2026-11-21 |
 | OBS-13 | Graceful shutdown flushes batched spans and logs and pushes metrics once more | observability.test.ts (OBS-07..09 read only what `close()` flushed) | pass, 2026-11-21 |
 | OBS-14 | No secret (API keys, provider key, secret key, OTLP headers) in metrics, `/readyz`, logs or OTLP payloads; OTLP headers reach the receiver | observability.test.ts | pass, 2026-11-21 |
-| OBS-15 | `/readyz` dependencies: database, storage (free bytes), ffmpeg (version), browser, telemetry with status, required, latency; probes not logged at info | observability.test.ts | pass, 2026-11-21 |
+| OBS-15 | `/readyz` dependencies (admin key): database, storage (free bytes), ffmpeg (version), browser, telemetry with status, required, latency; probes not logged at info | observability.test.ts | pass, 2026-11-21 |
 | OBS-16 | Settings: defaults, env names, `OTEL_*` aliases, computed defaults; invalid values refused naming the variable, without secrets | observability.test.ts | pass, 2026-11-21 |
 | OBS-17 | OTLP selected without an endpoint: server starts and serves, warning says why, `/readyz` says `not_configured` | observability.test.ts | pass, 2026-11-21 |
 | OBS-E2E-01 | `docker logs` of the release container are JSON access lines with request id, key id, route, status, duration; no API key | e2e/docker/run.sh | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
@@ -266,7 +274,8 @@ release image, the hardened run flags, an OpenTelemetry Collector container
 | No traces although the endpoint is set | `observability.tracing.exporter` was set to `off` explicitly, or `sampleRatio` is `0`, or callers send `traceparent` with the sampled flag off. Check `get_config` (prefix `observability`). |
 | Backend needs gRPC (port 4317) | Not shipped. Run an OpenTelemetry Collector with an OTLP/HTTP receiver and an OTLP/gRPC exporter. |
 | `/metrics` answers 404 | `observability.metrics.exporter` is `otlp` or `off` (the message says which). |
-| `/metrics` answers 401 | `observability.metrics.bearerToken` is set; configure the same token in Prometheus (`authorization.credentials_file`). |
+| `/metrics` answers 401 | Send `observability.metrics.bearerToken` (Prometheus `authorization.credentials_file`). With no token configured, set one, or `observability.metrics.allowAnonymous: true` on a private network. |
+| `/readyz` shows no paths, versions or error text | Anonymous callers get the status only; send an admin API key for the full report. |
 | Prometheus queries for `..._seconds_bucket` find nothing | A series appears after its first event: render once, or wait for traffic. |
 | Logs are not JSON | `observability.logs.exporter` is `pretty` (`pnpm dev` sets it) or `logging.format: text` is set. |
 | `update_config` refuses an OTLP header or the metrics token | Secrets are stored encrypted: set `REELFORGE_SECRET_KEY`, or pass them by env / `_FILE`. |

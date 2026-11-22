@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { IMAGE_EDITION } from './image-edition';
 import { SETTINGS_BY_KEY } from './schema';
 
 /**
@@ -75,17 +76,32 @@ export function parseBuildInfo(data: unknown, origin = 'build-info.json'): Build
 
 let cached: BuildInfo | undefined;
 
-/** This process's build: build-info.json when present, otherwise a dev build. Cached. */
-export function currentBuild(): BuildInfo {
-  if (cached) return cached;
-  if (!existsSync(BUILD_INFO_FILE)) return (cached = DEV_BUILD);
+/**
+ * The build described by `file`: build-info.json when present, otherwise a
+ * dev build. Code packaged as a release image (`imageEdition`, see
+ * image-edition.ts) fails closed: a missing file or one that is not a
+ * release build-info is an error, never the dev edition (D-089).
+ */
+export function loadBuild(file: string = BUILD_INFO_FILE, imageEdition: 'dev' | 'release' = IMAGE_EDITION): BuildInfo {
+  const releaseImage = imageEdition === 'release';
+  if (!existsSync(file)) {
+    if (releaseImage) throw new Error(`${file} is missing: this is a release image and refuses to start without its build information (rebuild or pull the image)`);
+    return DEV_BUILD;
+  }
   let data: unknown;
   try {
-    data = JSON.parse(readFileSync(BUILD_INFO_FILE, 'utf8'));
+    data = JSON.parse(readFileSync(file, 'utf8'));
   } catch (e) {
-    throw new Error(`${BUILD_INFO_FILE}: not readable JSON (${(e as Error).message})`);
+    throw new Error(`${file}: not readable JSON (${(e as Error).message})`);
   }
-  return (cached = parseBuildInfo(data, BUILD_INFO_FILE));
+  const info = parseBuildInfo(data, file);
+  if (releaseImage && info.edition !== 'release') throw new Error(`${file}: this is a release image, but the file describes a "${info.edition}" build; refusing to start`);
+  return info;
+}
+
+/** This process's build (loadBuild()). Cached. */
+export function currentBuild(): BuildInfo {
+  return (cached ??= loadBuild());
 }
 
 /** "release build" / "dev build", for `origin` in get_config. */

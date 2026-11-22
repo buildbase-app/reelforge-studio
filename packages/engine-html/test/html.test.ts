@@ -44,6 +44,20 @@ describe('document builder', () => {
   });
 });
 
+describe('security: document shell (SEC-01)', () => {
+  it('SECT-40 markup that sets its own page policy is refused; the CSP stays the first element of <head>', async () => {
+    const { parse } = await import('parse5');
+    for (const html of ['<meta http-equiv="refresh" content="0;url=http://127.0.0.1/">', '<META HTTP-EQUIV="Content-Security-Policy" content="default-src *">', '<base href="http://127.0.0.1/">', '<template><meta http-equiv="refresh" content="0"></template>']) {
+      expect(() => buildDocument({ html, css: '', theme, output, durationSeconds: 1 }), html).toThrow(/http-equiv|<base>/);
+    }
+    const doc = buildDocument({ html: '<!-- </head><head> --></div></body></html><html><head><title>x</title></head><p>y</p>', css: '', theme, output, durationSeconds: 1 });
+    const head = (parse(doc).childNodes.find((n: any) => n.tagName === 'html') as any).childNodes.find((n: any) => n.tagName === 'head');
+    const els = head.childNodes.filter((n: any) => n.tagName);
+    expect(els[0].attrs).toEqual([{ name: 'charset', value: 'utf-8' }]);
+    expect(els[1].attrs.find((a: any) => a.name === 'content').value).toBe(CSP);
+  });
+});
+
 describe('browser requirement', () => {
   it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
     expect(hasBrowser).toBe(true);

@@ -206,7 +206,8 @@ describe('LicenceManager', () => {
   });
 
   it('clock checks: a "last success" in the future or a clock set back gives no grace', async () => {
-    // Tampered state: last success far in the future, licence server unreachable.
+    // Edited state: last success far in the future, licence server unreachable. The
+    // stored state is sealed (D-089), so the edit is detected before any clock check.
     const repos = createMemoryRepositories();
     const { m, api, clock } = setup({ repos });
     await m.init();
@@ -215,7 +216,7 @@ describe('LicenceManager', () => {
     await repos.licence.save({ ...stored, lastSuccessAt: '2099-01-01T00:00:00.000Z' });
     api.offline = true;
     clock.t += DAY;
-    expect(await m.check('scheduled')).toMatchObject({ status: 'invalid', reason: 'clock_skew', renderAllowed: false });
+    expect(await m.check('scheduled')).toMatchObject({ status: 'invalid', reason: 'state_untrusted', renderAllowed: false });
 
     // Clock set back behind the latest time seen (offline).
     const b = setup();
@@ -423,7 +424,9 @@ describe('ReelforgeService with a licence', () => {
     expect(api.calls.filter((c) => c.op === 'activate')).toHaveLength(1);
     expect(svc.getConfig({ prefix: 'licence' }).settings.find((s) => s.key === 'licence.key')).toMatchObject({ value: 'set', atRest: 'aes-256-gcm' });
     const job = await svc.startRender('sample-reel');
-    const done = await svc.waitForJob(job.id, 30);
+    // Poll up to 2 minutes: on a loaded machine (parallel test files) one wait of 30 s was not always enough.
+    let done = await svc.waitForJob(job.id, 30);
+    for (let i = 0; i < 3 && !['succeeded', 'failed', 'cancelled'].includes(done.status); i++) done = await svc.waitForJob(job.id, 30);
     expect(done.status).toBe('succeeded');
 
     // Revoked: renders refused at the next check; reading, listing and downloads keep working.
@@ -446,7 +449,7 @@ describe('ReelforgeService with a licence', () => {
     expect(act).toMatchObject({ actorId: 'key_admin', data: { key: 'ABCDE-*****-*****-*****-*****', status: 'valid' } });
     expect(JSON.stringify(audit)).not.toContain('FGHJK');
     svc.licence.stop();
-  }, 60_000);
+  }, 180_000);
 
   it('activate_licence without a key and none configured is a clear 400; update_config of licence.key activates in the background', async () => {
     const api = new MockApi();
