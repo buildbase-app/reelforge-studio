@@ -13,7 +13,8 @@
     { "path": "manifest", "name": "Manifest" },
     { "path": "cookbook", "name": "Cookbook" },
     { "path": "privacy", "name": "Privacy" },
-    { "path": "troubleshooting", "name": "Troubleshooting" }
+    { "path": "troubleshooting", "name": "Troubleshooting" },
+    { "path": "screenshots", "name": "Screenshots and videos" }
   ],
   "docs": [
     "docs/public/start/quick-start.md",
@@ -30,6 +31,7 @@
       "order": 4,
       "tags": ["install", "reference"]
     },
+    "docs/public/install/buildbase-console-setup.md",
     "docs/public/api/rest-api.md",
     "docs/public/api/endpoints.md",
     "docs/public/mcp/mcp-server.md",
@@ -71,6 +73,9 @@
       "order": 1,
       "tags": ["privacy", "security"]
     },
-    "docs/public/troubleshooting/common-problems.md"
+    "docs/public/troubleshooting/common-problems.md",
+    "docs/public/screenshots/store.md",
+    "docs/public/screenshots/studio.md",
+    "docs/public/walkthroughs.md"
   ]
 }
