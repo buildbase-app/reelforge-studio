@@ -111,7 +111,9 @@ export function ipv6Groups(input: string): number[] | null {
 
 /** True for loopback, private, link-local, CGNAT, multicast, documentation, transition and other non-public ranges. */
 export function isPrivateAddress(ip: string): boolean {
-  const family = isIP(ip.replace(/%.*$/, ''));
+  // Drop an IPv6 zone id (`fe80::1%eth0`) by slicing, not a regex: linear on any input.
+  const zone = ip.indexOf('%');
+  const family = isIP(zone === -1 ? ip : ip.slice(0, zone));
   if (family === 4) return blocked4.check(ip, 'ipv4');
   const g = ipv6Groups(ip);
   if (!g) return true;
@@ -132,8 +134,25 @@ export function sanitizeSourceUrl(url: string): string {
     const u = new URL(url);
     return `${u.protocol}//${u.host}${u.pathname}`;
   } catch {
-    return url.replace(/[?#].*$/, '').replace(/\/\/[^/@]*@/, '//');
+    return stripQueryAndUserinfo(url);
   }
+}
+
+/** Fallback for unparseable URLs: cut at the first `?` or `#`, drop `user:pass@` after `//`. Linear time (no regex). */
+function stripQueryAndUserinfo(url: string): string {
+  let end = url.length;
+  for (const ch of ['?', '#']) {
+    const i = url.indexOf(ch);
+    if (i !== -1 && i < end) end = i;
+  }
+  const out = url.slice(0, end);
+  const slashes = out.indexOf('//');
+  if (slashes === -1) return out;
+  const authorityStart = slashes + 2;
+  const nextSlash = out.indexOf('/', authorityStart);
+  const authorityEnd = nextSlash === -1 ? out.length : nextSlash;
+  const at = out.lastIndexOf('@', authorityEnd - 1);
+  return at >= authorityStart ? out.slice(0, authorityStart) + out.slice(at + 1) : out;
 }
 
 /**

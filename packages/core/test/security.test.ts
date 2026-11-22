@@ -169,6 +169,19 @@ describe('security: credentials in stored asset sources (SEC-08)', () => {
     expect(a.source).toBe(`${base}/logo.png`);
     expect(JSON.stringify(await store.list())).not.toContain('SECRETSIG');
   });
+
+  it('SECT-06b unparseable sources are still stripped, and hostile inputs are handled in linear time', () => {
+    // Not a valid URL (no scheme), so the string fallback runs.
+    expect(sanitizeSourceUrl('//u:p@host.example/a/b.png?sig=SECRET#frag')).toBe('//host.example/a/b.png');
+    expect(sanitizeSourceUrl('relative/path.png?token=x')).toBe('relative/path.png');
+    expect(sanitizeSourceUrl('//host.example/a@b/c.png')).toBe('//host.example/a@b/c.png');
+    const t0 = performance.now();
+    sanitizeSourceUrl('#'.repeat(200_000));
+    sanitizeSourceUrl('//' + '@'.repeat(200_000));
+    isPrivateAddress('%'.repeat(200_000));
+    isPrivateAddress('fe80::1' + '%'.repeat(200_000));
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
 });
 
 describe('security: render child processes get no secrets (SEC-03)', () => {
