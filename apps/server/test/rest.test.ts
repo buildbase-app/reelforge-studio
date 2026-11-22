@@ -308,9 +308,9 @@ describe('REST v1', () => {
   it('reads the bootstrap key from REELFORGE_BOOTSTRAP_KEY_FILE', async () => {
     const { writeFileSync } = await import('node:fs');
     const f = join(dir, 'bootstrap.key');
-    writeFileSync(f, 'rf_from_a_file_0123456789abcdef\n');
-    expect(loadConfig({ REELFORGE_BOOTSTRAP_KEY_FILE: f }).bootstrapKey).toBe('rf_from_a_file_0123456789abcdef');
-    expect(loadConfig({ REELFORGE_BOOTSTRAP_KEY: 'rf_env_wins_0123456789abcdef', REELFORGE_BOOTSTRAP_KEY_FILE: f }).bootstrapKey).toBe('rf_env_wins_0123456789abcdef');
+    writeFileSync(f, 'rf_fromAfile_7Qx2Lm9Vb4Nc8Zr1Ty6Hp3Kw5Dj0Gs\n');
+    expect(loadConfig({ REELFORGE_BOOTSTRAP_KEY_FILE: f }).bootstrapKey).toBe('rf_fromAfile_7Qx2Lm9Vb4Nc8Zr1Ty6Hp3Kw5Dj0Gs');
+    expect(loadConfig({ REELFORGE_BOOTSTRAP_KEY: 'rf_envWins_8Rt3Yu6Io9Pa2Sd5Fg7Hj1Kl4Zx0Cv', REELFORGE_BOOTSTRAP_KEY_FILE: f }).bootstrapKey).toBe('rf_envWins_8Rt3Yu6Io9Pa2Sd5Fg7Hj1Kl4Zx0Cv');
     expect(() => loadConfig({ REELFORGE_BOOTSTRAP_KEY_FILE: join(dir, 'missing') })).toThrow(/BOOTSTRAP_KEY_FILE/);
   });
 

@@ -1,3 +1,4 @@
+import { assertSafeSceneFragment } from '@reelforge/core';
 import type { HtmlTitleProps, OutputSettings, ThemeTokens } from '@reelforge/project-schema';
 
 /**
@@ -5,6 +6,9 @@ import type { HtmlTitleProps, OutputSettings, ThemeTokens } from '@reelforge/pro
  * CSS go inside a fixed shell with a Content-Security-Policy that blocks every
  * script and every non-data: resource; the renderer also aborts all network
  * requests (render.ts), so a scene cannot reach the network or run code.
+ * The fragment is parsed first: markup that would set its own page policy
+ * (`<meta http-equiv>`, `<base>`) is refused (D-085). The shell's head comes
+ * before the fragment, so nothing in the fragment can precede the CSP.
  */
 
 export const CSP =
@@ -28,6 +32,7 @@ export function buildDocument(opts: {
   durationSeconds: number;
 }): string {
   if (/<\/style/i.test(opts.css)) throw new Error('css must not contain "</style"');
+  assertSafeSceneFragment(opts.html);
   const { width, height } = opts.output;
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +

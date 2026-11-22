@@ -1,5 +1,6 @@
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
+import { weakKeyReason } from '../keyStrength';
 
 /**
  * The configuration schema: every setting of ReelForge Studio in one typed Zod
@@ -375,13 +376,24 @@ export const ConfigSchema = z.object({
       description:
         'Encrypts secrets stored in the database (provider keys, licence key) with AES-256-GCM. At least 32 characters: `openssl rand -base64 32`. Without it the server refuses to store secrets. Keep it safe: losing it makes stored secrets unreadable.',
     }),
-    bootstrapKey: setting(z.string().regex(/^rf_[A-Za-z0-9_-]{20,}$/, 'must be rf_ followed by 20 or more URL-safe characters').optional(), {
-      kind: 'string',
-      scope: 'startup',
-      env: 'REELFORGE_BOOTSTRAP_KEY',
-      secret: true,
-      description: 'First admin API key (`rf_` + 20 or more URL-safe characters). Stored hashed as key "bootstrap" on start if no key exists.',
-    }),
+    bootstrapKey: setting(
+      z
+        .string()
+        .max(200)
+        .superRefine((v, ctx) => {
+          const why = weakKeyReason(v);
+          if (why) ctx.addIssue({ code: 'custom', message: why });
+        })
+        .optional(),
+      {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_BOOTSTRAP_KEY',
+        secret: true,
+        description:
+          'First admin API key: `rf_` + at least 32 random URL-safe characters (`rf_$(openssl rand -hex 24)`); low-entropy values are refused. Stored hashed as key "bootstrap" on start if no key exists.',
+      }
+    ),
   }),
   audit: z.object({
     retentionDays: setting(z.number().int().min(0).max(36500), {
@@ -550,8 +562,17 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_CHROMIUM_NO_SANDBOX',
       processEnv: 'REELFORGE_CHROMIUM_NO_SANDBOX',
       default: false,
-      defaultText: '`false` (`true` in Docker)',
-      description: "Turn Chromium's own sandbox off (containers, where the container is the isolation boundary).",
+      description:
+        "`true` turns Chromium's own sandbox off. The sandbox is on by default everywhere, the release image included (run it with `deployment/seccomp/chrome.json`, docs/security/HARDENING.md). `true` is an explicit opt-out: it is logged at start and reported in `get_capabilities` and `/readyz`.",
+    }),
+    sceneTimeoutSeconds: setting(z.number().int().min(30).max(3600), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS',
+      processEnv: 'REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS',
+      default: 900,
+      description:
+        'Hard limit for rendering one html or hyperframes scene, whatever its length (engines use their per-frame estimate when it is shorter). 30 to 3600 seconds.',
     }),
     ffmpegPath: setting(nonEmpty(), {
       kind: 'path',
@@ -666,7 +687,15 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_METRICS_TOKEN',
         secret: true,
         description:
-          'When set, `GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` is open like `/healthz`; keep it off the public internet (docs/OBSERVABILITY.md).',
+          '`GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` answers 401 unless `observability.metrics.allowAnonymous` is on.',
+      }),
+      allowAnonymous: setting(z.boolean(), {
+        kind: 'boolean',
+        scope: 'runtime',
+        env: 'REELFORGE_METRICS_ALLOW_ANONYMOUS',
+        default: false,
+        description:
+          'Serve `GET /metrics` without a token when no `observability.metrics.bearerToken` is set (for a scraper on a private network). Off by default: an open `/metrics` shows request and job counts to anyone who can reach the port.',
       }),
       exportIntervalSeconds: setting(z.number().int().min(5).max(3600), {
         kind: 'integer',

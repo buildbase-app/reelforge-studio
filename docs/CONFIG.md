@@ -109,7 +109,7 @@ logging:
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
 | `security.secretKey` | `REELFORGE_SECRET_KEY` (each also as `_FILE`) | string | (none) | startup | yes | Encrypts secrets stored in the database (provider keys, licence key) with AES-256-GCM. At least 32 characters: `openssl rand -base64 32`. Without it the server refuses to store secrets. Keep it safe: losing it makes stored secrets unreadable. |
-| `security.bootstrapKey` | `REELFORGE_BOOTSTRAP_KEY` (each also as `_FILE`) | string | (none) | startup | yes | First admin API key (`rf_` + 20 or more URL-safe characters). Stored hashed as key "bootstrap" on start if no key exists. |
+| `security.bootstrapKey` | `REELFORGE_BOOTSTRAP_KEY` (each also as `_FILE`) | string | (none) | startup | yes | First admin API key: `rf_` + at least 32 random URL-safe characters (`rf_$(openssl rand -hex 24)`); low-entropy values are refused. Stored hashed as key "bootstrap" on start if no key exists. |
 
 ## audit
 
@@ -172,7 +172,8 @@ logging:
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
 | `render.chromiumPath` | `REELFORGE_CHROMIUM_PATH` | path | (none; set in Docker) | startup |  | Chrome Headless Shell binary used by every engine. |
-| `render.chromiumNoSandbox` | `REELFORGE_CHROMIUM_NO_SANDBOX` | boolean | `false` (`true` in Docker) | startup |  | Turn Chromium's own sandbox off (containers, where the container is the isolation boundary). |
+| `render.chromiumNoSandbox` | `REELFORGE_CHROMIUM_NO_SANDBOX` | boolean | `false` | startup |  | `true` turns Chromium's own sandbox off. The sandbox is on by default everywhere, the release image included (run it with `deployment/seccomp/chrome.json`, docs/security/HARDENING.md). `true` is an explicit opt-out: it is logged at start and reported in `get_capabilities` and `/readyz`. |
+| `render.sceneTimeoutSeconds` | `REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS` | integer | `900` | startup |  | Hard limit for rendering one html or hyperframes scene, whatever its length (engines use their per-frame estimate when it is shorter). 30 to 3600 seconds. |
 | `render.ffmpegPath` | `REELFORGE_FFMPEG_PATH`, `FFMPEG_PATH` | path | `ffmpeg` on PATH | startup |  | FFmpeg binary (system build; 6.1 and 5.1.9 tested). |
 | `render.ffprobePath` | `REELFORGE_FFPROBE_PATH`, `FFPROBE_PATH` | path | `ffprobe` on PATH | startup |  | ffprobe binary. |
 | `render.backends.remotionLambda.region` | `REELFORGE_REMOTION_LAMBDA_REGION`, `REMOTION_LAMBDA_REGION` | string | (none) | runtime |  | AWS region of your Remotion Lambda deployment (backend `remotion-lambda`, not implemented yet: configuration check only). |
@@ -199,7 +200,8 @@ logging:
 | `observability.serviceName` | `REELFORGE_OTEL_SERVICE_NAME`, `OTEL_SERVICE_NAME` | string | `reelforge-studio` | startup |  | OpenTelemetry `service.name` of traces, metrics and logs (also `service.version` and `reelforge.edition` are sent). |
 | `observability.logs.exporter` | `REELFORGE_LOGS_EXPORTER` | `stdout` \| `pretty` \| `otlp` | `stdout` (`pretty` when `logging.format` is `text`) | runtime |  | `stdout`: one JSON object per line (request id, key id, route, status, duration; secrets redacted). `pretty`: readable `[reelforge] ...` lines for development. `otlp`: JSON lines on stdout and OpenTelemetry log records to `observability.otlp.endpoint` (Grafana Loki, Datadog, Honeycomb, Elastic, ...). |
 | `observability.metrics.exporter` | `REELFORGE_METRICS_EXPORTER` | `prometheus` \| `otlp` \| `off` | `prometheus` | runtime |  | `prometheus`: text format on `GET /metrics` for scraping. `otlp`: pushed to `observability.otlp.endpoint` every `observability.metrics.exportIntervalSeconds`. `off`: neither (`/metrics` answers 404). |
-| `observability.metrics.bearerToken` | `REELFORGE_METRICS_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | When set, `GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` is open like `/healthz`; keep it off the public internet (docs/OBSERVABILITY.md). |
+| `observability.metrics.bearerToken` | `REELFORGE_METRICS_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | `GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` answers 401 unless `observability.metrics.allowAnonymous` is on. |
+| `observability.metrics.allowAnonymous` | `REELFORGE_METRICS_ALLOW_ANONYMOUS` | boolean | `false` | runtime |  | Serve `GET /metrics` without a token when no `observability.metrics.bearerToken` is set (for a scraper on a private network). Off by default: an open `/metrics` shows request and job counts to anyone who can reach the port. |
 | `observability.metrics.exportIntervalSeconds` | `REELFORGE_METRICS_EXPORT_INTERVAL_SECONDS` | integer | `60` | runtime |  | How often metrics are pushed with the `otlp` exporter. |
 | `observability.tracing.exporter` | `REELFORGE_TRACING_EXPORTER` | `otlp` \| `off` | `off` (`otlp` when `observability.otlp.endpoint` is set) | runtime |  | `otlp`: spans for HTTP requests, jobs, engine renders and FFmpeg steps to `observability.otlp.endpoint` (Jaeger, Grafana Tempo, Honeycomb, Datadog, ...). `off`: no spans. |
 | `observability.tracing.sampleRatio` | `REELFORGE_TRACING_SAMPLE_RATIO` | number | `1` | runtime |  | Share of new traces kept (0 to 1). A request that arrives with a W3C `traceparent` follows the caller's sampling decision. |

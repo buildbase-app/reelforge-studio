@@ -68,7 +68,7 @@ listed on the [REST API overview](/docs/api/rest-api#errors).
 | Symptom | Cause and fix |
 | --- | --- |
 | The disk fills up | Renders accumulate. Delete old projects (`delete_project`), or set a retention policy and run `run_storage_cleanup` ([Storage providers](/docs/providers/storage)) |
-| `/readyz` answers 503 | The storage driver is unhealthy; the body says why (credentials, endpoint, bucket) |
+| `/readyz` answers 503 | A required dependency (database, storage, FFmpeg) is unhealthy. Anonymous probes see only the status per dependency; call `/readyz` with an admin key (`Authorization: Bearer rf_...`) for the reason (credentials, endpoint, bucket) |
 | Stored provider keys stopped working after a restart | The server started with a different `REELFORGE_SECRET_KEY`. Start it with the original one |
 
 ## Building the image

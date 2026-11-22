@@ -19,6 +19,8 @@ const BOOTSTRAP = 'rf_obsBootstrapKey_0123456789abcdef';
 const SECRET_KEY = 'obs-test-secret-key-0123456789-abcdefgh';
 const ELEVEN = 'sk_eleven_SECRET_value_123456';
 const OTLP_TOKEN = 'hny_SECRET_team_key_abcdef';
+/** /metrics needs a token by default (D-088). */
+const METRICS = 'metrics-token-env-0123456789';
 let dropDbs: Array<() => Promise<void>> = [];
 afterAll(async () => {
   for (const d of dropDbs) await d();
@@ -143,7 +145,7 @@ describe('logger and redaction (unit)', () => {
 describe('Prometheus metrics, JSON access logs and /readyz (default exporters)', () => {
   let s: Awaited<ReturnType<typeof start>>;
   beforeAll(async () => {
-    s = await start();
+    s = await start({ REELFORGE_METRICS_TOKEN: METRICS });
     await renderSample(s.server);
   }, 120_000);
   afterAll(() => s?.server.close());
@@ -166,7 +168,8 @@ describe('Prometheus metrics, JSON access logs and /readyz (default exporters)',
 
   it('OBS-04 GET /metrics: valid Prometheus text with HTTP, job, render, queue, licence and build metrics', async () => {
     await api(s.server, 'GET', '/v1/projects');
-    const r = await api(s.server, 'GET', '/metrics', { key: null });
+    expect((await api(s.server, 'GET', '/metrics', { key: null })).status).toBe(401);
+    const r = await api(s.server, 'GET', '/metrics', { key: METRICS });
     expect(r.status).toBe(200);
     expect(r.headers.get('content-type')).toMatch(/^text\/plain; version=0\.0\.4/);
     const samples = parsePrometheus(r.text);
@@ -191,7 +194,7 @@ describe('Prometheus metrics, JSON access logs and /readyz (default exporters)',
   it('OBS-05 bounded cardinality: routes are templates (unknown paths are "unmatched"), no ids or keys in any label', async () => {
     for (let i = 0; i < 20; i++) await api(s.server, 'GET', `/random-${i}-${Math.random()}`);
     for (let i = 0; i < 5; i++) await api(s.server, 'GET', `/v1/jobs/job_doesnotexist${i}`);
-    const samples = parsePrometheus((await api(s.server, 'GET', '/metrics', { key: null })).text);
+    const samples = parsePrometheus((await api(s.server, 'GET', '/metrics', { key: METRICS })).text);
     const known = new Set([...REST_ROUTES.map((r) => r.path), ...INFRA_ROUTES.map((r) => r.split(' ')[1]!), 'unmatched']);
     const routes = new Set(samples.filter((x) => x.labels.http_route).map((x) => x.labels.http_route!));
     for (const r of routes) expect(known.has(r), `unexpected route label ${r}`).toBe(true);
@@ -204,8 +207,8 @@ describe('Prometheus metrics, JSON access logs and /readyz (default exporters)',
 
   it('OBS-14 no secrets in metrics, logs or /readyz: API keys, provider key, secret key', async () => {
     await api(s.server, 'GET', '/v1/capabilities', { key: 'rf_wrongwrongwrongwrongwrong_obs' });
-    const metrics = (await api(s.server, 'GET', '/metrics', { key: null })).text;
-    const ready = (await api(s.server, 'GET', '/readyz', { key: null })).text;
+    const metrics = (await api(s.server, 'GET', '/metrics', { key: METRICS })).text;
+    const ready = (await api(s.server, 'GET', '/readyz', { key: null })).text + (await api(s.server, 'GET', '/readyz')).text;
     for (const secret of [BOOTSTRAP, ELEVEN, SECRET_KEY, 'rf_wrongwrongwrongwrongwrong_obs']) {
       expect(metrics).not.toContain(secret);
       expect(ready).not.toContain(secret);
@@ -219,6 +222,7 @@ describe('Prometheus metrics, JSON access logs and /readyz (default exporters)',
     expect(up.status).toBe(200);
     expect(JSON.stringify(up.body)).not.toContain(token);
     expect((await api(s.server, 'GET', '/metrics', { key: null })).status).toBe(401);
+    expect((await api(s.server, 'GET', '/metrics', { key: METRICS })).status).toBe(401); // the runtime token replaces the env one
     expect((await api(s.server, 'GET', '/metrics', { key: 'metrics-token-obs-WRONG-456789' })).status).toBe(401);
     expect((await api(s.server, 'GET', '/metrics', { key: token })).status).toBe(200);
     expect(s.text()).not.toContain(token);
@@ -227,11 +231,13 @@ describe('Prometheus metrics, JSON access logs and /readyz (default exporters)',
     expect(off.status).toBe(404);
     expect(off.body.error.message).toMatch(/observability\.metrics\.exporter is "off"/);
     await api(s.server, 'PATCH', '/v1/config', { body: { settings: { 'observability.metrics.exporter': null, 'observability.metrics.bearerToken': null } } });
-    expect((await api(s.server, 'GET', '/metrics', { key: null })).status).toBe(200);
+    // Back to the token from the environment; still never anonymous (D-088).
+    expect((await api(s.server, 'GET', '/metrics', { key: null })).status).toBe(401);
+    expect((await api(s.server, 'GET', '/metrics', { key: METRICS })).status).toBe(200);
   });
 
   it('OBS-15 /readyz reports database, storage, ffmpeg, browser and telemetry with status, required and latency', async () => {
-    const r = await api(s.server, 'GET', '/readyz', { key: null });
+    const r = await api(s.server, 'GET', '/readyz');
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
     expect(r.body.checks).toEqual({ dataDir: 'ok', database: 'ok', storage: 'ok', ffmpeg: 'ok' });
@@ -361,7 +367,7 @@ describe('runtime switching and failing receivers', () => {
     });
     for (let i = 0; i < 5; i++) expect((await api(s.server, 'GET', '/v1/projects')).status).toBe(200);
     const ready = await until(async () => {
-      const r = await api(s.server, 'GET', '/readyz', { key: null });
+      const r = await api(s.server, 'GET', '/readyz');
       return r.body.dependencies.telemetry.status === 'error' ? r : null;
     }, 'telemetry error in /readyz');
     expect(ready.status).toBe(200);
@@ -383,7 +389,7 @@ describe('runtime switching and failing receivers', () => {
     const tries = rx.requests.filter((q) => q.path === '/v1/traces');
     const gap = tries[1]!.at - tries[0]!.at;
     expect(gap).toBeGreaterThanOrEqual(700); // first backoff ~1 s (±20 % jitter)
-    await until(async () => (await api(s.server, 'GET', '/readyz', { key: null })).body.dependencies.telemetry.otlp?.traces?.ok === false, 'failure recorded', 15_000);
+    await until(async () => (await api(s.server, 'GET', '/readyz')).body.dependencies.telemetry.otlp?.traces?.ok === false, 'failure recorded', 15_000);
 
     rx.mode = 'hang';
     rx.requests.length = 0;
@@ -394,7 +400,7 @@ describe('runtime switching and failing receivers', () => {
     await until(() => rx.requests.some((q) => q.path === '/v1/traces'), 'export attempt', 10_000);
     const sent = Date.now();
     await until(async () => {
-      const t = (await api(s.server, 'GET', '/readyz', { key: null })).body.dependencies.telemetry.otlp?.traces;
+      const t = (await api(s.server, 'GET', '/readyz')).body.dependencies.telemetry.otlp?.traces;
       return t?.ok === false && Date.parse(t.lastErrorAt) >= sent - 100;
     }, 'timeout recorded', 10_000);
     expect(Date.now() - sent).toBeLessThan(6000);
@@ -402,7 +408,7 @@ describe('runtime switching and failing receivers', () => {
     rx.mode = 'ok';
     await api(s.server, 'PATCH', '/v1/config', { body: { settings: { 'observability.otlp.timeoutSeconds': 5 } } });
     await api(s.server, 'GET', '/v1/projects');
-    await until(async () => (await api(s.server, 'GET', '/readyz', { key: null })).body.dependencies.telemetry.status === 'ok', 'recovery', 15_000);
+    await until(async () => (await api(s.server, 'GET', '/readyz')).body.dependencies.telemetry.status === 'ok', 'recovery', 15_000);
     expect(s.json().some((l) => /OTLP traces export to .* works again/.test(l.msg))).toBe(true);
   }, 60_000);
 });
@@ -413,7 +419,7 @@ describe('exporter selected but not configured', () => {
     try {
       expect((await api(s.server, 'GET', '/v1/projects')).status).toBe(200);
       expect(s.json().some((l) => l.level === 'warn' && /observability\.logs\.exporter, observability\.metrics\.exporter are "otlp" but observability\.otlp\.endpoint is not set/.test(l.msg))).toBe(true);
-      const r = await api(s.server, 'GET', '/readyz', { key: null });
+      const r = await api(s.server, 'GET', '/readyz');
       expect(r.status).toBe(200);
       expect(r.body.dependencies.telemetry).toMatchObject({ status: 'not_configured', logs: 'otlp', metrics: 'otlp' });
       expect((await api(s.server, 'GET', '/metrics', { key: null })).status).toBe(404);

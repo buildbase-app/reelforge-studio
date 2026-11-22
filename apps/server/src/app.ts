@@ -26,7 +26,7 @@ import { httpTelemetry } from './observability/http';
 import { StructuredLogger } from './observability/logger';
 import { Observability, observabilitySettings } from './observability/telemetry';
 import { RateLimiter } from './rateLimit';
-import { readiness } from './readiness';
+import { publicReadiness, readiness } from './readiness';
 
 export type Env = { Variables: { auth: AuthContext; requestId: string } };
 
@@ -70,6 +70,33 @@ export function hostName(hostHeader: string | undefined): string {
   const h = hostHeader.trim().toLowerCase();
   if (h.startsWith('[')) return h.slice(0, h.indexOf(']') + 1);
   return h.split(':')[0]!;
+}
+
+/**
+ * Whether a browser Origin may call /mcp (DNS-rebinding protection, SEC-09):
+ * scheme, host and port must match the public URL's origin, or the origin the
+ * request was sent to (an allowed Host header, port included, with http or
+ * https). Before, only the host name was compared.
+ */
+export function originAllowed(origin: string, hostHeader: string | undefined, config: Pick<ServerConfig, 'allowedHosts' | 'publicUrl'>): boolean {
+  let o: URL;
+  try {
+    o = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (o.protocol !== 'http:' && o.protocol !== 'https:') return false;
+  const want = o.origin.toLowerCase();
+  if (config.publicUrl) {
+    try {
+      if (new URL(config.publicUrl).origin.toLowerCase() === want) return true;
+    } catch {
+      // invalid public URL: ignore
+    }
+  }
+  const host = (hostHeader ?? '').trim().toLowerCase();
+  if (host && config.allowedHosts.includes(hostName(host)) && (want === `http://${host}` || want === `https://${host}`)) return true;
+  return false;
 }
 
 export function createApp({ service, config, observability }: AppDeps) {
@@ -224,11 +251,21 @@ export function createApp({ service, config, observability }: AppDeps) {
 
   // ---- health (no auth) -------------------------------------------------------
   app.get('/healthz', (c) => c.json({ ok: true, version: service.serverVersion }));
+  // Anonymous callers (probes) get only the status of each dependency; an admin
+  // key gets paths, versions, free space and error text too (D-088).
   app.get('/readyz', async (c) => {
     const r = await readiness(service, obs, storageHealth);
-    return c.json(r, r.ok ? 200 : 503);
+    let admin = false;
+    const token = bearer(c);
+    if (token?.startsWith('rf_')) {
+      const a = await service.keys.authenticate(token, { ip: currentRequest()?.ip }).catch(() => null);
+      admin = Boolean(a?.ok && hasScope(a.auth, 'admin'));
+    }
+    c.header('Cache-Control', 'no-store');
+    return c.json(admin ? r : publicReadiness(r), r.ok ? 200 : 503);
   });
-  // Prometheus scrape endpoint (observability.metrics.exporter "prometheus"); optional bearer token (D-052).
+  // Prometheus scrape endpoint (observability.metrics.exporter "prometheus"). Needs the
+  // bearer token; without one configured only observability.metrics.allowAnonymous opens it (D-088).
   app.get('/metrics', async (c) => {
     const s = obs.settings;
     if (s.metricsExporter !== 'prometheus') {
@@ -241,6 +278,15 @@ export function createApp({ service, config, observability }: AppDeps) {
         c.header('WWW-Authenticate', 'Bearer realm="reelforge-metrics"');
         return c.json(errorBody('unauthorized', 'send "Authorization: Bearer <observability.metrics.bearerToken>"'), 401);
       }
+    } else if (!s.metricsAllowAnonymous) {
+      c.header('WWW-Authenticate', 'Bearer realm="reelforge-metrics"');
+      return c.json(
+        errorBody(
+          'unauthorized',
+          '/metrics needs a token: set observability.metrics.bearerToken (REELFORGE_METRICS_TOKEN) and send "Authorization: Bearer <token>", or set observability.metrics.allowAnonymous (REELFORGE_METRICS_ALLOW_ANONYMOUS=true) for a scraper on a private network'
+        ),
+        401
+      );
     }
     return c.body(await obs.prometheus(), 200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8', 'Cache-Control': 'no-store' });
   });
@@ -254,16 +300,8 @@ export function createApp({ service, config, observability }: AppDeps) {
       return c.json(errorBody('forbidden_host', `host "${host}" is not allowed; set REELFORGE_PUBLIC_URL or REELFORGE_ALLOWED_HOSTS`), 403);
     }
     const origin = c.req.header('origin');
-    if (origin) {
-      let originHost = '';
-      try {
-        originHost = hostName(new URL(origin).host);
-      } catch {
-        // invalid origin
-      }
-      if (!config.allowedHosts.includes(originHost)) {
-        return c.json(errorBody('forbidden_origin', `origin "${origin}" is not allowed`), 403);
-      }
+    if (origin && !originAllowed(origin, c.req.header('host'), config)) {
+      return c.json(errorBody('forbidden_origin', `origin "${origin}" is not allowed`), 403);
     }
     const a = await authorize(c);
     if ('response' in a) return a.response;

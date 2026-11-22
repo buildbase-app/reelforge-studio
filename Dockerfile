@@ -7,10 +7,11 @@
 #
 #   docker run -p 127.0.0.1:4321:4321 -v reelforge-data:/data \
 #     --read-only --tmpfs /tmp:size=1g --shm-size=1g --cap-drop ALL --security-opt no-new-privileges \
-#     --security-opt seccomp=deployment/seccomp/chrome.json -e REELFORGE_CHROMIUM_NO_SANDBOX=0 \
-#     -e REELFORGE_BOOTSTRAP_KEY=rf_<random> reelforge-studio
+#     --security-opt seccomp=deployment/seccomp/chrome.json \
+#     -e REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) reelforge-studio
 #
-# See docs/DEPLOY.md ("Release image" and "Hardening") and D-039..D-043.
+# See docs/DEPLOY.md ("Release image" and "Hardening"), docs/security/HARDENING.md,
+# D-039..D-043 and D-085..D-089.
 #
 # Stages: os (runtime OS packages) -> deps (pnpm, all dependencies) -> chrome,
 # build (pre-built engine bundles) and prod-deps (production dependencies only,
@@ -156,7 +157,9 @@ RUN ln -s /opt/chrome-headless-shell/chrome-headless-shell /usr/local/bin/chrome
 # Edition (D-039). `release` (default) fixes licence.mode = required and the BuildBase
 # licence server and organisation in /app/packages/core/build-info.json: no config
 # file, env variable or update_config can change them (get_config shows source
-# "build"). `dev` writes nothing: every setting stays configurable; licence.mode
+# "build"). It also marks the code itself as a release image
+# (packages/core/src/config/image-edition.ts), so a release image whose
+# build-info.json is removed or replaced refuses to start (D-089). `dev` writes nothing: every setting stays configurable; licence.mode
 # "off" is for noncommercial development only (LICENSING.md). LICENCE_SERVER_URL /
 # LICENCE_ORG_ID are for test builds against a mock licence server (e2e/docker/run.sh).
 ARG REELFORGE_EDITION=release
@@ -169,6 +172,8 @@ RUN set -e; \
     if [ "$REELFORGE_EDITION" = release ]; then \
       node -e 'const e = process.env; process.stdout.write(JSON.stringify({ edition: "release", version: e.REELFORGE_VERSION, revision: e.VCS_REF, locked: { "licence.mode": "required", "licence.serverUrl": e.LICENCE_SERVER_URL, "licence.orgId": e.LICENCE_ORG_ID } }, null, 2) + "\n")' \
         > /app/packages/core/build-info.json; \
+      printf '%s\n' "/** Release image (written by the Dockerfile; D-089). */" "export const IMAGE_EDITION = 'release' as 'dev' | 'release';" \
+        > /app/packages/core/src/config/image-edition.ts; \
     fi; \
     chmod -R a+rX,go-w /app; \
     REELFORGE_DATA_DIR=/tmp/check reelforge config check >/dev/null; rm -rf /tmp/*
@@ -184,10 +189,12 @@ WORKDIR /app
 # Database: SQLite at /data/reelforge.db by default; DATABASE_URL (or DATABASE_URL_FILE)
 # selects PostgreSQL or MySQL/MariaDB. Migrations run on start (REELFORGE_MIGRATE_ON_START)
 # or with `reelforge migrate` / `--migrate-only`; no Prisma CLI or engine binary is used.
-# Chromium's own sandbox needs user namespaces, which Docker's default seccomp profile
-# blocks, so it is off by default (REELFORGE_CHROMIUM_NO_SANDBOX=1). Run with
-# deployment/seccomp/chrome.json and REELFORGE_CHROMIUM_NO_SANDBOX=0 to turn it on for
-# the html, hyperframes and motion-canvas engines (Remotion always disables it; D-041).
+# Chromium's own sandbox is ON (D-086): run the container with
+# --security-opt seccomp=deployment/seccomp/chrome.json, which allows the user
+# namespaces it needs (Docker's default profile blocks them; renders of html,
+# hyperframes and motion-canvas then fail with a clear error). Remotion always disables
+# it (D-041). REELFORGE_CHROMIUM_NO_SANDBOX=1 is an explicit, logged opt-out
+# (docs/security/HARDENING.md).
 # Writable paths: /data (volume) and /tmp (tmpfs with --read-only); HOME is /tmp.
 ENV NODE_ENV=production \
     HOME=/tmp \
@@ -197,7 +204,7 @@ ENV NODE_ENV=production \
     REELFORGE_HOST=0.0.0.0 \
     REELFORGE_PORT=4321 \
     REELFORGE_CHROMIUM_PATH=/usr/local/bin/chrome-headless-shell \
-    REELFORGE_CHROMIUM_NO_SANDBOX=1 \
+    REELFORGE_CHROMIUM_NO_SANDBOX=0 \
     HYPERFRAMES_NO_TELEMETRY=1 \
     CHECKPOINT_DISABLE=1 \
     DO_NOT_TRACK=1
