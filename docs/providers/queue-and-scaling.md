@@ -764,6 +764,8 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 - Each `/readyz` dependency probe is capped at 5 s; a database that accepts
   connections but answers slowly still marks the instance not ready.
 - No Redis/BullMQ provider (D-075).
+- Measured throughput, connection counts, idle-polling cost and hot spots (load test, #151; so
+  far a lower bound on a shared sandbox): [docs/PERFORMANCE.md](../PERFORMANCE.md).
 - Render fan-out (#156) splits by scene only: frame ranges of long scenes
   (`scenes+chunks`, Remotion first, step 3 of #156) are not built, so the
   longest scene bounds a fanned-out render's latency. The video is encoded

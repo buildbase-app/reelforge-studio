@@ -12,7 +12,7 @@
   "scripts": {
     "build": "pnpm -r --filter './packages/*' run build",
     "typecheck": "tsc -p tsconfig.json && pnpm -r run typecheck",
-    "test": "pnpm -r run test && pnpm test:docs && pnpm test:capture",
+    "test": "pnpm -r run test && pnpm test:docs && pnpm test:capture && pnpm test:load",
     "spike": "tsx scripts/spike.ts",
     "gallery": "tsx scripts/gallery/src/cli.ts",
     "prebuild:engines": "tsx apps/server/src/prebuild.ts",
@@ -29,7 +29,10 @@
     "tutorials:docs": "tsx scripts/tutorials/docs.ts",
     "tutorials:test": "vitest run --dir scripts/tutorials",
     "capture": "node scripts/capture/capture.mjs",
-    "test:capture": "node --test scripts/capture/*.test.mjs"
+    "test:capture": "node --test scripts/capture/*.test.mjs",
+    "load": "node --import tsx scripts/load/run.ts",
+    "load:smoke": "LOAD_PROFILE=smoke node --import tsx scripts/load/run.ts",
+    "test:load": "vitest run --dir scripts/load"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -48,7 +51,9 @@
     "@reelforge/gallery": "workspace:*",
     "zod": "^4.1.0",
     "@modelcontextprotocol/sdk": "1.32.2",
-    "playwright": "1.63.0"
+    "playwright": "1.63.0",
+    "autocannon": "8.0.0",
+    "@types/autocannon": "7.12.7"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -341,7 +341,11 @@ the sum of all scenes (**ESTIMATE**, measure in the fan-out issue).
     (transaction-scoped, fine), but a non-default schema is passed as a startup `options`
     parameter (`-c search_path=...`), which PgBouncer rejects unless configured
     (`ignore_startup_parameters` / per-database `search_path`): document, and run migrations
-    against the direct port.
+    against the direct port. **Measured (#151, PgBouncer 1.26.1):** the `options` search_path
+    was accepted and kept per client (two clients with different schemas interleaved on one
+    server pool each saw their own), migrations (`pg_advisory_xact_lock`) ran through it, and
+    Prisma's pg adapter worked with `max_prepared_statements=0`; see docs/PERFORMANCE.md.
+    Older PgBouncer versions were not tried (VERIFY before recommending them).
   - **RDS Proxy** pools and multiplexes, queues or sheds connections over the limit, and
     can be associated with the writer only, not a read replica; statements over 16 KB pin
     the session (docs.aws.amazon.com RDS Proxy). Project manifests can exceed 16 KB, so some
@@ -511,6 +515,12 @@ recipes; `worker --once` for job platforms; Remotion Lambda opt-in.
 
 ## 10. Capacity math and what "infinite" means
 
+**Measured numbers: [docs/PERFORMANCE.md](../PERFORMANCE.md)** (load test, #151). The first
+published run is a **lower bound, shared sandbox (not dedicated)**: CRUD req/s, latency
+percentiles, DB CPU and connections, claims/s, queue wait and the exactly-once check, each
+footnoted with the hardware, versions and date; the dedicated-hardware run is defined there and
+not yet measured. The table below stays an estimate until that run replaces it.
+
 **ESTIMATE**, assumptions stated; replace S and the reel length with #125's measurements.
 Assumptions: reel = 30 s of 1 080×1 920 30 fps video (900 frames); S = 4 vCPU-min per video-min,
 so **2 vCPU-min per reel**; peak hour = 3 × the average hour (renders arrive in bursts);
@@ -599,7 +609,8 @@ average latency. Reading: every job was claimed **exactly once** with 50 competi
 rate was bound by the overloaded host (claim + finish ≈ 45 ms per job for one worker, i.e. CPU
 and fsync latency, not lock contention: 50 workers gave 4× one worker while the host was
 saturated). Even these numbers are ~25× the peak claim rate of 100 000 renders/day (3.5/s, §10).
-A clean measurement on dedicated hardware belongs in the load-test issue.
+A clean measurement on dedicated hardware belongs in the load-test issue; the load test's own
+claim-throughput scenario (real JobRunners, 10/50/200 workers) is in docs/PERFORMANCE.md.
 
 ```bash
 DB_URL=postgresql://... JOBS=20000 INSERTERS=20 PROCS=5 LOOPS=10 node --import tsx research/spikes/render-scale/claim-throughput.ts
