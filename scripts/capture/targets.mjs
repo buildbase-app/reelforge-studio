@@ -33,7 +33,7 @@ export const STORE_ROUTES = [
   { route: '/terms', title: 'Terms' },
   { route: '/waitlist', title: 'Waitlist' },
   { route: '/contact', title: 'Contact' },
-  { route: '/gallery', title: 'Gallery', optional: true, emptyNote: 'gallery not deployed on this site yet' },
+  { route: '/gallery', title: 'Gallery', optional: true, emptyWhen: /gallery is being rendered/i, emptyNote: 'no reels yet: the gallery fills once its reels are served from R2 (#89)' },
   { route: '/this-page-does-not-exist', title: 'Not found (404)', expect: 404, slug: 'not-found' },
 ];
 

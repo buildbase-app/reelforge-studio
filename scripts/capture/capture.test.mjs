@@ -11,7 +11,8 @@ import {
   encodeLadder,
   findSecrets,
   maskText,
-  maskingInitScript,
+  maskingConfig,
+  maskingInit,
   mergeCaptured,
   parseArgs,
   parseAssetName,
@@ -92,11 +93,14 @@ describe('masking', () => {
     assert.ok(found.every((f) => !f.hint.includes(KEY) && f.hint.length < 12));
     assert.deepEqual(findSecrets('placeholder rf_... and pnpm@10.28.0 and @reelforge/core'), []);
   });
-  it('produces an init script that parses and carries the patterns', () => {
-    const src = maskingInitScript({ allowEmails: ['hello@example.org'] });
-    assert.doesNotThrow(() => new Function(src));
-    assert.ok(src.includes('hello@example.org'));
-    assert.ok(src.includes('-webkit-text-security'));
+  it('gives the in-page masking plain data whose patterns mask like the Node side', () => {
+    const cfg = maskingConfig({ allowEmails: ['Hello@Example.org'] });
+    assert.deepEqual(cfg.allowed, ['hello@example.org']);
+    assert.equal(typeof maskingInit, 'function');
+    const json = JSON.parse(JSON.stringify(cfg)); // what Playwright sends to the page
+    const text = `key ${KEY} for a+test@x.dev`;
+    const masked = text.replace(new RegExp(json.key, 'g'), json.mask.key).replace(new RegExp(json.email, 'g'), json.mask.email);
+    assert.equal(masked, maskText(text));
   });
 });
 
@@ -209,10 +213,17 @@ describe('console configuration as code', () => {
     assert.equal(r.auth.clients.dev.applicationTokenUrl, 'https://s.test/api/auth/token');
     assert.equal(redactConfig({ owner: 'founder@example.org' }).owner, MASK.email);
   });
+  it('escapes backslashes before pipes in table cells', () => {
+    const md = renderConsolePage({ blueprint: { webhooks: { w: { name: 'a\\|b', url: 'https://s.test/x', events: ['*'] } } }, live: {}, date: '2026-11-22' });
+    assert.ok(md.includes('| a\\\\\\|b |'), 'a\\|b becomes a\\\\\\|b');
+  });
   it('renders a page without any secret', () => {
     const md = renderConsolePage({ blueprint: redactConfig(bp), live: {}, date: '2026-11-22' });
     assert.ok(md.startsWith('---\ntitle: "BuildBase console setup"'));
-    assert.ok(md.includes('https://s.test/api/webhooks/buildbase'));
+    const row = md.split('\n').find((l) => l.startsWith('| Store |'));
+    const url = new URL(row.split('|')[2].trim());
+    assert.equal(url.origin, 'https://s.test');
+    assert.equal(url.pathname, '/api/webhooks/buildbase');
     for (const s of ['whsec_abc', 'whsec_live', 'shh-very-secret', 'pk_test_123456789']) assert.ok(!md.includes(s), s);
   });
 });

@@ -130,37 +130,54 @@ export function findSecrets(text, { allowEmails = DEFAULT_ALLOWED_EMAILS } = {})
   return found;
 }
 
+/** The data the in-page masking needs: pattern sources, allowed emails and the mask texts (plain values, no code). */
+export function maskingConfig({ allowEmails = DEFAULT_ALLOWED_EMAILS } = {}) {
+  return {
+    key: LICENCE_KEY.source,
+    email: EMAIL.source,
+    token: TOKEN.source,
+    allowed: allowEmails.map((e) => e.toLowerCase()),
+    mask: { ...MASK },
+  };
+}
+
 /**
- * The script injected into every page and frame before it loads: hides the
- * value of email/password inputs and rewrites licence keys, emails and tokens
- * in text nodes and input values as they appear (MutationObserver). It is a
- * string so the browser runs it as is; the patterns are the ones above.
+ * Runs in every page and frame before it loads (`addInitScript(maskingInit,
+ * maskingConfig())`): hides the value of email/password inputs and rewrites
+ * licence keys, emails and tokens in text nodes and input values as they
+ * appear (MutationObserver). Self-contained: it only uses its argument.
+ * @param {ReturnType<typeof maskingConfig>} cfg
  */
-export function maskingInitScript({ allowEmails = DEFAULT_ALLOWED_EMAILS } = {}) {
-  return `(() => {
-  const KEY = ${LICENCE_KEY};
-  const EMAIL = ${EMAIL};
-  const TOKEN = ${TOKEN};
-  const ALLOWED = new Set(${JSON.stringify(allowEmails.map((e) => e.toLowerCase()))});
-  const mask = (s) => s.replace(KEY, ${JSON.stringify(MASK.key)}).replace(TOKEN, ${JSON.stringify(MASK.token)})
-    .replace(EMAIL, (m) => (ALLOWED.has(m.toLowerCase()) ? m : ${JSON.stringify(MASK.email)}));
+export function maskingInit(cfg) {
+  const KEY = new RegExp(cfg.key, 'g');
+  const EMAIL_RE = new RegExp(cfg.email, 'g');
+  const TOKEN_RE = new RegExp(cfg.token, 'g');
+  const ALLOWED = new Set(cfg.allowed);
+  const mask = (/** @type {string} */ s) =>
+    s.replace(KEY, cfg.mask.key).replace(TOKEN_RE, cfg.mask.token).replace(EMAIL_RE, (m) => (ALLOWED.has(m.toLowerCase()) ? m : cfg.mask.email));
   // Masked text matches the key pattern itself: compare before writing, or the
   // observer would see its own change and loop forever.
-  const test = (s) => { TOKEN.lastIndex = 0;
-    return [...s.matchAll(KEY)].some((m) => m[0] !== ${JSON.stringify(MASK.key)}) || TOKEN.test(s) || [...s.matchAll(EMAIL)].some((m) => !ALLOWED.has(m[0].toLowerCase()) && m[0] !== ${JSON.stringify(MASK.email)}); };
-  const fixNode = (n) => {
+  const test = (/** @type {string} */ s) => {
+    TOKEN_RE.lastIndex = 0;
+    return (
+      [...s.matchAll(KEY)].some((m) => m[0] !== cfg.mask.key) ||
+      TOKEN_RE.test(s) ||
+      [...s.matchAll(EMAIL_RE)].some((m) => !ALLOWED.has(m[0].toLowerCase()) && m[0] !== cfg.mask.email)
+    );
+  };
+  const fixNode = (/** @type {Node} */ n) => {
     if (n.nodeType !== 3 || !n.nodeValue || !test(n.nodeValue)) return;
     const next = mask(n.nodeValue);
     if (next !== n.nodeValue) n.nodeValue = next;
   };
-  const fixInput = (el) => {
+  const fixInput = (/** @type {any} */ el) => {
     if (!el || !('value' in el) || typeof el.value !== 'string') return;
     const t = (el.getAttribute('type') || '').toLowerCase();
     if (t === 'email' || t === 'password' || /mail/i.test(el.name || '') || /mail/i.test(el.autocomplete || '') || test(el.value)) {
       el.style.setProperty('-webkit-text-security', 'disc', 'important');
     }
   };
-  const walk = (root) => {
+  const walk = (/** @type {any} */ root) => {
     if (!root) return;
     if (root.nodeType === 3) return fixNode(root);
     if (root.nodeType !== 1 && root.nodeType !== 9 && root.nodeType !== 11) return;
@@ -180,8 +197,8 @@ export function maskingInitScript({ allowEmails = DEFAULT_ALLOWED_EMAILS } = {})
     }).observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['value', 'type'] });
     document.addEventListener('input', (e) => fixInput(e.target), true);
   };
-  if (document.documentElement) start(); else document.addEventListener('DOMContentLoaded', start);
-})();`;
+  if (document.documentElement) start();
+  else document.addEventListener('DOMContentLoaded', start);
 }
 
 const SECRET_KEY = /secret|token|password|passwd|signing|private|credential|apikey|api_key|preview/i;

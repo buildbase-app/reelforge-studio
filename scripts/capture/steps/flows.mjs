@@ -17,6 +17,13 @@ import { SIGNED_IN_ROUTES, VIEWPORTS, THEMES } from '../targets.mjs';
 import { finishRecording } from './videos.mjs';
 
 const VIDEO = { width: 1280, height: 720 };
+/** A waitForURL predicate: the page is back on the site (host compared on the parsed URL). */
+const onSite = (site) => (/** @type {URL} */ url) => url.host === new URL(site).host;
+const AUTH_HOST = 'auth.buildbase.app';
+const STRIPE_HOST = 'checkout.stripe.com';
+/** waitForURL predicate for one exact host. */
+const onHost = (host) => (/** @type {URL} */ url) => url.host === host;
+const hostOf = (/** @type {string} */ url) => new URL(url).host;
 
 export function assertTestSite(site) {
   if (!/\/\/reelforge-dev\.buildbase\.app$|\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(site)) {
@@ -46,7 +53,7 @@ async function waitForKey(page, timeout = 90_000) {
 
 /** Sign up on the hosted BuildBase page (test mode) and come back to the site. */
 async function signUp(page, site, account, step, snap) {
-  await page.waitForURL(/auth\.buildbase\.app/, { timeout: 45_000 });
+  await page.waitForURL(onHost(AUTH_HOST), { timeout: 45_000 });
   await settle(page);
   await page.waitForTimeout(800);
   await snap('auth-sign-in', 'BuildBase hosted sign-in page');
@@ -61,7 +68,7 @@ async function signUp(page, site, account, step, snap) {
   await glideClick(page, page.getByRole('button', { name: /Create account/ }).last());
   step('Create a fresh test account (a +test address on the development environment)');
   const codes = page.locator('input[autocomplete=one-time-code], input[name*=code i], input[inputmode=numeric]');
-  await Promise.race([codes.first().waitFor({ timeout: 30_000 }), page.waitForURL(new RegExp(new URL(site).host.replace(/\./g, '\\.')), { timeout: 30_000 })]).catch(() => {});
+  await Promise.race([codes.first().waitFor({ timeout: 30_000 }), page.waitForURL(onSite(site), { timeout: 30_000 })]).catch(() => {});
   const n = await codes.count();
   if (n) {
     if (n === 1) await codes.first().pressSequentially('424242', { delay: 80 });
@@ -73,14 +80,14 @@ async function signUp(page, site, account, step, snap) {
   }
   for (let i = 0; i < 5; i++) {
     await page.waitForTimeout(2500);
-    if (!/auth\.buildbase\.app/.test(page.url())) break;
+    if (hostOf(page.url()) !== AUTH_HOST) break;
     const skip = page.getByRole('button', { name: /^(Not now|Skip|Maybe later|Continue)$/ }).first();
     if (!(await skip.count())) continue;
     if (i === 0) await snap('auth-optional-prompt', 'Optional sign-in prompt (dismissed)');
     await glideClick(page, skip);
     step('Dismiss the optional prompt (passkey or two-factor offer)');
   }
-  await page.waitForURL(new RegExp(new URL(site).host.replace(/\./g, '\\.')), { timeout: 60_000 });
+  await page.waitForURL(onSite(site), { timeout: 60_000 });
   await settle(page);
   step('Back on the store, signed in');
 }
@@ -109,7 +116,7 @@ async function personalFlow({ page, site, step, snap }) {
   await glideClick(page, page.locator('[data-edition="personal"]').first().getByRole('button', { name: 'Get it free' }));
   step('Choose "Get it free" again: the claim needs no payment page');
   await page.waitForURL(/\/order\?id=/, { timeout: 60_000 });
-  if (/checkout\.stripe\.com/.test(page.url())) throw new Error('a payment page opened for a free claim');
+  if (hostOf(page.url()) === STRIPE_HOST) throw new Error('a payment page opened for a free claim');
   await waitForKey(page);
   await settle(page);
   await page.waitForTimeout(1500);
@@ -197,7 +204,7 @@ async function commercialFlow({ page, site, step, snap, debugDir }) {
   await page.waitForTimeout(1200);
   await glideClick(page, buy);
   step('Buy the Studio tier of the Commercial licence');
-  await page.waitForURL(/checkout\.stripe\.com/, { timeout: 60_000 });
+  await page.waitForURL(onHost(STRIPE_HOST), { timeout: 60_000 });
   await settle(page);
   step('Stripe Checkout opens (test mode)');
   const { frame: f, ids } = await cardFrame(page, debugDir);
@@ -229,7 +236,7 @@ async function commercialFlow({ page, site, step, snap, debugDir }) {
   }
   if (!pay) throw new Error('Stripe Pay button not found');
   await glideClick(page, pay);
-  await page.waitForURL(new RegExp(new URL(site).host.replace(/\./g, '\\.')), { timeout: 120_000 });
+  await page.waitForURL(onSite(site), { timeout: 120_000 });
   step('Paid: Stripe returns to the order page');
   await waitForKey(page);
   await settle(page);
@@ -316,7 +323,7 @@ async function signedInStills(run, browser, site, slug, session) {
         if (/order|licences/.test(r.route)) await waitForKey(page).catch(() => run.note(`${slug} ${r.route}: no licence key appeared`));
         await page.waitForTimeout(1500);
         await scrollThrough(page);
-        const signedOut = /auth\.buildbase\.app/.test(page.url());
+        const signedOut = hostOf(page.url()) === AUTH_HOST;
         if (signedOut) {
           run.note(`${slug} ${r.route}: the saved session was not accepted (sent to sign-in); skipped`);
           continue;

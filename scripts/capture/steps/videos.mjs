@@ -137,6 +137,7 @@ async function galleryBody(site) {
     await settle(page);
     const notFound = /page not found|couldn't find the page/i.test(await page.innerText('main').catch(() => ''));
     if (!res || res.status() === 404 || notFound) return 'the gallery is not deployed on this site yet';
+    if (/gallery is being rendered/i.test(await page.innerText('main').catch(() => ''))) return 'the gallery has no reels yet (served from R2, #89)';
     step('Open /gallery');
     await page.waitForTimeout(1500);
     await smoothScroll(page, { by: 800, ms: 1600 });

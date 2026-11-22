@@ -167,7 +167,7 @@ export function renderWalkthroughsPage(manifest) {
   }
   const missing = [
     ['docs-navigation', 'Docs navigation: recorded once the docs show content on the store (#93).'],
-    ['gallery-browsing', 'Gallery browsing: recorded once the gallery is deployed.'],
+    ['gallery-browsing', 'Gallery browsing: recorded once the gallery shows its reels (served from R2, #89).'],
   ].filter(([slug]) => !videos.some((v) => v.slug === slug));
   if (missing.length) out.push(`## Still to record\n\n${missing.map(([, t]) => `- ${t}`).join('\n')}\n`);
   return `${out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;

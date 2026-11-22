@@ -133,7 +133,7 @@ ffmpeg unless `REELFORGE_REQUIRE_BROWSER=1`).
 | When | Run |
 | --- | --- |
 | The Workers get the content-reader key (#93): docs, blog and changelog show content | `pnpm capture --only pages --upload` then `pnpm capture --only videos --upload --reel …` (records docs navigation) |
-| The gallery is deployed | the same two commands (gallery page and gallery walkthrough) |
+| The gallery shows its reels (R2, #89) | the same two commands (gallery page and gallery walkthrough) |
 | R2 is enabled (#89) | move `public/walkthroughs/` to R2 and change `VIDEO_BASE` |
 | A page, flow or template changes | the step that shows it, with `--upload`, then `pnpm docs:sync` |
 

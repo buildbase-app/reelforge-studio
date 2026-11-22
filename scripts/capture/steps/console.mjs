@@ -64,7 +64,8 @@ async function readLive(run) {
   return out;
 }
 
-const cell = (v) => String(v ?? '').replace(/\|/g, '\\|').replace(/\n+/g, ' ');
+// Markdown table cell: backslashes first, then pipes, then one line.
+const cell = (v) => String(v ?? '').replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n+/g, ' ');
 const yes = (b) => (b ? 'yes' : 'no');
 const money = (p) => (p.mode === 'free' ? 'Free' : `${(p.amount / 100).toFixed(2)} ${p.currency.toUpperCase()}`);
 const table = (head, rows) =>

@@ -110,4 +110,4 @@ Each video is a real run, recorded with Playwright by `pnpm capture` and cut to 
 ## Still to record
 
 - Docs navigation: recorded once the docs show content on the store (#93).
-- Gallery browsing: recorded once the gallery is deployed.
+- Gallery browsing: recorded once the gallery shows its reels (served from R2, #89).

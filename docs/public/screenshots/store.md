@@ -23,6 +23,7 @@ The test site is https://reelforge-dev.buildbase.app (BuildBase development envi
 - `/docs/install/docker`: answered 404: doc page not served yet (#93)
 - `/docs/mcp/tools`: answered 404: doc page not served yet (#93)
 - `/docs/start/quick-start`: answered 404: doc page not served yet (#93)
+- `/gallery`: no reels yet: the gallery fills once its reels are served from R2 (#89)
 
 ## Test site, every page
 
@@ -149,6 +150,15 @@ Empty state: no entries shown (needs the content-reader key, #93).
 | --- | --- | --- |
 | Light | [![Contact, light, 390 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338673705-978323450.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338674533-737748526.webp) | [![Contact, light, 1440 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338670417-760453840.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338671218-486075015.webp) |
 | Dark | [![Contact, dark, 390 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338672053-499207503.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338672854-913983075.webp) | [![Contact, dark, 1440 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338668848-835015392.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338669615-751752268.webp) |
+
+### Gallery (`/gallery`)
+
+| | Phone (390 px) | Desktop (1440 px) |
+| --- | --- | --- |
+| Light | [![Gallery, light, 390 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340359401-176661685.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340360521-937313125.webp) | [![Gallery, light, 1440 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340362432-181584702.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340363609-861457993.webp) |
+| Dark | [![Gallery, dark, 390 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340364397-847371678.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340365218-124451921.webp) | [![Gallery, dark, 1440 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340366027-692109486.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340366835-987212525.webp) |
+
+Empty state: no reels yet: the gallery fills once its reels are served from R2 (#89).
 
 ### Not found (404) (`/this-page-does-not-exist`)
 
@@ -313,4 +323,5 @@ https://reelforge.buildbase.app in the light theme, captured 2026-11-22.
 | Terms | [![Terms, production, 390 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338783477-955479736.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338784074-123083454.webp) | [![Terms, production, 1440 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338782169-252871322.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338782837-526603662.webp) |
 | Waitlist | [![Waitlist, production, 390 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338785636-79571545.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338786130-568458146.webp) | [![Waitlist, production, 1440 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338784685-579387002.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338785160-932700994.webp) |
 | Contact | [![Contact, production, 390 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338753584-29798715.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338754073-567120764.webp) | [![Contact, production, 1440 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338752438-20749775.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338753118-657633912.webp) |
+| Gallery (empty) | [![Gallery, production, 390 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340367613-614935494.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340368439-57909847.webp) | [![Gallery, production, 1440 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340369211-291684731.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795340370067-738976034.webp) |
 | Not found (404) | [![Not found (404), production, 390 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338772698-940622474.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338773161-666125168.webp) | [![Not found (404), production, 1440 px](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338771354-467052597.webp)](https://storage.googleapis.com/buildbase/orgs/6b01478bb42d2c444e99fcd8-fsyqdskf/assets/file-1795338772231-568774583.webp) |

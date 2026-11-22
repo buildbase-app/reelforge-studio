@@ -2,7 +2,7 @@
 // masking script, waiting until a page has settled, and masked screenshots.
 
 import { createRequire } from 'node:module';
-import { DEFAULT_ALLOWED_EMAILS, STILL_CSS, findSecrets, maskingInitScript } from './lib.mjs';
+import { DEFAULT_ALLOWED_EMAILS, STILL_CSS, findSecrets, maskingConfig, maskingInit } from './lib.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -45,9 +45,15 @@ export async function newContext(browser, { width, height, theme = 'light', site
     ...(permissions ? { permissions } : {}),
   });
   if (recordDir) await ctx.addInitScript({ content: CURSOR_SCRIPT });
-  await ctx.addInitScript({ content: maskingInitScript({ allowEmails }) });
+  await ctx.addInitScript(maskingInit, maskingConfig({ allowEmails }));
   // next-themes reads localStorage first; keep it in line with the colour scheme.
-  await ctx.addInitScript({ content: `try{localStorage.setItem('theme',${JSON.stringify(theme)})}catch{}` });
+  await ctx.addInitScript((t) => {
+    try {
+      localStorage.setItem('theme', t);
+    } catch {
+      // storage blocked: the colour scheme alone decides
+    }
+  }, theme);
   if (site) {
     const host = new URL(site).hostname;
     // "Reject all" (the SDK's v1 format): no banner over the page, no analytics during capture.
