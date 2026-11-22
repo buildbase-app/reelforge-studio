@@ -1,0 +1,43 @@
+{
+  "agent": "rest",
+  "engine": "multi-engine",
+  "status": "passed",
+  "date": "2026-11-21T20:08:19.179Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "examples/tutorials/rest.sh examples/tutorials/multi-engine.json tut-rest-multi-engine final.mp4",
+  "projectId": "tut-rest-multi-engine",
+  "jobId": "job_mwqubp3nacdf52c0e3",
+  "renderId": "run_mwqubp3m87ba6dd366",
+  "renderSeconds": 94.2,
+  "sceneEngines": [
+    "remotion",
+    "motion-canvas",
+    "html",
+    "hyperframes"
+  ],
+  "toolCalls": [
+    "GET /v1/capabilities()",
+    "DELETE /v1/projects/tut-rest-multi-engine()",
+    "POST /v1/projects()",
+    "POST /v1/projects/tut-rest-multi-engine/validate()",
+    "POST /v1/projects/tut-rest-multi-engine/renders()",
+    "GET /v1/jobs/job_mwqubp3nacdf52c0e3?wait=50()",
+    "GET /v1/jobs/job_mwqubp3nacdf52c0e3?wait=50()",
+    "GET /v1/renders/run_mwqubp3m87ba6dd366/output()"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 270,
+    "durationSeconds": 9,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 626552
+  },
+  "poster": "rest-multi-engine.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/rest/multi-engine"
+}

@@ -37,7 +37,7 @@ id, `activations 1/1`). A second deployment with its own database is a second ac
 (`limit_reached` at limit 1). Unlimited workers per deployment are therefore already covered
 by one activation; what does not scale is that **every process calls the licence server**
 at start and daily (50 processes = 50 licence calls), which collides with scale-to-zero
-churn and BuildBase rate limits. Fix proposed in D-098.
+churn and BuildBase rate limits. Fix in D-098 (built in #154).
 
 **What is missing for "any scale":**
 

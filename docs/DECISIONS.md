@@ -1675,8 +1675,8 @@ long renders and lets renders fit time-capped platforms (Lambda: 15 min per Remo
 
 ### D-098 --- Licence at scale: one activation per deployment (the shared database); only the api tier checks, once a day
 
-**Status:** PROPOSED (2026-11-22); touches licence-enforcement code (maintainer go-ahead needed).
-Refines D-036/D-037.\
+**Status:** DECIDED (2026-11-22, issue #154; the founder asked for one organisation licence to
+scale without limit, which is the maintainer go-ahead for the licence code). Refines D-036/D-037.\
 Measured (RENDER_SCALE.md §12): 1 api + 3/19/49 workers on one database take exactly one
 BuildBase activation (one instance id per database); a second database is a second activation
 (`limit_reached` at limit 1); but every process calls the licence server at start and daily (50
@@ -1689,7 +1689,22 @@ compare-and-set on the stored state (one check per day per deployment); `worker`
 call the licence server, read the sealed shared state (D-089) and stop claiming render units when
 it disallows renders (the enqueue gate stays). **Rejected:** a configurable cluster id (copyable
 across companies); per-worker activations (punishes scaling); usage reporting (contradicts "no
-telemetry by default"; only as an explicit founder-approved opt-in, not designed).
+telemetry by default"; only as an explicit founder-approved opt-in, not designed).\
+**Built (#154):** `LicenceRepository.claimCheck` is one atomic `UPDATE ... WHERE nextCheckAt IS
+NULL OR nextCheckAt <= now` that sets a 2-minute lease (no schema change; `nextCheckAt` is outside
+the seal); the start, daily and key-change checks of `api`/`all` instances go through it, the winner
+calls BuildBase and stores the sealed answer with `checkedBy`, the others re-read the state every
+60 s (a restart with a fresh state makes no call). Explicit checks (`activate_licence`,
+`POST /v1/licence`, `reelforge licence ...`) still call at once. Backoff doubles across instances
+(from the stored plan); the hourly clock marker writes only with a compare-and-set on `updatedAt`, so
+it never overwrites a newer check. `worker` instances get a read-only manager: seal verified, grace
+and clock checks applied with their own clock, no writes, `waiting_for_api` until a check is stored,
+and the job runner's `canClaim` refuses render/preview claims while renders are not allowed (reason
+in the log, `/readyz` admin `licence` block and queue `paused`, `reelforge_licence_state`). Instances
+configured with different keys do not take turns activating them (logged as a conflict). Measured on
+the mock licence server (`apps/server/test/licence-scale.test.ts`): 2 api + 3 worker licence managers on
+SQLite, PostgreSQL 17 and MySQL 8.4, and 2 api + 3 worker server instances on PostgreSQL 17 and
+MySQL 8.4 = 1 activate, 1 validate per day window, 0 worker calls.
 
 ### D-099 --- Defaults: local pool for one machine; api + worker pool with KEDA or ACA for scale; Remotion Lambda opt-in after #10
 

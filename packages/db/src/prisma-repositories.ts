@@ -716,7 +716,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         }
         return toLicence(await prisma.licenceState.findUniqueOrThrow({ where: { workspaceId } }));
       },
-      async save(s) {
+      async save(s, opts) {
         const date = (v?: string) => (v ? new Date(v) : null);
         const data = {
           keyHash: s.keyHash ?? null,
@@ -730,8 +730,25 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           highWaterAt: date(s.highWaterAt),
           updatedAt: new Date(s.updatedAt),
         };
+        if (opts?.ifUpdatedAt !== undefined) {
+          // Compare-and-set: nobody (a licence check on another instance) wrote since this state was read.
+          const r = await prisma.licenceState.updateMany({ where: { workspaceId, updatedAt: new Date(opts.ifUpdatedAt) }, data });
+          return r.count === 1;
+        }
         // The instance id is written once (init) and never changed here.
         await prisma.licenceState.upsert({ where: { workspaceId }, create: { ...ws, instanceId: s.instanceId, ...data }, update: data });
+        return true;
+      },
+      async claimCheck({ now, leaseUntil, orLaterThan }) {
+        // One UPDATE with the condition in its WHERE: the database row lock makes exactly one caller win.
+        const r = await prisma.licenceState.updateMany({
+          where: {
+            workspaceId,
+            OR: [{ nextCheckAt: null }, { nextCheckAt: { lte: new Date(now) } }, ...(orLaterThan ? [{ nextCheckAt: { gt: new Date(orLaterThan) } }] : [])],
+          },
+          data: { nextCheckAt: new Date(leaseUntil), updatedAt: new Date(now) },
+        });
+        return r.count === 1;
       },
     },
 

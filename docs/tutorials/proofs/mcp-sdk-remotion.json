@@ -1,0 +1,42 @@
+{
+  "agent": "mcp-sdk",
+  "engine": "remotion",
+  "status": "passed",
+  "date": "2026-11-21T19:40:13.146Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "node examples/tutorials/mcp-client.mjs examples/tutorials/remotion.json tut-mcp-sdk-remotion",
+  "projectId": "tut-mcp-sdk-remotion",
+  "jobId": "job_mwqtbkjv314a2d1304",
+  "renderId": "run_mwqtbkjv4e3af5a6d5",
+  "renderSeconds": 61.6,
+  "sceneEngines": [
+    "remotion",
+    "remotion"
+  ],
+  "toolCalls": [
+    "get_capabilities()",
+    "list_templates(engine)",
+    "list_projects()",
+    "create_project(manifest)",
+    "validate_project(projectId)",
+    "render_project(projectId)",
+    "get_job(jobId, waitSeconds)",
+    "get_job(jobId, waitSeconds)",
+    "get_render_output(jobId)"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 639540
+  },
+  "poster": "mcp-sdk-remotion.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/mcp-sdk/remotion"
+}

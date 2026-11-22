@@ -348,8 +348,17 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         if (!licence) licence = { instanceId, updatedAt: at };
         return clone(licence);
       },
-      async save(state) {
+      async save(state, opts) {
+        if (opts?.ifUpdatedAt !== undefined && (!licence || Date.parse(licence.updatedAt) !== Date.parse(opts.ifUpdatedAt))) return false;
         licence = { ...clone(state), instanceId: licence?.instanceId ?? state.instanceId };
+        return true;
+      },
+      async claimCheck({ now, leaseUntil, orLaterThan }) {
+        if (!licence) return false;
+        const next = licence.nextCheckAt ? Date.parse(licence.nextCheckAt) : undefined;
+        if (next !== undefined && next > Date.parse(now) && !(orLaterThan && next > Date.parse(orLaterThan))) return false;
+        licence = { ...licence, nextCheckAt: leaseUntil, updatedAt: now };
+        return true;
       },
     },
     assets: {
