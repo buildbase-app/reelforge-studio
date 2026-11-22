@@ -490,7 +490,7 @@ flowchart LR
     W1[worker pool: compose / VPS / Nomad]
     W2[Kubernetes + KEDA: ScaledObject or ScaledJob]
     W3[ECS service / Batch / ACA / Cloud Run Jobs: worker --once]
-    W4[Remotion Lambda: Remotion scenes only, opt-in, #10]
+    W4["Remotion Lambda: Remotion scenes only, opt-in (blocked on the Remotion answer)"]
   end
   Q1 & Q2 & Q3 --> W1 & W2 & W3
   W1 & W2 & W3 -->|claim, lease, fenced writes| PGB
