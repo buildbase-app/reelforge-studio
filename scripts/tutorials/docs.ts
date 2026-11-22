@@ -442,7 +442,7 @@ const AGENT_DOES: Record<AgentId, string> = {
 const TYPICAL: Record<AgentId, string[]> = {
   'claude-code': ['list_templates', 'create_project', 'validate_project', 'render_project', 'get_job (repeated)', 'get_render_output'],
   codex: ['list_templates', 'create_project', 'validate_project', 'render_project', 'get_job (repeated)', 'get_render_output'],
-  'mcp-sdk': ['get_capabilities', 'list_templates', 'list_projects (and delete_project on a re-run)', 'create_project', 'validate_project', 'render_project', 'get_job (repeated, waitSeconds 45)', 'get_render_output'],
+  'mcp-sdk': ['get_capabilities', 'list_templates', 'list_projects (following nextCursor; delete_project on a re-run)', 'create_project', 'validate_project', 'render_project', 'get_job (repeated, waitSeconds 45)', 'get_render_output'],
   rest: ['GET /v1/capabilities', 'POST /v1/projects', 'POST /v1/projects/:id/validate', 'POST /v1/projects/:id/renders', 'GET /v1/jobs/:id?wait=50 (repeated)', 'GET /v1/renders/:id/output'],
   'local-ai': ['list_templates', 'create_project', 'validate_project', 'render_project', 'get_job (repeated)', 'get_render_output'],
 };

@@ -133,7 +133,7 @@ The script makes these calls, always in this order (no model involved):
 
 1. `get_capabilities`
 2. `list_templates`
-3. `list_projects (and delete_project on a re-run)`
+3. `list_projects (following nextCursor; delete_project on a re-run)`
 4. `create_project`
 5. `validate_project`
 6. `render_project`

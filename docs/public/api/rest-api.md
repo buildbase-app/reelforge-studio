@@ -89,6 +89,30 @@ read, send the version you read as `If-Match: "<version>"` (or
 `expectedVersion`): a change in between answers `409 version_conflict`. Fetch
 the project again and reapply your change.
 
+## Lists and pages
+
+`GET /v1/projects`, `GET /v1/jobs` and `GET /v1/assets` return one page, newest
+first, and a `nextCursor` (D-102). A call without parameters returns the newest
+50; `?limit=` takes 1 to 200 (anything else answers `400 bad_request`). While
+`nextCursor` is not null there is more: send it back as `?cursor=`, with the same
+filters (`projectId`), unchanged. A walk from the first page to `nextCursor: null`
+returns every item that existed when it started exactly once, even while others
+are created; items created meanwhile show up on the next walk. A cursor of
+another list or filter, or an edited one, answers `400 bad_request`.
+
+```bash
+CURSOR=
+while :; do
+  PAGE=$(curl -s -H "Authorization: Bearer $KEY" "$RF/v1/projects?limit=200${CURSOR:+&cursor=$CURSOR}")
+  echo "$PAGE" | jq -r '.projects[] | "\(.id)\t\(.title)"'
+  CURSOR=$(echo "$PAGE" | jq -r '.nextCursor // empty')
+  [ -z "$CURSOR" ] && break
+done
+```
+
+Projects come as summaries (`id`, `title`, `version`, `scenes`, `durationSeconds`,
+`createdAt`, `updatedAt`); `GET /v1/projects/:id` has the manifest.
+
 ## Rate limits
 
 Each key has a token-bucket rate limit (`limits.rateLimitPerMinute`, or the

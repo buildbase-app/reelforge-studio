@@ -68,7 +68,7 @@ const toolError = (r: any) => {
 };
 const setLimits = (settings: Record<string, unknown>) => api('PATCH', '/v1/config', admin, { settings });
 const cancelAll = async () => {
-  for (const j of await server.service.listJobs()) if (j.status === 'queued' || j.status === 'running') await server.service.cancelJob(j.id);
+  for (const j of (await server.service.listJobs({}, { limit: 200 })).jobs) if (j.status === 'queued' || j.status === 'running') await server.service.cancelJob(j.id);
   await server.service.jobs.idle();
 };
 
@@ -157,7 +157,7 @@ describe('limits over REST and MCP', () => {
       expect(refused).toHaveLength(8);
       for (const r of refused) expect(r.json.error).toMatchObject({ code: 'too_many_jobs', details: { max: 3, used: 3 } });
       // A refused start stored no idempotency record: the same key goes through once there is room.
-      const mine = (await server.service.listJobs()).filter((j) => j.status === 'queued' || j.status === 'running');
+      const mine = (await server.service.listJobs({}, { limit: 200 })).jobs.filter((j) => j.status === 'queued' || j.status === 'running');
       expect(mine).toHaveLength(3);
       expect((await api('POST', `/v1/jobs/${first.json.job.id}/cancel`, agentA, {})).status).toBe(200);
       for (let i = 0; i < 200 && (await server.service.getJob(first.json.job.id)).status !== 'cancelled'; i++) await new Promise((r) => setTimeout(r, 25));

@@ -53,7 +53,14 @@ for (const e of engines) {
 for (const e of engines) await call('list_templates', { engine: e });
 
 // Re-running the tutorial replaces the previous project of the same id.
-const existing = (await call('list_projects')).json.projects.some((p) => (p.id ?? p.projectId) === projectId);
+// list_projects returns one page (newest first) and nextCursor: follow it until null.
+let existing = false;
+for (let cursor; !existing; ) {
+  const page = (await call('list_projects', cursor ? { cursor } : {})).json;
+  existing = page.projects.some((p) => p.id === projectId);
+  if (!page.nextCursor) break;
+  cursor = page.nextCursor;
+}
 if (existing) await call('delete_project', { projectId });
 await call('create_project', { manifest });
 

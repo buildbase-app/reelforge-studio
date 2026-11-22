@@ -9,6 +9,7 @@ import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { BlockList, isIP, type LookupFunction } from 'node:net';
 import { ApiError, notFound } from './errors';
+import type { PageRequest } from './paging';
 import type { PutAssetInput, StoredAsset } from './plugins';
 import type { AssetRecord, AssetRepository } from './repositories';
 import type { StorageDriver } from './plugins';
@@ -477,6 +478,11 @@ export class AssetStore {
 
   async list(): Promise<StoredAsset[]> {
     return (await this.repo.list()).map(toStored);
+  }
+
+  /** One keyset page, newest first (D-102). */
+  async page(req: PageRequest): Promise<StoredAsset[]> {
+    return (await this.repo.page(req)).map(toStored);
   }
 
   async updateMetadata(id: string, patch: Partial<Pick<StoredAsset, 'durationSeconds' | 'metadata' | 'license'>>): Promise<StoredAsset> {

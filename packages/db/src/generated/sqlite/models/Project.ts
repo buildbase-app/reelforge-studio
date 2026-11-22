@@ -28,10 +28,14 @@ export type AggregateProject = {
 
 export type ProjectAvgAggregateOutputType = {
   version: number | null
+  sceneCount: number | null
+  durationSeconds: number | null
 }
 
 export type ProjectSumAggregateOutputType = {
   version: number | null
+  sceneCount: number | null
+  durationSeconds: number | null
 }
 
 export type ProjectMinAggregateOutputType = {
@@ -39,6 +43,8 @@ export type ProjectMinAggregateOutputType = {
   id: string | null
   version: number | null
   title: string | null
+  sceneCount: number | null
+  durationSeconds: number | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -48,6 +54,8 @@ export type ProjectMaxAggregateOutputType = {
   id: string | null
   version: number | null
   title: string | null
+  sceneCount: number | null
+  durationSeconds: number | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -57,6 +65,8 @@ export type ProjectCountAggregateOutputType = {
   id: number
   version: number
   title: number
+  sceneCount: number
+  durationSeconds: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -65,10 +75,14 @@ export type ProjectCountAggregateOutputType = {
 
 export type ProjectAvgAggregateInputType = {
   version?: true
+  sceneCount?: true
+  durationSeconds?: true
 }
 
 export type ProjectSumAggregateInputType = {
   version?: true
+  sceneCount?: true
+  durationSeconds?: true
 }
 
 export type ProjectMinAggregateInputType = {
@@ -76,6 +90,8 @@ export type ProjectMinAggregateInputType = {
   id?: true
   version?: true
   title?: true
+  sceneCount?: true
+  durationSeconds?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -85,6 +101,8 @@ export type ProjectMaxAggregateInputType = {
   id?: true
   version?: true
   title?: true
+  sceneCount?: true
+  durationSeconds?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -94,6 +112,8 @@ export type ProjectCountAggregateInputType = {
   id?: true
   version?: true
   title?: true
+  sceneCount?: true
+  durationSeconds?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -190,6 +210,8 @@ export type ProjectGroupByOutputType = {
   id: string
   version: number
   title: string
+  sceneCount: number | null
+  durationSeconds: number | null
   createdAt: Date
   updatedAt: Date
   _count: ProjectCountAggregateOutputType | null
@@ -222,6 +244,8 @@ export type ProjectWhereInput = {
   id?: Prisma.StringFilter<"Project"> | string
   version?: Prisma.IntFilter<"Project"> | number
   title?: Prisma.StringFilter<"Project"> | string
+  sceneCount?: Prisma.IntNullableFilter<"Project"> | number | null
+  durationSeconds?: Prisma.FloatNullableFilter<"Project"> | number | null
   createdAt?: Prisma.DateTimeFilter<"Project"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Project"> | Date | string
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
@@ -233,6 +257,8 @@ export type ProjectOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   version?: Prisma.SortOrder
   title?: Prisma.SortOrder
+  sceneCount?: Prisma.SortOrderInput | Prisma.SortOrder
+  durationSeconds?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   workspace?: Prisma.WorkspaceOrderByWithRelationInput
@@ -248,6 +274,8 @@ export type ProjectWhereUniqueInput = Prisma.AtLeast<{
   id?: Prisma.StringFilter<"Project"> | string
   version?: Prisma.IntFilter<"Project"> | number
   title?: Prisma.StringFilter<"Project"> | string
+  sceneCount?: Prisma.IntNullableFilter<"Project"> | number | null
+  durationSeconds?: Prisma.FloatNullableFilter<"Project"> | number | null
   createdAt?: Prisma.DateTimeFilter<"Project"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Project"> | Date | string
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
@@ -259,6 +287,8 @@ export type ProjectOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   version?: Prisma.SortOrder
   title?: Prisma.SortOrder
+  sceneCount?: Prisma.SortOrderInput | Prisma.SortOrder
+  durationSeconds?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.ProjectCountOrderByAggregateInput
@@ -276,6 +306,8 @@ export type ProjectScalarWhereWithAggregatesInput = {
   id?: Prisma.StringWithAggregatesFilter<"Project"> | string
   version?: Prisma.IntWithAggregatesFilter<"Project"> | number
   title?: Prisma.StringWithAggregatesFilter<"Project"> | string
+  sceneCount?: Prisma.IntNullableWithAggregatesFilter<"Project"> | number | null
+  durationSeconds?: Prisma.FloatNullableWithAggregatesFilter<"Project"> | number | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Project"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Project"> | Date | string
 }
@@ -284,6 +316,8 @@ export type ProjectCreateInput = {
   id: string
   version: number
   title: string
+  sceneCount?: number | null
+  durationSeconds?: number | null
   createdAt: Date | string
   updatedAt: Date | string
   workspace: Prisma.WorkspaceCreateNestedOneWithoutProjectsInput
@@ -295,6 +329,8 @@ export type ProjectUncheckedCreateInput = {
   id: string
   version: number
   title: string
+  sceneCount?: number | null
+  durationSeconds?: number | null
   createdAt: Date | string
   updatedAt: Date | string
   versions?: Prisma.ProjectVersionUncheckedCreateNestedManyWithoutProjectInput
@@ -304,6 +340,8 @@ export type ProjectUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  sceneCount?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  durationSeconds?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workspace?: Prisma.WorkspaceUpdateOneRequiredWithoutProjectsNestedInput
@@ -315,6 +353,8 @@ export type ProjectUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  sceneCount?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  durationSeconds?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   versions?: Prisma.ProjectVersionUncheckedUpdateManyWithoutProjectNestedInput
@@ -325,6 +365,8 @@ export type ProjectCreateManyInput = {
   id: string
   version: number
   title: string
+  sceneCount?: number | null
+  durationSeconds?: number | null
   createdAt: Date | string
   updatedAt: Date | string
 }
@@ -333,6 +375,8 @@ export type ProjectUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  sceneCount?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  durationSeconds?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -342,6 +386,8 @@ export type ProjectUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  sceneCount?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  durationSeconds?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -366,12 +412,16 @@ export type ProjectCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   version?: Prisma.SortOrder
   title?: Prisma.SortOrder
+  sceneCount?: Prisma.SortOrder
+  durationSeconds?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
 
 export type ProjectAvgOrderByAggregateInput = {
   version?: Prisma.SortOrder
+  sceneCount?: Prisma.SortOrder
+  durationSeconds?: Prisma.SortOrder
 }
 
 export type ProjectMaxOrderByAggregateInput = {
@@ -379,6 +429,8 @@ export type ProjectMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   version?: Prisma.SortOrder
   title?: Prisma.SortOrder
+  sceneCount?: Prisma.SortOrder
+  durationSeconds?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -388,12 +440,16 @@ export type ProjectMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   version?: Prisma.SortOrder
   title?: Prisma.SortOrder
+  sceneCount?: Prisma.SortOrder
+  durationSeconds?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
 
 export type ProjectSumOrderByAggregateInput = {
   version?: Prisma.SortOrder
+  sceneCount?: Prisma.SortOrder
+  durationSeconds?: Prisma.SortOrder
 }
 
 export type ProjectScalarRelationFilter = {
@@ -451,6 +507,22 @@ export type IntFieldUpdateOperationsInput = {
   divide?: number
 }
 
+export type NullableIntFieldUpdateOperationsInput = {
+  set?: number | null
+  increment?: number
+  decrement?: number
+  multiply?: number
+  divide?: number
+}
+
+export type NullableFloatFieldUpdateOperationsInput = {
+  set?: number | null
+  increment?: number
+  decrement?: number
+  multiply?: number
+  divide?: number
+}
+
 export type ProjectCreateNestedOneWithoutVersionsInput = {
   create?: Prisma.XOR<Prisma.ProjectCreateWithoutVersionsInput, Prisma.ProjectUncheckedCreateWithoutVersionsInput>
   connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutVersionsInput
@@ -469,6 +541,8 @@ export type ProjectCreateWithoutWorkspaceInput = {
   id: string
   version: number
   title: string
+  sceneCount?: number | null
+  durationSeconds?: number | null
   createdAt: Date | string
   updatedAt: Date | string
   versions?: Prisma.ProjectVersionCreateNestedManyWithoutProjectInput
@@ -478,6 +552,8 @@ export type ProjectUncheckedCreateWithoutWorkspaceInput = {
   id: string
   version: number
   title: string
+  sceneCount?: number | null
+  durationSeconds?: number | null
   createdAt: Date | string
   updatedAt: Date | string
   versions?: Prisma.ProjectVersionUncheckedCreateNestedManyWithoutProjectInput
@@ -516,6 +592,8 @@ export type ProjectScalarWhereInput = {
   id?: Prisma.StringFilter<"Project"> | string
   version?: Prisma.IntFilter<"Project"> | number
   title?: Prisma.StringFilter<"Project"> | string
+  sceneCount?: Prisma.IntNullableFilter<"Project"> | number | null
+  durationSeconds?: Prisma.FloatNullableFilter<"Project"> | number | null
   createdAt?: Prisma.DateTimeFilter<"Project"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Project"> | Date | string
 }
@@ -524,6 +602,8 @@ export type ProjectCreateWithoutVersionsInput = {
   id: string
   version: number
   title: string
+  sceneCount?: number | null
+  durationSeconds?: number | null
   createdAt: Date | string
   updatedAt: Date | string
   workspace: Prisma.WorkspaceCreateNestedOneWithoutProjectsInput
@@ -534,6 +614,8 @@ export type ProjectUncheckedCreateWithoutVersionsInput = {
   id: string
   version: number
   title: string
+  sceneCount?: number | null
+  durationSeconds?: number | null
   createdAt: Date | string
   updatedAt: Date | string
 }
@@ -558,6 +640,8 @@ export type ProjectUpdateWithoutVersionsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  sceneCount?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  durationSeconds?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   workspace?: Prisma.WorkspaceUpdateOneRequiredWithoutProjectsNestedInput
@@ -568,6 +652,8 @@ export type ProjectUncheckedUpdateWithoutVersionsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  sceneCount?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  durationSeconds?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -576,6 +662,8 @@ export type ProjectCreateManyWorkspaceInput = {
   id: string
   version: number
   title: string
+  sceneCount?: number | null
+  durationSeconds?: number | null
   createdAt: Date | string
   updatedAt: Date | string
 }
@@ -584,6 +672,8 @@ export type ProjectUpdateWithoutWorkspaceInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  sceneCount?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  durationSeconds?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   versions?: Prisma.ProjectVersionUpdateManyWithoutProjectNestedInput
@@ -593,6 +683,8 @@ export type ProjectUncheckedUpdateWithoutWorkspaceInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  sceneCount?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  durationSeconds?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   versions?: Prisma.ProjectVersionUncheckedUpdateManyWithoutProjectNestedInput
@@ -602,6 +694,8 @@ export type ProjectUncheckedUpdateManyWithoutWorkspaceInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  sceneCount?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  durationSeconds?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -642,6 +736,8 @@ export type ProjectSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   id?: boolean
   version?: boolean
   title?: boolean
+  sceneCount?: boolean
+  durationSeconds?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
@@ -654,6 +750,8 @@ export type ProjectSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exten
   id?: boolean
   version?: boolean
   title?: boolean
+  sceneCount?: boolean
+  durationSeconds?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
@@ -664,6 +762,8 @@ export type ProjectSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exten
   id?: boolean
   version?: boolean
   title?: boolean
+  sceneCount?: boolean
+  durationSeconds?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
@@ -674,11 +774,13 @@ export type ProjectSelectScalar = {
   id?: boolean
   version?: boolean
   title?: boolean
+  sceneCount?: boolean
+  durationSeconds?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type ProjectOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"workspaceId" | "id" | "version" | "title" | "createdAt" | "updatedAt", ExtArgs["result"]["project"]>
+export type ProjectOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"workspaceId" | "id" | "version" | "title" | "sceneCount" | "durationSeconds" | "createdAt" | "updatedAt", ExtArgs["result"]["project"]>
 export type ProjectInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
   versions?: boolean | Prisma.Project$versionsArgs<ExtArgs>
@@ -705,6 +807,11 @@ export type $ProjectPayload<ExtArgs extends runtime.Types.Extensions.InternalArg
      */
     version: number
     title: string
+    /**
+     * List summary of the current version (list_projects without manifests, D-102); null on rows saved before 0008.
+     */
+    sceneCount: number | null
+    durationSeconds: number | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["project"]>
@@ -1136,6 +1243,8 @@ export interface ProjectFieldRefs {
   readonly id: Prisma.FieldRef<"Project", 'String'>
   readonly version: Prisma.FieldRef<"Project", 'Int'>
   readonly title: Prisma.FieldRef<"Project", 'String'>
+  readonly sceneCount: Prisma.FieldRef<"Project", 'Int'>
+  readonly durationSeconds: Prisma.FieldRef<"Project", 'Float'>
   readonly createdAt: Prisma.FieldRef<"Project", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Project", 'DateTime'>
 }

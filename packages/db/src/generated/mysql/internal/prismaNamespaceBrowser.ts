@@ -101,6 +101,8 @@ export const ProjectScalarFieldEnum = {
   id: 'id',
   version: 'version',
   title: 'title',
+  sceneCount: 'sceneCount',
+  durationSeconds: 'durationSeconds',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -391,6 +393,14 @@ export const WorkspaceOrderByRelevanceFieldEnum = {
 export type WorkspaceOrderByRelevanceFieldEnum = (typeof WorkspaceOrderByRelevanceFieldEnum)[keyof typeof WorkspaceOrderByRelevanceFieldEnum]
 
 
+export const NullsOrder = {
+  first: 'first',
+  last: 'last'
+} as const
+
+export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
+
+
 export const ProjectOrderByRelevanceFieldEnum = {
   workspaceId: 'workspaceId',
   id: 'id',
@@ -407,14 +417,6 @@ export const ProjectVersionOrderByRelevanceFieldEnum = {
 } as const
 
 export type ProjectVersionOrderByRelevanceFieldEnum = (typeof ProjectVersionOrderByRelevanceFieldEnum)[keyof typeof ProjectVersionOrderByRelevanceFieldEnum]
-
-
-export const NullsOrder = {
-  first: 'first',
-  last: 'last'
-} as const
-
-export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
 
 
 export const ApiKeyOrderByRelevanceFieldEnum = {

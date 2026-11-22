@@ -394,19 +394,33 @@ async function enqueueRenders(urls: string[], keys: string[], projectIds: string
   return { ids: [...accepted.values()], retries, refused, latencyMs: latency };
 }
 
-/** list_projects on its own (3 sequential calls on a quiet server): projects, median ms, response bytes. */
+/**
+ * list_projects on its own, on a quiet server: the default call (first page, D-102) 3 times
+ * (median ms, response bytes, items), then a walk of every page at limit=200 (total projects,
+ * pages, ms). Against a server without paging (no nextCursor) the first call is the whole list.
+ */
 async function listProbe(url: string, key: string) {
   const ms: number[] = [];
   let bytes = 0;
-  let projects = 0;
+  let items = 0;
   for (let i = 0; i < 3; i++) {
     const t = performance.now();
     const r = await rest(url, key, 'GET', '/v1/projects');
     ms.push(performance.now() - t);
     bytes = r.text.length;
-    projects = (r.json.projects as unknown[] | undefined)?.length ?? 0;
+    items = (r.json.projects as unknown[] | undefined)?.length ?? 0;
   }
-  return { projects, medianMs: round(ms.sort((a, b) => a - b)[1]!), bytes };
+  let projects = 0;
+  let pages = 0;
+  let cursor: string | null = null;
+  const t = performance.now();
+  do {
+    const r = await rest(url, key, 'GET', `/v1/projects?limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+    projects += (r.json.projects as unknown[] | undefined)?.length ?? 0;
+    pages++;
+    cursor = (r.json.nextCursor as string | null | undefined) ?? null;
+  } while (cursor && pages < 10_000);
+  return { projects, items, medianMs: round(ms.sort((a, b) => a - b)[1]!), bytes, walk: { pages, ms: round(performance.now() - t) } };
 }
 
 async function waitDrained(dbUrl: string, timeoutMs: number) {
@@ -464,8 +478,8 @@ async function scenarioAB(pooler: string) {
     if (cfg.warmupSeconds > 0) await runCrud(target(s.many), { seconds: cfg.warmupSeconds, connections: cfg.connections });
     if (cfg.scenarios.includes('a')) {
       const half = Math.max(5, Math.round(cfg.seconds / 2));
-      // create_project makes list_projects (unpaginated: every project and its manifest) dearer as the run goes on;
-      // the pair at the end leaves both out, so the cost per request stays put and only the key spread differs.
+      // Before #179 create_project made list_projects (then unpaginated) dearer as the run went on; it is a page now,
+      // but the pair at the end still leaves both out, so the cost per request stays put and only the key spread differs.
       const steady = { get_project: 0.35, update_project: 0.15, get_job: 0.3, list_renders: 0.2 };
       for (const [label, keys, secs, mix] of [
         ['many-keys', s.many, cfg.seconds, cfg.mix],

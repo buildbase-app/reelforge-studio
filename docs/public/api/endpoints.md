@@ -14,6 +14,11 @@ tags: [api, reference]
 61 routes, generated from the server's route table. All take and return JSON unless noted, and need
 `Authorization: Bearer rf_...` with the scope shown (`admin` implies every scope).
 
+Lists are pages (D-102): `GET /v1/projects`, `GET /v1/jobs` and `GET /v1/assets` take `?limit=` (1 to 200,
+default 50) and `?cursor=` and answer the newest page plus `nextCursor` (null on the last page); see
+[REST API: lists and pages](/docs/api/rest-api#lists-and-pages). `GET /v1/audit` and the delivery log page the same way
+with their own sizes.
+
 | Method | Path | Scope | MCP tool | Notes |
 | --- | --- | --- | --- | --- |
 | `GET` | `/v1/capabilities` | `read` | `get_capabilities` |  |

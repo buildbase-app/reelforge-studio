@@ -4,6 +4,7 @@ export * from './mergePatch';
 export * from './plugins';
 export * from './registry';
 export * from './repositories';
+export * from './paging';
 export * from './memory-repositories';
 export * from './storage';
 export * from './store';

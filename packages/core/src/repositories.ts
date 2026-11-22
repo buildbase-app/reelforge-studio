@@ -1,4 +1,5 @@
 import type { Project, Theme } from '@reelforge/project-schema';
+import type { PageRequest } from './paging';
 import type { StoredAsset } from './plugins';
 import type { WebhookRepository } from './webhooks/types';
 
@@ -38,6 +39,13 @@ export interface StoredProject {
   manifest: Project;
 }
 
+/** A project in a list: its meta and summary, without the manifest (list_projects). */
+export interface ProjectSummary extends ProjectMeta {
+  title: string;
+  scenes: number;
+  durationSeconds: number;
+}
+
 export interface ProjectRepository {
   /** Insert a project at version 1 with its first version row. Throws ApiError `conflict` if the id exists. */
   create(project: StoredProject): Promise<void>;
@@ -47,6 +55,12 @@ export interface ProjectRepository {
   listVersions(id: string): Promise<number[]>;
   /** Every project with its current manifest, most recently updated first. */
   list(): Promise<StoredProject[]>;
+  /**
+   * One keyset page of summaries, newest created first ((createdAt, id)
+   * descending), strictly after `req.after`, at most `req.limit` rows. Never
+   * loads more than the page (D-102).
+   */
+  page(req: PageRequest): Promise<ProjectSummary[]>;
   /**
    * Atomically bump the project from `expectedVersion` to `expectedVersion + 1`
    * and store `manifest` as that version. Returns the new meta, or null when
@@ -276,8 +290,10 @@ export interface JobRepository {
    */
   cancelTree(id: string, at: string): Promise<JobRecord[] | null>;
   get(id: string): Promise<JobRecord | null>;
-  /** Newest first. */
+  /** Newest first. Every matching row: for internal use; the API pages with `page`. */
   list(filter?: JobFilter): Promise<JobRecord[]>;
+  /** One keyset page of matching jobs, (createdAt, id) descending, strictly after `req.after`, at most `req.limit` (D-102). */
+  page(filter: JobFilter, req: PageRequest): Promise<JobRecord[]>;
   /** Jobs whose status is queued or running. */
   listUnfinished(): Promise<JobRecord[]>;
 
@@ -457,6 +473,8 @@ export interface AssetRepository {
   insertIfAbsent(asset: AssetRecord): Promise<AssetRecord>;
   /** Newest first. */
   list(): Promise<AssetRecord[]>;
+  /** One keyset page, (createdAt, id) descending, strictly after `req.after`, at most `req.limit` (D-102). */
+  page(req: PageRequest): Promise<AssetRecord[]>;
   update(id: string, patch: Partial<Pick<StoredAsset, 'durationSeconds' | 'metadata' | 'license'>>): Promise<AssetRecord | null>;
 }
 

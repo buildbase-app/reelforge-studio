@@ -38,6 +38,9 @@ model Project {
   /// Current version; bumped in the same transaction that inserts the ProjectVersion.
   version     Int
   title       String   @db.Text
+  /// List summary of the current version (list_projects without manifests, D-102); null on rows saved before 0008.
+  sceneCount      Int?
+  durationSeconds Float?
   createdAt   DateTime
   updatedAt   DateTime
 
@@ -46,6 +49,8 @@ model Project {
 
   @@id([workspaceId, id])
   @@index([workspaceId, updatedAt])
+  /// Keyset pages of list_projects (D-102).
+  @@index([workspaceId, createdAt, id])
 }
 
 model ProjectVersion {
@@ -139,6 +144,9 @@ model Job {
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, projectId])
+  /// Keyset pages of list_jobs, all and per project (D-102).
+  @@index([workspaceId, createdAt, id])
+  @@index([workspaceId, projectId, createdAt, id])
   @@index([status])
   @@index([workspaceId, apiKeyId, createdAt])
   @@index([workspaceId, queue, status, createdAt])
@@ -229,6 +237,8 @@ model Asset {
 
   @@id([workspaceId, id])
   @@index([workspaceId, createdAt])
+  /// Keyset pages of list_assets (D-102).
+  @@index([workspaceId, createdAt, id])
 }
 
 /// Audit trail (#65, D-055): append-only, one row per admin or write action.

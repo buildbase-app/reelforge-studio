@@ -1831,3 +1831,45 @@ profile** `reelforge-chrome.json` (the api keeps `RuntimeDefault`): the e2e foun
 failing under `RuntimeDefault`, because the image keeps Chromium's sandbox on (D-086). `e2e/k8s/keda.sh`
 runs the overlay on kind; KEDA's own scaling has not run yet (its images could not be fetched in the
 sandbox that built this), so D-079's "VERIFY" now covers only that part and the HPA External metric.
+
+### D-102 --- Lists are keyset pages by default: `limit` 50 (max 200), opaque `cursor`, `nextCursor`; project summaries without manifests
+
+**Status:** DECIDED (reversible).\
+`list_projects`, `list_jobs` and `list_assets` (REST `GET /v1/projects`, `/v1/jobs`, `/v1/assets`)
+return **one page**, newest first, and `nextCursor` (null on the last page); `limit` takes 1 to 200,
+default 50; `cursor` is the previous page's `nextCursor`. **This is a behaviour change, made on
+purpose:** a call without the new arguments used to return every row and now returns the newest 50.
+The load test (#151, PERFORMANCE.md finding 1) showed the unbounded list was the first CRUD ceiling:
+its cost grew with every project, and since each api instance is one event loop, every other call
+slowed with it. Keeping "everything" as the default would leave that ceiling in place for every agent
+that never learns the new arguments, so the bound has to be the default. **Compatibility:** the
+answer keeps its shape (`{ projects: [...] }`, `{ jobs: [...] }`, `{ assets: [...] }` with the same
+item fields) and only gains `nextCursor`, so existing clients still parse it; a client with at most
+50 rows sees no difference; a client that needs everything follows `nextCursor`. The MCP tool
+descriptions say so in words agents read ("Without a cursor you get the first (newest) page only, not
+everything") and give the exact loop; the REST reference has a "Lists and pages" section. MCP
+`resources/list` shows the newest 200 projects (the SDK passes that callback no cursor).
+`list_assets` with `projectId` returns the project's manifest entries, bounded by the manifest, as one
+page (`nextCursor: null`). **Order: (createdAt, id) descending, for all three.** `list_projects` used
+to be "most recently updated first"; it is now "most recently created first", because `createdAt`
+never changes: a walk from the first page to `nextCursor: null` returns every row that existed when it
+started exactly once, whatever is created, updated or deleted meanwhile. Rejected: keyset on
+`updatedAt`, which kept the old order but skips a project that is updated while a walk has not reached
+it yet (it jumps to the front, behind the cursor); offset paging, which skips and repeats rows under
+inserts and costs O(offset) per page. **Keyset query:** `createdAt <= t AND (createdAt < t OR id <
+i)` with `ORDER BY createdAt DESC, id DESC LIMIT n + 1` (the extra row says whether there is a next
+page, so `nextCursor` is exactly null at the end), on new indexes `(workspaceId, createdAt, id)` for
+Project, Job and Asset and `(workspaceId, projectId, createdAt, id)` for Job (migration
+`0008_list_paging`). **Cursor:** base64url JSON of the list, the filter (`projectId`), and the last
+row's `createdAt` and `id`. Not signed: it holds only a position in a list the caller may read anyway,
+every page query is still scoped to the caller's workspace and the request's filters, and positions
+are bound parameters, never SQL. It is validated strictly (exact keys, ISO time with milliseconds, id
+of `[A-Za-z0-9_.:-]`), and a cursor of another list or filter is refused (`400 bad_request`, "cursor
+is invalid") instead of silently starting somewhere else. **Summaries without manifests:** Project
+gains `sceneCount` and `durationSeconds`, written with `title` in the same statement as each version;
+`list_projects` reads only those columns. Rows saved before 0008 have them null and are summarised
+from their manifest on read (at most one page of manifests, until the project is saved again), so the
+migration needs no data step. **Not paged** (bounded or not database lists): `list_keys` (admin, a
+handful of rows), `list_webhooks` (endpoints), `list_themes`, `list_templates`, `list_providers`,
+`list_project_versions` (version numbers of one project), `list_renders` (a storage listing of one
+project's renders); `list_audit_events` and `list_webhook_deliveries` were already cursor-paged.

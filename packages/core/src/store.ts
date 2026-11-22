@@ -1,13 +1,25 @@
 import { rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import type { Project } from '@reelforge/project-schema';
+import { totalFrames, type Project } from '@reelforge/project-schema';
 import { ApiError, notFound } from './errors';
 import { KeyedMutex } from './fsutil';
-import type { ProjectMeta, ProjectRepository, StoredProject } from './repositories';
+import type { PageRequest } from './paging';
+import type { ProjectMeta, ProjectRepository, ProjectSummary, StoredProject } from './repositories';
 
 export type { ProjectMeta, StoredProject } from './repositories';
 
+/** The list fields of a manifest; the database stores them on the project row with each version (D-102). */
+export function projectStats(m: Project): { title: string; scenes: number; durationSeconds: number } {
+  return { title: m.title, scenes: m.scenes.length, durationSeconds: totalFrames(m) / m.output.fps };
+}
+
+export function summarizeProject(meta: ProjectMeta, m: Project): ProjectSummary {
+  return { ...meta, ...projectStats(m) };
+}
+
 const ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** Whether `id` can be a project id at all (lists answer an impossible one without a query). */
+export const isProjectId = (id: string) => ID.test(id);
 /** Saves retried after losing a race to another writer (another process) before giving up. */
 const MAX_SAVE_ATTEMPTS = 20;
 
@@ -90,9 +102,9 @@ export class ProjectStore {
     return (await this.repo.list()).map((p) => p.meta);
   }
 
-  /** Every project with its current manifest (one query). */
-  async listWithManifests(): Promise<StoredProject[]> {
-    return this.repo.list();
+  /** One keyset page of summaries, newest created first (no manifests). */
+  async page(req: PageRequest): Promise<ProjectSummary[]> {
+    return this.repo.page(req);
   }
 
   /**

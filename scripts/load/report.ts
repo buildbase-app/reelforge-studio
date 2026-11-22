@@ -46,10 +46,16 @@ export function renderMarkdown(doc: Any): string {
       out.push('');
       const probes = crudRows.filter(([, v]) => v.listProjects);
       if (probes.length) {
-        out.push('list_projects on its own, before and after each run (unpaginated: every project and its manifest):', '', row(['Run', 'projects', 'ms', 'response bytes']), row(Array(4).fill('---')));
+        out.push(
+          'list_projects on its own, before and after each run: the default call (the first page since #179; the whole list before), and a walk of every page at limit=200:',
+          '',
+          row(['Run', 'projects', 'items returned', 'ms', 'response bytes', 'walk: pages', 'walk: ms']),
+          row(Array(7).fill('---'))
+        );
         for (const [k, v] of probes) {
           const { before: b, after: a } = v.listProjects;
-          out.push(row([k, `${b.projects} → ${a.projects}`, `${b.medianMs} → ${a.medianMs}`, `${b.bytes} → ${a.bytes}`]));
+          const items = (p: Any) => p.items ?? p.projects;
+          out.push(row([k, `${b.projects} → ${a.projects}`, `${items(b)} → ${items(a)}`, `${b.medianMs} → ${a.medianMs}`, `${b.bytes} → ${a.bytes}`, `${b.walk?.pages ?? 'n/a'} → ${a.walk?.pages ?? 'n/a'}`, `${b.walk?.ms ?? 'n/a'} → ${a.walk?.ms ?? 'n/a'}`]));
         }
         out.push('');
       }

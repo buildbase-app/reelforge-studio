@@ -5,6 +5,7 @@ import { SpanStatusCode, context, trace, type Context, type Span } from '@opente
 import { ApiError, notFound } from './errors';
 import { NOOP_TELEMETRY, coreInstruments, type Telemetry } from './telemetry';
 import { newId } from './fsutil';
+import type { PageRequest } from './paging';
 import { childJobs, isFannedOut, isTerminal, treeProgress, type ChildSpec } from './fanout';
 import type { ChildSettlement, JobCaps, JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
 
@@ -333,7 +334,16 @@ export class JobRunner {
   }
 
   async list(filter: JobFilter = {}): Promise<JobRecord[]> {
-    const rows = await this.repo.list(filter);
+    return this.withActive(await this.repo.list(filter));
+  }
+
+  /** One keyset page, newest first (list_jobs, D-102). */
+  async page(filter: JobFilter, req: PageRequest): Promise<JobRecord[]> {
+    return this.withActive(await this.repo.page(filter, req));
+  }
+
+  /** Jobs running in this process: their live state instead of the last one written. */
+  private withActive(rows: JobRecord[]): JobRecord[] {
     return rows.map((j) => {
       const a = this.active.get(j.id);
       return a ? structuredClone(a) : j;

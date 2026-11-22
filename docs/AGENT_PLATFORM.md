@@ -143,6 +143,10 @@ All JSON; `Authorization: Bearer rf_<key>`. Errors: `{ error: { code, message, d
 | `GET /v1/audit` (`?format=jsonl|csv` streams an export) | audit log (admin scope, #65, D-055) |
 | `GET /healthz`, `GET /readyz` | health |
 
+Lists (`GET /v1/projects`, `GET /v1/jobs`, `GET /v1/assets` and their MCP tools) are
+keyset pages: `limit` (default 50, max 200), `cursor`, and `nextCursor` in the answer,
+null on the last page (#179, D-102).
+
 Implemented extras (v0.1): `GET /v1/templates`, `GET /v1/projects/:id/versions`,
 `PUT /v1/projects/:id/theme`, `PATCH /v1/projects/:id/audio`, `GET /v1/jobs`,
 `POST /v1/jobs/:id/retry`, `GET /v1/renders/:id`, `GET /v1/assets`,

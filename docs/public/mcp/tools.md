@@ -66,9 +66,12 @@ A project is one manifest (v0.2). Every change is stored as a new version.
 
 **List projects**. Scope: `read`, read-only. REST: `GET /v1/projects`.
 
-Lists projects on this server with title, version, scene count and duration.
+Lists projects on this server with title, version, scene count and duration (no manifests; get_project has the manifest). Returns one page, newest first: at most `limit` items (default 50, max 200) and `nextCursor`. When nextCursor is not null there are more: call again with the same arguments plus `cursor: nextCursor` until it is null. Without a cursor you get the first (newest) page only, not everything.
 
-No arguments.
+| Argument | Type | Required | Description |
+| --- | --- | --- | --- |
+| `limit` | integer | no | Page size: 1 to 200, default 50. |
+| `cursor` | string | no | nextCursor from the previous page of this list (same filters), unchanged. Omit for the first page. |
 
 ### `create_project`
 
@@ -297,11 +300,13 @@ Uploads a small file you already have (image, audio, video, font) as base64, for
 
 **List assets**. Scope: `read`, read-only. REST: `GET /v1/assets`.
 
-Lists assets: those of a project (manifest entries) with projectId, otherwise everything in the server asset store.
+Lists assets: with projectId, all of that project's manifest entries (one page, nextCursor null); otherwise the server asset store. Returns one page, newest first: at most `limit` items (default 50, max 200) and `nextCursor`. When nextCursor is not null there are more: call again with the same arguments plus `cursor: nextCursor` until it is null. Without a cursor you get the first (newest) page only, not everything.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `projectId` | string | no | Project id (the manifest's projectId). |
+| `limit` | integer | no | Page size: 1 to 200, default 50. |
+| `cursor` | string | no | nextCursor from the previous page of this list (same filters), unchanged. Omit for the first page. |
 
 ### `get_asset`
 
@@ -424,11 +429,13 @@ Status of a render/preview job: queued, running (with progress stage and fractio
 
 **List jobs**. Scope: `read`, read-only. REST: `GET /v1/jobs`.
 
-Lists render and preview jobs (newest first), optionally only those of one project.
+Lists render and preview jobs, optionally only those of one project. To follow one job, call get_job with its id instead. Returns one page, newest first: at most `limit` items (default 50, max 200) and `nextCursor`. When nextCursor is not null there are more: call again with the same arguments plus `cursor: nextCursor` until it is null. Without a cursor you get the first (newest) page only, not everything.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `projectId` | string | no | Project id (the manifest's projectId). |
+| `limit` | integer | no | Page size: 1 to 200, default 50. |
+| `cursor` | string | no | nextCursor from the previous page of this list (same filters), unchanged. Omit for the first page. |
 
 ### `get_job_logs`
 
