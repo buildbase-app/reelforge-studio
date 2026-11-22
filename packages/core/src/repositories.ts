@@ -154,7 +154,31 @@ export interface JobRecord {
   retryOf?: string;
   /** The API key that started it (render quotas). */
   apiKeyId?: string;
+  /** "database" for jobs of the database queue (claimed by any worker); unset for in-process jobs (D-075). */
+  queue?: 'database';
+  /** Database queue: how many times a worker claimed it (1 on the first run). */
+  attempts?: number;
+  /** Database queue: the worker instance that holds (or last held) the job. */
+  workerId?: string;
+  /** Database queue: the claim is the worker's until then; renewed by its heartbeat. */
+  leaseExpiresAt?: string;
+  /** Set by cancel_job on another instance; the worker holding the job stops it at its next heartbeat. */
+  cancelRequestedAt?: string;
 }
+
+/** A database-queue worker's claim on a job: writes only land while the job is still held by it. */
+export interface JobLeaseFence {
+  workerId: string;
+  attempts: number;
+}
+
+/** One quota window for insertWithQuota (render quotas per UTC day / month). */
+export interface QuotaWindow {
+  since: string;
+  limit: number;
+}
+
+export type QuotaResult = { ok: true } | { ok: false; window: number; used: number };
 
 export interface JobFilter {
   projectId?: string;
@@ -165,15 +189,57 @@ export interface JobFilter {
 export interface JobRepository {
   /** Insert a new job and its first status event, atomically. */
   insert(job: JobRecord, at: string): Promise<void>;
-  /** Overwrite the job's mutable fields (progress updates). No event. */
-  update(job: JobRecord): Promise<void>;
-  /** A state change: overwrite the job and record a status event, atomically. */
-  transition(job: JobRecord, at: string): Promise<void>;
+  /**
+   * Insert a new job (as `insert`) unless the API key already started `limit`
+   * jobs of `types` since a window's `since`. The count and the insert are one
+   * transaction that first locks the key's row (PostgreSQL/MySQL row lock,
+   * SQLite write lock), so instances racing for the last slot cannot overshoot
+   * (D-078). Returns which window was full, and its count, when refused.
+   */
+  insertWithQuota(job: JobRecord, at: string, quota: { apiKeyId: string; types: string[]; windows: QuotaWindow[] }): Promise<QuotaResult>;
+  /**
+   * Overwrite the job's mutable fields (progress updates). No event. With a
+   * fence, only while the job is running and still held by that claim;
+   * returns false when nothing was written.
+   */
+  update(job: JobRecord, fence?: JobLeaseFence): Promise<boolean>;
+  /** A state change: overwrite the job and record a status event, atomically. Fenced like `update`. */
+  transition(job: JobRecord, at: string, fence?: JobLeaseFence): Promise<boolean>;
   get(id: string): Promise<JobRecord | null>;
   /** Newest first. */
   list(filter?: JobFilter): Promise<JobRecord[]>;
   /** Jobs whose status is queued or running. */
   listUnfinished(): Promise<JobRecord[]>;
+
+  // -- database queue (D-075): every method is atomic, safe across processes --
+
+  /**
+   * Claim the oldest queued database-queue job of `types` for `workerId`:
+   * status running, attempts + 1, lease until `leaseUntil`, plus a status
+   * event. PostgreSQL/MySQL: `SELECT ... FOR UPDATE SKIP LOCKED`, so workers
+   * never wait for each other; SQLite: one conditional UPDATE under the
+   * database write lock. Returns the claimed job, or null when none is queued.
+   */
+  claim(opts: { workerId: string; types: string[]; now: string; leaseUntil: string }): Promise<JobRecord | null>;
+  /**
+   * Renew the lease of `ids` still running and held by `workerId`. Returns the
+   * ids still held, and those of them whose cancellation was requested.
+   */
+  heartbeat(workerId: string, ids: string[], leaseUntil: string): Promise<{ held: string[]; cancelRequested: string[] }>;
+  /**
+   * Running database-queue jobs whose lease ended before `now`: queued again
+   * (attempts < maxAttempts) or failed with `lease_expired`, each with a status
+   * event and a log line. Concurrent callers never handle the same job twice.
+   */
+  recoverExpired(now: string, maxAttempts: number): Promise<{ requeued: JobRecord[]; failed: JobRecord[] }>;
+  /** Hand a held job back to the queue (graceful shutdown): queued, no worker, the attempt not counted. */
+  release(id: string, fence: JobLeaseFence, at: string): Promise<boolean>;
+  /** Cancel a job that is still queued. Returns the cancelled job, or null when it is not queued (any more). */
+  cancelQueued(id: string, at: string, error: { code: string; message: string }): Promise<JobRecord | null>;
+  /** Ask the worker holding a running job to stop it. Returns false when the job is not running. */
+  requestCancel(id: string, at: string): Promise<boolean>;
+  /** Queued database-queue jobs; with `before`, only those ahead of it (queue position). */
+  countQueued(before?: { createdAt: string; id: string }): Promise<number>;
   /** How many jobs of these types `apiKeyId` started at or after `since` (render quotas). */
   countByApiKey(apiKeyId: string, since: string, types: string[]): Promise<number>;
   appendLog(jobId: string, at: string, line: string): Promise<void>;
@@ -376,6 +442,16 @@ export interface IdempotencyRepository {
   deleteExpired(now: string): Promise<number>;
 }
 
+// ---- rate limits ------------------------------------------------------------
+
+/** Per-key request counters shared by every instance (limits.rateLimitStore "database", D-078). */
+export interface RateLimitRepository {
+  /** Count one request for `key` in the window starting at `windowStart`; returns the window's count including it (atomic increment). */
+  hit(key: string, windowStart: string): Promise<number>;
+  /** Delete windows that started before `cutoff`. Returns how many. */
+  deleteOlderThan(cutoff: string): Promise<number>;
+}
+
 // ---- the bundle -------------------------------------------------------------
 
 export interface Repositories {
@@ -390,6 +466,7 @@ export interface Repositories {
   readonly assets: AssetRepository;
   readonly audit: AuditRepository;
   readonly idempotency: IdempotencyRepository;
+  readonly rateLimits: RateLimitRepository;
   /** Outbound event endpoints, the outbox and the delivery log (#66). */
   readonly webhooks: WebhookRepository;
 }

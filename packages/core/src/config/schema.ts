@@ -102,6 +102,63 @@ export const ConfigSchema = z.object({
       description:
         'Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists. Only turn it on behind a proxy that sets that header.',
     }),
+    role: setting(z.enum(['all', 'api', 'worker']), {
+      kind: 'enum',
+      scope: 'startup',
+      env: 'REELFORGE_ROLE',
+      default: 'all',
+      description:
+        'What this instance does (D-076). `all`: serve REST/MCP and render (one instance). `api`: serve REST/MCP and enqueue jobs, never render. `worker`: claim and render jobs from the database queue; serves only `/healthz`, `/readyz` and `/metrics`. `api` and `worker` need PostgreSQL or MySQL and remote storage (or `storage.localShared`); see docs/providers/queue-and-scaling.md.',
+    }),
+    workerConcurrency: setting(z.number().int().min(1).max(64).optional(), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_WORKER_CONCURRENCY',
+      defaultText: '`limits.renderConcurrency`',
+      description:
+        'Jobs one `worker` (or `all`) instance claims and renders at the same time. Unset: `limits.renderConcurrency` (which can then be changed at runtime). Scale out with more worker instances rather than a high value here.',
+    }),
+  }),
+  queue: z.object({
+    driver: setting(z.enum(['auto', 'inprocess', 'database']), {
+      kind: 'enum',
+      scope: 'startup',
+      env: 'REELFORGE_QUEUE_DRIVER',
+      default: 'auto',
+      description:
+        'Job queue (D-075). `inprocess`: the instance runs the jobs it accepted (one instance; jobs interrupted by a restart are marked failed). `database`: jobs are claimed from the database with leases (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL/MySQL, an atomic update on SQLite), so several workers share them and a crashed worker\'s job is retried. `auto`: `database` for the `api` and `worker` roles, else `inprocess`.',
+    }),
+    leaseSeconds: setting(z.number().int().min(2).max(3600), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_QUEUE_LEASE_SECONDS',
+      default: 60,
+      description:
+        'Database queue: how long a claimed job belongs to its worker without a heartbeat. Workers renew the lease every quarter of this; a job whose lease ran out (the worker crashed or lost the database) is queued again, or failed after `queue.maxAttempts`.',
+    }),
+    maxAttempts: setting(z.number().int().min(1).max(20), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_QUEUE_MAX_ATTEMPTS',
+      default: 3,
+      description: 'Database queue: claims per job. A job whose lease expired this many times is failed with `lease_expired` instead of being queued again.',
+    }),
+    pollIntervalMs: setting(z.number().int().min(50).max(60_000), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_QUEUE_POLL_INTERVAL_MS',
+      default: 1000,
+      description:
+        'Database queue: how often an idle worker looks for queued jobs, and how often `get_job waitSeconds` re-reads a job running on another instance. On database errors the interval backs off exponentially up to 30 s.',
+    }),
+    shutdownGraceSeconds: setting(z.number().int().min(0).max(3600), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS',
+      default: 30,
+      description:
+        'On SIGTERM a worker stops claiming and waits this long for its running jobs; jobs still running then are stopped and handed back to the queue (database queue), so another worker takes them at once. Keep the orchestrator\'s grace period (Kubernetes `terminationGracePeriodSeconds`) longer.',
+    }),
   }),
   limits: z.object({
     rateLimitPerMinute: setting(nonNegative(), {
@@ -110,6 +167,14 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_RATE_LIMIT_PER_MINUTE',
       default: 300,
       description: 'Requests per minute per API key (`0` disables the limit).',
+    }),
+    rateLimitStore: setting(z.enum(['auto', 'memory', 'database']), {
+      kind: 'enum',
+      scope: 'startup',
+      env: 'REELFORGE_RATE_LIMIT_STORE',
+      default: 'auto',
+      description:
+        'Where per-key request counts live (D-078). `memory`: a token bucket per instance (with several API instances each allows the full limit). `database`: one counter per key and minute in the database, shared by every instance. `auto`: `database` when the job queue is `database`, else `memory`.',
     }),
     maxUploadBytes: setting(positive(), {
       kind: 'integer',
@@ -157,6 +222,14 @@ export const ConfigSchema = z.object({
       default: 'local',
       description:
         'Where asset and render files are kept (D-065): `local` (the data directory), `s3` (any S3-compatible API: AWS S3, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, MinIO, GCS with HMAC keys), `azure` (Azure Blob Storage) or `gcs` (Google Cloud Storage, native). Move existing files with `reelforge storage migrate --to <driver>`.',
+    }),
+    localShared: setting(z.boolean(), {
+      kind: 'boolean',
+      scope: 'startup',
+      env: 'REELFORGE_STORAGE_LOCAL_SHARED',
+      default: false,
+      description:
+        'Declare that the local data directory is ONE shared volume mounted by every instance (NFS, Amazon EFS, Azure Files, a ReadWriteMany PVC). Only then may the `api` and `worker` roles start with `storage.driver: local`; without it they refuse, because each instance would see only its own files.',
     }),
     downloads: setting(z.enum(['auto', 'presigned', 'proxy']), {
       kind: 'enum',

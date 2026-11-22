@@ -28,6 +28,7 @@ model Workspace {
   webhookEndpoints WebhookEndpoint[]
   webhookDeliveries WebhookDelivery[]
   webhookAttempts  WebhookAttempt[]
+  rateLimitWindows RateLimitWindow[]
 }
 
 /// A project; its manifests live in ProjectVersion (one row per saved version).
@@ -118,6 +119,16 @@ model Job {
   createdAt   DateTime
   startedAt   DateTime?
   finishedAt  DateTime?
+  /// "database" for jobs of the database queue (#36, D-075); null for in-process jobs.
+  queue             String?
+  /// Database queue: claims so far (a crashed worker's job is claimed again until queue.maxAttempts).
+  attempts          Int       @default(0)
+  /// Database queue: the worker instance holding the job.
+  workerId          String?
+  /// Database queue: the claim is the worker's until then; renewed by its heartbeat.
+  leaseExpiresAt    DateTime?
+  /// cancel_job on another instance: the holding worker stops the job at its next heartbeat.
+  cancelRequestedAt DateTime?
 
   workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   events    JobEvent[]
@@ -126,6 +137,8 @@ model Job {
   @@index([workspaceId, projectId])
   @@index([status])
   @@index([workspaceId, apiKeyId, createdAt])
+  @@index([workspaceId, queue, status, createdAt])
+  @@index([status, leaseExpiresAt])
 }
 
 /// Status changes and log lines of a job, in order (id is monotonic).
@@ -265,6 +278,21 @@ model IdempotencyKey {
 
   @@id([workspaceId, actorId, key])
   @@index([workspaceId, expiresAt])
+}
+
+/// Per-key request counters for the shared rate limit (limits.rateLimitStore
+/// "database", #36, D-078): one row per API key and minute, incremented
+/// atomically by every instance; old windows are swept.
+model RateLimitWindow {
+  workspaceId String
+  key         String
+  windowStart DateTime
+  count       Int
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, key, windowStart])
+  @@index([windowStart])
 }
 
 /// Licence activation state (#25, D-028, D-035): one row per workspace (the

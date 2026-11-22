@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: reelforge
+  labels:
+    # The pods meet the "restricted" Pod Security Standard (non-root, no capabilities, seccomp).
+    pod-security.kubernetes.io/enforce: restricted

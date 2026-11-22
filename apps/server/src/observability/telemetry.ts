@@ -347,10 +347,11 @@ export class Observability {
 
   /** Gauges read from the running service: queue depth, running jobs, licence state. */
   observe(service: ReelforgeService): void {
-    const queued = this.meter.createObservableGauge('reelforge.jobs.queued', { description: 'Jobs waiting for a render slot (queue depth).' });
+    const queued = this.meter.createObservableGauge('reelforge.jobs.queued', { description: 'Jobs waiting for a render slot (queue depth; database queue: all instances, the scaling metric for workers).' });
     const running = this.meter.createObservableGauge('reelforge.jobs.running', { description: 'Jobs running now.' });
     const concurrency = this.meter.createObservableGauge('reelforge.jobs.concurrency', { description: 'Render slots (limits.renderConcurrency).' });
     const licence = this.meter.createObservableGauge('reelforge.licence.state', { description: '1 for the current licence state, 0 for the others.' });
+    const role = this.meter.createObservableGauge('reelforge.server.role', { description: '1 for this instance\'s role (server.role: all, api, worker), 0 for the others.' });
     // A failing read (a service that is shutting down) must not break the collection.
     const safe = (f: (r: ObservableResult) => void) => (r: ObservableResult) => {
       try {
@@ -366,11 +367,17 @@ export class Observability {
       const status = service.getLicence().status;
       for (const s of LICENCE_STATES) r.observe(s === status ? 1 : 0, { 'reelforge.licence.state': s });
     });
+    const roles = safe((r) => {
+      const current = service.settings.config.server.role;
+      for (const x of ['all', 'api', 'worker'] as const) r.observe(x === current ? 1 : 0, { 'reelforge.role': x });
+    });
     queued.addCallback(jobs);
     running.addCallback(run);
     concurrency.addCallback(slots);
     licence.addCallback(lic);
+    role.addCallback(roles);
     this.detach.push(() => {
+      role.removeCallback(roles);
       queued.removeCallback(jobs);
       running.removeCallback(run);
       concurrency.removeCallback(slots);
