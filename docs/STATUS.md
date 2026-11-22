@@ -303,7 +303,7 @@ restricted pod security) and a compose file for an api with N workers.
 | Queue contract (QUE-01..12) on memory, SQLite, PostgreSQL 17, MySQL 8.4; whole db suite | 48 passed; db suite 203 passed |
 | Worker processes on SQLite, PostgreSQL 17, MySQL 8.4 (SCL-01..06: N×M exactly once, SIGKILL mid-job, max attempts, SIGTERM hand-back, quota race of two processes, cross-instance cancel/long-poll) | 18 passed |
 | Runner (SCL-01u..11u) | 11 passed |
-| Server: guard (SCA-01..04) and an api + two workers on one database (SCA-05..12) | 12 passed on PostgreSQL 17, 12 on MySQL 8.4 |
+| Server: guard (SCA-01..04), an api + two workers on one database (SCA-05..12), webhooks exactly once across instances (SCA-13) | 13 passed on PostgreSQL 17, 13 on MySQL 8.4 |
 | Kubernetes manifests | kubeconform 0.7.0 strict (1.31): 12 valid; `kubectl kustomize` output: 11 valid; not applied to a cluster |
 | Docker scale e2e (`SCALE=1 e2e/docker/run.sh`), release image, hardened flags: api + 2 workers, PostgreSQL 17, MinIO | **ALL SCALE E2E CHECKS PASSED** (47 checks): role guard refusals, worker-only routes, 6 renders spread over both workers once each (one `running` event per job in PostgreSQL, none on the api), `docker kill` mid-render → re-queued and finished elsewhere (attempt 2), cancel across instances, `docker stop` hands the job back, MinIO down → workers pause and `/readyz` 503, PostgreSQL down → `/readyz` 503 without restarts and back to work, bounded metrics, no secret in any log |
 

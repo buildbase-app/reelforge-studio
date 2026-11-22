@@ -195,9 +195,14 @@ client submit; client wait
 echo "✔ after the database came back the api and workers serve and render again"
 
 echo "== metrics and logs (SCL-18)"
-docker exec $W1 node -e "fetch('http://127.0.0.1:4321/metrics').then(r=>r.text()).then(t=>process.stdout.write(t))" > "$WORK/w-metrics.txt"
-grep -q '^reelforge_server_role{reelforge_role="worker"} 1' "$WORK/w-metrics.txt" && grep -q '^reelforge_jobs_queued [0-9]' "$WORK/w-metrics.txt" && grep -q '^reelforge_jobs_finished_total{' "$WORK/w-metrics.txt" \
-  && echo "✔ worker /metrics: role worker, reelforge_jobs_queued, finished jobs" || fail "worker metrics"
+# Both workers (a restarted worker starts its counters at zero; finished jobs may all be on the other one).
+: > "$WORK/w-metrics.txt"
+for w in $W1 $W2; do
+  docker exec $w node -e "fetch('http://127.0.0.1:4321/metrics').then(r=>r.text()).then(t=>process.stdout.write(t))" > "$WORK/m-$w.txt"
+  grep -q '^reelforge_server_role{reelforge_role="worker"} 1' "$WORK/m-$w.txt" && grep -q '^reelforge_jobs_queued [0-9]' "$WORK/m-$w.txt" || { head -c 600 "$WORK/m-$w.txt"; fail "$w metrics: role gauge or queue depth missing"; }
+  cat "$WORK/m-$w.txt" >> "$WORK/w-metrics.txt"
+done
+grep -q '^reelforge_jobs_finished_total{' "$WORK/w-metrics.txt" && echo "✔ worker /metrics: role worker and reelforge_jobs_queued on both, finished jobs counted" || fail "no finished jobs in the workers' metrics"
 grep -h -o '="[^"]*"' "$WORK/w-metrics.txt" "$WORK/api-metrics.txt" | sort -u > "$WORK/labels.txt"
 grep -Eq "(job|run|prv|key)_[a-z0-9]{8,}|rf_|$P-" "$WORK/labels.txt" && fail "ids, worker names or keys in metric labels" || echo "✔ bounded metric labels ($(wc -l < "$WORK/labels.txt") distinct values, no ids or worker names)"
 for c in $API $W1 $W2; do docker logs $c >> "$WORK/all.log" 2>&1 || true; done
