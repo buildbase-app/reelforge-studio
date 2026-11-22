@@ -718,6 +718,108 @@ export const TOOLS: ToolDef[] = [
     annotations: { readOnlyHint: true },
     run: async ({ format, ...q }, { service }) => (format === 'jsonl' || format === 'csv' ? service.exportAuditEvents(q, format) : service.listAuditEvents(q)),
   },
+  {
+    name: 'list_webhooks',
+    title: 'List webhooks and notification channels (admin)',
+    description:
+      'Lists outbound event endpoints: signed webhooks (Standard Webhooks), Slack, Discord and Microsoft Teams incoming webhooks, and email channels (SMTP, Resend, Postmark, Amazon SES, SendGrid), with the events each one receives, whether it is enabled, and whether its provider is configured. URLs are masked; signing secrets are never returned. Also lists every event type. Needs the admin scope.',
+    scope: 'admin',
+    input: {},
+    annotations: { readOnlyHint: true },
+    run: async (_a, { service }) => service.listWebhooks(),
+  },
+  {
+    name: 'get_webhook',
+    title: 'Get a webhook (admin)',
+    description: 'One endpoint as list_webhooks shows it, with its delivery counts (pending, delivering, succeeded, dead). Needs the admin scope.',
+    scope: 'admin',
+    input: { webhookId: z.string() },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => service.getWebhook(a.webhookId),
+  },
+  {
+    name: 'create_webhook',
+    title: 'Create a webhook or notification channel (admin)',
+    description:
+      'Sends server events to an endpoint so automations (n8n, Zapier, Make, your backend) or people react without polling. type "webhook" (default): an HTTPS POST of {id, type, timestamp, data} signed per Standard Webhooks (webhook-id, webhook-timestamp, webhook-signature "v1,<base64 HMAC-SHA256>"); the signing secret (whsec_...) is returned ONCE: give it to the user to verify signatures. type "slack" / "discord" / "teams": the channel\'s incoming webhook URL. type "email": email { provider: smtp|resend|postmark|ses|sendgrid, to: [addresses] } (the provider is set up with update_config, notifications.email.*). events: event types or patterns: job.queued, job.started, job.progress, job.succeeded, job.failed, job.cancelled, render.ready, licence.state_changed, key.created, key.revoked, config.changed, audit.entry, "job.*", or "*" (all but job.progress and audit.entry). Deliveries are retried with backoff for about 24 h. Private and http:// URLs are refused unless the operator allowed them at start-up. Needs the admin scope.',
+    scope: 'admin',
+    input: {
+      name: z.string().describe('A label, e.g. "n8n render pipeline".'),
+      type: z.enum(['webhook', 'slack', 'discord', 'teams', 'email']).optional().describe('Default "webhook".'),
+      url: z.string().optional().describe('https:// URL (webhook, slack, discord, teams).'),
+      email: z.object({ provider: z.enum(['smtp', 'resend', 'postmark', 'ses', 'sendgrid']).optional(), to: z.array(z.string()).min(1).max(20) }).optional().describe('Email channels only.'),
+      events: z.array(z.string()).min(1).describe('Event types or patterns, e.g. ["render.ready", "job.failed"].'),
+      description: z.string().optional(),
+      enabled: z.boolean().optional().describe('Default true.'),
+    },
+    run: async (a, { service, auth }) => service.createWebhook(a, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'update_webhook',
+    title: 'Change a webhook (admin)',
+    description:
+      'Changes an endpoint\'s name, description, url, email recipients, events or enabled flag (enabling clears a "disabled by the server" reason, e.g. after a 410 Gone). rotateSecret: true gives a webhook a new signing secret (returned once); for graceHours (default webhooks.secretRotationGraceHours, 24) every message carries signatures with the new and the old secret, so the receiver can switch without missing messages. Needs the admin scope.',
+    scope: 'admin',
+    input: {
+      webhookId: z.string(),
+      name: z.string().optional(),
+      description: z.string().nullable().optional(),
+      url: z.string().optional(),
+      email: z.object({ provider: z.enum(['smtp', 'resend', 'postmark', 'ses', 'sendgrid']).optional(), to: z.array(z.string()).min(1).max(20) }).optional(),
+      events: z.array(z.string()).min(1).optional(),
+      enabled: z.boolean().optional(),
+      rotateSecret: z.boolean().optional(),
+      graceHours: z.number().min(0).max(720).optional().describe('With rotateSecret: hours the old secret keeps signing (0: stops at once).'),
+    },
+    run: async ({ webhookId, ...a }, { service, auth }) => service.updateWebhook(webhookId, a, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'delete_webhook',
+    title: 'Delete a webhook (admin)',
+    description: 'Deletes an endpoint; its pending deliveries are abandoned (kept in the delivery log as dead). Confirm with the user first. Needs the admin scope.',
+    scope: 'admin',
+    input: { webhookId: z.string() },
+    annotations: { destructiveHint: true },
+    run: async (a, { service, auth }) => service.deleteWebhook(a.webhookId, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'test_webhook',
+    title: 'Send a test event (admin)',
+    description:
+      'Sends a "webhook.test" event to one endpoint through the normal outbox (signed, retried). With waitSeconds (up to 30) it waits for the first attempt and returns its outcome (HTTP status or error), so you can tell the user whether the receiver works. Needs the admin scope.',
+    scope: 'admin',
+    input: { webhookId: z.string(), waitSeconds: z.number().min(0).max(30).optional().describe('Wait for the first attempt (default 0: return at once).') },
+    annotations: { openWorldHint: true },
+    run: async (a, { service, auth }) => service.testWebhook(a.webhookId, { waitSeconds: a.waitSeconds }, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'list_webhook_deliveries',
+    title: 'Read the delivery log (admin)',
+    description:
+      'Deliveries of one endpoint, newest first: event type, webhook-id (messageId), status (pending, delivering, succeeded, dead), attempts, next attempt, last HTTP status and error, and the attempt log (time, duration, status, outcome). Filter by status (e.g. "dead" for the dead letter queue) or eventType; page with cursor (nextCursor). includePayload: true adds the event payload. Needs the admin scope.',
+    scope: 'admin',
+    input: {
+      webhookId: z.string(),
+      status: z.enum(['pending', 'delivering', 'succeeded', 'dead']).optional(),
+      eventType: z.string().optional(),
+      limit: z.number().int().min(1).max(500).optional().describe('Default 50.'),
+      cursor: z.string().optional().describe('nextCursor of the previous page.'),
+      includePayload: z.boolean().optional(),
+      includeAttempts: z.boolean().optional().describe('Default true.'),
+    },
+    annotations: { readOnlyHint: true },
+    run: async ({ webhookId, ...q }, { service }) => service.listWebhookDeliveries(webhookId, q),
+  },
+  {
+    name: 'replay_webhook_delivery',
+    title: 'Send a delivery again (admin)',
+    description:
+      'Sends a finished delivery (dead or succeeded) again: a new outbox entry with the same payload and the same webhook-id, so receivers that already processed it can ignore it. Use it after fixing a receiver that was down. Needs the admin scope.',
+    scope: 'admin',
+    input: { webhookId: z.string(), deliveryId: z.string() },
+    annotations: { openWorldHint: true },
+    run: async (a, { service, auth }) => service.replayWebhookDelivery(a.webhookId, a.deliveryId, { actorType: 'api_key', actorId: auth.keyId }),
+  },
 ];
 
 /** Served as the resource reelforge://guide/workflow and inside the make_reel prompt. */

@@ -248,3 +248,51 @@ implementation or licensing decisions.
     (reports 0.140.1) with the `otlp` receiver and `debug` exporter: our
     records arrive with scope `reelforge.audit`, event name, body and
     attributes (D-058).
+
+35. **Standard Webhooks** (read 2026-11-21: specification
+    https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md,
+    site https://www.standardwebhooks.com): headers `webhook-id`,
+    `webhook-timestamp` (unix seconds), `webhook-signature` (`v1,<base64>`,
+    space-separated for several); signed content `msg_id.timestamp.payload`;
+    HMAC-SHA256 keyed with the base64-decoded secret after `whsec_` (24 to 64
+    bytes); payload `{type, timestamp, data}`; retry with exponential backoff
+    and jitter, `2xx` success, `3xx` failure, `410 Gone` disables the
+    endpoint, honour `Retry-After`; recommended timeout 15-30 s; SSRF warning.
+    Reference test vector (libraries/javascript/src/webhook.test.ts and
+    libraries/python/tests/test_webhooks.py, "sign function works"): secret
+    `whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw`, id `msg_p5jXN8AQM9LWM0D4loKWxJek`,
+    timestamp 1614265330, payload `{"test": 2432232314}` ->
+    `v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=`; our signer matches it
+    (WHK-01), and the npm reference library `standardwebhooks` 1.3.0 (MIT)
+    verifies our messages in the server tests and the Docker e2e receiver.
+
+36. **Chat incoming webhooks and email APIs** (documentation, read
+    2026-11-21, for #66 D-073; only Mailpit and HTTP stubs were used in tests):
+    Slack incoming webhooks (https://api.slack.com/messaging/webhooks): `POST`
+    JSON `{text, blocks}`, `200 ok`, errors as 4xx with a text body. Discord
+    webhooks (https://discord.com/developers/docs/resources/webhook#execute-webhook):
+    `POST {content (<= 2000 chars), username, allowed_mentions}`, `204`,
+    `429` with `retry_after`. Microsoft Teams: Office 365 connectors are being
+    retired in favour of Workflows (Power Automate) "when a Teams webhook
+    request is received", which takes a message with an Adaptive Card
+    attachment (`type: message`, `contentType:
+    application/vnd.microsoft.card.adaptive`; Microsoft Learn, "Create incoming
+    webhooks with Workflows for Microsoft Teams"). Resend
+    (https://resend.com/docs/api-reference/emails/send-email): `POST
+    https://api.resend.com/emails`, `Authorization: Bearer`, `{from, to,
+    subject, text, headers}`, `Idempotency-Key` header (24 h). Postmark
+    (https://postmarkapp.com/developer/api/email-api): `POST
+    https://api.postmarkapp.com/email`, `X-Postmark-Server-Token`, `{From, To,
+    Subject, TextBody, MessageStream, Headers}`, `401` for a bad token.
+    SendGrid (https://www.twilio.com/docs/sendgrid/api-reference/mail-send/mail-send):
+    `POST https://api.sendgrid.com/v3/mail/send`, `Authorization: Bearer`,
+    `{personalizations[].to, from, subject, content[{type: text/plain}]}`,
+    `202`; EU residency at `api.eu.sendgrid.com`. Amazon SES API v2 SendEmail
+    (https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html):
+    `POST /v2/email/outbound-emails`, SigV4 (`ses`), IAM action
+    `ses:SendEmail`; via `@aws-sdk/client-sesv2` 3.1164.0. nodemailer 10.3.1
+    (MIT-0, https://nodemailer.com/smtp/): `secure`, `requireTLS`,
+    `ignoreTLS`, timeouts; errors carry `responseCode` and `code` (`EAUTH`).
+    Mailpit v1.34.0 (MIT, https://mailpit.axllent.org/docs/api-v1/): SMTP on
+    1025, `GET /api/v1/messages`, `GET /api/v1/message/{ID}` on 8025.
+

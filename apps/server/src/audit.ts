@@ -15,6 +15,8 @@ const ACTION_NAMES: Record<string, string> = {
   list_audit_events: 'audit.list',
   generate_voice: 'provider.run',
   get_render_output: 'render.get',
+  list_webhook_deliveries: 'webhook.deliveries.list',
+  replay_webhook_delivery: 'webhook.delivery.replay',
 };
 
 /** create_project -> project.create, reorder_scenes -> scenes.reorder. */
@@ -25,7 +27,7 @@ export function auditAction(tool: string): string {
 }
 
 /** REST route params (":id") under the MCP argument name, by the route's first path segment. */
-const ID_ARG: Record<string, string> = { projects: 'projectId', themes: 'themeId', jobs: 'jobId', keys: 'keyId', providers: 'providerId', renders: 'renderId', assets: 'assetId' };
+const ID_ARG: Record<string, string> = { projects: 'projectId', themes: 'themeId', jobs: 'jobId', keys: 'keyId', providers: 'providerId', renders: 'renderId', assets: 'assetId', webhooks: 'webhookId' };
 
 export function restArgs(path: string, params: Record<string, string>): Record<string, unknown> {
   const segment = path.split('/')[2] ?? '';
@@ -45,6 +47,7 @@ const TARGETS: Array<[string, string]> = [
   ['providerId', 'provider'],
   ['renderId', 'render'],
   ['assetId', 'asset'],
+  ['webhookId', 'webhook'],
 ];
 
 /** What a call acted on, from its arguments, else from its result (a created project, key or job). */
