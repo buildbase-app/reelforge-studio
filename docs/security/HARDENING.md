@@ -94,7 +94,7 @@ scrape_configs:
 | | Default |
 | --- | --- |
 | `REELFORGE_BOOTSTRAP_KEY` | at least 32 random URL-safe characters after `rf_` (`rf_$(openssl rand -hex 24)`). Values that are short, repetitive or low in entropy stop the server at start with an error naming the setting. API keys made by the server are 32 random bytes |
-| URL imports (`import_asset`) | HTTPS only. The address that is connected to is checked: private, loopback, link-local, CGNAT, multicast and documentation ranges, and the IPv6 transition ranges (IPv4-compatible `::/96`, IPv4-mapped, SIIT, NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`, 6to4 `2002::/16`, Teredo and other `2001::/23` assignments, site-local `fec0::/10`) are refused, also after each redirect |
+| URL imports (`import_asset`) and webhook targets | HTTPS only (webhooks: unless `webhooks.allowHttp`). The address that is connected to is checked: private, loopback, link-local, CGNAT, multicast and documentation ranges, and the IPv6 transition ranges (IPv4-compatible `::/96`, IPv4-mapped, SIIT, NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`, 6to4 `2002::/16`, Teredo and other `2001::/23` assignments, site-local `fec0::/10`) are refused, also after each redirect. Webhook deliveries use the same guard (unless `webhooks.allowPrivateNetworks`) |
 | Stored asset `source` | scheme, host and path of the import URL only. User names, passwords, the query string (where presigned URLs carry signatures) and the fragment are dropped |
 | Logs | besides secret settings and API keys, signature parameters are redacted: `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`, `X-Goog-Signature`, `X-Goog-Credential`, Azure SAS `sig`, `se`, `sv`, `sp`, `st`, and any parameter whose name contains `signature`, `sig`, `token`, `key`, `credential`, `password` or `secret` |
 
@@ -139,6 +139,7 @@ Unit and integration tests are named `SECT-xx` (`security` in the test name):
 | SECT-09 | same | bootstrap key strength (config and key store) |
 | SECT-10 | same | per-scene time limit, clamped |
 | SECT-11 | same | release image without, or with a dev, `build-info.json` refuses to start |
+| SECT-16 | same | webhook targets refused on the same IPv6 ranges |
 | SECT-12..15 | same | sealed licence state (edited row rejected, other secret key rejected), licence server time and clock rollback, Date header recorded |
 | SECT-20..25 | `apps/server/test/security.test.ts` | `/metrics` needs a token; minimal anonymous `/readyz`, full for admins; `/mcp` Origin with scheme and port; presigned URL redaction |
 | SECT-30..37 | `packages/engine-hyperframes/test/hyperframes.test.ts` | CSP placement and refusals; CLI environment; deny-all sink; with a browser: no request or UDP packet reaches a local canary from a document, navigation, WebRTC or a remote asset; navigation fails fast |

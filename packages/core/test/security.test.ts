@@ -15,6 +15,7 @@ import {
   LicenceManager,
   SceneMarkupError,
   assertSafeSceneFragment,
+  checkTargetUrl,
   createMemoryRepositories,
   isPrivateAddress,
   loadBuild,
@@ -136,6 +137,16 @@ describe('security: SSRF guard for asset imports (SEC-05)', () => {
     ['not-an-ip', true, 'not an address'],
   ])('SECT-05 %s is private: %s (%s)', (ip, expected) => {
     expect(isPrivateAddress(ip)).toBe(expected);
+  });
+});
+
+describe('security: the webhook client shares the improved guard (SEC-05)', () => {
+  it('SECT-16 webhook targets on IPv6 transition, mapped or site-local addresses are refused when saved', () => {
+    const policy = { allowHttp: false, allowPrivateNetworks: false };
+    for (const url of ['https://[::127.0.0.1]/h', 'https://[::ffff:7f00:1]/h', 'https://[64:ff9b:1::a9fe:a9fe]/h', 'https://[2002:7f00:1::]/h', 'https://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/h', 'https://[fec0::1]/h']) {
+      expect(() => checkTargetUrl(url, policy), url).toThrow(/private, loopback and link-local/);
+    }
+    expect(checkTargetUrl('https://[2606:4700:4700::1111]/h', policy).hostname).toBe('[2606:4700:4700::1111]');
   });
 });
 

@@ -24,6 +24,12 @@
  *   reelforge storage status [--json]             driver, health, usage, retention
  *   reelforge storage migrate --to <driver> [--from local] [--dry-run]   copy assets and renders (idempotent)
  *   reelforge storage cleanup [--dry-run] [--json]   apply the retention policy now
+ *   reelforge webhooks list | show <id> | delete <id> [--json]
+ *   reelforge webhooks create --name N [--type webhook|slack|discord|teams|email] [--url URL] [--to a@x,b@y] [--provider smtp] --events job.*,render.ready
+ *   reelforge webhooks update <id> [--name N] [--url URL] [--events E,E] [--enable|--disable] [--rotate-secret [--grace-hours N]]
+ *   reelforge webhooks test <id>          queue a webhook.test event (the running server delivers it)
+ *   reelforge webhooks deliveries <id> [--status dead] [--limit N] [--json]
+ *   reelforge webhooks replay <id> <deliveryId>
  *
  * Uses DATABASE_URL (default: SQLite in REELFORGE_DATA_DIR, ./data) like the
  * server. The key is printed once.
@@ -38,6 +44,7 @@ import {
   SCOPES,
   STORAGE_DRIVERS,
   StorageManager,
+  WebhookService,
   auditToCsv,
   auditToJsonl,
   createLicenceManager,
@@ -86,7 +93,13 @@ const USAGE = `usage:
   reelforge licence deactivate [--json]
   reelforge storage status [--json]
   reelforge storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]
-  reelforge storage cleanup [--dry-run] [--json]`;
+  reelforge storage cleanup [--dry-run] [--json]
+  reelforge webhooks list | show <id> | delete <id> [--json]
+  reelforge webhooks create --name N [--type webhook|slack|discord|teams|email] [--url URL] [--to a@x,b@y] [--provider smtp|resend|postmark|ses|sendgrid] --events job.*,render.ready
+  reelforge webhooks update <id> [--name N] [--url URL] [--to ...] [--events ...] [--enable|--disable] [--rotate-secret [--grace-hours N]]
+  reelforge webhooks test <id>
+  reelforge webhooks deliveries <id> [--status pending|delivering|succeeded|dead] [--limit N] [--json]
+  reelforge webhooks replay <id> <deliveryId>`;
 
 /**
  * \`reelforge storage ...\` (D-069): works on the configuration (file, env and
@@ -165,6 +178,102 @@ async function storage(cmd: string | undefined, argv: string[], config: ServerCo
       for (const x of r.renders) console.log(`  ${x.projectId}/${x.renderId}  ${x.createdAt}  ${x.bytes} B  (${x.reason})`);
     }
     if (r.errors.length) process.exitCode = 1;
+  } finally {
+    await db.close();
+  }
+}
+
+/**
+ * `reelforge webhooks ...` (#66): manages endpoints in the database without a
+ * running server. Deliveries (test, replay) go into the outbox; the running
+ * server's worker sends them. Secrets are printed once, on create and rotate.
+ */
+async function webhooks(cmd: string | undefined, argv: string[], config: ServerConfig): Promise<void> {
+  if (!['list', 'show', 'create', 'update', 'delete', 'test', 'deliveries', 'replay'].includes(cmd ?? '')) {
+    console.log(USAGE);
+    process.exitCode = 1;
+    return;
+  }
+  const json = argv.includes('--json');
+  const pos = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && argv[i - 1]!.startsWith('--') && !['--json', '--enable', '--disable', '--rotate-secret'].includes(argv[i - 1]!)));
+  const list = (v: string | undefined) => (v === undefined ? undefined : v.split(',').map((x) => x.trim()).filter(Boolean));
+  const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds });
+  try {
+    const repos = db.repositories();
+    const settings = new RuntimeConfig(repos, config.sources);
+    await settings.load();
+    const actorName = `cli:${userInfo().username}`;
+    const svc = new WebhookService({ repo: repos.webhooks, settings, audit: (e) => repos.audit.write({ ...e, actorType: 'cli', actorName }) });
+    const actor = { actorType: 'cli' as const };
+    const print = (v: unknown) => console.log(JSON.stringify(v, null, 2));
+    const id = pos[0];
+    const need = () => {
+      if (!id) throw new Error(`usage: reelforge webhooks ${cmd} <webhookId>`);
+      return id;
+    };
+    if (cmd === 'list') {
+      const r = await svc.list();
+      if (json) return print(r);
+      if (!r.webhooks.length) console.log('no webhooks yet: reelforge webhooks create --name N --url https://... --events "*"');
+      for (const w of r.webhooks) console.log(`${w.id}  ${w.enabled ? 'enabled ' : 'DISABLED'}  ${w.type.padEnd(8)} ${w.name}  ${w.url ?? `${w.email?.provider}: ${w.email?.to.join(', ')}`}  events: ${w.events.join(',')}${w.provider.configured ? '' : `  (not configured: ${w.provider.missing})`}`);
+      return;
+    }
+    if (cmd === 'show') return print(await svc.get(need()));
+    if (cmd === 'create') {
+      const type = arg('type', argv) ?? 'webhook';
+      const r = await svc.create(
+        {
+          name: arg('name', argv),
+          type,
+          ...(arg('url', argv) ? { url: arg('url', argv) } : {}),
+          ...(type === 'email' ? { email: { provider: arg('provider', argv) ?? 'smtp', to: list(arg('to', argv)) ?? [] } } : {}),
+          events: list(arg('events', argv)) ?? [],
+          ...(arg('description', argv) ? { description: arg('description', argv) } : {}),
+        },
+        actor
+      );
+      if (json) return print(r);
+      console.log(`created ${r.webhook.id} (${r.webhook.type}, ${r.webhook.name})`);
+      if (r.secret) console.log(`signing secret (shown once): ${r.secret}`);
+      return;
+    }
+    if (cmd === 'update') {
+      const patch: Record<string, unknown> = {};
+      if (arg('name', argv) !== undefined) patch.name = arg('name', argv);
+      if (arg('url', argv) !== undefined) patch.url = arg('url', argv);
+      if (arg('events', argv) !== undefined) patch.events = list(arg('events', argv));
+      if (arg('to', argv) !== undefined) patch.email = { provider: arg('provider', argv) ?? 'smtp', to: list(arg('to', argv)) };
+      if (argv.includes('--enable')) patch.enabled = true;
+      if (argv.includes('--disable')) patch.enabled = false;
+      if (argv.includes('--rotate-secret')) patch.rotateSecret = true;
+      if (arg('grace-hours', argv) !== undefined) patch.graceHours = Number(arg('grace-hours', argv));
+      const r = await svc.update(need(), patch, actor);
+      if (json) return print(r);
+      console.log(`updated ${r.webhook.id}`);
+      if (r.secret) console.log(`new signing secret (shown once): ${r.secret}${r.webhook.signing?.previousSecretValidUntil ? `; the old one also signs until ${r.webhook.signing.previousSecretValidUntil}` : ''}`);
+      return;
+    }
+    if (cmd === 'delete') return print(await svc.delete(need(), actor));
+    if (cmd === 'test') {
+      const r = await svc.test(need(), {}, actor);
+      if (json) return print(r);
+      console.log(`queued test delivery ${r.delivery.id} (webhook-id ${r.delivery.messageId}); the running server sends it. Check: reelforge webhooks deliveries ${id}`);
+      return;
+    }
+    if (cmd === 'deliveries') {
+      const r = await svc.listDeliveries(need(), { status: arg('status', argv), limit: arg('limit', argv) });
+      if (json) return print(r);
+      console.log(`counts: ${JSON.stringify(r.counts)}`);
+      for (const d of r.deliveries) console.log(`${d.id}  ${d.status.padEnd(10)} ${d.eventType.padEnd(22)} attempts ${d.attempts}  ${d.lastStatus ?? ''} ${d.lastError ?? ''}  (webhook-id ${d.messageId})`);
+      return;
+    }
+    if (cmd === 'replay') {
+      if (!pos[1]) throw new Error('usage: reelforge webhooks replay <webhookId> <deliveryId>');
+      return print(await svc.replay(need(), pos[1], actor));
+    }
+  } catch (e) {
+    console.error((e as Error).message);
+    process.exitCode = 1;
   } finally {
     await db.close();
   }
@@ -368,6 +477,7 @@ async function main(argv: string[]) {
     return;
   }
   if (group === 'audit') return audit(cmd, rest, config);
+  if (group === 'webhooks' || group === 'webhook') return webhooks(cmd, rest, config);
   if (group !== 'keys' || !['create', 'list', 'show', 'update', 'rotate', 'revoke', 'delete'].includes(cmd ?? '')) {
     console.log(USAGE);
     process.exitCode = group ? 1 : 0;

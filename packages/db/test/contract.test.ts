@@ -590,7 +590,7 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
           // other's event loop, so SQLite migrates one after the other here (separate
           // processes, like the server and the CLI, wait on SQLite's lock instead).
           const ran = kind === 'sqlite' ? [await a.migrate(), await b.migrate()] : await Promise.all([a.migrate(), b.migrate()]);
-          expect(ran.flat()).toEqual(['0001_init', '0002_runtime_settings', '0003_licence_state', '0004_audit_keys_idempotency']);
+          expect(ran.flat()).toEqual(['0001_init', '0002_runtime_settings', '0003_licence_state', '0004_audit_keys_idempotency', '0005_webhooks']);
           const first = await a.importFilesystemOnce(legacy);
           expect(first?.projects).toBe(1);
           expect(await b.importFilesystemOnce(legacy)).toBeNull();
