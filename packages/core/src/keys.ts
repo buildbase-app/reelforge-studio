@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { BlockList, isIP } from 'node:net';
 import { ApiError, badRequest, notFound } from './errors';
 import { newId } from './fsutil';
+import { weakKeyReason } from './keyStrength';
 import {
   SCOPES,
   type ApiKeyPatch,
@@ -378,6 +379,8 @@ export class KeyStore {
    */
   async bootstrap(plainKey: string | undefined): Promise<boolean> {
     if (!plainKey) return false;
+    const weak = weakKeyReason(plainKey);
+    if (weak) throw new ApiError('bad_request', 400, `REELFORGE_BOOTSTRAP_KEY ${weak}`);
     if ((await this.count()) > 0) return false;
     await this.create('bootstrap', ['admin'], { plainKey }, { actorType: 'system' });
     return true;

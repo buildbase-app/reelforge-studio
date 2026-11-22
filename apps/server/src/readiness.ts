@@ -1,6 +1,6 @@
 import { constants, existsSync } from 'node:fs';
 import { access, statfs } from 'node:fs/promises';
-import { browserVersion, type ReelforgeService } from '@reelforge/core';
+import { browserVersion, chromiumSandbox, type ReelforgeService } from '@reelforge/core';
 import { toolVersion } from '@reelforge/media-pipeline';
 import type { Observability } from './observability/telemetry';
 
@@ -20,6 +20,25 @@ export interface Readiness {
   checks: Record<string, string>;
   dependencies: Record<string, DependencyStatus>;
   engines: Array<{ id: string; ok: boolean; reason?: string }>;
+  /** Chromium sandbox per engine and what is weaker than the defaults (admin detail only). */
+  security?: { chromiumSandbox: Record<string, boolean>; warnings: string[] };
+}
+
+/** What anonymous callers of /readyz see: overall status and each dependency's status, nothing else (D-088). */
+export interface PublicReadiness {
+  ok: boolean;
+  checks: Record<string, 'ok' | 'error'>;
+  dependencies: Record<string, { status: DependencyStatus['status']; required: boolean }>;
+  engines: Array<{ id: string; ok: boolean }>;
+}
+
+export function publicReadiness(r: Readiness): PublicReadiness {
+  return {
+    ok: r.ok,
+    checks: Object.fromEntries(Object.entries(r.checks).map(([k, v]) => [k, v === 'ok' ? 'ok' : 'error'])),
+    dependencies: Object.fromEntries(Object.entries(r.dependencies).map(([k, d]) => [k, { status: d.status, required: d.required }])),
+    engines: r.engines.map((e) => ({ id: e.id, ok: e.ok })),
+  };
 }
 
 const versions = new Map<string, string>();
@@ -115,5 +134,15 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
   };
   const engines = service.registry.listEngines().map((e) => ({ id: e.id, ...e.availability() }));
   const ok = Object.values(dependencies).every((d) => !d.required || d.status === 'ok');
-  return { ok, checks, dependencies, engines };
+  const sandbox = Object.fromEntries(service.registry.listEngines().filter((e) => e.browserSandbox).map((e) => [e.id, e.browserSandbox!()]));
+  const warnings: string[] = [];
+  if (!chromiumSandbox()) {
+    warnings.push(
+      process.env.REELFORGE_CHROMIUM_NO_SANDBOX === '1'
+        ? "REELFORGE_CHROMIUM_NO_SANDBOX=1: Chromium's own sandbox is off for every engine (explicit opt-out; docs/security/HARDENING.md)"
+        : "Chromium's own sandbox is off because the server runs as root"
+    );
+  }
+  if (sandbox.remotion === false) warnings.push('Remotion always starts Chromium without its sandbox; it renders only built-in templates');
+  return { ok, checks, dependencies, engines, security: { chromiumSandbox: sandbox, warnings } };
 }

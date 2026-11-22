@@ -3,7 +3,17 @@ import { existsSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { browserVersion, chromiumSandbox, packageVersion, type EnginePlugin } from '@reelforge/core';
+import {
+  RENDER_ENV_ALLOWLIST,
+  SceneMarkupError,
+  browserVersion,
+  chromiumSandbox,
+  packageVersion,
+  prepareSceneDocument,
+  renderChildEnv,
+  sceneTimeoutCapMs,
+  type EnginePlugin,
+} from '@reelforge/core';
 import { PipelineError } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
@@ -15,23 +25,38 @@ import {
   type RenderScene,
   type ThemeTokens,
 } from '@reelforge/project-schema';
+import { REFUSED_LINE, startNetworkSink } from './network';
+
+export { startNetworkSink } from './network';
 
 /**
  * HyperFrames (HeyGen's Apache-2.0 HTML-to-video framework) as an engine.
  * Renders with the LOCAL renderer only (`hyperframes render`, which drives
  * our Chrome Headless Shell); no HeyGen account, cloud or credits.
  *
- * Sandboxing: the composition gets a Content-Security-Policy that allows only
- * the renderer's own local file server ('self') and data:/blob: URLs, so it
- * cannot reach the network; external <script src> is rejected up front;
- * files outside the scene's folder are refused (--refuse-outside-files);
- * HyperFrames telemetry, update checks and auto-installs are disabled by
- * environment; the whole render has a timeout and is killed (process group)
- * on cancel.
+ * Sandboxing (D-085, D-086, D-087):
+ *   - the composition is parsed (parse5) and ReelForge's head, with a
+ *     Content-Security-Policy that allows only the renderer's own local file
+ *     server ('self') and data:/blob: URLs, becomes the first child of the
+ *     parsed <head>; documents that bring their own policy (<meta http-equiv>,
+ *     <base>) or an external <script src> are refused up front;
+ *   - outside the page, every outbound connection is refused (network.ts):
+ *     HyperFrames' restricted network mode with a deny-all upstream, WebRTC
+ *     limited to proxied connections, QUIC off; any attempt fails the render;
+ *   - WebRTC constructors are also removed from the page;
+ *   - files outside the scene's folder are refused (--refuse-outside-files);
+ *     telemetry, update checks and auto-installs are disabled; the CLI gets an
+ *     allowlisted environment without server secrets;
+ *   - the render has a hard timeout (capped by render.sceneTimeoutSeconds) and
+ *     is killed (process group) on cancel.
  */
 
 export const HF_CSP =
   "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline' data:; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; form-action 'none'";
+
+/** Inline script that removes WebRTC from the page (defence in depth; the browser flags block it too). */
+export const HF_PAGE_GUARD =
+  "(()=>{for(const n of ['RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel','RTCSessionDescription','RTCIceCandidate','RTCRtpSender','RTCRtpReceiver']){try{Object.defineProperty(window,n,{value:undefined,writable:false,configurable:false})}catch(e){}}})();";
 
 export function hyperframesVersion(): string {
   return packageVersion('hyperframes', import.meta.url);
@@ -93,12 +118,6 @@ export function buildComposition(scene: RenderScene, output: OutputSettings, the
     if (new TextEncoder().encode(body + (scene.css ?? '')).length > MAX_SOURCE_BYTES) {
       throw new PipelineError(stage, `composition is larger than ${MAX_SOURCE_BYTES} bytes`);
     }
-    if (/<script[^>]*\bsrc\s*=\s*["']?\s*(?:https?:)?\/\//i.test(body)) {
-      throw new PipelineError(
-        stage,
-        'external <script src> is not allowed: compositions render without network access. Inline the code; CSS animations and the Web Animations API work without libraries.'
-      );
-    }
     if (scene.css && /<\/style/i.test(scene.css)) throw new PipelineError(stage, 'css must not contain "</style"');
   } else if (scene.template === 'hyperframes-title') {
     body = hyperframesTitle(hyperframesTitleProps.parse(scene.props), output, seconds);
@@ -108,28 +127,41 @@ export function buildComposition(scene: RenderScene, output: OutputSettings, the
 
   const head =
     `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${HF_CSP}">` +
+    `<script>${HF_PAGE_GUARD}</script>` +
     `<style>${themeVars(theme)}html,body{margin:0;width:${output.width}px;height:${output.height}px;overflow:hidden;background:var(--rf-bg);color:var(--rf-text);font-family:var(--rf-font)}*{box-sizing:border-box}</style>` +
     (scene.css ? `<style>${scene.css}</style>` : '');
 
+  // A full document (agent's own <html>) or a fragment wrapped in a sized root composition.
   const isDocument = /<html[\s>]/i.test(body);
+  const doc = isDocument
+    ? body
+    : '<!doctype html><html lang="en"><head></head><body>' +
+      `<div id="root" data-composition-id="main" data-start="0" data-duration="${seconds}" data-width="${output.width}" data-height="${output.height}" style="position:relative;width:${output.width}px;height:${output.height}px;overflow:hidden">` +
+      body +
+      '</div></body></html>';
+  let prepared;
+  try {
+    prepared = prepareSceneDocument(doc, head, HF_CSP, 'hyperframes composition');
+  } catch (e) {
+    if (e instanceof SceneMarkupError) throw new PipelineError(stage, e.message);
+    throw e;
+  }
+  if (prepared.scriptSources.some((src) => /^\s*(?:[a-z][a-z0-9+.-]*:|[\\/]{2})/i.test(src))) {
+    throw new PipelineError(
+      stage,
+      'external <script src> is not allowed: compositions render without network access. Inline the code; CSS animations and the Web Animations API work without libraries.'
+    );
+  }
   if (isDocument) {
-    const root = /<[^>]*\bdata-composition-id\s*=[^>]*>/i.exec(body)?.[0];
+    const root = prepared.findElement((_tag, attrs) => 'data-composition-id' in attrs);
     if (!root) throw new PipelineError(stage, 'a full HyperFrames document needs a root element with data-composition-id');
-    const w = /data-width\s*=\s*["']?(\d+)/i.exec(root)?.[1];
-    const h = /data-height\s*=\s*["']?(\d+)/i.exec(root)?.[1];
+    const w = /^\s*(\d+)/.exec(root['data-width'] ?? '')?.[1];
+    const h = /^\s*(\d+)/.exec(root['data-height'] ?? '')?.[1];
     if (Number(w) !== output.width || Number(h) !== output.height) {
       throw new PipelineError(stage, `the composition root must declare data-width="${output.width}" data-height="${output.height}" (got ${w ?? '?'}x${h ?? '?'})`);
     }
-    // Put our CSP and theme first in <head> so they apply before anything else.
-    if (/<head[^>]*>/i.test(body)) return body.replace(/<head[^>]*>/i, (m) => m + head);
-    return body.replace(/<html[^>]*>/i, (m) => `${m}<head>${head}</head>`);
   }
-  return (
-    `<!doctype html><html lang="en"><head>${head}</head><body>` +
-    `<div id="root" data-composition-id="main" data-start="0" data-duration="${seconds}" data-width="${output.width}" data-height="${output.height}" style="position:relative;width:${output.width}px;height:${output.height}px;overflow:hidden">` +
-    body +
-    '</div></body></html>'
-  );
+  return prepared.html;
 }
 
 export interface HyperframesRenderOptions {
@@ -145,11 +177,13 @@ export interface HyperframesRenderOptions {
   log?: (line: string) => void;
 }
 
-/** Environment for the hyperframes CLI: our browser, no telemetry, no update checks or installs. */
-export function hyperframesEnv(browser: string, cacheDir: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const keep = ['PATH', 'HOME', 'LANG', 'TZ', 'TMPDIR', 'FFMPEG_PATH', 'FFPROBE_PATH', 'NODE_OPTIONS'];
-  const env: NodeJS.ProcessEnv = {};
-  for (const k of keep) if (base[k] !== undefined) env[k] = base[k];
+/**
+ * Environment for the hyperframes CLI: our browser, no telemetry, no update
+ * checks or installs, no server secrets (allowlist), and, with `egressProxy`,
+ * every outbound connection routed to ReelForge's deny-all sink.
+ */
+export function hyperframesEnv(browser: string, cacheDir: string, base: NodeJS.ProcessEnv = process.env, egressProxy?: string): NodeJS.ProcessEnv {
+  const env = renderChildEnv(base, {}, [...RENDER_ENV_ALLOWLIST, 'NODE_OPTIONS']);
   return {
     ...env,
     HYPERFRAMES_BROWSER_PATH: browser,
@@ -169,6 +203,11 @@ export function hyperframesEnv(browser: string, cacheDir: string, base: NodeJS.P
     // with less than 1 GB free in its temp directory.
     TMPDIR: join(cacheDir, 'hyperframes', 'tmp'),
     CI: '1',
+    // Outbound network (D-085): HyperFrames' capture proxy in front of the browser and
+    // its own downloads, every address treated as non-public, upstream = deny-all sink.
+    ...(egressProxy
+      ? { PRODUCER_RESTRICT_PAGE_NETWORK: 'true', PRODUCER_NON_PUBLIC_CIDRS: '0.0.0.0/0,::/0', HYPERFRAMES_CAPTURE_PROXY: egressProxy }
+      : {}),
   };
 }
 
@@ -203,22 +242,35 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
     '--no-browser-gpu',
     '--quiet',
   ];
-  const timeoutMs = opts.timeoutMs ?? 60_000 + scene.durationFrames * 1500;
+  // Hard limit (D-087): the per-frame estimate, never more than render.sceneTimeoutSeconds.
+  const timeoutMs = Math.min(opts.timeoutMs ?? 60_000 + scene.durationFrames * 1500, sceneTimeoutCapMs());
+  let reason: 'timeout' | 'cancelled' | 'network' | null = null;
+  let blockedTarget = '';
+  let killTree: () => void = () => undefined;
+  const onNetwork = (target: string) => {
+    if (reason) return;
+    reason = 'network';
+    blockedTarget = target;
+    killTree();
+  };
+  const sink = await startNetworkSink(onNetwork);
   const child = spawn(process.execPath, args, {
     cwd: project,
-    env: hyperframesEnv(browser, opts.cacheDir),
+    env: hyperframesEnv(browser, opts.cacheDir, process.env, sink.url),
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true, // own process group, so Chrome children die with it
   });
   let output_ = '';
   const collect = (d: Buffer) => {
-    output_ += d.toString();
+    const text = d.toString();
+    const refused = REFUSED_LINE.exec(text);
+    if (refused) onNetwork(`a ${refused[1]} address`);
+    output_ += text;
     if (output_.length > 200_000) output_ = output_.slice(-100_000);
   };
   child.stdout.on('data', collect);
   child.stderr.on('data', collect);
-  let reason: 'timeout' | 'cancelled' | null = null;
-  const killTree = () => {
+  killTree = () => {
     try {
       if (child.pid) process.kill(-child.pid, 'SIGKILL');
     } catch {
@@ -239,6 +291,13 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
       child.on('error', reject);
       child.on('close', resolve);
     });
+    if (reason === 'network') {
+      throw new PipelineError(
+        stage,
+        `the scene tried to reach the network (${blockedTarget}) and was stopped: scenes render without network access, and navigating away from the composition is not allowed. Put images, fonts and media in the project's assets and reference them locally, and inline scripts.`,
+        tail(output_)
+      );
+    }
     if (reason === 'timeout') throw new PipelineError(stage, `HyperFrames render timed out after ${timeoutMs} ms`, tail(output_));
     if (reason === 'cancelled' || opts.signal?.aborted) throw new PipelineError(stage, 'cancelled');
     if (code !== 0 || !existsSync(opts.out)) {
@@ -249,6 +308,7 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   } finally {
     clearTimeout(timer);
     opts.signal?.removeEventListener('abort', onAbort);
+    await sink.close();
     await rm(project, { recursive: true, force: true }).catch(() => undefined);
   }
 }

@@ -16,5 +16,8 @@
     "@reelforge/media-pipeline": "workspace:*",
     "@reelforge/project-schema": "workspace:*",
     "playwright-core": "^1.57.0"
+  },
+  "devDependencies": {
+    "parse5": "8.1.1"
   }
 }

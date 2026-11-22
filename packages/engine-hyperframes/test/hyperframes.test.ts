@@ -1,12 +1,13 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { createSocket } from 'node:dgram';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PipelineError, checkExpectation, frameStats, probe, resolveTools } from '@reelforge/media-pipeline';
 import { builtinTheme, type OutputSettings, type RenderScene } from '@reelforge/project-schema';
-import { HF_CSP, buildComposition, hyperframesEngine, hyperframesEnv, hyperframesVersion, renderHyperframesScene } from '../src/index';
+import { HF_CSP, buildComposition, hyperframesEngine, hyperframesEnv, hyperframesVersion, renderHyperframesScene, startNetworkSink } from '../src/index';
 
 const browser = process.env.REELFORGE_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
@@ -48,6 +49,65 @@ describe('composition builder', () => {
     const e = hyperframesEngine();
     expect(e.templates().map((t) => t.id)).toEqual(['hyperframes-title']);
     expect(hyperframesVersion()).toBe('0.9.77');
+  });
+});
+
+describe('security: composition isolation (SEC-01, SEC-02)', () => {
+  const root = '<div data-composition-id="main" data-start="0" data-duration="1" data-width="360" data-height="640"><div class="clip" data-start="0" data-duration="1">x</div></div>';
+  const scene = (html: string): RenderScene => ({ id: 's', engine: 'hyperframes', durationFrames: 30, props: {}, html });
+
+  it('SECT-30 a full document cannot push the CSP out of the real <head> (comment, title, attribute tricks)', () => {
+    for (const doc of [
+      `<html><!-- <head> --><head><title>x</title></head><body>${root}</body></html>`,
+      `<html><head><title><head></title></head><body>${root}</body></html>`,
+      `<html data-a="<head>"><head></head><body>${root}</body></html>`,
+    ]) {
+      const out = buildComposition(scene(doc), output, theme);
+      expect(out).toMatch(new RegExp(`^<html[^>]*><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${HF_CSP.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}">`));
+      expect(out.match(/http-equiv/g)).toHaveLength(1);
+    }
+  });
+
+  it('SECT-31 documents that override or duplicate the policy, or load external scripts, are refused', () => {
+    for (const doc of [
+      `<html><head><meta http-equiv="Content-Security-Policy" content="default-src *"></head><body>${root}</body></html>`,
+      `<html><head><meta http-equiv="refresh" content="0;url=http://127.0.0.1/"></head><body>${root}</body></html>`,
+      `<html><head><base href="http://127.0.0.1/"></head><body>${root}</body></html>`,
+      `<html><head></head><body>${root}<script src="//cdn.example.com/x.js"></script></body></html>`,
+      `<html><head></head><body>${root}<script src=" HTTPS://cdn.example.com/x.js"></script></body></html>`,
+    ]) {
+      expect(() => buildComposition(scene(doc), output, theme), doc).toThrow(PipelineError);
+    }
+    expect(() => buildComposition(scene('<p>x</p><meta http-equiv="refresh" content="0">'), output, theme)).toThrow(/http-equiv/);
+  });
+
+  it('SECT-32 the CLI gets no server secrets and every outbound connection goes to the deny-all sink', () => {
+    const env = hyperframesEnv('/bin/chrome', '/c', { PATH: '/usr/bin', DATABASE_URL: 'postgres://x', REELFORGE_SECRET_KEY: 's', REELFORGE_LICENCE_KEY: 'k', AWS_SECRET_ACCESS_KEY: 'a', HTTPS_PROXY: 'http://proxy:3128' }, 'http://127.0.0.1:9');
+    for (const k of ['DATABASE_URL', 'REELFORGE_SECRET_KEY', 'REELFORGE_LICENCE_KEY', 'AWS_SECRET_ACCESS_KEY', 'HTTPS_PROXY']) expect(env[k], k).toBeUndefined();
+    expect(env).toMatchObject({ PRODUCER_RESTRICT_PAGE_NETWORK: 'true', PRODUCER_NON_PUBLIC_CIDRS: '0.0.0.0/0,::/0', HYPERFRAMES_CAPTURE_PROXY: 'http://127.0.0.1:9' });
+  });
+
+  it('SECT-33 the sink refuses plain requests and CONNECT tunnels and reports each attempt', async () => {
+    const seen: string[] = [];
+    const sink = await startNetworkSink((t) => seen.push(t));
+    try {
+      const plain = await fetch(`${sink.url}/`, { headers: { host: 'example.com' } }).catch(() => null);
+      expect(plain?.status).toBe(403);
+      const { connect } = await import('node:net');
+      const reply = await new Promise<string>((resolve) => {
+        const u = new URL(sink.url);
+        const sock = connect(Number(u.port), u.hostname, () => sock.write('CONNECT internal.example:443 HTTP/1.1\r\nHost: internal.example:443\r\n\r\n'));
+        let data = '';
+        sock.on('data', (d) => (data += d.toString()));
+        sock.on('close', () => resolve(data));
+        sock.on('error', () => resolve(data));
+      });
+      expect(reply).toMatch(/^HTTP\/1\.1 403/);
+      expect(seen).toContain('internal.example:443');
+      expect(seen.length).toBe(2);
+    } finally {
+      await sink.close();
+    }
   });
 });
 
@@ -110,4 +170,70 @@ describe.skipIf(!hasBrowser)('renderHyperframesScene with the local HyperFrames 
     expect(err).toBeInstanceOf(PipelineError);
     expect(err.message).toMatch(/cancelled/);
   }, 120_000);
+
+  describe('security: no network from agent scenes (SEC-01, SEC-02)', () => {
+    let hits: string[] = [];
+    let port = 0;
+    let udpPort = 0;
+    const http = createServer((q, r) => {
+      hits.push(`tcp ${q.url}`);
+      r.writeHead(200, { 'content-type': 'text/html', 'access-control-allow-origin': '*' }).end('<h1>INTERNAL-CANARY</h1>');
+    });
+    const udp = createSocket('udp4');
+    udp.on('message', () => hits.push('udp'));
+    beforeAll(async () => {
+      await new Promise<void>((r) => http.listen(0, '127.0.0.1', r));
+      port = (http.address() as AddressInfo).port;
+      await new Promise<void>((r) => udp.bind(0, '127.0.0.1', r));
+      udpPort = udp.address().port;
+    });
+    afterAll(() => {
+      http.close();
+      udp.close();
+    });
+    const clip = '<div class="clip" data-start="0" data-duration="0.5" style="position:absolute;inset:0;background:#123">x</div>';
+    const run = async (name: string, html: string) => {
+      hits = [];
+      const started = Date.now();
+      const err = await renderHyperframesScene({
+        scene: { id: name, engine: 'hyperframes', durationFrames: 15, props: {}, html },
+        output: { width: 320, height: 320, fps: 30, format: 'mp4' },
+        theme,
+        out: join(dir, `${name}.mp4`),
+        workDir: join(dir, `w-${name}`),
+        cacheDir: join(dir, 'cache'),
+      }).then(() => null, (e: Error) => e);
+      await new Promise((r) => setTimeout(r, 500)); // late packets would show up here
+      return { err, ms: Date.now() - started };
+    };
+
+    it('SECT-34 a full document that hid the head in a comment reaches nothing internal (iframe, img, fetch)', async () => {
+      const doc = `<html><!-- <head> --><head><title>x</title></head><body><div data-composition-id="main" data-start="0" data-duration="0.5" data-width="320" data-height="320">${clip}<iframe src="http://127.0.0.1:${port}/iframe"></iframe><img src="http://127.0.0.1:${port}/img"><script>fetch('http://127.0.0.1:${port}/fetch').catch(()=>{})</script></div></body></html>`;
+      await run('sect34', doc);
+      expect(hits).toEqual([]);
+    }, 300_000);
+
+    it('SECT-35 navigating away fails the render fast with a clear error, and nothing is reached', async () => {
+      const { err, ms } = await run('sect35', `${clip}<script>setTimeout(()=>{location.href='http://127.0.0.1:${port}/nav'},10)</script>`);
+      expect(err).toBeInstanceOf(PipelineError);
+      expect(err!.message).toMatch(/tried to reach the network/);
+      expect(ms).toBeLessThan(60_000);
+      expect(hits).toEqual([]);
+    }, 300_000);
+
+    it('SECT-36 WebRTC (STUN over UDP, also from a fresh iframe) sends no packets', async () => {
+      const stun = `{iceServers:[{urls:'stun:127.0.0.1:${udpPort}'}]}`;
+      await run(
+        'sect36',
+        `${clip}<script>try{const pc=new RTCPeerConnection(${stun});pc.createDataChannel('a');pc.createOffer().then(o=>pc.setLocalDescription(o))}catch(e){}` +
+          `try{const f=document.createElement('iframe');document.body.appendChild(f);const pc=new f.contentWindow.RTCPeerConnection(${stun});pc.createDataChannel('b');pc.createOffer().then(o=>pc.setLocalDescription(o))}catch(e){}</script>`
+      );
+      expect(hits).toEqual([]);
+    }, 300_000);
+
+    it('SECT-37 a remote asset (fetched by the renderer outside the page) fails the render instead of being downloaded', async () => {
+      const { err } = await run('sect37', `${clip}<img src="https://assets.example.com/logo.png">`);
+      expect(err?.message).toMatch(/tried to reach the network \(assets\.example\.com:443\)/);
+    }, 300_000);
+  });
 });

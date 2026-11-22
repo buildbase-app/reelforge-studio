@@ -1,3 +1,4 @@
+import { scrubSecretEnv } from '@reelforge/core';
 import { prepareDatabase } from '@reelforge/db';
 import { loadConfig } from './config';
 import { startServer } from './server';
@@ -23,7 +24,12 @@ if (process.argv.includes('--migrate-only')) {
   }
 }
 
-const started = await startServer().catch((e) => {
+// The configuration is read from a copy of the environment; the process environment
+// then loses every ReelForge secret, so render child processes (browsers, the
+// HyperFrames CLI, FFmpeg, Remotion's Chrome) never inherit them (D-086).
+const env = { ...process.env };
+scrubSecretEnv(process.env);
+const started = await startServer({}, { env }).catch((e) => {
   console.error(`[reelforge] failed to start: ${(e as Error).message}`);
   process.exit(1);
 });

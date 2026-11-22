@@ -64,30 +64,76 @@ for (const [net, prefix] of [
 ] as const) {
   blocked4.addSubnet(net, prefix, 'ipv4');
 }
+// IPv6: loopback/unspecified/IPv4-compatible, SIIT, NAT64 (well-known and local-use),
+// discard, IETF protocol assignments (incl. Teredo), documentation, 6to4, ULA,
+// link-local, site-local, multicast (SEC-05).
 for (const [net, prefix] of [
-  ['::', 128],
-  ['::1', 128],
+  ['::', 96],
+  ['::ffff:0:0:0', 96],
   ['64:ff9b::', 96],
+  ['64:ff9b:1::', 48],
   ['100::', 64],
+  ['2001::', 23],
   ['2001:db8::', 32],
+  ['2002::', 16],
+  ['3fff::', 20],
   ['fc00::', 7],
   ['fe80::', 10],
+  ['fec0::', 10],
   ['ff00::', 8],
 ] as const) {
   blocked6.addSubnet(net, prefix, 'ipv6');
 }
 
-/** True for loopback, private, link-local, CGNAT, multicast, documentation and other non-public ranges. */
-export function isPrivateAddress(ip: string): boolean {
-  const family = isIP(ip);
-  if (family === 4) return blocked4.check(ip, 'ipv4');
-  if (family === 6) {
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-    if (mapped) return blocked4.check(mapped[1]!, 'ipv4');
-    if (/^::ffff:/i.test(ip)) return true; // other IPv4-mapped spellings: refuse
-    return blocked6.check(ip, 'ipv6');
+/** The eight 16-bit groups of an IPv6 address (dotted IPv4 tail and zone id allowed), or null. */
+export function ipv6Groups(input: string): number[] | null {
+  let ip = input.trim().replace(/^\[|\]$/g, '');
+  const zone = ip.indexOf('%');
+  if (zone >= 0) ip = ip.slice(0, zone);
+  if (isIP(ip) !== 6) return null;
+  let tail: number[] = [];
+  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(ip);
+  if (dotted) {
+    const b = dotted.slice(1).map(Number);
+    tail = [(b[0]! << 8) | b[1]!, (b[2]! << 8) | b[3]!];
+    ip = ip.slice(0, dotted.index) + (ip.slice(0, dotted.index).endsWith(':') ? '' : ':');
+    if (ip.endsWith(':') && !ip.endsWith('::')) ip = ip.slice(0, -1);
   }
-  return true;
+  const [head = '', rest] = ip.split('::');
+  const parse = (part: string) => (part ? part.split(':').filter((g) => g !== '').map((g) => parseInt(g, 16)) : []);
+  const left = parse(head);
+  const right = rest === undefined ? [] : parse(rest);
+  const fill = 8 - tail.length - left.length - right.length;
+  if (fill < 0 || (rest === undefined && fill !== 0)) return null;
+  const groups = [...left, ...Array(fill).fill(0), ...right, ...tail];
+  return groups.length === 8 && groups.every((g) => Number.isInteger(g) && g >= 0 && g <= 0xffff) ? groups : null;
+}
+
+/** True for loopback, private, link-local, CGNAT, multicast, documentation, transition and other non-public ranges. */
+export function isPrivateAddress(ip: string): boolean {
+  const family = isIP(ip.replace(/%.*$/, ''));
+  if (family === 4) return blocked4.check(ip, 'ipv4');
+  const g = ipv6Groups(ip);
+  if (!g) return true;
+  // IPv4-mapped (::ffff:a.b.c.d): the socket connects to the IPv4 address, so judge that.
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) {
+    return blocked4.check(`${g[6]! >> 8}.${g[6]! & 255}.${g[7]! >> 8}.${g[7]! & 255}`, 'ipv4');
+  }
+  return blocked6.check(g.map((x) => x.toString(16)).join(':'), 'ipv6');
+}
+
+/**
+ * What is stored as an asset's `source`: scheme, host and path of the import
+ * URL. Credentials, query string (presigned URLs carry signatures there) and
+ * fragment are dropped (SEC-08).
+ */
+export function sanitizeSourceUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    return url.replace(/[?#].*$/, '').replace(/\/\/[^/@]*@/, '//');
+  }
 }
 
 /**
@@ -266,7 +312,7 @@ export class AssetStore {
 
   async fromUrl(url: string, extra: Omit<PutAssetInput, 'data' | 'source'> = {}): Promise<StoredAsset> {
     const { data, declaredType } = await fetchRemoteFile(url, this.limits);
-    return this.put({ ...extra, data, source: url, declaredContentType: declaredType });
+    return this.put({ ...extra, data, source: sanitizeSourceUrl(url), declaredContentType: declaredType });
   }
 
   async find(id: string): Promise<StoredAsset | undefined> {
