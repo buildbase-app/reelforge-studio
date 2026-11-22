@@ -1772,3 +1772,34 @@ platforms watch the process, a short-lived container's `/metrics` would rarely b
 port fewer to open; the job's state and logs are in the database. **Why not a separate entry
 point without the service:** the claim, fencing, leases, storage readiness and render path are the
 pool worker's own code, so one process type is tested, not two.
+
+## V. Kubernetes + KEDA autoscaling (2026-11-22, issue #153)
+
+Recipe, test cases and the recorded run:
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#autoscaling-with-keda).
+
+### D-101 --- KEDA on the Job table: scale workers to zero, ScaledObject for a warm pool, ScaledJob with `worker --once`
+
+**Status:** DECIDED (reversible).\
+`deployment/kubernetes/keda/` scales the worker Deployment with a KEDA **ScaledObject** and the
+**PostgreSQL scaler**: `SELECT COUNT(*)::float / <concurrency> FROM "Job" WHERE queue = 'database'
+AND status IN ('queued', 'running')`, `targetQueryValue: "1"`, `activationTargetQueryValue: "0"`,
+`minReplicaCount: 0`, credentials from the existing `reelforge` secret (`database-url`) through a
+`TriggerAuthentication`. `keda/mysql/` is the same with the MySQL scaler (it needs a Go-driver DSN, so a
+second secret key); `keda/scaledjob/` runs a **ScaledJob** (one Kubernetes Job per queued render, pod
+runs `worker --once`, `podFailurePolicy` turns exit 1 into a failed Job and leaves exit 75 to the
+retry, `rollout.strategy: gradual`). **Why the database and not the Prometheus metric:** no
+Prometheus or adapter is needed and a scaled-to-zero pool has no pod left to report
+`reelforge_jobs_queued`, so the metric path cannot wake it; the Prometheus scaler stays documented for
+clusters that already scrape the api. **Why count running jobs:** the HPA then never sizes the pool
+below the renders in flight, and the ScaledJob "default" strategy (`min(query, max) - running Jobs`)
+expects the queue length to include what the Jobs hold. **Why the base moved to
+`deployment/kubernetes/base/`:** Kustomize refuses an overlay that refers to a directory containing
+it; `kubectl apply -k deployment/kubernetes/` still applies the same objects. **Why both variants:** the
+ScaledObject keeps warm workers (no container start per render; scale-in hands a busy worker's job
+back, D-077), the ScaledJob never interrupts a running render on scale-in (a pod ends when its job
+ends) at the cost of a container start per render. **Worker pods use the Localhost seccomp
+profile** `reelforge-chrome.json` (the api keeps `RuntimeDefault`): the e2e found every html render
+failing under `RuntimeDefault`, because the image keeps Chromium's sandbox on (D-086). `e2e/k8s/keda.sh`
+runs the overlay on kind; KEDA's own scaling has not run yet (its images could not be fetched in the
+sandbox that built this), so D-079's "VERIFY" now covers only that part and the HPA External metric.

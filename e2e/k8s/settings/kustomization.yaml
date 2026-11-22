@@ -1,0 +1,46 @@
+# Test-only settings shared by the two e2e overlays (e2e/k8s/keda.sh): the
+# locally built release image (loaded into kind, never pulled), in-cluster
+# MinIO and the mock licence server, short leases, one api replica, small pod
+# requests so four workers fit on one kind node, and a NodePort for the api.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - api-nodeport.yaml
+images:
+  - name: ghcr.io/buildbase-app/reelforge-studio
+    newName: reelforge-studio
+    newTag: keda-e2e
+configurations:
+  - images-scaledjob.yaml
+patches:
+  - target: { kind: ConfigMap, name: reelforge }
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata: { name: reelforge }
+      data:
+        REELFORGE_PUBLIC_URL: "http://127.0.0.1:4340"
+        REELFORGE_ALLOWED_HOSTS: "reelforge-api,reelforge-api.reelforge.svc,127.0.0.1:4340"
+        REELFORGE_TRUST_PROXY: "false"
+        REELFORGE_S3_BUCKET: "reelforge-e2e"
+        REELFORGE_S3_REGION: "us-east-1"
+        REELFORGE_S3_ENDPOINT: "http://minio.minio.svc:9000"
+        REELFORGE_S3_FORCE_PATH_STYLE: "true"
+        REELFORGE_QUEUE_LEASE_SECONDS: "10"
+        REELFORGE_QUEUE_POLL_INTERVAL_MS: "500"
+  # No metrics-server in kind: one api replica, no CPU HPA.
+  - patch: |-
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata: { name: reelforge-api, namespace: reelforge }
+  - target: { kind: Deployment, name: reelforge-api }
+    patch: |-
+      - { op: replace, path: /spec/replicas, value: 1 }
+      - { op: replace, path: /spec/template/spec/containers/0/resources, value: { requests: { cpu: 100m, memory: 256Mi }, limits: { memory: 1Gi } } }
+  - target: { kind: Deployment, name: reelforge-worker }
+    patch: |-
+      - { op: replace, path: /spec/template/spec/containers/0/resources, value: { requests: { cpu: 200m, memory: 384Mi }, limits: { memory: 1536Mi } } }
+  - target: { group: keda.sh, kind: ScaledJob }
+    patch: |-
+      - { op: replace, path: /spec/jobTargetRef/template/spec/containers/0/resources, value: { requests: { cpu: 200m, memory: 384Mi }, limits: { memory: 1536Mi } } }

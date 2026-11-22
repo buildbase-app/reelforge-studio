@@ -1,6 +1,6 @@
 # Job queue and scaling (more than one instance)
 
-Issue #36; decisions D-075..D-079. This page is the operator reference and the
+Issue #36; decisions D-075..D-079 (KEDA autoscaling: issue #153, D-101). This page is the operator reference and the
 test record: every combination below names the test cases that back it, with
 the latest result. Nothing is called supported without a passing case.
 
@@ -10,6 +10,7 @@ the latest result. Nothing is called supported without a passing case.
 - [Example: docker compose with an api and workers](#example-docker-compose-with-an-api-and-workers)
 - [Example: Kubernetes](#example-kubernetes)
 - [Autoscaling](#autoscaling)
+- [Autoscaling with KEDA](#autoscaling-with-keda) (scale to zero on the job queue)
 - [How the queue works](#how-the-queue-works)
 - [Render fan-out](#render-fan-out)
 - [Quotas and rate limits across instances](#quotas-and-rate-limits-across-instances)
@@ -121,11 +122,14 @@ REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS: "300"     # and a longer stop grace peri
 
 ## Example: Kubernetes
 
-[deployment/kubernetes/](../../deployment/kubernetes/) (Kustomize): namespace
+[deployment/kubernetes/](../../deployment/kubernetes/) (Kustomize; the base is in
+`deployment/kubernetes/base/`, the KEDA overlays in `deployment/kubernetes/keda/`): namespace
 (Pod Security `restricted`), service account without a token, config map,
 `reelforge-api` Deployment + Service, `reelforge-worker` Deployment + headless
 metrics Service, HPAs, PodDisruptionBudgets, and `secret.example.yaml` (not
-applied: create the secret from files or your secret manager).
+applied: create the secret from files or your secret manager). For workers that
+scale to zero on the queue, apply the KEDA overlay instead
+([Autoscaling with KEDA](#autoscaling-with-keda)).
 
 - Pods: `runAsNonRoot`, `runAsUser/Group 10001`, `fsGroup 10001`,
   `seccompProfile: RuntimeDefault` (with `REELFORGE_CHROMIUM_NO_SANDBOX=1`, the
@@ -145,11 +149,14 @@ kubectl -n reelforge create secret generic reelforge --from-file=database-url=..
 kubectl apply -k deployment/kubernetes/
 ```
 
-Validated with `kubeconform 0.7.0 -strict -kubernetes-version 1.31.0` (12
-resources, raw files) and `kubectl kustomize` (v1.31.4, Kustomize v5.4.2) +
-kubeconform on the rendered output (11 resources): all valid. **Not applied to a
-running cluster** here (no cluster available): VERIFY on yours. A Helm chart is
-not provided (the Kustomize base is small enough to patch; a chart can follow).
+Validated with `e2e/k8s/kubeconform.sh`: `kubeconform 0.7.0 -strict
+-kubernetes-version 1.31.0` on every raw file (16 resources, KEDA's against
+schemas generated from the CRDs of KEDA 2.21.1) and on the `kubectl kustomize`
+output (kubectl 1.37.0, Kustomize v5.8.1) of the base (11 resources) and of the
+three KEDA overlays (12, 12, 9): all valid. The KEDA overlay (with the base's
+api and workers) runs on a kind cluster in `e2e/k8s/keda.sh` (below). A Helm
+chart is not provided (the Kustomize base is small enough to patch; a chart can
+follow).
 
 ## Autoscaling
 
@@ -171,7 +178,8 @@ externalRules:
 (Prometheus scaler, `query: max(reelforge_jobs_queued{namespace="reelforge"})`,
 `threshold: "1"`). Scale down slowly (`stabilizationWindowSeconds: 600` in
 `hpa.yaml`): a removed worker hands its render back, which restarts it.
-The External metric path is **untested** here (no cluster); the metric itself is
+The External metric path is **untested** (the KEDA recipe below is the tested
+autoscaling path); the metric itself is
 tested (SCA-11, SCL-18).
 
 Metrics added by this work (labels bounded, never ids or worker names):
@@ -183,6 +191,86 @@ Metrics added by this work (labels bounded, never ids or worker names):
 | `reelforge_server_role` | gauge | `reelforge_role` (`all`/`api`/`worker`) | 1 for this instance's role |
 | `reelforge_jobs_requeued_total` | counter | `reelforge_reason` (`lease_expired`, `released`) | jobs handed back to the queue |
 | `reelforge_queue_errors_total` | counter | `reelforge_operation` (`claim`, `heartbeat`, `recover`) | failed queue operations (database trouble) |
+
+## Autoscaling with KEDA
+
+Issue #153, D-101. [KEDA](https://keda.sh) reads the queue straight from the
+`Job` table, so workers scale **from 0 to N and back** without Prometheus (a
+pool at zero has no pod left to report `reelforge_jobs_queued`, so the metric
+path above cannot wake it).
+
+```bash
+kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.21.1/keda-2.21.1.yaml
+kubectl -n reelforge create secret generic reelforge --from-file=database-url=... ...   # as for the base
+kubectl apply -k deployment/kubernetes/keda/              # PostgreSQL scaler, ScaledObject (warm pool)
+kubectl apply -k deployment/kubernetes/keda/mysql/        # or: MySQL scaler
+kubectl apply -k deployment/kubernetes/keda/scaledjob/    # or: one Kubernetes Job per render (`worker --once`)
+```
+
+| File | What |
+| --- | --- |
+| `keda/scaledobject.yaml` | ScaledObject on the `reelforge-worker` Deployment: `minReplicaCount: 0`, `maxReplicaCount: 20`, `pollingInterval: 15`, `cooldownPeriod: 300`, the base HPA's slow scale-down (`stabilizationWindowSeconds: 600`) |
+| `keda/common/` | `TriggerAuthentication` from the existing `reelforge` secret (`database-url` → the scaler's `connection`); removes the base's worker HPA (KEDA owns one) and `spec.replicas` (a re-apply never resets what KEDA scaled to) |
+| `keda/mysql/` | the same ScaledObject with the MySQL scaler (`queryValue`, `activationQueryValue`); KEDA's MySQL scaler wants a Go-driver DSN (`user:pass@tcp(host:3306)/db`), so it reads a second secret key, `keda-mysql-dsn` |
+| `keda/scaledjob/` | ScaledJob: one Kubernetes Job per queued render, pod = `worker --once` (D-100), no worker Deployment; image copied from the api Deployment |
+
+The query (PostgreSQL; MySQL without the quotes and the cast):
+
+```sql
+SELECT COUNT(*)::float / 1 FROM "Job" WHERE queue = 'database' AND status IN ('queued', 'running')
+```
+
+- `/ 1` is `REELFORGE_WORKER_CONCURRENCY` (1 in `worker.yaml`): change both
+  together. Desired pods = `ceil(value / targetQueryValue)` with
+  `targetQueryValue: "1"`; `activationTargetQueryValue: "0"` wakes the pool for
+  one job.
+- Running jobs count, so the HPA never sizes the pool below the renders in
+  flight. A scale-in still removes pods at random: a busy worker that is
+  removed finishes within `queue.shutdownGraceSeconds` or hands its job back
+  (D-077). The ScaledJob variant never interrupts a render on scale-in.
+- ScaledJob: KEDA's `default` strategy creates `min(value, maxReplicaCount) -
+  running Jobs` new Jobs per poll, which is right because the value includes
+  the jobs the running Jobs hold. Exit 1 (the render failed, final in the
+  database) fails the Kubernetes Job without a retry (`podFailurePolicy`), exit
+  75 (handed back) is retried, eviction is not counted; `rollout.strategy:
+  gradual`, because the default would delete running Jobs whenever the
+  ScaledJob changes. A Job that finds the queue empty (another took the job)
+  exits 0 after `queue.onceWaitMs`.
+- KEDA connects with pgx, which sends unknown URL parameters to the server: if
+  `database-url` carries Prisma-only parameters (`connection_limit`,
+  `pool_timeout`), put a plain URL under another key (ideally for a role with
+  only `SELECT` on `"Job"`) and name it in the `TriggerAuthentication`. KEDA
+  opens one connection per poll; point it at PostgreSQL, not at a
+  transaction-mode PgBouncer, if it complains about prepared statements.
+- While the licence does not allow renders, workers claim nothing (#154) and
+  queued jobs keep up to `maxReplicaCount` idle workers running: watch
+  `reelforge_licence_state`.
+
+**Prometheus scaler** (clusters that already scrape the api): replace the
+trigger with the one below. The api keeps reporting the queue while the workers
+are at zero; set `minReplicaCount: 1` if your Prometheus only scrapes workers.
+
+```yaml
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.monitoring.svc:9090
+        query: max(reelforge_jobs_queued{namespace="reelforge"}) + sum(reelforge_jobs_running{namespace="reelforge"})
+        threshold: "1"
+        activationThreshold: "0"
+```
+
+**Autoscaler lag.** From the first queued job to the first claim on an empty
+pool: up to `pollingInterval` until KEDA sees the queue, the Deployment's
+scale-up, the pod start (image already on the node: scheduling, container
+start, the server's start-up of 2-4 s) and the first claim poll
+(`queue.pollIntervalMs`). Beyond the first pod, the HPA KEDA creates syncs
+every 15 s (kube-controller-manager default) and follows the scale-up policy.
+Back to zero: `cooldownPeriod` after the query last returned more than 0 (the
+HPA's scale-down window applies to N → 1). Measured values are in the recorded
+run below; with production values (`pollingInterval: 15`, `cooldownPeriod: 300`)
+expect up to 15 s more to the first claim and 5 minutes before the last pod
+goes.
 
 ## How the queue works
 
@@ -419,6 +507,79 @@ across instances, worker seal check, waiting, grace, clock skew, 1 api + 50
 workers) and the claim compare-and-set in `packages/db/test/contract.test.ts`
 on every database. Latest run: **2026-11-22**, branch `claude/licence-at-scale`.
 
+Kubernetes + KEDA (#153): `e2e/k8s/keda.sh` on kind, the release image
+(release edition with the mock licence server's URL baked in, **test only**, as
+in `e2e/docker/`), PostgreSQL 17, MinIO and the mock licence server in the
+cluster, deployed with `deployment/kubernetes/keda/` (and `keda/scaledjob/`)
+through the test overlays `e2e/k8s/scaledobject/` and `e2e/k8s/scaledjob/`
+(one api, small pod requests, `maxReplicaCount: 4`, `pollingInterval: 5`,
+`cooldownPeriod: 30`, lease 10 s). Renders go through the api's REST API only
+(`e2e/k8s/keda.mjs`).
+
+| ID | What it checks | Result |
+| --- | --- | --- |
+| KED-01 | nothing queued: KEDA keeps (or takes) the worker Deployment at 0 pods | **not run here** (no KEDA operator, below): needs the CI/nightly run |
+| KED-02 | 20 renders (1 s html, 540x960) wake the pool: 0 → N workers, 1 < N ≤ 4 | **not run here** with KEDA; with the pool scaled by hand 0 → 4 at the first enqueue: 20 renders on 4 pods |
+| KED-03 | every job succeeded exactly once: attempts 1, one `running` status event each in PostgreSQL | pass 2026-11-22 (20 of 20, 4 worker pods, pool scaled by hand) |
+| KED-04 | the pool goes back to 0 pods after `cooldownPeriod` | **not run here** (needs KEDA) |
+| KED-05 | a worker pod deleted mid-render (`--grace-period=0 --force`): the job is re-queued and finished by another pod, two `running` events | pass 2026-11-22: re-queued when its 10 s lease expired ("lease expired: worker ... stopped renewing it"), finished by the replacement pod on attempt 2 |
+| KED-06 | ScaledJob: one Kubernetes Job per queued render running `worker --once`, more than one at once, each render once, every Job Complete (exit 0), no pod left | job template pass 2026-11-22 (4 Jobs made from the ScaledJob's `jobTargetRef` by the script, restricted Pod Security, Localhost seccomp profile: 4 renders, one each, all Complete); **KEDA creating the Jobs not run here** |
+| KED-07 | the shipped overlays: `kubectl apply` of `keda/` and server-side dry run of `keda/mysql/` and `keda/scaledjob/` on Kubernetes 1.37 with KEDA 2.21.1's CRDs (structural schema validation); KEDA's PostgreSQL query against the live `Job` table returns queued + running (20 → 0 during the burst) | pass 2026-11-22 |
+| KED-08 | `e2e/k8s/kubeconform.sh`: kubeconform 0.7.0 `-strict` on the raw files and the kustomize output of the base and of the three KEDA overlays (KEDA objects against schemas generated from the 2.21.1 CRDs) | pass 2026-11-22 (16 + 11 + 12 + 12 + 9 resources) |
+
+**Recorded run** (2026-11-22, branch `claude/keda-autoscaling`): kind v0.33.0,
+node image `kindest/node:v1.37.0@sha256:a1ed56cf…` (Kubernetes v1.37.0,
+containerd 2.3.4), kubectl 1.37.0, KEDA 2.21.1 CRDs, PostgreSQL 17, MinIO
+(source build, `e2e/minio/`), the release image built from this branch; one
+node on a shared 4-core host (load average 2-4 during the run), cgroup v1 (the
+script adds `failCgroupV1: false` and containerd's `restrict_oom_score_adj`
+there; neither is needed on a CI runner). `KEDA_IMAGES=none`: **the KEDA
+operator did not run**. Its images are on ghcr.io, whose blob host this
+sandbox could not reach (and a source build of KEDA was not allowed), so
+KEDA's CRDs were installed without the operator and the script scaled the
+worker Deployment itself. Measured, from the first enqueue, with the pool
+scaled 0 → 4 by hand at that moment (so the pod part of the lag, without
+KEDA's polling or the HPA); in brackets an earlier run of the same day:
+
+| Timing | Seconds |
+| --- | --- |
+| first worker pod created | 1.0 (1.0) |
+| first claim (first `running` event) | 6.8 (8.7) |
+| first pod Ready (readiness probe every 10 s, so after the claim) | 8.8 (12.4) |
+| all 4 pods Ready | 9.9 (12.4) |
+| all 20 renders done | 29.8 (36.4) |
+| KED-05: pod deleted → job finished elsewhere (10 s lease + the 6 s render again) | under 40 |
+
+**Not measured yet, needed from the run with the operator:** time to first claim
+from zero *with KEDA* and KEDA's scale-up time. Expected from the lag model
+above: first claim ≈ up to `pollingInterval` (5 s in the test, 15 s in the
+overlay) + the 7-9 s pod start and claim measured here; 0 → 4 decided within
+one HPA sync (15 s) after activation. `KEDA_IMAGES=pull e2e/k8s/keda.sh` (the
+default, on any machine that can pull ghcr.io/kedacore) records them in
+`$OUT/timings.json` and prints `ALL KEDA E2E CHECKS PASSED`; this run printed
+`CHECKS WITHOUT THE KEDA OPERATOR PASSED`.
+
+Found by the run and fixed here: under the base's `RuntimeDefault` seccomp
+profile every html render failed ("Chromium could not start its sandbox"):
+the image keeps Chromium's sandbox on (D-086) and the base's comment wrongly
+called `REELFORGE_CHROMIUM_NO_SANDBOX=1` the image default. Worker pods (and
+the ScaledJob's) now use the Localhost profile `reelforge-chrome.json`
+(`deployment/seccomp/chrome.json` on every node, docs/DEPLOY.md#kubernetes);
+with it the sandbox runs in the kind pods. The api keeps `RuntimeDefault` (it
+never starts Chromium).
+
+```bash
+e2e/k8s/kubeconform.sh
+BUILD_ARGS="--network host --secret id=extra_ca,src=/path/to/ca.crt" e2e/k8s/keda.sh   # full run, KEDA from ghcr.io
+SKIP_BUILD=1 KEDA_IMAGES=none e2e/k8s/keda.sh                                          # without the operator (as recorded above)
+```
+
+CI: proposed for the nightly/manual HEAVY tier (a change to `.github/workflows/`
+for a maintainer): one job on `ubuntu-24.04` that builds the release image as
+the Docker job does and runs `e2e/k8s/kubeconform.sh` and `e2e/k8s/keda.sh`
+(about 15 minutes; needs only Docker and outbound access to ghcr.io, dl.k8s.io
+and github.com).
+
 Latest run: **2026-11-21**, branch `claude/enterprise-queue`.
 Where: *contract* `packages/db/test/queue.contract.test.ts` on memory, SQLite,
 PostgreSQL 17 and MySQL 8.4; *runner* `packages/core/test/jobs.queue.test.ts`
@@ -533,6 +694,9 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 | `404 this instance is a worker` | an API call reached a worker: point the load balancer / Service at the `api` instances only |
 | a signed download link from one api instance is refused by another | the instances have different `REELFORGE_SECRET_KEY` values (the database queue derives the signing key from it) |
 | a setting changed with `update_config` is not used yet on another instance | it is re-read every 15 s; start-up settings need a restart of every instance |
+| ScaledObject `reelforge-worker` not Ready, KEDA operator log `error parsing postgresql metadata` or `unrecognized configuration parameter` | KEDA cannot use `database-url`: Prisma-only URL parameters (`connection_limit`, ...) or a `mysql://` URL for the MySQL scaler. Give KEDA its own key (plain PostgreSQL URL, or a Go-driver DSN for MySQL) in the `TriggerAuthentication` |
+| workers stay at 0 although jobs are queued (KEDA) | `kubectl -n reelforge describe scaledobject reelforge-worker` (conditions, events) and the KEDA operator's log; the query must return a number (`SELECT ... FROM "Job"` is case-sensitive on PostgreSQL) |
+| html renders fail with "Chromium could not start its sandbox" on Kubernetes | the worker pod runs without the Localhost seccomp profile, or the profile is not on that node: put `deployment/seccomp/chrome.json` at `<kubelet dir>/seccomp/reelforge-chrome.json` on every node (or opt out with `REELFORGE_CHROMIUM_NO_SANDBOX=1`, logged) |
 | HPA shows `<unknown>` for `reelforge_jobs_queued` | no External metrics adapter: install prometheus-adapter with the rule above (or KEDA); until then the worker HPA scales on CPU |
 | workers do not claim and log `queue: not claiming jobs: the licence does not allow renders (checking, waiting_for_api)` | no api (or all) instance has checked the licence on this database yet: start one with the licence key, or activate it there |
 | workers log `the stored licence state failed its integrity check` (`state_untrusted`) | the worker's `REELFORGE_SECRET_KEY` differs from the api instances': use the same value everywhere |
@@ -543,8 +707,10 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 - SQLite is single-instance: the database queue works there (atomic claims) but
   the `api`/`worker` roles refuse it.
 - MariaDB, Azure/GCS with several instances, and the MySQL Docker scale e2e are
-  untested (above). The Kubernetes manifests are schema-validated, not applied to
-  a cluster; the HPA External metric path is untested.
+  untested (above). The HPA External metric path is untested. The KEDA overlay
+  runs on kind, but KEDA's own scaling (KED-01, 02, 04 and the Job creation of
+  06) has not run yet: its images could not be fetched here (above). The
+  MySQL KEDA variant is schema-checked only.
 - A render is not resumable: a re-queued job starts its render again (the
   output is never half-written, D-067).
 - Log lines of a job running on another instance are not streamed over SSE

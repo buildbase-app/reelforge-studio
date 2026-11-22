@@ -25,9 +25,8 @@ spec:
         runAsGroup: 10001
         fsGroup: 10001
         seccompProfile:
-          # RuntimeDefault needs REELFORGE_CHROMIUM_NO_SANDBOX=1 (the image default). For Chromium's own
-          # sandbox use the profile deployment/seccomp/chrome.json on every node:
-          #   type: Localhost, localhostProfile: reelforge-chrome.json, and REELFORGE_CHROMIUM_NO_SANDBOX=0.
+          # The api never renders (no Chromium), so the runtime's default profile is enough.
+          # Workers need the Localhost profile for Chromium's sandbox (worker.yaml).
           type: RuntimeDefault
       containers:
         - name: reelforge

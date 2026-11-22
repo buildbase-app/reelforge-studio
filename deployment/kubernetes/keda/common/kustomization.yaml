@@ -1,0 +1,19 @@
+# Shared by every KEDA variant: KEDA's database credentials, and the base's
+# worker HPA and replica count taken out (KEDA owns the worker scaling).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - triggerauthentication.yaml
+patches:
+  # KEDA creates and owns the worker HPA; two HPAs on one Deployment fight.
+  - patch: |-
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata: { name: reelforge-worker, namespace: reelforge }
+  # Without spec.replicas a re-apply never resets what KEDA scaled to; a new
+  # Deployment starts with 1 pod and KEDA takes it to 0 after cooldownPeriod.
+  - target: { kind: Deployment, name: reelforge-worker }
+    patch: |-
+      - op: remove
+        path: /spec/replicas

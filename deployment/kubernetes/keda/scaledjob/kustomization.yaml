@@ -1,0 +1,40 @@
+# ScaledJob variant of the KEDA overlay: no long-running worker pool. KEDA
+# starts one Kubernetes Job per queued render; its pod runs `worker --once`
+# (D-100): it claims one job, renders it, exits. Scale-in never kills a
+# running render (a finished pod simply ends), at the cost of a container
+# start (2-4 s plus the image pull) per render.
+#
+#   kubectl apply -k deployment/kubernetes/keda/scaledjob/
+#
+# The api, the TriggerAuthentication and everything else as in ../; the worker
+# Deployment, its metrics Service and PDB are left out.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - scaledjob.yaml
+components:
+  - ../common
+# The image (and tag) pinned in ../../base/kustomization.yaml, copied from the
+# api Deployment: the images transformer does not know the ScaledJob's fields.
+replacements:
+  - source: { kind: Deployment, name: reelforge-api, fieldPath: "spec.template.spec.containers.[name=reelforge].image" }
+    targets:
+      - select: { group: keda.sh, kind: ScaledJob, name: reelforge-worker-once }
+        fieldPaths: ["spec.jobTargetRef.template.spec.containers.[name=reelforge].image"]
+patches:
+  - patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: { name: reelforge-worker, namespace: reelforge }
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata: { name: reelforge-worker-metrics, namespace: reelforge }
+  - patch: |-
+      $patch: delete
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata: { name: reelforge-worker, namespace: reelforge }

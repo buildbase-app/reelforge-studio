@@ -352,7 +352,7 @@ restricted pod security) and a compose file for an api with N workers.
 | Worker processes on SQLite, PostgreSQL 17, MySQL 8.4 (SCL-01..06: N×M exactly once, SIGKILL mid-job, max attempts, SIGTERM hand-back, quota race of two processes, cross-instance cancel/long-poll) | 18 passed |
 | Runner (SCL-01u..11u) | 11 passed |
 | Server: guard (SCA-01..04), an api + two workers on one database (SCA-05..12), webhooks exactly once across instances (SCA-13) | 13 passed on PostgreSQL 17, 13 on MySQL 8.4 |
-| Kubernetes manifests | kubeconform 0.7.0 strict (1.31): 12 valid; `kubectl kustomize` output: 11 valid; not applied to a cluster |
+| Kubernetes manifests | kubeconform 0.7.0 strict (1.31): 12 valid; `kubectl kustomize` output: 11 valid; applied to a kind cluster since #153 (below) |
 | Docker scale e2e (`SCALE=1 e2e/docker/run.sh`), release image, hardened flags: api + 2 workers, PostgreSQL 17, MinIO | **ALL SCALE E2E CHECKS PASSED** (47 checks): role guard refusals, worker-only routes, 6 renders spread over both workers once each (one `running` event per job in PostgreSQL, none on the api), `docker kill` mid-render → re-queued and finished elsewhere (attempt 2), cancel across instances, `docker stop` hands the job back, MinIO down → workers pause and `/readyz` 503, PostgreSQL down → `/readyz` 503 without restarts and back to work, bounded metrics, no secret in any log |
 
 Found and fixed: Playwright closed Chrome on SIGTERM, so a draining worker
@@ -362,8 +362,8 @@ could hang on an unreachable database (probes capped at 5 s, PostgreSQL
 connect timeout 10 s).
 
 Not done: Redis/BullMQ (not built, D-075), MariaDB and Azure/GCS with several
-instances, the MySQL Docker scale run, a real cluster and the HPA External
-metric path, a Helm chart; CI does not run the scale e2e yet (a `.github/`
+instances, the MySQL Docker scale run, the HPA External metric path, a Helm
+chart; CI does not run the scale e2e yet (a `.github/`
 change for a maintainer).
 
 ### Render backends v2 and `worker --once` (2026-11-22, issue #150)
@@ -380,9 +380,30 @@ it, exit 0 / 1 / 75; SIGTERM hands the job back; an empty queue exits 0 within
 `queue.onceWaitMs` (3 × `queue.pollIntervalMs`). Settings `server.workerOnce`,
 `queue.onceWaitMs`.
 
-Not done: launcher backends (#28), Remotion Lambda (#157), recipes for KEDA
-ScaledJob / ACA event jobs / Batch / Cloud Run Jobs (#153) and runs on those
-platforms; `estimate()` has no time until #125 measures render speed.
+Not done: launcher backends (#28), Remotion Lambda (#157), recipes for ACA
+event jobs / Batch / Cloud Run Jobs and runs on those platforms (the KEDA
+ScaledJob recipe is #153, below); `estimate()` has no time until #125 measures render speed.
+
+### Kubernetes + KEDA autoscaling (2026-11-22, issue #153)
+
+Built (D-101; recipe and test record:
+[providers/queue-and-scaling.md](providers/queue-and-scaling.md#autoscaling-with-keda)):
+`deployment/kubernetes/keda/` (ScaledObject, KEDA PostgreSQL scaler on the
+`Job` table, scale to zero), `keda/mysql/`, `keda/scaledjob/` (one Kubernetes
+Job per render running `worker --once`), the Prometheus scaler documented; the
+base moved to `deployment/kubernetes/base/` (`kubectl apply -k
+deployment/kubernetes/` unchanged). `e2e/k8s/keda.sh` (kind, release image,
+PostgreSQL, MinIO, mock licence) and `e2e/k8s/kubeconform.sh`.
+
+| Check | Result |
+| --- | --- |
+| `e2e/k8s/kubeconform.sh` (kubeconform 0.7.0 strict; KEDA 2.21.1 CRD schemas) | raw 16, base 11, keda 12, keda/mysql 12, keda/scaledjob 9: all valid |
+| `KEDA_IMAGES=none e2e/k8s/keda.sh` on kind v0.33.0 / Kubernetes 1.37.0, KEDA CRDs only | 20 renders once each on 4 worker pods, a pod deleted mid-render → re-queued and finished on attempt 2, the ScaledJob's Job template runs `worker --once` (4 Jobs Complete), overlays accepted by the API server, no secret in pod logs |
+| KEDA operator (scale 0 → N → 0, timings, KEDA creating Jobs) | **not run**: KEDA's images are on ghcr.io, not reachable from this sandbox; needs the nightly/manual run |
+
+Found and fixed: worker pods ran under `RuntimeDefault`, where Chromium's
+sandbox (on in the image, D-086) cannot start, so every html render failed on
+Kubernetes; workers now use the Localhost profile `reelforge-chrome.json`.
 
 ## 4. Infrastructure inventory (no secrets)
 

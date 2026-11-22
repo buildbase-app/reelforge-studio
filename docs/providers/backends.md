@@ -38,8 +38,11 @@ What `get_capabilities` reports under `backends[]` (`kind`, `configured`,
 
 The job platforms that run `worker --once` containers (KEDA ScaledJob, Azure
 Container Apps event jobs, AWS Batch, Cloud Run Jobs, ECS RunTask) are not yet
-tested against the real services; their recipes are #153 and #28 (the #17 rule:
-"tested" needs an e2e against the real service or its emulator).
+tested against the real services (the #17 rule: "tested" needs an e2e against
+the real service or its emulator). KEDA ScaledJob (#153):
+`deployment/kubernetes/keda/scaledjob/`; its Job template runs `worker --once`
+on a kind cluster (KED-06 in [queue-and-scaling.md](queue-and-scaling.md#test-cases)),
+KEDA creating the Jobs has not run yet. The others are #28.
 
 ## The plugin interface
 

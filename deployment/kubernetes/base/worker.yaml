@@ -30,7 +30,13 @@ spec:
         runAsGroup: 10001
         fsGroup: 10001
         seccompProfile:
-          type: RuntimeDefault   # see api.yaml for the Localhost Chromium profile
+          # Chromium's sandbox is on in the image (REELFORGE_CHROMIUM_NO_SANDBOX=0, D-086) and needs
+          # deployment/seccomp/chrome.json on every node as <kubelet dir>/seccomp/reelforge-chrome.json
+          # (docs/DEPLOY.md#kubernetes). Under RuntimeDefault html, hyperframes and motion-canvas renders
+          # fail ("Chromium could not start its sandbox"), unless you opt out with
+          # REELFORGE_CHROMIUM_NO_SANDBOX=1 (logged; docs/security/HARDENING.md).
+          type: Localhost
+          localhostProfile: reelforge-chrome.json
       containers:
         - name: reelforge
           image: ghcr.io/buildbase-app/reelforge-studio

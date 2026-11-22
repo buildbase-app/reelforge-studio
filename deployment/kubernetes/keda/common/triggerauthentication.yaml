@@ -1,0 +1,14 @@
+# KEDA reads the queue with the api's and workers' database URL from the
+# existing "reelforge" secret (key database-url, postgresql://user:pass@host:5432/db).
+# KEDA connects with pgx, which sends unknown URL parameters to the server: if
+# your database-url carries Prisma-only parameters (connection_limit,
+# pool_timeout, schema), add a separate key without them (and, better, for a
+# read-only role: GRANT SELECT ON "Job") and name it here.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: reelforge-database
+  namespace: reelforge
+spec:
+  secretTargetRef:
+    - { parameter: connection, name: reelforge, key: database-url }
