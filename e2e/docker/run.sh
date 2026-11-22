@@ -298,10 +298,13 @@ for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'reel
 # Queue-wait SLO (#155, D-103): the histogram is exported with type and priority labels, and the shipped alert
 # rules load and pass their unit test.
 grep -Eq '^reelforge_job_queue_wait_seconds_bucket\{.*reelforge_job_priority="(interactive|standard|batch)"' "$WORK/metrics.txt" \
-  && docker run --rm -v "$PWD/deployment/observability:/w:ro" -w /w --entrypoint promtool "$PROM_IMAGE" check rules alerts.yml >/dev/null \
-  && docker run --rm -v "$PWD/deployment/observability:/w:ro" -w /w --entrypoint promtool "$PROM_IMAGE" test rules alerts.test.yml >/dev/null \
-  && echo "✔ reelforge_job_queue_wait_seconds is exported; deployment/observability/alerts.yml passes promtool check rules and test rules" \
-  || { echo "✘ queue-wait histogram or alert rules"; grep '^reelforge_job_queue_wait' "$WORK/metrics.txt" | head -3; exit 1; }
+  && echo "✔ reelforge_job_queue_wait_seconds is exported with type and priority labels" \
+  || { echo "✘ /metrics lacks the queue-wait histogram"; grep '^reelforge_job_queue_wait' "$WORK/metrics.txt" | head -3; exit 1; }
+# The rule files go in on stdin (no bind mount: the Docker daemon may not see this checkout's path).
+tar -C deployment/observability -cf - alerts.yml alerts.test.yml \
+  | docker run --rm -i --entrypoint sh "$PROM_IMAGE" -c 'mkdir -p /tmp/rules && cd /tmp/rules && tar xf - && promtool check rules alerts.yml && promtool test rules alerts.test.yml' > "$WORK/promtool-rules.txt" 2>&1 \
+  && echo "✔ deployment/observability/alerts.yml passes promtool check rules and test rules" \
+  || { echo "✘ deployment/observability/alerts.yml"; cat "$WORK/promtool-rules.txt"; exit 1; }
 # Label values only (metric names such as reelforge_job_duration_seconds contain "job_").
 grep -o '="[^"]*"' "$WORK/metrics.txt" | sort -u > "$WORK/labels.txt"
 grep -Eq "(job|run|prv|key|ast)_[a-z0-9]{8,}|rf_|e2e-docker-" "$WORK/labels.txt" && { echo "✘ ids or keys in metric labels: $(grep -E '(job|run|prv|key|ast)_[a-z0-9]{8,}|rf_|e2e-docker-' "$WORK/labels.txt" | head -3)"; exit 1; } \
