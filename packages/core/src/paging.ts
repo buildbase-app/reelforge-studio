@@ -85,9 +85,13 @@ export async function readPage<T extends PageAfter>(
   return { items, nextCursor: rows.length > req.limit && last ? encodeCursor(list, filter, last) : null };
 }
 
-/** In-memory keyset page over rows already sorted newest first (memory repositories). */
+/**
+ * In-memory keyset page over rows sorted newest first with localeCompare on
+ * (createdAt, id) (the memory repositories' order); "after" uses the same
+ * comparison, so the order and the cursor always agree.
+ */
 export function pageOf<T extends PageAfter>(sortedNewestFirst: T[], req: PageRequest): T[] {
   const a = req.after;
-  const start = a ? sortedNewestFirst.filter((r) => r.createdAt < a.createdAt || (r.createdAt === a.createdAt && r.id < a.id)) : sortedNewestFirst;
+  const start = a ? sortedNewestFirst.filter((r) => (r.createdAt.localeCompare(a.createdAt) || r.id.localeCompare(a.id)) < 0) : sortedNewestFirst;
   return start.slice(0, req.limit);
 }
