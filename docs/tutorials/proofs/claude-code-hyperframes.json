@@ -1,0 +1,51 @@
+{
+  "agent": "claude-code",
+  "engine": "hyperframes",
+  "status": "passed",
+  "date": "2026-11-21T19:49:04.980Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "claude -p \"<prompt>\" --model sonnet --mcp-config mcp.json --strict-mcp-config --tools \"\" --allowedTools mcp__reelforge --max-turns 25 --output-format stream-json --verbose",
+  "projectId": "tut-claude-code-hyperframes",
+  "jobId": "job_mwqtn5721fc16b9031",
+  "renderId": "run_mwqtn572bcc2796557",
+  "renderSeconds": 129.7,
+  "sceneEngines": [
+    "hyperframes",
+    "hyperframes"
+  ],
+  "toolCalls": [
+    "list_templates(engine)",
+    "create_project(manifest)",
+    "validate_project(projectId)",
+    "render_project(projectId)",
+    "get_job(jobId, waitSeconds)",
+    "get_job(jobId, waitSeconds)",
+    "get_job(jobId, waitSeconds)",
+    "get_render_output(jobId)"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 471283
+  },
+  "poster": "claude-code-hyperframes.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/claude-code/hyperframes",
+  "prompt": "You are connected to a ReelForge video studio through the \"reelforge\" MCP server. Make a vertical reel (1080x1920, 30 fps) about two quick tips for better thumbnails: an 8-second reel made of two 4-second scenes, both using only the hyperframes engine (template hyperframes-title). Use the project id \"tut-claude-code-hyperframes\". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.",
+  "llm": {
+    "model": "claude-sonnet-5-5",
+    "turns": 9,
+    "durationMs": 146012,
+    "costUsd": 0.0563358,
+    "isError": false,
+    "reply": "The reel rendered, and the server's checks (metadata, decode, duration) all passed.\n\n- **Project id:** `tut-claude-code-hyperframes`\n- **Job id:** `job_mwqtn5721fc16b9031`\n- **Render id:** `run_mwqtn572bcc2796557`\n- **Duration:** 8 seconds\n- **Frame count:** 240 frames at 30 fps, 1080x1920\n\nIt has two 4-second scenes, both using the `hyperframes` engine with the `hyperframes-title` template:\n1. \"Tip 1: One focal point\"\n2. \"Tip 2: Big, high-contrast text\"\n\nThe poster frame (first frame) shows the headline text looking fairly dim and sitting low on the frame. I only looked at that one frame, not the whole video.\n\nThe download link is `/v1/renders/run_mwqtn572bcc2796557/output?expires=1795294285&sig=<redacted>`. It's relative to the ReelForge server's address, works without a key, and expires at 2026-11-21T20:51:25Z.",
+    "exitCode": 0
+  }
+}

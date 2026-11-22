@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "0.2",
+  "projectId": "tut-html",
+  "title": "Tutorial: HTML engine",
+  "output": { "width": 1080, "height": 1920, "fps": 30, "format": "mp4" },
+  "theme": "midnight",
+  "scenes": [
+    {
+      "id": "hook",
+      "engine": "html",
+      "template": "html-title",
+      "durationSeconds": 4,
+      "props": { "kicker": "TUTORIAL", "headline": "Your first reel with the HTML engine", "subline": "Plain HTML and CSS, rendered frame by frame" }
+    },
+    {
+      "id": "cta",
+      "engine": "html",
+      "template": "html-title",
+      "durationSeconds": 4,
+      "props": { "kicker": "NEXT", "headline": "Swap the props, render again", "subline": "Same manifest, any agent" }
+    }
+  ]
+}

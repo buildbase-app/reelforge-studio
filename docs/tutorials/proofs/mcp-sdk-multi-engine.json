@@ -1,0 +1,48 @@
+{
+  "agent": "mcp-sdk",
+  "engine": "multi-engine",
+  "status": "passed",
+  "date": "2026-11-21T19:44:39.473Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "node examples/tutorials/mcp-client.mjs examples/tutorials/multi-engine.json tut-mcp-sdk-multi-engine",
+  "projectId": "tut-mcp-sdk-multi-engine",
+  "jobId": "job_mwqtha7967b2d2dd60",
+  "renderId": "run_mwqtha79f5009faee3",
+  "renderSeconds": 100.2,
+  "sceneEngines": [
+    "remotion",
+    "motion-canvas",
+    "html",
+    "hyperframes"
+  ],
+  "toolCalls": [
+    "get_capabilities()",
+    "list_templates(engine)",
+    "list_templates(engine)",
+    "list_templates(engine)",
+    "list_templates(engine)",
+    "list_projects()",
+    "create_project(manifest)",
+    "validate_project(projectId)",
+    "render_project(projectId)",
+    "get_job(jobId, waitSeconds)",
+    "get_job(jobId, waitSeconds)",
+    "get_job(jobId, waitSeconds)",
+    "get_render_output(jobId)"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 270,
+    "durationSeconds": 9,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 634121
+  },
+  "poster": "mcp-sdk-multi-engine.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/mcp-sdk/multi-engine"
+}

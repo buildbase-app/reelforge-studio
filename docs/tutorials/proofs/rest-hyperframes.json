@@ -1,0 +1,41 @@
+{
+  "agent": "rest",
+  "engine": "hyperframes",
+  "status": "passed",
+  "date": "2026-11-21T19:37:19.829Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "examples/tutorials/rest.sh examples/tutorials/hyperframes.json tut-rest-hyperframes final.mp4",
+  "projectId": "tut-rest-hyperframes",
+  "jobId": "job_mwqt7ukb3c8a901005",
+  "renderId": "run_mwqt7uk7c04a57cdc3",
+  "renderSeconds": 118,
+  "sceneEngines": [
+    "hyperframes",
+    "hyperframes"
+  ],
+  "toolCalls": [
+    "GET /v1/capabilities()",
+    "POST /v1/projects()",
+    "POST /v1/projects/tut-rest-hyperframes/validate()",
+    "POST /v1/projects/tut-rest-hyperframes/renders()",
+    "GET /v1/jobs/job_mwqt7ukb3c8a901005?wait=50()",
+    "GET /v1/jobs/job_mwqt7ukb3c8a901005?wait=50()",
+    "GET /v1/jobs/job_mwqt7ukb3c8a901005?wait=50()",
+    "GET /v1/renders/run_mwqt7uk7c04a57cdc3/output()"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 469057
+  },
+  "poster": "rest-hyperframes.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/rest/hyperframes"
+}

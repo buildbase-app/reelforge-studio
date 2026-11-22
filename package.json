@@ -25,6 +25,9 @@
     "docs:reference": "tsx scripts/docs/reference.ts",
     "docs:sync": "node scripts/docs/sync-buildbase.mjs",
     "test:docs": "node --test scripts/docs/*.test.mjs",
+    "tutorials:prove": "tsx scripts/tutorials/prove.ts",
+    "tutorials:docs": "tsx scripts/tutorials/docs.ts",
+    "tutorials:test": "vitest run --dir scripts/tutorials",
     "capture": "node scripts/capture/capture.mjs",
     "test:capture": "node --test scripts/capture/*.test.mjs"
   },
@@ -44,6 +47,7 @@
     "@reelforge/db": "workspace:*",
     "@reelforge/gallery": "workspace:*",
     "zod": "^4.1.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "playwright": "1.63.0"
   },
   "pnpm": {
