@@ -86,8 +86,12 @@ interface ProviderPlugin {        // produces an asset (audio, video, image) fro
   costNote: string;               // shown to agents before they call it
   run(params, ctx): Promise<AssetResult>;    // e.g. TTS returns audio + word timestamps
 }
-interface RenderBackend {         // where engine renders and assembly run
+interface RenderBackend {         // where engine renders and assembly run (docs/providers/backends.md)
   id: 'local' | 'remotion-lambda' | string;
+  kind: 'pool' | 'launcher' | 'managed';
+  configured(): boolean; implemented: boolean;
+  capabilities(): { engines; maxUnitSeconds; frameRanges; scaleToZero };
+  estimate(req): { videoSeconds; units; seconds; costUsd; note };   // before a job; null = unknown
   submit(job): Promise<void>; cancel(jobId): Promise<void>;
 }
 interface StorageDriver { put/get/list/delete/signedUrl }   // local fs, S3-compatible
@@ -228,6 +232,7 @@ that was run; "partial" says what is missing.
 | §3 Providers: avatar (HeyGen), stock, music | missing | Interfaces exist |
 | §3 Backend: local | done | in-process, job runner concurrency 1 by default |
 | §3 Backend: remotion-lambda | partial (skeleton) | Configuration check only; submitting returns `not_implemented` (501). Nothing faked |
+| §3 Backend interface v2 + `worker --once` (#150) | done | `kind`, `capabilities()`, `estimate()` in `get_capabilities` and `validate_project`; contract suite for every backend; `reelforge worker --once [--job <id>]` / `REELFORGE_WORKER_ONCE=1` tested with processes on PostgreSQL and MySQL (D-100, docs/providers/backends.md) |
 | §3 Storage: local fs | done | `LocalStorageDriver` for asset and render files |
 | Database (#23, D-022) | done | Repository interfaces in core; Prisma 7: SQLite (default), PostgreSQL, MySQL by `DATABASE_URL`; migrations on start / `reelforge migrate`; one-time v0.1 import; contract tests on all three; Docker e2e on all three. MongoDB: not yet (Prisma 7) |
 | §3 Storage: S3-compatible, Azure Blob, GCS, signed URLs (#27, D-065..D-069) | done (MinIO tested; Azure/GCS on emulators) | `storage.driver` local / s3 / azure / gcs; bucket-signed `downloadUrl`; atomic render commit; retention (`get_storage`, `run_storage_cleanup`); `reelforge storage migrate`. Provider matrix and test cases: docs/providers/storage.md. AWS S3, R2, B2, Wasabi, Spaces untested |

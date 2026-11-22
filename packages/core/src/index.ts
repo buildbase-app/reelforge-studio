@@ -21,6 +21,7 @@ export * from './childEnv';
 export * from './sceneMarkup';
 export * from './backends/local';
 export * from './backends/remotion-lambda';
+export * from './backends/estimate';
 export * from './providers/elevenlabs';
 export * from './secrets';
 export * from './import-v01';

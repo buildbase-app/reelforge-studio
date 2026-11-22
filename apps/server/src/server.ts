@@ -21,6 +21,8 @@ export interface StartedServer {
   config: ServerConfig;
   db: Database;
   observability: Observability;
+  /** The server's logger (redacts secrets; console or OTLP per the settings). */
+  log: (level: 'debug' | 'info' | 'warn' | 'error', line: string) => void;
   close(): Promise<void>;
 }
 
@@ -43,6 +45,11 @@ export async function startServer(
     now?: ServiceConfig['now'];
     /** Job queue overrides (tests: short leases, a fixed worker id; ServiceConfig.queue). */
     queue?: ServiceConfig['queue'];
+    /**
+     * `worker --once` (D-100): no HTTP listener, no webhook delivery worker or
+     * maintenance timers, and the queue claims only through jobs.runOnce().
+     */
+    once?: boolean;
   } = {}
 ): Promise<StartedServer> {
   const env = opts.env ?? process.env;
@@ -99,7 +106,8 @@ export async function startServer(
       now: opts.now,
       log: logger.log,
       telemetry: obs.telemetry,
-      ...(opts.queue ? { queue: opts.queue } : {}),
+      ...(opts.queue || opts.once ? { queue: { ...opts.queue, ...(opts.once ? { once: true } : {}) } } : {}),
+      ...(opts.once ? { webhooks: { worker: false }, maintenance: false, storage: { ...opts.storage, sweep: false } } : {}),
     });
   } catch (e) {
     await obs.shutdown();
@@ -123,23 +131,26 @@ export async function startServer(
     log('stored REELFORGE_BOOTSTRAP_KEY as admin key "bootstrap"');
   }
   const app = createApp({ service, config, observability: obs });
-  const server: ServerType = await new Promise((resolve) => {
-    const s = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, () => resolve(s));
-  });
+  const server: ServerType | null = opts.once
+    ? null
+    : await new Promise((resolve) => {
+        const s = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, () => resolve(s));
+      });
   // Agents poll with keep-alive connections; a short server keep-alive races with
   // their next request (ECONNRESET) while a render keeps the event loop busy.
-  const http = server as unknown as { keepAliveTimeout: number; headersTimeout: number };
-  http.keepAliveTimeout = 65_000;
-  http.headersTimeout = 66_000;
-  const port = (server.address() as AddressInfo).port;
-  const shownHost = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
-  const url = `http://${shownHost.includes(':') ? `[${shownHost}]` : shownHost}:${port}`;
-  log(`ReelForge Studio ${SERVER_VERSION} listening on ${url} (data: ${config.dataDir})`);
-  if (role === 'worker') {
-    log(`role worker: renders jobs from the database queue (worker ${service.jobs.workerId}, ${service.jobs.concurrency} at a time); serves only /healthz, /readyz and /metrics`);
-    log('licence: this worker never calls the licence server; it applies the licence state the api instances store in the database (re-read every minute)');
+  if (server) {
+    const http = server as unknown as { keepAliveTimeout: number; headersTimeout: number };
+    http.keepAliveTimeout = 65_000;
+    http.headersTimeout = 66_000;
   }
-  else log(`REST ${url}/v1  MCP ${url}/mcp`);
+  const port = server ? (server.address() as AddressInfo).port : 0;
+  const shownHost = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
+  const url = server ? `http://${shownHost.includes(':') ? `[${shownHost}]` : shownHost}:${port}` : '';
+  log(server ? `ReelForge Studio ${SERVER_VERSION} listening on ${url} (data: ${config.dataDir})` : `ReelForge Studio ${SERVER_VERSION} worker --once (no HTTP listener; data: ${config.dataDir})`);
+  if (role === 'worker') {
+    if (server) log(`role worker: renders jobs from the database queue (worker ${service.jobs.workerId}, ${service.jobs.concurrency} at a time); serves only /healthz, /readyz and /metrics`);
+    log('licence: this worker never calls the licence server; it applies the licence state the api instances store in the database (re-read every minute)');
+  } else if (server) log(`REST ${url}/v1  MCP ${url}/mcp`);
   log(`role: ${role}; job queue: ${service.jobs.mode}${service.jobs.mode === 'database' ? ` (worker ${service.jobs.workerId}, ${service.jobs.runJobs ? `renders ${service.jobs.concurrency} at a time` : 'enqueues only, never renders'})` : ''}`);
   log(`database: ${db.kind} ${db.displayUrl}`);
   log(`storage: ${service.storage.driver.id} ${JSON.stringify(service.storage.driver.describe())}`);
@@ -157,6 +168,7 @@ export async function startServer(
     config,
     db,
     observability: obs,
+    log: (level, line) => logger.log(level, line),
     close: async () => {
       if (service.jobs.mode === 'database') {
         // Stop claiming; let running jobs finish within the grace period, hand the rest back to the queue.
@@ -164,10 +176,12 @@ export async function startServer(
         const r = await service.jobs.shutdown(grace * 1000);
         log(`shutdown: stopped claiming jobs; ${r.finished} running job(s) finished${r.released ? `, ${r.released} handed back to the queue after ${grace} s` : ''}`);
       }
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
-      });
+      if (server) {
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+          (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+        });
+      }
       await service.stop();
       await service.jobs.flush();
       await obs.shutdown();

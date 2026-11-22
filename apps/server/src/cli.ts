@@ -30,6 +30,7 @@
  *   reelforge webhooks test <id>          queue a webhook.test event (the running server delivers it)
  *   reelforge webhooks deliveries <id> [--status dead] [--limit N] [--json]
  *   reelforge webhooks replay <id> <deliveryId>
+ *   reelforge worker --once [--job <id>] [--wait-ms N]   claim at most one job, render it, exit (D-100)
  *
  * Uses DATABASE_URL (default: SQLite in REELFORGE_DATA_DIR, ./data) like the
  * server. The key is printed once.
@@ -51,6 +52,7 @@ import {
   createStorageDriver,
   formatIssue,
   migrateStorage,
+  scrubSecretEnv,
   parseAuditQuery,
   type ConfigReport,
   type KeyOptions,
@@ -63,6 +65,7 @@ import {
 import { Database, parseDatabaseUrl, prepareDatabase } from '@reelforge/db';
 import { resolve } from 'node:path';
 import { loadConfig, type ServerConfig } from './config';
+import { onceArgs, runWorkerOnce } from './worker';
 
 function arg(name: string, args: string[]): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -99,7 +102,8 @@ const USAGE = `usage:
   reelforge webhooks update <id> [--name N] [--url URL] [--to ...] [--events ...] [--enable|--disable] [--rotate-secret [--grace-hours N]]
   reelforge webhooks test <id>
   reelforge webhooks deliveries <id> [--status pending|delivering|succeeded|dead] [--limit N] [--json]
-  reelforge webhooks replay <id> <deliveryId>`;
+  reelforge webhooks replay <id> <deliveryId>
+  reelforge worker --once [--job <id>] [--wait-ms N]   (exit 0 succeeded/cancelled/nothing queued, 1 failed, 75 handed back or still queued)`;
 
 /**
  * \`reelforge storage ...\` (D-069): works on the configuration (file, env and
@@ -425,8 +429,22 @@ async function configShow(argv: string[], config: ServerConfig): Promise<void> {
   }
 }
 
+/** `reelforge worker --once`: one job per process, for job platforms (D-100). */
+async function worker(args: string[]): Promise<void> {
+  if (!args.includes('--once')) {
+    console.error('usage: reelforge worker --once [--job <id>] [--wait-ms N]\nA long-running worker is the server with REELFORGE_ROLE=worker (docs/providers/queue-and-scaling.md).');
+    process.exit(1);
+  }
+  const opts = onceArgs(args);
+  // As in main.ts: the configuration reads a copy; render child processes never inherit ReelForge secrets (D-086).
+  const env = { ...process.env };
+  scrubSecretEnv(process.env);
+  process.exit(await runWorkerOnce(env, opts));
+}
+
 async function main(argv: string[]) {
   const [group, cmd, ...rest] = argv;
+  if (group === 'worker') return worker(argv.slice(1));
   if (group === 'config' && cmd === 'check') return configCheck(rest);
   const config = loadConfig();
   if (group === 'config' && cmd === 'show') return configShow(rest, config);

@@ -145,6 +145,58 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
   const statusEvent = (jobId: string, at: string, status: string) => ({ ...ws, jobId, at: new Date(at), type: 'status', message: status });
   const logEvent = (jobId: string, at: string, line: string) => ({ ...ws, jobId, at: new Date(at), type: 'log', message: line });
 
+  /**
+   * Claim exactly one job (`worker --once --job <id>`, D-100): the same atomic,
+   * fenced claim as JobRepository.claim, with the per-key running cap (D-090),
+   * kept apart from the fair-claim query. PostgreSQL/MySQL lock the row with
+   * SKIP LOCKED (a job another worker is claiming is skipped), then check the
+   * cap; SQLite takes it with one conditional UPDATE under the write lock.
+   */
+  const claimOne = (o: { workerId: string; types: string[]; now: string; leaseUntil: string; maxRunningPerKey?: number; id: string }) =>
+    prisma.$transaction(async (tx) => {
+      const typeIn = (first: number) => `${qi('type')} IN (${o.types.map((_, i) => ph(first + i)).join(', ')})`;
+      const where = `${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${qi('id')} = ${ph(2 + o.types.length)}`;
+      const args = [workspaceId, ...o.types, o.id];
+      const capped = o.maxRunningPerKey !== undefined;
+      let id: string | undefined;
+      if (kind === 'sqlite') {
+        // One statement under the write lock, the running cap included: atomic, no lost or double claims.
+        const cap = capped
+          ? ` AND ("apiKeyId" IS NULL OR (SELECT COUNT(*) FROM "Job" "r" WHERE "r"."workspaceId" = "Job"."workspaceId" AND "r"."queue" = 'database' AND "r"."status" = 'running' AND "r"."apiKeyId" = "Job"."apiKeyId") < ?)`
+          : '';
+        const rows: Array<{ id: string }> = await tx.$queryRawUnsafe(
+          `UPDATE "Job" SET "status" = 'running', "workerId" = ? WHERE ${where}${cap} RETURNING "id"`,
+          o.workerId,
+          ...args,
+          ...(capped ? [o.maxRunningPerKey] : [])
+        );
+        id = rows[0]?.id;
+      } else {
+        const rows: Array<{ id: string; k: string | null }> = await tx.$queryRawUnsafe(
+          `SELECT ${qi('id')}, ${qi('apiKeyId')} AS ${qi('k')} FROM ${qi('Job')} WHERE ${where} FOR UPDATE SKIP LOCKED`,
+          ...args
+        );
+        const one = rows[0];
+        if (one && one.k && capped && (await tx.job.count({ where: { ...ws, queue: 'database', status: 'running', apiKeyId: one.k } })) >= o.maxRunningPerKey!) return null;
+        id = one?.id;
+      }
+      if (!id) return null;
+      const row = await tx.job.update({
+        where: { id },
+        data: {
+          status: 'running',
+          workerId: o.workerId,
+          attempts: { increment: 1 },
+          startedAt: new Date(o.now),
+          leaseExpiresAt: new Date(o.leaseUntil),
+          cancelRequestedAt: null,
+          progress: json({ stage: 'starting', fraction: 0 }),
+        },
+      });
+      await tx.jobEvent.create({ data: statusEvent(id, o.now, 'running') });
+      return toJob(row);
+    }, lockingTx);
+
   type KeyRow = {
     id: string;
     name: string;
@@ -417,8 +469,9 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           return true;
         }, TX);
       },
-      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey }) {
+      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey, id: only }) {
         if (!types.length) return null;
+        if (only !== undefined) return claimOne({ workerId, types, now, leaseUntil, maxRunningPerKey, id: only });
         return prisma.$transaction(async (tx) => {
           // Fair across API keys (D-090): the queued job whose key has the fewest running database-queue jobs,
           // oldest first among equals (jobs without a key count as a key with none running). Optionally only
