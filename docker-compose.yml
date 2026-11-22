@@ -25,6 +25,10 @@
 # namespaces Chromium's sandbox needs), so html, hyperframes and motion-canvas
 # render with Chromium's sandbox on. Without that profile set
 # REELFORGE_CHROMIUM_NO_SANDBOX=1.
+# Test profile (#66): Mailpit catches notification email (SMTP on mailpit:1025,
+# web UI and API on 127.0.0.1:8025). Point the studio at it:
+#   REELFORGE_SMTP_HOST=mailpit REELFORGE_SMTP_PORT=1025 REELFORGE_SMTP_SECURITY=none \
+#   REELFORGE_EMAIL_FROM=studio@example.com docker compose --profile test up -d --build
 # POSTGRES_IMAGE / MYSQL_IMAGE pick a mirror of the official images, e.g.
 # mirror.gcr.io/library/postgres:17 or public.ecr.aws/docker/library/mysql:8.4.
 services:
@@ -64,6 +68,11 @@ services:
       DATABASE_URL: ${DATABASE_URL:-}
       # Optional providers / backends (leave empty to keep them off):
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      # Notification email over SMTP (docs/providers/webhooks-and-notifications.md); empty = off.
+      REELFORGE_SMTP_HOST: ${REELFORGE_SMTP_HOST:-}
+      REELFORGE_SMTP_PORT: ${REELFORGE_SMTP_PORT:-}
+      REELFORGE_SMTP_SECURITY: ${REELFORGE_SMTP_SECURITY:-}
+      REELFORGE_EMAIL_FROM: ${REELFORGE_EMAIL_FROM:-}
     volumes:
       - reelforge-data:/data
     # Chromium needs more shared memory than Docker's 64 MB default.
@@ -110,6 +119,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 60
+
+  mailpit:
+    profiles: ["test"]
+    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.34.0}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
 
   caddy:
     profiles: ["tls"]

@@ -1,6 +1,7 @@
 import type { Project, Theme } from '@reelforge/project-schema';
 import { conflict } from './errors';
 import { newId, newSequentialId } from './fsutil';
+import { createMemoryWebhookRepository } from './webhooks/memory';
 import {
   DEFAULT_WORKSPACE_ID,
   type ApiKeyPatch,
@@ -79,6 +80,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
 
   return {
     workspaceId,
+    webhooks: createMemoryWebhookRepository(),
     projects: {
       async create(p: StoredProject) {
         if (projects.has(p.meta.id)) throw conflict(`project "${p.meta.id}" already exists; use update_project or pick another projectId`);

@@ -12,7 +12,7 @@
   "scripts": {
     "build": "pnpm -r --filter './packages/*' run build",
     "typecheck": "tsc -p tsconfig.json && pnpm -r run typecheck",
-    "test": "pnpm -r run test",
+    "test": "pnpm -r run test && pnpm test:docs",
     "spike": "tsx scripts/spike.ts",
     "gallery": "tsx scripts/gallery/src/cli.ts",
     "prebuild:engines": "tsx apps/server/src/prebuild.ts",
@@ -21,7 +21,10 @@
     "start": "tsx apps/server/src/main.ts",
     "keys:create": "tsx apps/server/src/cli.ts keys create",
     "reelforge": "tsx apps/server/src/cli.ts",
-    "docs:config": "tsx scripts/config-docs.ts"
+    "docs:config": "tsx scripts/config-docs.ts",
+    "docs:reference": "tsx scripts/docs/reference.ts",
+    "docs:sync": "node scripts/docs/sync-buildbase.mjs",
+    "test:docs": "node --test scripts/docs/*.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -37,7 +40,8 @@
     "@reelforge/engine-html": "workspace:*",
     "@reelforge/engine-hyperframes": "workspace:*",
     "@reelforge/db": "workspace:*",
-    "@reelforge/gallery": "workspace:*"
+    "@reelforge/gallery": "workspace:*",
+    "zod": "^4.1.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
