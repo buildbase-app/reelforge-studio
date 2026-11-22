@@ -1563,9 +1563,34 @@ whose jobs are all held falls through to the next; SQLite: one conditional
 `UPDATE`). One key
 alone still gets every slot; two keys share them evenly. The first two caps
 are checked inside the job insert transaction that already serves the render
-quota (D-078): under the key's row lock, or the `Workspace` row lock when the
+quota (D-078): under the key's row lock, or one shared lock row when the
 total cap is on, so they are exact across instances; jobs without a key count
-only against the total. Refusals are `429 too_many_jobs` / `queue_full` with
+only against the total. **Short lock (#180):** the transaction writes the job
+and its status event first (invisible to others until commit), then takes the
+lock, then runs **one** statement with every count (quota windows, unfinished
+jobs of the key, queued jobs in total; the new job excluded), then commits or
+rolls back. One statement runs between the lock and commit instead of one per
+count and insert (three to six before), so the lock is held for two round trips
+from the api process (the lock's and the count's) instead of four to seven, and
+its hold time no longer multiplies with api event-loop lag. The total cap's lock row is
+`RateLimitWindow` key `lock:job-queue` (created on first use, never swept),
+not the `Workspace` row, because every insert holds a foreign-key lock on the
+`Workspace` row and on MySQL taking it after the insert is a lock upgrade that
+deadlocks concurrent starts (and the old order blocked every insert that
+references the workspace, such as `create_project`, while the lock was held).
+*Rejected:* one conditional `INSERT ... SELECT ... WHERE (SELECT COUNT ...) <
+cap` statement, because a statement reads from a snapshot taken when it starts:
+24 concurrent ones against a cap of 5 on PostgreSQL 17 inserted all 24, also
+with `pg_advisory_xact_lock` inside the statement (2026-11-22); a counter row
+(`UPDATE ... SET n = n + 1 WHERE n < cap`, as D-091) would save one
+more round trip but must be decremented on every way a job leaves the
+counted set (finish, fail, cancel, fan-out tree cancel, claim and lease-loss
+re-queue for the queue cap, hand-back on shutdown), and one missed path drifts
+a key into permanent refusals, while the counts heal themselves (D-091's
+counters are only ever incremented); a server-side function would hold the
+lock for no round trip but needs a stored routine per database and privileges
+some managed databases withhold. Refused starts cost an insert that is rolled
+back. Refusals are `429 too_many_jobs` / `queue_full` with
 `Retry-After: 30`. The running cap is applied where jobs start: the in-process
 pump skips a key at its cap (keeping its place), and the database claim query
 skips such keys when ordering them; exact on one worker, with possible

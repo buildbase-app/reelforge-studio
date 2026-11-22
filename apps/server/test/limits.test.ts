@@ -141,6 +141,39 @@ describe('limits over REST and MCP', () => {
     }
   });
 
+  it('LIMS-07 job cap under concurrent REST starts: exactly the cap succeed, the rest get 429 too_many_jobs; an idempotent re-submit never counts twice; a cancel frees a slot', async () => {
+    await setLimits({ 'limits.maxQueuedJobsPerKey': 3 });
+    try {
+      const first = await api('POST', '/v1/projects/sample-reel/renders', agentA, {}, { 'idempotency-key': 'lims-07-a' });
+      expect(first.status).toBe(202);
+      // The same request again is a replay of the same job, not a second start.
+      const again = await api('POST', '/v1/projects/sample-reel/renders', agentA, {}, { 'idempotency-key': 'lims-07-a' });
+      expect(again.status).toBe(202);
+      expect(again.headers.get('idempotent-replayed')).toBe('true');
+      expect(again.json.job.id).toBe(first.json.job.id);
+      const burst = await Promise.all(Array.from({ length: 10 }, (_, i) => api('POST', '/v1/projects/sample-reel/renders', agentA, {}, { 'idempotency-key': `lims-07-burst-${i}` })));
+      expect(burst.filter((r) => r.status === 202)).toHaveLength(2);
+      const refused = burst.filter((r) => r.status === 429);
+      expect(refused).toHaveLength(8);
+      for (const r of refused) expect(r.json.error).toMatchObject({ code: 'too_many_jobs', details: { max: 3, used: 3 } });
+      // A refused start stored no idempotency record: the same key goes through once there is room.
+      const mine = (await server.service.listJobs()).filter((j) => j.status === 'queued' || j.status === 'running');
+      expect(mine).toHaveLength(3);
+      expect((await api('POST', `/v1/jobs/${first.json.job.id}/cancel`, agentA, {})).status).toBe(200);
+      for (let i = 0; i < 200 && (await server.service.getJob(first.json.job.id)).status !== 'cancelled'; i++) await new Promise((r) => setTimeout(r, 25));
+      const retried = await api('POST', '/v1/projects/sample-reel/renders', agentA, {}, { 'idempotency-key': `lims-07-burst-${burst.indexOf(refused[0]!)}` });
+      expect(retried.status).toBe(202);
+      expect(retried.headers.get('idempotent-replayed')).toBeNull();
+      // Replaying the first (now cancelled) render's key still returns it and still does not count.
+      const replay = await api('POST', '/v1/projects/sample-reel/renders', agentA, {}, { 'idempotency-key': 'lims-07-a' });
+      expect(replay.headers.get('idempotent-replayed')).toBe('true');
+      expect((await api('POST', '/v1/projects/sample-reel/renders', agentA, {})).status).toBe(429);
+    } finally {
+      await setLimits({ 'limits.maxQueuedJobsPerKey': null });
+      await cancelAll();
+    }
+  });
+
   it('LIMS-03 provider calls: 429 provider_limit_exceeded with Retry-After on REST and over MCP (run_provider), cached results allowed', async () => {
     await setLimits({ 'limits.providerRunsPerKeyPerDay': 1 });
     try {

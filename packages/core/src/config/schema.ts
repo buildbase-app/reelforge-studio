@@ -234,7 +234,7 @@ export const ConfigSchema = z.object({
       },
       defaultText: '`1000` with the in-process queue, `0` (no limit) with the database queue',
       description:
-        'Render and preview jobs that may wait in the queue in total (every key, every instance). A start beyond it is refused with `429 queue_full` and `Retry-After`. The default follows the effective queue (`queue.driver`, `server.role`): a single instance keeps its queue bounded, the database queue is unbounded because the database and autoscaled workers absorb the load. `0`: no limit.',
+        'Render and preview jobs that may wait in the queue in total (every key, every instance). A start beyond it is refused with `429 queue_full` and `Retry-After`. The default follows the effective queue (`queue.driver`, `server.role`): a single instance keeps its queue bounded, the database queue is unbounded because the database and autoscaled workers absorb the load. `0`: no limit. With the database queue, a value here makes every start in the deployment wait for one shared row lock (held for two database round trips per start), which caps the total start rate; prefer `maxQueuedJobsPerKey` there unless the queue itself must be bounded.',
     }),
     maxRunningJobsPerKey: setting(nonNegative(), {
       kind: 'integer',
