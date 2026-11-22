@@ -51,6 +51,30 @@ export interface DatabaseQueueOptions {
   pollMs?: number;
   /** Asked before each claim; `ok: false` pauses claiming (e.g. storage is down, so renders would only fail). */
   canClaim?: () => Promise<{ ok: boolean; reason?: string }>;
+  /** `worker --once` (D-100): never claim on a timer; the only claim is the one runOnce() makes. */
+  once?: boolean;
+}
+
+/** How runOnce() ended (`reelforge worker --once` turns it into the exit status, D-100). */
+export type OnceOutcome =
+  /** Nothing to claim within the wait (or the given job is missing, finished or running elsewhere). */
+  | 'none'
+  /** `--job`: the job is still queued when the wait ends (claiming paused, or its key at the running cap); run again later. */
+  | 'deferred'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  /** Stopped by SIGTERM and handed back to the queue (D-077). */
+  | 'released'
+  /** The lease was lost (database unreachable for a lease period, or another worker took it). */
+  | 'lost';
+
+export interface OnceResult {
+  outcome: OnceOutcome;
+  /** The claimed job as this worker last saw it. */
+  job?: JobRecord;
+  /** Why nothing was claimed (outcome `none`). */
+  reason?: string;
 }
 
 export interface JobRunnerOptions {
@@ -135,7 +159,8 @@ export class JobRunner {
   readonly mode: QueueMode;
   readonly workerId: string;
   readonly runJobs: boolean;
-  private readonly db: Required<Omit<DatabaseQueueOptions, 'canClaim' | 'workerId' | 'runJobs'>> & Pick<DatabaseQueueOptions, 'canClaim'>;
+  private readonly db: Required<Omit<DatabaseQueueOptions, 'canClaim' | 'workerId' | 'runJobs' | 'once'>> & Pick<DatabaseQueueOptions, 'canClaim'>;
+  readonly once: boolean;
   private readonly logger: NonNullable<JobRunnerOptions['log']>;
   private readonly maxRunningPerKey: () => number | undefined;
   /** Database queue: the claim (fence) of each job this process runs. */
@@ -168,6 +193,7 @@ export class JobRunner {
     this.mode = opts.mode ?? 'inprocess';
     const d = opts.database ?? {};
     this.runJobs = d.runJobs ?? true;
+    this.once = d.once ?? false;
     this.workerId = d.workerId ?? defaultWorkerId();
     const leaseMs = Math.max(1000, d.leaseMs ?? 60_000);
     this.db = {
@@ -501,7 +527,7 @@ export class JobRunner {
   // ---- database queue -------------------------------------------------------
 
   private schedulePoll(ms: number) {
-    if (!this.started || this.stopping || !this.runJobs) return;
+    if (!this.started || this.stopping || !this.runJobs || this.once) return;
     if (this.pollTimer) clearTimeout(this.pollTimer);
     this.pollTimer = setTimeout(() => {
       this.pollTimer = null;
@@ -512,7 +538,7 @@ export class JobRunner {
 
   /** Claim queued jobs while there are free slots. One loop at a time; a request during a loop runs it again. */
   private async claimLoop(): Promise<void> {
-    if (!this.started || this.stopping || !this.runJobs) return;
+    if (!this.started || this.stopping || !this.runJobs || this.once) return;
     if (this.claiming) {
       this.claimAgain = true;
       return;
@@ -554,6 +580,80 @@ export class JobRunner {
       this.schedulePoll(this.backoffMs + Math.floor(Math.random() * this.db.pollMs));
     } finally {
       this.claiming = false;
+    }
+  }
+
+  /**
+   * `worker --once` (D-100): claim at most one job (exactly `jobId` when given,
+   * with the same fenced claim as every worker), run it and report how it
+   * ended. Waits up to `waitMs` for a job to be queued, polling every
+   * `queue.pollIntervalMs`; returns `none` sooner when the given job is
+   * missing or finished, or when shutdown() starts (`deferred` instead when
+   * the given job is still queued then, or when the wait ends). Needs the database
+   * queue with `once: true` and init() called; never claims a second job.
+   */
+  async runOnce(opts: { jobId?: string; waitMs: number }): Promise<OnceResult> {
+    if (this.mode !== 'database' || !this.once || !this.runJobs) throw new Error('runOnce needs the database queue with once: true');
+    if (!this.started) throw new Error('call init() before runOnce()');
+    const deadline = Date.now() + Math.max(0, opts.waitMs);
+    let reason = `nothing was queued within ${opts.waitMs} ms`;
+    // --job: the job was still queued when the wait ended (paused claiming, per-key cap), so it still needs a run.
+    let stillQueued = false;
+    for (;;) {
+      if (this.stopping) {
+        const queued = opts.jobId !== undefined && (await this.repo.get(opts.jobId).catch(() => null))?.status === 'queued';
+        return { outcome: queued ? 'deferred' : 'none', reason: 'shutting down before a job was claimed' };
+      }
+      let job: JobRecord | null = null;
+      try {
+        const can = this.db.canClaim ? await this.db.canClaim().catch((e: Error) => ({ ok: false, reason: e.message })) : { ok: true };
+        if (!can.ok) {
+          reason = `not claiming jobs: ${can.reason ?? 'not ready'}`;
+          if (opts.jobId !== undefined) stillQueued = (await this.repo.get(opts.jobId))?.status === 'queued';
+          if (this.pausedReason !== reason) this.log('warn', `queue: ${reason}`);
+          this.pausedReason = reason;
+        } else {
+          this.pausedReason = undefined;
+          const now = Date.now();
+          job = await this.repo.claim({
+            workerId: this.workerId,
+            types: Object.keys(this.handlers),
+            now: new Date(now).toISOString(),
+            leaseUntil: new Date(now + this.db.leaseMs).toISOString(),
+            ...(this.maxRunningPerKey() !== undefined ? { maxRunningPerKey: this.maxRunningPerKey() } : {}),
+            ...(opts.jobId !== undefined ? { id: opts.jobId } : {}),
+          });
+          this.ok('claim');
+          if (!job && opts.jobId !== undefined) {
+            // A launcher started this container for one job: when that job is gone or finished there is nothing to wait for.
+            const stored = await this.repo.get(opts.jobId);
+            if (!stored) return { outcome: 'none', reason: `job ${opts.jobId} does not exist` };
+            if (TERMINAL.includes(stored.status)) return { outcome: 'none', reason: `job ${opts.jobId} is already ${stored.status}`, job: stored };
+            reason =
+              stored.status === 'queued'
+                ? `job ${opts.jobId} is still queued (its API key is at limits.maxRunningJobsPerKey, or another worker is claiming it)`
+                : `job ${opts.jobId} is ${stored.status}${stored.workerId ? ` on worker ${stored.workerId}` : ''}, not queued`;
+            stillQueued = stored.status === 'queued';
+          }
+        }
+      } catch (e) {
+        this.failed('claim', e as Error);
+        reason = `the queue could not be read: ${(e as Error).message.split('\n').filter(Boolean).pop() ?? 'unknown error'}`;
+      }
+      if (job) {
+        if (this.stopping) {
+          // SIGTERM arrived while the claim was in flight: hand it straight back.
+          const back = await this.repo.release(job.id, { workerId: this.workerId, attempts: job.attempts ?? 1 }, new Date().toISOString()).catch(() => false);
+          return { outcome: back ? 'released' : 'lost', job: { ...job, ...(back ? { status: 'queued' as const } : {}) } };
+        }
+        await this.start(job);
+        await this.flush();
+        const outcome: OnceOutcome = TERMINAL.includes(job.status) ? (job.status as OnceOutcome) : job.status === 'queued' ? 'released' : 'lost';
+        return { outcome, job: structuredClone(job) };
+      }
+      const left = deadline - Date.now();
+      if (left <= 0) return { outcome: stillQueued ? 'deferred' : 'none', reason };
+      await sleep(Math.min(this.db.pollMs, left));
     }
   }
 

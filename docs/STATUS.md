@@ -356,6 +356,24 @@ instances, the MySQL Docker scale run, a real cluster and the HPA External
 metric path, a Helm chart; CI does not run the scale e2e yet (a `.github/`
 change for a maintainer).
 
+### Render backends v2 and `worker --once` (2026-11-22, issue #150)
+
+Built (D-100, from D-095; matrix, interface, exit statuses and test record:
+[providers/backends.md](providers/backends.md)): `RenderBackend` gains `kind`
+(`pool` / `launcher` / `managed`), `capabilities()` and `estimate()`;
+`get_capabilities` reports them, `validate_project` returns the estimate and
+checks engines and unit length against the backend; `remotion-lambda` stays
+`implemented: false`. A contract suite every backend runs. `reelforge worker
+--once [--job <id>] [--wait-ms N]` and `REELFORGE_WORKER_ONCE=1`: claim at most
+one job (exactly that id with `--job`, fenced, per-key cap applied), render
+it, exit 0 / 1 / 75; SIGTERM hands the job back; an empty queue exits 0 within
+`queue.onceWaitMs` (3 × `queue.pollIntervalMs`). Settings `server.workerOnce`,
+`queue.onceWaitMs`.
+
+Not done: launcher backends (#28), Remotion Lambda (#157), recipes for KEDA
+ScaledJob / ACA event jobs / Batch / Cloud Run Jobs (#153) and runs on those
+platforms; `estimate()` has no time until #125 measures render speed.
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |

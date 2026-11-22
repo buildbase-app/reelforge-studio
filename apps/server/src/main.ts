@@ -2,6 +2,7 @@ import { scrubSecretEnv } from '@reelforge/core';
 import { prepareDatabase } from '@reelforge/db';
 import { loadConfig } from './config';
 import { startServer } from './server';
+import { onceArgs, runWorkerOnce } from './worker';
 
 // `--migrate-only`: apply database migrations (and the one-time v0.1 import), then exit.
 // For deploys that migrate in a separate step (an init container, a release command).
@@ -29,6 +30,15 @@ if (process.argv.includes('--migrate-only')) {
 // HyperFrames CLI, FFmpeg, Remotion's Chrome) never inherit them (D-086).
 const env = { ...process.env };
 scrubSecretEnv(process.env);
+
+// `REELFORGE_WORKER_ONCE=1` (D-100): claim at most one job, render it and exit (job platforms).
+if (loadConfig(env).resolved.config.server.workerOnce) {
+  const code = await runWorkerOnce(env, onceArgs(process.argv.slice(2))).catch((e) => {
+    console.error(`[reelforge] worker --once failed to start: ${(e as Error).message}`);
+    return 1;
+  });
+  process.exit(code);
+}
 const started = await startServer({}, { env }).catch((e) => {
   console.error(`[reelforge] failed to start: ${(e as Error).message}`);
   process.exit(1);

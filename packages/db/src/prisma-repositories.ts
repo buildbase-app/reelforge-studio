@@ -417,13 +417,13 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           return true;
         }, TX);
       },
-      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey }) {
+      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey, id: only }) {
         if (!types.length) return null;
         return prisma.$transaction(async (tx) => {
           // Fair across API keys (D-090): the queued job whose key has the fewest running database-queue jobs,
           // oldest first among equals (jobs without a key count as a key with none running). Optionally only
           // keys below a running cap. Placeholders start at `first`: workspace id (running counts), workspace id,
-          // the types, then the cap.
+          // the types, the cap, then the one job id (`worker --once --job`, D-100).
           const capped = maxRunningPerKey !== undefined;
           const j = qi('j');
           const running =
@@ -435,41 +435,62 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
               ` WHERE ${j}.${qi('workspaceId')} = ${ph(first + 1)} AND ${j}.${qi('queue')} = 'database' AND ${j}.${qi('status')} = 'queued'` +
               ` AND ${j}.${qi('type')} IN (${types.map((_, i) => ph(first + 2 + i)).join(', ')})` +
               (capped ? ` AND COALESCE(${qi('r')}.${qi('n')}, 0) < ${ph(first + 2 + types.length)}` : '') +
+              (only !== undefined ? ` AND ${j}.${qi('id')} = ${ph(first + 2 + types.length + (capped ? 1 : 0))}` : '') +
               ` ORDER BY COALESCE(${qi('r')}.${qi('n')}, 0), ${j}.${qi('createdAt')}, ${j}.${qi('id')} LIMIT 1`).replace('PH0', ph(first));
-          const args = [workspaceId, workspaceId, ...types, ...(capped ? [maxRunningPerKey] : [])];
+          const args = [workspaceId, workspaceId, ...types, ...(capped ? [maxRunningPerKey] : []), ...(only !== undefined ? [only] : [])];
           let rows: Array<{ id: string }> = [];
           if (kind === 'sqlite') {
             // One statement under the write lock (the first write of the transaction waits for it): atomic, no lost claims.
             rows = await tx.$queryRawUnsafe(`UPDATE "Job" SET "status" = 'running', "workerId" = ? WHERE "id" = (${pick(2)}) AND "status" = 'queued' RETURNING "id"`, workerId, ...args);
           } else {
-            // Row locks: a locking read with a sort over every queued row would lock all of them on MySQL, so
-            // decide the key order with plain reads first, then lock one job of the best key with an
-            // index-ordered SELECT ... FOR UPDATE SKIP LOCKED (a job another worker is claiming is skipped).
             const typeIn = (first: number) => `${qi('type')} IN (${types.map((_, i) => ph(first + i)).join(', ')})`;
-            const runningRows: Array<{ k: string; n: unknown }> = await tx.$queryRawUnsafe(
-              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}`,
-              workspaceId
-            );
-            const busy = new Map(runningRows.map((r) => [r.k, Number(r.n)]));
-            const queuedRows: Array<{ k: string | null; t: unknown }> = await tx.$queryRawUnsafe(
-              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, MIN(${qi('createdAt')}) AS ${qi('t')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} GROUP BY ${qi('apiKeyId')}`,
-              workspaceId,
-              ...types
-            );
-            const order = queuedRows
-              .map((r) => ({ k: r.k, n: r.k ? (busy.get(r.k) ?? 0) : 0, t: new Date(r.t as string).getTime() }))
-              .filter((r) => !capped || r.k === null || r.n < maxRunningPerKey!)
-              .sort((a, b) => a.n - b.n || a.t - b.t);
-            for (const c of order) {
-              const keyWhere = c.k === null ? `${qi('apiKeyId')} IS NULL` : `${qi('apiKeyId')} = ${ph(2 + types.length)}`;
-              rows = await tx.$queryRawUnsafe(
-                `SELECT ${qi('id')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${keyWhere}` +
-                  ` ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT 1 FOR UPDATE SKIP LOCKED`,
+            if (only !== undefined) {
+              // Exactly one job (`worker --once --job`, D-100): lock it if it is queued (skip it while another worker claims it),
+              // then apply the per-key running cap like any claim.
+              const one: Array<{ id: string; k: string | null }> = await tx.$queryRawUnsafe(
+                `SELECT ${qi('id')}, ${qi('apiKeyId')} AS ${qi('k')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${qi('id')} = ${ph(2 + types.length)} FOR UPDATE SKIP LOCKED`,
                 workspaceId,
                 ...types,
-                ...(c.k === null ? [] : [c.k])
+                only
               );
-              if (rows.length) break;
+              rows = one;
+              if (one[0]?.k && capped) {
+                const [c] = await tx.$queryRawUnsafe<Array<{ n: unknown }>>(
+                  `SELECT COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('apiKeyId')} = ${ph(2)}`,
+                  workspaceId,
+                  one[0].k
+                );
+                if (Number(c?.n ?? 0) >= maxRunningPerKey!) rows = [];
+              }
+            } else {
+              // Row locks: a locking read with a sort over every queued row would lock all of them on MySQL, so
+              // decide the key order with plain reads first, then lock one job of the best key with an
+              // index-ordered SELECT ... FOR UPDATE SKIP LOCKED (a job another worker is claiming is skipped).
+              const runningRows: Array<{ k: string; n: unknown }> = await tx.$queryRawUnsafe(
+                `SELECT ${qi('apiKeyId')} AS ${qi('k')}, COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}`,
+                workspaceId
+              );
+              const busy = new Map(runningRows.map((r) => [r.k, Number(r.n)]));
+              const queuedRows: Array<{ k: string | null; t: unknown }> = await tx.$queryRawUnsafe(
+                `SELECT ${qi('apiKeyId')} AS ${qi('k')}, MIN(${qi('createdAt')}) AS ${qi('t')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} GROUP BY ${qi('apiKeyId')}`,
+                workspaceId,
+                ...types
+              );
+              const order = queuedRows
+                .map((r) => ({ k: r.k, n: r.k ? (busy.get(r.k) ?? 0) : 0, t: new Date(r.t as string).getTime() }))
+                .filter((r) => !capped || r.k === null || r.n < maxRunningPerKey!)
+                .sort((a, b) => a.n - b.n || a.t - b.t);
+              for (const c of order) {
+                const keyWhere = c.k === null ? `${qi('apiKeyId')} IS NULL` : `${qi('apiKeyId')} = ${ph(2 + types.length)}`;
+                rows = await tx.$queryRawUnsafe(
+                  `SELECT ${qi('id')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${keyWhere}` +
+                    ` ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT 1 FOR UPDATE SKIP LOCKED`,
+                  workspaceId,
+                  ...types,
+                  ...(c.k === null ? [] : [c.k])
+                );
+                if (rows.length) break;
+              }
             }
           }
           const id = rows[0]?.id;

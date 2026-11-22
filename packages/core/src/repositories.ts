@@ -234,6 +234,7 @@ export interface JobRepository {
    * event. PostgreSQL/MySQL: `SELECT ... FOR UPDATE SKIP LOCKED`, so workers
    * never wait for each other; SQLite: one conditional UPDATE under the
    * database write lock. Returns the claimed job, or null when none is queued.
+   * With `id`, only that job, and only while it is queued (`worker --once --job`).
    */
   claim(opts: {
     workerId: string;
@@ -246,6 +247,8 @@ export interface JobRepository {
      * workers claiming at the same moment may each take one more.
      */
     maxRunningPerKey?: number;
+    /** Only this job, and only while it is queued (`worker --once --job`, D-100); the per-key cap still applies. */
+    id?: string;
   }): Promise<JobRecord | null>;
   /**
    * Renew the lease of `ids` still running and held by `workerId`. Returns the

@@ -1618,7 +1618,8 @@ issue lands with tests.
 
 ### D-095 --- Render backends: worker pools first, `worker --once` for job platforms, launchers and managed renderers as plugins
 
-**Status:** PROPOSED (2026-11-22).\
+**Status:** PROPOSED (2026-11-22); the interface (`kind`, `capabilities()`, `estimate()`) and
+`worker --once` are built and tested in D-100 (#150); launchers (#28) and Remotion Lambda (#157) are not.\
 Three kinds of backend behind one plugin interface (extends `RenderBackend`,
 `packages/core/src/plugins.ts`): (1) **worker pool**: N `worker` containers on any
 orchestrator claim from the queue (local, compose, VPS, Nomad, Kubernetes Deployment + KEDA,
@@ -1703,3 +1704,41 @@ blocked until Remotion answers #10 in writing. Pooling recipe (small `connection
 PgBouncer transaction mode or RDS Proxy) is part of every multi-instance recipe. Each recipe ships
 with its test-case table (docs/providers/backends.md) and a recorded run before the store may claim
 it.
+
+## U. Render backends v2 and `worker --once` (2026-11-22, issue #150)
+
+Built from D-095. Matrix, interface, exit statuses and test record:
+[docs/providers/backends.md](providers/backends.md).
+
+### D-100 --- `RenderBackend` v2 and `worker --once`: one claim per process, exit statuses a job platform can act on
+
+**Status:** DECIDED (reversible).\
+**Interface:** `RenderBackend` gains `kind` (`pool` | `launcher` | `managed`),
+`capabilities()` (`engines`, `maxUnitSeconds` or `null`, `frameRanges`, `scaleToZero`) and
+`estimate(req)` (`videoSeconds`, `units`, `seconds`, `costUsd`, `note`). `get_capabilities` reports
+`kind` and `capabilities`; `validate_project` returns the manifest backend's estimate and, for an
+implemented and configured backend, flags engines it cannot render and scenes longer than its unit
+limit when it cannot split them. Estimates never invent numbers: `seconds` is `null` until render
+speed is measured (#125), `costUsd` is `0` on own hardware and `null` when unknown; a skeleton
+(`implemented: false`) answers `null` for both. Capabilities of a skeleton describe its design and
+are reported next to `implemented: false`. Every backend runs one contract suite
+(`packages/core/test/backend-contract.ts`). **`worker --once`** (`reelforge worker --once [--job
+<id>] [--wait-ms N]`, or `REELFORGE_WORKER_ONCE=1` with the image's default command): role
+`worker` (same guard as D-076), no HTTP listener, no webhook delivery worker or maintenance timers;
+the job runner gets `once: true`, so nothing claims on a timer and `JobRunner.runOnce()` makes the
+only claim. `--job` adds `id = ?` to the same `SELECT ... FOR UPDATE SKIP LOCKED` claim (one atomic
+`UPDATE` on SQLite), so concurrent containers for one id cannot both run it. It waits up to
+`queue.onceWaitMs` (default 3 × `queue.pollIntervalMs`) for a job; a missing or finished `--job`
+ends at once; the per-key running cap (D-090) applies to `--job` as to any claim. **Exit
+statuses:** `0` succeeded, cancelled or nothing to do; `1` the job failed (final in the database)
+or start-up failed; `75` (EX_TEMPFAIL) the job was handed back on SIGTERM (D-077), its lease was
+lost, or the `--job` was still queued when the wait ended (claiming paused, key at its cap), so it
+still needs a run. **Why these codes:** job platforms (Kubernetes Job
+`backoffLimit`, AWS Batch retry strategies, Cloud Run Jobs task retries) retry non-zero exits; a
+retry is needed exactly when the unit is queued again (with `--job`, nobody else may pick it up),
+harmless after a failure (the retried container claims the next job or nothing), and pointless
+after a cancel, which is a user's decision rather than a failure. **Why no HTTP in `--once`:** job
+platforms watch the process, a short-lived container's `/metrics` would rarely be scraped, and one
+port fewer to open; the job's state and logs are in the database. **Why not a separate entry
+point without the service:** the claim, fencing, leases, storage readiness and render path are the
+pool worker's own code, so one process type is tested, not two.

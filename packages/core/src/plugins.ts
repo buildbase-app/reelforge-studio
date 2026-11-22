@@ -171,15 +171,60 @@ export interface BackendContext {
   progress(stage: string, fraction: number, detail?: string): void;
 }
 
+/**
+ * How a backend gets compute (D-095, D-100; docs/providers/backends.md):
+ * - `pool`: workers that are already running claim jobs from the queue (this
+ *   server, N `worker` containers, or `worker --once` containers a job platform starts);
+ * - `launcher`: calls a platform API ("run task", "execute job") per queued unit; the
+ *   started container runs `reelforge worker --once --job <id>`;
+ * - `managed`: a renderer someone else operates for one engine (Remotion Lambda),
+ *   called by the worker that claimed the job.
+ */
+export type RenderBackendKind = 'pool' | 'launcher' | 'managed';
+export const RENDER_BACKEND_KINDS: readonly RenderBackendKind[] = ['pool', 'launcher', 'managed'];
+
+/** What a backend can render (reported by get_capabilities; checked by validate_project). */
+export interface BackendCapabilities {
+  /** Engine ids it can render. */
+  engines: string[];
+  /** Longest render unit (one scene, or one frame range) it accepts, in seconds; null: no limit of its own. */
+  maxUnitSeconds: number | null;
+  /** Whether it can render part of a scene (a frame range), so a long scene can be split. */
+  frameRanges: boolean;
+  /** Whether it starts and stops compute per render by itself (nothing runs, nothing is billed, while idle). */
+  scaleToZero: boolean;
+}
+
+/** What a render would take on a backend, shown before the job starts. */
+export interface BackendEstimate {
+  backend: string;
+  /** Seconds of finished video. */
+  videoSeconds: number;
+  /** Render units (scenes) the job has. */
+  units: number;
+  /** Wall-clock estimate in seconds; null while it is not measured (#125). Never a guess. */
+  seconds: number | null;
+  /** Extra charge in USD by a third party (cloud, licence fee) for this render; 0 for own hardware; null when unknown. */
+  costUsd: number | null;
+  /** One or two sentences an agent can show the user. */
+  note: string;
+}
+
+/** What estimate() is asked about: a render or preview before it is queued. */
+export type EstimateRequest = Pick<RenderRequest, 'kind' | 'project' | 'sceneIds' | 'scale'>;
+
 /** Where engine renders and assembly run. */
 export interface RenderBackend {
   id: string;
   displayName: string;
+  kind: RenderBackendKind;
   /** Configured by the operator (credentials, region, ...). */
   configured(): boolean;
   /** False for skeletons that exist so capabilities can report them honestly. */
   implemented: boolean;
   env: string[];
+  capabilities(): BackendCapabilities;
+  estimate(req: EstimateRequest): BackendEstimate;
   submit(req: RenderRequest, ctx: BackendContext): Promise<RenderOutcome>;
   cancel(jobId: string): Promise<void>;
 }

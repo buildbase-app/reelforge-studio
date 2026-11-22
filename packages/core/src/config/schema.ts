@@ -118,6 +118,14 @@ export const ConfigSchema = z.object({
       description:
         'Jobs one `worker` (or `all`) instance claims and renders at the same time. Unset: `limits.renderConcurrency` (which can then be changed at runtime). Scale out with more worker instances rather than a high value here.',
     }),
+    workerOnce: setting(z.boolean(), {
+      kind: 'boolean',
+      scope: 'startup',
+      env: 'REELFORGE_WORKER_ONCE',
+      default: false,
+      description:
+        'Run as `reelforge worker --once` (D-100): claim at most one job, render it and exit (0 succeeded, cancelled or nothing queued; 1 failed; 75 handed back, lease lost, or the `--job` still queued; see docs/providers/backends.md). For job platforms that start one container per unit (KEDA ScaledJob, Azure Container Apps event jobs, AWS Batch, Cloud Run Jobs, ECS RunTask). Implies `server.role` `worker` (same database and storage rules); serves no HTTP.',
+    }),
   }),
   queue: z.object({
     driver: setting(z.enum(['auto', 'inprocess', 'database']), {
@@ -158,6 +166,14 @@ export const ConfigSchema = z.object({
       default: 30,
       description:
         'On SIGTERM a worker stops claiming and waits this long for its running jobs; jobs still running then are stopped and handed back to the queue (database queue), so another worker takes them at once. Keep the orchestrator\'s grace period (Kubernetes `terminationGracePeriodSeconds`) longer.',
+    }),
+    onceWaitMs: setting(z.number().int().min(0).max(600_000).optional(), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_QUEUE_ONCE_WAIT_MS',
+      defaultText: '3 × `queue.pollIntervalMs`',
+      description:
+        '`worker --once`: how long to wait for a queued job before exiting 0 with nothing done, so a job platform does not pay for an idle container. `reelforge worker --once --wait-ms N` overrides it.',
     }),
   }),
   limits: z.object({
