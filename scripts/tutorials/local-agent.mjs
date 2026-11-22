@@ -21,7 +21,7 @@
  *   LOCAL_AGENT_MODULES                folder where `npm i node-llama-cpp` was run (llama-cpp backend)
  *   LOCAL_AGENT_BASE_URL               openai backend, default http://127.0.0.1:11434/v1
  *   LOCAL_AGENT_MAX_TOOL_CALLS         budget, default 25
- *   LOCAL_AGENT_CONTEXT                context size in tokens, default 8192
+ *   LOCAL_AGENT_CONTEXT                context size in tokens, default 4096 (older turns are shifted out)
  *   LOCAL_AGENT_THREADS                CPU threads (default: all cores)
  *   LOCAL_AGENT_TRACE                  write every step as JSON lines to this file
  *
@@ -42,7 +42,6 @@ export const LOCAL_TOOLS = {
   update_scene: [],
   render_project: [],
   get_job: ['waitSeconds'],
-  get_job_logs: [],
   get_render_output: ['jobId'],
 };
 
@@ -82,19 +81,46 @@ function withDesc(out, s) {
   return s.description ? { ...out, description: String(s.description).slice(0, 300) } : out;
 }
 
+/** A tool description cut to its first sentences (at most 400 characters): small models, small context. */
+export function shortDescription(text = '') {
+  if (text.length <= 400) return text;
+  const cut = text.slice(0, 400);
+  const end = cut.lastIndexOf('. ');
+  return end > 100 ? cut.slice(0, end + 1) : cut + '...';
+}
+
 /** The same tools in the OpenAI `tools` format (for Ollama / llama-server). */
 export function toOpenAiTool(tool, keepOptional = []) {
   const s = tool.inputSchema ?? { type: 'object', properties: {} };
   const keep = new Set([...(s.required ?? []), ...keepOptional]);
   const properties = Object.fromEntries(Object.entries(s.properties ?? {}).filter(([k]) => keep.has(k)));
-  return { type: 'function', function: { name: tool.name, description: tool.description, parameters: { type: 'object', properties, required: [...keep] } } };
+  return { type: 'function', function: { name: tool.name, description: shortDescription(tool.description), parameters: { type: 'object', properties, required: [...keep] } } };
 }
 
 /** Keep tool results short for a small context: long JSON is cut, images are dropped. */
-export function compactResult(result, max = 2500) {
+export function compactResult(result, max = 1500) {
   const text = (result.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('');
   const t = text.length > max ? text.slice(0, max) + ` ... [${text.length - max} more characters cut]` : text;
   return result.isError ? `ERROR: ${t}` : t;
+}
+
+/**
+ * Tool calls a model wrote as text: Qwen/Hermes-style `<tool_call>{"name": ..., "arguments": {...}}</tool_call>`
+ * blocks (any whitespace), or a bare JSON object with name and arguments.
+ */
+export function textToolCalls(text) {
+  const out = [];
+  const blocks = [...String(text).matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g)].map((m) => m[1]);
+  if (!blocks.length && /^\s*\{[\s\S]*\}\s*$/.test(String(text))) blocks.push(String(text));
+  for (const b of blocks) {
+    try {
+      const j = JSON.parse(b);
+      if (typeof j?.name === 'string') out.push({ name: j.name, arguments: j.arguments ?? j.parameters ?? {} });
+    } catch {
+      /* not a call */
+    }
+  }
+  return out;
 }
 
 /** The loop's bookkeeping: what was called, the job, whether the reel is done. */
@@ -180,14 +206,14 @@ async function runLlamaCpp(client, tools, prompt, state) {
   if (!modelPath) throw new Error('set LOCAL_AGENT_MODEL to the path of a .gguf file');
   const llama = await getLlama({ gpu: process.env.LOCAL_AGENT_GPU ?? false });
   const model = await llama.loadModel({ modelPath });
-  const context = await model.createContext({ contextSize: Number(process.env.LOCAL_AGENT_CONTEXT ?? 8192), ...(process.env.LOCAL_AGENT_THREADS ? { threads: Number(process.env.LOCAL_AGENT_THREADS) } : {}) });
+  const context = await model.createContext({ contextSize: Number(process.env.LOCAL_AGENT_CONTEXT ?? 4096), ...(process.env.LOCAL_AGENT_THREADS ? { threads: Number(process.env.LOCAL_AGENT_THREADS) } : {}) });
   const session = new LlamaChatSession({ contextSequence: context.getSequence(), systemPrompt: SYSTEM_PROMPT });
   const controller = new AbortController();
   const functions = Object.fromEntries(
     tools.map((t) => [
       t.name,
       defineChatSessionFunction({
-        description: t.description,
+        description: shortDescription(t.description),
         params: toGbnfSchema(t.inputSchema, LOCAL_TOOLS[t.name]),
         handler: async (params) => {
           if (state.exhausted) {
@@ -204,11 +230,32 @@ async function runLlamaCpp(client, tools, prompt, state) {
   let reply = '';
   let turns = 0;
   let message = prompt;
-  for (let round = 0; round < 6 && !state.done && !state.exhausted; round++) {
+  const offered = new Set(tools.map((t) => t.name));
+  for (let round = 0; round < 30 && !state.done && !state.exhausted; round++) {
     const before = state.toolCalls.length;
-    reply = await session.prompt(message, { functions, signal: controller.signal, stopOnAbortSignal: true, maxTokens: 1500, temperature: 0.2 });
+    try {
+      reply = await session.prompt(message, { functions, signal: controller.signal, stopOnAbortSignal: true, maxTokens: 1500, temperature: 0.2 });
+    } catch (e) {
+      // The history no longer fits the context (long tool results): start over from the system
+      // prompt with a recap of the progress, instead of failing the whole run.
+      if (!/context/i.test(String(e?.message))) throw e;
+      trace({ type: 'assistant', round, text: `[context full: history reset] ${String(e.message).slice(0, 200)}` });
+      session.setChatHistory(session.getChatHistory().slice(0, 1));
+      message = `${prompt}\n\nProgress so far: ${state.toolCalls.map((c) => c.name).join(', ') || 'nothing'}. ${NUDGE(state)}`;
+      turns++;
+      continue;
+    }
     turns += state.toolCalls.length - before + 1;
     trace({ type: 'assistant', round, text: reply.slice(0, 1500) });
+    // Small models sometimes write the call as text (e.g. a pretty-printed <tool_call> block) instead of
+    // the format the runtime detects. Run such calls too and answer in the model's own result format.
+    const textCalls = textToolCalls(reply).filter((c) => offered.has(c.name));
+    if (textCalls.length && !state.done) {
+      const results = [];
+      for (const c of textCalls.slice(0, 3)) results.push(`<tool_response>\n${await callTool(client, state, c.name, c.arguments)}\n</tool_response>`);
+      message = results.join('\n');
+      continue;
+    }
     message = NUDGE(state);
   }
   return { reply, turns, model: modelPath.split('/').pop() };
@@ -264,8 +311,14 @@ async function main() {
   const t0 = Date.now();
   const backend = process.env.LOCAL_AGENT_BACKEND ?? 'llama-cpp';
   const run = backend === 'openai' ? runOpenAi : runLlamaCpp;
-  const out = await run(client, tools, prompt, state);
-  await client.close();
+  let out;
+  try {
+    out = await run(client, tools, prompt, state);
+  } catch (e) {
+    console.error(`agent stopped: ${e?.stack ?? e}`);
+    out = { reply: `agent stopped: ${String(e?.message ?? e).slice(0, 300)}`, turns: null, model: process.env.LOCAL_AGENT_MODEL?.split('/').pop() ?? null };
+  }
+  await client.close().catch(() => undefined);
   const seconds = Math.round((Date.now() - t0) / 1000);
   console.log(`${state.done ? 'done' : 'NOT done'} after ${state.toolCalls.length} tool calls, ${out.turns} turns, ${seconds} s`);
   console.log('RESULT ' + JSON.stringify({ jobId: state.jobId, renderId: state.renderId, done: state.done, toolCalls: state.toolCalls, turns: out.turns, model: out.model, backend, seconds, reply: out.reply }));

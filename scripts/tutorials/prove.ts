@@ -105,6 +105,7 @@ export async function proveCell(studio: Studio, agent: AgentId, engine: CellEngi
     proof.toolCalls = r.toolCalls.map(describeCall);
     console.log(`   tool calls (${r.toolCalls.length}): ${r.toolCalls.map((c) => c.name).join(' -> ')}`);
     if (r.llm) console.log(`   model ${r.llm.model}, turns ${r.llm.turns}, ${Math.round((r.llm.durationMs ?? 0) / 1000)} s, cost ${r.llm.costUsd ?? 'n/a'} USD`);
+    if (r.llm?.isError === true) proof.problems.push(`the agent did not finish cleanly: ${(r.llm.reply || 'no reply').split('\n')[0]!.slice(0, 300)}`);
     if (!r.jobId) throw new Error('the agent started no render job (no render_project call returned a job)');
     proof.jobId = r.jobId;
 

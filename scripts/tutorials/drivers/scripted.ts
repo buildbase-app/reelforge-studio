@@ -55,7 +55,7 @@ export const localAi: Driver = async ({ studio, outDir, agent, engine }) => {
     toolCalls: r.toolCalls,
     jobId: r.jobId,
     transcriptPath: r.transcriptPath,
-    llm: { model: r.model ?? null, turns: r.turns ?? null, durationMs: Date.now() - t0, costUsd: 0, isError: !r.jobId, reply: r.reply ?? '' },
+    llm: { model: r.model ?? null, turns: r.turns ?? null, durationMs: Date.now() - t0, costUsd: 0, isError: r.done !== true, reply: r.reply ?? '' },
   };
   return result;
 };

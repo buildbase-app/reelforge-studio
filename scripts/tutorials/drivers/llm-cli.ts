@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promptFor } from '../cells';
@@ -15,8 +15,10 @@ export function runToFile(cmd: string, args: string[], opts: { env: NodeJS.Proce
     child.stderr.on('data', (d) => (err += d));
     const timer = setTimeout(() => child.kill('SIGTERM'), opts.timeoutMs);
     child.on('error', fail);
-    child.on('exit', (code) => {
+    child.on('exit', (code, signal) => {
       clearTimeout(timer);
+      // A process killed by a signal (the OOM killer sends SIGKILL) says so in its log.
+      if (signal) err += `\n[killed by ${signal}${signal === 'SIGKILL' ? ': out of memory, or killed from outside' : ''}]\n`;
       writeFileSync(opts.out, out);
       if (err.trim()) writeFileSync(opts.out + '.stderr.txt', err);
       ok(code ?? 1);
@@ -64,6 +66,8 @@ export const claudeCode: Driver = async ({ studio, outDir, agent, engine }) => {
  * VERIFY the flags against `codex exec --help` of your version.
  */
 export const codex: Driver = async ({ studio, outDir, agent, engine }) => {
+  const version = spawnSync('codex', ['--version'], { encoding: 'utf8' });
+  if (version.status !== 0) throw new Error('the Codex CLI is not installed here: npm i -g @openai/codex, then run this again (an OpenAI API key is needed, as a proxy-injected secret or OPENAI_API_KEY)');
   const prompt = promptFor(agent, engine);
   const transcript = join(outDir, 'transcript.jsonl');
   const env: NodeJS.ProcessEnv = { ...process.env, REELFORGE_API_KEY: studio.key };
@@ -95,7 +99,7 @@ export const codex: Driver = async ({ studio, outDir, agent, engine }) => {
     toolCalls,
     jobId: jobIds.at(-1) ?? null,
     transcriptPath: transcript,
-    llm: { model: model ?? 'codex default', turns: null, durationMs: Date.now() - t0, costUsd: null, isError: code !== 0, reply: '', exitCode: code },
+    llm: { model: `${model ?? 'default model'} (${version.stdout.trim()})`, turns: null, durationMs: Date.now() - t0, costUsd: null, isError: code !== 0, reply: '', exitCode: code },
   };
 };
 

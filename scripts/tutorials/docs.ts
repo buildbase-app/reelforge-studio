@@ -383,10 +383,13 @@ proxy allow those hosts first.
 [\`scripts/tutorials/local-agent.mjs\`](../../../scripts/tutorials/local-agent.mjs)
 is the whole agent: the MCP SDK client lists the studio's tools, offers the
 model a small subset (\`list_templates\`, \`create_project\`, \`validate_project\`,
-\`update_scene\`, \`render_project\`, \`get_job\`, \`get_job_logs\`,
-\`get_render_output\`), turns each tool's JSON Schema into a grammar so the
-model can only produce well-formed arguments, and loops until
-\`get_render_output\` has returned a render (or 25 tool calls are used).
+\`update_scene\`, \`render_project\`, \`get_job\`, \`get_render_output\`),
+turns each tool's JSON Schema into a grammar so the model can only produce
+well-formed arguments, and loops until \`get_render_output\` has returned a
+render (or 25 tool calls are used). Two things it does for small models: a
+call the model writes as text (a pretty-printed \`<tool_call>\` block) is run
+like a native one, and when the history outgrows the 4k context the session
+restarts from the prompt plus a one-line recap of the progress.
 
 The exact prompt:
 
@@ -542,9 +545,7 @@ joined to the frame. Reels are 8 to 9 s, 1080x1920, 30 fps.
 
 Why some cells are not proven:
 
-- **OpenAI Codex CLI**: the steps and the proof script are ready, but no
-  OpenAI API key was available for the proof runs yet.
-- Cells marked ❌ ran and failed; their page says why.
+${notProven(proofs)}
 
 Other clients without their own row (Cursor, Windsurf, VS Code, Zed) use the
 same MCP endpoint: [mcp-sdk/other-clients.md](mcp-sdk/other-clients.md)
@@ -598,6 +599,22 @@ right size, frame rate, decoded frame count, duration and codecs. Artefacts
 \`$TMPDIR/reelforge-tutorials\`), never into the repository. Test cases:
 [TEST_CASES.md](TEST_CASES.md).
 `;
+}
+
+/** One bullet per agent with cells that are not ✅, with the reason from cells.ts or the failed proof. */
+function notProven(proofs: Map<string, Proof | null>): string {
+  const out: string[] = [];
+  for (const a of AGENTS) {
+    const open = CELL_ENGINES.filter((e) => proofs.get(`${a}-${e}`)?.status !== 'passed');
+    if (!open.length) continue;
+    const failed = open.filter((e) => proofs.get(`${a}-${e}`)?.status === 'failed');
+    const notRun = open.filter((e) => !proofs.get(`${a}-${e}`));
+    const parts: string[] = [];
+    if (notRun.length) parts.push(`${notRun.map((e) => ENGINE_INFO[e].title).join(', ')}: ${AGENT_INFO[a].blocked ?? 'not run yet'}`);
+    if (failed.length) parts.push(`${failed.map((e) => ENGINE_INFO[e].title).join(', ')}: the proof run failed (see the page for the cause)`);
+    out.push(`- **${AGENT_INFO[a].label}**: ${parts.join('; ')}.`);
+  }
+  return out.length ? out.join('\n') : '- None: every cell is proven.';
 }
 
 function indent(s: string, n: number): string {

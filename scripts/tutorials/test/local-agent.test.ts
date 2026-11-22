@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error: plain ESM script without type declarations
-import { AgentState, FIXED_ARGS, LOCAL_TOOLS, compactResult, toGbnfSchema, toOpenAiTool } from '../local-agent.mjs';
+import { AgentState, FIXED_ARGS, LOCAL_TOOLS, compactResult, shortDescription, textToolCalls, toGbnfSchema, toOpenAiTool } from '../local-agent.mjs';
 
 /** The shape zod 4 / the MCP SDK give a tool's inputSchema (e.g. get_job). */
 const getJob = {
@@ -73,6 +73,20 @@ describe('agent loop state', () => {
     expect(s.exhausted).toBe(false);
     s.observe('get_job', {}, { content: [{ type: 'text', text: 'not json' }] });
     expect(s.exhausted).toBe(true);
+  });
+  it('reads tool calls a model wrote as text', () => {
+    const pretty = '<tool_call>\n{\n  "name": "list_templates",\n  "arguments": {\n    "engine": "html"\n  }\n}\n</tool_call>';
+    expect(textToolCalls(pretty)).toEqual([{ name: 'list_templates', arguments: { engine: 'html' } }]);
+    expect(textToolCalls('{"name":"get_job","arguments":{"jobId":"job_1"}}')).toEqual([{ name: 'get_job', arguments: { jobId: 'job_1' } }]);
+    expect(textToolCalls('All done, the reel is rendered.')).toEqual([]);
+    expect(textToolCalls('<tool_call>{broken</tool_call>')).toEqual([]);
+  });
+  it('shortens long tool descriptions at a sentence end', () => {
+    expect(shortDescription('Short.')).toBe('Short.');
+    const long = 'First sentence is here and it is long enough to keep. '.repeat(10);
+    const out = shortDescription(long);
+    expect(out.length).toBeLessThanOrEqual(400);
+    expect(out.endsWith('.')).toBe(true);
   });
   it('cuts long results and drops images', () => {
     const r = compactResult({ content: [{ type: 'text', text: 'x'.repeat(30) }, { type: 'image', data: 'AAAA' }] }, 10);
