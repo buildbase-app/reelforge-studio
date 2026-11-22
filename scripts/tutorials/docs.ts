@@ -93,15 +93,17 @@ function commonTroubleshooting(): string {
 | \`403 forbidden\` (scope) | The key lacks a scope: rendering needs \`render\`, creating projects \`write\`. Create a key with \`--scopes read,write,render\`. |
 | An engine shows \`available: false\` | \`REELFORGE_CHROMIUM_PATH\` is unset or wrong (checkout), or the image is not the release image. \`get_capabilities\` says how to fix it. |
 | \`invalid_manifest\` | \`details.issues\` lists every problem with its path, e.g. \`scenes.1.props.headline\`. Fix all and send again. |
-| The job stays \`running\` for minutes | Rendering is CPU-bound; one 8 s reel took 35 to 120 s on a shared 4-core machine. Wait with \`get_job\` \`waitSeconds: 45\` (or \`?wait=50\`); \`get_job_logs\` shows the stage. |`;
+| The job stays \`running\` for minutes | Rendering is CPU-bound; one 8 s reel took 35 to 120 s on a shared 4-core machine. Wait with \`get_job\` \`waitSeconds: 45\` (or \`?wait=50\`); \`get_job_logs\` shows the stage. |
+| \`render_failed\` with a timeout on an html or hyperframes scene | One scene ran past \`render.sceneTimeoutSeconds\` (default 900 s). On a slow machine raise \`REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS\`. |
+| html, hyperframes or motion-canvas renders fail in Docker | The container needs the seccomp profile \`deployment/seccomp/chrome.json\` for Chromium's sandbox (\`docker compose\` sets it); see [DEPLOY.md](../../DEPLOY.md). |`;
 }
 
 function engineNotes(engine: CellEngine): string {
   const notes: Record<CellEngine, string> = {
     remotion: 'Remotion (`kinetic-title`): 1.5 to 8 s per scene, headline up to 60 characters. The first Remotion render bundles the composition and is slower; `pnpm prebuild:engines` (done in the Docker image) avoids that.',
     'motion-canvas': 'Motion Canvas (`animated-explainer`): 2 to 20 s, a title and 1 to 4 points (up to 90 characters each; long points wrap).',
-    html: 'HTML (`html-title`): 1 to 12 s, headline up to 80 characters, optional kicker and subline. The html engine also takes raw `{ html, css }` instead of a template.',
-    hyperframes: 'HyperFrames (`hyperframes-title`): 1 to 12 s, headline up to 80 characters and a subline, a GSAP timeline rendered by the local HyperFrames renderer.',
+    html: 'HTML (`html-title`): 1 to 12 s, headline up to 80 characters, optional kicker and subline. The html engine also takes raw `{ html, css }` instead of a template, and renders without network access (no remote scripts or resources).',
+    hyperframes: 'HyperFrames (`hyperframes-title`): 1 to 12 s, headline up to 80 characters and a subline, a GSAP timeline rendered by the local HyperFrames renderer. Scenes render without network access: a composition cannot load remote scripts, fonts or images (import assets into the studio first).',
     'multi-engine':
       'Multi-engine: every scene is rendered by its own engine at the same size and frame rate, then joined with hard cuts to the frame. Each scene keeps its template\'s duration range (Remotion at most 8 s, Motion Canvas at least 2 s).',
   };

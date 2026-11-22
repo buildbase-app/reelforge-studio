@@ -192,6 +192,16 @@ async function callTool(client, state, name, args) {
   return text;
 }
 
+/**
+ * What the model gets after a context reset. Once a render job exists, the task is
+ * only to finish that job: repeating the original prompt made a small model start
+ * over (list templates, create, render again) and loop.
+ */
+export function recapAfterReset(prompt, state) {
+  if (state.jobId) return `You already created the project and started render job ${state.jobId}; do not create or render again. ${NUDGE(state)}`;
+  return `${prompt}\n\nProgress so far: ${state.toolCalls.map((c) => c.name).join(', ') || 'nothing'}. ${NUDGE(state)}`;
+}
+
 const NUDGE = (state) =>
   state.jobId
     ? `The render job ${state.jobId} is ${state.jobStatus ?? 'started'}. Call get_job with jobId "${state.jobId}" until it succeeds, then call get_render_output with that jobId.`
@@ -246,7 +256,7 @@ async function runLlamaCpp(client, tools, prompt, state) {
       if (!/context/i.test(String(e?.message))) throw e;
       trace({ type: 'assistant', round, text: `[context full: history reset] ${String(e.message).slice(0, 200)}` });
       session.setChatHistory(session.getChatHistory().slice(0, 1));
-      message = `${prompt}\n\nProgress so far: ${state.toolCalls.map((c) => c.name).join(', ') || 'nothing'}. ${NUDGE(state)}`;
+      message = recapAfterReset(prompt, state);
       turns++;
       continue;
     }

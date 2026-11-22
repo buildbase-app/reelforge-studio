@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error: plain ESM script without type declarations
-import { AgentState, FIXED_ARGS, LOCAL_TOOLS, compactResult, shortDescription, textToolCalls, toGbnfSchema, toOpenAiTool } from '../local-agent.mjs';
+import { AgentState, FIXED_ARGS, LOCAL_TOOLS, compactResult, recapAfterReset, shortDescription, textToolCalls, toGbnfSchema, toOpenAiTool } from '../local-agent.mjs';
 
 /** The shape zod 4 / the MCP SDK give a tool's inputSchema (e.g. get_job). */
 const getJob = {
@@ -80,6 +80,15 @@ describe('agent loop state', () => {
     expect(textToolCalls('{"name":"get_job","arguments":{"jobId":"job_1"}}')).toEqual([{ name: 'get_job', arguments: { jobId: 'job_1' } }]);
     expect(textToolCalls('All done, the reel is rendered.')).toEqual([]);
     expect(textToolCalls('<tool_call>{broken</tool_call>')).toEqual([]);
+  });
+  it('after a context reset, a started render is finished, not started again', () => {
+    const s = new AgentState(25);
+    expect(recapAfterReset('Make a reel.', s)).toMatch(/^Make a reel\.\n\nProgress so far: nothing\./);
+    s.observe('render_project', {}, { content: [{ type: 'text', text: '{"job":{"id":"job_9"}}' }] });
+    const r = recapAfterReset('Make a reel.', s);
+    expect(r).not.toContain('Make a reel.');
+    expect(r).toContain('do not create or render again');
+    expect(r).toContain('job_9');
   });
   it('shortens long tool descriptions at a sentence end', () => {
     expect(shortDescription('Short.')).toBe('Short.');
