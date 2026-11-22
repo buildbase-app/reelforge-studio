@@ -10,7 +10,7 @@
  * docs/providers/queue-and-scaling.md.
  */
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { keyFrames, probe, resolveTools, run } from '@reelforge/media-pipeline';
 import type { Project, RenderScene } from '@reelforge/project-schema';
@@ -274,7 +274,12 @@ describe('render.fanOut scenes+chunks in the service (fake engines)', () => {
     expect(first.error!.message).toMatch(/unit 1\/2 \(scene "long", frames 120-179\) failed: injected failure/);
     const end = Date.now() + 10_000;
     while ((await children(first)).some((k) => k.status === 'queued' || k.status === 'running') && Date.now() < end) await new Promise((r) => setTimeout(r, 30));
-    const committed = (await children(first)).filter((k) => k.status === 'succeeded').map((k) => JSON.stringify((k.params as { range?: number[] }).range ?? null));
+    // Committed = a stored unit manifest (a unit may commit and still be recorded as cancelled when the render failed meanwhile).
+    const unitsDir = join(rendersDir('chunk-retry'), `.tmp-${runIdOf(first)}`, 'units');
+    const committed = (existsSync(unitsDir) ? readdirSync(unitsDir) : []).flatMap((f) => {
+      const m = /^\d\d(?:\.f(\d+)-(\d+))?\.json$/.exec(f);
+      return m ? [JSON.stringify(m[1] ? [Number(m[1]), Number(m[2])] : null)] : [];
+    });
     expect(committed).not.toContain(JSON.stringify([120, 179]));
     failing.clear();
     const before = engines.remotion.ranges.length;
