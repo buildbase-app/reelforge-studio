@@ -137,6 +137,8 @@ Multi-engine: every scene is rendered by its own engine at the same size and fra
 | An engine shows `available: false` | `REELFORGE_CHROMIUM_PATH` is unset or wrong (checkout), or the image is not the release image. `get_capabilities` says how to fix it. |
 | `invalid_manifest` | `details.issues` lists every problem with its path, e.g. `scenes.1.props.headline`. Fix all and send again. |
 | The job stays `running` for minutes | Rendering is CPU-bound; one 8 s reel took 35 to 120 s on a shared 4-core machine. Wait with `get_job` `waitSeconds: 45` (or `?wait=50`); `get_job_logs` shows the stage. |
+| `render_failed` with a timeout on an html or hyperframes scene | One scene ran past `render.sceneTimeoutSeconds` (default 900 s). On a slow machine raise `REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS`. |
+| html, hyperframes or motion-canvas renders fail in Docker | The container needs the seccomp profile `deployment/seccomp/chrome.json` for Chromium's sandbox (`docker compose` sets it); see [DEPLOY.md](../../DEPLOY.md). |
 | `claude mcp list` shows the server as failed | The studio is not running, the URL is wrong or the header is missing. `curl -s $RF/healthz` should answer. |
 | `-p` stops with a permission error for a tool | Add `--allowedTools mcp__reelforge` (all studio tools) or name the tools one by one. |
 | `error_max_turns` | The task needed more turns; raise `--max-turns` or make the prompt more specific (name the engine and template). |

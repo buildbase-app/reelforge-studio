@@ -369,7 +369,9 @@ function localSteps(engine: CellEngine): string {
 [node-llama-cpp](https://node-llama-cpp.withcat.ai) runs GGUF models in Node on
 the CPU (prebuilt binaries from npm, no compiler). The tested model is
 Qwen3-4B-Instruct-2507, 4-bit (Q4_K_M, 2.5 GB, Apache-2.0); it needs about
-4 GB of free RAM with an 8k context. Keep both outside the studio checkout:
+4 GB of free RAM with the agent's 4k context. Expect minutes per step on a CPU: the
+proof runs on a shared 4-core machine took 4 to 50 minutes per reel, most of it
+for writing the manifest. Keep both outside the studio checkout:
 
 ${fence(
   'bash',

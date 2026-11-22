@@ -148,7 +148,7 @@ The proof run's actual calls are listed under [Proof](#proof).
 - `final.mp4`: H.264 1080x1920 at 30 fps, exactly 240 frames (8 s), with an AAC track (silent: no music was set).
 - Scenes: only the `html` engine (template `html-title`).
 
-HTML (`html-title`): 1 to 12 s, headline up to 80 characters, optional kicker and subline. The html engine also takes raw `{ html, css }` instead of a template.
+HTML (`html-title`): 1 to 12 s, headline up to 80 characters, optional kicker and subline. The html engine also takes raw `{ html, css }` instead of a template, and renders without network access (no remote scripts or resources).
 
 ## Troubleshooting
 
@@ -161,6 +161,8 @@ HTML (`html-title`): 1 to 12 s, headline up to 80 characters, optional kicker an
 | An engine shows `available: false` | `REELFORGE_CHROMIUM_PATH` is unset or wrong (checkout), or the image is not the release image. `get_capabilities` says how to fix it. |
 | `invalid_manifest` | `details.issues` lists every problem with its path, e.g. `scenes.1.props.headline`. Fix all and send again. |
 | The job stays `running` for minutes | Rendering is CPU-bound; one 8 s reel took 35 to 120 s on a shared 4-core machine. Wait with `get_job` `waitSeconds: 45` (or `?wait=50`); `get_job_logs` shows the stage. |
+| `render_failed` with a timeout on an html or hyperframes scene | One scene ran past `render.sceneTimeoutSeconds` (default 900 s). On a slow machine raise `REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS`. |
+| html, hyperframes or motion-canvas renders fail in Docker | The container needs the seccomp profile `deployment/seccomp/chrome.json` for Chromium's sandbox (`docker compose` sets it); see [DEPLOY.md](../../DEPLOY.md). |
 | `Cannot find package '@modelcontextprotocol/sdk'` | Run the script from this repository, or `npm i @modelcontextprotocol/sdk@1.32.2` next to it. |
 | `fetch failed` / `ECONNREFUSED` | The studio is not running on `REELFORGE_URL`. |
 | A tool result has `isError: true` | The script prints the error body and stops; the `code` and `details` say what to fix. |

@@ -14,7 +14,7 @@ says why it is not proven.
 | **OpenAI Codex CLI (MCP)** | [📝 not proven: OpenAI key pending](codex/remotion.md) | [📝 not proven: OpenAI key pending](codex/motion-canvas.md) | [📝 not proven: OpenAI key pending](codex/html.md) | [📝 not proven: OpenAI key pending](codex/hyperframes.md) | [📝 not proven: OpenAI key pending](codex/multi-engine.md) |
 | **Any MCP client (SDK script)** | [✅ 2026-11-21](mcp-sdk/remotion.md) | [✅ 2026-11-21](mcp-sdk/motion-canvas.md) | [✅ 2026-11-21](mcp-sdk/html.md) | [✅ 2026-11-21](mcp-sdk/hyperframes.md) | [✅ 2026-11-21](mcp-sdk/multi-engine.md) |
 | **REST (curl / fetch)** | [✅ 2026-11-21](rest/remotion.md) | [✅ 2026-11-21](rest/motion-canvas.md) | [✅ 2026-11-21](rest/html.md) | [✅ 2026-11-21](rest/hyperframes.md) | [✅ 2026-11-21](rest/multi-engine.md) |
-| **Local AI (node-llama-cpp, MCP)** | [✅ 2026-11-22](local-ai/remotion.md) | [📝 not proven: not run yet](local-ai/motion-canvas.md) | [✅ 2026-11-21](local-ai/html.md) | [✅ 2026-11-22](local-ai/hyperframes.md) | [📝 not proven: not run yet](local-ai/multi-engine.md) |
+| **Local AI (node-llama-cpp, MCP)** | [✅ 2026-11-22](local-ai/remotion.md) | [✅ 2026-11-22](local-ai/motion-canvas.md) | [✅ 2026-11-21](local-ai/html.md) | [✅ 2026-11-22](local-ai/hyperframes.md) | [✅ 2026-11-22](local-ai/multi-engine.md) |
 
 ✅ proven on that date (a real run passed every check) · 📝 documented, not
 proven, with the reason · ❌ a proof run failed (the page has the cause).
@@ -28,7 +28,6 @@ joined to the frame. Reels are 8 to 9 s, 1080x1920, 30 fps.
 Why some cells are not proven:
 
 - **OpenAI Codex CLI (MCP)**: Remotion, Motion Canvas, HTML, HyperFrames, Multi-engine: needs an OpenAI API key, pending from the founder.
-- **Local AI (node-llama-cpp, MCP)**: Motion Canvas, Multi-engine: not run yet.
 
 Other clients without their own row (Cursor, Windsurf, VS Code, Zed) use the
 same MCP endpoint: [mcp-sdk/other-clients.md](mcp-sdk/other-clients.md)

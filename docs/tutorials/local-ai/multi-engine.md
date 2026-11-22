@@ -2,7 +2,7 @@
 
 # Local AI over MCP (open-weight model on your CPU) + Multi-engine
 
-> **Status: 📝 documented, not proven (not run yet).** Written from the documented interfaces; not run end to end yet.
+> **Status: ✅ proven 2026-11-22.** The steps below were run end to end; the [Proof](#proof) section has the result.
 
 Make a short vertical reel with scenes from all four engines, driven by Local AI over MCP.
 Matrix and other combinations: [tutorials README](../README.md).
@@ -58,7 +58,9 @@ More: [DEPLOY.md](../../DEPLOY.md), [CONFIG.md](../../CONFIG.md), [licence](../.
 [node-llama-cpp](https://node-llama-cpp.withcat.ai) runs GGUF models in Node on
 the CPU (prebuilt binaries from npm, no compiler). The tested model is
 Qwen3-4B-Instruct-2507, 4-bit (Q4_K_M, 2.5 GB, Apache-2.0); it needs about
-4 GB of free RAM with an 8k context. Keep both outside the studio checkout:
+4 GB of free RAM with the agent's 4k context. Expect minutes per step on a CPU: the
+proof runs on a shared 4-core machine took 4 to 50 minutes per reel, most of it
+for writing the manifest. Keep both outside the studio checkout:
 
 ```bash
 mkdir -p ~/reelforge-local-ai && cd ~/reelforge-local-ai && npm init -y
@@ -123,6 +125,8 @@ The local model gets the prompt and the tool subset; the agent loop executes eve
 5. `get_job (repeated)`
 6. `get_render_output`
 
+The proof run's actual calls are listed under [Proof](#proof).
+
 ## Expected output
 
 - A job that ends `succeeded`, and a render with `final.mp4`, `poster.png` and `render-manifest.json`.
@@ -143,6 +147,8 @@ Multi-engine: every scene is rendered by its own engine at the same size and fra
 | An engine shows `available: false` | `REELFORGE_CHROMIUM_PATH` is unset or wrong (checkout), or the image is not the release image. `get_capabilities` says how to fix it. |
 | `invalid_manifest` | `details.issues` lists every problem with its path, e.g. `scenes.1.props.headline`. Fix all and send again. |
 | The job stays `running` for minutes | Rendering is CPU-bound; one 8 s reel took 35 to 120 s on a shared 4-core machine. Wait with `get_job` `waitSeconds: 45` (or `?wait=50`); `get_job_logs` shows the stage. |
+| `render_failed` with a timeout on an html or hyperframes scene | One scene ran past `render.sceneTimeoutSeconds` (default 900 s). On a slow machine raise `REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS`. |
+| html, hyperframes or motion-canvas renders fail in Docker | The container needs the seccomp profile `deployment/seccomp/chrome.json` for Chromium's sandbox (`docker compose` sets it); see [DEPLOY.md](../../DEPLOY.md). |
 | Very slow first answer | The model reads the system prompt and tool schemas first (a few thousand tokens); on 4 CPU cores that takes a minute or more. Later turns reuse the cache. |
 | The model invents template props | It gets the `invalid_manifest` error with every path and usually fixes it in the next call; a bigger model (7B) makes fewer mistakes. |
 | `NOT done after 25 tool calls` | Raise `LOCAL_AGENT_MAX_TOOL_CALLS`, make the prompt more specific, or use a bigger model. |
@@ -150,12 +156,47 @@ Multi-engine: every scene is rendered by its own engine at the same size and fra
 
 ## Proof
 
-**Not proven yet** (not run yet). Nothing on this page has been run for this
-cell; treat the steps as documented, not verified. To prove it once the
-blocker is gone:
+**Passed** (TUT-25 in [TEST_CASES.md](../TEST_CASES.md)).
 
-```bash
-pnpm tutorials:prove local-ai multi-engine --record   # then: pnpm tutorials:docs
-```
+| | |
+| --- | --- |
+| Date | 2026-11-22 08:44:52 UTC |
+| Studio | ReelForge Studio 0.1.0, commit `47e325e`, started from a checkout with `REELFORGE_LICENCE_MODE=off` (local development only) |
+| Reproduce | `pnpm tutorials:prove local-ai multi-engine` |
+| Command the proof ran | `node scripts/tutorials/local-agent.mjs "<prompt>"` |
+| Model | Qwen3-4B-Instruct-2507-Q4_K_M.gguf; 8 turns; 9 tool calls; 2330 s agent time |
+| Project / job / render | `tut-local-ai-multi-engine` / `job_mwrmkaet127f21c103` / `run_mwrmkaete3f9d1d76c` |
+| Render time | 159.1 s (job start to finish, shared 4-core CPU, one render at a time) |
+| Scene engines | remotion, motion-canvas, html, hyperframes |
+| ffprobe | 1080x1920, 30 fps, 270 frames (full decode), 9 s, h264 + aac, 681 KB |
 
-Test case: TUT-25 in [TEST_CASES.md](../TEST_CASES.md).
+Tool calls, in order (9):
+
+1. `list_templates(engine)`
+2. `list_templates(engine)`
+3. `list_templates(engine)`
+4. `list_templates(engine)`
+5. `create_project(manifest)`
+6. `validate_project(projectId)`
+7. `render_project(projectId)`
+8. `get_job(jobId, waitSeconds)`
+9. `get_render_output(jobId, includePoster)`
+
+The agent's final reply (signed links redacted):
+
+> <tool_call>
+> {
+>   "name": "render_project",
+>   "arguments": {
+>     "projectId": "tut-local-ai-multi-engine"
+>   }
+> }
+> </tool_call>
+
+**Note on this proof:** Third attempt. Attempt 1 (2026-11-22 05:11 UTC) failed: the four list_templates results filled the 4k context, and after each reset the loop repeated the whole prompt, so the model created and rendered the project three times and ran out of its 25-call budget (the reel itself rendered correctly). Fix: after a reset with a render job running, the model is only told to finish that job. Attempt 2 was killed by the out-of-memory killer before its first call (shared machine). In this run the context filled once, right after render_project; the model then finished with get_job and get_render_output. The model checked all four templates (three calls in one turn), and writing the four-scene manifest took 6 minutes.
+
+Poster frame (40 % into the reel, 270 px wide):
+
+![Poster frame of the local-ai multi-engine proof](../proofs/local-ai-multi-engine.jpg)
+
+The full transcript, the MP4 and `proof.json` stay outside the repository (`$TUTORIAL_OUT/local-ai/multi-engine/`); re-run the command to get your own.

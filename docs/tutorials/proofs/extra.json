@@ -3,8 +3,8 @@
     "id": "TUT-26",
     "what": "REST with fetch instead of curl (examples/tutorials/rest-fetch.mjs) makes the HTML reel; same checks as TUT-18",
     "how": "`TUTORIAL_REST_CLIENT=fetch pnpm tutorials:prove rest html`",
-    "result": "📝 not run yet",
-    "date": "n/a"
+    "result": "✅ pass (job job_mwrmry3h73d3758070, 1080x1920, 30 fps, 240 frames, 8 s, render 99.6 s)",
+    "date": "2026-11-22"
   },
   {
     "id": "TUT-27",

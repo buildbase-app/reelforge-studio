@@ -127,7 +127,7 @@ Codex should work through the same workflow as Claude Code (not observed yet):
 - Scenes: only the `html` engine (template `html-title`).
 - Texts: written by the agent about the topic in the prompt, so they differ from run to run.
 
-HTML (`html-title`): 1 to 12 s, headline up to 80 characters, optional kicker and subline. The html engine also takes raw `{ html, css }` instead of a template.
+HTML (`html-title`): 1 to 12 s, headline up to 80 characters, optional kicker and subline. The html engine also takes raw `{ html, css }` instead of a template, and renders without network access (no remote scripts or resources).
 
 ## Troubleshooting
 
@@ -140,6 +140,8 @@ HTML (`html-title`): 1 to 12 s, headline up to 80 characters, optional kicker an
 | An engine shows `available: false` | `REELFORGE_CHROMIUM_PATH` is unset or wrong (checkout), or the image is not the release image. `get_capabilities` says how to fix it. |
 | `invalid_manifest` | `details.issues` lists every problem with its path, e.g. `scenes.1.props.headline`. Fix all and send again. |
 | The job stays `running` for minutes | Rendering is CPU-bound; one 8 s reel took 35 to 120 s on a shared 4-core machine. Wait with `get_job` `waitSeconds: 45` (or `?wait=50`); `get_job_logs` shows the stage. |
+| `render_failed` with a timeout on an html or hyperframes scene | One scene ran past `render.sceneTimeoutSeconds` (default 900 s). On a slow machine raise `REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS`. |
+| html, hyperframes or motion-canvas renders fail in Docker | The container needs the seccomp profile `deployment/seccomp/chrome.json` for Chromium's sandbox (`docker compose` sets it); see [DEPLOY.md](../../DEPLOY.md). |
 | `codex mcp list` does not show reelforge | The config file is not `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`), or the TOML table name is wrong. |
 | The MCP server fails to start or times out | `REELFORGE_API_KEY` is not exported in the shell that runs Codex, or the studio is not reachable. |
 | Tool calls wait for approval in `exec` | Set `approval_policy = "never"` for headless runs (VERIFY the key for your version). |
