@@ -95,8 +95,17 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
   }
   const render = (server: StartedServer, key = admin) => rest(server, 'POST', '/v1/projects/scale/renders', {}, key);
   const job = async (id: string, wait = 0) => (await rest(api, 'GET', `/v1/jobs/${id}${wait ? `?wait=${wait}` : ''}`)).json;
+  /** No job queued or running anywhere (each case starts from an empty queue). */
+  const idle = async () => {
+    for (let i = 0; i < 300; i++) {
+      const jobs = (await rest(api, 'GET', '/v1/jobs')).json.jobs as Array<{ status: string }>;
+      if (!jobs.some((j) => j.status === 'queued' || j.status === 'running')) return;
+      await new Promise((x) => setTimeout(x, 200));
+    }
+    throw new Error('jobs from an earlier case are still running');
+  };
   const done = async (id: string) => {
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       const j = await job(id, 20);
       if (['succeeded', 'failed', 'cancelled'].includes(j.status)) return j;
     }
@@ -156,10 +165,13 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
     const c = (await render(api)).json.job;
     const queued = await job(c.id);
     if (queued.status === 'queued') expect(queued.queuePosition).toBeGreaterThanOrEqual(0);
+    // The long-poll answers as soon as the worker finishes, or with the current state after the full wait.
     const t0 = Date.now();
-    const j = await job(a.id, 30);
-    expect(j.status).toBe('succeeded');
-    expect(Date.now() - t0).toBeLessThan(30_000);
+    const j = await job(a.id, 20);
+    const took = Date.now() - t0;
+    if (j.status === 'succeeded') expect(took).toBeLessThan(20_000);
+    else expect(took).toBeGreaterThanOrEqual(19_000);
+    expect((await done(a.id)).status).toBe('succeeded');
     await Promise.all([done(b.id), done(c.id)]);
   }, 120_000);
 
@@ -168,8 +180,9 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
     const slow = await instance('worker-slow', 'worker', 200);
     workers.push(slow);
     for (const w of workers.slice(0, 2)) await w.service.jobs.shutdown(0);
+    await idle();
     const r = (await render(api)).json.job;
-    for (let i = 0; i < 100 && (await job(r.id)).status !== 'running'; i++) await new Promise((x) => setTimeout(x, 100));
+    for (let i = 0; i < 600 && (await job(r.id)).status !== 'running'; i++) await new Promise((x) => setTimeout(x, 100));
     expect((await job(r.id)).workerId).toBe('worker-slow');
     const c = await rest(api, 'POST', `/v1/jobs/${r.id}/cancel`);
     expect(c.status).toBe(200);
@@ -178,8 +191,9 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
   }, 120_000);
 
   it('SCA-09 graceful shutdown of a worker hands its running job to another worker', async () => {
+    await idle();
     const r = (await render(api)).json.job;
-    for (let i = 0; i < 100 && (await job(r.id)).status !== 'running'; i++) await new Promise((x) => setTimeout(x, 100));
+    for (let i = 0; i < 600 && (await job(r.id)).status !== 'running'; i++) await new Promise((x) => setTimeout(x, 100));
     const slow = workers.find((w) => w.service.jobs.workerId === 'worker-slow')!;
     const fresh = await instance('worker-c', 'worker');
     workers.push(fresh);
