@@ -1250,7 +1250,64 @@ create and rotate return a secret (D-057). Metrics (bounded labels, no ids):
 `reelforge_webhook_events_total{event_type}`; a `webhook.deliver <channel>`
 client span per attempt.
 
-## P. Security hardening (2026-11-21, private security review SEC-01..SEC-20)
+## P. Public docs on BuildBase Docs (2026-11-21, issue #47)
+
+### D-080 --- Public docs: the repository is the source, BuildBase Docs is the published copy
+
+**Status:** DECIDED (founder, 2026-11-21, issue #47).\
+Technical docs (install, REST, MCP, manifest, providers, privacy,
+troubleshooting) stay in this repository: versioned with the code, reviewed in
+PRs, checked by CI and readable offline by self-hosters and agents. The public
+site's `/docs` reads only from BuildBase Docs (`content.docs.tree()` /
+`byPath()`), so it doubles as a BuildBase CMS demo and updates without a site
+deploy. `scripts/docs/sync-buildbase.mjs` publishes repo → BuildBase Docs with
+an org API token kept as a CI secret: development environment first,
+production only from `main` or tags. Only files listed in
+`docs/public/manifest.json` are published; research, decision and status docs
+are never listed. Pages written only in the console (marketing guides, cookbook
+prose) live beside the synced ones and are never touched. Reference pages that
+can drift (MCP tools, REST routes, templates) are generated from the code
+(`pnpm docs:reference`) and checked by `apps/server/test/docs-reference.test.ts`.
+How to run it: docs/DOCS_PUBLISHING.md.
+
+### D-081 --- Sync rules: match by path, own by tag, archive instead of delete
+
+**Status:** DECIDED (reversible).\
+Pages are matched by path (folder path + slug) and only fields that differ are
+patched, so a second run writes nothing and says so. Ownership is the tag
+`source-repo` on every page the sync creates: it never changes a page without
+it, and a page created elsewhere at a wanted path, or holding a wanted slug, is
+a reported conflict (exit 2). A page whose file left the allowlist is
+unpublished and tagged `source-archived`, never deleted (BuildBase docs pages
+have no archive flag; folders and tags do and are restored, never removed).
+Facts found against the development environment that shaped this: doc slugs
+are unique across folders (409), so slugs are checked for uniqueness before any
+write and a page that changes folder is moved, not recreated; tags that are not
+public are dropped from pages written with an API token, so both bookkeeping
+tags are public and the site hides `source-*` tags; a new page is a draft with a
+random slug and a published page keeps its slug and folder, so a page is placed
+while it is a draft and published after. Reading order: BuildBase docs have no
+order field, so front matter `order` becomes `suggestedDocs` = the next page in
+the folder, which the site follows for its sidebar and prev/next links. POSTs
+are never retried after a lost answer (no duplicate pages); a draft created but
+not placed is tagged `source-repo` + `source-archived` so nothing is left
+anonymous.
+
+### D-082 --- The sync is plain Node with no dependencies; credentials only from the environment
+
+**Status:** DECIDED (reversible).\
+`scripts/docs/*.mjs` run on Node 22 alone (global `fetch`, `node:test`), so a CI
+job needs no `pnpm install` and the script cannot pull a supply-chain surprise
+into a job that holds a publishing token. Front matter is a small YAML subset
+parsed in the script. The token comes only from `BUILDBASE_API_TOKEN` or
+`BUILDBASE_API_TOKEN_FILE`, never from arguments, and is never printed;
+`--env` must name the environment the token belongs to (`<orgId>-<env>:` or a
+bare `<orgId>:` for production), so a production token cannot be used by a
+development job or the reverse. `zod` became a root devDependency only so
+`scripts/docs/reference.ts` can turn tool input schemas into tables, the same
+version the server already uses.
+
+## Q. Security hardening (2026-11-21, private security review SEC-01..SEC-20)
 
 Public-safe summary; findings and reproductions stay private. Defaults and
 settings: docs/security/HARDENING.md. Deferred: SEC-07 (queue and resource
