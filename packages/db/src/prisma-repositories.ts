@@ -110,19 +110,27 @@ function toLicence(r: {
   };
 }
 
-/** Repositories for one workspace on any of the Prisma-supported databases. */
+/**
+ * Repositories for one workspace on any of the Prisma-supported databases.
+ * `read`: the read replica's client (database.readUrl, D-104), used only by the
+ * lag-tolerant list reads in READ_REPLICA_READS (database.ts); every other
+ * query uses `prisma`, the primary.
+ */
 export interface PrismaRepositoryOptions {
+  read?: PrismaClient;
   /**
-   * Queue dispatch (D-104): how the transactions that make a job claimable tell the workers. `notify`
+   * Queue dispatch (D-105): how the transactions that make a job claimable tell the workers. `notify`
    * (PostgreSQL only): `pg_notify(channel, 'r:<id>')` in the same transaction (sent on commit, dropped on
-   * rollback), and `'c:<id>'` in each claim's transaction; `outbox`: a DispatchOutbox row in the same transaction.
-   * Unset: nothing (workers poll).
+   * rollback), and `'c:<id>'` in the claim's transaction of a freshly queued job; `outbox`: a DispatchOutbox
+   * row in the same transaction. Unset: nothing (workers poll).
    */
   readySignal?: ReadySignal;
 }
 
 export function createPrismaRepositories(prisma: PrismaClient, workspaceId: string, kind: DatabaseKind = 'sqlite', opts: PrismaRepositoryOptions = {}): Repositories {
   const ws = { workspaceId };
+  // Replica reads (D-104): lists only. Never job state, claims, quotas, rate limits, keys, licence, idempotency or a read-then-write.
+  const replica = opts.read ?? prisma;
   const signal = opts.readySignal;
   if (signal?.kind === 'notify' && kind !== 'postgresql') throw new Error(`queue.dispatch "notify" needs PostgreSQL (LISTEN/NOTIFY); this database is ${kind}`);
   if (signal?.kind === 'bus') throw new Error('readySignal "bus" is for the in-memory repositories');
@@ -209,7 +217,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
   });
   const statusEvent = (jobId: string, at: string, status: string) => ({ ...ws, jobId, at: new Date(at), type: 'status', message: status });
   const logEvent = (jobId: string, at: string, line: string) => ({ ...ws, jobId, at: new Date(at), type: 'log', message: line });
-  // Queue dispatch (D-104). NOTIFY is transactional: queued with the transaction, delivered when it commits, never
+  // Queue dispatch (D-105). NOTIFY is transactional: queued with the transaction, delivered when it commits, never
   // when it rolls back, so it needs no outbox. Ids are joined with "," (job ids never contain one) to send them in one
   // statement; COUNT(*) because pg_notify returns void, which the driver cannot map.
   const notifySql = `SELECT COUNT(*) AS n FROM (SELECT pg_notify($1, $2 || x) FROM unnest(string_to_array($3, ',')) AS x) s`;
@@ -506,7 +514,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         return v ? parse<Project>(v.manifest) : null;
       },
       async listVersions(id) {
-        const rows = await prisma.projectVersion.findMany({ where: { ...ws, projectId: id }, select: { version: true }, orderBy: { version: 'asc' } });
+        const rows = await replica.projectVersion.findMany({ where: { ...ws, projectId: id }, select: { version: true }, orderBy: { version: 'asc' } });
         return rows.map((r) => r.version);
       },
       async list() {
@@ -514,7 +522,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         return rows.filter((p) => p.versions.length).map(toProject);
       },
       async page(req) {
-        const rows = await prisma.project.findMany({
+        const rows = await replica.project.findMany({
           where: { ...ws, ...keyset(req) },
           orderBy: NEWEST,
           take: req.limit,
@@ -524,7 +532,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         const missing = rows.filter((r) => r.sceneCount === null || r.durationSeconds === null).map((r) => r.id);
         const manifests = new Map<string, Project>();
         if (missing.length) {
-          const old = await prisma.project.findMany({ where: { ...ws, id: { in: missing } }, include: latest });
+          const old = await replica.project.findMany({ where: { ...ws, id: { in: missing } }, include: latest });
           for (const p of old) if (p.versions.length) manifests.set(p.id, parse<Project>(p.versions[0]!.manifest));
         }
         const out: ProjectSummary[] = [];
@@ -975,7 +983,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         return rows.map(toJob);
       },
       async page(filter, req) {
-        const rows = await prisma.job.findMany({
+        const rows = await replica.job.findMany({
           where: { ...ws, ...jobWhere(filter), ...keyset(req) },
           orderBy: NEWEST,
           take: req.limit,
@@ -1010,7 +1018,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
 
     themes: {
       async list() {
-        return (await prisma.theme.findMany({ where: ws, orderBy: { id: 'asc' } })).map((t) => parse<Theme>(t.definition));
+        return (await replica.theme.findMany({ where: ws, orderBy: { id: 'asc' } })).map((t) => parse<Theme>(t.definition));
       },
       async get(id) {
         const t = await prisma.theme.findUnique({ where: { workspaceId_id: { workspaceId, id } } });
@@ -1160,7 +1168,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         return (await prisma.asset.findMany({ where: ws, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })).map(toAsset);
       },
       async page(req) {
-        return (await prisma.asset.findMany({ where: { ...ws, ...keyset(req) }, orderBy: NEWEST, take: req.limit })).map(toAsset);
+        return (await replica.asset.findMany({ where: { ...ws, ...keyset(req) }, orderBy: NEWEST, take: req.limit })).map(toAsset);
       },
       async update(id, patch) {
         const data = {
@@ -1213,7 +1221,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
             ? { OR: [{ at: { lt: new Date(f.before.at) } }, { at: new Date(f.before.at), id: { lt: f.before.id } }] }
             : {}),
         };
-        const rows = await prisma.auditLog.findMany({ where, orderBy: [{ at: 'desc' }, { id: 'desc' }], take: f.limit ?? 100 });
+        const rows = await replica.auditLog.findMany({ where, orderBy: [{ at: 'desc' }, { id: 'desc' }], take: f.limit ?? 100 });
         return rows.map((r) => ({
           id: r.id,
           at: iso(r.at),

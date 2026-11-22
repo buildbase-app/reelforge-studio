@@ -50,7 +50,7 @@ export interface CoreInstruments {
   queueWait: Histogram;
   /** Claim attempts of the database queue, by what started them (trigger) and whether one got a job (result). */
   queueClaims: Counter;
-  /** Dispatch (D-104): ready messages published (driver, reason). */
+  /** Dispatch (D-105): ready messages published (driver, reason). */
   dispatchPublished: Counter;
   /** Dispatch: outbox publishes that failed (driver). */
   dispatchPublishFailures: Counter;
@@ -108,7 +108,7 @@ export function coreInstruments(meter: Meter): CoreInstruments {
           'Database queue: claim attempts by trigger (poll: the idle poll; fallback: the dispatch fallback poll; wake: a dispatch message; local: this instance enqueued, a job finished or a lease was recovered) and result (job, empty).',
       }),
       dispatchPublished: meter.createCounter('reelforge.queue.dispatch.published', {
-        description: 'Queue dispatch (D-104): ready messages published, by driver and reason (enqueue, requeue, release, fanout, join, outbox).',
+        description: 'Queue dispatch (D-105): ready messages published, by driver and reason (enqueue, requeue, release, fanout, join, outbox).',
       }),
       dispatchPublishFailures: meter.createCounter('reelforge.queue.dispatch.publish_failures', { description: 'Queue dispatch: outbox publishes to a broker that failed and will be retried, by driver.' }),
       dispatchReceived: meter.createCounter('reelforge.queue.dispatch.received', { description: 'Queue dispatch: messages received by this worker, by driver and kind (ready, claimed).' }),

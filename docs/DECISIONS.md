@@ -1670,7 +1670,7 @@ not Remotion Cloud Run:** Alpha and "not actively being developed" (Remotion doc
 
 ### D-096 --- The database stays the queue of record; dispatch is pluggable
 
-**Status:** PROPOSED (2026-11-22). Extends D-075. **Step 1 built (#158, D-104):** `poll` with backoff on
+**Status:** PROPOSED (2026-11-22). Extends D-075. **Step 1 built (#158, D-105):** `poll` with backoff on
 empty polls, `notify` (PostgreSQL LISTEN/NOTIFY), the generic dispatch outbox and relay, and the shared
 dispatch contract suite; SQS, Redis Streams and NATS JetStream are not built yet.\
 Job state, leases, fencing, attempts, quotas and history stay in the `Job` table (D-075). A
@@ -1929,13 +1929,58 @@ Buckets 0.1 s .. 1 h with 60 and 300 as boundaries, so the SLO quantiles (p95 < 
 maximum replicas) are exact at the threshold. Grafana panel and Prometheus alert rules in
 `deployment/observability/`, unit-tested with `promtool test rules`.
 
-## X. Queue dispatch: poll backoff and LISTEN/NOTIFY (2026-11-22, issue #158)
+## X. Database pooling and read replicas (2026-11-22, issue #152)
+
+Builds on D-099 (pooling is part of every multi-instance recipe) and the #151 load test (PgBouncer
+1.26.1 in transaction mode: claims exactly once, migrations and `?schema=` through it, 401 → ≤ 22
+server connections at 200 workers; docs/PERFORMANCE.md). Recipe, sizing, sources and test cases:
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#connection-pooling).
+
+### D-104 --- Small worker pools by default; PgBouncer transaction mode with migrations on the direct port; a read replica for six list reads only
+
+**Status:** DECIDED (reversible).\
+**Pools:** a `worker` process whose database URL has no `?connection_limit=` uses
+`database.workerConnectionLimit` (3; `0` = the drivers' default of 10); the URL always wins and the
+`api`/`all` roles keep 10. A worker needs a claim loop, a heartbeat and throttled progress writes; 2
+per worker carried #151's 200-worker drain. Sizing rule: `api × connection_limit + workers × N
+(+ CLI, headroom) ≤ pooler client limit`, and the pooler's server pool ≤ the database's
+`max_connections`. *Rejected:* a smaller default for every role (the api is CPU-bound at 10, #151);
+computing the pool from `server.workerConcurrency` (opaque; the operator can set the URL).\
+**Pooler:** PgBouncer in transaction mode is the tested recipe (pinned `edoburu/pgbouncer` 1.26.1
+image, compose overlay `deployment/compose/docker-compose.pgbouncer.yml` with its settings in
+`pgbouncer.env`, shared with the Docker scale e2e). Migrations run once on the direct port
+(`--migrate-only`, then `REELFORGE_MIGRATE_ON_START=0`), although they also worked through PgBouncer:
+it keeps DDL off the app's pool and works with RDS Proxy on MySQL, where `GET_LOCK` pins.
+`?schema=` is not supported behind PgBouncer on PostgreSQL ≤ 17: measured here, the per-client
+`search_path` (sent as startup `options`) is not kept under concurrency and the raw SQL names tables
+without a schema (#151's probe had used schema-qualified model queries only); use the default schema
+or a role-level `search_path`. The db contract and server suites pass through PgBouncer with the
+default schema (a database per run, `TEST_POSTGRES_ISOLATION=database`). RDS Proxy (writer
+only on RDS; statements over 16 KB pin the session, and manifests can be larger; MySQL prepared
+statements pin) and Cloud SQL managed pooling are documented from their documentation and untested.
+A direct, non-pooled URL for LISTEN/NOTIFY belongs to the dispatch work (#158), not here.\
+**Read replica:** `database.readUrl` (`DATABASE_READ_URL`) routes exactly six repository reads
+(`READ_REPLICA_READS`: `projects.page`, `projects.listVersions`, `jobs.page`, `assets.page`,
+`themes.list`, `audit.list`), the lists behind `list_projects`, `list_project_versions`,
+`list_jobs`, `list_assets`, `list_themes` and `list_audit_events`, to a second Prisma client in
+`createPrismaRepositories`. Everything else, including every read a decision or a write depends on
+(job state, claims, quotas, caps, rate limits, keys, licence, idempotency, settings, webhooks,
+single-row gets, the unpaged job list the retention sweep uses), stays on the primary. Unset:
+everything on the primary. SQLite and a replica of another kind are refused at start. The replica is
+connected to, never migrated or written. Tests point it at a database without tables (every write
+path still works; exactly the six reads fail) and at a migrated database with other rows.
+*Rejected:* Prisma's read-replicas extension (unverified with driver adapters, and it routes every
+read outside a transaction, including reads that precede writes); routing per service method (the
+repository is where the query is, and the list of reads is checkable there); a fallback to the
+primary when the replica fails (hides a broken replica; the six lists fail loudly instead).
+
+## Y. Queue dispatch: poll backoff and LISTEN/NOTIFY (2026-11-22, issue #158)
 
 Step 1 of D-096. Settings, how it works, test cases and results:
-[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#queue-dispatch-poll-and-notify-d-104);
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#queue-dispatch-poll-and-notify-d-105);
 measured idle load and queue wait: [docs/PERFORMANCE.md](PERFORMANCE.md#queue-dispatch-158-poll-backoff-and-notify).
 
-### D-104 --- Dispatch wakes the normal claim; `poll` backs off; `notify` sends NOTIFY inside the job's transaction; external brokers publish through an outbox
+### D-105 --- Dispatch wakes the normal claim; `poll` backs off; `notify` sends NOTIFY inside the job's transaction; external brokers publish through an outbox
 
 **Status:** DECIDED (reversible) for `poll` and `notify`; the outbox is built and tested, its drivers (SQS,
 Redis Streams, NATS JetStream) are follow-ups.\
@@ -1963,7 +2008,7 @@ disconnected when the message went out, which the fallback poll (`queue.dispatch
 claim after every reconnect cover. Every path that makes a job claimable sends it (enqueue and retry, fan-out
 units, the join, lease-expiry re-queue, shutdown hand-back), in one statement per transaction. **Listen
 connection:** one node-postgres session per claiming process, outside the Prisma pool, on `database.directUrl`
-(named to sit next to a future `database.readUrl`, #152) or `database.url`; reconnect with backoff, a ping every
+(next to `database.readUrl` and `database.workerConnectionLimit` of #152, D-104) or `database.url`; reconnect with backoff, a ping every
 fallback interval, and an end-to-end delivery check (a NOTIFY sent through the Prisma pool must arrive) after
 every connect; the first failing check refuses the start. This is what catches PgBouncer transaction mode, where
 `LISTEN` succeeds but notifications never reach the client (measured, NTF-04); no URL or port heuristics.

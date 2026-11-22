@@ -345,6 +345,11 @@ the sum of all scenes (**ESTIMATE**, measure in the fan-out issue).
     was accepted and kept per client (two clients with different schemas interleaved on one
     server pool each saw their own), migrations (`pg_advisory_xact_lock`) ran through it, and
     Prisma's pg adapter worked with `max_prepared_statements=0`; see docs/PERFORMANCE.md.
+    **Corrected by #152 (2026-11-22):** under concurrency the per-client `search_path` is *not*
+    kept on PostgreSQL 17 (concurrent clients saw each other's values; the raw claim/quota SQL
+    then fails with `relation ... does not exist`); #151's probe only exercised schema-qualified
+    model queries. Behind PgBouncer use the default schema or a role-level `search_path`
+    (docs/providers/queue-and-scaling.md#pgbouncer-transaction-mode).
     Older PgBouncer versions were not tried (VERIFY before recommending them).
   - **RDS Proxy** pools and multiplexes, queues or sheds connections over the limit, and
     can be associated with the writer only, not a read replica; statements over 16 KB pin
@@ -401,7 +406,7 @@ the sum of all scenes (**ESTIMATE**, measure in the fan-out issue).
   - **Google Pub/Sub:** lease page redirected and was not read; ack deadline facts unverified.
   Order of value: LISTEN/NOTIFY (no new service) → SQS (AWS buyers, KEDA/ECS scalers) → Redis
   Streams (already common) → NATS → Service Bus / Pub/Sub on demand.
-- **Built (#158, D-104, 2026-11-22):** backoff on empty polls (`queue.pollMaxIntervalMs`), `notify`
+- **Built (#158, D-105, 2026-11-22):** backoff on empty polls (`queue.pollMaxIntervalMs`), `notify`
   (NOTIFY inside the job's transaction, LISTEN on a direct session connection, fallback poll), and
   the generic outbox + relay for the brokers above. One change from the sketch above: a received id
   **wakes the normal claim** instead of claiming that id, so priorities and fairness (D-090, D-103)

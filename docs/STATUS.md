@@ -446,9 +446,22 @@ PRIS-01..05, PRS-01..03 (SQLite, PostgreSQL 17, MySQL 8.4):
 [queue-and-scaling.md](providers/queue-and-scaling.md#priorities-fairness-and-admission-d-103).
 Not measured: the SLO itself on a real fleet at maximum replicas.
 
+### Database pooling and read replicas (2026-11-22, issue #152)
+
+Built (D-104): `worker` processes default to a pool of 3 when their URL has no
+`connection_limit` (`database.workerConnectionLimit`); the PgBouncer 1.26.1 transaction-mode
+recipe as a compose overlay (`deployment/compose/docker-compose.pgbouncer.yml` + `pgbouncer.env`,
+migrations once on the direct port) that the Docker scale e2e runs with `POOLER=pgbouncer`;
+`database.readUrl` (`DATABASE_READ_URL`) sends six list reads to a replica and everything else to
+the primary (SQLite refuses it). Sizing rule, `connection_limit` per role, RDS Proxy and Cloud SQL
+notes with sources:
+[queue-and-scaling.md](providers/queue-and-scaling.md#connection-pooling). Test cases REP-01..08
+(SQLite, PostgreSQL 17, MySQL 8.4) and SCL-19. Not tested: RDS Proxy, Cloud SQL, a streaming
+replica container (a second database fed by the test stands in).
+
 ### Queue dispatch: poll backoff and LISTEN/NOTIFY (2026-11-22, issue #158, step 1)
 
-Built (D-104): `queue.dispatch` `poll` (default; empty polls now back off from
+Built (D-105): `queue.dispatch` `poll` (default; empty polls now back off from
 `queue.pollIntervalMs` to `queue.pollMaxIntervalMs`, 5 s, everywhere) and `notify` (PostgreSQL only:
 NOTIFY inside every transaction that makes a job claimable, LISTEN on one direct session connection
 per worker, `database.directUrl` for PgBouncer transaction mode, a delivery check that refuses a

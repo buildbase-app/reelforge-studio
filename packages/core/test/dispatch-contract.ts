@@ -1,5 +1,5 @@
 /**
- * The queue dispatch contract (D-104, issue #158): what every dispatch driver
+ * The queue dispatch contract (D-105, issue #158): what every dispatch driver
  * must do, run against each one (`memory` here in core, `notify` on PostgreSQL
  * 17 in packages/db/test/dispatch.notify.test.ts; SQS, Redis Streams and NATS
  * JetStream reuse it when they are built). Ids DSP-nn are listed in

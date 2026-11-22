@@ -198,6 +198,10 @@ PgBouncer transaction-mode probes [^s]:
 - max_prepared_statements=200: migrations through PgBouncer (pg_advisory_xact_lock): works
 - max_prepared_statements=200: 2 000 queries, 20 concurrent, insert + claim (SKIP LOCKED) + fenced finish: works
 - non-default schema (?schema=lschema, sent as the startup parameter options=-c search_path=...): migrations land in it; 200 queries from it and 200 from a default-schema client, interleaved on the same server pool, each see their own schema: works
+  **Corrected by #152:** this probe used schema-qualified model queries only. With raw SQL (the claim,
+  quotas, caps) and several clients at once, PostgreSQL 17 + PgBouncer 1.26.1 does not keep each client's
+  `search_path`: do not use `?schema=` behind PgBouncer
+  ([queue-and-scaling.md](providers/queue-and-scaling.md#pgbouncer-transaction-mode)).
 
 ## Findings and hot spots
 
@@ -235,7 +239,7 @@ listed, in its order; 7 to 10 are what the run found besides.
    1 215 statements/s and 47 % of a vCPU** of DB CPU with nothing to do (17 % through PgBouncer).
    It also sets a **queue-wait floor**: an idle worker looks again only after up to 1 s, so even
    with free workers the queue wait p50 was 213 ms and p95 463 ms. LISTEN/NOTIFY or backoff
-   on empty polls (#158) fix both. **Addressed by #158 (D-104):** idle load at 200 workers
+   on empty polls (#158) fix both. **Addressed by #158 (D-105):** idle load at 200 workers
    219 → 69 tx/s (poll with backoff, the new default) or 47 tx/s (`notify`), and queue wait with
    few idle workers p95 946 → 103 ms with `notify`; see
    [before and after](#queue-dispatch-158-poll-backoff-and-notify).

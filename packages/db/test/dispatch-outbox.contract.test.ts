@@ -1,5 +1,5 @@
 /**
- * The dispatch outbox (D-104, issue #158) on every repository: memory and
+ * The dispatch outbox (D-105, issue #158) on every repository: memory and
  * SQLite always, PostgreSQL / MySQL when TEST_POSTGRES_URL / TEST_MYSQL_URL
  * are set. The job repository writes one row per job that becomes claimable,
  * in the job's own transaction (a refused start leaves none); rows are leased

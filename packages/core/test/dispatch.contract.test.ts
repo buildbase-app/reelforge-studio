@@ -1,5 +1,5 @@
 /**
- * Queue dispatch (D-104, issue #158) in the core: the shared dispatch contract
+ * Queue dispatch (D-105, issue #158) in the core: the shared dispatch contract
  * on the in-memory bus, the idle-poll backoff, and the generic outbox relay
  * that external drivers will publish through. The contract on PostgreSQL
  * LISTEN/NOTIFY: packages/db/test/dispatch.notify.test.ts. Ids:

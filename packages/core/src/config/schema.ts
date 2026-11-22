@@ -165,7 +165,7 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_QUEUE_POLL_MAX_INTERVAL_MS',
       default: 5000,
       description:
-        'Database queue, `queue.dispatch` `poll` (D-104): after each poll that finds nothing, an idle worker waits twice as long as the last time, from `queue.pollIntervalMs` up to this; a poll that claims a job goes back to `queue.pollIntervalMs`, so a busy queue is polled as before. It bounds the extra queue wait after an idle period (a job enqueued then waits at most this long for a worker with a free slot) and cuts idle database load. Set it to `queue.pollIntervalMs` for no backoff. Also the poll while a `notify` listener is disconnected.',
+        'Database queue, `queue.dispatch` `poll` (D-105): after each poll that finds nothing, an idle worker waits twice as long as the last time, from `queue.pollIntervalMs` up to this; a poll that claims a job goes back to `queue.pollIntervalMs`, so a busy queue is polled as before. It bounds the extra queue wait after an idle period (a job enqueued then waits at most this long for a worker with a free slot) and cuts idle database load. Set it to `queue.pollIntervalMs` for no backoff. Also the poll while a `notify` listener is disconnected.',
     }),
     dispatch: setting(z.enum(['poll', 'notify']), {
       kind: 'enum',
@@ -173,7 +173,7 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_QUEUE_DISPATCH',
       default: 'poll',
       description:
-        'How workers of the database queue learn that a job is ready (D-104; the database stays the queue of record either way). `poll`: idle workers look every `queue.pollIntervalMs`, backing off to `queue.pollMaxIntervalMs`. `notify` (PostgreSQL only): the transaction that queues a job sends `NOTIFY` and workers `LISTEN` on one direct session connection each, so idle workers stop polling and are woken within milliseconds; a fallback poll every `queue.dispatchFallbackSeconds` claims anything a lost message did not announce. `LISTEN` does not work through PgBouncer in transaction or statement mode: set `database.directUrl` then (a worker checks delivery at start and refuses to start without it). Refused at start on MySQL and SQLite. Set the same value on every instance. SQS, Redis Streams and NATS JetStream are planned (docs/providers/queue-and-scaling.md).',
+        'How workers of the database queue learn that a job is ready (D-105; the database stays the queue of record either way). `poll`: idle workers look every `queue.pollIntervalMs`, backing off to `queue.pollMaxIntervalMs`. `notify` (PostgreSQL only): the transaction that queues a job sends `NOTIFY` and workers `LISTEN` on one direct session connection each, so idle workers stop polling and are woken within milliseconds; a fallback poll every `queue.dispatchFallbackSeconds` claims anything a lost message did not announce. `LISTEN` does not work through PgBouncer in transaction or statement mode: set `database.directUrl` then (a worker checks delivery at start and refuses to start without it). Refused at start on MySQL and SQLite. Set the same value on every instance. SQS, Redis Streams and NATS JetStream are planned (docs/providers/queue-and-scaling.md).',
     }),
     dispatchFallbackSeconds: setting(z.number().int().min(1).max(3600), {
       kind: 'integer',
@@ -571,7 +571,25 @@ export const ConfigSchema = z.object({
       example: 'postgresql://reelforge:<password>@db:5432/reelforge',
       description: 'Database: `file:` (SQLite), `postgresql://...`, `mysql://...` or `mariadb://...`. Secret because the URL usually holds a password.',
     }),
-    directUrl: setting(z.string().min(1).optional(), {
+    readUrl: setting(nonEmpty().optional(), {
+      kind: 'string',
+      scope: 'startup',
+      env: 'REELFORGE_DATABASE_READ_URL',
+      aliases: ['DATABASE_READ_URL'],
+      secret: true,
+      example: 'postgresql://reelforge:<password>@db-replica:5432/reelforge',
+      description:
+        'A read replica of `database.url` (PostgreSQL or MySQL; refused with SQLite) for the list reads that tolerate lag: list_projects, list_project_versions, list_jobs, list_assets, list_themes, list_audit_events and audit exports. Job state, claims, quotas, rate limits, keys, licence, idempotency and every read-then-write stay on `database.url`. Unset: everything uses `database.url`. Never migrated. See docs/providers/queue-and-scaling.md#read-replica.',
+    }),
+    workerConnectionLimit: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_DB_WORKER_CONNECTION_LIMIT',
+      default: 3,
+      description:
+        'Pool size of a `worker` role process when its database URL has no `?connection_limit=` (claims, heartbeats and progress need few connections; hundreds of workers at the drivers\' default of 10 each would exhaust the database). `0`: the driver default (10). Other roles keep the driver default. Sizing: docs/providers/queue-and-scaling.md#connection-pooling.',
+    }),
+    directUrl: setting(nonEmpty().optional(), {
       kind: 'string',
       scope: 'startup',
       env: 'REELFORGE_DATABASE_DIRECT_URL',

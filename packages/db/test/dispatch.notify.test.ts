@@ -1,5 +1,5 @@
 /**
- * Queue dispatch `notify` (D-104, issue #158) on PostgreSQL (17 in CI and in
+ * Queue dispatch `notify` (D-105, issue #158) on PostgreSQL (17 in CI and in
  * the recorded runs) when TEST_POSTGRES_URL is set: the shared dispatch
  * contract (packages/core/test/dispatch-contract.ts) with real LISTEN/NOTIFY,
  * a listen connection killed with pg_terminate_backend, and what only a real

@@ -134,7 +134,7 @@ export type WebhookDelivery = Prisma.WebhookDeliveryModel
 export type WebhookAttempt = Prisma.WebhookAttemptModel
 /**
  * Model DispatchOutbox
- * Queue dispatch outbox (#158, D-104): one row per job that became claimable,
+ * Queue dispatch outbox (#158, D-105): one row per job that became claimable,
  * written in the same transaction as the job, for dispatch drivers that publish
  * to an external broker (SQS, Redis Streams, NATS JetStream: follow-ups). A
  * relay claims due rows with a lease, publishes the job ids and deletes the

@@ -77,7 +77,7 @@ const byNewest = (a: { createdAt: string; id: string }, b: { createdAt: string; 
  * For unit tests and throwaway instances; data is lost when the process ends.
  */
 export interface MemoryRepositoryOptions {
-  /** Queue dispatch (D-104): tell workers when jobs become claimable (an in-memory bus, or rows in the outbox). */
+  /** Queue dispatch (D-105): tell workers when jobs become claimable (an in-memory bus, or rows in the outbox). */
   readySignal?: ReadySignal;
 }
 

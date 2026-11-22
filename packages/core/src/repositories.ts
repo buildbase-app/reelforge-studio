@@ -625,7 +625,7 @@ export interface RateLimitRepository {
 
 // ---- queue dispatch outbox ------------------------------------------------------
 
-/** One job id waiting to be published to an external dispatch broker (D-104). */
+/** One job id waiting to be published to an external dispatch broker (D-105). */
 export interface DispatchOutboxRow {
   id: string;
   jobId: string;
@@ -638,7 +638,7 @@ export interface DispatchOutboxRow {
 }
 
 /**
- * The dispatch outbox (D-104): rows are written by the job repository inside
+ * The dispatch outbox (D-105): rows are written by the job repository inside
  * the transaction that makes a job claimable (ReadySignal `outbox`); the
  * OutboxRelay publishes and removes them. Generic for every external driver.
  */
@@ -670,6 +670,6 @@ export interface Repositories {
   readonly rateLimits: RateLimitRepository;
   /** Outbound event endpoints, the outbox and the delivery log (#66). */
   readonly webhooks: WebhookRepository;
-  /** Queue dispatch outbox (D-104): job ids for external brokers. */
+  /** Queue dispatch outbox (D-105): job ids for external brokers. */
   readonly dispatchOutbox: DispatchOutboxRepository;
 }

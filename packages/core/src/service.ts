@@ -366,7 +366,7 @@ export class ReelforgeService {
           return this.storageReady();
         },
         ...config.queue,
-        // Queue dispatch (D-104): the listener (claiming roles with `notify`) comes from the server, which owns the database.
+        // Queue dispatch (D-105): the listener (claiming roles with `notify`) comes from the server, which owns the database.
         dispatch: {
           driver: cfg.queue.dispatch,
           fallbackMs: cfg.queue.dispatchFallbackSeconds * 1000,
@@ -857,7 +857,9 @@ export class ReelforgeService {
     try {
       await this.themes.resolve(p.theme);
     } catch (e) {
-      errors.push({ path: 'theme', message: (e as Error).message + `; available: ${(await this.themes.list()).map((t) => t.id).join(', ')}` });
+      // The list is only a hint (it may come from a lagging or unreachable read replica, D-104): never let it replace the real error.
+      const available = await this.themes.list().then((l) => l.map((t) => t.id).join(', '), () => 'unknown (list_themes failed)');
+      errors.push({ path: 'theme', message: (e as Error).message + `; available: ${available}` });
     }
     try {
       const b = this.registry.backend(p.render.backend);

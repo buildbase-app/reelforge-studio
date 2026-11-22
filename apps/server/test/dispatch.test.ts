@@ -7,7 +7,7 @@ import { startServer, type StartedServer } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 
 /**
- * Queue dispatch (D-104, issue #158) in the server: the start-up guard
+ * Queue dispatch (D-105, issue #158) in the server: the start-up guard
  * (always), and an api with a `notify` worker on PostgreSQL (when
  * TEST_POSTGRES_URL is set; 17 in CI): renders woken within milliseconds
  * instead of the next poll, `/readyz` and metrics, a killed LISTEN connection

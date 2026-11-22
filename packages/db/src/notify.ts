@@ -4,7 +4,7 @@ import { PROBE_PREFIX, parseDispatchPayload, type DispatchListener, type Dispatc
 import { parseDatabaseUrl, redactDatabaseUrl } from './url';
 
 /**
- * The NOTIFY channel of one deployment (D-104). Channels are per database, not
+ * The NOTIFY channel of one deployment (D-105). Channels are per database, not
  * per schema, so deployments that share a PostgreSQL database in different
  * schemas (`?schema=`) get their own channel and never wake each other.
  */

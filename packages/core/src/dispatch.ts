@@ -3,7 +3,7 @@ import { NOOP_TELEMETRY, coreInstruments, type Telemetry } from './telemetry';
 import type { DispatchOutboxRepository } from './repositories';
 
 /**
- * Queue dispatch (D-104, issue #158): how workers learn that jobs became
+ * Queue dispatch (D-105, issue #158): how workers learn that jobs became
  * claimable. The database stays the queue of record (D-096): job state,
  * leases, fencing, attempts, priorities and fairness live in the Job table,
  * and every claim is the normal fenced, fair claim (JobRepository.claim). A

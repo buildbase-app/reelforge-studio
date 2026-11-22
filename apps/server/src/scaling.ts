@@ -38,7 +38,7 @@ export function scalingProblems(resolved: ResolvedConfig, databaseUrl: string): 
   } else if (mode === 'database' && kind === 'sqlite') {
     warnings.push('queue.driver "database" on SQLite: claims are atomic, but SQLite supports one instance only (use PostgreSQL or MySQL to run several)');
   }
-  // Queue dispatch (D-104): LISTEN/NOTIFY exists only on PostgreSQL.
+  // Queue dispatch (D-105): LISTEN/NOTIFY exists only on PostgreSQL.
   if (c.queue.dispatch === 'notify') {
     if (kind !== 'postgresql') {
       errors.push(

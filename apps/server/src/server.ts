@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
 import { ReelforgeService, chromiumSandbox, effectiveQueueMode, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
-import { createNotifyListener, defaultDatabaseUrl, notifyChannel, prepareDatabase, type Database } from '@reelforge/db';
+import { createNotifyListener, defaultDatabaseUrl, notifyChannel, prepareDatabase, READ_REPLICA_READS, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
 import { secretValues } from './observability/logger';
@@ -80,11 +80,15 @@ export async function startServer(
   const role = config.resolved.config.server.role;
   // Exporters from the file and env now; runtime settings from the database are applied once it is open.
   const obs = new Observability(observabilitySettings(config.resolved.config, SERVER_VERSION, edition), logger);
-  // Queue dispatch (D-104): with `notify` every transaction that queues a job sends NOTIFY (api and workers alike).
+  // Workers need few connections (claims, heartbeats, progress): a small pool unless the URL sets connection_limit (D-104).
+  const workerPool = config.resolved.config.database.workerConnectionLimit;
+  // Queue dispatch (D-105): with `notify` every transaction that queues a job sends NOTIFY (api and workers alike).
   const queueCfg = config.resolved.config.queue;
   const notify = queueCfg.dispatch === 'notify' && (opts.queue?.mode ?? effectiveQueueMode(role, queueCfg.driver)) === 'database';
   const { db, imported } = await prepareDatabase({
     url: config.databaseUrl,
+    readUrl: config.databaseReadUrl,
+    defaultConnectionLimit: role === 'worker' && workerPool > 0 ? workerPool : undefined,
     dataDir: config.dataDir,
     migrate: config.migrateOnStart,
     connectTimeoutSeconds: config.dbConnectTimeoutSeconds,
@@ -176,7 +180,8 @@ export async function startServer(
         : `queue dispatch: poll (every ${queueCfg.pollIntervalMs} ms, backing off to ${queueCfg.pollMaxIntervalMs} ms when idle)`
     );
   }
-  log(`database: ${db.kind} ${db.displayUrl}`);
+  log(`database: ${db.kind} ${db.displayUrl}${db.kind === 'sqlite' ? '' : ` (pool ${db.poolSize})`}`);
+  if (db.readDisplayUrl) log(`database read replica: ${db.readDisplayUrl} (pool ${db.readPoolSize}); lists only: ${READ_REPLICA_READS.join(', ')}`);
   log(`storage: ${service.storage.driver.id} ${JSON.stringify(service.storage.driver.describe())}`);
   if (existsSync(join(config.dataDir, 'secrets.json'))) {
     logger.log('warn', `${join(config.dataDir, 'secrets.json')} (v0.1) still holds provider keys in plain text; they are in the database now${service.settings.cipher ? ' (encrypted)' : ''}: delete the file once you have checked them`);

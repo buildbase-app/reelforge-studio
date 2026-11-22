@@ -110,7 +110,7 @@ OpenTelemetry names; the Prometheus name is what `GET /metrics` shows.
 | `reelforge.jobs.requeued` | `reelforge_jobs_requeued_total` | counter | `reelforge_reason` (`lease_expired`, `released`): database queue (#36) |
 | `reelforge.queue.errors` | `reelforge_queue_errors_total` | counter | `reelforge_operation` (`claim`, `heartbeat`, `recover`): database queue (#36) |
 | `reelforge.queue.claims` | `reelforge_queue_claims_total` | counter | `reelforge_trigger` (`poll`, `fallback`, `wake`, `local`), `reelforge_result` (`job`, `empty`): claim attempts of the database queue (#158) |
-| `reelforge.queue.dispatch.published` | `reelforge_queue_dispatch_published_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`enqueue`, `requeue`, `release`, `fanout`, `join`, `outbox`): queue dispatch messages sent (D-104) |
+| `reelforge.queue.dispatch.published` | `reelforge_queue_dispatch_published_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`enqueue`, `requeue`, `release`, `fanout`, `join`, `outbox`): queue dispatch messages sent (D-105) |
 | `reelforge.queue.dispatch.received` | `reelforge_queue_dispatch_received_total` | counter | `reelforge_dispatch_driver`, `reelforge_dispatch_kind` (`ready`, `claimed`) |
 | `reelforge.queue.dispatch.duplicates` | `reelforge_queue_dispatch_duplicates_total` | counter | `reelforge_dispatch_driver`: ready messages for a job already about to be claimed (no-ops) |
 | `reelforge.queue.dispatch.fallback_claims` | `reelforge_queue_dispatch_fallback_claims_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`fallback`, `degraded`): jobs claimed by the poll instead of a message |

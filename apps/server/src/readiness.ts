@@ -156,7 +156,7 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
     ...(q.lastError ? { detail: `queue ${q.lastError.operation} failing since ${q.lastError.at}: ${q.lastError.message}` } : q.paused ? { detail: q.paused } : {}),
   };
 
-  // Queue dispatch (D-104): the LISTEN connection of a `notify` worker. Reported, never required: while it is down the
+  // Queue dispatch (D-105): the LISTEN connection of a `notify` worker. Reported, never required: while it is down the
   // worker polls (queue.pollIntervalMs with backoff), so it keeps claiming; only the wake-up latency is lost.
   const d = q.dispatch;
   if (d && d.listener) {

@@ -12,7 +12,7 @@
  *
  * Stops on SIGTERM with the real shutdown (a claim in flight is handed back).
  *
- * DISPATCH=notify (#158, D-104): each runner LISTENs on its own direct
+ * DISPATCH=notify (#158, D-105): each runner LISTENs on its own direct
  * connection (DIRECT_URL, else DB_URL) and its claims announce themselves;
  * POLL_MAX_MS is queue.pollMaxIntervalMs (POLL_MAX_MS=POLL_MS: no backoff,
  * the behaviour before #158); FALLBACK_MS is the notify fallback poll.

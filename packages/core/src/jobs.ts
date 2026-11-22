@@ -20,7 +20,7 @@ const MAX_LOG_LINE = 64 * 1024;
 const MAX_BACKOFF_MS = 30_000;
 /** How long shutdown() waits, after the grace period, for aborted jobs and claims in flight to hand their jobs back. */
 const SETTLE_MS = 15_000;
-/** Ready ids remembered per worker while they wait to be claimed (dispatch, D-104); more are dropped (the fallback poll covers them). */
+/** Ready ids remembered per worker while they wait to be claimed (dispatch, D-105); more are dropped (the fallback poll covers them). */
 const MAX_PENDING = 10_000;
 
 /** What started a claim loop: the idle poll, the dispatch fallback poll, a dispatch message, or something on this instance. */
@@ -74,13 +74,13 @@ export interface DatabaseQueueOptions {
   /** Idle poll interval, and how often a job on another instance is re-read (queue.pollIntervalMs). Default 1000. */
   pollMs?: number;
   /**
-   * Longest wait between empty polls (queue.pollMaxIntervalMs, D-104): after an empty claim the next poll waits
+   * Longest wait between empty polls (queue.pollMaxIntervalMs, D-105): after an empty claim the next poll waits
    * twice as long as the last, from pollMs up to this; a claim that gets a job goes back to pollMs. Default 5000
    * (never below pollMs; equal to pollMs: no backoff).
    */
   pollMaxMs?: number;
   /**
-   * Queue dispatch (D-104). `driver`: what the repository's transactions signal (`poll`: nothing; `notify`:
+   * Queue dispatch (D-105). `driver`: what the repository's transactions signal (`poll`: nothing; `notify`:
    * PostgreSQL NOTIFY), for metrics. `listener`: this worker's subscription (claiming roles only); a message wakes
    * the normal fair claim after a random delay of up to `jitterMs` (default 50), skipped when other workers'
    * claims already took the announced jobs. While the listener is connected, idle claiming only runs every
@@ -150,7 +150,7 @@ export interface QueueStatus {
   /** The last failed queue operation, cleared by the next success. */
   lastError?: { operation: string; message: string; at: string };
   lastHeartbeatAt?: string;
-  /** Queue dispatch (D-104): the driver, and this worker's listener when it has one. */
+  /** Queue dispatch (D-105): the driver, and this worker's listener when it has one. */
   dispatch?: {
     driver: string;
     /** The listener is connected (messages arrive); false: this worker polls until it reconnects. */
@@ -217,7 +217,7 @@ export class JobRunner {
   readonly workerId: string;
   readonly runJobs: boolean;
   private readonly db: Required<Omit<DatabaseQueueOptions, 'canClaim' | 'workerId' | 'runJobs' | 'once' | 'dispatch'>> & Pick<DatabaseQueueOptions, 'canClaim'>;
-  /** Queue dispatch (D-104): the driver, this worker's listener, fallback interval and wake jitter. */
+  /** Queue dispatch (D-105): the driver, this worker's listener, fallback interval and wake jitter. */
   private readonly dispatch: { driver: string; listener?: DispatchListener; fallbackMs: number; jitterMs: number };
   /** The listener is connected: idle claiming waits for messages, with the fallback poll. */
   private listening = false;
@@ -735,7 +735,7 @@ export class JobRunner {
   }
 
   /**
-   * The next idle claim (D-104). Listening for dispatch messages: only the fallback poll. Polling: pollMs while
+   * The next idle claim (D-105). Listening for dispatch messages: only the fallback poll. Polling: pollMs while
    * claims get jobs (as before), otherwise twice the last wait after each empty claim, up to pollMaxMs, with up to
    * 10 % random spread so idle workers do not poll in step.
    */
@@ -821,7 +821,7 @@ export class JobRunner {
     }
   }
 
-  // ---- queue dispatch (D-104) -----------------------------------------------------
+  // ---- queue dispatch (D-105) -----------------------------------------------------
 
   /**
    * A dispatch message. It never picks the job: `ready` schedules the normal claim (priority, then fairness across
@@ -914,7 +914,7 @@ export class JobRunner {
     });
   }
 
-  /** Dispatch metric: ready messages this instance's transactions published (the repository sends them; D-104). */
+  /** Dispatch metric: ready messages this instance's transactions published (the repository sends them; D-105). */
   private published(n: number, reason: 'enqueue' | 'requeue' | 'release' | 'fanout' | 'join') {
     if (this.dispatch.driver === 'poll' || n <= 0) return;
     coreInstruments(this.telemetry.meter).dispatchPublished.add(n, { 'reelforge.dispatch.driver': this.dispatch.driver, 'reelforge.reason': reason });
@@ -995,7 +995,7 @@ export class JobRunner {
       }
       const left = deadline - Date.now();
       if (left <= 0) return { outcome: stillQueued ? 'deferred' : 'none', reason };
-      // Listening (D-104): a ready message ends the wait at once; the poll stays as the fallback.
+      // Listening (D-105): a ready message ends the wait at once; the poll stays as the fallback.
       if (this.listening) {
         const announced = this.seq;
         await this.waitForWake(Math.min(this.dispatch.fallbackMs, left));
