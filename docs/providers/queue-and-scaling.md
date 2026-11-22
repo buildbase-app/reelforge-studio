@@ -373,7 +373,9 @@ Since #158 each poll that finds nothing doubles the wait (1, 2, 4 s ...) up to
 that claims a job goes back to `queue.pollIntervalMs`, and a worker whose job ends claims at once,
 so a busy queue is polled exactly as before. The cost: after an idle period, a job waits up to
 `queue.pollMaxIntervalMs` for the next poll of an idle worker (less with many idle workers, whose
-polls are spread). Set `queue.pollMaxIntervalMs` to `queue.pollIntervalMs` for the old behaviour.
+polls are spread). Set `queue.pollMaxIntervalMs` to `queue.pollIntervalMs` for the old behaviour. Whether a worker may claim at all (storage up, licence allows renders) is re-checked on every
+heartbeat, so `/readyz` shows a pause and a worker resumes claiming without waiting for its
+backed-off poll.
 
 **`notify` (PostgreSQL).** Every transaction that makes a job claimable (enqueue, `retry_job`, a
 fan-out's units and join, a job queued again after a lost lease or handed back on shutdown) runs

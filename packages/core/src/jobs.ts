@@ -770,16 +770,7 @@ export class JobRunner {
       do {
         this.claimAgain = false;
         while (!this.stopping && this.running.size < this.concurrency) {
-          if (this.db.canClaim) {
-            const can = await this.db.canClaim().catch((e: Error) => ({ ok: false, reason: e.message }));
-            if (!can.ok) {
-              if (this.pausedReason !== can.reason) this.log('warn', `queue: not claiming jobs: ${can.reason}`);
-              this.pausedReason = can.reason ?? 'not ready';
-              break;
-            }
-            if (this.pausedReason) this.log('info', 'queue: claiming jobs again');
-            this.pausedReason = undefined;
-          }
+          if (!(await this.checkClaimable())) break;
           // Subscribed again before the claim, so a job committed after the claim's snapshot is still announced.
           await this.syncListen();
           const now = Date.now();
@@ -1046,9 +1037,28 @@ export class JobRunner {
     this.heartbeatTimer.unref();
   }
 
+  /** Ask `canClaim` (storage, licence) and record the pause reason; true when claiming may go on. */
+  private async checkClaimable(): Promise<boolean> {
+    if (!this.db.canClaim) return true;
+    const can = await this.db.canClaim().catch((e: Error) => ({ ok: false, reason: e.message }));
+    if (!can.ok) {
+      if (this.pausedReason !== can.reason) this.log('warn', `queue: not claiming jobs: ${can.reason}`);
+      this.pausedReason = can.reason ?? 'not ready';
+      return false;
+    }
+    if (this.pausedReason) this.log('info', 'queue: claiming jobs again');
+    this.pausedReason = undefined;
+    return true;
+  }
+
   /** Renew leases, see cancellations from other instances, re-queue jobs of crashed workers, count the queue. */
   async heartbeat(): Promise<void> {
     const now = Date.now();
+    // The pause reason stays current between (backed-off) polls, and a worker that may claim again does so at once.
+    if (this.runJobs && !this.once && this.started && !this.stopping && this.db.canClaim) {
+      const wasPaused = this.pausedReason !== undefined;
+      if ((await this.checkClaimable()) && wasPaused) void this.claimLoop('local');
+    }
     const ids = [...this.running.keys()].filter((id) => this.fences.has(id));
     if (ids.length) {
       try {
