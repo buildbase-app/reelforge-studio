@@ -371,3 +371,22 @@ implementation or licensing decisions.
     cgroup v1 by default since 1.35) and containerd's CRI `restrict_oom_score_adj` (as rootless kind
     sets it), both needed only in the cgroup v1 sandbox. Developer and CI tools only; nothing added
     to the image.
+42. **Database pooling and read replicas** (read 2026-11-22, issue #152, D-104): PgBouncer
+    configuration reference (https://www.pgbouncer.org/config.html: `max_prepared_statements`
+    default 200, `default_pool_size` default 20 per database/user pair, `max_client_conn` default
+    100, `pool_mode` default session, `ignore_startup_parameters` may list `options` to ignore
+    unknown parameters inside it, no per-database `search_path` in `[databases]`, `search_path`
+    tracked). Amazon RDS Proxy (https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html:
+    writer only for RDS instances in replication configurations; statements over 16 KB pin),
+    pinning conditions (https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-pinning.html:
+    PostgreSQL `SET`, `PREPARE`, `LISTEN`, session advisory locks, `nextval`; not
+    `pg_advisory_xact_lock`; MySQL prepared statements in text or binary protocol, `GET_LOCK`),
+    Aurora proxy reader endpoints (https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/rds-proxy-endpoints.html).
+    Cloud SQL Managed Connection Pooling for PostgreSQL
+    (https://docs.cloud.google.com/sql/docs/postgres/managed-connection-pooling: Enterprise Plus,
+    ports 6432/3307/5432, transaction mode default, `max_prepared_statements` default 0) and MySQL
+    (https://docs.cloud.google.com/sql/docs/mysql/managed-connection-pooling: a thread pool that
+    does not reduce connections). The `edoburu/pgbouncer` image (PgBouncer 1.26.1, pinned by
+    digest `sha256:8638aa56...` from mirror.gcr.io, the one #151 measured; its entrypoint writes
+    `pgbouncer.ini` from environment variables). Deployment image only; nothing added to the
+    ReelForge image.

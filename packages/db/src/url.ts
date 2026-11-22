@@ -93,3 +93,26 @@ export function parseDatabaseUrl(url: string): ParsedDatabaseUrl {
   }
   throw new Error(`DATABASE_URL scheme "${scheme}:" is not supported; use file: (SQLite), postgresql:// or mysql:// (MariaDB too)`);
 }
+
+/**
+ * database.readUrl (D-104): a replica for the reads that tolerate lag. Same
+ * database kind as the primary, and never SQLite (one local file has no
+ * replica). Throws with the URL redacted.
+ */
+export function parseReadUrl(readUrl: string, primary: ParsedDatabaseUrl): ParsedDatabaseUrl {
+  if (primary.kind === 'sqlite') {
+    throw new Error(
+      'DATABASE_READ_URL (database.readUrl) needs PostgreSQL or MySQL: SQLite is one local file and has no read replica. Unset it, or move to PostgreSQL/MySQL (docs/DEPLOY.md#database)'
+    );
+  }
+  let parsed: ParsedDatabaseUrl;
+  try {
+    parsed = parseDatabaseUrl(readUrl);
+  } catch (e) {
+    throw new Error(`DATABASE_READ_URL: ${(e as Error).message.replace(/^DATABASE_URL /, '')}`);
+  }
+  if (parsed.kind !== primary.kind) {
+    throw new Error(`DATABASE_READ_URL is ${parsed.kind} but DATABASE_URL is ${primary.kind}: the read replica must be a replica of the primary database (${redactDatabaseUrl(readUrl)})`);
+  }
+  return parsed;
+}
