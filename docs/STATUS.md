@@ -278,6 +278,21 @@ kills on the shared machine (not re-run). CI does not install the
 `standardwebhooks` receiver separately: the Docker e2e does it in the client
 container.
 
+### Public docs published to BuildBase Docs (2026-11-21, issue #47)
+
+Built (D-080..D-082; how to run: docs/DOCS_PUBLISHING.md): 19 public-safe pages
+in 9 folders (`start`, `install`, `api`, `mcp`, `providers`, `manifest`,
+`cookbook`, `privacy`, `troubleshooting`) from `docs/public/**` plus
+`docs/CONFIG.md`, `docs/PRIVACY.md` and `docs/providers/*.md`, listed in
+`docs/public/manifest.json`. The MCP tool list (every registered tool, grouped; 61 after webhooks), the REST
+route table and the template catalog are generated from the code
+(`pnpm docs:reference`, drift test in the server suite).
+`scripts/docs/sync-buildbase.mjs` publishes them: idempotent, matched by path,
+owned by the `source-repo` tag, archive instead of delete. Published to the
+development environment `fsyqdskf` only; a re-run there was a no-op. No CI job
+yet (maintainers add it from the sketch in docs/DOCS_PUBLISHING.md); production
+not published. The store's `/docs` pages are a separate PR in the store repo.
+
 ### Job queue and scaling: more than one instance (2026-11-21, issue #36)
 
 Built (D-075..D-079; operator reference and test record:
