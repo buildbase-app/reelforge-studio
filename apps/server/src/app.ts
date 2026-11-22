@@ -497,6 +497,22 @@ export function createApp({ service, config, observability }: AppDeps) {
     return c.body(null, 204);
   });
 
+  // ---- outbound events (#66): webhooks, chat and email channels ---------------------
+  v1.get('/webhooks', need('admin'), async (c) => c.json(await service.listWebhooks()));
+  v1.post('/webhooks', need('admin'), json, async (c) => c.json(await service.createWebhook(await body(c), actor(c)), 201));
+  v1.get('/webhooks/:id', need('admin'), async (c) => c.json(await service.getWebhook(c.req.param('id'))));
+  v1.patch('/webhooks/:id', need('admin'), json, async (c) => c.json(await service.updateWebhook(c.req.param('id'), await body(c), actor(c))));
+  v1.delete('/webhooks/:id', need('admin'), async (c) => c.json(await service.deleteWebhook(c.req.param('id'), actor(c))));
+  v1.post('/webhooks/:id/test', need('admin'), json, async (c) => {
+    const b = await body(c);
+    const wait = b.waitSeconds ?? c.req.query('wait');
+    return c.json(await service.testWebhook(c.req.param('id'), { waitSeconds: wait === undefined ? undefined : Number(wait) }, actor(c)), 202);
+  });
+  v1.get('/webhooks/:id/deliveries', need('admin'), async (c) => c.json(await service.listWebhookDeliveries(c.req.param('id'), c.req.query())));
+  v1.post('/webhooks/:id/deliveries/:deliveryId/replay', need('admin'), async (c) =>
+    c.json(await service.replayWebhookDelivery(c.req.param('id'), c.req.param('deliveryId'), actor(c)), 202)
+  );
+
   v1.get('/audit', need('admin'), async (c) => {
     const query = c.req.query();
     const format = query.format ?? (/(text\/csv)/.test(c.req.header('accept') ?? '') ? 'csv' : /ndjson|jsonl/.test(c.req.header('accept') ?? '') ? 'jsonl' : 'json');

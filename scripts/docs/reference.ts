@@ -81,6 +81,21 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
       'list_audit_events',
     ],
   },
+  {
+    title: 'Webhooks and notifications',
+    intro:
+      'Signed webhook endpoints (Standard Webhooks), their delivery log and replays. Admin scope. Notification channels (Slack, Discord, Teams, email) are configured with update_config.',
+    tools: [
+      'list_webhooks',
+      'get_webhook',
+      'create_webhook',
+      'update_webhook',
+      'delete_webhook',
+      'test_webhook',
+      'list_webhook_deliveries',
+      'replay_webhook_delivery',
+    ],
+  },
 ];
 
 // Markdown table cell: escape backslashes first, then pipes; one line.
