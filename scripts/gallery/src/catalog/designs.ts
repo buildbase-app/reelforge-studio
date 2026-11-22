@@ -58,6 +58,9 @@ export interface HeroProps {
 export const hero: Design<HeroProps> = (ctx, p) => {
   const t0 = ctx.tin === 'none' ? 0.15 : 0.35;
   const size = p.size ?? (Math.max(...p.lines.map((l) => l.length)) > 11 ? 128 : 156);
+  // A single long word (a URL, a product name) must still fit the 900 px column.
+  const longest = Math.max(...p.lines.flatMap((l) => l.split(/\s+/)).map((w) => w.length));
+  const fitted = Math.min(size, Math.floor(900 / (longest * 0.56)));
   const center = p.align === 'center';
   const words = p.lines.join(' ').split(/\s+/).length;
   const html =
@@ -69,7 +72,7 @@ export const hero: Design<HeroProps> = (ctx, p) => {
     '</div>';
   const css =
     WRAP +
-    H1(size) +
+    H1(fitted) +
     SUB +
     maskCss() +
     eyebrowCss +
@@ -1195,7 +1198,7 @@ export const outro: Design<OutroProps> = (ctx, p) => {
     `.ctr{align-items:center;text-align:center}
 .mark .bm{width:260px;height:260px}.mark{animation:mk-in 1s ${EASE} ${s(t0)} both}
 @keyframes mk-in{from{transform:scale(.8);opacity:0}}
-.bn{margin-top:60px;font-size:140px;font-weight:600;letter-spacing:-.05em;line-height:1}
+.bn{margin-top:60px;font-size:${p.brand.length > 12 ? 104 : 140}px;font-weight:600;letter-spacing:-.05em;line-height:1}
 .ln{margin:30px 0 0;font-size:50px;font-weight:600;color:var(--rf-muted);max-width:840px;line-height:1.25}
 .btn{margin-top:70px;font-size:46px;font-weight:600;padding:34px 70px;border-radius:999px;background:var(--rf-text);color:var(--rf-bg);animation:k-pop .7s ${EASE} ${s(t0 + 1.1)} both}
 .url{margin-top:40px;font:600 36px/1 ${MONO};color:var(--rf-muted)}`;

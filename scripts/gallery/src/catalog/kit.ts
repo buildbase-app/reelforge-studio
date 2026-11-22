@@ -172,9 +172,15 @@ export function maskCss(cls = 'mk', dur = 0.9): string {
 
 /** Letters that pop in one by one (kinetic type). */
 export function letters(text: string, at: number, stagger = 0.03, cls = 'lt'): string {
-  return [...text]
-    .map((ch, i) => (ch === ' ' ? ' ' : `<span class="${cls}" style="animation-delay:${s(at + i * stagger)}">${esc(ch)}</span>`))
-    .join('');
+  let i = 0;
+  const words = text.split(' ').map((word) =>
+    [...word]
+      .map((ch) => `<span class="${cls}" style="animation-delay:${s(at + i++ * stagger)}">${esc(ch)}</span>`)
+      .join('')
+  );
+  if (words.length === 1) return words[0]!;
+  // Several words: keep each word's letters together so a line never breaks inside a word.
+  return words.map((w) => `<span style="display:inline-block;white-space:nowrap">${w}</span>`).join(' ');
 }
 
 export function lettersCss(cls = 'lt', dur = 0.6): string {

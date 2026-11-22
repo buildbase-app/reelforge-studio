@@ -67,6 +67,7 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> =
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
   );
 
+  const push = interpolate(frame, [0, durationInFrames], [1, 1.04]);
   const fontSize = Math.round(width * 0.105);
 
   return (
@@ -83,7 +84,9 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> =
         style={{
           position: 'relative',
           opacity: 1 - exit,
-          transform: `translateY(${-exit * 80}px)`,
+          // A slow push for the whole scene, so a held title never reads as a frozen frame.
+          transform: `translateY(${-exit * 80}px) scale(${push})`,
+          transformOrigin: 'left center',
         }}
       >
         <h1

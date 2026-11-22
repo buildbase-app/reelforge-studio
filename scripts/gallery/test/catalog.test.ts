@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { parseProject } from '@reelforge/project-schema';
 import { breakLines, buildEntry, type GalleryEntry } from '../src/catalog/build';
 import { buildAll, REELS } from '../src/catalog/index';
-import { hashSeed, rng, themeFor } from '../src/catalog/kit';
+import { hashSeed, letters, rng, themeFor } from '../src/catalog/kit';
 import { PALETTES } from '../src/catalog/palettes';
 import { manifestHash, stableJson, validateEntry } from '../src/manifests';
 
@@ -63,6 +63,7 @@ describe('gallery catalog', () => {
       expect(src, e.gallery.slug).not.toMatch(/https?:\/\//);
       expect(src).not.toMatch(/@import|@font-face|<link|<img[^>]+src="(?!data:)/i);
       expect(src).not.toMatch(/<script[^>]*\bsrc=/i);
+      expect(src, e.gallery.slug).not.toMatch(/>"[a-z]+" style=/);
     }
   });
 
@@ -104,6 +105,13 @@ describe('catalog helpers', () => {
   it('breaks headlines into short lines', () => {
     expect(breakLines('Light from three sides', 14)).toEqual(['Light from', 'three sides']);
     expect(breakLines('Supercalifragilistic word', 10)).toEqual(['Supercalifragilistic', 'word']);
+  });
+  it('keeps multi-word kinetic letters as markup, one unbreakable group per word', () => {
+    const html = letters('Ab Cd', 0, 0.1);
+    expect(html).not.toMatch(/>[^<]*style=/);
+    expect(html.match(/<span/g)!.length).toBe(html.match(/<\/span>/g)!.length);
+    expect(html.match(/white-space:nowrap/g)!.length).toBe(2);
+    expect(letters('Abc', 0)).not.toMatch(/nowrap/);
   });
   it('has a seeded PRNG and hash', () => {
     const a = rng(42);
