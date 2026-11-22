@@ -1605,3 +1605,101 @@ is no longer used for uploads because it buffers chunked bodies. Form fields
 may come before or after the file. Every limit refusal (D-090..D-092) is counted
 in `reelforge.limits.rejections` with a fixed `reason` label and audited as
 `limit.rejected` (result `denied`).
+
+## T. Render at any scale: backends, fan-out, pluggable queues, licence (2026-11-22, research)
+
+Founder request (2026-11-22): rendering and the CRUD path must scale on the buyer's own
+infrastructure without limit (like Remotion Lambda / Cloud Run, or anything self-hosted),
+one organisation licence must cover any number of workers, and nothing may pause or
+overload when many videos render at once. Research, sources, provider matrix, capacity
+math and spike results: [docs/research/RENDER_SCALE.md](research/RENDER_SCALE.md). These
+are proposals for the work in the "Render at any scale" epic #149; each becomes DECIDED when its
+issue lands with tests.
+
+### D-095 --- Render backends: worker pools first, `worker --once` for job platforms, launchers and managed renderers as plugins
+
+**Status:** PROPOSED (2026-11-22).\
+Three kinds of backend behind one plugin interface (extends `RenderBackend`,
+`packages/core/src/plugins.ts`): (1) **worker pool**: N `worker` containers on any
+orchestrator claim from the queue (local, compose, VPS, Nomad, Kubernetes Deployment + KEDA,
+ECS service, Azure Container Apps); no new code, only recipes; (2) **one unit per container**:
+`reelforge worker --once [--job <id>]` claims one unit (optionally exactly that job id,
+fenced), runs it and exits, so platform job schedulers scale it (KEDA ScaledJob, ACA event
+jobs, AWS Batch, Cloud Run Jobs, ECS RunTask, Fly Machines) and scale-in never kills a running
+render; a **launcher** plugin calls the platform API ("run task", "execute job") where no
+queue-driven scaler exists; (3) **managed renderer** for one engine (Remotion Lambda), called by
+the worker that claimed a Remotion unit. The interface adds `capabilities()` (engines, maximum
+unit duration, frame-range support, scale-to-zero), `estimate()` (cost/time before the job,
+#28) and keeps `implemented: false` honesty. Every backend is "tested" only with an e2e against
+the real service or its emulator (#17 rule). **Why not one launcher per render as the default:**
+the worker pool needs no cloud credentials in the api, no per-render API calls and no
+cold start; launchers are for platforms and buyers who want scale-to-zero per render. **Why
+not Remotion Cloud Run:** Alpha and "not actively being developed" (Remotion docs, 2026-11-22).
+
+### D-096 --- The database stays the queue of record; dispatch is pluggable
+
+**Status:** PROPOSED (2026-11-22). Extends D-075.\
+Job state, leases, fencing, attempts, quotas and history stay in the `Job` table (D-075). A
+`queue.dispatch` driver only tells workers that work is ready: `poll` (default, today's
+behaviour, with backoff on empty polls), `notify` (PostgreSQL LISTEN/NOTIFY on a direct session
+connection; not through PgBouncer transaction mode), and external drivers carrying job ids only,
+at-least-once: SQS, Redis Streams, NATS JetStream, Azure Service Bus, Google Pub/Sub. Enqueue
+writes the job and an outbox row in one transaction; a relay publishes (the webhook outbox
+pattern, D-071). A worker that receives an id claims that id with the fenced compare-and-set;
+duplicates and stale messages are no-ops; the message is acknowledged after the claim, so broker
+lock limits (Service Bus 5 min) do not bound render length. **When:** the database queue's claim
+cost is far below render rates (100 000 renders/day ≈ 3.5 claims/s at peak); external dispatch is
+for idle-poll load (≈ one transaction per idle worker per second) above a few hundred workers
+and for cloud-native scalers (SQS/Service Bus). **Rejected:** moving job state into Redis/SQS
+(two sources of truth, loses quotas-in-one-transaction and fencing); BullMQ Pro groups as the
+fairness mechanism (paid add-on).
+
+### D-097 --- One render fans out per scene (and per frame range where the engine supports it), joined by stream copy
+
+**Status:** PROPOSED (2026-11-22). Extends D-018 (independent scene renders) and D-067.\
+A render becomes a parent job with one `render_unit` child per scene (per chunk for engines that
+declare frame ranges; Remotion first), all ordinary rows in the queue (same leases, attempts,
+fencing). Each unit renders and normalises its clip to the final encoding (`H264_ARGS`, same
+size/fps/pixel format/time base, IDR at frame 0, video only) and uploads it to the run's temp
+prefix with a manifest. The unit's fenced success decrements `pendingChildren` on the parent in
+the same transaction; the transaction that reaches 0 inserts the single `render_join`. The join
+concatenates with the concat demuxer and stream copy, mixes audio once on the full timeline,
+validates (frames, boundaries, A/V duration) and commits as today. A unit that fails after
+`maxAttempts` fails the parent and cancels its siblings; cancel cascades; retry reuses committed
+units of the same project version. Fan-out is opt-in per deployment (`render.fanOut`) and only
+used when there are idle workers or a time-capped backend; the single-worker filter-graph assembly
+stays the default path. **Why:** throughput already scales with workers; fan-out cuts the latency of
+long renders and lets renders fit time-capped platforms (Lambda: 15 min per Remotion's page,
+30 min per AWS's). Must pass a frame-exact equality test against the single-worker render.
+
+### D-098 --- Licence at scale: one activation per deployment (the shared database); only the api tier checks, once a day
+
+**Status:** PROPOSED (2026-11-22); touches licence-enforcement code (maintainer go-ahead needed).
+Refines D-036/D-037.\
+Measured (RENDER_SCALE.md §12): 1 api + 3/19/49 workers on one database take exactly one
+BuildBase activation (one instance id per database); a second database is a second activation
+(`limit_reached` at limit 1); but every process calls the licence server at start and daily (50
+processes = 50 calls), which grows with autoscaling churn. **Model:** a deployment = the set of
+instances sharing one database = one activation; unlimited api/worker processes, autoscaling and
+regions on one database are covered. Separate databases (other regions, staging) are separate
+activations; the store's tiers set `activationLimit` per number of deployments (founder, #91).
+**Change:** only `api`/`all` instances run licence checks, single-flight per deployment through a
+compare-and-set on the stored state (one check per day per deployment); `worker` instances never
+call the licence server, read the sealed shared state (D-089) and stop claiming render units when
+it disallows renders (the enqueue gate stays). **Rejected:** a configurable cluster id (copyable
+across companies); per-worker activations (punishes scaling); usage reporting (contradicts "no
+telemetry by default"; only as an explicit founder-approved opt-in, not designed).
+
+### D-099 --- Defaults: local pool for one machine; api + worker pool with KEDA or ACA for scale; Remotion Lambda opt-in after #10
+
+**Status:** PROPOSED (2026-11-22).\
+Recommended and tested-first, in order: (1) `all` role with the local pool (today); (2) `api` +
+`worker` pool on compose/VPS (today, tested); (3) Kubernetes + KEDA (PostgreSQL/MySQL scaler on
+the `Job` table, or the existing Prometheus metric), scale to zero, ScaledJob with `worker --once`
+for bursts: the reference "infinite" recipe, e2e on kind/k3d; (4) Azure Container Apps (KEDA scale
+rules natively); (5) ECS/Fargate service with target tracking on a published queue metric; AWS Batch,
+Cloud Run Jobs, ACA event jobs via `worker --once`; (6) Remotion Lambda for Remotion scenes only,
+blocked until Remotion answers #10 in writing. Pooling recipe (small `connection_limit` on workers,
+PgBouncer transaction mode or RDS Proxy) is part of every multi-instance recipe. Each recipe ships
+with its test-case table (docs/providers/backends.md) and a recorded run before the store may claim
+it.
