@@ -140,8 +140,14 @@ if (PHASE === 'setup') {
 if (PHASE === 'pending') {
   const s = JSON.parse(readFileSync(STATE, 'utf8'));
   const t = await raw('test_webhook', { webhookId: s.hookId });
-  const d = await until(async () => (await raw('list_webhook_deliveries', { webhookId: s.hookId })).deliveries.find((x) => x.id === t.delivery.id && x.attempts >= 1), 30_000);
-  check('WHK-09 receiver down: the delivery stays pending with a failed attempt (no answer)', d?.status === 'pending' && !d.lastStatus && !!d.lastError, d?.lastError);
+  // Retries start after about 1 s, so a single read can catch the row `delivering` its next attempt: wait for a read
+  // that shows it pending again after a failed attempt (it never matches once dead or succeeded).
+  let last;
+  const d = await until(async () => {
+    last = (await raw('list_webhook_deliveries', { webhookId: s.hookId })).deliveries.find((x) => x.id === t.delivery.id);
+    return last && last.attempts >= 1 && last.status === 'pending' && !last.lastStatus && !!last.lastError ? last : null;
+  }, 30_000);
+  check('WHK-09 receiver down: the delivery stays pending with a failed attempt (no answer)', d?.status === 'pending' && !d.lastStatus && !!d.lastError, d?.lastError ?? (last && `${last.status}, ${last.attempts} attempt(s): ${last.lastError}`));
   writeFileSync(STATE, JSON.stringify({ ...s, pending: t.delivery.id, messageId: t.delivery.messageId }));
 }
 

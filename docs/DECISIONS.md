@@ -1552,9 +1552,12 @@ default being computed from the effective `queue.driver`/`server.role`;
 `maxRunningJobsPerKey` 0 (off). Claiming is **fair across keys** whatever the
 caps: the in-process pump and the database claim take the job of the key with
 the fewest running jobs, oldest first among equals (PostgreSQL/MySQL: plain
-reads decide the key order, then one index-ordered `FOR UPDATE SKIP LOCKED`
-locks a single job, because a locking read with a sort over all queued rows
-would lock all of them on MySQL; SQLite: one conditional `UPDATE`). One key
+reads decide the key order, then `FOR UPDATE SKIP LOCKED` locks a single job:
+on PostgreSQL the ordered `LIMIT 1` query, on MySQL the candidates one at a
+time by primary key, because a MySQL locking read locks every matching row its
+plan reads, so with a sort it locked all queued jobs of the key (#168); a key
+whose jobs are all held falls through to the next; SQLite: one conditional
+`UPDATE`). One key
 alone still gets every slot; two keys share them evenly. The first two caps
 are checked inside the job insert transaction that already serves the render
 quota (D-078): under the key's row lock, or the `Workspace` row lock when the

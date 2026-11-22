@@ -213,8 +213,11 @@ describe('webhooks over REST and MCP (WHK-20..)', () => {
     const r = await rest('POST', '/v1/projects/whk-render/renders', { body: {} });
     expect(r.status).toBe(202);
     const jobId = r.json.job.id;
-    await until(() => types('/rest/abc-token-path').includes('render.ready') && types('/mcp-hook').includes('render.ready'), 50_000);
-    const mine = at('/rest/abc-token-path').map((x) => x.verified as any).filter((e) => e.data.job?.id === jobId || e.data.jobId === jobId);
+    const mineNow = () => at('/rest/abc-token-path').map((x) => x.verified as any).filter((e) => e.data.job?.id === jobId || e.data.jobId === jobId);
+    // Each event is its own outbox row and deliveries run in parallel, so render.ready can arrive before
+    // job.succeeded (order is not guaranteed, docs/providers/webhooks-and-notifications.md): wait for both.
+    await until(() => ['job.succeeded', 'render.ready'].every((t) => mineNow().some((e) => e.type === t)) && types('/mcp-hook').includes('render.ready'), 50_000);
+    const mine = mineNow();
     const seen = mine.map((e) => e.type);
     expect(seen).toEqual(expect.arrayContaining(['job.queued', 'job.started', 'job.succeeded', 'render.ready']));
     expect(seen.filter((t) => t === 'job.progress').length).toBeLessThanOrEqual(9);
