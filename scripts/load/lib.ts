@@ -183,6 +183,12 @@ export class DbSampler {
          FROM pg_stat_statements s JOIN pg_database d ON d.oid = s.dbid WHERE d.datname = $1 ORDER BY total_exec_time DESC LIMIT 12`,
       this.dbName
     ).catch(() => []);
+    // The job-cap lock statements (#180): their mean execution time is the time spent waiting for the lock.
+    const capLocks = await this.q<{ query: string; calls: unknown; total: unknown; mean: unknown }>(
+      `SELECT left(regexp_replace(query, '\\s+', ' ', 'g'), 160) AS query, calls, round(total_exec_time::numeric, 1) AS total, round(mean_exec_time::numeric, 3) AS mean
+         FROM pg_stat_statements s JOIN pg_database d ON d.oid = s.dbid WHERE d.datname = $1 AND (query LIKE '%SET "id" = "id"%' OR query LIKE '%SET "count" = "count"%') ORDER BY total_exec_time DESC`,
+      this.dbName
+    ).catch(() => []);
     const [st] = await this.q<{ n: unknown }>(`SELECT COALESCE(SUM(calls), 0) AS n FROM pg_stat_statements s JOIN pg_database d ON d.oid = s.dbid WHERE d.datname = $1`, this.dbName).catch(() => [{ n: 0 }]);
     const tables = [...after.tables.entries()]
       .map(([table, [i, u, d]]) => {
@@ -209,6 +215,7 @@ export class DbSampler {
       rowsWrittenPerSecond: Object.fromEntries(tables.map((t) => [t.table, round((t.inserts + t.updates + t.deletes) / secs)])),
       tables,
       topStatements: top.map((r) => ({ query: r.query, calls: num(r.calls), totalMs: num(r.total), meanMs: num(r.mean), rows: num(r.rows) })),
+      capLockStatements: capLocks.map((r) => ({ query: r.query, calls: num(r.calls), totalMs: num(r.total), meanMs: num(r.mean) })),
     };
   }
 

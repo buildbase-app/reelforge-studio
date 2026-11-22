@@ -260,9 +260,10 @@ listed, in its order; 7 to 10 are what the run found besides.
    load): `ApiKey` lock 6.2 ms average; with the total cap on as well, `Workspace` lock 12.5 ms.
    So the default is fine at these rates, but the enqueue rate of one key (or of the whole
    deployment with `limits.maxQueuedJobs`) is capped at roughly 1 / hold time, and the hold time
-   is at the mercy of api CPU. Fix: one statement (conditional insert) or a short server-side
-   function instead of the interactive transaction, and a warning on `limits.maxQueuedJobs` for
-   the database queue: #180.
+   is at the mercy of api CPU. **Fixed in #180** (D-090): the job and its event are written
+   first, then the lock, then one statement with every count, then commit, so the lock is held
+   for two round trips (the lock statement and one count statement) instead of four to seven; `limits.maxQueuedJobs` now locks a dedicated
+   row and its description warns about the shared lock. Before/after: [below](#job-cap-lock-180-before-and-after).
 9. **api CPU per request is the real ceiling of this setup.** A CPU profile of an api
    instance during (a) (`LOAD_SCENARIOS=a LOAD_SECONDS=30 LOAD_SERVER_NODE_OPTIONS="--cpu-prof"`, run
    2026-11-22T15:19Z): Prisma's client runtime
@@ -275,6 +276,44 @@ listed, in its order; 7 to 10 are what the run found besides.
     availability on the instance that takes the call, so an `api` role without Chrome Headless
     Shell refuses renders (422, "no browser") although it never renders. The release image
     always has one, so this only bites a slimmed api image; noted for #150/#158.
+
+## Job-cap lock (#180): before and after
+
+[^c]: **Conditions of every number in this section:** lower bound, shared sandbox (not dedicated).
+    The same container as above (4 vCPU Intel Xeon @ 2.10 GHz, 15.7 GiB, Linux 6.18, Node 22.23.5,
+    PostgreSQL 17.12 and PgBouncer 1.26.1 with the settings above), shared with other workloads,
+    among them another agent's load test: host load average 6.3 to 17.1 during the runs (column
+    below). Scenario (b) only (`LOAD_SCENARIOS=b LOAD_REAL_REEL=0`, otherwise the full profile:
+    500 renders over 60 s with the many-keys CRUD mix, 2 api instances, 50 fake-engine workers),
+    direct and PgBouncer. *Before* is `main` at 54ca013, *after* is this change; runs alternated
+    between the two, 2026-11-22 16:29Z to 16:59Z. The load sampler records the cap lock statement
+    (`capLockStatements` in the JSON): its mean execution time in `pg_stat_statements` is the time
+    an enqueue waited for the lock. Raw results: `docs/performance/2026-11-22-shared-sandbox-180-*.json`.
+
+| Run [^c] | Pooler | Lock statement | Mean lock wait, before → after | Enqueue p95 ms, before → after | Queue wait p95 ms, before → after | Host load (mean), before / after |
+| --- | --- | --- | --- | --- | --- | --- |
+| total cap on (`LOAD_MAX_QUEUED_JOBS=1000000`), 200 keys | direct | `Workspace` → `lock:job-queue` row | **62.4 → 1.8 ms** | 1 447 → 932 | 553 → 321 | 12.4 / 10.0 |
+| | PgBouncer | | **68.2 → 2.9 ms** | 1 426 → 1 078 | 587 → 379 | 14.6 / 9.8 |
+| total cap on, one key (`LOAD_RENDER_KEY=one`), run 1 | direct | `Workspace` → `lock:job-queue` row | **86.0 → 9.8 ms** | 1 672 → 1 327 | 639 → 415 | 14.5 / 14.3 |
+| | PgBouncer | | **27.0 → 16.2 ms** | 1 104 → 1 832 | 564 → 526 | 13.3 / 15.7 |
+| total cap on, one key, run 2 | direct | | **44.4 → 10.8 ms** | 1 364 → 1 143 | 472 → 363 | 14.9 / 15.5 |
+| | PgBouncer | | **146.6 → 10.6 ms** | 2 212 → 1 282 | 917 → 401 | 12.1 / 16.6 |
+| default caps (per key only), 200 keys | direct | `ApiKey` (uncontended) | 0.061 → 0.039 ms | 1 665 → 714 | 383 → 265 | 17.1 / 6.3 |
+| | PgBouncer | | 0.071 → 0.070 ms | 894 → 1 335 | 285 → 364 | 11.3 / 12.8 |
+
+Every run: 550 jobs, 0 lost, 0 duplicated, 0 refused. Sessions seen waiting on the cap lock
+(one-second samples) fell from 13 to 81 per run to 1 to 7. The lock wait dropped in every run
+with a contended lock (by 1.7× to 35×); it is no longer a multiple of the api's event-loop lag,
+because the lock is held for two round trips (the lock statement, then one statement with every
+count) instead of four (per-key cap) to seven (quota windows and both caps). Enqueue latency on this box follows the host load more than the lock:
+with the default caps (lock uncontended either way) it moved by ±50 % between runs with nothing
+changed in its path, and the one-key PgBouncer run 1 got slower at a higher host load although its
+lock wait fell. What the change guarantees is the hold time, shown here and by the contract test
+LIM-11 (one statement between the lock and commit); the enqueue-rate ceiling of one key, or of
+the deployment with `limits.maxQueuedJobs`, moves from about 1 / (4 to 7 round trips under load)
+to about 1 / (2 round trips under load). The remaining hold time is those two round trips, and
+it still grows with api CPU; making it zero needs a server-side function
+(rejected in D-090).
 
 ## PgBouncer transaction mode (#152)
 

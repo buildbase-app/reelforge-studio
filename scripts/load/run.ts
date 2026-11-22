@@ -277,7 +277,7 @@ function serverEnv(dbUrl: string, dataDir: string, role: 'api' | 'worker', port:
     REELFORGE_MIGRATE_ON_START: 'false',
     REELFORGE_LOG_LEVEL: 'warn',
     // The job caps keep their defaults (database queue: 100 unfinished per key, no total cap). A total cap
-    // (LOAD_MAX_QUEUED_JOBS > 0) makes every enqueue lock the one Workspace row; measure it on purpose only.
+    // (LOAD_MAX_QUEUED_JOBS > 0) makes every enqueue wait for one shared lock row (D-090, #180); measure it on purpose only.
     ...(process.env.LOAD_MAX_QUEUED_JOBS ? { REELFORGE_MAX_QUEUED_JOBS: process.env.LOAD_MAX_QUEUED_JOBS } : {}),
     // e.g. LOAD_SERVER_NODE_OPTIONS=--cpu-prof --cpu-prof-dir=out/load/prof: where an instance spends its CPU.
     ...(process.env.LOAD_SERVER_NODE_OPTIONS ? { NODE_OPTIONS: process.env.LOAD_SERVER_NODE_OPTIONS } : {}),
