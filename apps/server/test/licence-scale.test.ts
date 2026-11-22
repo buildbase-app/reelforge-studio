@@ -211,6 +211,9 @@ describe.skipIf(!kind)(`2 api + 3 worker servers on ${kind} (licence mode requir
     const r = await fetch(`${apis[0]!.url}/v1/licence`, { method: 'POST', headers: { authorization: `Bearer ${admin}`, 'content-type': 'application/json' }, body: '{}' });
     expect((await r.json()).reason).toBe('revoked');
     await until('workers see the refusal', () => workers.every((w) => w.service.getLicence().reason === 'revoked'));
+    // The other api instance re-reads the stored state on its own timer (D-098): wait until it has,
+    // instead of assuming every instance refreshes together.
+    await until('the second api instance sees the refusal', () => apis[1]!.service.getLicence().reason === 'revoked');
     // The enqueue gate on the api refuses; a job already queued (enqueued before the check) stays queued.
     expect((await fetch(`${apis[1]!.url}/v1/projects/sample-reel/renders`, { method: 'POST', headers: { authorization: `Bearer ${admin}`, 'content-type': 'application/json' }, body: '{}' })).status).toBe(403);
     const params = { projectId: 'sample-reel', version: 1, backend: 'local', runId: `run_${Date.now().toString(36)}0123456789` };
@@ -221,7 +224,8 @@ describe.skipIf(!kind)(`2 api + 3 worker servers on ${kind} (licence mode requir
     expect(ready.licence).toMatchObject({ status: 'invalid', reason: 'revoked', renderAllowed: false });
     expect(ready.licence.detail).toMatch(/claims no render jobs/);
     expect(ready.dependencies.queue.paused).toMatch(/the licence does not allow renders \(invalid, revoked\)/);
-    expect(logs.some((l) => /^worker-\d: queue: not claiming jobs: the licence does not allow renders/.test(l))).toBe(true);
+    // A worker logs this on its next claim attempt after it read the refusal: wait for it rather than sampling once.
+    await until('a worker logs why it is not claiming', () => logs.some((l) => /^worker-\d: queue: not claiming jobs: the licence does not allow renders/.test(l)));
     const metrics = await (await fetch(`${workers[2]!.url}/metrics`, { headers: { authorization: `Bearer ${METRICS_TOKEN}` } })).text();
     expect(metrics).toMatch(/reelforge_licence_state\{[^}]*"invalid"[^}]*\} 1/);
     // The key is active again (fresh activation): POST /v1/licence activates; the workers pick the job up.
