@@ -21,7 +21,8 @@ const page = (title, body) => `<!doctype html><html><head><meta charset="utf-8">
 <style>body{font:16px system-ui;margin:0;padding:24px;background:#fff;color:#111}@media (prefers-color-scheme:dark){body{background:#111;color:#eee}}main{min-height:1400px}</style></head>
 <body><main><h1>${title}</h1>${body}</main></body></html>`;
 const PAGES = {
-  '/': page('Home', `<p>Your licence key: <code>${KEY}</code></p><p>Signed in as buyer-e2e+test@reelforge.dev</p><input type="email" value="buyer-e2e+test@reelforge.dev">`),
+  '/': page('Home', `<p>Your licence key: <code>${KEY}</code></p><p>Signed in as buyer-e2e+test@reelforge.dev</p><input type="email" value="buyer-e2e+test@reelforge.dev"><p id="late"></p>
+<script>setTimeout(() => { document.getElementById('late').textContent = 'Order key: ' + ['QW12E', 'RT34Y', 'UI56O', 'PA78S', 'DF90G'].join('-'); }, 300);</script>`),
   '/second': page('Second', '<p>Plain page.</p>'),
 };
 
@@ -74,14 +75,16 @@ describe('capture e2e (local static server)', () => {
     return true;
   };
 
-  it('masks the key and the email before a page is captured', async (t) => {
+  it('masks the key and the email before a page is captured, also when they appear later', { timeout: 60_000 }, async (t) => {
     if (skip(t)) return;
     const browser = await launch();
     try {
       const ctx = await newContext(browser, { width: 390, height: 844, theme: 'light' });
       const p = await ctx.newPage();
       await p.goto(`${site}/`);
+      await p.waitForTimeout(800); // the late key arrives after load, under the observer (once looped forever)
       const text = await readableText(p);
+      assert.ok(!text.includes('QW12E-RT34Y'), 'a key added after load is masked');
       assert.ok(text.includes(MASK.key), 'the key is replaced');
       assert.deepEqual(findSecrets(text), [], 'nothing readable is left');
       const shots = await shoot(p);

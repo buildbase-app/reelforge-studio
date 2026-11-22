@@ -28,7 +28,7 @@ export const ASSET_ENV = 'fsyqdskf';
 
 const USAGE = `Usage: pnpm capture [--only ${STEPS.join('|')}] [--site <url>]... [--upload] [--dry-run]
        [--out out/capture] [--store-dir <store repo>] [--reel <final.mp4>] [--blueprint <file>]
-       [--routes /,/pricing] [--widths 390,1440] [--themes light,dark]`;
+       [--routes /,/pricing] [--widths 390,1440] [--themes light,dark] [--flows personal-claim,commercial-purchase]`;
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
@@ -69,6 +69,10 @@ export async function main(argv = process.argv.slice(2)) {
   const written = writeDocsPages(manifest);
   run.log(`\ndocs pages: ${written.join(', ')}`);
   const pending = Object.values(manifest.images).filter((e) => e.pending).length;
+  if (run.results.failed?.length) {
+    run.log(`\nFAILED: ${run.results.failed.join(', ')} (what the other steps made was kept)`);
+    return 1;
+  }
   run.log(`${run.results.images.length} images, ${run.results.videos.length} videos this run; ${pending} images waiting for --upload; ${run.results.notes.length} notes, ${run.results.skipped.length} skipped (see ${resolve(run.out, 'results.json')})`);
   return 0;
 }

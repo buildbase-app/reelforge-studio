@@ -20,6 +20,7 @@ export function parseArgs(argv) {
     routes: null,
     themes: null,
     widths: null,
+    flows: null,
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -45,6 +46,7 @@ export function parseArgs(argv) {
     else if (a.startsWith('--routes')) args.routes = list();
     else if (a.startsWith('--themes')) args.themes = list();
     else if (a.startsWith('--widths')) args.widths = list().map(Number);
+    else if (a.startsWith('--flows')) args.flows = list();
     else throw new Error(`unknown argument ${a}`);
   }
   return args;
@@ -142,9 +144,15 @@ export function maskingInitScript({ allowEmails = DEFAULT_ALLOWED_EMAILS } = {})
   const ALLOWED = new Set(${JSON.stringify(allowEmails.map((e) => e.toLowerCase()))});
   const mask = (s) => s.replace(KEY, ${JSON.stringify(MASK.key)}).replace(TOKEN, ${JSON.stringify(MASK.token)})
     .replace(EMAIL, (m) => (ALLOWED.has(m.toLowerCase()) ? m : ${JSON.stringify(MASK.email)}));
-  const test = (s) => { KEY.lastIndex = 0; EMAIL.lastIndex = 0; TOKEN.lastIndex = 0;
-    return KEY.test(s) || TOKEN.test(s) || [...s.matchAll(EMAIL)].some((m) => !ALLOWED.has(m[0].toLowerCase()) && m[0] !== ${JSON.stringify(MASK.email)}); };
-  const fixNode = (n) => { if (n.nodeType === 3 && n.nodeValue && test(n.nodeValue)) n.nodeValue = mask(n.nodeValue); };
+  // Masked text matches the key pattern itself: compare before writing, or the
+  // observer would see its own change and loop forever.
+  const test = (s) => { TOKEN.lastIndex = 0;
+    return [...s.matchAll(KEY)].some((m) => m[0] !== ${JSON.stringify(MASK.key)}) || TOKEN.test(s) || [...s.matchAll(EMAIL)].some((m) => !ALLOWED.has(m[0].toLowerCase()) && m[0] !== ${JSON.stringify(MASK.email)}); };
+  const fixNode = (n) => {
+    if (n.nodeType !== 3 || !n.nodeValue || !test(n.nodeValue)) return;
+    const next = mask(n.nodeValue);
+    if (next !== n.nodeValue) n.nodeValue = next;
+  };
   const fixInput = (el) => {
     if (!el || !('value' in el) || typeof el.value !== 'string') return;
     const t = (el.getAttribute('type') || '').toLowerCase();

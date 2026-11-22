@@ -139,10 +139,12 @@ export async function captureStudio(run) {
     });
 
     // 4. Health and metrics.
-    const ready = await sh('curl -s "$API/readyz" | jq .', env);
+    // Anonymous /readyz only says ok or not (#146); an admin key gets the details.
+    const readyAnon = await sh('curl -s "$API/readyz" | jq -c .', env);
+    const ready = await sh('curl -s -H "Authorization: Bearer $REELFORGE_KEY" "$API/readyz" | jq .', env);
     const metrics = await sh(`curl -s -H "Authorization: Bearer $REELFORGE_METRICS_TOKEN" "$API/metrics" | grep -E '^(# HELP|# TYPE)? ?(reelforge|process_resident|nodejs_version)' | head -32`, env);
-    await saveView(run, page, work, 'readyz', { title: 'Readiness: /readyz', meta, blocks: [ready], caption: 'What a load balancer or Docker health check reads.' });
-    await saveView(run, page, work, 'metrics', { title: 'Prometheus metrics: /metrics', meta, blocks: [metrics], caption: 'Served when observability.metrics.exporter is prometheus; the bearer token is optional (REELFORGE_METRICS_TOKEN).' });
+    await saveView(run, page, work, 'readyz', { title: 'Readiness: /readyz', meta, blocks: [readyAnon, ready], caption: 'A load balancer or Docker health check reads the short answer; an admin key gets every check.' });
+    await saveView(run, page, work, 'metrics', { title: 'Prometheus metrics: /metrics', meta, blocks: [metrics], caption: 'Served when observability.metrics.exporter is prometheus, to callers with the bearer token (REELFORGE_METRICS_TOKEN, masked).' });
 
     // 5. A render job with its progress (REST, long-poll), one scene per built-in template.
     copyFileSync(join(REPO_ROOT, 'scripts/capture/fixtures/contact-sheet-reel.json'), join(work, 'templates-reel.json'));

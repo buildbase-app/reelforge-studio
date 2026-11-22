@@ -9,7 +9,7 @@
 // session; the signed-in pages are then captured at every width and theme.
 
 import { randomBytes } from 'node:crypto';
-import { readdirSync, rmSync } from 'node:fs';
+import { readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { assertMasked, glideClick, launch, newContext, scrollThrough, settle, shoot, smoothScroll } from '../browser.mjs';
 import { MASK, routeSlug, siteLabel } from '../lib.mjs';
@@ -128,26 +128,52 @@ async function personalFlow({ page, site, step, snap }) {
 }
 
 /** Finds the frame holding Stripe's card number field, opening the Card option first when needed. */
-async function cardFrame(page) {
+async function cardFrame(page, debugDir) {
   const find = async () => {
-    for (const fr of page.frames()) if (await fr.$('#payment-numberInput').catch(() => null)) return fr;
-    if (await page.$('#cardNumber').catch(() => null)) return page.mainFrame();
+    for (const fr of page.frames()) {
+      if (await fr.$('#payment-numberInput').catch(() => null)) return { frame: fr, ids: 'payment' };
+      if (await fr.$('#cardNumber').catch(() => null)) return { frame: fr, ids: 'card' };
+    }
     return null;
   };
-  for (let i = 0; i < 20; i++) {
+  const openers = [
+    '[data-testid="card-accordion-item-button"]',
+    '#payment-method-accordion-item-title-card',
+    'input[type=radio][value=card]',
+    'button[aria-label*="Card" i]',
+    '[data-testid*="card" i][role=button]',
+  ];
+  for (let i = 0; i < 24; i++) {
     const f = await find();
     if (f) return f;
-    if (i === 4 || i === 10) {
-      const card = page.locator('[data-testid="card-accordion-item-button"], button:has-text("Card")').first();
-      if (await card.count()) await glideClick(page, card).catch(() => {});
+    if (i % 4 === 3) {
+      // The payment-method list (Card, Cash App Pay, ...) may sit in the page or in a Stripe frame.
+      search: for (const fr of page.frames()) {
+        for (const el of [...openers.map((sel) => fr.locator(sel).first()), fr.getByText(/^Card$/).first()]) {
+          if (await el.isVisible().catch(() => false)) {
+            await glideClick(page, el).catch(() => {});
+            break search;
+          }
+        }
+      }
     }
     await page.waitForTimeout(1500);
   }
-  throw new Error('Stripe card field not found');
+  // Leave enough to fix the selectors next time (masked screenshot, control names, frame URLs; local only).
+  if (debugDir) {
+    const info = {
+      url: page.url(),
+      frames: page.frames().map((f) => f.url().slice(0, 120)),
+      controls: await page.evaluate(() => [...document.querySelectorAll('button, [role=button], input, label')].slice(0, 80).map((e) => `${e.tagName} id=${e.id} name=${e.getAttribute('name') ?? ''} testid=${e.getAttribute('data-testid') ?? ''} ${(e.getAttribute('aria-label') ?? e.textContent ?? '').trim().slice(0, 40)}`)),
+    };
+    writeFileSync(join(debugDir, 'stripe-debug.json'), JSON.stringify(info, null, 2));
+    await page.screenshot({ path: join(debugDir, 'stripe-debug.png'), fullPage: true }).catch(() => {});
+  }
+  throw new Error('Stripe card field not found (see out/capture/work/stripe-debug.*)');
 }
 
 /** (b) Commercial purchase with the Stripe test card → order → key. */
-async function commercialFlow({ page, site, step, snap }) {
+async function commercialFlow({ page, site, step, snap, debugDir }) {
   const account = testAccount('buyer');
   await page.goto(`${site}/pricing`, { waitUntil: 'load' });
   await settle(page);
@@ -160,31 +186,49 @@ async function commercialFlow({ page, site, step, snap }) {
   step('Choose "Sign in to buy"');
   await signUp(page, site, account, step, snap);
   await toPricing(page, site);
-  await page.locator('[data-edition="commercial"]').filter({ hasText: 'Studio' }).first().scrollIntoViewIfNeeded();
+  const buy = page.locator('[data-edition="commercial"]').filter({ hasText: 'Studio' }).getByRole('button', { name: /^Buy/ });
+  // The session can take a moment to reach the page after the redirect: reload once if the card still says "Sign in to buy".
+  if (!(await buy.waitFor({ timeout: 30_000 }).then(() => true, () => false))) {
+    await page.reload({ waitUntil: 'load' });
+    await settle(page);
+    await buy.waitFor({ timeout: 45_000 });
+  }
+  await buy.scrollIntoViewIfNeeded();
   await page.waitForTimeout(1200);
-  await glideClick(page, page.locator('[data-edition="commercial"]').filter({ hasText: 'Studio' }).getByRole('button', { name: /^Buy/ }));
+  await glideClick(page, buy);
   step('Buy the Studio tier of the Commercial licence');
   await page.waitForURL(/checkout\.stripe\.com/, { timeout: 60_000 });
   await settle(page);
   step('Stripe Checkout opens (test mode)');
-  const f = await cardFrame(page);
-  const num = f === page.mainFrame() ? '#cardNumber' : '#payment-numberInput';
-  const exp = f === page.mainFrame() ? '#cardExpiry' : '#payment-expiryInput';
-  const cvc = f === page.mainFrame() ? '#cardCvc' : '#payment-cvcInput';
+  const { frame: f, ids } = await cardFrame(page, debugDir);
+  const legacy = ids === 'card';
+  const num = legacy ? '#cardNumber' : '#payment-numberInput';
+  const exp = legacy ? '#cardExpiry' : '#payment-expiryInput';
+  const cvc = legacy ? '#cardCvc' : '#payment-cvcInput';
   await f.locator(num).pressSequentially('4242424242424242', { delay: 40 });
   await f.locator(exp).pressSequentially('1234', { delay: 60 });
   await f.locator(cvc).pressSequentially('123', { delay: 60 });
-  await f.fill(f === page.mainFrame() ? '#billingName' : '#payment-nameInput', 'Docs Capture Buyer').catch(() => {});
-  await f.selectOption(f === page.mainFrame() ? '#billingCountry' : '#payment-countryInput', 'US').catch(() => {});
-  await f.fill(f === page.mainFrame() ? '#billingPostalCode' : '#payment-postalCodeInput', '10001').catch(() => {});
+  await f.fill(legacy ? '#billingName' : '#payment-nameInput', 'Docs Capture Buyer').catch(() => {});
+  await f.selectOption(legacy ? '#billingCountry' : '#payment-countryInput', 'US').catch(() => {});
+  await f.fill(legacy ? '#billingPostalCode' : '#payment-postalCodeInput', '10001').catch(() => {});
   const opt = await f.$('#payment-linkOptInInput, #enableStripePass');
   if (opt && (await opt.isChecked().catch(() => false))) await opt.click({ force: true }).catch(() => {});
   await page.waitForTimeout(1000);
   await snap('stripe-checkout', 'Stripe Checkout with the test card 4242 4242 4242 4242 (email hidden)');
   step('Pay with the Stripe test card 4242 4242 4242 4242 (any future date, any CVC)');
-  const pay = page.locator('button.SubmitButton, button[data-testid=hosted-payment-submit-button]').first();
-  if (await pay.count()) await glideClick(page, pay);
-  else await glideClick(page, page.getByText('Pay', { exact: true }).last());
+  let pay = null;
+  for (const fr of page.frames()) {
+    for (const cand of [fr.locator('button.SubmitButton, button[data-testid=hosted-payment-submit-button]'), fr.getByRole('button', { name: /^Pay$/ })]) {
+      const visible = cand.filter({ visible: true }).first();
+      if (await visible.count()) {
+        pay = visible;
+        break;
+      }
+    }
+    if (pay) break;
+  }
+  if (!pay) throw new Error('Stripe Pay button not found');
+  await glideClick(page, pay);
   await page.waitForURL(new RegExp(new URL(site).host.replace(/\./g, '\\.')), { timeout: 120_000 });
   step('Paid: Stripe returns to the order page');
   await waitForKey(page);
@@ -240,9 +284,11 @@ async function recordFlow(run, browser, site, slug) {
   };
   let result;
   try {
-    result = await flow.run({ page, site, step, snap });
+    result = await flow.run({ page, site, step, snap, debugDir: join(run.out, 'work') });
     await page.waitForTimeout(1500);
   } catch (e) {
+    // A masked screenshot of where it stopped, for debugging (local only, never uploaded).
+    await page.screenshot({ path: join(run.out, 'work', `${slug}-failure.png`) }).catch(() => {});
     await ctx.close().catch(() => {});
     rmSync(rawDir, { recursive: true, force: true }); // never keep a recording of a failed (possibly unmasked) state
     throw new Error(`${slug}: ${e.message.split('\n')[0]}`);
@@ -297,12 +343,21 @@ export async function captureFlows(run, site) {
   }
   const browser = await launch();
   try {
-    for (const slug of Object.keys(FLOWS)) {
+    const failed = [];
+    for (const slug of Object.keys(FLOWS).filter((s) => !run.args.flows || run.args.flows.includes(s))) {
       run.log(`flows: ${FLOWS[slug].title}`);
-      const session = await recordFlow(run, browser, site, slug);
-      await run.flush();
-      await signedInStills(run, browser, site, slug, session);
+      try {
+        const session = await recordFlow(run, browser, site, slug);
+        await run.flush();
+        await signedInStills(run, browser, site, slug, session);
+      } catch (e) {
+        // Keep what the other flow made; report this one.
+        await run.flush().catch(() => {});
+        failed.push(slug);
+        run.note(`flow ${slug} failed: ${e.message.split('\n')[0]}`);
+      }
     }
+    if (failed.length) run.results.failed = [...(run.results.failed ?? []), ...failed];
   } finally {
     await browser.close();
   }
