@@ -18,6 +18,8 @@
  *   pnpm load:smoke                                   # about 30 s of load, direct connections only
  *   pnpm load                                         # full: direct and PgBouncer, 10/50/200 workers
  *   LOAD_POOLERS=pgbouncer LOAD_SCENARIOS=c pnpm load # one part
+ *   LOAD_DISPATCH=notify pnpm load                    # queue.dispatch notify (#158): api instances NOTIFY, workers LISTEN
+ *   LOAD_POLL_MAX_MS=1000 pnpm load                   # poll without backoff on empty polls (the behaviour before #158)
  *
  * Settings (environment): see `cfg` below. Results: LOAD_OUT/<date>-<profile>.json and .md.
  */
@@ -55,6 +57,12 @@ export const cfg = {
   claimWorkers: env('LOAD_CLAIM_WORKERS', smoke ? '10' : '10,50,200').split(',').map(Number),
   claimJobs: envNum('LOAD_CLAIM_JOBS', smoke ? 1000 : 5000),
   idleSeconds: envNum('LOAD_IDLE_SECONDS', smoke ? 5 : 10),
+  /** Wait this long after the drain before measuring idle workers (the poll backoff reaches its maximum after a few empty polls). */
+  idleSettleSeconds: envNum('LOAD_IDLE_SETTLE_SECONDS', 0),
+  /** queue.dispatch of every api instance and worker (#158): poll or notify. */
+  dispatch: env('LOAD_DISPATCH', 'poll'),
+  /** queue.pollMaxIntervalMs of the workers (default 5000; 1000 = no backoff, as before #158). */
+  pollMaxMs: envNum('LOAD_POLL_MAX_MS', 5000),
   warmupSeconds: envNum('LOAD_WARMUP_SECONDS', smoke ? 3 : 15),
   out: resolve(repo, env('LOAD_OUT', 'out/load')),
   prefix: env('LOAD_PREFIX', 'rf-load'),
@@ -276,12 +284,21 @@ function serverEnv(dbUrl: string, dataDir: string, role: 'api' | 'worker', port:
     REELFORGE_SECRET_KEY: SECRET_KEY,
     REELFORGE_MIGRATE_ON_START: 'false',
     REELFORGE_LOG_LEVEL: 'warn',
+    REELFORGE_QUEUE_DISPATCH: cfg.dispatch,
+    REELFORGE_QUEUE_POLL_MAX_INTERVAL_MS: String(cfg.pollMaxMs),
+    // LISTEN needs a session: a worker behind PgBouncer listens on the server itself (database.directUrl).
+    ...(cfg.dispatch === 'notify' && dbUrl.includes(addr.bouncer) ? { REELFORGE_DATABASE_DIRECT_URL: dbUrl.replace(addr.bouncer, addr.pg).replace(/\?.*$/, '') } : {}),
     // The job caps keep their defaults (database queue: 100 unfinished per key, no total cap). A total cap
     // (LOAD_MAX_QUEUED_JOBS > 0) makes every enqueue wait for one shared lock row (D-090, #180); measure it on purpose only.
     ...(process.env.LOAD_MAX_QUEUED_JOBS ? { REELFORGE_MAX_QUEUED_JOBS: process.env.LOAD_MAX_QUEUED_JOBS } : {}),
     // e.g. LOAD_SERVER_NODE_OPTIONS=--cpu-prof --cpu-prof-dir=out/load/prof: where an instance spends its CPU.
     ...(process.env.LOAD_SERVER_NODE_OPTIONS ? { NODE_OPTIONS: process.env.LOAD_SERVER_NODE_OPTIONS } : {}),
   };
+}
+
+/** Dispatch settings of a load worker process (#158): the same queue.dispatch as the api instances; LISTEN always on the server itself. */
+function dispatchEnv(pooler: string, dbName: string): Record<string, string> {
+  return { DISPATCH: cfg.dispatch, POLL_MAX_MS: String(cfg.pollMaxMs), ...(cfg.dispatch === 'notify' && pooler === 'pgbouncer' ? { DIRECT_URL: appUrl('direct', dbName, 1) } : {}) };
 }
 
 async function startApis(dbUrl: string, dataDir: string) {
@@ -497,7 +514,7 @@ async function scenarioAB(pooler: string) {
     if (cfg.scenarios.includes('b')) {
       const procCount = Math.ceil(cfg.fakeWorkers / 10);
       const workers = Array.from({ length: procCount }, (_, p) =>
-        spawnNode('scripts/load/queue-worker.ts', { DB_URL: appUrl(pooler, dbName, cfg.workerPool), RUNNERS: String(Math.min(10, cfg.fakeWorkers - p * 10)), WORK_MS: String(cfg.fakeWorkMs), NAME: `fw${p}` }, `fw${p}`)
+        spawnNode('scripts/load/queue-worker.ts', { DB_URL: appUrl(pooler, dbName, cfg.workerPool), RUNNERS: String(Math.min(10, cfg.fakeWorkers - p * 10)), WORK_MS: String(cfg.fakeWorkMs), NAME: `fw${p}`, ...dispatchEnv(pooler, dbName) }, `fw${p}`)
       );
       for (const w of workers) {
         for (let t = 0; !w.out().includes('"started"'); t++) {
@@ -622,7 +639,7 @@ async function scenarioC(pooler: string, workersN: number) {
   // 2. workers: processes of up to 10 JobRunners, each with its own pool, all released at once
   const procCount = Math.ceil(workersN / 10);
   const ws = Array.from({ length: procCount }, (_, p) =>
-    spawnNode('scripts/load/queue-worker.ts', { DB_URL: url, RUNNERS: String(Math.min(10, workersN - p * 10)), WORK_MS: '0', NAME: `cw${p}`, WAIT_GO: '1' }, `cw${p}`, { stdin: true })
+    spawnNode('scripts/load/queue-worker.ts', { DB_URL: url, RUNNERS: String(Math.min(10, workersN - p * 10)), WORK_MS: '0', NAME: `cw${p}`, WAIT_GO: '1', ...dispatchEnv(pooler, dbName) }, `cw${p}`, { stdin: true })
   );
   for (const w of ws) {
     for (let t = 0; !w.out().includes('"ready"'); t++) {
@@ -643,7 +660,8 @@ async function scenarioC(pooler: string, workersN: number) {
   );
   const drainSeconds = ((busy.result.lastFinishedAt ?? Date.now()) - busy.result.t0) / 1000;
   // 3. the same workers idle: what polling costs the database
-  log(`${pooler}: (c) ${workersN} idle workers for ${cfg.idleSeconds} s`);
+  if (cfg.idleSettleSeconds > 0) await sleep(cfg.idleSettleSeconds * 1000);
+  log(`${pooler}: (c) ${workersN} idle workers for ${cfg.idleSeconds} s (dispatch ${cfg.dispatch}${cfg.dispatch === 'poll' ? `, poll backoff to ${cfg.pollMaxMs} ms` : ''}; after ${cfg.idleSettleSeconds} s idle)`);
   const idle = await measured(dbName, () => sleep(cfg.idleSeconds * 1000), []);
   const stops = await Promise.all(ws.map(async (w) => (await stopChild(w.c), w.out().trim().split('\n').pop())));
   const check = await exactlyOnce(adminUrl(dbName));

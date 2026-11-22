@@ -357,6 +357,7 @@ export class ReelforgeService {
         leaseMs: cfg.queue.leaseSeconds * 1000,
         maxAttempts: cfg.queue.maxAttempts,
         pollMs: cfg.queue.pollIntervalMs,
+        pollMaxMs: cfg.queue.pollMaxIntervalMs,
         // Renders would only fail while the bucket is down: wait instead of burning attempts.
         // A worker also claims nothing while the stored licence state disallows renders (D-098; the enqueue gate stays).
         canClaim: async () => {
@@ -365,6 +366,13 @@ export class ReelforgeService {
           return this.storageReady();
         },
         ...config.queue,
+        // Queue dispatch (D-105): the listener (claiming roles with `notify`) comes from the server, which owns the database.
+        dispatch: {
+          driver: cfg.queue.dispatch,
+          fallbackMs: cfg.queue.dispatchFallbackSeconds * 1000,
+          jitterMs: cfg.queue.notifyJitterMs,
+          ...config.queue?.dispatch,
+        },
         workerId,
       },
       log: (level, line) => config.log?.(level, line),

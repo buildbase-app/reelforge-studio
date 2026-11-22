@@ -1,0 +1,637 @@
+{
+  "caveat": "lower bound, shared sandbox (not dedicated) unless LOAD_HARDWARE_NOTE says otherwise",
+  "hardwareNote": "shared container, other workloads running (not dedicated)",
+  "host": {
+    "date": "2026-11-22T20:27:45.276Z",
+    "vcpu": 4,
+    "cpuModel": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "ramGiB": 15.7,
+    "kernel": "6.18.44-fc-v726",
+    "node": "v22.23.5",
+    "disk": "252G total, 23G free",
+    "loadAvgAtStart": [
+      8.7,
+      11.28,
+      7.81
+    ],
+    "loadAvgAtEnd": [
+      14.59,
+      13.06,
+      9.2
+    ]
+  },
+  "postgres": {
+    "version": "PostgreSQL 17.12 (Debian 17.12-1.pgdg13+1)",
+    "settings": {
+      "checkpoint_timeout": "300 s",
+      "effective_cache_size": "524288 8kB",
+      "fsync": "on",
+      "max_connections": "1000",
+      "max_wal_size": "1024 MB",
+      "shared_buffers": "65536 8kB",
+      "synchronous_commit": "on",
+      "wal_level": "replica",
+      "work_mem": "4096 kB"
+    },
+    "image": "mirror.gcr.io/library/postgres:17",
+    "args": "-c max_connections=1000 -c shared_buffers=512MB",
+    "pgbouncer": null
+  },
+  "config": {
+    "profile": "full",
+    "scenarios": [
+      "c"
+    ],
+    "poolers": [
+      "direct"
+    ],
+    "seconds": 60,
+    "connections": 64,
+    "apiInstances": 2,
+    "apiPool": 10,
+    "workerPool": 2,
+    "keys": 200,
+    "manyKeysLimitPerMinute": 6000,
+    "projects": 100,
+    "seedJobs": 50,
+    "renders": 500,
+    "fakeWorkers": 50,
+    "fakeWorkMs": 3000,
+    "realReel": true,
+    "claimWorkers": [
+      50,
+      200
+    ],
+    "claimJobs": 2000,
+    "idleSeconds": 60,
+    "idleSettleSeconds": 15,
+    "dispatch": "poll",
+    "pollMaxMs": 1000,
+    "warmupSeconds": 15,
+    "out": "/home/user/wt/dispatch/out/load-158/c-before",
+    "prefix": "rf158-load",
+    "pgImage": "mirror.gcr.io/library/postgres:17",
+    "pgArgs": "-c max_connections=1000 -c shared_buffers=512MB",
+    "bouncerImage": "mirror.gcr.io/edoburu/pgbouncer@sha256:8638aa563607256d3c7440437534195f1066a92b68015d89ae9d6b935b444a6d",
+    "bouncerPoolSize": 20,
+    "pgPort": 55591,
+    "bouncerPort": 55592,
+    "apiPortBase": 55600,
+    "keep": false,
+    "renderKey": "many"
+  },
+  "pgbouncerProbes": null,
+  "results": {
+    "direct": {
+      "c:50": {
+        "workers": 50,
+        "processes": 5,
+        "jobs": 2000,
+        "enqueuePerSecond": 824.7,
+        "drained": true,
+        "drainSeconds": 11.2,
+        "claimsPerSecond": 178.1,
+        "busy": {
+          "db": {
+            "seconds": 11.6,
+            "txPerSecond": 607.5,
+            "statementsPerSecond": 2561.4,
+            "connections": {
+              "mean": 97.9,
+              "max": 102
+            },
+            "activeConnections": {
+              "mean": 8.2,
+              "max": 29
+            },
+            "lockWaits": {
+              "mean": 1.3,
+              "max": 4,
+              "bySql": [
+                {
+                  "sql": "INSERT INTO \"public\".\"JobEvent\" (\"workspaceId\",\"jobId\",\"at\",\"type\",\"message\") VALUES (?,?,?,?,?) RETURNING \"public\"",
+                  "samples": 14
+                }
+              ]
+            },
+            "rowsWrittenPerSecond": {
+              "JobEvent": 667,
+              "Job": 334.4
+            },
+            "tables": [
+              {
+                "table": "JobEvent",
+                "inserts": 7718,
+                "updates": 0,
+                "deletes": 0
+              },
+              {
+                "table": "Job",
+                "inserts": 0,
+                "updates": 3870,
+                "deletes": 0
+              }
+            ],
+            "topStatements": [
+              {
+                "query": "INSERT INTO \"public\".\"JobEvent\" (\"workspaceId\",\"jobId\",\"at\",\"type\",\"message\") VALUES ($1,$2,$3,$4,$5) RETURNING \"public\".\"JobEvent\".\"id\", \"public\".\"JobEvent\".\"w",
+                "calls": 8000,
+                "totalMs": "15409.6",
+                "meanMs": "1.926",
+                "rows": 8000
+              },
+              {
+                "query": "SELECT \"apiKeyId\" AS \"k\", \"priority\" AS \"p\", MIN(\"createdAt\") AS \"t\" FROM \"Job\" WHERE \"workspaceId\" = $1 AND \"queue\" = $3 AND \"status\" = $4 AND \"type\" IN ($2) G",
+                "calls": 2150,
+                "totalMs": "10478.6",
+                "meanMs": "4.874",
+                "rows": 90849
+              },
+              {
+                "query": "SELECT \"id\" FROM \"Job\" WHERE \"workspaceId\" = $1 AND \"queue\" = $5 AND \"status\" = $6 AND \"type\" IN ($2) AND \"priority\" = $3 AND \"apiKeyId\" = $4 ORDER BY \"createdA",
+                "calls": 2844,
+                "totalMs": "4403.2",
+                "meanMs": "1.548",
+                "rows": 2000
+              },
+              {
+                "query": "UPDATE \"public\".\"Job\" SET \"status\" = $1, \"workerId\" = $2, \"attempts\" = (\"public\".\"Job\".\"attempts\" + $3), \"startedAt\" = $4, \"leaseExpiresAt\" = $5, \"cancelRequest",
+                "calls": 2000,
+                "totalMs": "1124.7",
+                "meanMs": "0.562",
+                "rows": 2000
+              },
+              {
+                "query": "UPDATE \"public\".\"Job\" SET \"type\" = $1, \"status\" = $2, \"projectId\" = $3, \"params\" = $4, \"progress\" = $5, \"result\" = $6, \"error\" = $7, \"retryOf\" = $8, \"apiKeyId\" ",
+                "calls": 2000,
+                "totalMs": "866.3",
+                "meanMs": "0.433",
+                "rows": 2000
+              },
+              {
+                "query": "SELECT \"apiKeyId\" AS \"k\", COUNT(*) AS \"n\" FROM \"Job\" WHERE \"workspaceId\" = $1 AND \"queue\" = $2 AND \"status\" = $3 AND \"leaseExpiresAt\" IS NOT NULL AND \"apiKeyId\"",
+                "calls": 2150,
+                "totalMs": "717",
+                "meanMs": "0.333",
+                "rows": 14345
+              },
+              {
+                "query": "SELECT COUNT(*) AS n, MAX(\"finishedAt\") AS last FROM \"Job\" WHERE status IN ($1, $2)",
+                "calls": 42,
+                "totalMs": "97.9",
+                "meanMs": "2.331",
+                "rows": 42
+              },
+              {
+                "query": "SET TRANSACTION ISOLATION LEVEL READ COMMITTED",
+                "calls": 2150,
+                "totalMs": "19.6",
+                "meanMs": "0.009",
+                "rows": 0
+              },
+              {
+                "query": "BEGIN",
+                "calls": 4150,
+                "totalMs": "4",
+                "meanMs": "0.001",
+                "rows": 0
+              },
+              {
+                "query": "COMMIT",
+                "calls": 4150,
+                "totalMs": "3.1",
+                "meanMs": "0.001",
+                "rows": 0
+              },
+              {
+                "query": "SELECT relname AS t, n_tup_ins AS i, n_tup_upd AS u, n_tup_del AS d FROM pg_stat_user_tables",
+                "calls": 2,
+                "totalMs": "0.8",
+                "meanMs": "0.379",
+                "rows": 40
+              },
+              {
+                "query": "SELECT MAX(\"finishedAt\") AS last FROM \"Job\"",
+                "calls": 1,
+                "totalMs": "0.4",
+                "meanMs": "0.401",
+                "rows": 1
+              }
+            ],
+            "capLockStatements": []
+          },
+          "dbCpu": {
+            "meanPct": 113.4,
+            "maxPct": 150.1,
+            "samples": 6
+          },
+          "hostLoadAvg": {
+            "min": 9.17,
+            "max": 10.53,
+            "mean": 10.27
+          }
+        },
+        "idle": {
+          "db": {
+            "seconds": 60,
+            "txPerSecond": 56.1,
+            "statementsPerSecond": 260.8,
+            "connections": {
+              "mean": 50.2,
+              "max": 51
+            },
+            "activeConnections": {
+              "mean": 0.1,
+              "max": 2
+            },
+            "lockWaits": {
+              "mean": 0,
+              "max": 0,
+              "bySql": []
+            },
+            "rowsWrittenPerSecond": {},
+            "tables": [],
+            "topStatements": [
+              {
+                "query": "SELECT \"apiKeyId\" AS \"k\", COUNT(*) AS \"n\" FROM \"Job\" WHERE \"workspaceId\" = $1 AND \"queue\" = $2 AND \"status\" = $3 AND \"leaseExpiresAt\" IS NOT NULL AND \"apiKeyId\"",
+                "calls": 3050,
+                "totalMs": "136.8",
+                "meanMs": "0.045",
+                "rows": 0
+              },
+              {
+                "query": "SELECT \"apiKeyId\" AS \"k\", \"priority\" AS \"p\", MIN(\"createdAt\") AS \"t\" FROM \"Job\" WHERE \"workspaceId\" = $1 AND \"queue\" = $3 AND \"status\" = $4 AND \"type\" IN ($2) G",
+                "calls": 3050,
+                "totalMs": "50.6",
+                "meanMs": "0.017",
+                "rows": 0
+              },
+              {
+                "query": "SET TRANSACTION ISOLATION LEVEL READ COMMITTED",
+                "calls": 3050,
+                "totalMs": "32.5",
+                "meanMs": "0.011",
+                "rows": 0
+              },
+              {
+                "query": "SELECT COUNT(*) AS \"_count$_all\" FROM (SELECT \"public\".\"Job\".\"id\" FROM \"public\".\"Job\" WHERE (\"public\".\"Job\".\"workspaceId\" = $1 AND \"public\".\"Job\".\"queue\" = $2 A",
+                "calls": 200,
+                "totalMs": "4.6",
+                "meanMs": "0.023",
+                "rows": 200
+              },
+              {
+                "query": "SELECT \"public\".\"Job\".\"id\", \"public\".\"Job\".\"workspaceId\", \"public\".\"Job\".\"type\", \"public\".\"Job\".\"status\", \"public\".\"Job\".\"projectId\", \"public\".\"Job\".\"params\", \"",
+                "calls": 200,
+                "totalMs": "3.8",
+                "meanMs": "0.019",
+                "rows": 0
+              },
+              {
+                "query": "BEGIN",
+                "calls": 3050,
+                "totalMs": "3.4",
+                "meanMs": "0.001",
+                "rows": 0
+              },
+              {
+                "query": "COMMIT",
+                "calls": 3050,
+                "totalMs": "2",
+                "meanMs": "0.001",
+                "rows": 0
+              },
+              {
+                "query": "SELECT relname AS t, n_tup_ins AS i, n_tup_upd AS u, n_tup_del AS d FROM pg_stat_user_tables",
+                "calls": 2,
+                "totalMs": "0.7",
+                "meanMs": "0.345",
+                "rows": 40
+              }
+            ],
+            "capLockStatements": []
+          },
+          "dbCpu": {
+            "meanPct": 5.4,
+            "maxPct": 10.4,
+            "samples": 31
+          },
+          "hostLoadAvg": {
+            "min": 6.66,
+            "max": 11.38,
+            "mean": 9.24
+          }
+        },
+        "exactlyOnce": {
+          "jobs": 2000,
+          "byStatus": {
+            "succeeded": 2000
+          },
+          "expected": null,
+          "lost": 0,
+          "unexpected": 0,
+          "duplicated": 0,
+          "runningEventsNotEqualAttempts": 0,
+          "reclaimed": 0,
+          "queueWaitMs": {
+            "p50": 12160,
+            "p95": 15014.1,
+            "p99": 15273.1,
+            "max": 15382
+          },
+          "ok": true,
+          "examples": []
+        },
+        "workerExit": [
+          "{\"name\":\"cw0\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw1\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw2\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw3\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw4\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}"
+        ]
+      },
+      "c:200": {
+        "workers": 200,
+        "processes": 20,
+        "jobs": 2000,
+        "enqueuePerSecond": 840.3,
+        "drained": true,
+        "drainSeconds": 14.1,
+        "claimsPerSecond": 141.6,
+        "busy": {
+          "db": {
+            "seconds": 14.6,
+            "txPerSecond": 565.4,
+            "statementsPerSecond": 2391,
+            "connections": {
+              "mean": 357.7,
+              "max": 402
+            },
+            "activeConnections": {
+              "mean": 7.3,
+              "max": 39
+            },
+            "lockWaits": {
+              "mean": 1.9,
+              "max": 6,
+              "bySql": [
+                {
+                  "sql": "INSERT INTO \"public\".\"JobEvent\" (\"workspaceId\",\"jobId\",\"at\",\"type\",\"message\") VALUES (?,?,?,?,?) RETURNING \"public\"",
+                  "samples": 27
+                }
+              ]
+            },
+            "rowsWrittenPerSecond": {
+              "JobEvent": 530.3,
+              "Job": 267.4
+            },
+            "tables": [
+              {
+                "table": "JobEvent",
+                "inserts": 7768,
+                "updates": 0,
+                "deletes": 0
+              },
+              {
+                "table": "Job",
+                "inserts": 0,
+                "updates": 3916,
+                "deletes": 0
+              }
+            ],
+            "topStatements": [
+              {
+                "query": "INSERT INTO \"public\".\"JobEvent\" (\"workspaceId\",\"jobId\",\"at\",\"type\",\"message\") VALUES ($1,$2,$3,$4,$5) RETURNING \"public\".\"JobEvent\".\"id\", \"public\".\"JobEvent\".\"w",
+                "calls": 8000,
+                "totalMs": "30108.8",
+                "meanMs": "3.764",
+                "rows": 8000
+              },
+              {
+                "query": "SELECT \"apiKeyId\" AS \"k\", COUNT(*) AS \"n\" FROM \"Job\" WHERE \"workspaceId\" = $1 AND \"queue\" = $2 AND \"status\" = $3 AND \"leaseExpiresAt\" IS NOT NULL AND \"apiKeyId\"",
+                "calls": 2635,
+                "totalMs": "12691.9",
+                "meanMs": "4.817",
+                "rows": 36683
+              },
+              {
+                "query": "SELECT \"apiKeyId\" AS \"k\", \"priority\" AS \"p\", MIN(\"createdAt\") AS \"t\" FROM \"Job\" WHERE \"workspaceId\" = $1 AND \"queue\" = $3 AND \"status\" = $4 AND \"type\" IN ($2) G",
+                "calls": 2635,
+                "totalMs": "11798",
+                "meanMs": "4.477",
+                "rows": 82566
+              },
+              {
+                "query": "UPDATE \"public\".\"Job\" SET \"type\" = $1, \"status\" = $2, \"projectId\" = $3, \"params\" = $4, \"progress\" = $5, \"result\" = $6, \"error\" = $7, \"retryOf\" = $8, \"apiKeyId\" ",
+                "calls": 2000,
+                "totalMs": "8982.6",
+                "meanMs": "4.491",
+                "rows": 2000
+              },
+              {
+                "query": "SELECT \"id\" FROM \"Job\" WHERE \"workspaceId\" = $1 AND \"queue\" = $5 AND \"status\" = $6 AND \"type\" IN ($2) AND \"priority\" = $3 AND \"apiKeyId\" = $4 ORDER BY \"createdA",
+                "calls": 5393,
+                "totalMs": "6933.5",
+                "meanMs": "1.286",
+                "rows": 2000
+              },
+              {
+                "query": "UPDATE \"public\".\"Job\" SET \"status\" = $1, \"workerId\" = $2, \"attempts\" = (\"public\".\"Job\".\"attempts\" + $3), \"startedAt\" = $4, \"leaseExpiresAt\" = $5, \"cancelRequest",
+                "calls": 2000,
+                "totalMs": "1684.7",
+                "meanMs": "0.842",
+                "rows": 2000
+              },
+              {
+                "query": "SELECT COUNT(*) AS n, MAX(\"finishedAt\") AS last FROM \"Job\" WHERE status IN ($1, $2)",
+                "calls": 49,
+                "totalMs": "410.8",
+                "meanMs": "8.383",
+                "rows": 49
+              },
+              {
+                "query": "BEGIN",
+                "calls": 4635,
+                "totalMs": "128.9",
+                "meanMs": "0.028",
+                "rows": 0
+              },
+              {
+                "query": "SELECT COUNT(*) AS \"_count$_all\" FROM (SELECT \"public\".\"Job\".\"id\" FROM \"public\".\"Job\" WHERE (\"public\".\"Job\".\"workspaceId\" = $1 AND \"public\".\"Job\".\"queue\" = $2 A",
+                "calls": 200,
+                "totalMs": "124.4",
+                "meanMs": "0.622",
+                "rows": 200
+              },
+              {
+                "query": "SET TRANSACTION ISOLATION LEVEL READ COMMITTED",
+                "calls": 2635,
+                "totalMs": "21.5",
+                "meanMs": "0.008",
+                "rows": 0
+              },
+              {
+                "query": "COMMIT",
+                "calls": 4635,
+                "totalMs": "14.2",
+                "meanMs": "0.003",
+                "rows": 0
+              },
+              {
+                "query": "SELECT \"public\".\"Job\".\"id\", \"public\".\"Job\".\"workspaceId\", \"public\".\"Job\".\"type\", \"public\".\"Job\".\"status\", \"public\".\"Job\".\"projectId\", \"public\".\"Job\".\"params\", \"",
+                "calls": 200,
+                "totalMs": "2.4",
+                "meanMs": "0.012",
+                "rows": 0
+              }
+            ],
+            "capLockStatements": []
+          },
+          "dbCpu": {
+            "meanPct": 99.2,
+            "maxPct": 140.9,
+            "samples": 8
+          },
+          "hostLoadAvg": {
+            "min": 17.13,
+            "max": 22.93,
+            "mean": 20.9
+          }
+        },
+        "idle": {
+          "db": {
+            "seconds": 60,
+            "txPerSecond": 218.9,
+            "statementsPerSecond": 1031.1,
+            "connections": {
+              "mean": 208.1,
+              "max": 237
+            },
+            "activeConnections": {
+              "mean": 0.3,
+              "max": 3
+            },
+            "lockWaits": {
+              "mean": 0,
+              "max": 0,
+              "bySql": []
+            },
+            "rowsWrittenPerSecond": {},
+            "tables": [],
+            "topStatements": [
+              {
+                "query": "SELECT \"apiKeyId\" AS \"k\", \"priority\" AS \"p\", MIN(\"createdAt\") AS \"t\" FROM \"Job\" WHERE \"workspaceId\" = $1 AND \"queue\" = $3 AND \"status\" = $4 AND \"type\" IN ($2) G",
+                "calls": 12041,
+                "totalMs": "3071.6",
+                "meanMs": "0.255",
+                "rows": 0
+              },
+              {
+                "query": "SELECT \"apiKeyId\" AS \"k\", COUNT(*) AS \"n\" FROM \"Job\" WHERE \"workspaceId\" = $1 AND \"queue\" = $2 AND \"status\" = $3 AND \"leaseExpiresAt\" IS NOT NULL AND \"apiKeyId\"",
+                "calls": 12051,
+                "totalMs": "367",
+                "meanMs": "0.03",
+                "rows": 0
+              },
+              {
+                "query": "SET TRANSACTION ISOLATION LEVEL READ COMMITTED",
+                "calls": 12065,
+                "totalMs": "241.8",
+                "meanMs": "0.02",
+                "rows": 0
+              },
+              {
+                "query": "SELECT COUNT(*) AS \"_count$_all\" FROM (SELECT \"public\".\"Job\".\"id\" FROM \"public\".\"Job\" WHERE (\"public\".\"Job\".\"workspaceId\" = $1 AND \"public\".\"Job\".\"queue\" = $2 A",
+                "calls": 800,
+                "totalMs": "150.6",
+                "meanMs": "0.188",
+                "rows": 800
+              },
+              {
+                "query": "SELECT \"public\".\"Job\".\"id\", \"public\".\"Job\".\"workspaceId\", \"public\".\"Job\".\"type\", \"public\".\"Job\".\"status\", \"public\".\"Job\".\"projectId\", \"public\".\"Job\".\"params\", \"",
+                "calls": 800,
+                "totalMs": "48",
+                "meanMs": "0.06",
+                "rows": 0
+              },
+              {
+                "query": "BEGIN",
+                "calls": 12067,
+                "totalMs": "11.2",
+                "meanMs": "0.001",
+                "rows": 0
+              },
+              {
+                "query": "COMMIT",
+                "calls": 12041,
+                "totalMs": "8.4",
+                "meanMs": "0.001",
+                "rows": 0
+              },
+              {
+                "query": "SELECT relname AS t, n_tup_ins AS i, n_tup_upd AS u, n_tup_del AS d FROM pg_stat_user_tables",
+                "calls": 2,
+                "totalMs": "0.7",
+                "meanMs": "0.357",
+                "rows": 40
+              }
+            ],
+            "capLockStatements": []
+          },
+          "dbCpu": {
+            "meanPct": 24.4,
+            "maxPct": 50.8,
+            "samples": 31
+          },
+          "hostLoadAvg": {
+            "min": 13.8,
+            "max": 18.63,
+            "mean": 15.22
+          }
+        },
+        "exactlyOnce": {
+          "jobs": 2000,
+          "byStatus": {
+            "succeeded": 2000
+          },
+          "expected": null,
+          "lost": 0,
+          "unexpected": 0,
+          "duplicated": 0,
+          "runningEventsNotEqualAttempts": 0,
+          "reclaimed": 0,
+          "queueWaitMs": {
+            "p50": 23637.5,
+            "p95": 27553.9,
+            "p99": 28166.2,
+            "max": 28728
+          },
+          "ok": true,
+          "examples": []
+        },
+        "workerExit": [
+          "{\"name\":\"cw0\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw1\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw2\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw3\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw4\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw5\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw6\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw7\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw8\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw9\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw10\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw11\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw12\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw13\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw14\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw15\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw16\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw17\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw18\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}",
+          "{\"name\":\"cw19\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}"
+        ]
+      }
+    }
+  }
+}

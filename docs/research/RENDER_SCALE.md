@@ -406,6 +406,11 @@ the sum of all scenes (**ESTIMATE**, measure in the fan-out issue).
   - **Google Pub/Sub:** lease page redirected and was not read; ack deadline facts unverified.
   Order of value: LISTEN/NOTIFY (no new service) → SQS (AWS buyers, KEDA/ECS scalers) → Redis
   Streams (already common) → NATS → Service Bus / Pub/Sub on demand.
+- **Built (#158, D-105, 2026-11-22):** backoff on empty polls (`queue.pollMaxIntervalMs`), `notify`
+  (NOTIFY inside the job's transaction, LISTEN on a direct session connection, fallback poll), and
+  the generic outbox + relay for the brokers above. One change from the sketch above: a received id
+  **wakes the normal claim** instead of claiming that id, so priorities and fairness (D-090, D-103)
+  decide the order, not the order of messages. Measured: docs/PERFORMANCE.md.
 
 ### 6.3 Storage and downloads
 

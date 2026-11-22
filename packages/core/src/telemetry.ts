@@ -48,6 +48,18 @@ export interface CoreInstruments {
   limitRejections: Counter;
   /** Enqueue to first claim of render and preview jobs, by type and priority only (bounded labels; D-103). */
   queueWait: Histogram;
+  /** Claim attempts of the database queue, by what started them (trigger) and whether one got a job (result). */
+  queueClaims: Counter;
+  /** Dispatch (D-105): ready messages published (driver, reason). */
+  dispatchPublished: Counter;
+  /** Dispatch: outbox publishes that failed (driver). */
+  dispatchPublishFailures: Counter;
+  /** Dispatch: messages a worker received (driver, kind ready/claimed). */
+  dispatchReceived: Counter;
+  /** Dispatch: ready messages for a job id already waiting to be claimed here (driver). */
+  dispatchDuplicates: Counter;
+  /** Dispatch: jobs claimed by the fallback poll instead of a message (driver; reason fallback or degraded). */
+  dispatchFallbackClaims: Counter;
 }
 
 const SECONDS_BUCKETS = [0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600];
@@ -90,6 +102,22 @@ export function coreInstruments(meter: Meter): CoreInstruments {
         description:
           'Time from enqueue to the first claim of render and preview jobs, by type and priority (fan-out units and joins are not measured). Recorded by the instance that claims. SLO: p95 < 60 s for previews, < 300 s for renders.',
         advice: { explicitBucketBoundaries: QUEUE_WAIT_BUCKETS },
+      }),
+      queueClaims: meter.createCounter('reelforge.queue.claims', {
+        description:
+          'Database queue: claim attempts by trigger (poll: the idle poll; fallback: the dispatch fallback poll; wake: a dispatch message; local: this instance enqueued, a job finished or a lease was recovered) and result (job, empty).',
+      }),
+      dispatchPublished: meter.createCounter('reelforge.queue.dispatch.published', {
+        description: 'Queue dispatch (D-105): ready messages published, by driver and reason (enqueue, requeue, release, fanout, join, outbox).',
+      }),
+      dispatchPublishFailures: meter.createCounter('reelforge.queue.dispatch.publish_failures', { description: 'Queue dispatch: outbox publishes to a broker that failed and will be retried, by driver.' }),
+      dispatchReceived: meter.createCounter('reelforge.queue.dispatch.received', { description: 'Queue dispatch: messages received by this worker, by driver and kind (ready, claimed).' }),
+      dispatchDuplicates: meter.createCounter('reelforge.queue.dispatch.duplicates', {
+        description: 'Queue dispatch: ready messages for a job id this worker was already about to claim (duplicates are no-ops), by driver.',
+      }),
+      dispatchFallbackClaims: meter.createCounter('reelforge.queue.dispatch.fallback_claims', {
+        description:
+          'Queue dispatch: jobs claimed by the poll instead of a message, by driver and reason (fallback: the periodic fallback poll found work a message did not announce; degraded: the listener was disconnected).',
       }),
     };
     cache.set(meter, i);

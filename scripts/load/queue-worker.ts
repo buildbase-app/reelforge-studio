@@ -12,10 +12,15 @@
  *
  * Stops on SIGTERM with the real shutdown (a claim in flight is handed back).
  *
+ * DISPATCH=notify (#158, D-105): each runner LISTENs on its own direct
+ * connection (DIRECT_URL, else DB_URL) and its claims announce themselves;
+ * POLL_MAX_MS is queue.pollMaxIntervalMs (POLL_MAX_MS=POLL_MS: no backoff,
+ * the behaviour before #158); FALLBACK_MS is the notify fallback poll.
+ *
  *   DB_URL=postgresql://...?connection_limit=2 RUNNERS=10 WORK_MS=0 node --import tsx scripts/load/queue-worker.ts
  */
 import { JobRunner, type JobContext } from '@reelforge/core';
-import { Database } from '@reelforge/db';
+import { Database, createNotifyListener, notifyChannel } from '@reelforge/db';
 import { sleep } from './lib';
 
 const e = process.env;
@@ -33,7 +38,9 @@ async function fakeRender(ctx: JobContext): Promise<Record<string, unknown>> {
   return { fake: true, ms: Date.now() - start };
 }
 
-const dbs = await Promise.all(Array.from({ length: runners }, () => Database.open({ url: e.DB_URL! })));
+const dispatch = e.DISPATCH === 'notify' ? 'notify' : 'poll';
+const readySignal = dispatch === 'notify' ? { kind: 'notify' as const, channel: notifyChannel(e.DB_URL!) } : undefined;
+const dbs = await Promise.all(Array.from({ length: runners }, () => Database.open({ url: e.DB_URL!, ...(readySignal ? { readySignal } : {}) })));
 let errors = 0;
 const jobs = dbs.map(
   (db, i) =>
@@ -46,6 +53,12 @@ const jobs = dbs.map(
         workerId: `${name}-${i}`,
         leaseMs: Number(e.LEASE_MS ?? 60_000),
         pollMs: Number(e.POLL_MS ?? 1000),
+        pollMaxMs: Number(e.POLL_MAX_MS ?? 5000),
+        dispatch: {
+          driver: dispatch,
+          ...(dispatch === 'notify' ? { listener: createNotifyListener(db, { ...(e.DIRECT_URL ? { directUrl: e.DIRECT_URL } : {}), pingMs: Number(e.FALLBACK_MS ?? 30_000) }) } : {}),
+          fallbackMs: Number(e.FALLBACK_MS ?? 30_000),
+        },
       },
       log: (level, line) => {
         if (level !== 'info') {

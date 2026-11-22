@@ -38,5 +38,15 @@ export function scalingProblems(resolved: ResolvedConfig, databaseUrl: string): 
   } else if (mode === 'database' && kind === 'sqlite') {
     warnings.push('queue.driver "database" on SQLite: claims are atomic, but SQLite supports one instance only (use PostgreSQL or MySQL to run several)');
   }
+  // Queue dispatch (D-105): LISTEN/NOTIFY exists only on PostgreSQL.
+  if (c.queue.dispatch === 'notify') {
+    if (kind !== 'postgresql') {
+      errors.push(
+        `queue.dispatch "notify" needs PostgreSQL (LISTEN/NOTIFY), but the database is ${kind === 'mysql' ? 'MySQL/MariaDB' : 'SQLite'}: set REELFORGE_QUEUE_DISPATCH=poll (idle polls back off up to queue.pollMaxIntervalMs) or move to PostgreSQL (docs/providers/queue-and-scaling.md)`
+      );
+    } else if (mode !== 'database') {
+      warnings.push('queue.dispatch "notify" has no effect with the in-process queue (queue.driver resolves to "inprocess"); it applies to the database queue only');
+    }
+  }
   return { errors, warnings };
 }

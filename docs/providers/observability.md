@@ -109,6 +109,12 @@ OpenTelemetry names; the Prometheus name is what `GET /metrics` shows.
 | `reelforge.server.role` | `reelforge_server_role` | gauge | `reelforge_role` (`all`/`api`/`worker`): 1 for this instance's role (#36) |
 | `reelforge.jobs.requeued` | `reelforge_jobs_requeued_total` | counter | `reelforge_reason` (`lease_expired`, `released`): database queue (#36) |
 | `reelforge.queue.errors` | `reelforge_queue_errors_total` | counter | `reelforge_operation` (`claim`, `heartbeat`, `recover`): database queue (#36) |
+| `reelforge.queue.claims` | `reelforge_queue_claims_total` | counter | `reelforge_trigger` (`poll`, `fallback`, `wake`, `local`), `reelforge_result` (`job`, `empty`): claim attempts of the database queue (#158) |
+| `reelforge.queue.dispatch.published` | `reelforge_queue_dispatch_published_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`enqueue`, `requeue`, `release`, `fanout`, `join`, `outbox`): queue dispatch messages sent (D-105) |
+| `reelforge.queue.dispatch.received` | `reelforge_queue_dispatch_received_total` | counter | `reelforge_dispatch_driver`, `reelforge_dispatch_kind` (`ready`, `claimed`) |
+| `reelforge.queue.dispatch.duplicates` | `reelforge_queue_dispatch_duplicates_total` | counter | `reelforge_dispatch_driver`: ready messages for a job already about to be claimed (no-ops) |
+| `reelforge.queue.dispatch.fallback_claims` | `reelforge_queue_dispatch_fallback_claims_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`fallback`, `degraded`): jobs claimed by the poll instead of a message |
+| `reelforge.queue.dispatch.publish_failures` | `reelforge_queue_dispatch_publish_failures_total` | counter | `reelforge_dispatch_driver`: failed outbox publishes (external drivers, follow-ups) |
 | `reelforge.limits.rejections` | `reelforge_limits_rejections_total` | counter | `reelforge_limit_reason` (`render_limit`, `jobs_per_key`, `queue_full`, `queue_wait`, `render_quota`, `upload_too_large`, `provider_runs_per_key`, `provider_budget`): requests refused by a resource limit (D-090..D-092) |
 | `reelforge.render.scene.duration` (s) | `reelforge_render_scene_duration_seconds_*` | histogram | `reelforge_engine`, `reelforge_outcome` (`ok`/`error`) |
 | `reelforge.render.frames` | `reelforge_render_frames_total` | counter | `reelforge_engine` |

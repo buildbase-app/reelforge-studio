@@ -6,6 +6,7 @@ import { pageOf } from './paging';
 import { summarizeProject } from './store';
 import { isFannedOut, isTerminal, settleChild, stopTree, type SettlementPlan } from './fanout';
 import { effectiveRank, estimateWaitSeconds, priorityRank } from './priority';
+import { announceClaim, newOutboxId, type ReadySignal } from './dispatch';
 import {
   DEFAULT_WORKSPACE_ID,
   runIdOf,
@@ -25,6 +26,7 @@ import {
   type StoredValue,
   type Repositories,
   type StoredProject,
+  type DispatchOutboxRow,
 } from './repositories';
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -74,7 +76,29 @@ const byNewest = (a: { createdAt: string; id: string }, b: { createdAt: string; 
  * In-memory repositories: same contract as the database ones, nothing on disk.
  * For unit tests and throwaway instances; data is lost when the process ends.
  */
-export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Repositories {
+export interface MemoryRepositoryOptions {
+  /** Queue dispatch (D-105): tell workers when jobs become claimable (an in-memory bus, or rows in the outbox). */
+  readySignal?: ReadySignal;
+}
+
+export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID, opts: MemoryRepositoryOptions = {}): Repositories {
+  const outbox = new Map<string, DispatchOutboxRow>();
+  /** Jobs that became claimable: like the database repositories' in-transaction signal, right after the write. */
+  const ready = (ids: string[]) => {
+    const sig = opts.readySignal;
+    if (!sig || !ids.length) return;
+    if (sig.kind === 'bus') sig.bus.publish('ready', ids);
+    else if (sig.kind === 'outbox') {
+      const at = new Date().toISOString();
+      for (const jobId of ids) {
+        const id = newOutboxId();
+        outbox.set(id, { id, jobId, attempts: 0, nextAttemptAt: at, createdAt: at });
+      }
+    }
+  };
+  const claimed = (job: JobRecord, now: string) => {
+    if (opts.readySignal?.kind === 'bus' && announceClaim(opts.readySignal, job.createdAt, now)) opts.readySignal.bus.publish('claimed', [job.id]);
+  };
   const projects = new Map<string, { meta: ProjectMeta; versions: Map<number, Project> }>();
   const keys = new Map<string, ApiKeyRecord>();
   const jobs = new Map<string, JobRecord>();
@@ -108,7 +132,10 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
   /** Apply a fan-out settlement (D-097); synchronous, so atomic like the database transactions. */
   const applyPlan = (plan: SettlementPlan, at: string): ChildSettlement => {
     if (plan.parent) jobs.set(plan.parent.id, clone(plan.parent));
-    if (plan.join) jobs.set(plan.join.id, asStored(plan.join));
+    if (plan.join) {
+      jobs.set(plan.join.id, asStored(plan.join));
+      ready([plan.join.id]);
+    }
     const cancelled: JobRecord[] = [];
     const stop = [...plan.stop];
     for (const c of plan.cancel) {
@@ -144,6 +171,28 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
   return {
     workspaceId,
     webhooks: createMemoryWebhookRepository(),
+    dispatchOutbox: {
+      async claim(now, leaseUntil, limit) {
+        const due = [...outbox.values()]
+          .filter((r) => r.nextAttemptAt <= now && (!r.lockedUntil || r.lockedUntil < now))
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .slice(0, limit);
+        for (const r of due) r.lockedUntil = leaseUntil;
+        return due.map((r) => clone(r));
+      },
+      async remove(ids) {
+        for (const id of ids) outbox.delete(id);
+      },
+      async retry(id, attempts, nextAttemptAt, error) {
+        const r = outbox.get(id);
+        if (!r) return;
+        Object.assign(r, { attempts, nextAttemptAt, lastError: error });
+        delete r.lockedUntil;
+      },
+      async count() {
+        return outbox.size;
+      },
+    },
     projects: {
       async create(p: StoredProject) {
         if (projects.has(p.meta.id)) throw conflict(`project "${p.meta.id}" already exists; use update_project or pick another projectId`);
@@ -217,6 +266,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
       async insert(job) {
         if (jobs.has(job.id)) throw conflict(`job "${job.id}" already exists`);
         jobs.set(job.id, asStored(job));
+        if (job.status === 'queued' && job.queue === 'database') ready([job.id]);
       },
       async insertWithQuota(job, _at, quota) {
         const all = [...jobs.values()].filter((j) => quota.types.includes(j.type));
@@ -245,6 +295,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         }
         if (jobs.has(job.id)) throw conflict(`job "${job.id}" already exists`);
         jobs.set(job.id, asStored(job));
+        if (job.status === 'queued' && job.queue === 'database') ready([job.id]);
         return { ok: true };
       },
       async update(job, fence) {
@@ -275,6 +326,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
           if (jobs.has(c.id)) throw conflict(`job "${c.id}" already exists`);
           jobs.set(c.id, asStored(c));
         }
+        ready(children.filter((c) => c.status === 'queued').map((c) => c.id));
         return 'ok';
       },
       async cancelTree(id, at) {
@@ -302,6 +354,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
           )[0]?.j;
         if (!next) return null;
         Object.assign(next, { status: 'running', workerId, leaseExpiresAt: leaseUntil, startedAt: now, attempts: (next.attempts ?? 0) + 1, progress: { stage: 'starting', fraction: 0 } });
+        claimed(next, now);
         return clone(next);
       },
       async heartbeat(workerId, ids, leaseUntil) {
@@ -333,6 +386,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
             settled.push(...r.cancelled);
           }
         }
+        ready(requeued.map((j) => j.id));
         return { requeued, failed, settled };
       },
       async release(id, fence, at) {
@@ -343,6 +397,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         delete j.leaseExpiresAt;
         delete j.startedAt;
         appendLine(id, at, `released by worker ${fence.workerId} (shutting down); queued again`);
+        ready([id]);
         return true;
       },
       async cancelQueued(id, at, error) {

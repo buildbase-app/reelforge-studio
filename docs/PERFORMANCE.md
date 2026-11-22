@@ -18,6 +18,7 @@ export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell   # api instances 
 pnpm load:smoke          # about 30 s of load, direct connections, every scenario at small size (~2 min with start-up)
 pnpm load                # full: direct and PgBouncer, (a) (b) (c), 10/50/200 workers (~16 min)
 LOAD_POOLERS=pgbouncer LOAD_SCENARIOS=c LOAD_CLAIM_WORKERS=200 pnpm load   # one part
+LOAD_DISPATCH=notify pnpm load   # queue.dispatch notify (#158); LOAD_POLL_MAX_MS=1000: poll without backoff
 ```
 
 Needs Docker (PostgreSQL 17 and PgBouncer 1.26.1 from `mirror.gcr.io`, started and removed by the
@@ -238,7 +239,10 @@ listed, in its order; 7 to 10 are what the run found besides.
    1 215 statements/s and 47 % of a vCPU** of DB CPU with nothing to do (17 % through PgBouncer).
    It also sets a **queue-wait floor**: an idle worker looks again only after up to 1 s, so even
    with free workers the queue wait p50 was 213 ms and p95 463 ms. LISTEN/NOTIFY or backoff
-   on empty polls (#158) fix both.
+   on empty polls (#158) fix both. **Addressed by #158 (D-105):** idle load at 200 workers
+   219 → 69 tx/s (poll with backoff, the new default) or 47 tx/s (`notify`), and queue wait with
+   few idle workers p95 946 → 103 ms with `notify`; see
+   [before and after](#queue-dispatch-158-poll-backoff-and-notify).
 5. **Progress writes:** throttled to 2/s per running job, as estimated. With ~25 renders running
    the `Job` table took **76 row writes/s** (progress, claims, finishes) and `JobEvent` 42/s:
    small next to CRUD here. At 1 000 concurrent renders that is ~2 000 writes/s
@@ -371,6 +375,83 @@ to about 1 / (2 round trips under load). The remaining hold time is those two ro
 it still grows with api CPU; making it zero needs a server-side function
 (rejected in D-090).
 
+## Queue dispatch (#158): poll backoff and notify
+
+[^d]: **Conditions of every number in this section:** lower bound, shared sandbox (not dedicated).
+    The same container as above (4 vCPU Intel Xeon @ 2.10 GHz, 15.7 GiB, Linux 6.18, Node 22.23.5),
+    shared with other workloads, among them other agents' test runs: host load average 4.6 to 37
+    during the runs (columns below). PostgreSQL 17.12 (`mirror.gcr.io/library/postgres:17`,
+    `max_connections=1000`, `shared_buffers=512MB`, otherwise default), direct connections only (no
+    PgBouncer), workers `connection_limit=2` each plus, with `notify`, one listen connection each;
+    branch `claude/queue-dispatch-notify` on `main` at f79f5c6, 2026-11-22 20:27Z to 21:18Z.
+    *before* = `poll` without backoff (`LOAD_POLL_MAX_MS=1000`: the behaviour before #158), *backoff*
+    = `poll` with the new default (`queue.pollMaxIntervalMs` 5000), *notify* = `LOAD_DISPATCH=notify`
+    (`queue.dispatchFallbackSeconds` 30, `queue.notifyJitterMs` 50). Raw results:
+    `docs/performance/2026-11-22-shared-sandbox-158-*.json`.
+
+**Idle database load** [^d]: scenario (c), 2 000 jobs drained by N real `JobRunner`s (10 per
+process), then 15 s to settle (the backoff reaches its maximum after a few empty polls), then 60 s
+with nothing queued (`LOAD_SCENARIOS=c LOAD_CLAIM_WORKERS=50,200 LOAD_CLAIM_JOBS=2000
+LOAD_IDLE_SETTLE_SECONDS=15 LOAD_IDLE_SECONDS=60`). Transactions per second are commits and
+rollbacks in the load database (`pg_stat_database`), statements are `pg_stat_statements` calls.
+
+| Idle workers | before | backoff (default) | notify |
+| --- | --- | --- | --- |
+| 50: tx/s | 56.1 | 16.4 | **12.0** |
+| 50: statements/s | 260.8 | 56.7 | **16.7** |
+| 50: DB CPU % (mean) | 5.4 | 2.2 | 3.3 |
+| 200: tx/s | 218.9 | 68.6 | **46.5** |
+| 200: statements/s | 1 031.1 | 226.7 | **66.7** |
+| 200: DB CPU % (mean / max sample) | 24.4 / 50.8 | 6.0 / 43.5 | 16.1 / 136.1 |
+| 200: DB connections (mean) | 201 | 201 | 345 (pools + one listen connection per worker) |
+| host load average during the idle minute (50 / 200) | 9.2 / 15.2 | 16.5 / 15.0 | 15.9 / 14.5 |
+| drain before it, claims/s (50 / 200) | 178 / 142 | 82 / 127 | 132 / 126 |
+| exactly once (every job one claim, one `running` event per attempt) | yes | yes | yes |
+
+What is left with `notify` is the per-worker housekeeping, not claiming: every worker still runs its
+lease recovery and queue count every `queue.leaseSeconds / 4` (15 s; 200 × 2 / 15 ≈ 27 tx/s), the
+fallback claim every 30 s (≈ 7 tx/s at 200) and a ping on its listen connection every 30 s (≈ 7 tx/s);
+that adds up to the 46.5 measured. Moving the recovery to fewer instances is the next step for idle
+load (follow-up). The DB CPU samples are `docker stats` once a second on a busy host; one sample of
+136 % in the notify minute makes its mean unreliable, the statement count is the better measure. The
+drain rates vary with the host load (the poll runs and the notify run did not overlap in time).
+
+**First notify measurement, before two fixes in this branch** [^d] (raw results not kept): the same
+drain with 200 workers cost **10 234 tx/s** (and 10 628 in a repeat) at 65 / 62 claims/s, because
+PostgreSQL runs a short transaction in **every listening backend for every delivered message**
+(measured separately: 100 NOTIFYs to 50 idle listeners = 4 942 extra transactions), and every claim
+was announced to all 200 workers. Fixed by (1) workers with no free slot `UNLISTEN` until a slot frees
+(DSP-11) and (2) announcing a claim only for a job queued less than 2 s ago, so draining a backlog
+announces nothing. The cost model of `notify` is therefore: one short backend transaction per message
+per **idle** worker, which grows with the enqueue rate, while polling grows with idle workers × poll
+rate.
+
+**Queue wait** (enqueue to first claim, `startedAt - createdAt`, measured by the exactly-once check;
+`createdAt` is set by the api before its insert transaction, so the enqueue time on a loaded api is
+included) [^d]:
+
+| Scenario | Run (order) | Queue wait p50 / p95 / p99 ms | host load (mean) |
+| --- | --- | --- | --- |
+| (b) 500 renders over 60 s with the CRUD mix, 50 fake-engine workers (3 s each), so about 25 idle at any time | before (1) | 80 / 238 / 307 | 7.0 |
+| | backoff (2) | 99 / 534 / 1 236 | 9.5 |
+| | notify (3) | 82 / 208 / 302 | 13.9 |
+| | notify (4) | 67 / 294 / 539 | 19.4 |
+| | backoff (5) | 91 / 368 / 742 | 12.2 |
+| | before (6) | 104 / 416 / 748 | 10.7 |
+| | notify (an earlier run, 21:01Z) | 48 / 71 / 89 | 8.3 |
+| sparse: 30 renders over 60 s, 2 fake-engine workers (1 s each), mostly idle | before | 513 / 946 / 971 | 5.1 |
+| | backoff | 464 / 764 / 821 | 4.6 |
+| | **notify** | **67 / 103 / 121** | 5.7 |
+
+Reading: with many idle workers polling at random phases, an idle worker looks about every
+`pollIntervalMs / (idle workers + 1)`, so in (b) the poll's floor was already small and `notify` is
+within the noise of this host (the api's insert time dominates); backoff adds a tail (p99 0.7 to
+1.2 s) after idle gaps, bounded by `queue.pollMaxIntervalMs`. With few idle workers, the realistic
+shape of a small deployment or a fleet sized to its load, the poll wait is up to a whole interval and
+`notify` cuts p95 from 946 to 103 ms. Every run: every job exactly once (550 jobs in (b), 80 in the
+sparse runs, 0 lost, 0 duplicated). The NOTIFY side through PgBouncer and the dedicated run are not
+measured.
+
 ## PgBouncer transaction mode (#152)
 
 Nothing broke [^s]. Specifically:
@@ -381,7 +462,7 @@ Nothing broke [^s]. Specifically:
 | Advisory locks | the migrator's `pg_advisory_xact_lock` (transaction-scoped) works through PgBouncer: migrations ran through it on a fresh database. The load test still migrates on the direct port, as #152 recommends |
 | `SKIP LOCKED` claims | claims are one transaction each: 2 000 queries from 20 concurrent clients (insert + claim + fenced finish) through PgBouncer, then the full (b) and (c) scenarios: every job exactly once |
 | Non-default schema (`?schema=`, sent as `options=-c search_path=...`) | **accepted by PgBouncer 1.26.1** without `ignore_startup_parameters`; migrations landed in the schema, and 200 queries from that client interleaved with 200 from a default-schema client on the same server pool each saw their own `current_schema()`. RENDER_SCALE §6.1 expected a refusal; older PgBouncer versions were not tried |
-| Session features | ReelForge uses no `LISTEN`, session `SET` or session advisory locks today. LISTEN/NOTIFY wake-ups (#158) will need a direct (session) connection |
+| Session features | ReelForge uses no session `SET` or session advisory locks. `queue.dispatch: notify` (#158) uses `LISTEN` on one direct session connection per worker (`database.directUrl`): through PgBouncer 1.26.1 in transaction mode `LISTEN` is accepted but its notifications never arrive, which the worker's delivery check catches at start (NTF-04); `NOTIFY` inside the job transactions works through PgBouncer |
 | Throughput | within the noise of this box: full mix 285 vs 297 req/s, steady 681 vs 757, claims at 200 workers 187 vs 219 |
 | Connections | server side ≤ 22 (pool 20 + the sampler) against 401 direct at 200 workers; idle DB CPU at 200 workers 17 % vs 47 % |
 
@@ -419,6 +500,7 @@ production shape) needs an external-database option in `scripts/load/run.ts` (fo
 | Jobs lost / duplicated (must be 0) | not yet measured |
 | Queue wait p95 with N renders | not yet measured |
 | Same with PgBouncer transaction mode | not yet measured |
+| Idle tx/s and queue wait, `poll` vs `notify` (#158) | not yet measured (shared sandbox: [above](#queue-dispatch-158-poll-backoff-and-notify)) |
 
 ## CI (proposed, not added: `.github/` is maintainer-only)
 

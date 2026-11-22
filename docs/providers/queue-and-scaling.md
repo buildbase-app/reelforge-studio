@@ -1,6 +1,6 @@
 # Job queue and scaling (more than one instance)
 
-Issue #36; decisions D-075..D-079 (KEDA autoscaling: issue #153, D-101). This page is the operator reference and the
+Issue #36; decisions D-075..D-079 (KEDA autoscaling: issue #153, D-101; queue dispatch: issue #158, D-105). This page is the operator reference and the
 test record: every combination below names the test cases that back it, with
 the latest result. Nothing is called supported without a passing case.
 
@@ -12,6 +12,7 @@ the latest result. Nothing is called supported without a passing case.
 - [Autoscaling](#autoscaling)
 - [Autoscaling with KEDA](#autoscaling-with-keda) (scale to zero on the job queue)
 - [How the queue works](#how-the-queue-works)
+- [Queue dispatch: poll and notify (D-105)](#queue-dispatch-poll-and-notify-d-105)
 - [Render fan-out](#render-fan-out)
 - [Quotas and rate limits across instances](#quotas-and-rate-limits-across-instances)
 - [Licence across instances](#licence-across-instances)
@@ -38,6 +39,15 @@ Two queue providers (`queue.driver`, D-075):
 | `inprocess` | **tested** (every existing server and e2e test) | one | the instance runs what it accepted; a restart marks its unfinished jobs `failed` (`interrupted`) |
 | `database` | **tested** (SQLite, PostgreSQL 17, MySQL 8.4; Docker e2e on PostgreSQL + MinIO) | many | rows claimed with row locks and leases; a crashed worker's job is retried; default for the `api` and `worker` roles (`auto`) |
 | Redis (BullMQ) | **not built** | — | the database queue needs no extra infrastructure; Redis would add a service to run and secure for no gain at the expected job rates (D-075) |
+
+Dispatch drivers (`queue.dispatch`, D-105): how workers of the database queue learn that a job is
+ready. The `Job` table stays the queue of record with every driver.
+
+| Driver | Status | Databases | Notes |
+| --- | --- | --- | --- |
+| `poll` (default) | **tested** (every queue test; backoff DSP-10) | all | idle workers poll every `queue.pollIntervalMs`, backing off to `queue.pollMaxIntervalMs` on empty polls |
+| `notify` | **tested** on PostgreSQL 17 (DSP-01..09, DSP-11 contract, NTF-01..05, DSP-20..24 server) | PostgreSQL only; **refused at start** on MySQL and SQLite (DSP-20, NTF-05) | LISTEN on a direct session connection per worker; not through PgBouncer transaction mode (`database.directUrl`, NTF-04) |
+| `sqs`, `redis` (Streams + consumer group), `nats` (JetStream) | **not built** (follow-ups of #158) | all | will publish through the dispatch outbox (OUT-01..03) and pass the same contract suite |
 
 More than one instance needs **a shared database** (PostgreSQL or MySQL/MariaDB)
 and **shared storage** (`storage.driver` `s3`, `azure` or `gcs`, or one shared
@@ -74,6 +84,11 @@ All start-up only unless marked; environment names and defaults in
 | `queue.maxAttempts` | `REELFORGE_QUEUE_MAX_ATTEMPTS` | `3` | claims per job before a lost lease fails it (`lease_expired`) |
 | `queue.pollIntervalMs` | `REELFORGE_QUEUE_POLL_INTERVAL_MS` | `1000` | idle claim poll; also how often a long-poll re-reads a job running elsewhere; backs off to 30 s on database errors |
 | `queue.shutdownGraceSeconds` | `REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS` | `30` | on SIGTERM: wait this long for running renders, then hand them back to the queue |
+| `queue.pollMaxIntervalMs` | `REELFORGE_QUEUE_POLL_MAX_INTERVAL_MS` | `5000` | longest wait between empty polls (doubling from `queue.pollIntervalMs`); a claimed job resets it. Equal to `queue.pollIntervalMs`: no backoff |
+| `queue.dispatch` | `REELFORGE_QUEUE_DISPATCH` | `poll` | `poll` or `notify` (PostgreSQL LISTEN/NOTIFY); [below](#queue-dispatch-poll-and-notify-d-105). Same value on every instance |
+| `queue.dispatchFallbackSeconds` | `REELFORGE_QUEUE_DISPATCH_FALLBACK_SECONDS` | `30` | `notify`: idle workers still poll this often, so a lost message delays a job by at most this |
+| `queue.notifyJitterMs` | `REELFORGE_QUEUE_NOTIFY_JITTER_MS` | `50` | `notify`: random delay before a woken worker claims; it skips the claim when others took the announced jobs meanwhile |
+| `database.directUrl` | `REELFORGE_DATABASE_DIRECT_URL` (`DATABASE_DIRECT_URL`, `_FILE`) | `database.url` | a direct session connection to PostgreSQL for the `notify` LISTEN connection; required when `database.url` is PgBouncer in transaction mode |
 | `storage.localShared` | `REELFORGE_STORAGE_LOCAL_SHARED` | `false` | the data directory is one shared volume (NFS, EFS, Azure Files, RWX PVC) mounted by every instance |
 | `limits.rateLimitStore` | `REELFORGE_RATE_LIMIT_STORE` | `auto` | `memory` (per instance) or `database` (shared); `auto` = `database` with the database queue |
 | `limits.renderConcurrency` | `REELFORGE_RENDER_CONCURRENCY` | `1` | runtime; used by workers when `server.workerConcurrency` is unset |
@@ -195,6 +210,12 @@ Metrics added by this work (labels bounded, never ids or worker names):
 | `reelforge_server_role` | gauge | `reelforge_role` (`all`/`api`/`worker`) | 1 for this instance's role |
 | `reelforge_jobs_requeued_total` | counter | `reelforge_reason` (`lease_expired`, `released`) | jobs handed back to the queue |
 | `reelforge_queue_errors_total` | counter | `reelforge_operation` (`claim`, `heartbeat`, `recover`) | failed queue operations (database trouble) |
+| `reelforge_queue_claims_total` | counter | `reelforge_trigger` (`poll`, `fallback`, `wake`, `local`), `reelforge_result` (`job`, `empty`) | claim attempts: empty `poll` claims are idle polling, empty `wake` claims the cost of a message |
+| `reelforge_queue_dispatch_published_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`enqueue`, `requeue`, `release`, `fanout`, `join`, `outbox`) | ready messages this instance's transactions sent |
+| `reelforge_queue_dispatch_received_total` | counter | `reelforge_dispatch_driver`, `reelforge_dispatch_kind` (`ready`, `claimed`) | messages this worker received |
+| `reelforge_queue_dispatch_duplicates_total` | counter | `reelforge_dispatch_driver` | ready messages for a job this worker was already about to claim (no-ops) |
+| `reelforge_queue_dispatch_fallback_claims_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`fallback`, `degraded`) | jobs claimed by the poll instead of a message; steadily above 0 with `fallback` means messages are lost |
+| `reelforge_queue_dispatch_publish_failures_total` | counter | `reelforge_dispatch_driver` | outbox publishes to a broker that failed (external drivers; none built yet) |
 
 ## Autoscaling with KEDA
 
@@ -339,6 +360,96 @@ goes.
 - A render that an earlier attempt already committed to storage (its worker
   died between the commit and the final state) is not rendered again: the
   retry finishes with that render.
+
+## Queue dispatch: poll and notify (D-105)
+
+Issue #158. The database stays the queue of record (D-096): state, leases, fencing, attempts,
+priorities and fairness live in the `Job` table, and every claim is the claim above. A dispatch
+driver only decides **when** an idle worker runs that claim.
+
+**`poll` (default, every database).** An idle worker claims every `queue.pollIntervalMs` (1 s).
+Since #158 each poll that finds nothing doubles the wait (1, 2, 4 s ...) up to
+`queue.pollMaxIntervalMs` (5 s), with up to 10 % random spread so idle workers drift apart; a poll
+that claims a job goes back to `queue.pollIntervalMs`, and a worker whose job ends claims at once,
+so a busy queue is polled exactly as before. The cost: after an idle period, a job waits up to
+`queue.pollMaxIntervalMs` for the next poll of an idle worker (less with many idle workers, whose
+polls are spread). Set `queue.pollMaxIntervalMs` to `queue.pollIntervalMs` for the old behaviour. Whether a worker may claim at all (storage up, licence allows renders) is re-checked on every
+heartbeat, so `/readyz` shows a pause and a worker resumes claiming without waiting for its
+backed-off poll.
+
+**`notify` (PostgreSQL).** Every transaction that makes a job claimable (enqueue, `retry_job`, a
+fan-out's units and join, a job queued again after a lost lease or handed back on shutdown) runs
+`SELECT pg_notify('reelforge_jobs', 'r:<job id>')` inside that same transaction; the claim of a job
+queued less than 2 s ago (`max(2 s, 4 × queue.notifyJitterMs)`) runs `pg_notify(..., 'c:<job id>')`
+(older jobs are not announced: no idle worker is still about to claim them, and draining a backlog
+must not broadcast every claim). PostgreSQL delivers a notification when its transaction commits and
+drops it when it rolls back, so the message can never announce a job that does not exist (a start
+refused by a quota or cap rolls back its NOTIFY, NTF-01) and is sent exactly when the job becomes
+visible. Payloads carry the job id only. Deployments sharing one database in different schemas
+(`?schema=`) get their own channel (`reelforge_jobs_<hash>`, NTF-03).
+
+Each claiming instance (`worker`, `all`, `worker --once`) holds **one dedicated session connection**
+(node-postgres, outside the Prisma pool) that `LISTEN`s, on `database.directUrl` or else
+`database.url`. When a `r:` message arrives the worker waits a random 0..`queue.notifyJitterMs`
+(50 ms), then runs **the normal claim**: the message wakes it, it never chooses the job, so the
+order stays class, then fairness across keys, then age (D-090, D-103; DSP-03 holds an interactive
+job back behind a worker busy with a gate, announces a batch, a standard and an interactive job in
+that order, and the interactive one is claimed first). If, when the delay ends, every job announced
+to it was already claimed elsewhere (the `c:` messages), the worker skips the claim: a message
+wakes every idle worker, and without this one job would cost one claim per idle worker (DSP-09:
+8 idle workers, 1 job, fewer than 8 claims). A worker without a free slot **stops listening**
+(`UNLISTEN`) until one frees, then `LISTEN`s again before it claims (DSP-11), so messages only
+reach idle workers: PostgreSQL makes every listening backend run a short transaction for each
+message it delivers, and without this a drain of 2 000 queued jobs by 200 busy workers (each claim
+announcing itself to all 200) cost about 10 000 transactions per second in the first measurement. Duplicate or stale ids (a job already claimed, finished
+or unknown) cost at most one ordinary claim, which takes whatever the fair order says or nothing
+(DSP-04, DSP-05).
+
+- **Fallback poll.** While the listener is connected, an idle worker still claims every
+  `queue.dispatchFallbackSeconds` (30 s), so a lost message (a dropped connection, a job queued by
+  a process started without `queue.dispatch: notify`) delays a job by at most that (DSP-06).
+  `reelforge_queue_dispatch_fallback_claims_total{reelforge_reason="fallback"}` counts such jobs.
+- **Lost connection.** The listener reconnects with backoff (0.5 s doubling to 30 s) and pings its
+  connection every `queue.dispatchFallbackSeconds`; meanwhile the worker polls like `poll`
+  (`queue.pollIntervalMs` with backoff), and after reconnecting it claims once for whatever was
+  announced meanwhile (DSP-07, DSP-23: `pg_terminate_backend` on the listen connection).
+- **Delivery check.** After every (re)connect the worker sends a test NOTIFY through its Prisma
+  pool (the path job transactions take) and counts the listener as connected only when it
+  arrives. A worker whose first check fails **refuses to start** with a message naming
+  `database.directUrl` (NTF-02).
+- **PgBouncer.** `LISTEN` needs a session. Through PgBouncer in `transaction` (or `statement`)
+  mode the `LISTEN` statement succeeds but its notifications are delivered to whichever client
+  holds that server connection later, so they never arrive: measured with PgBouncer 1.26.1, the
+  delivery check refuses it (NTF-04). The NOTIFY side is fine through PgBouncer (it is part of an
+  ordinary transaction). So with PgBouncer in transaction mode keep `database.url` on PgBouncer and
+  set `database.directUrl` to PostgreSQL itself (or PgBouncer in `session` mode): one extra
+  connection per worker, idle except for the ping. See [PERFORMANCE.md](../PERFORMANCE.md#pgbouncer-transaction-mode-152).
+- **`worker --once`** waits for a message instead of sleeping a poll interval (DSP-08, DSP-24).
+- **`/readyz`** reports `dependencies.dispatch` (driver, `connected`, `reconnects`, counters). It is
+  never required: a disconnected listener only costs wake-up latency, the worker keeps claiming by
+  polling.
+- **Cost.** One NOTIFY statement in each enqueue and claim transaction, and one short transaction
+  in the backend of every **idle** worker for each message (`ready` and `claimed`), so the cost
+  grows with enqueue rate × idle workers, while polling grows with idle workers × poll rate.
+  `notify` wins while enqueues per second stay below a few per idle worker; a fleet with hundreds of
+  idle workers and dozens of enqueues per second is over-provisioned either way. PostgreSQL serialises the
+  commits of transactions that sent NOTIFY on one lock (from its source, not measured here: VERIFY); at the claim rates of this queue (hundreds
+  per second at most, PERFORMANCE.md) that is not measurable, at thousands of commits per second
+  it would be.
+
+**Outbox for external brokers (built, no driver yet).** `sqs`, `redis` and `nats` will publish to a
+broker outside the database, which cannot be part of the job's transaction. For them the job
+repository writes a `DispatchOutbox` row (migration `0011_dispatch_outbox`) in the job's
+transaction, and `OutboxRelay` (packages/core/src/dispatch.ts) claims due rows with a lease (each
+row by one relay; several instances may run one), publishes their job ids in one call, deletes them,
+and retries a failed publish with exponential backoff and full jitter (1 s .. 5 min), dropping a row
+after 10 attempts (its job stays queued; the fallback poll claims it). Tested with an in-memory
+publisher (OUT-01..03); the brokers' consumers will acknowledge a message after the claim it
+triggered, so broker lock limits never bound a render. `notify` deliberately does not use the
+outbox: its NOTIFY already commits or rolls back with the job, and a relay would have to poll the
+outbox table, which is the idle load `notify` removes.
+
+Numbers (idle database load and queue wait, poll versus notify): [PERFORMANCE.md](../PERFORMANCE.md#queue-dispatch-158-poll-backoff-and-notify).
 
 ## Priorities, fairness and admission (D-103)
 
@@ -1087,6 +1198,37 @@ REELFORGE_TEST_DB=mysql TEST_MYSQL_URL=mysql://... pnpm --filter @reelforge/serv
 SCALE=1 E2E_PREFIX=que PORT=4335 e2e/docker/run.sh
 ```
 
+Queue dispatch (#158, D-105): the shared contract `packages/core/test/dispatch-contract.ts` runs on
+the in-memory bus (`packages/core/test/dispatch.contract.test.ts`) and on PostgreSQL 17 LISTEN/NOTIFY
+(`packages/db/test/dispatch.notify.test.ts`); later drivers add their own fixture to it. Server
+cases: `apps/server/test/dispatch.test.ts`.
+
+| Id | What | Where | Result |
+| --- | --- | --- | --- |
+| DSP-01 | an idle worker (next poll 60 s away) is woken by another instance's enqueue and claims within 1.5 s | contract (memory, PostgreSQL 17) | pass 2026-11-22 |
+| DSP-02 | exactly once: 4 woken workers (2 slots each) × 60 jobs in bursts: every job ran once, attempts 1, on several workers | contract (memory, PostgreSQL 17) | pass 2026-11-22 |
+| DSP-03 | a message only wakes the normal claim: batch, standard, interactive announced in that order behind a busy worker are claimed interactive, standard, batch | contract (memory, PostgreSQL 17) | pass 2026-11-22 |
+| DSP-04 | every ready message delivered 4 times: each of 10 jobs runs once; duplicates counted | contract (memory, PostgreSQL 17) | pass 2026-11-22 |
+| DSP-05 | stale ids (a finished job, an unknown id, an unknown `claimed`) are no-ops; the next job runs; no queue error | contract (memory, PostgreSQL 17) | pass 2026-11-22 |
+| DSP-06 | every ready message lost: the fallback poll claims the job and counts one fallback claim | contract (memory, PostgreSQL 17) | pass 2026-11-22 |
+| DSP-07 | the listener connection drops (PostgreSQL: `pg_terminate_backend`): the worker polls and claims meanwhile, reconnects by itself, and the next job is woken again (claimed within 1.5 s) | contract (memory, PostgreSQL 17) | pass 2026-11-22 |
+| DSP-08 | `worker --once` waits for a message: a job enqueued 300 ms into an 8 s wait is run at once although the poll interval is 5 s | contract (memory, PostgreSQL 17) | pass 2026-11-22 |
+| DSP-09 | 8 idle workers, 1 job: fewer than 8 claim attempts (claimed announcements are skipped) | contract (memory, PostgreSQL 17) | pass 2026-11-22 |
+| DSP-11 | a worker with every slot busy stops receiving messages (none counted while busy) and subscribes again before its next claim; the next job is woken | contract (memory, PostgreSQL 17) | pass 2026-11-22 |
+| DSP-10 | poll backoff: an idle worker with 50 ms / 400 ms makes at most 10 claims in 2 s (more than 25 without backoff), finds a new job within one maximum interval, and polls at `pollIntervalMs` again while jobs flow | core | pass 2026-11-22 |
+| NTF-01 | NOTIFY is transactional: a start refused by its quota (rolled back) sends nothing, a committed one sends `r:<id>`, a claim sends `c:<id>` | PostgreSQL 17 | pass 2026-11-22 |
+| NTF-02 | a listen connection that does not receive what the pool sends is refused at start, naming `database.directUrl` | PostgreSQL 17 | pass 2026-11-22 |
+| NTF-03 | two schemas in one database: two channels | PostgreSQL 17 | pass 2026-11-22 |
+| NTF-04 | `LISTEN` through PgBouncer 1.26.1 in transaction mode is refused by the delivery check (`TEST_PGBOUNCER_URL`) | PostgreSQL 17 + PgBouncer | pass 2026-11-22 (local; CI has no PgBouncer) |
+| NTF-05 | `notify` refused on SQLite and MySQL repositories and channel names | SQLite | pass 2026-11-22 |
+| OUT-01..03 | outbox: one row per enqueued job, published and removed by the relay; a failed publish retried with backoff, dropped after `maxAttempts` (job still queued); two relays never publish one row twice; `kick()` publishes at once | core | pass 2026-11-22 |
+| OUT-10..12 | outbox on memory, SQLite, PostgreSQL 17, MySQL 8.4: a row per claimable job (insert, quota insert, hand-back) in the job's transaction, none for a refused start or an in-process job; leases (one relay at a time, expired leases taken over), retry after backoff, removal; two relays publish 30 jobs exactly once | contract (4 targets) | pass 2026-11-22 |
+| DSP-20 | the server refuses `queue.dispatch: notify` on SQLite and MySQL, naming `poll` | server | pass 2026-11-22 |
+| DSP-21 | api + notify worker on PostgreSQL 17 (poll interval 4 s, fallback 60 s): renders started on the api are claimed within 1 s, exactly once | server, PostgreSQL 17 | pass 2026-11-22 |
+| DSP-22 | `/readyz` `dependencies.dispatch` (worker: connected; api: publishes only), dispatch metrics with bounded labels | server, PostgreSQL 17 | pass 2026-11-22 |
+| DSP-23 | the worker's LISTEN connection killed: `/readyz` stays 200 (dispatch reported, not required), a render still runs, the listener reconnects | server, PostgreSQL 17 | pass 2026-11-22 |
+| DSP-24 | `worker --once` (server) with notify claims a render within 1 s of its enqueue | server, PostgreSQL 17 | pass 2026-11-22 |
+
 CI: the contract, process and server cases run wherever `TEST_POSTGRES_URL` /
 `TEST_MYSQL_URL` / `REELFORGE_TEST_DB` are set (the HEAVY tier's database jobs);
 on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
@@ -1113,6 +1255,10 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 | HPA shows `<unknown>` for `reelforge_jobs_queued` | no External metrics adapter: install prometheus-adapter with the rule above (or KEDA); until then the worker HPA scales on CPU |
 | workers do not claim and log `queue: not claiming jobs: the licence does not allow renders (checking, waiting_for_api)` | no api (or all) instance has checked the licence on this database yet: start one with the licence key, or activate it there |
 | workers log `the stored licence state failed its integrity check` (`state_untrusted`) | the worker's `REELFORGE_SECRET_KEY` differs from the api instances': use the same value everywhere |
+| `refusing to start ... queue.dispatch "notify": a test notification ... did not arrive on the LISTEN connection` | the worker's listen connection goes through a pooler that does not keep sessions (PgBouncer transaction mode): set `database.directUrl` to PostgreSQL itself |
+| `queue.dispatch "notify" needs PostgreSQL` | MySQL or SQLite: use `queue.dispatch: poll` |
+| `/readyz` `dispatch: error`, log `dispatch listener (notify) disconnected` | the LISTEN connection dropped; the worker polls until it reconnects (backoff to 30 s). Persistent: check that `database.directUrl` is reachable and that no idle-session timeout kills it |
+| `reelforge_queue_dispatch_fallback_claims_total{reelforge_reason="fallback"}` keeps growing | jobs are queued without a message: an instance (often the api) runs without `REELFORGE_QUEUE_DISPATCH=notify`, or connections drop often |
 | `429 rate_limited` sooner than expected with several api instances | that is the shared limit working: each key gets `rateLimitPerMinute` per calendar minute across all instances |
 | `too many clients already` / `remaining connection slots are reserved` (PostgreSQL), `Too many connections` (MySQL) | the sum of the pools is above `max_connections`: apply the [sizing rule](#connection-pooling) (small worker pools, PgBouncer or RDS Proxy) |
 | a new project is missing from `list_projects` right after `create_project` | `database.readUrl` is set and the replica lags; `get_project` reads the primary. Check the replica's lag (`pg_stat_replication`, `SHOW REPLICA STATUS`) |
@@ -1145,6 +1291,12 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
   when the replica lags or is down after start: the six lists fail until it is back); `/readyz`
   does not probe the replica. Tested with a second database fed by the test, not a streaming
   replica container.
+- Queue dispatch: only `poll` and `notify` are built; `sqs`, `redis` and `nats` are follow-ups of
+  #158 (the outbox they publish through is built and tested). `notify` needs one direct session
+  connection per worker (not through PgBouncer transaction mode), and every idle worker still runs
+  its lease recovery and queue count every `queue.leaseSeconds / 4` (15 s), which now dominates
+  the idle load of `notify` workers (PERFORMANCE.md); moving that recovery to fewer instances is a
+  follow-up.
 - Measured throughput, connection counts, idle-polling cost and hot spots (load test, #151; so
   far a lower bound on a shared sandbox): [docs/PERFORMANCE.md](../PERFORMANCE.md).
 - Render fan-out (#156) splits by scene only: frame ranges of long scenes
