@@ -28,6 +28,8 @@ export interface MockLicenceServer {
   /** normal | rate_limited (429 LICENSE_CHECKS_LIMITED) | error (503) | drop (connection reset) */
   setMode(mode: 'normal' | 'rate_limited' | 'error' | 'drop'): void;
   activations(key: string): string[];
+  /** Requests seen per operation. */
+  counts(): { activate: number; validate: number; deactivate: number };
   close(): Promise<void>;
 }
 

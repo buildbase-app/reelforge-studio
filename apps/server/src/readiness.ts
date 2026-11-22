@@ -22,6 +22,22 @@ export interface Readiness {
   engines: Array<{ id: string; ok: boolean; reason?: string }>;
   /** Chromium sandbox per engine and what is weaker than the defaults (admin detail only). */
   security?: { chromiumSandbox: Record<string, boolean>; warnings: string[] };
+  /**
+   * The licence as this instance applies it (admin detail only, D-098): a worker reads the
+   * state the api instances stored and claims no render job while it disallows renders.
+   * Never fails readiness: everything except rendering keeps working.
+   */
+  licence?: {
+    status: string;
+    renderAllowed: boolean;
+    reason: string | null;
+    checksLicenceServer: boolean;
+    instanceId: string;
+    checkedBy: string | null;
+    lastCheckedAt: string | null;
+    nextCheckAt: string | null;
+    detail?: string;
+  };
 }
 
 /** What anonymous callers of /readyz see: overall status and each dependency's status, nothing else (D-088). */
@@ -172,5 +188,17 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
     );
   }
   if (sandbox.remotion === false) warnings.push('Remotion always starts Chromium without its sandbox; it renders only built-in templates');
-  return { ok, checks, dependencies, engines, security: { chromiumSandbox: sandbox, warnings } };
+  const lic = service.getLicence();
+  const licence: Readiness['licence'] = {
+    status: lic.status,
+    renderAllowed: lic.renderAllowed,
+    reason: lic.reason,
+    checksLicenceServer: lic.checksLicenceServer,
+    instanceId: lic.instanceId,
+    checkedBy: lic.checkedBy,
+    lastCheckedAt: lic.lastCheckedAt,
+    nextCheckAt: lic.nextCheckAt,
+    ...(lic.renderAllowed ? {} : { detail: `${lic.message}${role === 'worker' ? ' This worker claims no render jobs until the licence allows renders.' : ''}${lic.fix ? ` Fix: ${lic.fix}` : ''}` }),
+  };
+  return { ok, checks, dependencies, engines, security: { chromiumSandbox: sandbox, warnings }, licence };
 }

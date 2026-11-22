@@ -48,6 +48,7 @@ logging:
 | `server.trustProxy` | `REELFORGE_TRUST_PROXY` | boolean | `false` | runtime |  | Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists. Only turn it on behind a proxy that sets that header. |
 | `server.role` | `REELFORGE_ROLE` | `all` \| `api` \| `worker` | `all` | startup |  | What this instance does (D-076). `all`: serve REST/MCP and render (one instance). `api`: serve REST/MCP and enqueue jobs, never render. `worker`: claim and render jobs from the database queue; serves only `/healthz`, `/readyz` and `/metrics`. `api` and `worker` need PostgreSQL or MySQL and remote storage (or `storage.localShared`); see docs/providers/queue-and-scaling.md. |
 | `server.workerConcurrency` | `REELFORGE_WORKER_CONCURRENCY` | integer | `limits.renderConcurrency` | startup |  | Jobs one `worker` (or `all`) instance claims and renders at the same time. Unset: `limits.renderConcurrency` (which can then be changed at runtime). Scale out with more worker instances rather than a high value here. |
+| `server.workerOnce` | `REELFORGE_WORKER_ONCE` | boolean | `false` | startup |  | Run as `reelforge worker --once` (D-100): claim at most one job, render it and exit (0 succeeded, cancelled or nothing queued; 1 failed; 75 handed back, lease lost, or the `--job` still queued; see docs/providers/backends.md). For job platforms that start one container per unit (KEDA ScaledJob, Azure Container Apps event jobs, AWS Batch, Cloud Run Jobs, ECS RunTask). Implies `server.role` `worker` (same database and storage rules); serves no HTTP. |
 
 ## queue
 
@@ -58,6 +59,7 @@ logging:
 | `queue.maxAttempts` | `REELFORGE_QUEUE_MAX_ATTEMPTS` | integer | `3` | startup |  | Database queue: claims per job. A job whose lease expired this many times is failed with `lease_expired` instead of being queued again. |
 | `queue.pollIntervalMs` | `REELFORGE_QUEUE_POLL_INTERVAL_MS` | integer | `1000` | startup |  | Database queue: how often an idle worker looks for queued jobs, and how often `get_job waitSeconds` re-reads a job running on another instance. On database errors the interval backs off exponentially up to 30 s. |
 | `queue.shutdownGraceSeconds` | `REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS` | integer | `30` | startup |  | On SIGTERM a worker stops claiming and waits this long for its running jobs; jobs still running then are stopped and handed back to the queue (database queue), so another worker takes them at once. Keep the orchestrator's grace period (Kubernetes `terminationGracePeriodSeconds`) longer. |
+| `queue.onceWaitMs` | `REELFORGE_QUEUE_ONCE_WAIT_MS` | integer | 3 × `queue.pollIntervalMs` | startup |  | `worker --once`: how long to wait for a queued job before exiting 0 with nothing done, so a job platform does not pay for an idle container. `reelforge worker --once --wait-ms N` overrides it. |
 
 ## limits
 

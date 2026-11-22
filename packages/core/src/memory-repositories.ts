@@ -205,11 +205,11 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         jobs.set(job.id, workerWrite(job, fence));
         return true;
       },
-      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey }) {
+      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey, id }) {
         const running = new Map<string, number>();
         for (const j of jobs.values()) if (j.status === 'running' && j.queue === 'database' && j.apiKeyId) running.set(j.apiKeyId, (running.get(j.apiKeyId) ?? 0) + 1);
         const next = [...jobs.values()]
-          .filter((j) => j.status === 'queued' && j.queue === 'database' && types.includes(j.type))
+          .filter((j) => j.status === 'queued' && j.queue === 'database' && types.includes(j.type) && (id === undefined || j.id === id))
           .filter((j) => maxRunningPerKey === undefined || !j.apiKeyId || (running.get(j.apiKeyId) ?? 0) < maxRunningPerKey)
           // Fair across keys (D-090): the key with the fewest running jobs first, then the oldest job.
           .sort((a, b) => (running.get(a.apiKeyId ?? '') ?? 0) - (running.get(b.apiKeyId ?? '') ?? 0) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];
@@ -348,8 +348,17 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         if (!licence) licence = { instanceId, updatedAt: at };
         return clone(licence);
       },
-      async save(state) {
+      async save(state, opts) {
+        if (opts?.ifUpdatedAt !== undefined && (!licence || Date.parse(licence.updatedAt) !== Date.parse(opts.ifUpdatedAt))) return false;
         licence = { ...clone(state), instanceId: licence?.instanceId ?? state.instanceId };
+        return true;
+      },
+      async claimCheck({ now, leaseUntil, orLaterThan }) {
+        if (!licence) return false;
+        const next = licence.nextCheckAt ? Date.parse(licence.nextCheckAt) : undefined;
+        if (next !== undefined && next > Date.parse(now) && !(orLaterThan && next > Date.parse(orLaterThan))) return false;
+        licence = { ...licence, nextCheckAt: leaseUntil, updatedAt: now };
+        return true;
       },
     },
     assets: {

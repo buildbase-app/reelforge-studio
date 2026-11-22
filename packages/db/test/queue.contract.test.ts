@@ -95,6 +95,34 @@ describe.each(targets)('job queue contract: $name', ({ kind }) => {
     expect(await repos.jobs.countQueued()).toBe(0);
   });
 
+  it('QUE-13 claim by id (worker --once --job): only that job, only while queued, once under concurrency', async () => {
+    const older = queued();
+    const target = queued();
+    const inprocess = queued({ queue: undefined, attempts: undefined });
+    for (const j of [older, target, inprocess]) await repos.jobs.insert(j, j.createdAt);
+    const byId = (workerId: string, id: string) => repos.jobs.claim({ workerId, types: ['render', 'preview'], now: iso(now), leaseUntil: iso(now + 60_000), id });
+    // Ten launched containers race for the same id: exactly one gets it, the older job is untouched.
+    const results = await Promise.all(Array.from({ length: 10 }, (_, i) => byId(`l${i}`, target.id)));
+    const won = results.filter((r): r is JobRecord => r !== null);
+    expect(won).toHaveLength(1);
+    expect(won[0]).toMatchObject({ id: target.id, status: 'running', attempts: 1 });
+    expect((await repos.jobs.get(older.id))?.status).toBe('queued');
+    // Running, missing, in-process: nothing.
+    expect(await byId('again', target.id)).toBeNull();
+    expect(await byId('ghost', 'job_does_not_exist')).toBeNull();
+    expect(await byId('inproc', inprocess.id)).toBeNull();
+    // The per-key running cap (D-090) applies to a claim by id too.
+    const k1a = queued({ apiKeyId: 'kcap' });
+    const k1b = queued({ apiKeyId: 'kcap' });
+    for (const j of [k1a, k1b]) await repos.jobs.insert(j, j.createdAt);
+    const capped = (id: string) => repos.jobs.claim({ workerId: 'c', types: ['render'], now: iso(now), leaseUntil: iso(now + 60_000), id, maxRunningPerKey: 1 });
+    expect((await capped(k1a.id))?.id).toBe(k1a.id);
+    expect(await capped(k1b.id)).toBeNull();
+    expect((await repos.jobs.get(k1b.id))?.status).toBe('queued');
+    // A type the worker does not handle is not claimed by id either.
+    expect(await repos.jobs.claim({ workerId: 'x', types: ['export'], now: iso(now), leaseUntil: iso(now + 1000), id: older.id })).toBeNull();
+  });
+
   it('QUE-03 a heartbeat renews held leases and reports lost jobs and cancel requests', async () => {
     const [a, b, c] = [queued(), queued(), queued()];
     for (const j of [a, b, c]) await repos.jobs.insert(j, j.createdAt);

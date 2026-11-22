@@ -146,10 +146,18 @@ export function startPngEncoder(
   });
   // Avoid an unhandled rejection if the caller kills before awaiting finish().
   done.catch(() => undefined);
+  // Once ffmpeg exits (killed on cancel or timeout, or it failed), a pending or
+  // later write fails with EPIPE. Without a listener that stream error is thrown
+  // as an uncaught exception; keep it and report it through write() instead.
+  let stdinError: Error | undefined;
+  child.stdin.on('error', (e) => {
+    stdinError ??= e;
+  });
 
   return {
     write(png) {
       return new Promise((resolve, reject) => {
+        if (stdinError) return reject(new PipelineError(stage, `ffmpeg stdin closed: ${stdinError.message}`, stderr));
         if (!child.stdin.writable) return reject(new PipelineError(stage, 'ffmpeg stdin closed', stderr));
         child.stdin.write(png, (err) => (err ? reject(new PipelineError(stage, err.message, stderr)) : resolve()));
       });

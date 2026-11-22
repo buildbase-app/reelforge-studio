@@ -22,7 +22,7 @@ import { AssetStore, stageStream } from './assets';
 import { LocalBackend } from './backends/local';
 import { ApiError, badRequest, invalidManifest, notFound } from './errors';
 import { newId, readJson, writeJsonAtomic } from './fsutil';
-import { JobCapReached, JobRunner, QuotaExceeded, type DatabaseQueueOptions, type JobContext, type JobRecord, type QueueMode } from './jobs';
+import { JobCapReached, JobRunner, QuotaExceeded, defaultWorkerId, type DatabaseQueueOptions, type JobContext, type JobRecord, type QueueMode } from './jobs';
 import { JOB_CAP_RETRY_SECONDS, renderLimitViolations, usageDay, usageKeys, type LimitReason, type RenderLimitViolation } from './limits';
 
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
@@ -42,7 +42,7 @@ import {
 } from './audit';
 import { withIdempotency, type IdempotentOperation } from './idempotency';
 import { applyMergePatch, isPlainObject } from './mergePatch';
-import type { BackendContext, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
+import type { BackendContext, BackendEstimate, EstimateRequest, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
 import { PluginRegistry } from './registry';
 import { runRenderPipeline } from './render';
 import { UrlSigner } from './secrets';
@@ -106,6 +106,8 @@ export interface ServiceConfig {
     fetch?: typeof fetch;
     now?: () => number;
     checkIntervalMs?: number;
+    /** How often the stored licence state is re-read (default 60 s; tests shorten it). */
+    refreshMs?: number;
     /** Run the first check and the daily schedule (default true). */
     start?: boolean;
   };
@@ -185,6 +187,8 @@ export interface ValidationReport {
     fps: number;
     engines: string[];
   };
+  /** What the render would take on the manifest's backend (BackendEstimate), when that backend is installed. */
+  estimate?: BackendEstimate;
 }
 
 export interface RenderSummary {
@@ -318,12 +322,17 @@ export class ReelforgeService {
     const queueMode = config.queue?.mode ?? effectiveQueueMode(cfg.server.role, cfg.queue.driver);
     // Several instances must verify each other's signed links: derive the key from REELFORGE_SECRET_KEY when it is set.
     this.signer = new UrlSigner(this.dataDir, queueMode === 'database' ? cfg.security.secretKey : undefined);
+    const workerId = config.queue?.workerId ?? defaultWorkerId();
     this.licence = createLicenceManager(this.settings, this.repos, {
       api: config.licence?.api,
       fetch: config.licence?.fetch,
       now: config.licence?.now,
       checkIntervalMs: config.licence?.checkIntervalMs,
+      refreshMs: config.licence?.refreshMs,
       log: config.log,
+      // D-098: only api/all instances call the licence server (single flight per deployment); a worker reads the stored state.
+      readOnly: cfg.server.role === 'worker',
+      instanceName: workerId,
     });
     this.jobs = new JobRunner({
       repo: this.repos.jobs,
@@ -337,14 +346,20 @@ export class ReelforgeService {
         maxAttempts: cfg.queue.maxAttempts,
         pollMs: cfg.queue.pollIntervalMs,
         // Renders would only fail while the bucket is down: wait instead of burning attempts.
-        canClaim: () => this.storageReady(),
+        // A worker also claims nothing while the stored licence state disallows renders (D-098; the enqueue gate stays).
+        canClaim: async () => {
+          const lic = this.licence.report();
+          if (!lic.renderAllowed) return { ok: false, reason: `the licence does not allow renders (${lic.status}${lic.reason ? `, ${lic.reason}` : ''}): ${lic.message}` };
+          return this.storageReady();
+        },
         ...config.queue,
+        workerId,
       },
       log: (level, line) => config.log?.(level, line),
       maxRunningPerKey: () => this.settings.current.config.limits.maxRunningJobsPerKey,
     });
     if (!registry.listBackends().some((b) => b.id === 'local')) {
-      registry.registerBackend(new LocalBackend((req, ctx) => this.renderLocally(req, ctx)));
+      registry.registerBackend(new LocalBackend((req, ctx) => this.renderLocally(req, ctx), () => registry.listEngines().map((e) => e.id)));
     }
   }
 
@@ -581,10 +596,12 @@ export class ReelforgeService {
       backends: this.registry.listBackends().map((b) => ({
         id: b.id,
         displayName: b.displayName,
+        kind: b.kind,
         configured: b.configured(),
         implemented: b.implemented,
         default: b.id === 'local',
         env: b.env,
+        capabilities: b.capabilities(),
       })),
       storage: [{ id: this.storage.driver.id, active: true, downloads: this.storage.downloads }],
       limits: this.limitsSummary(),
@@ -760,6 +777,7 @@ export class ReelforgeService {
     for (const v of renderLimitViolations(r.project, this.settings.current.config.limits)) {
       errors.push({ path: v.limit.endsWith('Dimension') || v.limit.endsWith('Fps') ? 'output' : 'scenes', message: RENDER_LIMIT_PREFIX + v.message });
     }
+    const estimate = this.estimateOn(r.project.render.backend, { kind: 'render', project: r.project });
     return {
       ok: errors.length === 0,
       errors,
@@ -774,7 +792,17 @@ export class ReelforgeService {
         fps: r.project.output.fps,
         engines: [...new Set(r.project.scenes.map((s) => s.engine))],
       },
+      ...(estimate ? { estimate } : {}),
     };
+  }
+
+  /** The backend's estimate for a render, or undefined for an unknown backend (reported by validation) or a failing plugin. */
+  private estimateOn(backendId: string, req: EstimateRequest): BackendEstimate | undefined {
+    try {
+      return this.registry.backend(backendId).estimate(req);
+    } catch {
+      return undefined;
+    }
   }
 
   async validateProject(id: string): Promise<ValidationReport> {
@@ -795,6 +823,17 @@ export class ReelforgeService {
       const b = this.registry.backend(p.render.backend);
       if (!b.configured()) errors.push({ path: 'render.backend', message: `backend "${b.id}" is not configured on this server (set ${b.env.join(', ')})` });
       else if (!b.implemented) errors.push({ path: 'render.backend', message: `backend "${b.id}" is not implemented in this version; use "local"` });
+      else {
+        // What the backend can render (D-100): its engines, and its longest unit when it cannot split a scene.
+        const cap = b.capabilities();
+        p.scenes.forEach((s, i) => {
+          if (!cap.engines.includes(s.engine)) errors.push({ path: `scenes.${i}.engine`, message: `backend "${b.id}" cannot render engine "${s.engine}" (it renders: ${cap.engines.join(', ') || 'none'})` });
+          const seconds = sceneFrames(s, p.output.fps) / p.output.fps;
+          if (cap.maxUnitSeconds !== null && !cap.frameRanges && seconds > cap.maxUnitSeconds) {
+            errors.push({ path: `scenes.${i}`, message: `scene "${s.id}" is ${seconds} s; backend "${b.id}" renders at most ${cap.maxUnitSeconds} s per scene` });
+          }
+        });
+      }
     } catch (e) {
       errors.push({ path: 'render.backend', message: (e as Error).message });
     }

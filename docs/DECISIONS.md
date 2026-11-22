@@ -1621,7 +1621,8 @@ issue lands with tests.
 
 ### D-095 --- Render backends: worker pools first, `worker --once` for job platforms, launchers and managed renderers as plugins
 
-**Status:** PROPOSED (2026-11-22).\
+**Status:** PROPOSED (2026-11-22); the interface (`kind`, `capabilities()`, `estimate()`) and
+`worker --once` are built and tested in D-100 (#150); launchers (#28) and Remotion Lambda (#157) are not.\
 Three kinds of backend behind one plugin interface (extends `RenderBackend`,
 `packages/core/src/plugins.ts`): (1) **worker pool**: N `worker` containers on any
 orchestrator claim from the queue (local, compose, VPS, Nomad, Kubernetes Deployment + KEDA,
@@ -1677,8 +1678,8 @@ long renders and lets renders fit time-capped platforms (Lambda: 15 min per Remo
 
 ### D-098 --- Licence at scale: one activation per deployment (the shared database); only the api tier checks, once a day
 
-**Status:** PROPOSED (2026-11-22); touches licence-enforcement code (maintainer go-ahead needed).
-Refines D-036/D-037.\
+**Status:** DECIDED (2026-11-22, issue #154; the founder asked for one organisation licence to
+scale without limit, which is the maintainer go-ahead for the licence code). Refines D-036/D-037.\
 Measured (RENDER_SCALE.md §12): 1 api + 3/19/49 workers on one database take exactly one
 BuildBase activation (one instance id per database); a second database is a second activation
 (`limit_reached` at limit 1); but every process calls the licence server at start and daily (50
@@ -1691,7 +1692,22 @@ compare-and-set on the stored state (one check per day per deployment); `worker`
 call the licence server, read the sealed shared state (D-089) and stop claiming render units when
 it disallows renders (the enqueue gate stays). **Rejected:** a configurable cluster id (copyable
 across companies); per-worker activations (punishes scaling); usage reporting (contradicts "no
-telemetry by default"; only as an explicit founder-approved opt-in, not designed).
+telemetry by default"; only as an explicit founder-approved opt-in, not designed).\
+**Built (#154):** `LicenceRepository.claimCheck` is one atomic `UPDATE ... WHERE nextCheckAt IS
+NULL OR nextCheckAt <= now` that sets a 2-minute lease (no schema change; `nextCheckAt` is outside
+the seal); the start, daily and key-change checks of `api`/`all` instances go through it, the winner
+calls BuildBase and stores the sealed answer with `checkedBy`, the others re-read the state every
+60 s (a restart with a fresh state makes no call). Explicit checks (`activate_licence`,
+`POST /v1/licence`, `reelforge licence ...`) still call at once. Backoff doubles across instances
+(from the stored plan); the hourly clock marker writes only with a compare-and-set on `updatedAt`, so
+it never overwrites a newer check. `worker` instances get a read-only manager: seal verified, grace
+and clock checks applied with their own clock, no writes, `waiting_for_api` until a check is stored,
+and the job runner's `canClaim` refuses render/preview claims while renders are not allowed (reason
+in the log, `/readyz` admin `licence` block and queue `paused`, `reelforge_licence_state`). Instances
+configured with different keys do not take turns activating them (logged as a conflict). Measured on
+the mock licence server (`apps/server/test/licence-scale.test.ts`): 2 api + 3 worker licence managers on
+SQLite, PostgreSQL 17 and MySQL 8.4, and 2 api + 3 worker server instances on PostgreSQL 17 and
+MySQL 8.4 = 1 activate, 1 validate per day window, 0 worker calls.
 
 ### D-099 --- Defaults: local pool for one machine; api + worker pool with KEDA or ACA for scale; Remotion Lambda opt-in after #10
 
@@ -1706,3 +1722,43 @@ blocked until Remotion answers #10 in writing. Pooling recipe (small `connection
 PgBouncer transaction mode or RDS Proxy) is part of every multi-instance recipe. Each recipe ships
 with its test-case table (docs/providers/backends.md) and a recorded run before the store may claim
 it.
+
+## U. Render backends v2 and `worker --once` (2026-11-22, issue #150)
+
+Built from D-095. Matrix, interface, exit statuses and test record:
+[docs/providers/backends.md](providers/backends.md).
+
+### D-100 --- `RenderBackend` v2 and `worker --once`: one claim per process, exit statuses a job platform can act on
+
+**Status:** DECIDED (reversible).\
+**Interface:** `RenderBackend` gains `kind` (`pool` | `launcher` | `managed`),
+`capabilities()` (`engines`, `maxUnitSeconds` or `null`, `frameRanges`, `scaleToZero`) and
+`estimate(req)` (`videoSeconds`, `units`, `seconds`, `costUsd`, `note`). `get_capabilities` reports
+`kind` and `capabilities`; `validate_project` returns the manifest backend's estimate and, for an
+implemented and configured backend, flags engines it cannot render and scenes longer than its unit
+limit when it cannot split them. Estimates never invent numbers: `seconds` is `null` until render
+speed is measured (#125), `costUsd` is `0` on own hardware and `null` when unknown; a skeleton
+(`implemented: false`) answers `null` for both. Capabilities of a skeleton describe its design and
+are reported next to `implemented: false`. Every backend runs one contract suite
+(`packages/core/test/backend-contract.ts`). **`worker --once`** (`reelforge worker --once [--job
+<id>] [--wait-ms N]`, or `REELFORGE_WORKER_ONCE=1` with the image's default command): role
+`worker` (same guard as D-076), no HTTP listener, no webhook delivery worker or maintenance timers;
+the job runner gets `once: true`, so nothing claims on a timer and `JobRunner.runOnce()` makes the
+only claim. `--job` claims that one row with its own small query, kept apart from the fair claim of
+D-090 but with the same guarantees (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL/MySQL, one
+atomic `UPDATE ... RETURNING` on SQLite, then the same lease and attempt bookkeeping), so concurrent
+containers for one id cannot both run it. It waits up to
+`queue.onceWaitMs` (default 3 × `queue.pollIntervalMs`) for a job; a missing or finished `--job`
+ends at once; the per-key running cap (D-090) applies to `--job` as to any claim. **Exit
+statuses:** `0` succeeded, cancelled or nothing to do; `1` the job failed (final in the database)
+or start-up failed; `75` (EX_TEMPFAIL) the job was handed back on SIGTERM (D-077), its lease was
+lost, or the `--job` was still queued when the wait ended (claiming paused, key at its cap), so it
+still needs a run. **Why these codes:** job platforms (Kubernetes Job
+`backoffLimit`, AWS Batch retry strategies, Cloud Run Jobs task retries) retry non-zero exits; a
+retry is needed exactly when the unit is queued again (with `--job`, nobody else may pick it up),
+harmless after a failure (the retried container claims the next job or nothing), and pointless
+after a cancel, which is a user's decision rather than a failure. **Why no HTTP in `--once`:** job
+platforms watch the process, a short-lived container's `/metrics` would rarely be scraped, and one
+port fewer to open; the job's state and logs are in the database. **Why not a separate entry
+point without the service:** the claim, fencing, leases, storage readiness and render path are the
+pool worker's own code, so one process type is tested, not two.

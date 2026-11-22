@@ -1,16 +1,40 @@
-import type { BackendContext, RenderBackend, RenderOutcome, RenderRequest } from '../plugins';
+import type { BackendCapabilities, BackendContext, BackendEstimate, EstimateRequest, RenderBackend, RenderOutcome, RenderRequest } from '../plugins';
+import { estimateUnits } from './estimate';
 
-/** Renders in this server process (the default). */
+/**
+ * Renders on the worker that claimed the job (the default): this server with
+ * role `all`, a pool of `worker` instances, or `worker --once` containers.
+ */
 export class LocalBackend implements RenderBackend {
   readonly id = 'local';
-  readonly displayName = 'Local (in-process)';
+  readonly displayName = 'Local (the worker that claimed the job)';
+  readonly kind = 'pool' as const;
   readonly implemented = true;
   readonly env: string[] = [];
 
-  constructor(private readonly runner: (req: RenderRequest, ctx: BackendContext) => Promise<RenderOutcome>) {}
+  constructor(
+    private readonly runner: (req: RenderRequest, ctx: BackendContext) => Promise<RenderOutcome>,
+    /** Engine ids installed on this server (the registry's). */
+    private readonly engines: () => string[] = () => []
+  ) {}
 
   configured(): boolean {
     return true;
+  }
+
+  capabilities(): BackendCapabilities {
+    // Whole scenes on the worker's own CPU; how many workers run (and whether the pool goes to zero) is the orchestrator's choice.
+    return { engines: this.engines(), maxUnitSeconds: null, frameRanges: false, scaleToZero: false };
+  }
+
+  estimate(req: EstimateRequest): BackendEstimate {
+    return {
+      backend: this.id,
+      ...estimateUnits(req),
+      seconds: null,
+      costUsd: 0,
+      note: 'Renders on your own workers: no per-render charge. Render time depends on the machine and is not measured yet (#125); jobs wait while every worker slot is busy.',
+    };
   }
 
   submit(req: RenderRequest, ctx: BackendContext): Promise<RenderOutcome> {

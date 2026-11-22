@@ -12,6 +12,7 @@ the latest result. Nothing is called supported without a passing case.
 - [Autoscaling](#autoscaling)
 - [How the queue works](#how-the-queue-works)
 - [Quotas and rate limits across instances](#quotas-and-rate-limits-across-instances)
+- [Licence across instances](#licence-across-instances)
 - [Test cases](#test-cases)
 - [Troubleshooting](#troubleshooting)
 - [Known limits](#known-limits)
@@ -261,6 +262,43 @@ warning is logged once a minute. Semantics differ slightly from the in-memory
 token bucket: a fixed minute window, so a burst at a minute boundary can see up
 to twice the limit within 60 s (QUE-11, SCA-10).
 
+## Licence across instances
+
+Issue #154, D-098. **One deployment = one shared database = one licence
+activation**, however many `api` and `worker` instances run, scale and restart.
+All instances on one database share the stored licence state (`LicenceState`,
+sealed with `REELFORGE_SECRET_KEY`, D-089) and its random instance id, which is
+the only identity sent to the licence server with the key. A second database
+(another region with its own database, a staging copy) is a second deployment
+and takes a second activation. How many deployments each licence tier allows is
+a pricing decision (#91), not a setting: there is deliberately no configurable
+"cluster id" (it could be copied to share one activation between companies).
+
+| Role | Talks to the licence server | What it does |
+| --- | --- | --- |
+| `all` | yes | activates once, validates once a day, backoff on errors and `429` (one instance: the same contract as before) |
+| `api` | yes, **single flight per deployment** | the automatic checks (start, daily, key change) are taken with one atomic compare-and-set on `LicenceState.nextCheckAt` (a 2-minute lease); the instance that wins calls the licence server and stores the answer, the others read it. N api instances make about one call a day, not N. `activate_licence` / `POST /v1/licence` and `reelforge licence status --check` still check at once |
+| `worker` | **never** | reads the stored state every 60 s, verifies its seal and applies it exactly like the api (valid and grace allow renders; invalid, expired, `clock_skew` or an untrusted state refuse). While renders are not allowed it **claims no render or preview job** (they stay queued); the api's enqueue gate is unchanged |
+
+- A restarted or newly scaled instance reads the stored answer and makes no
+  call while it is fresh (scale-to-zero churn costs nothing).
+- If the instance holding the check dies, another api instance takes it after
+  the 2-minute lease. Failed checks back off from 1 minute, doubling to 6 hours
+  (or the server's `Retry-After`), also when the retry moves to another instance.
+- A worker that starts before any api instance has checked waits:
+  `licence: checking (waiting_for_api)` in its log and `/readyz`, and it claims
+  nothing until a check is stored. Workers do not need the licence key, but they
+  need the **same `REELFORGE_SECRET_KEY`** as the api instances, otherwise the
+  seal does not verify (`state_untrusted`) and they claim nothing.
+- Where to look: `GET /v1/licence` / `get_licence` show the deployment's
+  `instanceId`, `checkedBy` (the server name, `<hostname>-<random>` as in
+  `Job.workerId`, of the instance that ran the last check) and `checksLicenceServer`; each instance's `/readyz` admin view
+  has a `licence` block (status, reason, why a worker is not claiming), the
+  queue dependency shows `paused: the licence does not allow renders (...)`,
+  and `reelforge_licence_state` is exported by every instance.
+- Freeing an activation (moving to a new database): `deactivate_licence` /
+  `DELETE /v1/licence` / `reelforge licence deactivate` on an api instance (docs/DEPLOY.md#licence).
+
 ## Resource limits across instances (D-090, D-091)
 
 Every limit is a `limits.*` setting (runtime: `update_config` / `PATCH
@@ -286,6 +324,21 @@ same `code`, `message` and `details` as a tool error. Each refusal is counted in
 audit log as `limit.rejected` (result `denied`).
 
 ## Test cases
+
+Licence across instances (#154): `apps/server/test/licence-scale.test.ts`:
+2 api + 3 worker licence managers, each with its own database connection, on
+SQLite, PostgreSQL 17 and MySQL 8.4 against the mock licence server (real HTTP,
+injected clock): **1 activate** at start, **1 validate per day** over 3 days, 0
+calls from workers; 2 api + 3 worker **server instances** on PostgreSQL 17 and
+on MySQL 8.4 (`licence.mode: required`, workers pointed at a second mock that
+must stay silent): 1 activate, 1 validate per simulated day with every instance
+re-reading every 100 ms, 0 worker calls; a revoked licence leaves a queued job
+unclaimed with the reason in `/readyz`, the log and `reelforge_licence_state`,
+and a new activation lets the workers claim it. Unit tests in
+`packages/core/test/licence.test.ts` (leader election, lease takeover, backoff
+across instances, worker seal check, waiting, grace, clock skew, 1 api + 50
+workers) and the claim compare-and-set in `packages/db/test/contract.test.ts`
+on every database. Latest run: **2026-11-22**, branch `claude/licence-at-scale`.
 
 Latest run: **2026-11-21**, branch `claude/enterprise-queue`.
 Where: *contract* `packages/db/test/queue.contract.test.ts` on memory, SQLite,
@@ -320,6 +373,7 @@ and a job that dies while its worker shuts down is handed back, never failed
 | QUE-09 | queue depth and position | contract (4 targets) | pass 2026-11-21 |
 | QUE-10 | 10 concurrent quota-limited inserts with limit 3: exactly 3 | contract (4 targets) | pass 2026-11-21 |
 | QUE-11 | shared rate-limit counters: 15 concurrent increments end at 15; sweep | contract (4 targets) | pass 2026-11-21 |
+| QUE-13 | claim by id (`worker --once --job`, #150): only that job, only while queued; of ten concurrent claims for one id one wins | contract (4 targets) | pass 2026-11-22 |
 | QUE-12 | migration `0006_job_queue` applies (also concurrently from two processes, contract.test.ts) and the new columns round-trip | contract (4 targets) | pass 2026-11-21 |
 | QUE-13 | claims held open (each stops before its status event) after 60 finished jobs and fresh statistics; jobs of three keys, one row-locked by another transaction: every free job is held by exactly one claim, the extra claims find none, the locked job stays queued. Failed on MySQL before #168 (7 of 11: one claim locked every keyless job) | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
 | QUE-14 | as QUE-13 with 20 of a key's 24 jobs locked elsewhere (more than one page of MySQL claim candidates): the claims read on and take the free ones | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
@@ -392,6 +446,8 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 | a signed download link from one api instance is refused by another | the instances have different `REELFORGE_SECRET_KEY` values (the database queue derives the signing key from it) |
 | a setting changed with `update_config` is not used yet on another instance | it is re-read every 15 s; start-up settings need a restart of every instance |
 | HPA shows `<unknown>` for `reelforge_jobs_queued` | no External metrics adapter: install prometheus-adapter with the rule above (or KEDA); until then the worker HPA scales on CPU |
+| workers do not claim and log `queue: not claiming jobs: the licence does not allow renders (checking, waiting_for_api)` | no api (or all) instance has checked the licence on this database yet: start one with the licence key, or activate it there |
+| workers log `the stored licence state failed its integrity check` (`state_untrusted`) | the worker's `REELFORGE_SECRET_KEY` differs from the api instances': use the same value everywhere |
 | `429 rate_limited` sooner than expected with several api instances | that is the shared limit working: each key gets `rateLimitPerMinute` per calendar minute across all instances |
 
 ## Known limits
