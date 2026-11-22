@@ -55,7 +55,9 @@ export function redactDatabaseUrl(url: string): string {
 /** Picks the database from the URL scheme. */
 export function parseDatabaseUrl(url: string): ParsedDatabaseUrl {
   if (url.startsWith('file:')) {
-    let path = url.slice('file:'.length).replace(/\?.*$/, '');
+    let path = url.slice('file:'.length);
+    const query = path.indexOf('?');
+    if (query >= 0) path = path.slice(0, query); // indexOf, not a regex: linear on any input
     if (path.startsWith('//')) path = decodeURIComponent(new URL(url).pathname); // file:///abs/path
     if (!path) throw new Error('DATABASE_URL file: needs a path, e.g. file:/data/reelforge.db');
     return { kind: 'sqlite', file: isAbsolute(path) ? path : resolve(path) };
