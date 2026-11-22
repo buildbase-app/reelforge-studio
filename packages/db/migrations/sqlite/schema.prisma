@@ -25,6 +25,9 @@ model Workspace {
   auditLogs        AuditLog[]
   licenceStates    LicenceState[]
   idempotencyKeys  IdempotencyKey[]
+  webhookEndpoints WebhookEndpoint[]
+  webhookDeliveries WebhookDelivery[]
+  webhookAttempts  WebhookAttempt[]
   rateLimitWindows RateLimitWindow[]
 }
 
@@ -327,4 +330,88 @@ model SystemState {
   key       String   @id
   value     String
   updatedAt DateTime
+}
+
+/// An outbound event endpoint (#66, D-070): a signed webhook, a Slack/Discord/Teams
+/// incoming webhook, or an email channel. url and the signing secrets are sealed
+/// with the config cipher (REELFORGE_SECRET_KEY, AES-256-GCM); *Scheme says how.
+model WebhookEndpoint {
+  id                  String    @id
+  workspaceId         String
+  name                String
+  description         String?
+  /// "webhook" | "slack" | "discord" | "teams" | "email"
+  type                String
+  url                 String?
+  urlScheme           String?
+  /// The URL with its secret parts masked (lists).
+  urlDisplay          String?
+  /// Email channels: { provider, to } as JSON text.
+  email               String?
+  /// Event types and patterns as a JSON array.
+  events              String
+  enabled             Boolean   @default(true)
+  disabledReason      String?
+  secret              String?
+  secretScheme        String?
+  prevSecret          String?
+  prevSecretScheme    String?
+  prevSecretExpiresAt DateTime?
+  createdAt           DateTime
+  updatedAt           DateTime
+  createdBy           String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+}
+
+/// The outbox (#66, D-071): one message to one endpoint and its delivery state.
+/// messageId is the webhook-id header: the same on every retry and replay.
+model WebhookDelivery {
+  id            String    @id
+  workspaceId   String
+  endpointId    String
+  messageId     String
+  eventId       String
+  eventType     String
+  /// The event envelope as JSON text (what is sent).
+  payload       String
+  /// "pending" | "delivering" | "succeeded" | "dead"
+  status        String
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime
+  /// While delivering: the worker's lease (crash recovery picks the row up after it).
+  lockedUntil   DateTime?
+  lastStatus    Int?
+  lastError     String?
+  deliveredAt   DateTime?
+  replayOf      String?
+  createdAt     DateTime
+  updatedAt     DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, nextAttemptAt])
+  @@index([workspaceId, endpointId, id])
+  @@index([workspaceId, status, updatedAt])
+}
+
+/// The delivery log (#66): one row per attempt, append-only (removed only by retention with its delivery).
+model WebhookAttempt {
+  id          String   @id
+  workspaceId String
+  deliveryId  String
+  endpointId  String
+  attempt     Int
+  at          DateTime
+  durationMs  Int
+  status      Int?
+  error       String?
+  /// "success" | "retry" | "failed"
+  outcome     String
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, deliveryId])
 }

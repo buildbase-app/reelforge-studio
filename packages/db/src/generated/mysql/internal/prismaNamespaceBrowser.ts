@@ -65,7 +65,10 @@ export const ModelName = {
   IdempotencyKey: 'IdempotencyKey',
   RateLimitWindow: 'RateLimitWindow',
   LicenceState: 'LicenceState',
-  SystemState: 'SystemState'
+  SystemState: 'SystemState',
+  WebhookEndpoint: 'WebhookEndpoint',
+  WebhookDelivery: 'WebhookDelivery',
+  WebhookAttempt: 'WebhookAttempt'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -305,6 +308,71 @@ export const SystemStateScalarFieldEnum = {
 export type SystemStateScalarFieldEnum = (typeof SystemStateScalarFieldEnum)[keyof typeof SystemStateScalarFieldEnum]
 
 
+export const WebhookEndpointScalarFieldEnum = {
+  id: 'id',
+  workspaceId: 'workspaceId',
+  name: 'name',
+  description: 'description',
+  type: 'type',
+  url: 'url',
+  urlScheme: 'urlScheme',
+  urlDisplay: 'urlDisplay',
+  email: 'email',
+  events: 'events',
+  enabled: 'enabled',
+  disabledReason: 'disabledReason',
+  secret: 'secret',
+  secretScheme: 'secretScheme',
+  prevSecret: 'prevSecret',
+  prevSecretScheme: 'prevSecretScheme',
+  prevSecretExpiresAt: 'prevSecretExpiresAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  createdBy: 'createdBy'
+} as const
+
+export type WebhookEndpointScalarFieldEnum = (typeof WebhookEndpointScalarFieldEnum)[keyof typeof WebhookEndpointScalarFieldEnum]
+
+
+export const WebhookDeliveryScalarFieldEnum = {
+  id: 'id',
+  workspaceId: 'workspaceId',
+  endpointId: 'endpointId',
+  messageId: 'messageId',
+  eventId: 'eventId',
+  eventType: 'eventType',
+  payload: 'payload',
+  status: 'status',
+  attempts: 'attempts',
+  nextAttemptAt: 'nextAttemptAt',
+  lockedUntil: 'lockedUntil',
+  lastStatus: 'lastStatus',
+  lastError: 'lastError',
+  deliveredAt: 'deliveredAt',
+  replayOf: 'replayOf',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type WebhookDeliveryScalarFieldEnum = (typeof WebhookDeliveryScalarFieldEnum)[keyof typeof WebhookDeliveryScalarFieldEnum]
+
+
+export const WebhookAttemptScalarFieldEnum = {
+  id: 'id',
+  workspaceId: 'workspaceId',
+  deliveryId: 'deliveryId',
+  endpointId: 'endpointId',
+  attempt: 'attempt',
+  at: 'at',
+  durationMs: 'durationMs',
+  status: 'status',
+  error: 'error',
+  outcome: 'outcome'
+} as const
+
+export type WebhookAttemptScalarFieldEnum = (typeof WebhookAttemptScalarFieldEnum)[keyof typeof WebhookAttemptScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -497,4 +565,54 @@ export const SystemStateOrderByRelevanceFieldEnum = {
 } as const
 
 export type SystemStateOrderByRelevanceFieldEnum = (typeof SystemStateOrderByRelevanceFieldEnum)[keyof typeof SystemStateOrderByRelevanceFieldEnum]
+
+
+export const WebhookEndpointOrderByRelevanceFieldEnum = {
+  id: 'id',
+  workspaceId: 'workspaceId',
+  name: 'name',
+  description: 'description',
+  type: 'type',
+  url: 'url',
+  urlScheme: 'urlScheme',
+  urlDisplay: 'urlDisplay',
+  email: 'email',
+  events: 'events',
+  disabledReason: 'disabledReason',
+  secret: 'secret',
+  secretScheme: 'secretScheme',
+  prevSecret: 'prevSecret',
+  prevSecretScheme: 'prevSecretScheme',
+  createdBy: 'createdBy'
+} as const
+
+export type WebhookEndpointOrderByRelevanceFieldEnum = (typeof WebhookEndpointOrderByRelevanceFieldEnum)[keyof typeof WebhookEndpointOrderByRelevanceFieldEnum]
+
+
+export const WebhookDeliveryOrderByRelevanceFieldEnum = {
+  id: 'id',
+  workspaceId: 'workspaceId',
+  endpointId: 'endpointId',
+  messageId: 'messageId',
+  eventId: 'eventId',
+  eventType: 'eventType',
+  payload: 'payload',
+  status: 'status',
+  lastError: 'lastError',
+  replayOf: 'replayOf'
+} as const
+
+export type WebhookDeliveryOrderByRelevanceFieldEnum = (typeof WebhookDeliveryOrderByRelevanceFieldEnum)[keyof typeof WebhookDeliveryOrderByRelevanceFieldEnum]
+
+
+export const WebhookAttemptOrderByRelevanceFieldEnum = {
+  id: 'id',
+  workspaceId: 'workspaceId',
+  deliveryId: 'deliveryId',
+  endpointId: 'endpointId',
+  error: 'error',
+  outcome: 'outcome'
+} as const
+
+export type WebhookAttemptOrderByRelevanceFieldEnum = (typeof WebhookAttemptOrderByRelevanceFieldEnum)[keyof typeof WebhookAttemptOrderByRelevanceFieldEnum]
 

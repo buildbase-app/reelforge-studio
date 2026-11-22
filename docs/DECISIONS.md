@@ -1126,7 +1126,133 @@ with `format` returns up to 10 000 entries in one MCP result; `reelforge audit
 export` streams any range to a file. CSV cells starting with `= + - @` are
 prefixed with `'` (spreadsheet formula injection).
 
-## O. Job queue and scaling: more than one instance (2026-11-21, issue #36)
+## O. Enterprise E3: outbound events, signed webhooks, notification providers (2026-11-21, issue #66)
+
+Founder direction (issue #66 and the standing rule on #17): agents and
+automations react to events without polling; webhooks follow a public
+standard; chat and email providers are selectable, several at once; every
+provider is called supported only with a passing case
+(docs/providers/webhooks-and-notifications.md).
+
+### D-070 --- One event stream, many endpoints; events from the job runner, the audit log and the licence
+
+**Status:** DECIDED (reversible; event names are part of the experimental API).\
+Events: `job.queued|started|progress|succeeded|failed|cancelled`,
+`render.ready` (render and preview, `kind` says which), `licence.state_changed`,
+`key.created|revoked`, `config.changed`, plus `audit.entry` (every audit entry,
+only with `webhooks` in `audit.sinks`: the signed-webhook `AuditSink` of D-058)
+and `webhook.test` (only to the endpoint tested). Job events come from one
+`JobRunner.onEvent` listener (the only change to the runner); key and config
+events are derived from the audit entries the service already writes
+(`key.create`, `key.revoke`, `config.update`), so REST, MCP and the CLI emit the
+same events without extra calls; `licence.state_changed` compares the licence
+status every 30 s and after activate/deactivate (licence.ts is not touched).
+`job.progress` is sent at most once per 10 %. An **endpoint** is a channel plus
+a filter: `type` webhook | slack | discord | teams | email, `events` (exact
+types, `job.*`, or `*`; `*` and prefixes leave out the noisy `job.progress` and
+`audit.entry`, which are asked for by name). Several endpoints of any type at
+once are the "notification rules" (events -> channels). **Payloads never hold
+secrets**: no API keys, provider keys, signing secrets, manifests, job params or
+signed download links (receivers call `get_render_output`); `redactSecrets`
+runs over every payload as a second line of defence. Envelope (Standard
+Webhooks): `{id: evt_..., type, timestamp, data}`.
+
+### D-071 --- Database outbox with leases; retries with exponential backoff and jitter; dead letter and replay
+
+**Status:** DECIDED (reversible).\
+`emit()` never blocks or fails its caller: it inserts one `WebhookDelivery`
+row per matching endpoint in the background (a failure is logged). A worker in
+every server process claims due rows with an optimistic conditional update and
+a lease (`delivering` until timeout + 60 s), so several processes on one
+database send each row once and a crash mid-attempt is recovered when the
+lease ends. Each attempt is appended to `WebhookAttempt` (the append-only
+delivery log; removed only by retention, `webhooks.deliveryRetentionDays` 30,
+with its delivery). Outcome: `2xx` succeeded; `408`, `425`, `429`, `5xx`,
+timeouts and network errors retried after `retryBaseSeconds * 2^(n-1)` (30 s
+doubling, capped at `retryMaxDelaySeconds` 4 h, ±20 % jitter, at least the
+receiver's `Retry-After`), up to `maxAttempts` (15, about 24 h); other `4xx`
+and `3xx` fail at once (redirects are never followed); `410 Gone` also
+disables the endpoint (per the spec). Then the delivery is **dead** (the dead
+letter queue: `list_webhook_deliveries {status: dead}`) and a warning is
+logged; `replay_webhook_delivery` queues a copy with the **same webhook-id**
+and payload, so receivers that deduplicate on it stay idempotent. Timeouts:
+`webhooks.timeoutSeconds` (15) for connect + send + answer. **Graceful
+shutdown:** no new claims, in-flight attempts get 5 s, the rest are aborted and
+handed back as pending (not recorded), so nothing is lost; pending rows resume
+on the next start. Why not the queue backend of #67: the outbox must be
+transactional with our own database on every supported engine, and a few
+hundred rows an hour need no broker; the worker can later run on that queue.
+
+### D-072 --- Standard Webhooks signatures, secrets sealed at rest, rotation with overlap; SSRF guard at connect time
+
+**Status:** DECIDED (the signature scheme is the public spec; the rest reversible).\
+Webhooks are signed per Standard Webhooks v1 (symmetric): `webhook-id`
+(`msg_...`, stable across retries and replays), `webhook-timestamp` (the
+attempt's unix seconds), `webhook-signature: v1,<base64 HMAC-SHA256 of
+id.timestamp.body>`; a per-endpoint secret `whsec_` + 32 random bytes, shown
+once (bring your own is accepted on create). Verified against the reference
+test vector and the reference library. URLs (chat URLs carry their token) and
+secrets are encrypted with the config cipher (AES-256-GCM, `REELFORGE_SECRET_KEY`,
+the endpoint id in the authenticated data); without the key endpoints cannot be
+created (`409 secret_key_required`); lists show the URL masked to host and first
+path segment. Rotation (`update_webhook {rotateSecret}`) keeps the old secret
+signing next to the new one for `secretRotationGraceHours` (24): every message
+carries both signatures, so receivers switch without a gap. Asymmetric `v2a`
+signatures are not offered yet. **SSRF:** https only and no
+loopback/private/link-local/CGNAT/multicast/documentation addresses, checked
+by the socket's DNS lookup (the address checked is the one connected to, as for
+`add_asset_from_url`), also for endpoints saved earlier; local names
+(`localhost`, `*.internal`, `*.local`) refused on save. `webhooks.allowHttp` and
+`webhooks.allowPrivateNetworks` are start-up settings only, never changeable
+over the API (for internal receivers and the Docker e2e).
+
+### D-073 --- Notification providers: chat webhooks, SMTP first, four email APIs, as plugins
+
+**Status:** DECIDED (reversible).\
+A `NotificationProvider` has `id`, `channel`, `configured(email)` (says what is
+missing) and `send(ctx)` that returns `success | retry | failed` and never
+throws or puts a credential in its error. Built in: `webhook`, `slack` (`{text,
+blocks}`), `discord` (`{content}` <= 2000 characters, mentions off), `teams`
+(an Adaptive Card message, accepted by Teams Workflows and the retiring
+connectors), `email:smtp` (nodemailer 10.3.1, MIT-0, STARTTLS / TLS / none,
+SMTP 4xx retried, 5xx and auth failures not), `email:resend` (with
+`Idempotency-Key` = webhook-id), `email:postmark`, `email:sendgrid`,
+`email:ses` (`@aws-sdk/client-sesv2`, keys or the ambient AWS identity, SDK
+retries off because the outbox retries). Plugins via
+`ServiceConfig.webhooks.providers`. Credentials are secret settings
+(`notifications.email.*`, `_FILE` or encrypted in the database) and are
+scrubbed from every error text by value; API base URLs and the SES endpoint
+are start-up settings (tests point them at stubs). Email is plain text only
+(subject = the event title, body = the event's facts); HTML templates later.
+SMTP first because it reaches every provider and Mailpit tests it for real;
+Resend, Postmark, SendGrid and SES have no official emulator: they are
+contract-tested against HTTP stubs of their documented APIs and marked
+untested against the real services.
+
+### D-074 --- Management over REST, MCP and CLI; admin only; audited
+
+**Status:** DECIDED (reversible).\
+Eight capabilities with REST/MCP parity (test/parity.test.ts): `list_webhooks`
+(`GET /v1/webhooks`, also lists the event types), `create_webhook`
+(`POST /v1/webhooks`), `get_webhook` (with delivery counts), `update_webhook`
+(`PATCH`, incl. `rotateSecret`), `delete_webhook` (pending deliveries become
+dead with the reason), `test_webhook` (`POST .../test`, optional
+`waitSeconds` <= 30 returns the first attempt), `list_webhook_deliveries`
+(`GET .../deliveries`, filters, cursor, attempt log, optional payload),
+`replay_webhook_delivery` (`POST .../deliveries/:deliveryId/replay`), and
+`reelforge webhooks list|show|create|update|delete|test|deliveries|replay`
+(the CLI writes to the outbox; the running server delivers). All need the
+admin scope (URLs and secrets are sensitive). The service writes one audit
+entry per change (`webhook.create`, `.update`, `.rotate_secret`, `.delete`,
+`.test`, `.delivery.replay`, `.disable` by the server) without secrets; reads
+are audited by the transport like other admin reads. Not idempotency-keyed:
+create and rotate return a secret (D-057). Metrics (bounded labels, no ids):
+`reelforge_webhook_deliveries_total{channel,outcome}`,
+`reelforge_webhook_delivery_duration_seconds{channel}`,
+`reelforge_webhook_events_total{event_type}`; a `webhook.deliver <channel>`
+client span per attempt.
+
+## P. Job queue and scaling: more than one instance (2026-11-21, issue #36)
 
 Founder direction (#36 comment, #17 standing rule): providers for the queue
 (in-process, database, Redis), the rate-limit store (memory, database, Redis)
@@ -1142,9 +1268,7 @@ backed by a passing test case. Matrix, settings, test cases and results:
 `auto` (default) picks `database` for the `api` and `worker` roles. Database
 jobs are `Job` rows with `queue = 'database'`; migration `0006_job_queue` adds
 `queue`, `attempts`, `workerId`, `leaseExpiresAt`, `cancelRequestedAt` and two
-indexes on all three databases (numbered 0006 because 0005 is reserved for the
-webhooks work running in parallel; the migrator applies ids in order and
-tolerates the gap). **Claim:** PostgreSQL and MySQL 8 use
+indexes on all three databases (after `0005_webhooks` of #66). **Claim:** PostgreSQL and MySQL 8 use
 `SELECT ... ORDER BY createdAt, id LIMIT 1 FOR UPDATE SKIP LOCKED` in a
 read-committed transaction followed by the update, so workers never block each
 other and never take the same job; SQLite uses one conditional

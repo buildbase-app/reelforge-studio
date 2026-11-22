@@ -145,6 +145,42 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `idempotency.ttlHours` | `REELFORGE_IDEMPOTENCY_TTL_HOURS` | integer | `24` | runtime |  | How long an `Idempotency-Key` (REST) / `idempotencyKey` (MCP) and its stored result are kept; expired ones are swept hourly. |
 
+## webhooks
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `webhooks.allowPrivateNetworks` | `REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS` | boolean | `false` | startup |  | Let webhook and chat endpoints reach loopback, private (RFC 1918), link-local, CGNAT and other non-public addresses. Off by default (SSRF guard, checked when connecting). Start-up only: it can never be turned on over the API. |
+| `webhooks.allowHttp` | `REELFORGE_WEBHOOKS_ALLOW_HTTP` | boolean | `false` | startup |  | Allow `http://` endpoint URLs (payloads and signatures then travel unencrypted). Off by default; start-up only. |
+| `webhooks.timeoutSeconds` | `REELFORGE_WEBHOOKS_TIMEOUT_SECONDS` | integer | `15` | runtime |  | Longest time one delivery attempt may take (connect, send, answer); then it counts as failed and is retried. |
+| `webhooks.maxAttempts` | `REELFORGE_WEBHOOKS_MAX_ATTEMPTS` | integer | `15` | runtime |  | Attempts per delivery before it becomes dead (dead letter; replayable). With the default backoff, 15 attempts span about 24 hours. |
+| `webhooks.retryBaseSeconds` | `REELFORGE_WEBHOOKS_RETRY_BASE_SECONDS` | integer | `30` | runtime |  | Delay after the first failed attempt; it doubles after each further one (±20 % jitter, at least the receiver's `Retry-After`). |
+| `webhooks.retryMaxDelaySeconds` | `REELFORGE_WEBHOOKS_RETRY_MAX_DELAY_SECONDS` | integer | `14400` | runtime |  | Longest delay between two attempts (default 4 hours). |
+| `webhooks.secretRotationGraceHours` | `REELFORGE_WEBHOOKS_SECRET_ROTATION_GRACE_HOURS` | integer | `24` | runtime |  | After `update_webhook { rotateSecret: true }`, messages carry signatures with the new and the old secret for this many hours so receivers can switch. |
+| `webhooks.deliveryRetentionDays` | `REELFORGE_WEBHOOKS_DELIVERY_RETENTION_DAYS` | integer | `30` | runtime |  | Days finished deliveries (succeeded or dead) and their attempt log are kept; the hourly sweep deletes older ones. `0` keeps them forever. |
+
+## notifications
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `notifications.email.from` | `REELFORGE_EMAIL_FROM` | string | (none) | runtime |  | Sender of notification emails (every email provider needs it; Resend, Postmark, SES and SendGrid only send from verified senders). Example: `ReelForge <studio@example.com>`. |
+| `notifications.email.smtp.host` | `REELFORGE_SMTP_HOST` | string | (none) | runtime |  | SMTP server for email channels with provider `smtp`. Example: `smtp.example.com`. |
+| `notifications.email.smtp.port` | `REELFORGE_SMTP_PORT` | integer | `587` | runtime |  | SMTP port (587 submission with STARTTLS, 465 implicit TLS, 25 or 1025 for a local relay or Mailpit). |
+| `notifications.email.smtp.security` | `REELFORGE_SMTP_SECURITY` | `starttls` \| `tls` \| `none` | `starttls` | runtime |  | `starttls` (upgrade required), `tls` (implicit TLS, port 465) or `none` (plain text; local relays and Mailpit only). |
+| `notifications.email.smtp.user` | `REELFORGE_SMTP_USER` | string | (none) | runtime |  | SMTP user name (optional). |
+| `notifications.email.smtp.password` | `REELFORGE_SMTP_PASSWORD` (each also as `_FILE`) | string | (none) | runtime | yes | SMTP password. |
+| `notifications.email.resend.apiKey` | `REELFORGE_RESEND_API_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Resend API key (sending access) for email channels with provider `resend`. |
+| `notifications.email.resend.baseUrl` | `REELFORGE_RESEND_BASE_URL` | url | `https://api.resend.com` | startup |  | Resend API base URL (change only for a test stub). |
+| `notifications.email.postmark.serverToken` | `REELFORGE_POSTMARK_SERVER_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | Postmark server API token for email channels with provider `postmark`. |
+| `notifications.email.postmark.messageStream` | `REELFORGE_POSTMARK_MESSAGE_STREAM` | string | `outbound` | runtime |  | Postmark message stream (transactional). |
+| `notifications.email.postmark.baseUrl` | `REELFORGE_POSTMARK_BASE_URL` | url | `https://api.postmarkapp.com` | startup |  | Postmark API base URL (change only for a test stub). |
+| `notifications.email.sendgrid.apiKey` | `REELFORGE_SENDGRID_API_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | SendGrid API key (Mail Send permission) for email channels with provider `sendgrid`. |
+| `notifications.email.sendgrid.baseUrl` | `REELFORGE_SENDGRID_BASE_URL` | url | `https://api.sendgrid.com` | startup |  | SendGrid API base URL (`https://api.eu.sendgrid.com` for EU data residency, or a test stub). |
+| `notifications.email.ses.region` | `REELFORGE_SES_REGION` | string | (none) | runtime |  | Amazon SES region for email channels with provider `ses`. Example: `eu-west-1`. |
+| `notifications.email.ses.accessKeyId` | `REELFORGE_SES_ACCESS_KEY_ID` (each also as `_FILE`) | string | (none) | runtime | yes | Access key id with `ses:SendEmail`. Leave unset to use the ambient AWS identity (IAM role, IRSA, `AWS_*` variables). |
+| `notifications.email.ses.secretAccessKey` | `REELFORGE_SES_SECRET_ACCESS_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Secret access key (with `accessKeyId`). |
+| `notifications.email.ses.sessionToken` | `REELFORGE_SES_SESSION_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | Session token for temporary keys (optional). |
+| `notifications.email.ses.endpoint` | `REELFORGE_SES_ENDPOINT` | url | (none) | startup |  | SES API endpoint override (VPC endpoint, or a test stub). Empty: the regional AWS endpoint. |
+
 ## render
 
 | Key | Env | Type | Default | Scope | Secret | Description |

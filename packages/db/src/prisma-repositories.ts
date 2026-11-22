@@ -23,6 +23,7 @@ import {
 // written once against the SQLite client's types.
 import type { PrismaClient } from './generated/sqlite/client';
 import type { DatabaseKind } from './url';
+import { createPrismaWebhookRepository } from './webhook-repository';
 
 export type AnyPrismaClient = PrismaClient;
 type Tx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$extends'>;
@@ -238,6 +239,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
   const latest = { versions: { orderBy: { version: 'desc' as const }, take: 1, select: { manifest: true } } };
 
   return {
+    webhooks: createPrismaWebhookRepository(prisma, workspaceId),
     workspaceId,
 
     projects: {

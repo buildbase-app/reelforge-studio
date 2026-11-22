@@ -54,6 +54,9 @@ import { contentTypeFor, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix } from '
 import { StorageManager, type CleanupReport, type RetentionPolicy } from './storage/manager';
 import { ThemeStore } from './themes';
 import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
+import { WebhookService, jobPayload, renderSummary, type NotificationProvider } from './webhooks/index';
+import type { AuditEntry } from './repositories';
+import type { JobEvent } from './jobs';
 
 export interface ServiceConfig {
   /**
@@ -123,6 +126,8 @@ export interface ServiceConfig {
   maintenance?: boolean;
   /** Clock for key expiry, rotation grace, quotas and idempotency (tests inject one). Default Date.now. */
   now?: () => number;
+  /** Outbound events (#66): notification provider plugins, and whether this process runs the delivery worker (default true; the CLI does not). */
+  webhooks?: { providers?: NotificationProvider[]; worker?: boolean; pollMs?: number };
   /**
    * Job queue (D-075). Default: from server.role and queue.* (`database` for
    * the api and worker roles). Tests override single values (short leases).
@@ -135,6 +140,10 @@ export function effectiveQueueMode(role: 'all' | 'api' | 'worker', driver: 'auto
   if (driver !== 'auto') return driver;
   return role === 'all' ? 'inprocess' : 'database';
 }
+
+/** Audit actions that are also outbound events (#66, D-070). */
+const AUDIT_EVENTS: Record<string, string> = { 'key.create': 'key.created', 'key.revoke': 'key.revoked', 'config.update': 'config.changed' };
+const JOB_EVENTS: Record<string, string> = { queued: 'job.queued', running: 'job.started', succeeded: 'job.succeeded', failed: 'job.failed', cancelled: 'job.cancelled' };
 
 /** Most audit entries one MCP export returns (REST streams up to MAX_AUDIT_EXPORT). */
 export const MAX_MCP_EXPORT = 10_000;
@@ -224,6 +233,11 @@ export class ReelforgeService {
   readonly storage: StorageManager;
   /** Append-only audit log: database plus the sinks selected by audit.sinks (D-055). */
   readonly auditLog: AuditLog;
+  /** Outbound events: signed webhooks, chat and email channels, the outbox and its worker (#66). */
+  readonly webhooks: WebhookService;
+  private progressBuckets = new Map<string, number>();
+  private licenceSeen: { status: string; reason: string | null } | null = null;
+  private licenceTimer: NodeJS.Timeout | null = null;
   private readonly baseEnv: NodeJS.ProcessEnv;
   private sweepTimer: NodeJS.Timeout | null = null;
   private storageHealthCache: { at: number; value: { ok: boolean; reason?: string } } | null = null;
@@ -275,6 +289,18 @@ export class ReelforgeService {
     this.serverVersion = config.serverVersion ?? '0.1.0';
     this.publicUrl = (config.publicUrl ?? '').replace(/\/+$/, '');
     this.fetchImpl = config.fetch ?? fetch;
+    this.webhooks = new WebhookService({
+      repo: this.repos.webhooks,
+      settings: this.settings,
+      providers: config.webhooks?.providers,
+      fetch: this.fetchImpl,
+      log: config.log,
+      telemetry: this.telemetry,
+      now: this.now,
+      publicUrl: this.publicUrl || undefined,
+      audit: (e) => this.audit(e),
+      pollMs: config.webhooks?.pollMs,
+    });
     const cfg = this.settings.current.config;
     const queueMode = config.queue?.mode ?? effectiveQueueMode(cfg.server.role, cfg.queue.driver);
     // Several instances must verify each other's signed links: derive the key from REELFORGE_SECRET_KEY when it is set.
@@ -337,6 +363,12 @@ export class ReelforgeService {
       if (keys.includes('licence.key') && !s.activatingLicence) s.licence.keyChanged();
     });
     if (config.licence?.start !== false) s.licence.start();
+    // Outbound events (#66): job state changes, licence state, and the outbox worker (pending deliveries resume).
+    s.jobs.onEvent((e) => s.onJobEvent(e));
+    s.watchLicence();
+    s.licenceTimer = setInterval(() => s.watchLicence(), 30_000);
+    s.licenceTimer.unref();
+    if (config.webhooks?.worker !== false) s.webhooks.start();
     s.applyAuditSinks();
     s.settings.onChange((_r, keys) => {
       if (keys.some((k) => k.startsWith('audit.'))) s.applyAuditSinks();
@@ -369,6 +401,8 @@ export class ReelforgeService {
       if (id === 'database') continue;
       let sink = plugins.get(id) ?? this.builtinSinks.get(id);
       if (!sink && id === 'stdout') sink = new StdoutAuditSink();
+      // Every audit entry as an `audit.entry` event to the endpoints that ask for it (signed webhook sink, #66).
+      if (!sink && id === 'webhooks') sink = { id: 'webhooks', write: (entry) => this.webhooks.emit('audit.entry', { entry }) };
       if (!sink && id === 'otlp') {
         if (!cfg.otlpEndpoint) {
           this.config.log?.('warn', 'audit sink "otlp" is selected but audit.otlpEndpoint is not set; it is skipped');
@@ -377,7 +411,7 @@ export class ReelforgeService {
         sink = new OtlpLogsAuditSink({ endpoint: cfg.otlpEndpoint, serviceVersion: this.serverVersion, fetch: this.fetchImpl, log: this.config.log });
       }
       if (!sink) {
-        this.config.log?.('warn', `audit sink "${id}" is not installed (built in: stdout, otlp); it is skipped`);
+        this.config.log?.('warn', `audit sink "${id}" is not installed (built in: stdout, otlp, webhooks); it is skipped`);
         continue;
       }
       // A changed OTLP endpoint needs a new sink.
@@ -398,10 +432,11 @@ export class ReelforgeService {
     const auditDeleted = await this.auditLog.sweep(this.settings.current.config.audit.retentionDays, now);
     const idempotencyDeleted = await this.repos.idempotency.deleteExpired(new Date(now).toISOString());
     await this.repos.rateLimits.deleteOlderThan(new Date(now - 3_600_000).toISOString());
+    const webhookDeliveriesDeleted = await this.webhooks.sweep(now);
     if (auditDeleted) {
       await this.audit({ actorType: 'system', action: 'audit.sweep', data: { deleted: auditDeleted, retentionDays: this.settings.current.config.audit.retentionDays } });
     }
-    return { auditDeleted, idempotencyDeleted };
+    return { auditDeleted, idempotencyDeleted, webhookDeliveriesDeleted };
   }
 
   /** Stop timers and flush the audit sinks (server shutdown). */
@@ -411,8 +446,43 @@ export class ReelforgeService {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     this.refreshTimer = null;
     this.licence.stop();
+    if (this.licenceTimer) clearInterval(this.licenceTimer);
+    this.licenceTimer = null;
     this.storage.stopSweeper();
+    // In-flight deliveries get a few seconds; the rest stay pending for the next start (#66).
+    await this.webhooks.stop();
     await this.auditLog.close();
+  }
+
+  /** Job state changes as outbound events; progress at most once per 10 % (#66). */
+  private onJobEvent(e: JobEvent) {
+    if (e.type === 'log') return;
+    const job = e.job;
+    if (e.type === 'progress') {
+      const bucket = Math.floor(job.progress.fraction * 10);
+      if (bucket >= 10 || bucket <= (this.progressBuckets.get(job.id) ?? 0)) return;
+      this.progressBuckets.set(job.id, bucket);
+      this.webhooks.emit('job.progress', { job: jobPayload(job) });
+      return;
+    }
+    const type = JOB_EVENTS[job.status];
+    if (!type) return;
+    this.webhooks.emit(type, { job: jobPayload(job) });
+    if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled') this.progressBuckets.delete(job.id);
+    if (job.status === 'succeeded' && (job.type === 'render' || job.type === 'preview') && job.result) {
+      this.webhooks.emit('render.ready', { ...renderSummary(job.result), jobId: job.id, kind: job.type });
+    }
+  }
+
+  /** licence.state_changed when the status or reason changed (checked every 30 s and after activate/deactivate). */
+  private watchLicence() {
+    const r = this.licence.report();
+    if (r.status === 'checking') return;
+    const now = { status: r.status, reason: r.reason ?? null };
+    const prev = this.licenceSeen;
+    this.licenceSeen = now;
+    if (!prev || (prev.status === now.status && prev.reason === now.reason)) return;
+    this.webhooks.emit('licence.state_changed', { status: r.status, reason: now.reason, renderAllowed: r.renderAllowed, message: r.message, ...(r.fix ? { fix: r.fix } : {}), previous: prev });
   }
 
   /**
@@ -1409,6 +1479,7 @@ export class ReelforgeService {
       throw new ApiError('licence_key_missing', 400, 'No licence key is set: send {"key": "<your licence key>"}.');
     }
     const r = await this.licence.activateNow();
+    this.watchLicence();
     await this.audit({
       actorType: actor?.actorType ?? 'system',
       ...(actor?.actorId ? { actorId: actor.actorId } : {}),
@@ -1423,6 +1494,7 @@ export class ReelforgeService {
   /** Give this server's activation back (to move the licence to another server). */
   async deactivateLicence(actor?: Actor) {
     const r = await this.licence.deactivate();
+    this.watchLicence();
     await this.audit({
       actorType: actor?.actorType ?? 'system',
       ...(actor?.actorId ? { actorId: actor.actorId } : {}),
@@ -1436,9 +1508,44 @@ export class ReelforgeService {
 
   // ---- audit ----------------------------------------------------------------
 
-  /** Append to the audit log (never pass secrets in `data`; the request context is added). */
-  audit(entry: AuditEntryInput) {
-    return this.auditLog.write(entry);
+  /** Append to the audit log (never pass secrets in `data`; the request context is added). Key and config changes are also outbound events. */
+  async audit(entry: AuditEntryInput): Promise<AuditEntry> {
+    const e = await this.auditLog.write(entry);
+    const type = AUDIT_EVENTS[e.action];
+    if (type && e.result === 'success') {
+      const d = (e.data ?? {}) as Record<string, any>;
+      const actor = { type: e.actorType, ...(e.actorId ? { id: e.actorId } : {}), ...(e.actorName ? { name: e.actorName } : {}) };
+      if (type === 'config.changed') this.webhooks.emit(type, { keys: Array.isArray(d.changes) ? d.changes.map((c: { key: string }) => c.key) : [], actor });
+      else this.webhooks.emit(type, { keyId: e.targetId, ...(d.name ? { name: d.name } : {}), ...(d.scopes ? { scopes: d.scopes } : {}), ...(d.expiresAt ? { expiresAt: d.expiresAt } : {}), actor });
+    }
+    return e;
+  }
+
+  // ---- outbound events (#66) ----------------------------------------------------
+
+  listWebhooks() {
+    return this.webhooks.list();
+  }
+  getWebhook(id: string) {
+    return this.webhooks.get(id);
+  }
+  createWebhook(input: unknown, actor?: Actor) {
+    return this.webhooks.create(input, actor);
+  }
+  updateWebhook(id: string, input: unknown, actor?: Actor) {
+    return this.webhooks.update(id, input, actor);
+  }
+  deleteWebhook(id: string, actor?: Actor) {
+    return this.webhooks.delete(id, actor);
+  }
+  testWebhook(id: string, opts: { waitSeconds?: number } = {}, actor?: Actor) {
+    return this.webhooks.test(id, opts, actor);
+  }
+  listWebhookDeliveries(id: string, query: Record<string, unknown> = {}) {
+    return this.webhooks.listDeliveries(id, query);
+  }
+  replayWebhookDelivery(id: string, deliveryId: string, actor?: Actor) {
+    return this.webhooks.replay(id, deliveryId, actor);
   }
 
   /** A page of audit entries, newest first, filtered (list_audit_events / GET /v1/audit). */

@@ -41,6 +41,26 @@ describe('REST / MCP parity', () => {
     }
   });
 
+  it('every webhook action is offered over both REST and MCP with the admin scope (#66)', () => {
+    const expected: Record<string, string> = {
+      list_webhooks: 'GET /v1/webhooks',
+      create_webhook: 'POST /v1/webhooks',
+      get_webhook: 'GET /v1/webhooks/:id',
+      update_webhook: 'PATCH /v1/webhooks/:id',
+      delete_webhook: 'DELETE /v1/webhooks/:id',
+      test_webhook: 'POST /v1/webhooks/:id/test',
+      list_webhook_deliveries: 'GET /v1/webhooks/:id/deliveries',
+      replay_webhook_delivery: 'POST /v1/webhooks/:id/deliveries/:deliveryId/replay',
+    };
+    for (const [tool, route] of Object.entries(expected)) {
+      expect(tools.get(tool)?.scope, tool).toBe('admin');
+      expect(REST_ROUTES.find((r) => `${r.method} ${r.path}` === route)?.tool, route).toBe(tool);
+      expect(registered).toContain(route);
+    }
+    // Their results contain a signing secret: never stored as an idempotent result.
+    for (const t of ['create_webhook', 'update_webhook']) expect(Object.keys(tools.get(t)!.input)).not.toContain('idempotencyKey');
+  });
+
   it('create and render calls take an idempotency key in MCP (the REST routes read the Idempotency-Key header)', () => {
     for (const t of ['create_project', 'create_theme', 'add_scene', 'render_project', 'preview_scene', 'retry_job', 'run_provider', 'generate_voice', 'add_asset_from_url']) {
       expect(Object.keys(tools.get(t)!.input), t).toContain('idempotencyKey');

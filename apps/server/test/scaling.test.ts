@@ -1,4 +1,6 @@
 import { mkdirSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -68,6 +70,10 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
   const logs: string[] = [];
   let admin: string;
   const data = join(dir, 'shared-volume');
+  // A webhook receiver (#66): job events must arrive once each, wherever the job ran.
+  const hooks: Array<{ id: string; type: string; jobId?: string }> = [];
+  let receiver: Server;
+  let sca06: string[] = [];
 
   async function instance(name: string, role: 'api' | 'worker', delayPerFrameMs = 0): Promise<StartedServer> {
     const e = [fakeEngine('remotion', { delayPerFrameMs }), fakeEngine('motion-canvas', { delayPerFrameMs })];
@@ -76,7 +82,16 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
       { dataDir: data, port: 0, host: '127.0.0.1' },
       {
         registry: () => new PluginRegistry().registerEngine(e[0]!).registerEngine(e[1]!),
-        env: { ...base, DATABASE_URL: testDb.url, REELFORGE_ROLE: role, REELFORGE_STORAGE_LOCAL_SHARED: 'true', REELFORGE_RATE_LIMIT_PER_MINUTE: '0', REELFORGE_WORKER_CONCURRENCY: '1' },
+        env: {
+          ...base,
+          DATABASE_URL: testDb.url,
+          REELFORGE_ROLE: role,
+          REELFORGE_STORAGE_LOCAL_SHARED: 'true',
+          REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
+          REELFORGE_WORKER_CONCURRENCY: '1',
+          REELFORGE_WEBHOOKS_ALLOW_HTTP: 'true',
+          REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
+        },
         queue: { workerId: name, leaseMs: 4000, heartbeatMs: 300, pollMs: 100 },
         logWrite: (_l, line) => void logs.push(line),
       }
@@ -114,15 +129,28 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
 
   beforeAll(async () => {
     mkdirSync(data, { recursive: true });
+    receiver = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        const e = JSON.parse(body);
+        hooks.push({ id: String(req.headers['webhook-id']), type: e.type, jobId: e.data?.job?.id ?? e.data?.jobId });
+        res.writeHead(200).end();
+      });
+    });
+    await new Promise<void>((r) => receiver.listen(0, '127.0.0.1', () => r()));
     testDb = await createTestDatabase(kind!, dir);
     api = await instance('api-1', 'api');
     workers.push(await instance('worker-a', 'worker', 2), await instance('worker-b', 'worker', 2));
     admin = (await api.service.keys.create('admin', ['admin'])).key;
     expect((await rest(api, 'POST', '/v1/projects', { manifest: { ...sample, projectId: 'scale', title: 'Scale' } })).status).toBe(201);
+    const url = `http://127.0.0.1:${(receiver.address() as AddressInfo).port}/hook`;
+    expect((await rest(api, 'POST', '/v1/webhooks', { name: 'cluster', url, events: ['job.*', 'render.ready'] })).status).toBe(201);
   }, 120_000);
   afterAll(async () => {
     for (const s of [api, api2, ...workers]) await s?.close().catch(() => undefined);
     await testDb?.drop();
+    receiver?.close();
   });
 
   it('SCA-05 a worker serves only /healthz, /readyz and /metrics', async () => {
@@ -147,6 +175,7 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
       ids.push(r.json.job.id);
     }
     const jobs = await Promise.all(ids.map(done));
+    sca06 = ids;
     expect(jobs.every((j) => j.status === 'succeeded' && j.attempts === 1)).toBe(true);
     expect(new Set(jobs.map((j) => j.workerId))).toEqual(new Set(['worker-a', 'worker-b']));
     expect(engines.get('api-1')!.every((e) => e.renders.length === 0)).toBe(true);
@@ -157,6 +186,20 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
     const out = await fetch(`${api.url}/v1/renders/${jobs[0].result.renderId}/output`, { headers: { authorization: `Bearer ${admin}` } });
     expect(out.status).toBe(200);
     expect(out.headers.get('content-type')).toMatch(/video\/mp4/);
+  }, 120_000);
+
+  it('SCA-13 webhooks: each job event is delivered once, from the instance where it happened (api queued, worker the rest)', async () => {
+    const want = ['job.queued', 'job.started', 'job.succeeded', 'render.ready'];
+    for (let i = 0; i < 300; i++) {
+      if (sca06.every((id) => want.every((t) => hooks.some((h) => h.jobId === id && h.type === t)))) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    for (const id of sca06) {
+      for (const t of want) expect(hooks.filter((h) => h.jobId === id && h.type === t), `${t} for ${id}`).toHaveLength(1);
+    }
+    // Every delivery is a distinct event (no instance re-emitted what it only watched through the database).
+    const ids = hooks.filter((h) => sca06.includes(h.jobId!)).map((h) => h.id);
+    expect(new Set(ids).size).toBe(ids.length);
   }, 120_000);
 
   it('SCA-07 long-poll on the api returns as soon as a worker finishes; queue position is cluster-wide', async () => {

@@ -26,7 +26,7 @@ HTML, HyperFrames) and providers (TTS such as ElevenLabs, ...). The
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, branch `claude/eloquent-wright-tm3cs7`):
-REST `/v1` + MCP `/mcp` server (46 MCP tools, every REST route has one,
+REST `/v1` + MCP `/mcp` server (61 MCP tools since #66, every REST route has one,
 checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -245,6 +245,39 @@ limit, render quotas, IP allowlist; REST, MCP and CLI. `Idempotency-Key` /
 | Server tests (`enterprise`, `rest`, `mcp`, `parity`) on PostgreSQL and MySQL | 54 passed on each |
 | Docker e2e, release edition, hardened flags, `E2E_PREFIX=aud` | **ALL DOCKER E2E CHECKS PASSED** on SQLite (137 checks) and PostgreSQL (141): an agent over MCP creates a key with an expiry, rotates it, uses the old key inside the grace window, revokes it, sees the IP allowlist allow and deny, the rate limit and the render quota, reads the trail (no secret in it or its exports), repeats a create and a render with the same idempotency key (one project, one job; other arguments refused); the stdout sink's JSON lines are parsed from the container log, an OpenTelemetry Collector 0.140.1 container receives the OTLP entries, an unreachable collector leaves the requests unaffected and a warning in the log; the trail survives a restart. MySQL Docker e2e not run here |
 
+### Enterprise E3: outbound events, signed webhooks, notification providers (2026-11-21, issue #66)
+
+Built (D-070..D-074; operator reference and test record:
+docs/providers/webhooks-and-notifications.md): events `job.queued|started|progress|succeeded|failed|cancelled`,
+`render.ready`, `licence.state_changed`, `key.created|revoked`, `config.changed`
+(plus `audit.entry` through the `webhooks` audit sink) to endpoints of type
+signed webhook (Standard Webhooks v1: `webhook-id`, `webhook-timestamp`,
+`webhook-signature`, per-endpoint `whsec_` secret shown once, encrypted at
+rest, rotation with both signatures during the grace window), Slack, Discord,
+Microsoft Teams, and email over SMTP, Resend, Postmark, Amazon SES or
+SendGrid, several at once. Database outbox (migration `0005_webhooks` on all
+three databases): exponential backoff with jitter for ~24 h, 4xx not retried,
+410 disables, dead letter, replay with the same webhook-id, restart-safe,
+leases for several processes, graceful shutdown; SSRF guard at connect time
+(`webhooks.allowHttp` / `allowPrivateNetworks` start-up only). REST, MCP (8
+tools, parity test) and `reelforge webhooks`; audited; metrics by channel and
+outcome. Mailpit in the compose `test` profile.
+
+| Check | Result |
+| --- | --- |
+| `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` | core 233 (webhooks 73), db 81, server 116 (webhooks 13, parity 6), engines with Chrome Headless Shell; on this shared machine (load average 20-40) older render-waiting tests (core and server licence, config CLI) timed out in full-workspace runs; every package passed when run on its own (core 233, server 116) |
+| Contract tests (webhook repository + all others) on memory, SQLite, PostgreSQL 17, MySQL 8.4 | 157 passed |
+| Server webhook and enterprise tests on PostgreSQL and MySQL | 35 passed on each |
+| Docker e2e, release image, hardened flags, `E2E_PREFIX=whk` | **ALL DOCKER E2E CHECKS PASSED** on SQLite (196 checks): signed webhook verified by the official library in a receiver container, Slack/Discord/Teams payloads, email through Mailpit (SMTP, read over its API) and the Resend/Postmark/SendGrid/SES stubs, retries, dead letter, 4xx, replay, a wrong provider key, no secrets in answers or the server log, a delivery queued while the receiver was down sent after a graceful (SIGTERM) restart |
+
+Not tested: the real Slack, Discord, Teams, Resend, Postmark, SendGrid and SES
+services (HTTP stubs of their documented APIs only), SMTP over TLS against a
+real server, the Docker e2e on MySQL; on PostgreSQL every webhook check
+passed but the run failed at an older licence render step during kernel OOM
+kills on the shared machine (not re-run). CI does not install the
+`standardwebhooks` receiver separately: the Docker e2e does it in the client
+container.
+
 ### Job queue and scaling: more than one instance (2026-11-21, issue #36)
 
 Built (D-075..D-079; operator reference and test record:
@@ -260,7 +293,7 @@ health, readiness, metrics) of one image, refused on SQLite or per-instance
 storage; render quotas counted under a row lock and a shared per-key rate limit
 (`limits.rateLimitStore`), fixing D-056's in-process limit; `/readyz` queue
 status, `reelforge_server_role`, cluster-wide `reelforge_jobs_queued`;
-migration `0006_job_queue` (0005 is the webhooks work's); Kubernetes Kustomize
+migration `0006_job_queue` (after #66's `0005_webhooks`); Kubernetes Kustomize
 base (api + worker Deployments, HPAs on CPU and the queue depth, PDBs,
 restricted pod security) and a compose file for an api with N workers.
 
