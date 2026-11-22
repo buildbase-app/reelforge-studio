@@ -107,3 +107,21 @@ export type LicenceState = Prisma.LicenceStateModel
  * Instance-wide state (e.g. that the v0.1 filesystem import ran).
  */
 export type SystemState = Prisma.SystemStateModel
+/**
+ * Model WebhookEndpoint
+ * An outbound event endpoint (#66, D-070): a signed webhook, a Slack/Discord/Teams
+ * incoming webhook, or an email channel. url and the signing secrets are sealed
+ * with the config cipher (REELFORGE_SECRET_KEY, AES-256-GCM); *Scheme says how.
+ */
+export type WebhookEndpoint = Prisma.WebhookEndpointModel
+/**
+ * Model WebhookDelivery
+ * The outbox (#66, D-071): one message to one endpoint and its delivery state.
+ * messageId is the webhook-id header: the same on every retry and replay.
+ */
+export type WebhookDelivery = Prisma.WebhookDeliveryModel
+/**
+ * Model WebhookAttempt
+ * The delivery log (#66): one row per attempt, append-only (removed only by retention with its delivery).
+ */
+export type WebhookAttempt = Prisma.WebhookAttemptModel

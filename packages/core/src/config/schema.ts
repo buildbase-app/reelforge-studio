@@ -1,5 +1,6 @@
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
+import { weakKeyReason } from '../keyStrength';
 
 /**
  * The configuration schema: every setting of ReelForge Studio in one typed Zod
@@ -375,13 +376,24 @@ export const ConfigSchema = z.object({
       description:
         'Encrypts secrets stored in the database (provider keys, licence key) with AES-256-GCM. At least 32 characters: `openssl rand -base64 32`. Without it the server refuses to store secrets. Keep it safe: losing it makes stored secrets unreadable.',
     }),
-    bootstrapKey: setting(z.string().regex(/^rf_[A-Za-z0-9_-]{20,}$/, 'must be rf_ followed by 20 or more URL-safe characters').optional(), {
-      kind: 'string',
-      scope: 'startup',
-      env: 'REELFORGE_BOOTSTRAP_KEY',
-      secret: true,
-      description: 'First admin API key (`rf_` + 20 or more URL-safe characters). Stored hashed as key "bootstrap" on start if no key exists.',
-    }),
+    bootstrapKey: setting(
+      z
+        .string()
+        .max(200)
+        .superRefine((v, ctx) => {
+          const why = weakKeyReason(v);
+          if (why) ctx.addIssue({ code: 'custom', message: why });
+        })
+        .optional(),
+      {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_BOOTSTRAP_KEY',
+        secret: true,
+        description:
+          'First admin API key: `rf_` + at least 32 random URL-safe characters (`rf_$(openssl rand -hex 24)`); low-entropy values are refused. Stored hashed as key "bootstrap" on start if no key exists.',
+      }
+    ),
   }),
   audit: z.object({
     retentionDays: setting(z.number().int().min(0).max(36500), {
@@ -426,6 +438,115 @@ export const ConfigSchema = z.object({
       description: 'How long an `Idempotency-Key` (REST) / `idempotencyKey` (MCP) and its stored result are kept; expired ones are swept hourly.',
     }),
   }),
+  webhooks: z.object({
+    allowPrivateNetworks: setting(z.boolean(), {
+      kind: 'boolean',
+      scope: 'startup',
+      env: 'REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS',
+      default: false,
+      description:
+        'Let webhook and chat endpoints reach loopback, private (RFC 1918), link-local, CGNAT and other non-public addresses. Off by default (SSRF guard, checked when connecting). Start-up only: it can never be turned on over the API.',
+    }),
+    allowHttp: setting(z.boolean(), {
+      kind: 'boolean',
+      scope: 'startup',
+      env: 'REELFORGE_WEBHOOKS_ALLOW_HTTP',
+      default: false,
+      description: 'Allow `http://` endpoint URLs (payloads and signatures then travel unencrypted). Off by default; start-up only.',
+    }),
+    timeoutSeconds: setting(z.number().int().min(1).max(60), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WEBHOOKS_TIMEOUT_SECONDS',
+      default: 15,
+      description: 'Longest time one delivery attempt may take (connect, send, answer); then it counts as failed and is retried.',
+    }),
+    maxAttempts: setting(z.number().int().min(1).max(30), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WEBHOOKS_MAX_ATTEMPTS',
+      default: 15,
+      description: 'Attempts per delivery before it becomes dead (dead letter; replayable). With the default backoff, 15 attempts span about 24 hours.',
+    }),
+    retryBaseSeconds: setting(z.number().int().min(1).max(3600), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WEBHOOKS_RETRY_BASE_SECONDS',
+      default: 30,
+      description: "Delay after the first failed attempt; it doubles after each further one (±20 % jitter, at least the receiver's `Retry-After`).",
+    }),
+    retryMaxDelaySeconds: setting(z.number().int().min(1).max(86400), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WEBHOOKS_RETRY_MAX_DELAY_SECONDS',
+      default: 14400,
+      description: 'Longest delay between two attempts (default 4 hours).',
+    }),
+    secretRotationGraceHours: setting(z.number().int().min(0).max(720), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WEBHOOKS_SECRET_ROTATION_GRACE_HOURS',
+      default: 24,
+      description: 'After `update_webhook { rotateSecret: true }`, messages carry signatures with the new and the old secret for this many hours so receivers can switch.',
+    }),
+    deliveryRetentionDays: setting(z.number().int().min(0).max(3650), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WEBHOOKS_DELIVERY_RETENTION_DAYS',
+      default: 30,
+      description: 'Days finished deliveries (succeeded or dead) and their attempt log are kept; the hourly sweep deletes older ones. `0` keeps them forever.',
+    }),
+  }),
+  notifications: z.object({
+    email: z.object({
+      from: setting(z.string().min(3).max(320).optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_EMAIL_FROM',
+        example: 'ReelForge <studio@example.com>',
+        description: 'Sender of notification emails (every email provider needs it; Resend, Postmark, SES and SendGrid only send from verified senders).',
+      }),
+      smtp: z.object({
+        host: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_SMTP_HOST', example: 'smtp.example.com', description: 'SMTP server for email channels with provider `smtp`.' }),
+        port: setting(port(), { kind: 'integer', scope: 'runtime', env: 'REELFORGE_SMTP_PORT', default: 587, description: 'SMTP port (587 submission with STARTTLS, 465 implicit TLS, 25 or 1025 for a local relay or Mailpit).' }),
+        security: setting(z.enum(['starttls', 'tls', 'none']), {
+          kind: 'enum',
+          scope: 'runtime',
+          env: 'REELFORGE_SMTP_SECURITY',
+          default: 'starttls',
+          description: '`starttls` (upgrade required), `tls` (implicit TLS, port 465) or `none` (plain text; local relays and Mailpit only).',
+        }),
+        user: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_SMTP_USER', description: 'SMTP user name (optional).' }),
+        password: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_SMTP_PASSWORD', secret: true, description: 'SMTP password.' }),
+      }),
+      resend: z.object({
+        apiKey: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_RESEND_API_KEY', secret: true, description: 'Resend API key (sending access) for email channels with provider `resend`.' }),
+        baseUrl: setting(httpUrl(), { kind: 'url', scope: 'startup', env: 'REELFORGE_RESEND_BASE_URL', default: 'https://api.resend.com', description: 'Resend API base URL (change only for a test stub).' }),
+      }),
+      postmark: z.object({
+        serverToken: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_POSTMARK_SERVER_TOKEN', secret: true, description: 'Postmark server API token for email channels with provider `postmark`.' }),
+        messageStream: setting(nonEmpty(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_POSTMARK_MESSAGE_STREAM', default: 'outbound', description: 'Postmark message stream (transactional).' }),
+        baseUrl: setting(httpUrl(), { kind: 'url', scope: 'startup', env: 'REELFORGE_POSTMARK_BASE_URL', default: 'https://api.postmarkapp.com', description: 'Postmark API base URL (change only for a test stub).' }),
+      }),
+      sendgrid: z.object({
+        apiKey: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_SENDGRID_API_KEY', secret: true, description: 'SendGrid API key (Mail Send permission) for email channels with provider `sendgrid`.' }),
+        baseUrl: setting(httpUrl(), { kind: 'url', scope: 'startup', env: 'REELFORGE_SENDGRID_BASE_URL', default: 'https://api.sendgrid.com', description: 'SendGrid API base URL (`https://api.eu.sendgrid.com` for EU data residency, or a test stub).' }),
+      }),
+      ses: z.object({
+        region: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_SES_REGION', example: 'eu-west-1', description: 'Amazon SES region for email channels with provider `ses`.' }),
+        accessKeyId: setting(nonEmpty().optional(), {
+          kind: 'string',
+          scope: 'runtime',
+          env: 'REELFORGE_SES_ACCESS_KEY_ID',
+          secret: true,
+          description: 'Access key id with `ses:SendEmail`. Leave unset to use the ambient AWS identity (IAM role, IRSA, `AWS_*` variables).',
+        }),
+        secretAccessKey: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_SES_SECRET_ACCESS_KEY', secret: true, description: 'Secret access key (with `accessKeyId`).' }),
+        sessionToken: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_SES_SESSION_TOKEN', secret: true, description: 'Session token for temporary keys (optional).' }),
+        endpoint: setting(httpUrl().optional(), { kind: 'url', scope: 'startup', env: 'REELFORGE_SES_ENDPOINT', description: 'SES API endpoint override (VPC endpoint, or a test stub). Empty: the regional AWS endpoint.' }),
+      }),
+    }),
+  }),
   render: z.object({
     chromiumPath: setting(nonEmpty().optional(), {
       kind: 'path',
@@ -441,8 +562,17 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_CHROMIUM_NO_SANDBOX',
       processEnv: 'REELFORGE_CHROMIUM_NO_SANDBOX',
       default: false,
-      defaultText: '`false` (`true` in Docker)',
-      description: "Turn Chromium's own sandbox off (containers, where the container is the isolation boundary).",
+      description:
+        "`true` turns Chromium's own sandbox off. The sandbox is on by default everywhere, the release image included (run it with `deployment/seccomp/chrome.json`, docs/security/HARDENING.md). `true` is an explicit opt-out: it is logged at start and reported in `get_capabilities` and `/readyz`.",
+    }),
+    sceneTimeoutSeconds: setting(z.number().int().min(30).max(3600), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS',
+      processEnv: 'REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS',
+      default: 900,
+      description:
+        'Hard limit for rendering one html or hyperframes scene, whatever its length (engines use their per-frame estimate when it is shorter). 30 to 3600 seconds.',
     }),
     ffmpegPath: setting(nonEmpty(), {
       kind: 'path',
@@ -557,7 +687,15 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_METRICS_TOKEN',
         secret: true,
         description:
-          'When set, `GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` is open like `/healthz`; keep it off the public internet (docs/OBSERVABILITY.md).',
+          '`GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` answers 401 unless `observability.metrics.allowAnonymous` is on.',
+      }),
+      allowAnonymous: setting(z.boolean(), {
+        kind: 'boolean',
+        scope: 'runtime',
+        env: 'REELFORGE_METRICS_ALLOW_ANONYMOUS',
+        default: false,
+        description:
+          'Serve `GET /metrics` without a token when no `observability.metrics.bearerToken` is set (for a scraper on a private network). Off by default: an open `/metrics` shows request and job counts to anyone who can reach the port.',
       }),
       exportIntervalSeconds: setting(z.number().int().min(5).max(3600), {
         kind: 'integer',

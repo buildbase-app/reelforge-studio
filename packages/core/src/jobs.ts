@@ -184,6 +184,12 @@ export class JobRunner {
     return () => this.events.off('event', listener);
   }
 
+  /** Every job's events (status changes, progress, log lines): outbound events (#66). Returns an unsubscribe function. */
+  onEvent(fn: (e: JobEvent) => void): () => void {
+    this.events.on('event', fn);
+    return () => this.events.off('event', fn);
+  }
+
   /** Resolves when one job reaches a terminal state. */
   async waitFor(id: string, timeoutMs = 600_000): Promise<JobRecord> {
     const job = await this.get(id);

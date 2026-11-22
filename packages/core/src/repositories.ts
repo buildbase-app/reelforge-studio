@@ -1,5 +1,6 @@
 import type { Project, Theme } from '@reelforge/project-schema';
 import type { StoredAsset } from './plugins';
+import type { WebhookRepository } from './webhooks/types';
 
 /**
  * Persistence contracts. ReelforgeService and the stores in this package
@@ -389,4 +390,6 @@ export interface Repositories {
   readonly assets: AssetRepository;
   readonly audit: AuditRepository;
   readonly idempotency: IdempotencyRepository;
+  /** Outbound event endpoints, the outbox and the delivery log (#66). */
+  readonly webhooks: WebhookRepository;
 }

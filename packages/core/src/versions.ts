@@ -56,3 +56,19 @@ export function chromiumSandbox(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.REELFORGE_CHROMIUM_NO_SANDBOX === '1') return false;
   return typeof process.getuid !== 'function' || process.getuid() !== 0;
 }
+
+/** Default and upper bound of render.sceneTimeoutSeconds (D-087). */
+export const SCENE_TIMEOUT_DEFAULT_SECONDS = 900;
+export const SCENE_TIMEOUT_MAX_SECONDS = 3600;
+
+/**
+ * The hard limit for rendering one scene, whatever its length: engines use
+ * min(their per-frame estimate, this). From REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS
+ * (render.sceneTimeoutSeconds, exported to process.env by the server), clamped
+ * to 30 s .. 1 h.
+ */
+export function sceneTimeoutCapMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS);
+  const s = Number.isFinite(raw) && raw > 0 ? raw : SCENE_TIMEOUT_DEFAULT_SECONDS;
+  return Math.round(Math.min(SCENE_TIMEOUT_MAX_SECONDS, Math.max(30, s)) * 1000);
+}

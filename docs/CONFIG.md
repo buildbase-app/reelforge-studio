@@ -109,7 +109,7 @@ logging:
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
 | `security.secretKey` | `REELFORGE_SECRET_KEY` (each also as `_FILE`) | string | (none) | startup | yes | Encrypts secrets stored in the database (provider keys, licence key) with AES-256-GCM. At least 32 characters: `openssl rand -base64 32`. Without it the server refuses to store secrets. Keep it safe: losing it makes stored secrets unreadable. |
-| `security.bootstrapKey` | `REELFORGE_BOOTSTRAP_KEY` (each also as `_FILE`) | string | (none) | startup | yes | First admin API key (`rf_` + 20 or more URL-safe characters). Stored hashed as key "bootstrap" on start if no key exists. |
+| `security.bootstrapKey` | `REELFORGE_BOOTSTRAP_KEY` (each also as `_FILE`) | string | (none) | startup | yes | First admin API key: `rf_` + at least 32 random URL-safe characters (`rf_$(openssl rand -hex 24)`); low-entropy values are refused. Stored hashed as key "bootstrap" on start if no key exists. |
 
 ## audit
 
@@ -131,12 +131,49 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `idempotency.ttlHours` | `REELFORGE_IDEMPOTENCY_TTL_HOURS` | integer | `24` | runtime |  | How long an `Idempotency-Key` (REST) / `idempotencyKey` (MCP) and its stored result are kept; expired ones are swept hourly. |
 
+## webhooks
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `webhooks.allowPrivateNetworks` | `REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS` | boolean | `false` | startup |  | Let webhook and chat endpoints reach loopback, private (RFC 1918), link-local, CGNAT and other non-public addresses. Off by default (SSRF guard, checked when connecting). Start-up only: it can never be turned on over the API. |
+| `webhooks.allowHttp` | `REELFORGE_WEBHOOKS_ALLOW_HTTP` | boolean | `false` | startup |  | Allow `http://` endpoint URLs (payloads and signatures then travel unencrypted). Off by default; start-up only. |
+| `webhooks.timeoutSeconds` | `REELFORGE_WEBHOOKS_TIMEOUT_SECONDS` | integer | `15` | runtime |  | Longest time one delivery attempt may take (connect, send, answer); then it counts as failed and is retried. |
+| `webhooks.maxAttempts` | `REELFORGE_WEBHOOKS_MAX_ATTEMPTS` | integer | `15` | runtime |  | Attempts per delivery before it becomes dead (dead letter; replayable). With the default backoff, 15 attempts span about 24 hours. |
+| `webhooks.retryBaseSeconds` | `REELFORGE_WEBHOOKS_RETRY_BASE_SECONDS` | integer | `30` | runtime |  | Delay after the first failed attempt; it doubles after each further one (±20 % jitter, at least the receiver's `Retry-After`). |
+| `webhooks.retryMaxDelaySeconds` | `REELFORGE_WEBHOOKS_RETRY_MAX_DELAY_SECONDS` | integer | `14400` | runtime |  | Longest delay between two attempts (default 4 hours). |
+| `webhooks.secretRotationGraceHours` | `REELFORGE_WEBHOOKS_SECRET_ROTATION_GRACE_HOURS` | integer | `24` | runtime |  | After `update_webhook { rotateSecret: true }`, messages carry signatures with the new and the old secret for this many hours so receivers can switch. |
+| `webhooks.deliveryRetentionDays` | `REELFORGE_WEBHOOKS_DELIVERY_RETENTION_DAYS` | integer | `30` | runtime |  | Days finished deliveries (succeeded or dead) and their attempt log are kept; the hourly sweep deletes older ones. `0` keeps them forever. |
+
+## notifications
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `notifications.email.from` | `REELFORGE_EMAIL_FROM` | string | (none) | runtime |  | Sender of notification emails (every email provider needs it; Resend, Postmark, SES and SendGrid only send from verified senders). Example: `ReelForge <studio@example.com>`. |
+| `notifications.email.smtp.host` | `REELFORGE_SMTP_HOST` | string | (none) | runtime |  | SMTP server for email channels with provider `smtp`. Example: `smtp.example.com`. |
+| `notifications.email.smtp.port` | `REELFORGE_SMTP_PORT` | integer | `587` | runtime |  | SMTP port (587 submission with STARTTLS, 465 implicit TLS, 25 or 1025 for a local relay or Mailpit). |
+| `notifications.email.smtp.security` | `REELFORGE_SMTP_SECURITY` | `starttls` \| `tls` \| `none` | `starttls` | runtime |  | `starttls` (upgrade required), `tls` (implicit TLS, port 465) or `none` (plain text; local relays and Mailpit only). |
+| `notifications.email.smtp.user` | `REELFORGE_SMTP_USER` | string | (none) | runtime |  | SMTP user name (optional). |
+| `notifications.email.smtp.password` | `REELFORGE_SMTP_PASSWORD` (each also as `_FILE`) | string | (none) | runtime | yes | SMTP password. |
+| `notifications.email.resend.apiKey` | `REELFORGE_RESEND_API_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Resend API key (sending access) for email channels with provider `resend`. |
+| `notifications.email.resend.baseUrl` | `REELFORGE_RESEND_BASE_URL` | url | `https://api.resend.com` | startup |  | Resend API base URL (change only for a test stub). |
+| `notifications.email.postmark.serverToken` | `REELFORGE_POSTMARK_SERVER_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | Postmark server API token for email channels with provider `postmark`. |
+| `notifications.email.postmark.messageStream` | `REELFORGE_POSTMARK_MESSAGE_STREAM` | string | `outbound` | runtime |  | Postmark message stream (transactional). |
+| `notifications.email.postmark.baseUrl` | `REELFORGE_POSTMARK_BASE_URL` | url | `https://api.postmarkapp.com` | startup |  | Postmark API base URL (change only for a test stub). |
+| `notifications.email.sendgrid.apiKey` | `REELFORGE_SENDGRID_API_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | SendGrid API key (Mail Send permission) for email channels with provider `sendgrid`. |
+| `notifications.email.sendgrid.baseUrl` | `REELFORGE_SENDGRID_BASE_URL` | url | `https://api.sendgrid.com` | startup |  | SendGrid API base URL (`https://api.eu.sendgrid.com` for EU data residency, or a test stub). |
+| `notifications.email.ses.region` | `REELFORGE_SES_REGION` | string | (none) | runtime |  | Amazon SES region for email channels with provider `ses`. Example: `eu-west-1`. |
+| `notifications.email.ses.accessKeyId` | `REELFORGE_SES_ACCESS_KEY_ID` (each also as `_FILE`) | string | (none) | runtime | yes | Access key id with `ses:SendEmail`. Leave unset to use the ambient AWS identity (IAM role, IRSA, `AWS_*` variables). |
+| `notifications.email.ses.secretAccessKey` | `REELFORGE_SES_SECRET_ACCESS_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Secret access key (with `accessKeyId`). |
+| `notifications.email.ses.sessionToken` | `REELFORGE_SES_SESSION_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | Session token for temporary keys (optional). |
+| `notifications.email.ses.endpoint` | `REELFORGE_SES_ENDPOINT` | url | (none) | startup |  | SES API endpoint override (VPC endpoint, or a test stub). Empty: the regional AWS endpoint. |
+
 ## render
 
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
 | `render.chromiumPath` | `REELFORGE_CHROMIUM_PATH` | path | (none; set in Docker) | startup |  | Chrome Headless Shell binary used by every engine. |
-| `render.chromiumNoSandbox` | `REELFORGE_CHROMIUM_NO_SANDBOX` | boolean | `false` (`true` in Docker) | startup |  | Turn Chromium's own sandbox off (containers, where the container is the isolation boundary). |
+| `render.chromiumNoSandbox` | `REELFORGE_CHROMIUM_NO_SANDBOX` | boolean | `false` | startup |  | `true` turns Chromium's own sandbox off. The sandbox is on by default everywhere, the release image included (run it with `deployment/seccomp/chrome.json`, docs/security/HARDENING.md). `true` is an explicit opt-out: it is logged at start and reported in `get_capabilities` and `/readyz`. |
+| `render.sceneTimeoutSeconds` | `REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS` | integer | `900` | startup |  | Hard limit for rendering one html or hyperframes scene, whatever its length (engines use their per-frame estimate when it is shorter). 30 to 3600 seconds. |
 | `render.ffmpegPath` | `REELFORGE_FFMPEG_PATH`, `FFMPEG_PATH` | path | `ffmpeg` on PATH | startup |  | FFmpeg binary (system build; 6.1 and 5.1.9 tested). |
 | `render.ffprobePath` | `REELFORGE_FFPROBE_PATH`, `FFPROBE_PATH` | path | `ffprobe` on PATH | startup |  | ffprobe binary. |
 | `render.backends.remotionLambda.region` | `REELFORGE_REMOTION_LAMBDA_REGION`, `REMOTION_LAMBDA_REGION` | string | (none) | runtime |  | AWS region of your Remotion Lambda deployment (backend `remotion-lambda`, not implemented yet: configuration check only). |
@@ -163,7 +200,8 @@ logging:
 | `observability.serviceName` | `REELFORGE_OTEL_SERVICE_NAME`, `OTEL_SERVICE_NAME` | string | `reelforge-studio` | startup |  | OpenTelemetry `service.name` of traces, metrics and logs (also `service.version` and `reelforge.edition` are sent). |
 | `observability.logs.exporter` | `REELFORGE_LOGS_EXPORTER` | `stdout` \| `pretty` \| `otlp` | `stdout` (`pretty` when `logging.format` is `text`) | runtime |  | `stdout`: one JSON object per line (request id, key id, route, status, duration; secrets redacted). `pretty`: readable `[reelforge] ...` lines for development. `otlp`: JSON lines on stdout and OpenTelemetry log records to `observability.otlp.endpoint` (Grafana Loki, Datadog, Honeycomb, Elastic, ...). |
 | `observability.metrics.exporter` | `REELFORGE_METRICS_EXPORTER` | `prometheus` \| `otlp` \| `off` | `prometheus` | runtime |  | `prometheus`: text format on `GET /metrics` for scraping. `otlp`: pushed to `observability.otlp.endpoint` every `observability.metrics.exportIntervalSeconds`. `off`: neither (`/metrics` answers 404). |
-| `observability.metrics.bearerToken` | `REELFORGE_METRICS_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | When set, `GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` is open like `/healthz`; keep it off the public internet (docs/OBSERVABILITY.md). |
+| `observability.metrics.bearerToken` | `REELFORGE_METRICS_TOKEN` (each also as `_FILE`) | string | (none) | runtime | yes | `GET /metrics` needs `Authorization: Bearer <token>` (Prometheus `authorization.credentials`). Unset: `/metrics` answers 401 unless `observability.metrics.allowAnonymous` is on. |
+| `observability.metrics.allowAnonymous` | `REELFORGE_METRICS_ALLOW_ANONYMOUS` | boolean | `false` | runtime |  | Serve `GET /metrics` without a token when no `observability.metrics.bearerToken` is set (for a scraper on a private network). Off by default: an open `/metrics` shows request and job counts to anyone who can reach the port. |
 | `observability.metrics.exportIntervalSeconds` | `REELFORGE_METRICS_EXPORT_INTERVAL_SECONDS` | integer | `60` | runtime |  | How often metrics are pushed with the `otlp` exporter. |
 | `observability.tracing.exporter` | `REELFORGE_TRACING_EXPORTER` | `otlp` \| `off` | `off` (`otlp` when `observability.otlp.endpoint` is set) | runtime |  | `otlp`: spans for HTTP requests, jobs, engine renders and FFmpeg steps to `observability.otlp.endpoint` (Jaeger, Grafana Tempo, Honeycomb, Datadog, ...). `off`: no spans. |
 | `observability.tracing.sampleRatio` | `REELFORGE_TRACING_SAMPLE_RATIO` | number | `1` | runtime |  | Share of new traces kept (0 to 1). A request that arrives with a W3C `traceparent` follows the caller's sampling decision. |
