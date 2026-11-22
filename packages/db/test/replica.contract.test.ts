@@ -70,9 +70,9 @@ describe('database.readUrl is refused where it cannot work', () => {
 
 const servers = availableTestDatabases().filter((k): k is 'postgresql' | 'mysql' => k !== 'sqlite');
 
-/** A database URL that connects but has no tables: PostgreSQL a schema that does not exist, MySQL an empty database. */
+/** A database URL that connects but has no tables: PostgreSQL a schema that does not exist (or an empty database with TEST_POSTGRES_ISOLATION=database), MySQL an empty database. */
 async function emptyReplica(kind: 'postgresql' | 'mysql'): Promise<TestDatabase> {
-  if (kind === 'mysql') return createTestDatabase(kind, tmp);
+  if (kind === 'mysql' || process.env.TEST_POSTGRES_ISOLATION === 'database') return createTestDatabase(kind, tmp);
   const u = new URL(process.env.TEST_POSTGRES_URL!);
   u.searchParams.set('schema', `rf_noschema_${randomBytes(4).toString('hex')}`);
   return { kind, url: u.toString(), drop: async () => undefined };
@@ -254,6 +254,8 @@ describe.each(servers)('read replica on %s', (kind) => {
           ? ((await admin.prisma.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = '${tag}'`)) as Array<{ n: number }>)[0]!.n
           : ((await admin.prisma.$queryRawUnsafe(`SELECT count(*) AS n FROM information_schema.PROCESSLIST WHERE DB = '${dbName}'`)) as Array<{ n: bigint }>)[0]!.n
       );
+    // Behind PgBouncer (TEST_POSTGRES_POOLER=pgbouncer) the server connections are PgBouncer's, not the pool's: only the sizes are checked.
+    const behindPooler = kind === 'postgresql' && process.env.TEST_POSTGRES_POOLER === 'pgbouncer';
     const sleepSql = kind === 'postgresql' ? 'SELECT pg_sleep(0.8)::text AS s' : 'SELECT SLEEP(0.8) AS s';
     // The most connections the database saw while 12 queries ran at once, above what was open before the pool existed
     // (MySQL counts every connection to the test database, including this suite's own idle pool).
@@ -277,16 +279,16 @@ describe.each(servers)('read replica on %s', (kind) => {
     try {
       const small = await peakOf({ url: url({}), defaultConnectionLimit: 3 });
       expect(small.poolSize).toBe(3);
-      expect(small.peak).toBeGreaterThanOrEqual(2);
-      expect(small.peak).toBeLessThanOrEqual(3);
+      if (!behindPooler) expect(small.peak).toBeGreaterThanOrEqual(2);
+      if (!behindPooler) expect(small.peak).toBeLessThanOrEqual(3);
       const fromUrl = await peakOf({ url: url({ connection_limit: '5' }), defaultConnectionLimit: 3 });
       expect(fromUrl.poolSize).toBe(5);
-      expect(fromUrl.peak).toBeGreaterThan(3);
-      expect(fromUrl.peak).toBeLessThanOrEqual(5);
+      if (!behindPooler) expect(fromUrl.peak).toBeGreaterThan(3);
+      if (!behindPooler) expect(fromUrl.peak).toBeLessThanOrEqual(5);
       const driverDefault = await peakOf({ url: url({}) });
       expect(driverDefault.poolSize).toBe(10);
-      expect(driverDefault.peak).toBeGreaterThan(5);
-      expect(driverDefault.peak).toBeLessThanOrEqual(10);
+      if (!behindPooler) expect(driverDefault.peak).toBeGreaterThan(5);
+      if (!behindPooler) expect(driverDefault.peak).toBeLessThanOrEqual(10);
     } finally {
       await admin.close();
     }

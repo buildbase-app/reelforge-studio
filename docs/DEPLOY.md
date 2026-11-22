@@ -556,8 +556,10 @@ for the default.
   (or ≤ `max_connections` without a pooler). Recommended: workers 2-3, api 10.
   Details: [providers/queue-and-scaling.md](providers/queue-and-scaling.md#connection-pooling).
 - **PgBouncer** (tested: 1.26.1, transaction mode): `pool_mode = transaction`,
-  `max_prepared_statements = 200` (0 also works), do **not** list `options`
-  in `ignore_startup_parameters` (it would drop `?schema=`); run migrations on
+  `max_prepared_statements = 200` (0 also works). Do **not** use `?schema=`
+  behind it on PostgreSQL 17 or older: the per-client `search_path` is not
+  kept under concurrency; use the default schema or
+  `ALTER ROLE reelforge SET search_path = reelforge`. Run migrations on
   the **direct** port (`--migrate-only` with a URL to the database itself,
   then `REELFORGE_MIGRATE_ON_START=0` on every instance). Compose overlay:
   `docker compose -f deployment/compose/docker-compose.scale.yml -f deployment/compose/docker-compose.pgbouncer.yml up -d`.

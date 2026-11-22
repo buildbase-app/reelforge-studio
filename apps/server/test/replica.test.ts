@@ -34,7 +34,7 @@ const kind = serverTestDatabaseKind() !== 'sqlite' ? serverTestDatabaseKind() : 
 
 /** A URL to the same server that connects but has no tables (PostgreSQL: a schema that does not exist; MySQL: an empty database), with a password the logs must not show. */
 async function emptyReplica(): Promise<TestDatabase> {
-  if (kind === 'mysql') return createTestDatabase('mysql', dir);
+  if (kind === 'mysql' || process.env.TEST_POSTGRES_ISOLATION === 'database') return createTestDatabase(kind!, dir);
   const u = new URL(process.env.TEST_POSTGRES_URL!);
   u.searchParams.set('schema', `rf_noschema_${randomBytes(4).toString('hex')}`);
   return { kind: 'postgresql', url: u.toString(), drop: async () => undefined };

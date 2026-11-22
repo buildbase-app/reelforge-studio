@@ -1949,7 +1949,11 @@ image, compose overlay `deployment/compose/docker-compose.pgbouncer.yml` with it
 `pgbouncer.env`, shared with the Docker scale e2e). Migrations run once on the direct port
 (`--migrate-only`, then `REELFORGE_MIGRATE_ON_START=0`), although they also worked through PgBouncer:
 it keeps DDL off the app's pool and works with RDS Proxy on MySQL, where `GET_LOCK` pins.
-`ignore_startup_parameters` must not list `options` (that would drop `?schema=`). RDS Proxy (writer
+`?schema=` is not supported behind PgBouncer on PostgreSQL ≤ 17: measured here, the per-client
+`search_path` (sent as startup `options`) is not kept under concurrency and the raw SQL names tables
+without a schema (#151's probe had used schema-qualified model queries only); use the default schema
+or a role-level `search_path`. The db contract and server suites pass through PgBouncer with the
+default schema (a database per run, `TEST_POSTGRES_ISOLATION=database`). RDS Proxy (writer
 only on RDS; statements over 16 KB pin the session, and manifests can be larger; MySQL prepared
 statements pin) and Cloud SQL managed pooling are documented from their documentation and untested.
 A direct, non-pooled URL for LISTEN/NOTIFY belongs to the dispatch work (#158), not here.\
