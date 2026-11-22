@@ -41,7 +41,7 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'POST', path: '/v1/projects/:id/preview', scope: 'render', tool: 'preview_scene' },
   { method: 'POST', path: '/v1/projects/:id/renders', scope: 'render', tool: 'render_project' },
   { method: 'GET', path: '/v1/projects/:id/renders', scope: 'read', tool: 'list_renders' },
-  { method: 'GET', path: '/v1/jobs', scope: 'read', tool: 'list_jobs' },
+  { method: 'GET', path: '/v1/jobs', scope: 'read', tool: 'list_jobs', note: 'Filters: ?projectId= and ?parentId= (the units and the join of a fanned-out render).' },
   { method: 'GET', path: '/v1/jobs/:id', scope: 'read', tool: 'get_job' },
   { method: 'POST', path: '/v1/jobs/:id/cancel', scope: 'render', tool: 'cancel_job' },
   { method: 'POST', path: '/v1/jobs/:id/retry', scope: 'render', tool: 'retry_job' },

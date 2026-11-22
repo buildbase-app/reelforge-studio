@@ -429,11 +429,17 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_jobs',
     title: 'List jobs',
-    description: 'Lists render and preview jobs, optionally only those of one project. To follow one job, call get_job with its id instead.' + PAGING,
+    description:
+      'Lists render and preview jobs, optionally only those of one project (projectId) and/or the units and the join of one fanned-out render (parentId: the render job\'s id; each unit renders one scene). To follow one job, call get_job with its id instead: a render\'s progress already covers its units.' +
+      PAGING,
     scope: 'read',
-    input: { projectId: projectId.optional(), ...pageArgs },
+    input: {
+      projectId: projectId.optional(),
+      parentId: z.string().max(191).optional().describe('Only the children of this job: the render_unit jobs and the render_join job of a fanned-out render (render.fanOut), given the render job\'s id.'),
+      ...pageArgs,
+    },
     annotations: { readOnlyHint: true },
-    run: async (a, { service }) => service.listJobs({ projectId: a.projectId }, { limit: a.limit, cursor: a.cursor }),
+    run: async (a, { service }) => service.listJobs({ projectId: a.projectId, parentId: a.parentId }, { limit: a.limit, cursor: a.cursor }),
   },
   {
     name: 'retry_job',

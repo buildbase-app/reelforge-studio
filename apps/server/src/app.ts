@@ -431,7 +431,7 @@ export function createApp({ service, config, observability }: AppDeps) {
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
 
-  v1.get('/jobs', need('read'), async (c) => c.json(await service.listJobs({ projectId: c.req.query('projectId') }, page(c))));
+  v1.get('/jobs', need('read'), async (c) => c.json(await service.listJobs({ projectId: c.req.query('projectId'), parentId: c.req.query('parentId') }, page(c))));
   v1.get('/jobs/:id', need('read'), async (c) => {
     // ?wait=N long-polls up to N seconds (max 50) for the job to finish.
     const wait = Number(c.req.query('wait') ?? 0);

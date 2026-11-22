@@ -145,6 +145,23 @@ describe.each(targets)('keyset paging: $name', ({ kind }) => {
     expect(ofA).toEqual(full.map((j) => j.id));
   });
 
+  it('jobs: walks the children of one parent (parentId) exactly once, in order, without other jobs', async () => {
+    // A fanned-out render's units and join (#184): many share a createdAt; another parent's children and the parent itself stay out.
+    const kids: JobRecord[] = Array.from({ length: 23 }, (_, i) => ({ ...job(`job_kid${String(i).padStart(3, '0')}`, at(4000 + (i % 4)), 'pk-a'), type: i === 22 ? 'render_join' : 'render_unit', parentId: 'job_kparent' }));
+    await repos.jobs.insert(job('job_kparent', at(3999), 'pk-a'), at(3999));
+    for (const j of kids) await repos.jobs.insert(j, j.createdAt);
+    for (let i = 0; i < 5; i++) await repos.jobs.insert({ ...job(`job_kother${i}`, at(4000 + i), 'pk-a'), type: 'render_unit', parentId: 'job_kparent2' }, at(4000 + i));
+    const expected = [...kids].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)).map((j) => j.id);
+    let n = 0;
+    const seen = await walk('jobs', '|parent:job_kparent', 4, (r) => repos.jobs.page({ parentId: 'job_kparent' }, r), async () => {
+      await repos.jobs.insert(job(`job_knew${n++}`, at(6000 + n), 'pk-a'), at(6000 + n)); // unrelated inserts during the walk
+    });
+    expect(seen).toEqual(expected);
+    expect(await walk('jobs', 'pk-a|parent:job_kparent', 5, (r) => repos.jobs.page({ projectId: 'pk-a', parentId: 'job_kparent' }, r))).toEqual(expected);
+    expect(await walk('jobs', 'pk-b|parent:job_kparent', 5, (r) => repos.jobs.page({ projectId: 'pk-b', parentId: 'job_kparent' }, r))).toEqual([]);
+    expect(await other.jobs.page({ parentId: 'job_kparent' }, { limit: 50 })).toEqual([]);
+  });
+
   it('assets: walks exactly once in (createdAt, id) order', async () => {
     const asset = (i: number): AssetRecord => {
       const id = `ast-${i.toString(16).padStart(16, '0')}`;

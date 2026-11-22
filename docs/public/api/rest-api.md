@@ -95,7 +95,7 @@ the project again and reapply your change.
 first, and a `nextCursor` (D-102). A call without parameters returns the newest
 50; `?limit=` takes 1 to 200 (anything else answers `400 bad_request`). While
 `nextCursor` is not null there is more: send it back as `?cursor=`, with the same
-filters (`projectId`), unchanged. A walk from the first page to `nextCursor: null`
+filters (`projectId`, and `parentId` for jobs), unchanged. A walk from the first page to `nextCursor: null`
 returns every item that existed when it started exactly once, even while others
 are created; items created meanwhile show up on the next walk. A cursor of
 another list or filter, or an edited one, answers `400 bad_request`.
@@ -109,6 +109,10 @@ while :; do
   [ -z "$CURSOR" ] && break
 done
 ```
+
+`GET /v1/jobs?parentId=<render job id>` lists the units and the join of a
+fanned-out render (`render.fanOut`), paged the same way; `projectId` and
+`parentId` can be combined.
 
 Projects come as summaries (`id`, `title`, `version`, `scenes`, `durationSeconds`,
 `createdAt`, `updatedAt`); `GET /v1/projects/:id` has the manifest.

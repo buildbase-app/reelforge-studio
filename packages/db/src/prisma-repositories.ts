@@ -26,6 +26,7 @@ import {
   type QuotaResult,
   type Repositories,
   projectStats,
+  runIdOf,
   type Scope,
   type StoredProject,
 } from '@reelforge/core';
@@ -176,6 +177,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     cancelRequestedAt: j.cancelRequestedAt ? new Date(j.cancelRequestedAt) : null,
     parentId: j.parentId ?? null,
     pendingChildren: j.pendingChildren ?? null,
+    runId: runIdOf(j),
   });
   const statusEvent = (jobId: string, at: string, status: string) => ({ ...ws, jobId, at: new Date(at), type: 'status', message: status });
   const logEvent = (jobId: string, at: string, line: string) => ({ ...ws, jobId, at: new Date(at), type: 'log', message: line });
@@ -837,6 +839,11 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           take: req.limit,
         });
         return rows.map(toJob);
+      },
+      async projectOfRun(runId) {
+        // Index (workspaceId, runId), migration 0009; the workspace scope stays: another workspace's run is not found.
+        const row = await prisma.job.findFirst({ where: { ...ws, runId, projectId: { not: null } }, select: { projectId: true } });
+        return row?.projectId ?? null;
       },
       async listUnfinished() {
         return (await prisma.job.findMany({ where: { ...ws, status: { in: ['queued', 'running'] } } })).map(toJob);

@@ -1742,7 +1742,8 @@ export const JobScalarFieldEnum = {
   leaseExpiresAt: 'leaseExpiresAt',
   cancelRequestedAt: 'cancelRequestedAt',
   parentId: 'parentId',
-  pendingChildren: 'pendingChildren'
+  pendingChildren: 'pendingChildren',
+  runId: 'runId'
 } as const
 
 export type JobScalarFieldEnum = (typeof JobScalarFieldEnum)[keyof typeof JobScalarFieldEnum]
@@ -2024,7 +2025,8 @@ export const JobOrderByRelevanceFieldEnum = {
   apiKeyId: 'apiKeyId',
   queue: 'queue',
   workerId: 'workerId',
-  parentId: 'parentId'
+  parentId: 'parentId',
+  runId: 'runId'
 } as const
 
 export type JobOrderByRelevanceFieldEnum = (typeof JobOrderByRelevanceFieldEnum)[keyof typeof JobOrderByRelevanceFieldEnum]
