@@ -32,6 +32,8 @@ const iso = (d: Date) => d.toISOString();
 const json = (v: unknown) => JSON.stringify(v);
 const parse = <T>(s: string): T => JSON.parse(s) as T;
 const TX = { maxWait: 10_000, timeout: 30_000 };
+/** MySQL claim: queued jobs of a key read per page, then locked one at a time (see claim). */
+const CLAIM_CANDIDATES = 16;
 /** Usage counters (D-091) share RateLimitWindow with the request windows; their keys start with this. */
 const USAGE_PREFIX = 'usage:';
 
@@ -442,9 +444,9 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
             // One statement under the write lock (the first write of the transaction waits for it): atomic, no lost claims.
             rows = await tx.$queryRawUnsafe(`UPDATE "Job" SET "status" = 'running', "workerId" = ? WHERE "id" = (${pick(2)}) AND "status" = 'queued' RETURNING "id"`, workerId, ...args);
           } else {
-            // Row locks: a locking read with a sort over every queued row would lock all of them on MySQL, so
-            // decide the key order with plain reads first, then lock one job of the best key with an
-            // index-ordered SELECT ... FOR UPDATE SKIP LOCKED (a job another worker is claiming is skipped).
+            // Row locks: decide the key order with plain reads first, then lock one job of the best key that no
+            // other transaction holds (SKIP LOCKED: a job another worker is claiming is skipped, never waited
+            // for), falling through to the next key when all of this key's jobs are held.
             const typeIn = (first: number) => `${qi('type')} IN (${types.map((_, i) => ph(first + i)).join(', ')})`;
             const runningRows: Array<{ k: string; n: unknown }> = await tx.$queryRawUnsafe(
               `SELECT ${qi('apiKeyId')} AS ${qi('k')}, COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}`,
@@ -462,13 +464,33 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
               .sort((a, b) => a.n - b.n || a.t - b.t);
             for (const c of order) {
               const keyWhere = c.k === null ? `${qi('apiKeyId')} IS NULL` : `${qi('apiKeyId')} = ${ph(2 + types.length)}`;
-              rows = await tx.$queryRawUnsafe(
-                `SELECT ${qi('id')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${keyWhere}` +
-                  ` ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT 1 FOR UPDATE SKIP LOCKED`,
-                workspaceId,
-                ...types,
-                ...(c.k === null ? [] : [c.k])
-              );
+              const queuedOfKey = `FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${keyWhere}`;
+              const keyArgs = [workspaceId, ...types, ...(c.k === null ? [] : [c.k])];
+              if (kind === 'postgresql') {
+                // PostgreSQL locks only the rows the LIMIT lets through, whatever the plan.
+                rows = await tx.$queryRawUnsafe(`SELECT ${qi('id')} ${queuedOfKey} ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT 1 FOR UPDATE SKIP LOCKED`, ...keyArgs);
+              } else {
+                // MySQL locks every matching row its plan reads, not only the one it returns: with a sort (the
+                // optimiser picks the status index once the table has history) `LIMIT 1 FOR UPDATE SKIP LOCKED`
+                // locked every queued job of the key, and concurrent claims found nothing to take (#168). So read
+                // the candidates in order without locks, then lock them one at a time by primary key, skipping a
+                // job another transaction holds or a worker took meanwhile; page on until the key has none left.
+                let after: { t: unknown; id: string } | undefined;
+                do {
+                  const page: Array<{ id: string; t: unknown }> = await tx.$queryRawUnsafe(
+                    `SELECT ${qi('id')}, ${qi('createdAt')} AS ${qi('t')} ${queuedOfKey}` +
+                      (after ? ` AND (${qi('createdAt')} > ? OR (${qi('createdAt')} = ? AND ${qi('id')} > ?))` : '') +
+                      ` ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT ${CLAIM_CANDIDATES}`,
+                    ...keyArgs,
+                    ...(after ? [after.t, after.t, after.id] : [])
+                  );
+                  for (const cand of page) {
+                    rows = await tx.$queryRawUnsafe(`SELECT ${qi('id')} FROM ${qi('Job')} WHERE ${qi('id')} = ? AND ${qi('status')} = 'queued' FOR UPDATE SKIP LOCKED`, cand.id);
+                    if (rows.length) break;
+                  }
+                  after = page.length === CLAIM_CANDIDATES ? page[page.length - 1] : undefined;
+                } while (!rows.length && after);
+              }
               if (rows.length) break;
             }
           }

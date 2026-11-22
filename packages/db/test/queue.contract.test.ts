@@ -9,8 +9,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createMemoryRepositories, newId, type JobRecord, type Repositories } from '@reelforge/core';
-import { Database, availableTestDatabases, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
+import { DEFAULT_WORKSPACE_ID, createMemoryRepositories, newId, type JobRecord, type Repositories } from '@reelforge/core';
+import { Database, availableTestDatabases, createPrismaRepositories, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-queue-contract-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -34,6 +34,13 @@ function queued(over: Partial<JobRecord> = {}): JobRecord {
   };
 }
 const iso = (ms: number) => new Date(ms).toISOString();
+async function until(cond: () => boolean, what: string, ms = 30_000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error(`${what}: not within ${ms} ms`);
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
 
 describe.each(targets)('job queue contract: $name', ({ kind }) => {
   let repos: Repositories;
@@ -227,4 +234,104 @@ describe.each(targets)('job queue contract: $name', ({ kind }) => {
     await repos.jobs.insert(plain, plain.createdAt);
     expect(await repos.jobs.get(plain.id)).toEqual(plain);
   });
+});
+
+// Row-locking databases only: a claim must lock nothing but the job it takes (#168). Claims are held open (each
+// waits before writing its status event) so they overlap for certain, not by timing luck.
+describe.each(availableTestDatabases().filter((k) => k !== 'sqlite'))('job queue claims under row locks: %s', (kind) => {
+  let db: Database;
+  let testDb: TestDatabase;
+  let repos: Repositories;
+  const now = Date.now();
+  beforeAll(async () => {
+    testDb = await createTestDatabase(kind, tmp);
+    const u = new URL(testDb.url);
+    u.searchParams.set('connection_limit', '40'); // every claim below holds a connection at once
+    db = (await prepareDatabase({ url: u.toString(), dataDir: join(tmp, 'none') })).db;
+    repos = db.repositories();
+    // Finished history and fresh statistics: the state in which MySQL sorted the queued jobs of a key under
+    // `... LIMIT 1 FOR UPDATE SKIP LOCKED` and so locked all of them while taking one.
+    for (let i = 0; i < 60; i++) {
+      const j = queued({ status: 'cancelled', finishedAt: iso(now) });
+      await repos.jobs.insert(j, j.createdAt);
+    }
+    await db.prisma.$executeRawUnsafe(kind === 'mysql' ? 'ANALYZE TABLE `Job`' : 'ANALYZE "Job"');
+  }, 60_000);
+  afterAll(async () => {
+    await db?.close();
+    await testDb?.drop();
+  });
+  beforeEach(async () => {
+    for (const j of await repos.jobs.listUnfinished()) await repos.jobs.transition({ ...j, status: 'cancelled', finishedAt: iso(now) }, iso(now));
+  });
+
+  /**
+   * Another transaction row-locks `locked` (claims in progress elsewhere, a slow writer); then one claim is held
+   * open and `free.length + 3` more start while it is. Each free job must end up held by exactly one open claim,
+   * the claims left over find nothing, and the locked jobs stay queued.
+   */
+  async function overlappingClaims(locked: JobRecord[], free: JobRecord[]) {
+    let unlock!: () => void;
+    const unlocked = new Promise<void>((r) => (unlock = r));
+    let holding!: () => void;
+    const held = new Promise<void>((r) => (holding = r));
+    const holder = db.prisma.$transaction(
+      async (tx) => {
+        for (const j of locked) await tx.$queryRawUnsafe(kind === 'mysql' ? 'SELECT `id` FROM `Job` WHERE `id` = ? FOR UPDATE' : 'SELECT "id" FROM "Job" WHERE "id" = $1 FOR UPDATE', j.id);
+        holding();
+        await unlocked;
+      },
+      { timeout: 60_000 }
+    );
+    await held;
+    // Claims that stop before their status event, i.e. while holding the row lock of the job they took.
+    let open!: () => void;
+    const opened = new Promise<void>((r) => (open = r));
+    let waiting = 0;
+    const gated = db.prisma.$extends({
+      query: {
+        jobEvent: {
+          async create({ args, query }) {
+            waiting++;
+            await opened;
+            return query(args);
+          },
+        },
+      },
+    }) as unknown as Database['prisma'];
+    const claimer = createPrismaRepositories(gated, DEFAULT_WORKSPACE_ID, kind).jobs;
+    let settled = 0;
+    const started: Array<Promise<JobRecord | null>> = [];
+    const start = (w: string) => started.push(claimer.claim({ workerId: w, types: ['render'], now: iso(now), leaseUntil: iso(now + 60_000) }).finally(() => settled++));
+    try {
+      // The first claim is open before the others begin, so they all overlap it.
+      start('w0');
+      await until(() => waiting === 1, 'the first claim holds its job');
+      for (let i = 1; i < free.length + 3; i++) start(`w${i}`);
+      await until(() => waiting + settled === started.length, 'every claim holds a job or found none');
+      expect(waiting).toBe(free.length);
+    } finally {
+      open();
+      unlock();
+      await Promise.allSettled([holder, ...started]);
+    }
+    const ids = (await Promise.all(started)).filter((r): r is JobRecord => r !== null).map((r) => r.id);
+    expect(ids.sort()).toEqual(free.map((j) => j.id).sort());
+    for (const j of locked) expect(await repos.jobs.get(j.id)).toMatchObject({ status: 'queued', attempts: 0 });
+    expect(await repos.jobs.countQueued()).toBe(locked.length);
+  }
+  async function insert(jobs: JobRecord[]) {
+    for (const j of jobs) await repos.jobs.insert(j, j.createdAt);
+    return jobs;
+  }
+
+  it('QUE-13 overlapping claims, jobs across keys, one locked elsewhere: every free job is claimed, each by one claim', async () => {
+    const [locked, ...free] = await insert([...Array.from({ length: 6 }, () => queued()), ...Array.from({ length: 3 }, () => queued({ apiKeyId: 'key_a' })), ...Array.from({ length: 3 }, () => queued({ apiKeyId: 'key_b' }))]);
+    await overlappingClaims([locked!], free);
+  }, 120_000);
+
+  it('QUE-14 more jobs of a key locked elsewhere than a claim reads at once: the claims read on and take the free ones', async () => {
+    const jobs = await insert([...Array.from({ length: 24 }, () => queued({ apiKeyId: 'key_c' })), ...Array.from({ length: 2 }, () => queued())]);
+    await overlappingClaims(jobs.slice(0, 20), jobs.slice(20));
+  }, 120_000);
 });

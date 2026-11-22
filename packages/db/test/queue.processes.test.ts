@@ -114,6 +114,9 @@ describe.each(kinds)('database queue with worker processes: %s', (kind) => {
     await ready(victim);
     const [id] = await enqueue(1);
     await until(async () => (await repos.jobs.get(id!))?.workerId === 'victim', 30_000, () => `claimed by the victim (${victim.out()})`);
+    // Mid-job means its handler runs: the claim is visible in the database as soon as it commits, before the
+    // worker has the answer and starts the handler, so the row alone is too early to kill (#168).
+    await until(() => readFileSync(out, 'utf8').includes(`${id} victim`), 30_000, () => `the victim runs the job (${victim.out()})`);
     victim.child.kill('SIGKILL');
     await victim.exited;
     const rescuer = spawnWorker({ DB_URL: testDb.url, WORKER_ID: 'rescuer', OUT: out, JOB_MS: '20', LEASE_MS: '2000' });
