@@ -1539,7 +1539,7 @@ infrastructure without limit (like Remotion Lambda / Cloud Run, or anything self
 one organisation licence must cover any number of workers, and nothing may pause or
 overload when many videos render at once. Research, sources, provider matrix, capacity
 math and spike results: [docs/research/RENDER_SCALE.md](research/RENDER_SCALE.md). These
-are proposals for the work in the "Render at any scale" epic; each becomes DECIDED when its
+are proposals for the work in the "Render at any scale" epic #149; each becomes DECIDED when its
 issue lands with tests.
 
 ### D-095 --- Render backends: worker pools first, `worker --once` for job platforms, launchers and managed renderers as plugins

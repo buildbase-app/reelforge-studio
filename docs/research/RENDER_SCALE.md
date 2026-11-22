@@ -5,7 +5,7 @@ the CRUD path must scale on the buyer's own infrastructure "without limit", the 
 Remotion Lambda / Cloud Run do, with one organisation licence covering any number of
 workers and nothing pausing or overloading when many videos render at once.
 
-- Issue: epic "[epic] Render at any scale" (child of #17); related #28, #34, #36, #107, #125, #10.
+- Issues: epic #149 (child of #17) with #150..#159, #28 and #34; related #36, #107, #125, #10, #91.
 - Decisions: D-095..D-099 in [docs/DECISIONS.md](../DECISIONS.md) section T.
 - Every external fact below has a source and the date it was read (all **2026-11-22**
   unless noted). Estimates are marked **ESTIMATE** with their assumptions. "Not fetched"
@@ -546,14 +546,14 @@ api instances. The limits that remain are the buyer's:
 
 ## 11. Phased plan
 
-Dates against the hackathon window ending **2026-12-16 13:00 UTC**. Issue numbers in the epic.
+Dates against the hackathon window ending **2026-12-16 13:00 UTC**. Epic #149.
 
 | Phase | Due | Scope | Acceptance tests |
 | --- | --- | --- | --- |
-| 0 | 2026-11-22 | this research, D-095..D-099, epic and issues | PR passes `pr-policy`; issues cross-linked both ways |
-| 1 (P0) | 2026-12-05 | licence at scale (api-only single-flight check, workers read state); Kubernetes + KEDA recipe with e2e on kind/k3d (PostgreSQL scaler, scale 0→N→0); pooling recipe (`connection_limit`, PgBouncer transaction mode, search_path note); load test with published numbers; queue-wait histogram | 1 api + 50 workers → 1 activation and ≤ 2 licence calls per day (mock server counts); kind e2e: 20 queued renders scale workers 0→N, all succeed exactly once, back to 0 after cooldown; k6/autocannon report: sustained CRUD req/s at p95 < 200 ms on named hardware, N concurrent renders with zero lost jobs |
-| 2 (P1) | 2026-12-15 | render-backend interface v2 + `worker --once`; scene fan-out with stream-copy join; fair claim + admission control (with #107) | contract tests for the backend interface; e2e: a 6-scene reel fanned out on 3 workers equals the single-worker render frame for frame (count, boundaries, A/V duration), one join exactly once under injected child crashes; a key with 1 000 queued jobs does not delay another key's preview beyond the SLO |
-| 3 (P2) | after 2026-12-16 | container-job launchers (#28: K8s Job, ECS RunTask, Cloud Run Jobs, ACA Jobs, Batch); dispatch drivers (LISTEN/NOTIFY, SQS, Redis Streams, NATS); chunked fan-out for Remotion; read replicas; cost calculator; Remotion Lambda when #10 allows; deploy recipes (#34) | LocalStack (SQS, ECS/Lambda where feasible), Redis and NATS containers, kind for Jobs; each backend listed "tested" only with a passing e2e (standing rule on #17) |
+| 0 | 2026-11-22 | this research, D-095..D-099, epic #149 and its issues | PR passes `pr-policy`; issues cross-linked both ways |
+| 1 (P0) | 2026-12-05 | #154 licence at scale (api-only single-flight check, workers read state); #153 Kubernetes + KEDA recipe with e2e on kind/k3d (PostgreSQL scaler, scale 0→N→0); #151 load test with published numbers | 1 api + 50 workers → 1 activation and ≤ 2 licence calls per day (mock server counts); kind e2e: 20 queued renders scale workers 0→N, all succeed exactly once, back to 0 after cooldown; k6/autocannon report: sustained CRUD req/s at p95 < 200 ms on named hardware, N concurrent renders with zero lost jobs |
+| 2 (P1) | 2026-12-15 | #150 render-backend interface v2 + `worker --once`; #156 scene fan-out with stream-copy join; #152 pooling recipe (`connection_limit`, PgBouncer transaction mode, search_path note) and read replicas; #155 fair claim, priorities, admission control, queue-wait histogram (with #107) | contract tests for the backend interface; e2e: a 6-scene reel fanned out on 3 workers equals the single-worker render frame for frame (count, boundaries, A/V duration), one join exactly once under injected child crashes; a key with 1 000 queued jobs does not delay another key's preview beyond the SLO |
+| 3 (P2) | after 2026-12-16 | #28 container-job backends (K8s Job, ECS RunTask, Cloud Run Jobs, ACA Jobs, Batch); #158 dispatch drivers (LISTEN/NOTIFY, SQS, Redis Streams, NATS); #159 cost calculator; #157 Remotion Lambda when #10 allows; #34 deploy recipes | LocalStack (SQS, ECS/Lambda where feasible), Redis and NATS containers, kind for Jobs; each backend listed "tested" only with a passing e2e (standing rule on #17) |
 
 ## 12. Spike results
 
