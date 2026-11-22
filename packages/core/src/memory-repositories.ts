@@ -7,6 +7,7 @@ import { summarizeProject } from './store';
 import { isFannedOut, isTerminal, settleChild, stopTree, type SettlementPlan } from './fanout';
 import {
   DEFAULT_WORKSPACE_ID,
+  runIdOf,
   type ApiKeyPatch,
   type ApiKeyRecord,
   type AssetRecord,
@@ -348,6 +349,10 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
       },
       async page(filter, req) {
         return pageOf(matchingJobs(filter), req).map(clone);
+      },
+      async projectOfRun(runId) {
+        for (const j of jobs.values()) if (runIdOf(j) === runId && j.projectId) return j.projectId;
+        return null;
       },
       async listUnfinished() {
         return [...jobs.values()].filter((j) => j.status === 'queued' || j.status === 'running').map(clone);

@@ -416,6 +416,18 @@ databases). Contract tests on memory, SQLite, PostgreSQL and MySQL walk every ro
 rows are inserted. Load test, lower bound, shared sandbox (not dedicated): full CRUD mix 313 → 741
 req/s on the same box ([PERFORMANCE.md](PERFORMANCE.md#list_projects-paging-179-before-and-after)).
 
+### Render lookup by id and `list_jobs` by `parentId` (2026-11-22, issue #184)
+
+Built: `get_render` (and the manifest, output and download routes) after a restart, or on another
+api instance, no longer reads every project to find a render. The render or preview job that made
+it names its project: a `runId` column on Job with index `(workspaceId, runId)`, read once in the
+caller's workspace, then storage is asked about that one render. Migration `0009_job_run_id` adds
+the column and index and backfills existing render and preview jobs from `params.runId`. A server
+test on SQLite, PostgreSQL and MySQL counts the calls after a restart: no project read, no storage
+listing, keys of the owning render only. `list_jobs` now really takes `parentId` (the units and the
+join of a fanned-out render), keyset-paged with the filter bound into the cursor (D-102); no new
+index, because a render has at most 51 children (50 scenes and a join) and `parentId` is indexed.
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |

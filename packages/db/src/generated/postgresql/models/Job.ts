@@ -58,6 +58,7 @@ export type JobMinAggregateOutputType = {
   cancelRequestedAt: Date | null
   parentId: string | null
   pendingChildren: number | null
+  runId: string | null
 }
 
 export type JobMaxAggregateOutputType = {
@@ -82,6 +83,7 @@ export type JobMaxAggregateOutputType = {
   cancelRequestedAt: Date | null
   parentId: string | null
   pendingChildren: number | null
+  runId: string | null
 }
 
 export type JobCountAggregateOutputType = {
@@ -106,6 +108,7 @@ export type JobCountAggregateOutputType = {
   cancelRequestedAt: number
   parentId: number
   pendingChildren: number
+  runId: number
   _all: number
 }
 
@@ -142,6 +145,7 @@ export type JobMinAggregateInputType = {
   cancelRequestedAt?: true
   parentId?: true
   pendingChildren?: true
+  runId?: true
 }
 
 export type JobMaxAggregateInputType = {
@@ -166,6 +170,7 @@ export type JobMaxAggregateInputType = {
   cancelRequestedAt?: true
   parentId?: true
   pendingChildren?: true
+  runId?: true
 }
 
 export type JobCountAggregateInputType = {
@@ -190,6 +195,7 @@ export type JobCountAggregateInputType = {
   cancelRequestedAt?: true
   parentId?: true
   pendingChildren?: true
+  runId?: true
   _all?: true
 }
 
@@ -301,6 +307,7 @@ export type JobGroupByOutputType = {
   cancelRequestedAt: Date | null
   parentId: string | null
   pendingChildren: number | null
+  runId: string | null
   _count: JobCountAggregateOutputType | null
   _avg: JobAvgAggregateOutputType | null
   _sum: JobSumAggregateOutputType | null
@@ -348,6 +355,7 @@ export type JobWhereInput = {
   cancelRequestedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   parentId?: Prisma.StringNullableFilter<"Job"> | string | null
   pendingChildren?: Prisma.IntNullableFilter<"Job"> | number | null
+  runId?: Prisma.StringNullableFilter<"Job"> | string | null
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
   events?: Prisma.JobEventListRelationFilter
 }
@@ -374,6 +382,7 @@ export type JobOrderByWithRelationInput = {
   cancelRequestedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   parentId?: Prisma.SortOrderInput | Prisma.SortOrder
   pendingChildren?: Prisma.SortOrderInput | Prisma.SortOrder
+  runId?: Prisma.SortOrderInput | Prisma.SortOrder
   workspace?: Prisma.WorkspaceOrderByWithRelationInput
   events?: Prisma.JobEventOrderByRelationAggregateInput
 }
@@ -403,6 +412,7 @@ export type JobWhereUniqueInput = Prisma.AtLeast<{
   cancelRequestedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   parentId?: Prisma.StringNullableFilter<"Job"> | string | null
   pendingChildren?: Prisma.IntNullableFilter<"Job"> | number | null
+  runId?: Prisma.StringNullableFilter<"Job"> | string | null
   workspace?: Prisma.XOR<Prisma.WorkspaceScalarRelationFilter, Prisma.WorkspaceWhereInput>
   events?: Prisma.JobEventListRelationFilter
 }, "id">
@@ -429,6 +439,7 @@ export type JobOrderByWithAggregationInput = {
   cancelRequestedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   parentId?: Prisma.SortOrderInput | Prisma.SortOrder
   pendingChildren?: Prisma.SortOrderInput | Prisma.SortOrder
+  runId?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.JobCountOrderByAggregateInput
   _avg?: Prisma.JobAvgOrderByAggregateInput
   _max?: Prisma.JobMaxOrderByAggregateInput
@@ -461,6 +472,7 @@ export type JobScalarWhereWithAggregatesInput = {
   cancelRequestedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Job"> | Date | string | null
   parentId?: Prisma.StringNullableWithAggregatesFilter<"Job"> | string | null
   pendingChildren?: Prisma.IntNullableWithAggregatesFilter<"Job"> | number | null
+  runId?: Prisma.StringNullableWithAggregatesFilter<"Job"> | string | null
 }
 
 export type JobCreateInput = {
@@ -484,6 +496,7 @@ export type JobCreateInput = {
   cancelRequestedAt?: Date | string | null
   parentId?: string | null
   pendingChildren?: number | null
+  runId?: string | null
   workspace: Prisma.WorkspaceCreateNestedOneWithoutJobsInput
   events?: Prisma.JobEventCreateNestedManyWithoutJobInput
 }
@@ -510,6 +523,7 @@ export type JobUncheckedCreateInput = {
   cancelRequestedAt?: Date | string | null
   parentId?: string | null
   pendingChildren?: number | null
+  runId?: string | null
   events?: Prisma.JobEventUncheckedCreateNestedManyWithoutJobInput
 }
 
@@ -534,6 +548,7 @@ export type JobUpdateInput = {
   cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workspace?: Prisma.WorkspaceUpdateOneRequiredWithoutJobsNestedInput
   events?: Prisma.JobEventUpdateManyWithoutJobNestedInput
 }
@@ -560,6 +575,7 @@ export type JobUncheckedUpdateInput = {
   cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   events?: Prisma.JobEventUncheckedUpdateManyWithoutJobNestedInput
 }
 
@@ -585,6 +601,7 @@ export type JobCreateManyInput = {
   cancelRequestedAt?: Date | string | null
   parentId?: string | null
   pendingChildren?: number | null
+  runId?: string | null
 }
 
 export type JobUpdateManyMutationInput = {
@@ -608,6 +625,7 @@ export type JobUpdateManyMutationInput = {
   cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type JobUncheckedUpdateManyInput = {
@@ -632,6 +650,7 @@ export type JobUncheckedUpdateManyInput = {
   cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type JobListRelationFilter = {
@@ -666,6 +685,7 @@ export type JobCountOrderByAggregateInput = {
   cancelRequestedAt?: Prisma.SortOrder
   parentId?: Prisma.SortOrder
   pendingChildren?: Prisma.SortOrder
+  runId?: Prisma.SortOrder
 }
 
 export type JobAvgOrderByAggregateInput = {
@@ -695,6 +715,7 @@ export type JobMaxOrderByAggregateInput = {
   cancelRequestedAt?: Prisma.SortOrder
   parentId?: Prisma.SortOrder
   pendingChildren?: Prisma.SortOrder
+  runId?: Prisma.SortOrder
 }
 
 export type JobMinOrderByAggregateInput = {
@@ -719,6 +740,7 @@ export type JobMinOrderByAggregateInput = {
   cancelRequestedAt?: Prisma.SortOrder
   parentId?: Prisma.SortOrder
   pendingChildren?: Prisma.SortOrder
+  runId?: Prisma.SortOrder
 }
 
 export type JobSumOrderByAggregateInput = {
@@ -808,6 +830,7 @@ export type JobCreateWithoutWorkspaceInput = {
   cancelRequestedAt?: Date | string | null
   parentId?: string | null
   pendingChildren?: number | null
+  runId?: string | null
   events?: Prisma.JobEventCreateNestedManyWithoutJobInput
 }
 
@@ -832,6 +855,7 @@ export type JobUncheckedCreateWithoutWorkspaceInput = {
   cancelRequestedAt?: Date | string | null
   parentId?: string | null
   pendingChildren?: number | null
+  runId?: string | null
   events?: Prisma.JobEventUncheckedCreateNestedManyWithoutJobInput
 }
 
@@ -886,6 +910,7 @@ export type JobScalarWhereInput = {
   cancelRequestedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   parentId?: Prisma.StringNullableFilter<"Job"> | string | null
   pendingChildren?: Prisma.IntNullableFilter<"Job"> | number | null
+  runId?: Prisma.StringNullableFilter<"Job"> | string | null
 }
 
 export type JobCreateWithoutEventsInput = {
@@ -909,6 +934,7 @@ export type JobCreateWithoutEventsInput = {
   cancelRequestedAt?: Date | string | null
   parentId?: string | null
   pendingChildren?: number | null
+  runId?: string | null
   workspace: Prisma.WorkspaceCreateNestedOneWithoutJobsInput
 }
 
@@ -934,6 +960,7 @@ export type JobUncheckedCreateWithoutEventsInput = {
   cancelRequestedAt?: Date | string | null
   parentId?: string | null
   pendingChildren?: number | null
+  runId?: string | null
 }
 
 export type JobCreateOrConnectWithoutEventsInput = {
@@ -973,6 +1000,7 @@ export type JobUpdateWithoutEventsInput = {
   cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   workspace?: Prisma.WorkspaceUpdateOneRequiredWithoutJobsNestedInput
 }
 
@@ -998,6 +1026,7 @@ export type JobUncheckedUpdateWithoutEventsInput = {
   cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type JobCreateManyWorkspaceInput = {
@@ -1021,6 +1050,7 @@ export type JobCreateManyWorkspaceInput = {
   cancelRequestedAt?: Date | string | null
   parentId?: string | null
   pendingChildren?: number | null
+  runId?: string | null
 }
 
 export type JobUpdateWithoutWorkspaceInput = {
@@ -1044,6 +1074,7 @@ export type JobUpdateWithoutWorkspaceInput = {
   cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   events?: Prisma.JobEventUpdateManyWithoutJobNestedInput
 }
 
@@ -1068,6 +1099,7 @@ export type JobUncheckedUpdateWithoutWorkspaceInput = {
   cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   events?: Prisma.JobEventUncheckedUpdateManyWithoutJobNestedInput
 }
 
@@ -1092,6 +1124,7 @@ export type JobUncheckedUpdateManyWithoutWorkspaceInput = {
   cancelRequestedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   pendingChildren?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 
@@ -1147,6 +1180,7 @@ export type JobSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   cancelRequestedAt?: boolean
   parentId?: boolean
   pendingChildren?: boolean
+  runId?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
   events?: boolean | Prisma.Job$eventsArgs<ExtArgs>
   _count?: boolean | Prisma.JobCountOutputTypeDefaultArgs<ExtArgs>
@@ -1174,6 +1208,7 @@ export type JobSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extension
   cancelRequestedAt?: boolean
   parentId?: boolean
   pendingChildren?: boolean
+  runId?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["job"]>
 
@@ -1199,6 +1234,7 @@ export type JobSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extension
   cancelRequestedAt?: boolean
   parentId?: boolean
   pendingChildren?: boolean
+  runId?: boolean
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["job"]>
 
@@ -1224,9 +1260,10 @@ export type JobSelectScalar = {
   cancelRequestedAt?: boolean
   parentId?: boolean
   pendingChildren?: boolean
+  runId?: boolean
 }
 
-export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "type" | "status" | "projectId" | "params" | "progress" | "result" | "error" | "retryOf" | "apiKeyId" | "createdAt" | "startedAt" | "finishedAt" | "queue" | "attempts" | "workerId" | "leaseExpiresAt" | "cancelRequestedAt" | "parentId" | "pendingChildren", ExtArgs["result"]["job"]>
+export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "type" | "status" | "projectId" | "params" | "progress" | "result" | "error" | "retryOf" | "apiKeyId" | "createdAt" | "startedAt" | "finishedAt" | "queue" | "attempts" | "workerId" | "leaseExpiresAt" | "cancelRequestedAt" | "parentId" | "pendingChildren" | "runId", ExtArgs["result"]["job"]>
 export type JobInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
   events?: boolean | Prisma.Job$eventsArgs<ExtArgs>
@@ -1294,6 +1331,11 @@ export type $JobPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
      * Render fan-out, on the parent: units still to succeed; the unit taking it to 0 inserts the join.
      */
     pendingChildren: number | null
+    /**
+     * Render and preview jobs: the run id of the render they produce (params.runId), so get_render finds its project
+     * with one indexed read instead of a scan (#184).
+     */
+    runId: string | null
   }, ExtArgs["result"]["job"]>
   composites: {}
 }
@@ -1740,6 +1782,7 @@ export interface JobFieldRefs {
   readonly cancelRequestedAt: Prisma.FieldRef<"Job", 'DateTime'>
   readonly parentId: Prisma.FieldRef<"Job", 'String'>
   readonly pendingChildren: Prisma.FieldRef<"Job", 'Int'>
+  readonly runId: Prisma.FieldRef<"Job", 'String'>
 }
     
 

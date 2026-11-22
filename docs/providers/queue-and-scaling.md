@@ -413,8 +413,12 @@ reuse its units.
 **Progress.** Agents watch only the parent: `get_job`, `?wait=`/`waitSeconds`
 and SSE compute its progress from its children, frames done over the render's
 total frames (90 %, `detail` like `90/140 frames, 1/6 scenes rendered`), then
-the join (10 %). Units and the join are listed by `list_jobs` with `parentId`;
-webhooks and outbound events are sent for the render job only.
+the join (10 %). To inspect them, `list_jobs` with `parentId` set to the render
+job's id (REST `GET /v1/jobs?parentId=`) lists its units and its join, newest
+first and paged like every list (D-102: `limit`, `cursor`, `nextCursor`; the
+cursor is bound to the filter, so a cursor of another `parentId` or
+`projectId` answers 400). Webhooks and outbound events are sent for the render
+job only.
 
 **Measured (FAN-30, 2026-11-22).** 6 scenes on 4 engines (Remotion, Motion
 Canvas, html, HyperFrames), 240 frames at 1080x1920 with music, PostgreSQL 17,

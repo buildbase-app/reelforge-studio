@@ -138,6 +138,9 @@ model Job {
   parentId          String?   @db.VarChar(191)
   /// Render fan-out, on the parent: units still to succeed; the unit taking it to 0 inserts the join.
   pendingChildren   Int?
+  /// Render and preview jobs: the run id of the render they produce (params.runId), so get_render finds its project
+  /// with one indexed read instead of a scan (#184).
+  runId             String?   @db.VarChar(191)
 
   workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   events    JobEvent[]
@@ -152,6 +155,7 @@ model Job {
   @@index([workspaceId, queue, status, createdAt])
   @@index([status, leaseExpiresAt])
   @@index([parentId])
+  @@index([workspaceId, runId])
 }
 
 /// Status changes and log lines of a job, in order (id is monotonic).

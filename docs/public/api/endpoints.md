@@ -45,7 +45,7 @@ with their own sizes.
 | `POST` | `/v1/projects/:id/preview` | `render` | `preview_scene` |  |
 | `POST` | `/v1/projects/:id/renders` | `render` | `render_project` |  |
 | `GET` | `/v1/projects/:id/renders` | `read` | `list_renders` |  |
-| `GET` | `/v1/jobs` | `read` | `list_jobs` |  |
+| `GET` | `/v1/jobs` | `read` | `list_jobs` | Filters: ?projectId= and ?parentId= (the units and the join of a fanned-out render). |
 | `GET` | `/v1/jobs/:id` | `read` | `get_job` |  |
 | `POST` | `/v1/jobs/:id/cancel` | `render` | `cancel_job` |  |
 | `POST` | `/v1/jobs/:id/retry` | `render` | `retry_job` |  |

@@ -51,7 +51,7 @@ import { RuntimeConfig, type ConfigSources } from './config/runtime';
 import { createLicenceManager, type LicenceApi, type LicenceManager } from './licence';
 import type { ResolvedConfig } from './config/load';
 import { ProjectStore, isProjectId } from './store';
-import { parsePageQuery, readPage } from './paging';
+import { isRowId, parsePageQuery, readPage } from './paging';
 import { createStorageDriver, type StorageFactory } from './storage/factory';
 import { contentTypeFor, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix } from './storage/keys';
 import { StorageManager, type CleanupReport, type RetentionPolicy } from './storage/manager';
@@ -1265,12 +1265,21 @@ export class ReelforgeService {
     if (secs > 0) await this.jobs.waitFor(id, secs * 1000).catch(() => undefined);
     return this.getJob(id);
   }
-  /** One page of jobs, newest first, optionally of one project (D-102; paged like listProjects). */
-  async listJobs(filter: { projectId?: string } = {}, q: { limit?: unknown; cursor?: unknown } = {}) {
+  /**
+   * One page of jobs, newest first (D-102; paged like listProjects), optionally of one project and/or the children
+   * of one job (`parentId`: the units and the join of a fanned-out render, D-097). The cursor carries both filters.
+   */
+  async listJobs(filter: { projectId?: string; parentId?: string } = {}, q: { limit?: unknown; cursor?: unknown } = {}) {
     const projectId = filter.projectId || undefined;
-    const req = parsePageQuery('jobs', projectId ?? '', q);
-    if (projectId !== undefined && !isProjectId(projectId)) return { jobs: [], nextCursor: null }; // no job can have it
-    const { items, nextCursor } = await readPage('jobs', projectId ?? '', req, (r) => this.jobs.page(projectId ? { projectId } : {}, r));
+    const parentId = filter.parentId || undefined;
+    // The cursor's filter: the projectId alone as before (cursors of #182 stay valid); with parentId, both
+    // ("|" cannot occur in a project id, so two filters never share a string).
+    const key = parentId === undefined ? (projectId ?? '') : `${projectId ?? ''}|parent:${parentId}`;
+    const req = parsePageQuery('jobs', key, q);
+    // No job can have an impossible id: answered without a query.
+    if ((projectId !== undefined && !isProjectId(projectId)) || (parentId !== undefined && !isRowId(parentId))) return { jobs: [], nextCursor: null };
+    const where = { ...(projectId ? { projectId } : {}), ...(parentId ? { parentId } : {}) };
+    const { items, nextCursor } = await readPage('jobs', key, req, (r) => this.jobs.page(where, r));
     return { jobs: items, nextCursor };
   }
   cancelJob(id: string) {
@@ -1293,15 +1302,18 @@ export class ReelforgeService {
     return `${this.publicUrl}${path}`;
   }
 
+  /**
+   * The project of a render. The in-process index answers renders this instance has seen; otherwise (after a
+   * restart, or a render made on another instance) the job that produced it names its project, read by run id from
+   * this workspace's jobs (one indexed read, #184), and storage confirms the render is there. Never a scan of the
+   * projects or of storage.
+   */
   private async findRender(runId: string): Promise<{ projectId: string }> {
     if (!/^(run|prv)_[a-z0-9]+$/.test(runId)) throw notFound('render', runId);
-    const known = this.renderIndex.get(runId);
-    const candidates = known ? [known] : (await this.projects.list()).map((m) => m.id);
-    for (const pid of candidates) {
-      if (await this.storage.renders.exists(pid, runId)) {
-        this.renderIndex.set(runId, pid);
-        return { projectId: pid };
-      }
+    const pid = this.renderIndex.get(runId) ?? (await this.repos.jobs.projectOfRun(runId));
+    if (pid && (await this.storage.renders.exists(pid, runId))) {
+      this.renderIndex.set(runId, pid);
+      return { projectId: pid };
     }
     throw notFound('render', runId);
   }

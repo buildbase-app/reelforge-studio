@@ -429,11 +429,12 @@ Status of a render/preview job: queued, running (with progress stage and fractio
 
 **List jobs**. Scope: `read`, read-only. REST: `GET /v1/jobs`.
 
-Lists render and preview jobs, optionally only those of one project. To follow one job, call get_job with its id instead. Returns one page, newest first: at most `limit` items (default 50, max 200) and `nextCursor`. When nextCursor is not null there are more: call again with the same arguments plus `cursor: nextCursor` until it is null. Without a cursor you get the first (newest) page only, not everything.
+Lists render and preview jobs, optionally only those of one project (projectId) and/or the units and the join of one fanned-out render (parentId: the render job's id; each unit renders one scene). To follow one job, call get_job with its id instead: a render's progress already covers its units. Returns one page, newest first: at most `limit` items (default 50, max 200) and `nextCursor`. When nextCursor is not null there are more: call again with the same arguments plus `cursor: nextCursor` until it is null. Without a cursor you get the first (newest) page only, not everything.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `projectId` | string | no | Project id (the manifest's projectId). |
+| `parentId` | string | no | Only the children of this job: the render_unit jobs and the render_join job of a fanned-out render (render.fanOut), given the render job's id. |
 | `limit` | integer | no | Page size: 1 to 200, default 50. |
 | `cursor` | string | no | nextCursor from the previous page of this list (same filters), unchanged. Omit for the first page. |
 

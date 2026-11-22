@@ -25,6 +25,16 @@ import type { WebhookRepository } from './webhooks/types';
 
 export const DEFAULT_WORKSPACE_ID = 'default';
 
+/**
+ * The render a job produces, when it is a render or preview job: its `params.runId`; else null. Stored with the job
+ * (Job.runId) so get_render finds the render's project by id (#184). Units and joins carry their render's run id too,
+ * but the render job owns it.
+ */
+export function runIdOf(job: Pick<JobRecord, 'type' | 'params'>): string | null {
+  const runId = (job.params as { runId?: unknown } | undefined)?.runId;
+  return (job.type === 'render' || job.type === 'preview') && typeof runId === 'string' ? runId : null;
+}
+
 // ---- projects ---------------------------------------------------------------
 
 export interface ProjectMeta {
@@ -294,6 +304,12 @@ export interface JobRepository {
   list(filter?: JobFilter): Promise<JobRecord[]>;
   /** One keyset page of matching jobs, (createdAt, id) descending, strictly after `req.after`, at most `req.limit` (D-102). */
   page(filter: JobFilter, req: PageRequest): Promise<JobRecord[]>;
+  /**
+   * The project of the render or preview job that produces render `runId` in this workspace, or null when there is
+   * none (#184: get_render after a restart or on another instance). On a database one indexed read (Job.runId), never
+   * a scan of projects or jobs.
+   */
+  projectOfRun(runId: string): Promise<string | null>;
   /** Jobs whose status is queued or running. */
   listUnfinished(): Promise<JobRecord[]>;
 

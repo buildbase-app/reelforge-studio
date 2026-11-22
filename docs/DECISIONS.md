@@ -1873,3 +1873,8 @@ migration needs no data step. **Not paged** (bounded or not database lists): `li
 handful of rows), `list_webhooks` (endpoints), `list_themes`, `list_templates`, `list_providers`,
 `list_project_versions` (version numbers of one project), `list_renders` (a storage listing of one
 project's renders); `list_audit_events` and `list_webhook_deliveries` were already cursor-paged.
+**Addendum (#184):** `list_jobs` also filters by `parentId` (a fanned-out render's units and join).
+The cursor's filter is then `<projectId>|parent:<parentId>` (`|` cannot occur in a project id), and
+the projectId-only filter string is unchanged, so earlier cursors stay valid and a cursor of one
+filter is refused by another. No index for it: the existing `parentId` index finds at most 51 rows
+(50 scenes and the join), which are sorted in memory by the database.

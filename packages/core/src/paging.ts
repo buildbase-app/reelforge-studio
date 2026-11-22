@@ -60,6 +60,11 @@ function decodeCursor(list: string, filter: string, cursor: unknown): PageAfter 
   return { createdAt: t, id: i };
 }
 
+/** True for an id a row can have (the ids a cursor may carry); anything else matches no row. */
+export function isRowId(id: string): boolean {
+  return ROW_ID.test(id);
+}
+
 /** `limit` and `cursor` of a list call (REST query or MCP arguments). Throws bad_request. */
 export function parsePageQuery(list: string, filter: string, q: { limit?: unknown; cursor?: unknown }): PageRequest {
   let limit = DEFAULT_PAGE_SIZE;
