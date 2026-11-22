@@ -221,6 +221,38 @@ describe('startPngEncoder', () => {
     expect(info.fps).toBe(30);
     expect(info.pixelFormat).toBe('yuv420p');
   });
+
+  it('writes in flight when the encoder is killed reject with PipelineError instead of an uncaught EPIPE', async () => {
+    // A large, noisy frame so writes are still queued in the pipe when ffmpeg dies.
+    const pngFile = join(dir, 'frame-kill.png');
+    await run(
+      tools.ffmpeg,
+      ['-hide_banner', '-y', '-f', 'lavfi', '-i', 'nullsrc=s=1080x1920,geq=random(1)*255:128:128', '-frames:v', '1', pngFile],
+      'fixture'
+    );
+    const { readFileSync } = await import('node:fs');
+    const png = readFileSync(pngFile);
+    const uncaught: unknown[] = [];
+    const onUncaught = (e: unknown) => uncaught.push(e);
+    process.prependListener('uncaughtException', onUncaught);
+    try {
+      for (let round = 0; round < 5; round++) {
+        const enc = startPngEncoder(tools.ffmpeg, join(dir, `killed-${round}.mp4`), 30);
+        // Queue writes without awaiting them, as a fast engine does, then cancel.
+        const writes = Array.from({ length: 40 }, () => enc.write(png));
+        await new Promise((r) => setTimeout(r, 20));
+        enc.kill();
+        const results = await Promise.allSettled([...writes, enc.write(png)]);
+        for (const r of results) if (r.status === 'rejected') expect(r.reason).toBeInstanceOf(PipelineError);
+        expect(results.some((r) => r.status === 'rejected')).toBe(true);
+        await expect(enc.finish()).rejects.toBeInstanceOf(PipelineError);
+      }
+      await new Promise((r) => setTimeout(r, 100));
+      expect(uncaught).toEqual([]);
+    } finally {
+      process.off('uncaughtException', onUncaught);
+    }
+  });
 });
 
 describe('checkExpectation', () => {
