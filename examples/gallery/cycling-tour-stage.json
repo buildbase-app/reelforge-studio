@@ -1,0 +1,88 @@
+{
+  "gallery": {
+    "slug": "cycling-tour-stage",
+    "title": "Stage 7 preview",
+    "description": "A cycling race stage preview for a fictional tour: route with climbs, elevation stat and three things to watch.",
+    "category": "Sports",
+    "tags": [
+      "sports",
+      "cycling",
+      "map"
+    ],
+    "prompt": "A cycling race stage preview for a fictional tour: route with climbs, elevation stat and three things to watch. Forest palette, 16 seconds.",
+    "palette": "forest",
+    "theme": "midnight + inline tokens (Forest)",
+    "engines": [
+      "html",
+      "motion-canvas"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 16
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "cycling-tour-stage",
+    "title": "Stage 7 preview",
+    "brief": {
+      "title": "Stage 7 preview",
+      "goal": "A cycling race stage preview for a fictional tour: route with climbs, elevation stat and three things to watch. Forest palette, 16 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 16
+    },
+    "theme": {
+      "base": "midnight",
+      "tokens": {
+        "colors": {
+          "background": "#101410",
+          "surface": "#1a201a",
+          "text": "#eef3ec",
+          "mutedText": "#a4b0a1",
+          "accent": "#8fd16a",
+          "accent2": "#7f8a7c"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-route",
+        "engine": "html",
+        "durationSeconds": 6,
+        "html": "<div class=\"bd\"><div class=\"bd-grid\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"land\"><i style=\"left:753px;top:901px;width:257px;height:139px;border-radius:64% 53% 63% 62%\"></i><i style=\"left:687px;top:1116px;width:356px;height:205px;border-radius:45% 49% 55% 39%\"></i><i style=\"left:661px;top:489px;width:402px;height:263px;border-radius:65% 45% 58% 41%\"></i><i style=\"left:433px;top:1369px;width:418px;height:324px;border-radius:68% 60% 51% 45%\"></i><i style=\"left:877px;top:1492px;width:351px;height:308px;border-radius:68% 36% 52% 51%\"></i><i style=\"left:711px;top:1311px;width:385px;height:211px;border-radius:47% 66% 48% 52%\"></i><i style=\"left:0px;top:1036px;width:351px;height:202px;border-radius:59% 48% 61% 62%\"></i></div><svg class=\"rt\" width=\"1080\" height=\"1920\" viewBox=\"0 0 1080 1920\"><path d=\"M134,1360 Q549,1217 644,1073 Q248,930 172,787 Q571,643 651,500\" pathLength=\"1\" class=\"rp\"/><path d=\"M134,1360 Q549,1217 644,1073 Q248,930 172,787 Q571,643 651,500\" class=\"rpd\"/></svg><div class=\"pin\" style=\"left:134px;top:1360px;animation-delay:0.5s\"><span class=\"pd\"></span><span class=\"pl r\">Valmont</span></div><div class=\"pin\" style=\"left:644px;top:1073px;animation-delay:1.5s\"><span class=\"pd\"></span><span class=\"pl l\">Col du Pin</span></div><div class=\"pin\" style=\"left:172px;top:787px;animation-delay:2.5s\"><span class=\"pd\"></span><span class=\"pl r\">Lac Vert</span></div><div class=\"pin\" style=\"left:651px;top:500px;animation-delay:3.5s\"><span class=\"pd\"></span><span class=\"pl l\">Sommet</span></div><div class=\"rt-hd\"><div class=\"rt-t\"><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.1s\">Stage</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.16s\">7</span></span></span></div><div class=\"rt-k rise\" style=\"animation-delay:0.6s\"><span class=\"cnt n125\"></span> km</div></div></div></div><div class=\"tx tx-out\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#4a5447;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;}.cam{position:absolute;inset:0;animation:st-cam 6s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-grid{position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px),linear-gradient(90deg,color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px);background-size:108px 108px;background-position:-2px -2px}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-out{transform:translateY(101%);animation:tx-out 0.5s cubic-bezier(.76,0,.24,1) 5.5s both}@keyframes tx-out{to{transform:translateY(0)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}@property --n125{syntax:'<integer>';inherits:false;initial-value:0}\n.n125{counter-reset:n125 var(--n125);animation:n125-c 3s cubic-bezier(.16,1,.3,1) 0.5s both}\n.n125::after{content:counter(n125,decimal)}\n@keyframes n125-c{from{--n125:0}to{--n125:168}}.land{position:absolute;inset:0}.land i{position:absolute;display:block;background:color-mix(in srgb,var(--rf-text) 5%,transparent);border:2px solid color-mix(in srgb,var(--rf-text) 9%,transparent)}\n.rt{position:absolute;inset:0}\n.rp{fill:none;stroke:var(--rf-accent);stroke-width:10;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;animation:ld 3s cubic-bezier(.76,0,.24,1) 0.5s both}\n.rpd{fill:none;stroke:color-mix(in srgb,var(--rf-text) 30%,transparent);stroke-width:4;stroke-dasharray:4 18}\n@keyframes ld{to{stroke-dashoffset:0}}\n.pin{position:absolute;width:0;height:0;animation:k-pop .5s cubic-bezier(.16,1,.3,1) both}\n.pd{position:absolute;left:-24px;top:-24px;width:48px;height:48px;border-radius:50%;background:var(--rf-text);border:10px solid var(--rf-accent)}\n.pl{position:absolute;top:-30px;white-space:nowrap;font-size:42px;font-weight:600;padding:8px 22px;border-radius:16px;background:var(--rf-bg);border:2px solid color-mix(in srgb,var(--rf-text) 15%,transparent)}\n.pl.r{left:50px}.pl.l{right:50px}\n.rt-hd{position:absolute;left:90px;right:90px;top:200px}\n.rt-t{font-size:96px;font-weight:var(--rf-heading-weight);letter-spacing:-.04em;line-height:.98}\n.rt-k{margin-top:24px;font:500 46px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}",
+        "notes": "agent-written html scene (route)"
+      },
+      {
+        "id": "s2-stat",
+        "engine": "html",
+        "durationSeconds": 4,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><div class=\"num pop\" style=\"animation-delay:0.45s\"><span class=\"cnt n126\"></span><span class=\"aff\"> m</span></div><div class=\"meter\"><i style=\"width:90%\"></i></div><div class=\"lbl\"><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.95s\">of</span></span> <span class=\"mk-w\"><span style=\"animation-delay:1s\">climbing</span></span></span></div></div></div></div><div class=\"tx tx-in\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#4a5447;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-rise 0.8s cubic-bezier(.16,1,.3,1) both,st-fadeout 0.5s ease-in 3.5s both;}.cam{position:absolute;inset:0;animation:st-cam 4s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-in{transform:translateY(0);animation:tx-in 0.55s cubic-bezier(.76,0,.24,1) both}@keyframes tx-in{to{transform:translateY(-101%)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}@property --n126{syntax:'<integer>';inherits:false;initial-value:0}\n.n126{counter-reset:n126 var(--n126);animation:n126-c 1.8s cubic-bezier(.16,1,.3,1) 0.55s both}\n.n126::after{content:counter(n126,decimal)}\n@keyframes n126-c{from{--n126:0}to{--n126:3900}}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.eb{display:inline-block;font:500 32px/1.2 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}.acc{color:var(--rf-accent);font-style:normal}.wrap>div:first-child{margin-bottom:40px}\n.num{font-size:220px;line-height:.9;font-weight:600;letter-spacing:-.06em;color:var(--rf-text);font-variant-numeric:tabular-nums;transform-origin:left bottom}\n.aff{font-size:.5em;letter-spacing:-.02em;margin:0 .04em;color:var(--rf-accent)}\n.meter{height:22px;border-radius:99px;background:color-mix(in srgb,var(--rf-text) 12%,transparent);margin:40px 0 10px;overflow:hidden}\n.meter i{display:block;height:100%;border-radius:99px;background:var(--rf-accent);transform-origin:left;animation:mt 1.8s cubic-bezier(.16,1,.3,1) 0.55s both}\n@keyframes mt{from{transform:scaleX(0)}to{transform:none}}\n.lbl{margin-top:36px;font-size:66px;line-height:1.08;font-weight:600;letter-spacing:-.02em;color:var(--rf-text)}\n.note{margin:36px 0 0;font-size:42px;line-height:1.3;color:var(--rf-muted)}",
+        "notes": "agent-written html scene (stat)"
+      },
+      {
+        "id": "s3-animated",
+        "engine": "motion-canvas",
+        "durationSeconds": 6,
+        "template": "animated-explainer",
+        "props": {
+          "title": "Watch for",
+          "points": [
+            "Attacks on the final climb",
+            "Crosswinds by the lake",
+            "A sprint for the bonus seconds"
+          ]
+        }
+      }
+    ]
+  }
+}

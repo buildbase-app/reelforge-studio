@@ -1,0 +1,80 @@
+{
+  "gallery": {
+    "slug": "podcast-design-talk",
+    "title": "Design Talk podcast clip",
+    "description": "Podcast clip for the fictional show \"Design Talk\": waveform and captions, then a three-point recap.",
+    "category": "Podcast clip",
+    "tags": [
+      "podcast",
+      "design",
+      "captions"
+    ],
+    "prompt": "Podcast clip for the fictional show \"Design Talk\": waveform and captions, then a three-point recap. Cream palette, 15 seconds.",
+    "palette": "cream",
+    "theme": "midnight + inline tokens (Cream)",
+    "engines": [
+      "html",
+      "motion-canvas"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 15
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "podcast-design-talk",
+    "title": "Design Talk podcast clip",
+    "brief": {
+      "title": "Design Talk podcast clip",
+      "goal": "Podcast clip for the fictional show \"Design Talk\": waveform and captions, then a three-point recap. Cream palette, 15 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 15
+    },
+    "theme": {
+      "base": "midnight",
+      "tokens": {
+        "colors": {
+          "background": "#f7f3ec",
+          "surface": "#fffdf9",
+          "text": "#1e1b17",
+          "mutedText": "#625c52",
+          "accent": "#1f7a5a",
+          "accent2": "#8b8579"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-podcast",
+        "engine": "html",
+        "durationSeconds": 8,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"pc\"><div class=\"pc-av pop\" style=\"animation-delay:0.1s\"><span>JP</span></div><div class=\"pc-show rise\" style=\"animation-delay:0.3s\"><svg class=\"ic\" width=\"40\" height=\"40\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"11\" y=\"3\" width=\"10\" height=\"17\" rx=\"5\"/><path d=\"M6 15a10 10 0 0020 0M16 25v4\"/></svg> Design Talk</div><div class=\"pc-ep rise\" style=\"animation-delay:0.4s\">Ep. 19 · Defaults matter</div><div class=\"pc-wave\"><i style=\"height:20%;animation-delay:-0.56s\"></i><i style=\"height:58%;animation-delay:-0.78s\"></i><i style=\"height:74%;animation-delay:-0.35s\"></i><i style=\"height:19%;animation-delay:-0.63s\"></i><i style=\"height:39%;animation-delay:-0.21s\"></i><i style=\"height:91%;animation-delay:-0.55s\"></i><i style=\"height:81%;animation-delay:-1.19s\"></i><i style=\"height:81%;animation-delay:-1.20s\"></i><i style=\"height:21%;animation-delay:-1.12s\"></i><i style=\"height:71%;animation-delay:-0.36s\"></i><i style=\"height:100%;animation-delay:-0.11s\"></i><i style=\"height:70%;animation-delay:-0.84s\"></i><i style=\"height:49%;animation-delay:-1.00s\"></i><i style=\"height:90%;animation-delay:-0.57s\"></i><i style=\"height:91%;animation-delay:-0.12s\"></i><i style=\"height:85%;animation-delay:-0.17s\"></i><i style=\"height:34%;animation-delay:-0.78s\"></i><i style=\"height:81%;animation-delay:-0.38s\"></i><i style=\"height:44%;animation-delay:-0.60s\"></i><i style=\"height:84%;animation-delay:-1.11s\"></i><i style=\"height:65%;animation-delay:-0.53s\"></i><i style=\"height:33%;animation-delay:-1.14s\"></i><i style=\"height:59%;animation-delay:-0.21s\"></i><i style=\"height:41%;animation-delay:-0.15s\"></i><i style=\"height:47%;animation-delay:-0.01s\"></i><i style=\"height:57%;animation-delay:-0.63s\"></i><i style=\"height:23%;animation-delay:-0.71s\"></i><i style=\"height:30%;animation-delay:-1.05s\"></i><i style=\"height:41%;animation-delay:-0.67s\"></i><i style=\"height:93%;animation-delay:-0.67s\"></i><i style=\"height:52%;animation-delay:-0.59s\"></i><i style=\"height:51%;animation-delay:-0.12s\"></i><i style=\"height:48%;animation-delay:-0.02s\"></i><i style=\"height:26%;animation-delay:-0.57s\"></i><i style=\"height:41%;animation-delay:-0.86s\"></i><i style=\"height:73%;animation-delay:-1.04s\"></i><i style=\"height:53%;animation-delay:-0.76s\"></i><i style=\"height:94%;animation-delay:-0.45s\"></i><i style=\"height:43%;animation-delay:-0.56s\"></i><i style=\"height:94%;animation-delay:-0.11s\"></i><i style=\"height:71%;animation-delay:-0.92s\"></i><i style=\"height:52%;animation-delay:-0.49s\"></i><i style=\"height:41%;animation-delay:-1.13s\"></i><i style=\"height:84%;animation-delay:-0.10s\"></i><i style=\"height:83%;animation-delay:-1.05s\"></i><i style=\"height:61%;animation-delay:-1.05s\"></i><i style=\"height:59%;animation-delay:-0.41s\"></i><i style=\"height:94%;animation-delay:-1.15s\"></i><i style=\"height:56%;animation-delay:-0.59s\"></i><i style=\"height:48%;animation-delay:-0.81s\"></i><i style=\"height:52%;animation-delay:-0.84s\"></i><i style=\"height:88%;animation-delay:-1.04s\"></i><i style=\"height:74%;animation-delay:-0.01s\"></i><i style=\"height:58%;animation-delay:-0.65s\"></i><i style=\"height:45%;animation-delay:-0.12s\"></i><i style=\"height:85%;animation-delay:-0.03s\"></i></div><div class=\"pc-cap\"><span style=\"animation-delay:0.7s\">Most</span> <span style=\"animation-delay:1.258s\">people</span> <span style=\"animation-delay:1.817s\">never</span> <span style=\"animation-delay:2.375s\">change</span> <span style=\"animation-delay:2.933s\">a</span> <span style=\"animation-delay:3.492s\">setting,</span> <span style=\"animation-delay:4.05s\">so</span> <span style=\"animation-delay:4.608s\">the</span> <span style=\"animation-delay:5.167s\">default</span> <span style=\"animation-delay:5.725s\">is</span> <span style=\"animation-delay:6.283s\">the</span> <span style=\"animation-delay:6.842s\">design</span></div><div class=\"pc-host fade\" style=\"animation-delay:0.7s\">Jamie Placeholder · fictional host</div></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#d8d1c5;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-fadeout 0.5s ease-in 7.5s both;}.cam{position:absolute;inset:0;animation:st-cam 8s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.pc{position:absolute;left:80px;right:80px;top:260px;bottom:360px;display:flex;flex-direction:column;align-items:center;text-align:center}\n.pc-av{position:relative;width:300px;height:300px;border-radius:50%;background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 10%,transparent);display:flex;align-items:center;justify-content:center;font-size:110px;font-weight:500;color:var(--rf-text)}\n.pc-show{display:flex;align-items:center;gap:14px;margin-top:56px;font:500 32px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-accent)}\n.pc-ep{margin-top:18px;font-size:48px;font-weight:600;color:var(--rf-muted)}\n.pc-wave{display:flex;align-items:center;gap:7px;height:160px;width:100%;margin:46px 0}\n.pc-wave i{flex:1;border-radius:6px;background:var(--rf-accent);animation:pw .9s ease-in-out infinite alternate both}\n@keyframes pw{from{transform:scaleY(.25)}to{transform:scaleY(1)}}\n.pc-cap{font-size:76px;line-height:1.1;font-weight:600;letter-spacing:-.025em}\n.pc-cap span{color:color-mix(in srgb,var(--rf-text) 28%,transparent);animation:cw .25s ease-out both}\n@keyframes cw{to{color:var(--rf-text)}}\n.pc-host{margin-top:auto;font:500 28px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}",
+        "notes": "agent-written html scene (podcast)"
+      },
+      {
+        "id": "s2-animated",
+        "engine": "motion-canvas",
+        "durationSeconds": 7,
+        "template": "animated-explainer",
+        "props": {
+          "title": "From this episode",
+          "points": [
+            "Defaults decide behaviour",
+            "Make the safe choice the easy one",
+            "Test with people who never open settings"
+          ]
+        }
+      }
+    ]
+  }
+}

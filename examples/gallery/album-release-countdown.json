@@ -1,0 +1,92 @@
+{
+  "gallery": {
+    "slug": "album-release-countdown",
+    "title": "Album release countdown",
+    "description": "A release countdown for \"Afterglow\", a fictional album by the fictional band Low Tide: silk-line intro, tracklist timeline, countdown, and outro.",
+    "category": "Event",
+    "tags": [
+      "event",
+      "music",
+      "release"
+    ],
+    "prompt": "A release countdown for \"Afterglow\", a fictional album by the fictional band Low Tide: silk-line intro, tracklist timeline, countdown, and outro. Grape palette, 18 seconds.",
+    "palette": "grape",
+    "theme": "default + inline tokens (Plum)",
+    "engines": [
+      "hyperframes",
+      "html",
+      "remotion"
+    ],
+    "featured": false,
+    "music": "drive",
+    "durationSeconds": 18
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "album-release-countdown",
+    "title": "Album release countdown",
+    "brief": {
+      "title": "Album release countdown",
+      "goal": "A release countdown for \"Afterglow\", a fictional album by the fictional band Low Tide: silk-line intro, tracklist timeline, countdown, and outro. Grape palette, 18 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 18
+    },
+    "theme": {
+      "base": "default",
+      "tokens": {
+        "colors": {
+          "background": "#151014",
+          "surface": "#211a20",
+          "text": "#f5eef3",
+          "mutedText": "#b4a5af",
+          "accent": "#e85d8a",
+          "accent2": "#8f7f8a"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-flow",
+        "engine": "hyperframes",
+        "durationSeconds": 4,
+        "html": "<div class=\"clip hf-root\" data-start=\"0\" data-duration=\"4\" style=\"position:absolute;inset:0;overflow:hidden\"><style>#rf-root,.hf-root{--x3:#574953;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-zoomout 0.5s cubic-bezier(.7,0,.84,0) 3.5s both;}.cam{position:absolute;inset:0;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.ov{position:absolute;left:90px;right:90px;text-align:center;z-index:5}\n.ov-e{display:inline-block;font:500 32px/1.2 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted);margin-bottom:36px}\n.ov h1{margin:0;font-size:136px;line-height:.96;font-weight:var(--rf-heading-weight);letter-spacing:-.035em}\n.ov p{margin:40px auto 0;max-width:820px;font-size:46px;line-height:1.25;font-weight:400;color:var(--rf-muted)}</style><div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><canvas id=\"cv\" width=\"1080\" height=\"1920\" style=\"position:absolute;inset:0;width:1080px;height:1920px\"></canvas><div class=\"ov\" style=\"top:640px\"><div class=\"ov-e rise\" style=\"animation-delay:0.2s\">Low Tide</div><h1><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.35s\">Afterglow</span></span></span></h1><p class=\"rise\" style=\"animation-delay:0.9s\">The new album</p></div></div></div><script>(function(){\nvar E=function(x){return 1-Math.pow(2,-10*Math.min(1,Math.max(0,x)))};\nvar cnts=[].slice.call(document.querySelectorAll('.cnt'));\nvar cv=document.getElementById('cv'),g=cv.getContext('2d'),W=1080,H=1920;\nvar cs=getComputedStyle(document.documentElement);function V(n){return (cs.getPropertyValue(n)||'#fff').trim()}\nvar BG=V('--rf-bg'),TX=V('--rf-text'),A1=V('--rf-accent'),A2=V('--rf-accent2'),SF=V('--rf-surface');\nvar A3=getComputedStyle(document.querySelector('.hf-root')).getPropertyValue('--x3').trim()||A2;\nvar sd=3307471036;function R(){sd=(sd+0x6d2b79f5)>>>0;var t=sd;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296}\nfunction rgba(hex,a){hex=hex.replace('#','');var n=parseInt(hex,16);return 'rgba('+(n>>16&255)+','+(n>>8&255)+','+(n&255)+','+a+')'}\nfunction ease(x){x=Math.min(1,Math.max(0,x));return 1-Math.pow(2,-10*x)}\nvar N=54;var draw=function(t){g.fillStyle=BG;g.fillRect(0,0,W,H);\nvar e=ease(t*.9);g.lineWidth=3;\nfor(var i=0;i<N;i++){var f=i/(N-1);g.strokeStyle=f>.82?rgba(A1,.9*e):rgba(TX,(.08+.3*Math.sin(f*Math.PI))*e);g.beginPath();\nfor(var x=-40;x<=W+40;x+=24){var u=x/W;var y=H*.62+Math.sin(u*5.2+t*.9+f*2.4)*(150+f*90)*e+Math.cos(u*2.1-t*.6+f*3.1)*120+(f-.5)*260*Math.sin(u*3.1+t*.5);if(x<=-40)g.moveTo(x,y);else g.lineTo(x,y)}g.stroke()}};\nfunction seek(t){cnts.forEach(function(c){var a=+c.dataset.at,l=+c.dataset.len,f=+c.dataset.from,o=+c.dataset.to,p=+c.dataset.pad;var v=Math.round(f+(o-f)*E((t-a)/l));c.textContent=String(v).padStart(p,'0')});draw(t)}\nseek(0);\nwindow.__hfAnime=(window.__hfAnime||[]).concat([{seek:function(ms){seek(ms/1000)},pause:function(){},play:function(){}}]);\n})();</script></div>",
+        "notes": "agent-written hyperframes scene (flow)"
+      },
+      {
+        "id": "s2-timeline",
+        "engine": "html",
+        "durationSeconds": 6,
+        "html": "<div class=\"bd\"><div class=\"bd-split\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><h2><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.35s\">Side</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.41s\">A</span></span></span></h2><div class=\"tl\"><div class=\"tl-l\"></div><div class=\"ts\"><span class=\"td\" style=\"animation-delay:0.95s\"></span><div class=\"slide-r\" style=\"animation-delay:1s\"><b>01</b><span>Northern Lights</span></div></div><div class=\"ts\"><span class=\"td\" style=\"animation-delay:1.5s\"></span><div class=\"slide-r\" style=\"animation-delay:1.55s\"><b>02</b><span>Slow Burn</span></div></div><div class=\"ts\"><span class=\"td\" style=\"animation-delay:2.05s\"></span><div class=\"slide-r\" style=\"animation-delay:2.1s\"><b>03</b><span>Afterglow</span></div></div><div class=\"ts\"><span class=\"td\" style=\"animation-delay:2.6s\"></span><div class=\"slide-r\" style=\"animation-delay:2.65s\"><b>04</b><span>Harbor Song</span></div></div></div></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#574953;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-zoomin 0.7s cubic-bezier(.16,1,.3,1) both,st-zoomout 0.5s cubic-bezier(.7,0,.84,0) 5.5s both;}.cam{position:absolute;inset:0;animation:st-cam 6s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-split{position:absolute;left:0;right:0;bottom:0;height:38%;background:var(--rf-surface)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}h2{margin:0 0 70px;font-size:100px;line-height:.95;letter-spacing:-.045em;font-weight:var(--rf-heading-weight)}\n.tl{position:relative;padding-left:90px}\n.tl-l{position:absolute;left:28px;top:20px;bottom:20px;width:8px;border-radius:4px;background:color-mix(in srgb,var(--rf-text) 18%,transparent);transform-origin:top;animation:tll 2.6s linear 0.85s both}\n@keyframes tll{from{transform:scaleY(0)}}\n.ts{position:relative;margin-bottom:56px}\n.td{position:absolute;left:-84px;top:8px;width:52px;height:52px;border-radius:50%;background:var(--rf-bg);border:8px solid color-mix(in srgb,var(--rf-text) 40%,transparent);animation:k-pop .5s cubic-bezier(.16,1,.3,1) both}.ts:last-child .td{border-color:var(--rf-accent)}\n.ts b{display:block;font:500 32px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}\n.ts span{display:block;margin-top:12px;font-size:50px;font-weight:600;line-height:1.1;letter-spacing:-.02em}",
+        "notes": "agent-written html scene (timeline)"
+      },
+      {
+        "id": "s3-countdown",
+        "engine": "html",
+        "durationSeconds": 4.5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap ctr\"><div class=\"ebw\"><div class=\"eb rise\" style=\"animation-delay:0.35s\">Out in</div></div><div class=\"units\"><div class=\"u pop\" style=\"animation-delay:0.55s\"><div class=\"uv\"><span class=\"cnt n104\"></span></div><div class=\"ul\">days</div></div><div class=\"u pop\" style=\"animation-delay:0.67s\"><div class=\"uv\"><span class=\"cnt n105\"></span></div><div class=\"ul\">hrs</div></div><div class=\"u pop\" style=\"animation-delay:0.79s\"><div class=\"uv\"><span class=\"cnt n106\"></span></div><div class=\"ul\">min</div></div></div><h2><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.75s\">Pre-save</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.81s\">now</span></span></span></h2></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#574953;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-zoomin 0.7s cubic-bezier(.16,1,.3,1) both,st-fadeout 0.5s ease-in 4s both;}.cam{position:absolute;inset:0;animation:st-cam 4.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.eb{display:inline-block;font:500 32px/1.2 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}@property --n104{syntax:'<integer>';inherits:false;initial-value:20}\n.n104{counter-reset:n104 var(--n104);animation:n104-c 1.4s cubic-bezier(.16,1,.3,1) 0.65s both}\n.n104::after{content:counter(n104,decimal-leading-zero)}\n@keyframes n104-c{from{--n104:20}to{--n104:3}}@property --n105{syntax:'<integer>';inherits:false;initial-value:17}\n.n105{counter-reset:n105 var(--n105);animation:n105-c 1.4s cubic-bezier(.16,1,.3,1) 0.77s both}\n.n105::after{content:counter(n105,decimal-leading-zero)}\n@keyframes n105-c{from{--n105:17}to{--n105:0}}@property --n106{syntax:'<integer>';inherits:false;initial-value:17}\n.n106{counter-reset:n106 var(--n106);animation:n106-c 1.4s cubic-bezier(.16,1,.3,1) 0.89s both}\n.n106::after{content:counter(n106,decimal-leading-zero)}\n@keyframes n106-c{from{--n106:17}to{--n106:0}}.units{display:flex;gap:28px;width:100%}\n.u{flex:1;padding:50px 0 40px;border-radius:40px;text-align:center;background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 8%,transparent)}\n.uv{font:600 170px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;letter-spacing:-.04em;font-variant-numeric:tabular-nums}\n.ul{margin-top:20px;font:600 30px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}.ctr{align-items:center;text-align:center}.ebw{margin-bottom:60px}\nh2{margin:70px 0 0;font-size:88px;line-height:1;letter-spacing:-.04em;font-weight:var(--rf-heading-weight)}\n.dt{display:flex;align-items:center;gap:18px;margin-top:40px;font:500 38px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}",
+        "notes": "agent-written html scene (countdown)"
+      },
+      {
+        "id": "s4-kinetic",
+        "engine": "remotion",
+        "durationSeconds": 3.5,
+        "template": "kinetic-title",
+        "props": {
+          "headline": "Afterglow · Friday",
+          "subline": "Fictional band, original demo"
+        }
+      }
+    ]
+  }
+}

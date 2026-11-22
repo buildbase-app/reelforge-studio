@@ -1312,8 +1312,8 @@ version the server already uses.
 ## Q. Security hardening (2026-11-21, private security review SEC-01..SEC-20)
 
 Public-safe summary; findings and reproductions stay private. Defaults and
-settings: docs/security/HARDENING.md. Deferred: SEC-07 (queue and resource
-limits per key) follows the database job queue work.
+settings: docs/security/HARDENING.md. SEC-07 (queue and resource limits per
+key) followed the database job queue work: section S.
 
 ### D-085 --- Agent scene markup is parsed, and scenes have no network outside the page either
 
@@ -1376,8 +1376,7 @@ renderer for hours. Every HyperFrames render gets its own TMPDIR, inherited by
 the CLI, its browser and any helper; when the render ends (success, failure,
 timeout, cancel) the CLI's process group and every process carrying that
 TMPDIR are killed and awaited, because the browser runs in a process group of
-its own and outlives a group kill. Queue and per-key limits (SEC-07) are
-deferred to the job queue work.
+its own and outlives a group kill. Queue and per-key limits (SEC-07): D-090.
 
 ### D-088 --- Operational endpoints: /metrics needs its token, /readyz detail needs an admin key, /mcp Origin compares origins
 
@@ -1531,3 +1530,176 @@ operators patch with overlays; a chart can follow if buyers ask. Validated with
 kubeconform 0.7.0 (strict, 1.31 schemas) on the files and on `kubectl
 kustomize` output. A compose file for an api with N workers is in
 `deployment/compose/docker-compose.scale.yml`.
+
+## S. Resource limits (2026-11-22, issue #107, private security review SEC-07)
+
+Public-safe summary; the finding stays private. Defaults, errors and tests:
+docs/security/HARDENING.md#resource-limits; how each counter behaves with
+several instances: docs/providers/queue-and-scaling.md.
+
+### D-090 --- Safe default limits on jobs and render size, counted in the database
+
+**Status:** DECIDED (reversible).\
+Limits are runtime settings under `limits.*` (config file, environment,
+`update_config`), reported in `get_capabilities`. **Scale-aware defaults**
+(founder direction: one organisation licence must scale without a ceiling):
+deployment-wide caps follow the deployment and per-key caps must not stop one
+big key from using a large worker fleet. **Jobs:** `maxQueuedJobsPerKey` 100
+(unfinished render/preview jobs of one key); `maxQueuedJobs` defaults to 1000
+with the in-process queue (one box: protects its memory) and to 0 (off) with
+the database queue (the database and autoscaled workers absorb the load), the
+default being computed from the effective `queue.driver`/`server.role`;
+`maxRunningJobsPerKey` 0 (off). Claiming is **fair across keys** whatever the
+caps: the in-process pump and the database claim take the job of the key with
+the fewest running jobs, oldest first among equals (PostgreSQL/MySQL: plain
+reads decide the key order, then one index-ordered `FOR UPDATE SKIP LOCKED`
+locks a single job, because a locking read with a sort over all queued rows
+would lock all of them on MySQL; SQLite: one conditional `UPDATE`). One key
+alone still gets every slot; two keys share them evenly. The first two caps
+are checked inside the job insert transaction that already serves the render
+quota (D-078): under the key's row lock, or the `Workspace` row lock when the
+total cap is on, so they are exact across instances; jobs without a key count
+only against the total. Refusals are `429 too_many_jobs` / `queue_full` with
+`Retry-After: 30`. The running cap is applied where jobs start: the in-process
+pump skips a key at its cap (keeping its place), and the database claim query
+skips such keys when ordering them; exact on one worker, with possible
+overshoot of one per worker that claims at the same instant (accepted: a
+stricter scheme needs a global lock on every claim). **Render size:**
+`maxRenderSeconds` 180, `maxRenderFrames` 5400, `maxScenes` 50,
+`maxRenderDimension` 3840, `maxRenderFps` 60, checked from the manifest before
+any job exists (`422 render_limit_exceeded`, every exceeded limit named) and
+reported by `validate_project`; settings can only tighten the schema's maxima.
+The per-scene time limit of D-087 stays. `0` turns a job cap off; render limits
+have no off value because the schema bounds them anyway. Rejected: per-key
+overrides of every limit (the key-level render quotas of D-056 remain);
+admin-key exemptions (a leaked admin key is the worst case).
+
+### D-091 --- Provider calls: a daily cap per key and a server-wide daily budget, as shared usage counters
+
+**Status:** DECIDED (reversible).\
+`limits.providerRunsPerKeyPerDay` 500 and `limits.providerRunsPerDay` 0 (off by
+default: providers run on the buyer's own accounts; HARDENING.md recommends
+setting it from the provider plan) count
+real provider calls (cache hits are free, failed calls count) per UTC day, after
+`acknowledgeCost` and before the call. They reuse the `RateLimitWindow` table
+(keys `usage:provider-runs:key:<id>` and `usage:provider-runs:all`, the window is
+the UTC day), so no migration: every counter row is created first, then one
+transaction does a conditional `count = count + 1 WHERE count < limit` per
+counter, all or nothing; the row locks make it exact across instances. The
+hourly sweep deletes request windows after an hour and usage counters after two
+days. Refusals: `429 provider_limit_exceeded` / `provider_budget_exhausted`
+with `Retry-After` until midnight UTC; `get_key` shows `providerRunsToday`. The
+cap counts calls, not money: providers have no machine-readable price (only a
+`costNote`), so a per-provider cost unit is a possible follow-up.
+
+### D-092 --- Uploads and URL imports are streamed to a temporary file with a hard byte cap
+
+**Status:** DECIDED (reversible).\
+REST multipart uploads are parsed with busboy 1.6.0 (MIT) as a stream; the file
+part and URL import bodies go through `stageStream`: written to
+`<cacheDir>/upload-staging/` while hashing, stopped (source destroyed, partial
+file deleted, `413 too_large`) as soon as `limits.maxUploadBytes` is passed;
+then the storage driver's `putFile` stores the file. A declared
+`Content-Length` above the limit is refused before reading; Hono's `bodyLimit`
+is no longer used for uploads because it buffers chunked bodies. Form fields
+may come before or after the file. Every limit refusal (D-090..D-092) is counted
+in `reelforge.limits.rejections` with a fixed `reason` label and audited as
+`limit.rejected` (result `denied`).
+
+## T. Render at any scale: backends, fan-out, pluggable queues, licence (2026-11-22, research)
+
+Founder request (2026-11-22): rendering and the CRUD path must scale on the buyer's own
+infrastructure without limit (like Remotion Lambda / Cloud Run, or anything self-hosted),
+one organisation licence must cover any number of workers, and nothing may pause or
+overload when many videos render at once. Research, sources, provider matrix, capacity
+math and spike results: [docs/research/RENDER_SCALE.md](research/RENDER_SCALE.md). These
+are proposals for the work in the "Render at any scale" epic #149; each becomes DECIDED when its
+issue lands with tests.
+
+### D-095 --- Render backends: worker pools first, `worker --once` for job platforms, launchers and managed renderers as plugins
+
+**Status:** PROPOSED (2026-11-22).\
+Three kinds of backend behind one plugin interface (extends `RenderBackend`,
+`packages/core/src/plugins.ts`): (1) **worker pool**: N `worker` containers on any
+orchestrator claim from the queue (local, compose, VPS, Nomad, Kubernetes Deployment + KEDA,
+ECS service, Azure Container Apps); no new code, only recipes; (2) **one unit per container**:
+`reelforge worker --once [--job <id>]` claims one unit (optionally exactly that job id,
+fenced), runs it and exits, so platform job schedulers scale it (KEDA ScaledJob, ACA event
+jobs, AWS Batch, Cloud Run Jobs, ECS RunTask, Fly Machines) and scale-in never kills a running
+render; a **launcher** plugin calls the platform API ("run task", "execute job") where no
+queue-driven scaler exists; (3) **managed renderer** for one engine (Remotion Lambda), called by
+the worker that claimed a Remotion unit. The interface adds `capabilities()` (engines, maximum
+unit duration, frame-range support, scale-to-zero), `estimate()` (cost/time before the job,
+#28) and keeps `implemented: false` honesty. Every backend is "tested" only with an e2e against
+the real service or its emulator (#17 rule). **Why not one launcher per render as the default:**
+the worker pool needs no cloud credentials in the api, no per-render API calls and no
+cold start; launchers are for platforms and buyers who want scale-to-zero per render. **Why
+not Remotion Cloud Run:** Alpha and "not actively being developed" (Remotion docs, 2026-11-22).
+
+### D-096 --- The database stays the queue of record; dispatch is pluggable
+
+**Status:** PROPOSED (2026-11-22). Extends D-075.\
+Job state, leases, fencing, attempts, quotas and history stay in the `Job` table (D-075). A
+`queue.dispatch` driver only tells workers that work is ready: `poll` (default, today's
+behaviour, with backoff on empty polls), `notify` (PostgreSQL LISTEN/NOTIFY on a direct session
+connection; not through PgBouncer transaction mode), and external drivers carrying job ids only,
+at-least-once: SQS, Redis Streams, NATS JetStream, Azure Service Bus, Google Pub/Sub. Enqueue
+writes the job and an outbox row in one transaction; a relay publishes (the webhook outbox
+pattern, D-071). A worker that receives an id claims that id with the fenced compare-and-set;
+duplicates and stale messages are no-ops; the message is acknowledged after the claim, so broker
+lock limits (Service Bus 5 min) do not bound render length. **When:** the database queue's claim
+cost is far below render rates (100 000 renders/day ≈ 3.5 claims/s at peak); external dispatch is
+for idle-poll load (≈ one transaction per idle worker per second) above a few hundred workers
+and for cloud-native scalers (SQS/Service Bus). **Rejected:** moving job state into Redis/SQS
+(two sources of truth, loses quotas-in-one-transaction and fencing); BullMQ Pro groups as the
+fairness mechanism (paid add-on).
+
+### D-097 --- One render fans out per scene (and per frame range where the engine supports it), joined by stream copy
+
+**Status:** PROPOSED (2026-11-22). Extends D-018 (independent scene renders) and D-067.\
+A render becomes a parent job with one `render_unit` child per scene (per chunk for engines that
+declare frame ranges; Remotion first), all ordinary rows in the queue (same leases, attempts,
+fencing). Each unit renders and normalises its clip to the final encoding (`H264_ARGS`, same
+size/fps/pixel format/time base, IDR at frame 0, video only) and uploads it to the run's temp
+prefix with a manifest. The unit's fenced success decrements `pendingChildren` on the parent in
+the same transaction; the transaction that reaches 0 inserts the single `render_join`. The join
+concatenates with the concat demuxer and stream copy, mixes audio once on the full timeline,
+validates (frames, boundaries, A/V duration) and commits as today. A unit that fails after
+`maxAttempts` fails the parent and cancels its siblings; cancel cascades; retry reuses committed
+units of the same project version. Fan-out is opt-in per deployment (`render.fanOut`) and only
+used when there are idle workers or a time-capped backend; the single-worker filter-graph assembly
+stays the default path. **Why:** throughput already scales with workers; fan-out cuts the latency of
+long renders and lets renders fit time-capped platforms (Lambda: 15 min per Remotion's page,
+30 min per AWS's). Must pass a frame-exact equality test against the single-worker render.
+
+### D-098 --- Licence at scale: one activation per deployment (the shared database); only the api tier checks, once a day
+
+**Status:** PROPOSED (2026-11-22); touches licence-enforcement code (maintainer go-ahead needed).
+Refines D-036/D-037.\
+Measured (RENDER_SCALE.md §12): 1 api + 3/19/49 workers on one database take exactly one
+BuildBase activation (one instance id per database); a second database is a second activation
+(`limit_reached` at limit 1); but every process calls the licence server at start and daily (50
+processes = 50 calls), which grows with autoscaling churn. **Model:** a deployment = the set of
+instances sharing one database = one activation; unlimited api/worker processes, autoscaling and
+regions on one database are covered. Separate databases (other regions, staging) are separate
+activations; the store's tiers set `activationLimit` per number of deployments (founder, #91).
+**Change:** only `api`/`all` instances run licence checks, single-flight per deployment through a
+compare-and-set on the stored state (one check per day per deployment); `worker` instances never
+call the licence server, read the sealed shared state (D-089) and stop claiming render units when
+it disallows renders (the enqueue gate stays). **Rejected:** a configurable cluster id (copyable
+across companies); per-worker activations (punishes scaling); usage reporting (contradicts "no
+telemetry by default"; only as an explicit founder-approved opt-in, not designed).
+
+### D-099 --- Defaults: local pool for one machine; api + worker pool with KEDA or ACA for scale; Remotion Lambda opt-in after #10
+
+**Status:** PROPOSED (2026-11-22).\
+Recommended and tested-first, in order: (1) `all` role with the local pool (today); (2) `api` +
+`worker` pool on compose/VPS (today, tested); (3) Kubernetes + KEDA (PostgreSQL/MySQL scaler on
+the `Job` table, or the existing Prometheus metric), scale to zero, ScaledJob with `worker --once`
+for bursts: the reference "infinite" recipe, e2e on kind/k3d; (4) Azure Container Apps (KEDA scale
+rules natively); (5) ECS/Fargate service with target tracking on a published queue metric; AWS Batch,
+Cloud Run Jobs, ACA event jobs via `worker --once`; (6) Remotion Lambda for Remotion scenes only,
+blocked until Remotion answers #10 in writing. Pooling recipe (small `connection_limit` on workers,
+PgBouncer transaction mode or RDS Proxy) is part of every multi-instance recipe. Each recipe ships
+with its test-case table (docs/providers/backends.md) and a recorded run before the store may claim
+it.
