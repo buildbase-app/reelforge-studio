@@ -149,7 +149,7 @@ export interface JobRecord {
   finishedAt?: string;
   progress: JobProgress;
   result?: Record<string, unknown>;
-  error?: { code: string; message: string; stage?: string };
+  error?: { code: string; message: string; stage?: string; /** Fan-out: the unit or join job whose failure failed this render (D-097). */ unit?: string };
   /** Job this one retries, if any. */
   retryOf?: string;
   /** The API key that started it (render quotas). */
@@ -164,6 +164,26 @@ export interface JobRecord {
   leaseExpiresAt?: string;
   /** Set by cancel_job on another instance; the worker holding the job stops it at its next heartbeat. */
   cancelRequestedAt?: string;
+  /** Fan-out (D-097): the render this unit or join belongs to. */
+  parentId?: string;
+  /**
+   * Fan-out (D-097), on the parent: units still to succeed. Set when the parent
+   * fans out; the parent then stays `running` without a worker or lease until
+   * its join finishes it.
+   */
+  pendingChildren?: number;
+}
+
+/** What a child's final state did to its parent, in the same transaction (D-097). */
+export interface ChildSettlement {
+  /** The parent as written (null: no parent, or it had already finished). */
+  parent: JobRecord | null;
+  /** The parent reached a final state (succeeded with the join's result, failed or cancelled). */
+  parentFinished: boolean;
+  /** Queued siblings cancelled because the render failed or was cancelled. */
+  cancelled: JobRecord[];
+  /** The single join job, inserted by the transaction that took `pendingChildren` to 0. */
+  join: JobRecord | null;
 }
 
 /** A database-queue worker's claim on a job: writes only land while the job is still held by it. */
@@ -195,6 +215,8 @@ export type QuotaResult =
 
 export interface JobFilter {
   projectId?: string;
+  /** Fan-out: only the units and join of this render. */
+  parentId?: string;
   status?: JobStatus;
   type?: string;
 }
@@ -218,8 +240,38 @@ export interface JobRepository {
    * returns false when nothing was written.
    */
   update(job: JobRecord, fence?: JobLeaseFence): Promise<boolean>;
-  /** A state change: overwrite the job and record a status event, atomically. Fenced like `update`. */
+  /**
+   * A state change: overwrite the job and record a status event, atomically.
+   * Fenced like `update`. A final state of a fan-out child settles its parent
+   * in the same transaction (as `finishChild`).
+   */
   transition(job: JobRecord, at: string, fence?: JobLeaseFence): Promise<boolean>;
+  /**
+   * The final state of a fan-out child (`parentId` set; D-097), fenced like
+   * `transition`, and in the same transaction, after locking the parent row
+   * first (parent before child, everywhere, so these never deadlock): a unit's
+   * success decrements the parent's `pendingChildren` and the transaction that
+   * reaches 0 inserts the one join job; the join's success finishes the parent
+   * with its result; any failure or cancellation finishes the parent the same
+   * way, cancels queued siblings and asks running ones to stop. Nothing happens
+   * to a parent that already finished. Returns null when the fence did not hold.
+   */
+  finishChild(job: JobRecord, at: string, fence?: JobLeaseFence): Promise<ChildSettlement | null>;
+  /**
+   * Fan a running parent out (D-097), fenced by its claim: insert `children`
+   * (queued) with status events, set `pendingChildren` to their number, and
+   * release the parent's worker and lease (it stays `running`). Refused with
+   * `cancelled` when a cancel was requested meanwhile, `lost` when the fence
+   * does not hold.
+   */
+  fanOut(parent: JobRecord, children: JobRecord[], at: string, fence: JobLeaseFence): Promise<'ok' | 'lost' | 'cancelled'>;
+  /**
+   * Cancel a fanned-out parent (running, no lease): the parent and its queued
+   * children become `cancelled`, running children get a cancel request. Parent
+   * row first, then children. Returns what changed (parent first), or null when
+   * the job is not a fanned-out running parent.
+   */
+  cancelTree(id: string, at: string): Promise<JobRecord[] | null>;
   get(id: string): Promise<JobRecord | null>;
   /** Newest first. */
   list(filter?: JobFilter): Promise<JobRecord[]>;
@@ -243,7 +295,8 @@ export interface JobRepository {
     leaseUntil: string;
     /**
      * Skip jobs of API keys that already have this many database-queue jobs
-     * running (limits.maxRunningJobsPerKey, D-090). Exact on one worker; two
+     * running on a worker (limits.maxRunningJobsPerKey, D-090; a fanned-out
+     * parent holds no lease and is not counted). Exact on one worker; two
      * workers claiming at the same moment may each take one more.
      */
     maxRunningPerKey?: number;
@@ -259,8 +312,10 @@ export interface JobRepository {
    * Running database-queue jobs whose lease ended before `now`: queued again
    * (attempts < maxAttempts) or failed with `lease_expired`, each with a status
    * event and a log line. Concurrent callers never handle the same job twice.
+   * A fanned-out parent holds no lease and is never touched; a failed child
+   * settles its parent as `finishChild` does.
    */
-  recoverExpired(now: string, maxAttempts: number): Promise<{ requeued: JobRecord[]; failed: JobRecord[] }>;
+  recoverExpired(now: string, maxAttempts: number): Promise<{ requeued: JobRecord[]; failed: JobRecord[]; /** Parents and siblings a failed fan-out child finished or cancelled (D-097). */ settled?: JobRecord[] }>;
   /** Hand a held job back to the queue (graceful shutdown): queued, no worker, the attempt not counted. */
   release(id: string, fence: JobLeaseFence, at: string): Promise<boolean>;
   /** Cancel a job that is still queued. Returns the cancelled job, or null when it is not queued (any more). */

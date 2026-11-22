@@ -1882,7 +1882,9 @@ export const JobScalarFieldEnum = {
   attempts: 'attempts',
   workerId: 'workerId',
   leaseExpiresAt: 'leaseExpiresAt',
-  cancelRequestedAt: 'cancelRequestedAt'
+  cancelRequestedAt: 'cancelRequestedAt',
+  parentId: 'parentId',
+  pendingChildren: 'pendingChildren'
 } as const
 
 export type JobScalarFieldEnum = (typeof JobScalarFieldEnum)[keyof typeof JobScalarFieldEnum]

@@ -10,6 +10,7 @@ export * from './store';
 export * from './themes';
 export * from './assets';
 export * from './jobs';
+export * from './fanout';
 export * from './keys';
 export * from './keyStrength';
 export * from './audit';

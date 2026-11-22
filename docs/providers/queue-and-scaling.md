@@ -11,6 +11,7 @@ the latest result. Nothing is called supported without a passing case.
 - [Example: Kubernetes](#example-kubernetes)
 - [Autoscaling](#autoscaling)
 - [How the queue works](#how-the-queue-works)
+- [Render fan-out](#render-fan-out)
 - [Quotas and rate limits across instances](#quotas-and-rate-limits-across-instances)
 - [Licence across instances](#licence-across-instances)
 - [Test cases](#test-cases)
@@ -244,6 +245,81 @@ Metrics added by this work (labels bounded, never ids or worker names):
   died between the commit and the final state) is not rendered again: the
   retry finishes with that render.
 
+## Render fan-out
+
+Issue #156, D-097. Off by default (`render.fanOut: off`): one worker renders
+every scene and assembles the video, byte for byte as before. With
+`render.fanOut: scenes` (runtime setting, `REELFORGE_RENDER_FAN_OUT`) and the
+database queue, one long render uses several workers at once:
+
+1. The `render` job (the parent) is claimed as usual. For the `local` backend,
+   a full render (not a preview, not a scene subset) of two or more scenes, it
+   inserts one `render_unit` job per scene, fenced by its claim, sets
+   `pendingChildren` to their number and lets go of its worker and lease: it
+   stays `running` (stage `render`) on no worker, so it never holds a slot
+   (one worker with one slot still runs the parent, its units and the join),
+   is never re-queued by the lease recovery, and a cancel requested before the
+   fan-out was stored wins over it.
+2. Units are ordinary queued jobs (leases, attempts, fencing, heartbeats):
+   any worker claims one, renders that scene and uploads its clip, then a small
+   JSON manifest (last: the manifest marks the clip complete), to the run's
+   temporary prefix `projects/<id>/renders/.tmp-<runId>/units/<NN>.mp4|json`.
+3. A unit's final state is written in one transaction that **locks the parent
+   row first** (then the unit: parent before child everywhere, so these never
+   deadlock), then applies the shared policy (`packages/core/src/fanout.ts`):
+   success decrements `pendingChildren`, and the transaction that reaches 0
+   inserts the single `render_join`; the fenced write means a unit counts once
+   however often it was retried. FAN-02 runs 12 units finishing at the same
+   moment on SQLite, PostgreSQL 17 and MySQL 8.4: one join every time.
+4. The join fetches every unit (checking its manifest against the scene,
+   project version and frame count), assembles them with the audio, validates
+   and commits the render exactly as the single-worker pipeline does
+   (`finishRender`: probe, decode check, poster, manifest last), deletes the
+   units, and its success finishes the parent with the join's result in the
+   same transaction (so `render.ready` and `job.succeeded` fire for the
+   render). A join whose earlier attempt already committed finishes with that
+   render.
+
+**Failure, cancel, retry.** A unit that fails (an error in its render, or
+`lease_expired` after `queue.maxAttempts` lost leases) fails the parent with
+`error.unit` naming it and a message such as `unit 3/6 (scene "intro") failed:
+...`, cancels the queued siblings and asks the running ones to stop (they stop
+at their next heartbeat). `cancel_job` on the render cascades the same way;
+cancelling a unit or the join cancels its render. A late outcome of a sibling
+never changes a finished parent. An error inside a unit fails it at once, as
+for any job; only a crashed or lost worker gets another attempt. `retry_job`
+of a failed render keeps its run id, so its units find the clips the earlier
+render committed (same run, project version, scene, frames and output size)
+and reuse them instead of rendering again (FAN-13); units and joins cannot be
+retried on their own (409, retry the render). The temporary prefix of a run
+that is no longer queued or running is removed by the retention sweep after
+`storage.retention.tempHours` (as any unfinished upload); retry before that to
+reuse its units.
+
+**Progress.** Agents watch only the parent: `get_job`, `?wait=`/`waitSeconds`
+and SSE compute its progress from its children, frames done over the render's
+total frames (90 %, `detail` like `90/140 frames, 1/6 scenes rendered`), then
+the join (10 %). Units and the join are listed by `list_jobs` with `parentId`;
+webhooks and outbound events are sent for the render job only.
+
+**Queue order, fairness and limits.** Units carry the render's API key and
+queue position (`createdAt` just after the parent's, longest scene first; the
+join at the parent's), so a render already in progress finishes before renders
+submitted after it start, and fair claiming across keys (D-090) applies to
+units as to any job.
+
+| Limit | How units and the join count |
+| --- | --- |
+| `limits.maxQueuedJobsPerKey` | **not counted**: the cap is on renders and previews the key starts; the parent counts once (it stays unfinished until its join ends). Counting units would refuse or stall a key's own render half-way, and their number is already bounded by `limits.maxScenes` per render |
+| `limits.maxQueuedJobs` | not counted (same reason); a render adds at most `limits.maxScenes` + 1 rows |
+| render quotas (`rendersPerDay/Month`) | not counted: one render is one render |
+| `limits.maxRunningJobsPerKey` | **counted**: units and the join occupy worker slots; the fanned-out parent holds no lease and is not counted (else a key at its cap would wait for itself forever). With a cap of N a key's render uses at most N workers (FAN-08u, FAN-05) |
+| `limits.renderConcurrency` / `server.workerConcurrency` | per worker, as for any job |
+
+`worker --once` claims units and joins like any job; the run that fans a render
+out ends with outcome `fanned_out` (exit 0), so a job platform runs one
+container per unit (FAN-10u).
+
 ## Quotas and rate limits across instances
 
 **Render quotas** (`rendersPerDay` / `rendersPerMonth` on a key, D-056): the
@@ -313,7 +389,7 @@ or provider cap off. Full table with defaults and errors:
 | --- | --- | --- |
 | `limits.maxQueuedJobsPerKey` (unfinished jobs of one key) | 100 | in the job insert transaction, under the key's row lock (as the render quota): exact |
 | `limits.maxQueuedJobs` (queued jobs in total) | **0 (off) with the database queue**, 1000 with the in-process queue | when on: in the job insert transaction, under the `Workspace` row lock (every start waits there): exact. Off by default here because the database and autoscaled workers absorb the queue |
-| `limits.maxRunningJobsPerKey` (running jobs of one key) | 0 (off) | when on: the claim skips keys that already run that many database-queue jobs. Exact on one worker; two workers claiming at the same moment may each take one more |
+| `limits.maxRunningJobsPerKey` (running jobs of one key) | 0 (off) | when on: the claim skips keys that already run that many database-queue jobs on a worker (a fanned-out render parent holds no lease and is not counted; its units are, see [Render fan-out](#render-fan-out)). Exact on one worker; two workers claiming at the same moment may each take one more |
 | fair claiming (always on) | - | each claim first reads, without locks, the running jobs per key and the oldest queued job per key, then locks one job of the key with the fewest running jobs (oldest first) with `SELECT ... FOR UPDATE SKIP LOCKED` (MySQL: one candidate at a time by primary key, so a claim never holds a job it does not take), falling through to the next key when another transaction holds them all; SQLite does the same in its one conditional `UPDATE`. Two keys with 20 jobs each share 2 workers 10/10 (LIM-07) |
 | `limits.providerRunsPerKeyPerDay`, `limits.providerRunsPerDay` | 500, 0 (off) | usage counters in `RateLimitWindow` (keys `usage:...`, one row per UTC day), one conditional `UPDATE ... SET count = count + 1 WHERE count < limit` per counter in one transaction, all or nothing: exact. Swept after two days |
 | render size (`maxRenderSeconds`, `maxRenderFrames`, `maxScenes`, `maxRenderDimension`, `maxRenderFps`) | 180 s, 5400, 50, 3840 px, 60 | checked from the manifest before the job is created; no shared state |
@@ -377,6 +453,13 @@ and a job that dies while its worker shuts down is handed back, never failed
 | QUE-10 | 10 concurrent quota-limited inserts with limit 3: exactly 3 | contract (4 targets) | pass 2026-11-21 |
 | QUE-11 | shared rate-limit counters: 15 concurrent increments end at 15; sweep | contract (4 targets) | pass 2026-11-21 |
 | QUE-13 | claim by id (`worker --once --job`, #150): only that job, only while queued; of ten concurrent claims for one id one wins | contract (4 targets) | pass 2026-11-22 |
+| FAN-01 | `fanOut` is fenced: children inserted (queue position after the parent), the parent stays `running` with `pendingChildren` and no worker or lease; recovery and the running cap ignore it; a cancel requested first wins (`cancelled`); wrong fence `lost` | contract (4 targets) | pass 2026-11-22 |
+| FAN-02 | join exactly once under concurrent unit completions: 12 units claimed by 12 workers finish at the same moment, 3 rounds: one join each time, `pendingChildren` takes every value 11..0 once, a stale repeat is refused by the fence; the join's success finishes the parent with its result | contract (4 targets) | pass 2026-11-22 |
+| FAN-03 | a unit failing while others succeed at the same moment: the parent fails once (`error.unit`), queued units cancelled, a running one gets a cancel request (seen by its heartbeat), its late success changes nothing; no join | contract (4 targets) | pass 2026-11-22 |
+| FAN-04 | a unit's lease expires: queued again, then at `maxAttempts` failed `lease_expired`, which fails the parent and cancels the rest (`settled`); `cancelTree` cancels the parent and queued units, asks running ones to stop, and refuses anything that is not a fanned-out parent | contract (4 targets) | pass 2026-11-22 |
+| FAN-05 | `maxRunningPerKey` counts a key's running units, not its fanned-out parent | contract (4 targets) | pass 2026-11-22 |
+| FAN-01u..10u | runner: 6 units over 3 workers, one join, parent result and log; one worker with one slot runs it all; unit failure, cancel cascade (parent or unit), unit worker frozen → attempt 2 and one join, `lease_expired` at `maxAttempts`; parent progress = frames done / total then join, never backwards; running cap counts units only; units and joins cannot be retried; `worker --once` ends `fanned_out` and runs one unit per process | runner (`packages/core/test/fanout.queue.test.ts`) | pass 2026-11-22 |
+| FAN-10..14 | service, fake engine, 1 api + 3 worker instances on one database and data directory: `render.fanOut: scenes` → 4 units (longest first) on several workers, one join, the committed render's manifest lists every scene in timeline order, units removed, ffprobe equal to the same render with `off` (frames, size, rate, duration); previews and one-scene renders never fan out; `scenes+chunks` refused (setting and start-up); a failing unit fails the render and `retry_job` renders only that scene again; `cancel_job` on the api stops units running on workers | service (`packages/core/test/fanout.service.test.ts`) | pass 2026-11-22 |
 | QUE-12 | migration `0006_job_queue` applies (also concurrently from two processes, contract.test.ts) and the new columns round-trip | contract (4 targets) | pass 2026-11-21 |
 | QUE-14 | claims held open (each stops before its status event) after 60 finished jobs and fresh statistics; jobs of three keys, one row-locked by another transaction: every free job is held by exactly one claim, the extra claims find none, the locked job stays queued. Failed on MySQL before #168 (7 of 11: one claim locked every keyless job) | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
 | QUE-15 | as QUE-14 with 20 of a key's 24 jobs locked elsewhere (more than one page of MySQL claim candidates): the claims read on and take the free ones | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
@@ -422,7 +505,7 @@ and a job that dies while its worker shuts down is handed back, never failed
 Commands:
 
 ```bash
-pnpm --filter @reelforge/core exec vitest run test/jobs.queue.test.ts test/limits.test.ts
+pnpm --filter @reelforge/core exec vitest run test/jobs.queue.test.ts test/limits.test.ts test/fanout.queue.test.ts test/fanout.service.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://...?allowPublicKeyRetrieval=true \
   pnpm --filter @reelforge/db exec vitest run test/queue.contract.test.ts test/queue.processes.test.ts test/limits.contract.test.ts
 TEST_POSTGRES_URL=postgresql://... pnpm --filter @reelforge/server exec vitest run test/scaling.test.ts
@@ -472,3 +555,9 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 - Each `/readyz` dependency probe is capped at 5 s; a database that accepts
   connections but answers slowly still marks the instance not ready.
 - No Redis/BullMQ provider (D-075).
+- Render fan-out (#156) splits by scene only: frame ranges of long scenes
+  (`scenes+chunks`, Remotion first) are not built. The join still assembles
+  with the filter graph (it re-encodes, like the single-worker path); units
+  normalised to the final encoding and a stream-copy join, with the real-engine
+  e2e on PostgreSQL, MinIO and three workers, are the next step of #156. A
+  fanned-out render's progress is not sent as `job.progress` webhooks.

@@ -2,6 +2,7 @@ import type { Project, Theme } from '@reelforge/project-schema';
 import { conflict } from './errors';
 import { newId, newSequentialId } from './fsutil';
 import { createMemoryWebhookRepository } from './webhooks/memory';
+import { isFannedOut, isTerminal, settleChild, stopTree, type SettlementPlan } from './fanout';
 import {
   DEFAULT_WORKSPACE_ID,
   type ApiKeyPatch,
@@ -9,6 +10,7 @@ import {
   type AssetRecord,
   type AuditEntry,
   type AuditFilter,
+  type ChildSettlement,
   type IdempotencyRecord,
   type JobRecord,
   type ProjectMeta,
@@ -93,6 +95,29 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
     jobLogs.set(jobId, lines);
   };
   const jobLogs = new Map<string, string[]>();
+  /** Apply a fan-out settlement (D-097); synchronous, so atomic like the database transactions. */
+  const applyPlan = (plan: SettlementPlan, at: string): ChildSettlement => {
+    if (plan.parent) jobs.set(plan.parent.id, clone(plan.parent));
+    if (plan.join) jobs.set(plan.join.id, clone(plan.join));
+    const cancelled: JobRecord[] = [];
+    const stop = [...plan.stop];
+    for (const c of plan.cancel) {
+      if (jobs.get(c.id)?.status === 'queued') {
+        jobs.set(c.id, clone(c));
+        cancelled.push(clone(c));
+      } else stop.push(c.id);
+    }
+    for (const id of stop) {
+      const j = jobs.get(id);
+      if (j?.status === 'running') j.cancelRequestedAt ??= at;
+    }
+    return { parent: plan.parent ? clone(plan.parent) : null, parentFinished: plan.parentFinished, cancelled, join: plan.join ? clone(plan.join) : null };
+  };
+  const settle = (child: JobRecord, at: string): ChildSettlement => {
+    const parent = child.parentId ? (jobs.get(child.parentId) ?? null) : null;
+    const siblings = parent ? [...jobs.values()].filter((j) => j.parentId === parent.id) : [];
+    return applyPlan(settleChild(child, parent, siblings, at), at);
+  };
   const themes = new Map<string, Theme>();
   const settings = new Map<string, { value: StoredValue; info: ProviderSettingInfo }>();
   const runtimeSettings = new Map<string, StoredSetting>();
@@ -203,11 +228,38 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
       async transition(job, at, fence) {
         if (!holds(job.id, fence)) return false;
         jobs.set(job.id, workerWrite(job, fence));
+        if (job.parentId && isTerminal(job.status)) settle(jobs.get(job.id)!, at);
         return true;
+      },
+      async finishChild(job, at, fence) {
+        if (!holds(job.id, fence)) return null;
+        jobs.set(job.id, workerWrite(job, fence));
+        return settle(jobs.get(job.id)!, at);
+      },
+      async fanOut(parent, children, _at, fence) {
+        const stored = jobs.get(parent.id);
+        if (!stored || !holds(parent.id, fence)) return 'lost';
+        if (stored.cancelRequestedAt) return 'cancelled';
+        const next = workerWrite({ ...parent, status: 'running', pendingChildren: children.length }, fence);
+        delete next.workerId;
+        delete next.leaseExpiresAt;
+        jobs.set(parent.id, next);
+        for (const c of children) {
+          if (jobs.has(c.id)) throw conflict(`job "${c.id}" already exists`);
+          jobs.set(c.id, clone(c));
+        }
+        return 'ok';
+      },
+      async cancelTree(id, at) {
+        const parent = jobs.get(id);
+        if (!parent || !isFannedOut(parent)) return null;
+        const children = [...jobs.values()].filter((j) => j.parentId === id);
+        const r = applyPlan(stopTree(parent, children, 'cancelled', { code: 'cancelled', message: 'cancelled while running' }, at), at);
+        return [r.parent!, ...r.cancelled];
       },
       async claim({ workerId, types, now, leaseUntil, maxRunningPerKey, id }) {
         const running = new Map<string, number>();
-        for (const j of jobs.values()) if (j.status === 'running' && j.queue === 'database' && j.apiKeyId) running.set(j.apiKeyId, (running.get(j.apiKeyId) ?? 0) + 1);
+        for (const j of jobs.values()) if (j.status === 'running' && j.queue === 'database' && j.leaseExpiresAt && j.apiKeyId) running.set(j.apiKeyId, (running.get(j.apiKeyId) ?? 0) + 1);
         const next = [...jobs.values()]
           .filter((j) => j.status === 'queued' && j.queue === 'database' && types.includes(j.type) && (id === undefined || j.id === id))
           .filter((j) => maxRunningPerKey === undefined || !j.apiKeyId || (running.get(j.apiKeyId) ?? 0) < maxRunningPerKey)
@@ -232,15 +284,21 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
       async recoverExpired(now, maxAttempts) {
         const requeued: JobRecord[] = [];
         const failed: JobRecord[] = [];
-        for (const j of jobs.values()) {
+        const settled: JobRecord[] = [];
+        for (const j of [...jobs.values()]) {
           if (j.status !== 'running' || j.queue !== 'database' || !j.leaseExpiresAt || j.leaseExpiresAt >= now) continue;
           const lost = expiredUpdate(j, now, maxAttempts);
           Object.assign(j, lost.patch);
           for (const k of lost.unset) delete (j as unknown as Record<string, unknown>)[k];
           appendLine(j.id, now, lost.line);
           (lost.patch.status === 'queued' ? requeued : failed).push(clone(j));
+          if (j.parentId && isTerminal(j.status)) {
+            const r = settle(j, now);
+            if (r.parentFinished && r.parent) settled.push(r.parent);
+            settled.push(...r.cancelled);
+          }
         }
-        return { requeued, failed };
+        return { requeued, failed, settled };
       },
       async release(id, fence, at) {
         const j = jobs.get(id);
@@ -256,6 +314,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         const j = jobs.get(id);
         if (!j || j.status !== 'queued') return null;
         Object.assign(j, { status: 'cancelled', finishedAt: at, error });
+        if (j.parentId) settle(j, at);
         return clone(j);
       },
       async requestCancel(id, at) {
@@ -275,7 +334,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
       },
       async list(filter = {}) {
         return [...jobs.values()]
-          .filter((j) => (!filter.projectId || j.projectId === filter.projectId) && (!filter.status || j.status === filter.status) && (!filter.type || j.type === filter.type))
+          .filter((j) => (!filter.projectId || j.projectId === filter.projectId) && (!filter.parentId || j.parentId === filter.parentId) && (!filter.status || j.status === filter.status) && (!filter.type || j.type === filter.type))
           .sort(byNewest)
           .map(clone);
       },

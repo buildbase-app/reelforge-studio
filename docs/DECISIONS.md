@@ -1663,7 +1663,14 @@ fairness mechanism (paid add-on).
 
 ### D-097 --- One render fans out per scene (and per frame range where the engine supports it), joined by stream copy
 
-**Status:** PROPOSED (2026-11-22). Extends D-018 (independent scene renders) and D-067.\
+**Status:** PROPOSED (2026-11-22). Extends D-018 (independent scene renders) and D-067. **Step 1 built (#156):**
+the queue side (parent → one `render_unit` per scene → exactly one `render_join`; parent row locked first;
+`pendingChildren` decremented in the unit's fenced final transaction; failure and cancel cascades; retry
+reuses committed units; progress from the children; `render.fanOut` `off`/`scenes`, `scenes+chunks` refused),
+tested with fake engines and on SQLite, PostgreSQL 17 and MySQL 8.4 (FAN-*, docs/providers/queue-and-scaling.md).
+Units do not count against `limits.maxQueuedJobsPerKey`/`maxQueuedJobs` or render quotas (the render counts
+once); they do count against `maxRunningJobsPerKey` (worker slots), the fanned-out parent does not. Not built
+yet: normalised units with the stream-copy join and its real-engine e2e (step 2), frame ranges (step 3).\
 A render becomes a parent job with one `render_unit` child per scene (per chunk for engines that
 declare frame ranges; Remotion first), all ordinary rows in the queue (same leases, attempts,
 fencing). Each unit renders and normalises its clip to the final encoding (`H264_ARGS`, same

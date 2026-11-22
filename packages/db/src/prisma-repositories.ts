@@ -2,6 +2,12 @@ import type { Project, Theme } from '@reelforge/project-schema';
 import {
   conflict,
   expiredUpdate,
+  isFannedOut,
+  isTerminal,
+  settleChild,
+  stopTree,
+  type ChildSettlement,
+  type SettlementPlan,
   newId,
   newSequentialId,
   type ApiKeyPatch,
@@ -101,6 +107,8 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     workerId: string | null;
     leaseExpiresAt: Date | null;
     cancelRequestedAt: Date | null;
+    parentId: string | null;
+    pendingChildren: number | null;
   }): JobRecord => ({
     id: r.id,
     type: r.type,
@@ -119,6 +127,8 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     ...(r.workerId !== null ? { workerId: r.workerId } : {}),
     ...(r.leaseExpiresAt ? { leaseExpiresAt: iso(r.leaseExpiresAt) } : {}),
     ...(r.cancelRequestedAt ? { cancelRequestedAt: iso(r.cancelRequestedAt) } : {}),
+    ...(r.parentId !== null ? { parentId: r.parentId } : {}),
+    ...(r.pendingChildren !== null ? { pendingChildren: r.pendingChildren } : {}),
   });
   /** Columns a fenced (worker) write may change: the lease and a cancel request belong to the heartbeat and other instances. */
   const workerJobData = (j: JobRecord) => {
@@ -143,9 +153,53 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     workerId: j.workerId ?? null,
     leaseExpiresAt: j.leaseExpiresAt ? new Date(j.leaseExpiresAt) : null,
     cancelRequestedAt: j.cancelRequestedAt ? new Date(j.cancelRequestedAt) : null,
+    parentId: j.parentId ?? null,
+    pendingChildren: j.pendingChildren ?? null,
   });
   const statusEvent = (jobId: string, at: string, status: string) => ({ ...ws, jobId, at: new Date(at), type: 'status', message: status });
   const logEvent = (jobId: string, at: string, line: string) => ({ ...ws, jobId, at: new Date(at), type: 'log', message: line });
+  /** Row lock on a job (a no-op update): PostgreSQL/MySQL lock the row, SQLite takes the write lock. Fan-out locks the parent before any child. */
+  const lockJob = (tx: Tx, id: string) => tx.$executeRawUnsafe(`UPDATE ${qi('Job')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, id);
+  /** Write a fan-out settlement (D-097) inside the caller's transaction, which already holds the parent's row lock. */
+  const applyPlan = async (tx: Tx, plan: SettlementPlan, at: string): Promise<ChildSettlement> => {
+    if (plan.parent) {
+      await tx.job.updateMany({ where: { ...ws, id: plan.parent.id }, data: jobData(plan.parent) });
+      if (plan.parentFinished) await tx.jobEvent.create({ data: statusEvent(plan.parent.id, at, plan.parent.status) });
+    }
+    if (plan.join) {
+      await tx.job.create({ data: { ...ws, id: plan.join.id, ...jobData(plan.join) } });
+      await tx.jobEvent.create({ data: statusEvent(plan.join.id, at, 'queued') });
+    }
+    const cancelled: JobRecord[] = [];
+    const stop = [...plan.stop];
+    for (const c of plan.cancel) {
+      // Only while still queued: a worker may have claimed it since it was read; then ask that worker to stop it.
+      const r = await tx.job.updateMany({ where: { ...ws, id: c.id, status: 'queued' }, data: { status: 'cancelled', finishedAt: new Date(at), error: json(c.error) } });
+      if (r.count) {
+        await tx.jobEvent.create({ data: statusEvent(c.id, at, 'cancelled') });
+        cancelled.push(c);
+      } else stop.push(c.id);
+    }
+    if (stop.length) await tx.job.updateMany({ where: { ...ws, id: { in: stop }, status: 'running', cancelRequestedAt: null }, data: { cancelRequestedAt: new Date(at) } });
+    return { parent: plan.parent, parentFinished: plan.parentFinished, cancelled, join: plan.join };
+  };
+  /** Settle a fan-out child's parent (the parent row is already locked by this transaction). */
+  const settleIn = async (tx: Tx, child: JobRecord, at: string): Promise<ChildSettlement> => {
+    const row = child.parentId ? await tx.job.findFirst({ where: { ...ws, id: child.parentId } }) : null;
+    const siblings = row ? (await tx.job.findMany({ where: { ...ws, parentId: row.id } })).map(toJob) : [];
+    return applyPlan(tx, settleChild(child, row ? toJob(row) : null, siblings, at), at);
+  };
+  /** A child's fenced final write plus the settlement of its parent: parent row locked first. */
+  const finishChildTx = (job: JobRecord, at: string, fence?: JobLeaseFence) =>
+    prisma.$transaction(async (tx) => {
+      if (job.parentId) await lockJob(tx, job.parentId);
+      const where = fence ? { ...ws, id: job.id, ...fenceWhere(fence) } : { ...ws, id: job.id };
+      const data = fence ? { ...workerJobData(job), ...(TERMINAL_STATUSES.has(job.status) ? { leaseExpiresAt: null } : {}) } : jobData(job);
+      const r = await tx.job.updateMany({ where, data });
+      if (!r.count) return null;
+      await tx.jobEvent.create({ data: statusEvent(job.id, at, job.status) });
+      return settleIn(tx, job, at);
+    }, lockingTx);
 
   /**
    * Claim exactly one job (`worker --once --job <id>`, D-100): the same atomic,
@@ -164,7 +218,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       if (kind === 'sqlite') {
         // One statement under the write lock, the running cap included: atomic, no lost or double claims.
         const cap = capped
-          ? ` AND ("apiKeyId" IS NULL OR (SELECT COUNT(*) FROM "Job" "r" WHERE "r"."workspaceId" = "Job"."workspaceId" AND "r"."queue" = 'database' AND "r"."status" = 'running' AND "r"."apiKeyId" = "Job"."apiKeyId") < ?)`
+          ? ` AND ("apiKeyId" IS NULL OR (SELECT COUNT(*) FROM "Job" "r" WHERE "r"."workspaceId" = "Job"."workspaceId" AND "r"."queue" = 'database' AND "r"."status" = 'running' AND "r"."leaseExpiresAt" IS NOT NULL AND "r"."apiKeyId" = "Job"."apiKeyId") < ?)`
           : '';
         const rows: Array<{ id: string }> = await tx.$queryRawUnsafe(
           `UPDATE "Job" SET "status" = 'running', "workerId" = ? WHERE ${where}${cap} RETURNING "id"`,
@@ -179,7 +233,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           ...args
         );
         const one = rows[0];
-        if (one && one.k && capped && (await tx.job.count({ where: { ...ws, queue: 'database', status: 'running', apiKeyId: one.k } })) >= o.maxRunningPerKey!) return null;
+        if (one && one.k && capped && (await tx.job.count({ where: { ...ws, queue: 'database', status: 'running', leaseExpiresAt: { not: null }, apiKeyId: one.k } })) >= o.maxRunningPerKey!) return null;
         id = one?.id;
       }
       if (!id) return null;
@@ -457,6 +511,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         return (await prisma.job.updateMany({ where: { ...ws, id: job.id, ...fenceWhere(fence) }, data: workerJobData(job) })).count > 0;
       },
       async transition(job, at, fence) {
+        if (job.parentId && isTerminal(job.status)) return (await finishChildTx(job, at, fence)) !== null;
         if (!fence) {
           const [r] = await prisma.$transaction([
             prisma.job.updateMany({ where: { ...ws, id: job.id }, data: jobData(job) }),
@@ -471,6 +526,33 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           return true;
         }, TX);
       },
+      async finishChild(job, at, fence) {
+        return finishChildTx(job, at, fence);
+      },
+      async fanOut(parent, children, at, fence) {
+        return prisma.$transaction(async (tx) => {
+          const r = await tx.job.updateMany({
+            where: { ...ws, id: parent.id, ...fenceWhere(fence), cancelRequestedAt: null },
+            data: { ...workerJobData({ ...parent, status: 'running' }), pendingChildren: children.length, workerId: null, leaseExpiresAt: null },
+          });
+          if (!r.count) return (await tx.job.count({ where: { ...ws, id: parent.id, ...fenceWhere(fence) } })) ? ('cancelled' as const) : ('lost' as const);
+          for (const c of children) {
+            await tx.job.create({ data: { ...ws, id: c.id, ...jobData(c) } });
+            await tx.jobEvent.create({ data: statusEvent(c.id, at, c.status) });
+          }
+          return 'ok' as const;
+        }, lockingTx);
+      },
+      async cancelTree(id, at) {
+        return prisma.$transaction(async (tx) => {
+          await lockJob(tx, id);
+          const row = await tx.job.findFirst({ where: { ...ws, id } });
+          if (!row || !isFannedOut(toJob(row))) return null;
+          const children = (await tx.job.findMany({ where: { ...ws, parentId: id } })).map(toJob);
+          const r = await applyPlan(tx, stopTree(toJob(row), children, 'cancelled', { code: 'cancelled', message: 'cancelled while running' }, at), at);
+          return [r.parent!, ...r.cancelled];
+        }, lockingTx);
+      },
       async claim({ workerId, types, now, leaseUntil, maxRunningPerKey, id: only }) {
         if (!types.length) return null;
         if (only !== undefined) return claimOne({ workerId, types, now, leaseUntil, maxRunningPerKey, id: only });
@@ -483,7 +565,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           const j = qi('j');
           const running =
             `LEFT JOIN (SELECT ${qi('apiKeyId')}, COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = PH0` +
-            ` AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}) ${qi('r')}` +
+            ` AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('leaseExpiresAt')} IS NOT NULL AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}) ${qi('r')}` +
             ` ON ${qi('r')}.${qi('apiKeyId')} = ${j}.${qi('apiKeyId')}`;
           const pick = (first: number) =>
             (`SELECT ${j}.${qi('id')} FROM ${qi('Job')} ${j} ${running}` +
@@ -502,7 +584,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
             // for), falling through to the next key when all of this key's jobs are held.
             const typeIn = (first: number) => `${qi('type')} IN (${types.map((_, i) => ph(first + i)).join(', ')})`;
             const runningRows: Array<{ k: string; n: unknown }> = await tx.$queryRawUnsafe(
-              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}`,
+              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('leaseExpiresAt')} IS NOT NULL AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}`,
               workspaceId
             );
             const busy = new Map(runningRows.map((r) => [r.k, Number(r.n)]));
@@ -575,23 +657,32 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       async recoverExpired(now, maxAttempts) {
         const requeued: JobRecord[] = [];
         const failed: JobRecord[] = [];
+        const settled: JobRecord[] = [];
         const rows = await prisma.job.findMany({ where: { ...ws, queue: 'database', status: 'running', leaseExpiresAt: { lt: new Date(now) } }, orderBy: { leaseExpiresAt: 'asc' }, take: 100 });
         for (const r of rows) {
           const job = toJob(r);
           const u = expiredUpdate(job, now, maxAttempts);
           const next: JobRecord = { ...job, ...u.patch };
           for (const k of u.unset) delete (next as unknown as Record<string, unknown>)[k];
+          const child = next.parentId && isTerminal(next.status);
           const done = await prisma.$transaction(async (tx) => {
+            // A fan-out child that fails settles its parent: lock the parent first (as finishChild).
+            if (child) await lockJob(tx, next.parentId!);
             // Only if nobody renewed or recovered it since we read it.
             const res = await tx.job.updateMany({ where: { ...ws, id: r.id, status: 'running', leaseExpiresAt: r.leaseExpiresAt }, data: jobData(next) });
             if (!res.count) return false;
             await tx.jobEvent.create({ data: logEvent(r.id, now, u.line) });
             await tx.jobEvent.create({ data: statusEvent(r.id, now, next.status) });
+            if (child) {
+              const s = await settleIn(tx, next, now);
+              if (s.parentFinished && s.parent) settled.push(s.parent);
+              settled.push(...s.cancelled);
+            }
             return true;
-          }, TX);
+          }, child ? lockingTx : TX);
           if (done) (next.status === 'queued' ? requeued : failed).push(next);
         }
-        return { requeued, failed };
+        return { requeued, failed, settled };
       },
       async release(id, fence, at) {
         return prisma.$transaction(async (tx) => {
@@ -606,13 +697,16 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         }, TX);
       },
       async cancelQueued(id, at, error) {
+        const parentId = (await prisma.job.findFirst({ where: { ...ws, id }, select: { parentId: true } }))?.parentId ?? null;
         return prisma.$transaction(async (tx) => {
+          if (parentId) await lockJob(tx, parentId);
           const r = await tx.job.updateMany({ where: { ...ws, id, status: 'queued' }, data: { status: 'cancelled', finishedAt: new Date(at), error: json(error) } });
           if (!r.count) return null;
           await tx.jobEvent.create({ data: statusEvent(id, at, 'cancelled') });
           const row = await tx.job.findFirst({ where: { ...ws, id } });
+          if (row && parentId) await settleIn(tx, toJob(row), at);
           return row ? toJob(row) : null;
-        }, TX);
+        }, parentId ? lockingTx : TX);
       },
       async requestCancel(id, at) {
         const r = await prisma.job.updateMany({ where: { ...ws, id, status: 'running', cancelRequestedAt: null }, data: { cancelRequestedAt: new Date(at) } });
@@ -629,7 +723,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       },
       async list(filter = {}) {
         const rows = await prisma.job.findMany({
-          where: { ...ws, ...(filter.projectId ? { projectId: filter.projectId } : {}), ...(filter.status ? { status: filter.status } : {}), ...(filter.type ? { type: filter.type } : {}) },
+          where: { ...ws, ...(filter.projectId ? { projectId: filter.projectId } : {}), ...(filter.parentId ? { parentId: filter.parentId } : {}), ...(filter.status ? { status: filter.status } : {}), ...(filter.type ? { type: filter.type } : {}) },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         });
         return rows.map(toJob);

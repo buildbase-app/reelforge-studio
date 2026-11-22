@@ -745,6 +745,19 @@ export const ConfigSchema = z.object({
       description:
         'Hard limit for rendering one html or hyperframes scene, whatever its length (engines use their per-frame estimate when it is shorter). 30 to 3600 seconds.',
     }),
+    fanOut: setting(
+      z.enum(['off', 'scenes', 'scenes+chunks']).superRefine((v, ctx) => {
+        if (v === 'scenes+chunks') ctx.addIssue({ code: 'custom', message: '`scenes+chunks` is reserved for frame-range rendering of long scenes, which is not built yet (#156); use `scenes`' });
+      }),
+      {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_FAN_OUT',
+        default: 'off',
+        description:
+          'Split one render across workers (D-097, docs/providers/queue-and-scaling.md#render-fan-out). `off`: one worker renders every scene and assembles the video (the default; unchanged behaviour). `scenes`: with the database queue, a `render` of the `local` backend with two or more scenes becomes one `render_unit` job per scene, claimed by any worker, and one `render_join` job that assembles and commits the video; previews and the in-process queue always use one worker. `scenes+chunks` (frame ranges of long scenes) is reserved and refused until it is built.',
+      }
+    ),
     ffmpegPath: setting(nonEmpty(), {
       kind: 'path',
       scope: 'startup',

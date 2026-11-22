@@ -32,6 +32,7 @@ What `get_capabilities` reports under `backends[]` (`kind`, `configured`,
 | `local` | `pool` | yes | every engine installed on the server | none of its own | no (whole scenes) | no (the pool's size is the orchestrator's: KEDA can take workers to 0) | nothing | **tested** | BKD-01..08, the render tests of every engine |
 | `local` through `worker --once` on PostgreSQL 17 | `pool` | yes | as `local` | none | no | yes, per container (the job platform starts one per unit) | `server.role` `worker` + `REELFORGE_WORKER_ONCE=1` or `reelforge worker --once` | **tested** (processes, fake engines) | BKD-10u..18u, BKD-20..25, QUE-13 |
 | `local` through `worker --once` on MySQL 8.4 | `pool` | yes | as `local` | none | no | as above | as above | **tested** (processes, fake engines) | BKD-10u..18u, BKD-20..25, QUE-13 |
+| `local` with `render.fanOut: scenes` (#156, D-097) | `pool` | yes (scene units; the join assembles with the filter graph, stream-copy join next) | as `local` | one scene per unit | no (`scenes+chunks` reserved, refused) | as the pool | `render.fanOut: scenes` + the database queue | **tested** (fake engines; contract on SQLite, PostgreSQL 17, MySQL 8.4) | FAN-01..05, FAN-01u..10u, FAN-10..14 ([queue-and-scaling.md](queue-and-scaling.md#render-fan-out)) |
 | `local` through `worker --once` on SQLite | — | — | — | — | — | — | — | **refused** (a worker needs a shared database, D-076) | BKD-25 |
 | `remotion-lambda` | `managed` | **no** (configuration check only; `submit` answers `not_implemented` 501) | `remotion` | 900 s (Lambda's 15-minute cap, Remotion docs, read 2026-11-22) | yes (design) | yes (design) | `REMOTION_LAMBDA_REGION`, `REMOTION_LAMBDA_FUNCTION_NAME`, `REMOTION_LAMBDA_SERVE_URL` | skeleton; capabilities describe the design for #157 | BKD-01..08 |
 
@@ -170,6 +171,10 @@ cases in [queue-and-scaling.md](queue-and-scaling.md).
   (#125).
 - A `--once` worker has no HTTP endpoint, so no `/metrics` to scrape; the
   job's state, logs and duration are in the database like any job's.
+- With `render.fanOut: scenes` a `--once` run that claims a render only fans
+  it out (outcome `fanned_out`, exit 0); its units and join are claimed by
+  later runs, one per container. Frame ranges (`capabilities().frameRanges`)
+  are not used by the local pool yet (#156, step 3).
 - The once worker starts the full service (database, storage, settings), about
   2–4 s before it claims; pre-built engine bundles (`pnpm prebuild:engines`,
   done in the image) keep the first render fast.
