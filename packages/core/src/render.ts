@@ -4,7 +4,10 @@ import {
   PipelineError,
   assemble,
   assertDecodable,
+  avDurations,
   checkExpectation,
+  checkTimestamps,
+  concatClips,
   probe,
   run,
   toolVersion,
@@ -226,6 +229,12 @@ export interface FinishRenderInput {
   fullTimeline: boolean;
   output: OutputSettings;
   started: number;
+  /**
+   * Render fan-out (D-097): the clips are normalised to the final encoding, so
+   * join them with the concat demuxer and stream copy (no re-encode) and check
+   * the joined timestamps and A/V durations too. Unset: assemble() re-encodes.
+   */
+  streamCopy?: boolean;
 }
 
 /**
@@ -259,8 +268,10 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
 
   input.progress('assemble', 0.87);
   const finalTmp = join(tmp, 'final.mp4');
-  log(`assemble: ${clips.length} clips${music ? ' + music' : ''}${voice ? ' + voice' : ''}${sfx.length ? ` + ${sfx.length} sfx` : ''}`);
-  const assembled = await ffmpegSpan('ffmpeg assemble', () => assemble({
+  log(`${f.streamCopy ? 'join (concat, video stream copy)' : 'assemble'}: ${clips.length} clips${music ? ' + music' : ''}${voice ? ' + voice' : ''}${sfx.length ? ` + ${sfx.length} sfx` : ''}`);
+  const assembled = await ffmpegSpan(f.streamCopy ? 'ffmpeg join' : 'ffmpeg assemble', () => f.streamCopy
+    ? concatClips({ ffmpeg: tools.ffmpeg, clips, out: finalTmp, fps: output.fps, listFile: join(tmp, 'concat.txt'), music, voice, sfx, signal })
+    : assemble({
     ffmpeg: tools.ffmpeg,
     ffprobe: tools.ffprobe,
     clips,
@@ -288,6 +299,14 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     problems.push(`duration is ${info.durationSeconds}s, expected ${expectedSeconds}s`);
   }
   if (info.audioCodec !== 'aac') problems.push(`audio codec is ${info.audioCodec}, expected aac`);
+  if (f.streamCopy) {
+    // A stream-copy join: every frame exactly once, one frame apart (no duplicated or missing frame at a boundary), and audio as long as video.
+    problems.push(...(await ffmpegSpan('ffprobe timestamps', () => checkTimestamps(tools.ffprobe, finalTmp, assembled.totalFrames, output.fps))));
+    const d = await avDurations(tools.ffprobe, finalTmp);
+    if (d.audio === null || Math.abs(d.audio - expectedSeconds) > 0.05 || Math.abs(d.video - expectedSeconds) > 0.001) {
+      problems.push(`A/V durations are ${d.video}s video / ${d.audio}s audio, expected ${expectedSeconds}s`);
+    }
+  }
   await ffmpegSpan('ffmpeg decode check', () => assertDecodable(tools.ffmpeg, finalTmp));
   if (problems.length) throw new PipelineError('validate:output', problems.join('; '));
 
@@ -326,7 +345,8 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
       browser: browsers.length ? browsers : ['(not reported)'],
     },
     ffmpegAssembleArgs: assembled.args.map((arg) => (arg.startsWith(tmp) ? rel(arg) : arg.includes(sep) && arg.startsWith('/') ? '<asset>' : arg)),
-    checks: { metadata: 'pass', decode: 'pass', duration: 'pass' },
+    checks: { metadata: 'pass', decode: 'pass', duration: 'pass', ...(f.streamCopy ? { timestamps: 'pass', avDuration: 'pass' } : {}) },
+    ...(f.streamCopy ? { join: { method: 'concat demuxer, video stream copy', clips: clips.length } } : {}),
     project,
   };
   await writeJsonAtomic(join(tmp, 'render-manifest.json'), manifest);

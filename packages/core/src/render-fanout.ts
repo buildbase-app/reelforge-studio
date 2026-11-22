@@ -2,7 +2,7 @@ import { createWriteStream } from 'node:fs';
 import { copyFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { PipelineError, type Tools } from '@reelforge/media-pipeline';
+import { PipelineError, normaliseClip, streamParams, toolVersion, type StreamParams, type Tools } from '@reelforge/media-pipeline';
 import { timeline, type Project, type ThemeTokens } from '@reelforge/project-schema';
 import { JOIN_JOB_TYPE, UNIT_JOB_TYPE, type ChildSpec } from './fanout';
 import type { JobContext } from './jobs';
@@ -19,11 +19,16 @@ import type { Telemetry } from './telemetry';
  * is in jobs.ts and the repositories; this file renders one scene per unit and
  * stitches the units' clips in the join.
  *
- * Storage: each unit uploads its clip and then a small JSON manifest (last, so
- * a manifest means a complete clip) to the run's temporary prefix,
- * `projects/<id>/renders/.tmp-<runId>/units/<NN>.mp4|json`. The join reads
- * every manifest, assembles, validates and commits the render as the
- * single-worker pipeline does (manifest last), then deletes the units. The
+ * Storage: each unit renders its scene, normalises it to the final encoding
+ * (normaliseClip: the render's size, fps, yuv420p, H.264 high, exact frame
+ * count, IDR at frame 0, video only) and uploads the clip and then a small
+ * JSON manifest (last, so a manifest means a complete clip) to the run's
+ * temporary prefix, `projects/<id>/renders/.tmp-<runId>/units/<NN>.mp4|json`.
+ * The join reads every manifest, checks that every clip has the same stream
+ * parameters and FFmpeg build, joins them with the concat demuxer and stream
+ * copy (the video is encoded once, by the units), mixes the audio once over
+ * the whole timeline, validates and commits the render as the single-worker
+ * pipeline does (manifest last), then deletes the units. The
  * retention sweep removes the prefix of a run that is no longer queued or
  * running after `storage.retention.tempHours`; until then `retry_job` of a
  * failed render reuses the units it finds (same run id, project version,
@@ -58,6 +63,9 @@ interface UnitManifest {
   frames: number;
   output: { width: number; height: number; fps: number };
   clip: Omit<SceneClip, 'file'>;
+  /** The normalised clip's stream parameters and the FFmpeg that encoded it: every unit of a join must agree. */
+  stream: StreamParams;
+  ffmpeg: string;
   jobId: string;
   attempt: number;
   createdAt: string;
@@ -141,14 +149,20 @@ export async function renderUnit(deps: FanOutDeps, ctx: JobContext): Promise<Rec
       telemetry: deps.telemetry,
       scene,
       output: project.output,
-      out: join(work, 'clip.mp4'),
+      out: join(work, 'engine.mp4'),
       workDir: join(work, 'work'),
-      progress: (n, total) => ctx.progress('render', (0.95 * Math.min(n, total)) / Math.max(1, total), `${n}/${total} frames`),
+      progress: (n, total) => ctx.progress('render', (0.85 * Math.min(n, total)) / Math.max(1, total), `${n}/${total} frames`),
     });
     if (ctx.signal.aborted) throw new PipelineError('unit', 'cancelled');
+    // Normalise once here, so the join can stream-copy (D-097).
+    ctx.progress('normalise', 0.87);
+    const tools = deps.tools();
+    const normalised = join(work, 'clip.mp4');
+    await normaliseClip({ ffmpeg: tools.ffmpeg, ffprobe: tools.ffprobe, input: clip.file, out: normalised, width: output.width, height: output.height, fps: output.fps, frames: p.frames, signal: ctx.signal });
+    const stream = await streamParams(tools.ffprobe, normalised);
     ctx.progress('upload', 0.97);
     const clipKey = unitKey(p.projectId, p.runId, p.index, 'mp4');
-    await deps.storage.driver.putFile(clipKey, clip.file);
+    await deps.storage.driver.putFile(clipKey, normalised);
     const { file: _file, ...info } = clip;
     const manifest: UnitManifest = {
       kind: 'render-unit',
@@ -159,6 +173,8 @@ export async function renderUnit(deps: FanOutDeps, ctx: JobContext): Promise<Rec
       frames: p.frames,
       output,
       clip: info,
+      stream,
+      ffmpeg: toolVersion(tools.ffmpeg),
       jobId: ctx.job.id,
       attempt: ctx.job.attempts ?? 1,
       createdAt: new Date().toISOString(),
@@ -199,6 +215,7 @@ export async function joinUnits(deps: FanOutDeps, ctx: JobContext): Promise<Join
   let res: RenderPipelineResult;
   try {
     const clips: SceneClip[] = [];
+    const manifests: UnitManifest[] = [];
     for (const [i, scene] of scenes.entries()) {
       if (ctx.signal.aborted) throw new PipelineError('join', 'cancelled');
       const m = await readManifest(deps.storage, unitKey(pid, p.runId, i, 'json'));
@@ -211,9 +228,15 @@ export async function joinUnits(deps: FanOutDeps, ctx: JobContext): Promise<Join
       if (direct) await copyFile(direct, file);
       else await pipeline(await deps.storage.driver.get(key), createWriteStream(file));
       clips.push({ ...m.clip, file, startFrame: scene.startFrame });
+      manifests.push(m);
       ctx.progress('fetch', (0.1 * (i + 1)) / scenes.length, `unit ${i + 1}/${scenes.length}`);
     }
+    // Stream copy needs the same streams in every clip ("same codecs, same time base, etc."): units from another FFmpeg
+    // build or an older version re-encode in assemble() instead, which is slower but always correct.
+    const differs = joinMismatch(manifests);
+    if (differs) ctx.log(`join: ${differs}; re-encoding with the filter graph instead of stream copy`);
     res = await finishRender({
+      streamCopy: !differs,
       input: {
         runId: p.runId,
         kind: 'render',
@@ -254,6 +277,21 @@ export async function joinUnits(deps: FanOutDeps, ctx: JobContext): Promise<Join
   await removeUnits(deps, pid, p.runId).catch((e: Error) => ctx.log(`could not delete the units of ${p.runId} (the retention sweep removes them): ${e.message}`));
   if (!local) await rm(runTmp, { recursive: true, force: true });
   return { ...res, stored: local ? res.dir : renderPrefix(pid, p.runId) };
+}
+
+/** Why the units' clips cannot be joined by stream copy, or null when they can. */
+function joinMismatch(ms: UnitManifest[]): string | null {
+  const first = ms[0];
+  if (!first) return 'no units';
+  for (const m of ms) {
+    if (!m.stream || !m.ffmpeg) return `unit ${m.index + 1} has no stream parameters (made by an older version)`;
+    if (m.ffmpeg !== first.ffmpeg) return `unit ${m.index + 1} was encoded by another FFmpeg build (${m.ffmpeg} vs ${first.ffmpeg})`;
+    const a = JSON.stringify(m.stream);
+    const b = JSON.stringify(first.stream);
+    if (a !== b) return `unit ${m.index + 1} has other stream parameters (${a} vs ${b})`;
+    if (m.stream.otherStreams !== 0) return `unit ${m.index + 1} has more than a video stream`;
+  }
+  return null;
 }
 
 async function removeUnits(deps: FanOutDeps, projectId: string, runId: string) {

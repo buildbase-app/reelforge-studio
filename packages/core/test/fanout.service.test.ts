@@ -106,6 +106,10 @@ describe('render fan-out in the service (fake engine)', () => {
       ['d', 165, 60],
     ]);
     expect(m.scenes.map((s: { file: string }) => s.file)).toEqual(['clips/01-a.mp4', 'clips/02-b.mp4', 'clips/03-c.mp4', 'clips/04-d.mp4']);
+    // Joined by stream copy (units normalised to the final encoding), with the extra checks of the join.
+    expect(m.join).toEqual({ method: 'concat demuxer, video stream copy', clips: 4 });
+    expect(m.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', timestamps: 'pass', avDuration: 'pass' });
+    expect(m.ffmpegAssembleArgs).toEqual(expect.arrayContaining(['concat', 'copy']));
     expect(existsSync(join(rendersDir, `.tmp-${runId}`))).toBe(false);
     const fanned = await probe(resolveTools().ffprobe, join(rendersDir, runId, 'final.mp4'));
     // The same project rendered by one worker (fan-out off) has the same frames, size, rate and duration.
@@ -156,6 +160,31 @@ describe('render fan-out in the service (fake engine)', () => {
     expect(engines.remotion.renders.length + engines.mc.renders.length - before).toBe(4 - committed.length);
     const reused = (await children(retry)).filter((k) => k.result?.reused);
     expect(reused.map((k) => (k.params as { sceneId: string }).sceneId).sort()).toEqual([...committed].sort());
+  }, 90_000);
+
+  it('FAN-15 the retention sweep removes the temporary units of a run that is no longer queued or running, never of an active one', async () => {
+    failing.add('a'); // the shortest scene is claimed last, after a unit has committed
+    const failed = await api.waitForJob((await api.startRender('retry')).id, 60);
+    failing.clear();
+    expect(failed.status).toBe('failed');
+    const end = Date.now() + 10_000;
+    while ((await children(failed)).some((k) => k.status === 'queued' || k.status === 'running') && Date.now() < end) await new Promise((r) => setTimeout(r, 30));
+    const runId = (failed.params as { runId: string }).runId;
+    const unitsDir = join(dir, 'data', 'projects', 'retry', 'renders', `.tmp-${runId}`, 'units');
+    expect(readdirSync(unitsDir).some((f) => f.endsWith('.mp4'))).toBe(true);
+    // A run still in progress keeps its units however old they are.
+    blocking.add('a');
+    const active = await api.startRender('retry');
+    const activeDir = join(dir, 'data', 'projects', 'retry', 'renders', `.tmp-${(active.params as { runId: string }).runId}`, 'units');
+    const until = Date.now() + 20_000;
+    while (!(existsSync(activeDir) && readdirSync(activeDir).some((f) => f.endsWith('.json'))) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    const report = await api.storage.cleanup({ overrides: { tempHours: 0, renderDays: 0, keepLastRendersPerProject: 0 } });
+    expect(report.temp.map((t) => t.runId)).toContain(`.tmp-${runId}`);
+    expect(report.temp.map((t) => t.runId)).not.toContain(`.tmp-${(active.params as { runId: string }).runId}`);
+    expect(existsSync(unitsDir) ? readdirSync(unitsDir) : []).toEqual([]);
+    expect(readdirSync(activeDir).length).toBeGreaterThan(0);
+    await api.cancelJob(active.id);
+    blocking.clear();
   }, 90_000);
 
   it('FAN-14 cancel_job on a fanned-out render on the api stops its units on the workers', async () => {

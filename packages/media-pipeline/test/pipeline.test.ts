@@ -6,8 +6,13 @@ import {
   PipelineError,
   assemble,
   assertDecodable,
+  avDurations,
   checkExpectation,
+  checkTimestamps,
+  concatClips,
   frameStats,
+  normaliseClip,
+  streamParams,
   probe,
   resolveTools,
   run,
@@ -279,4 +284,73 @@ describe('checkExpectation', () => {
     );
     expect(problems).toHaveLength(5);
   });
+});
+
+describe('normaliseClip + concatClips (render fan-out, D-097)', () => {
+  const framemd5 = async (file: string) =>
+    (await run(tools.ffmpeg, ['-hide_banner', '-v', 'error', '-i', file, '-map', '0:v', '-f', 'framemd5', '-'], 'md5')).stdout
+      .split('\n')
+      .filter((l) => l && !l.startsWith('#'))
+      .map((l) => l.split(',').pop()!.trim());
+
+  it('FAN-20 normalised clips join by stream copy: decoded frames identical to the clips, one frame apart, same streams as assemble(), A/V equal', async () => {
+    // Clips as engines deliver them: other sizes, rates, pixel formats, and more frames than the scene needs.
+    const raw = [
+      await makeClip('fan-a.mp4', { w: 360, h: 640, fps: 30, frames: 50 }),
+      await makeClip('fan-b.mp4', { w: 400, h: 600, fps: 25, frames: 70, pixFmt: 'yuv444p' }),
+      await makeClip('fan-c.mp4', { w: 360, h: 640, fps: 60, frames: 130 }),
+    ];
+    const frames = [45, 48, 60];
+    const norm = [];
+    for (const [i, input] of raw.entries()) {
+      const out = join(dir, `fan-n${i}.mp4`);
+      await normaliseClip({ ffmpeg: tools.ffmpeg, ffprobe: tools.ffprobe, input, out, width: 360, height: 640, fps: 30, frames: frames[i]! });
+      expect(checkExpectation(await probe(tools.ffprobe, out), { width: 360, height: 640, fps: 30, frames: frames[i]!, audio: false })).toEqual([]);
+      expect(await checkTimestamps(tools.ffprobe, out, frames[i]!, 30)).toEqual([]); // IDR first, from pts 0
+      norm.push(out);
+    }
+    const params = await Promise.all(norm.map((f) => streamParams(tools.ffprobe, f)));
+    expect(new Set(params.map((p) => JSON.stringify(p))).size).toBe(1);
+    expect(params[0]).toMatchObject({ codec: 'h264', profile: 'High', pixelFormat: 'yuv420p', width: 360, height: 640, frameRate: '30/1', otherStreams: 0 });
+
+    const joined = join(dir, 'fan-joined.mp4');
+    const r = await concatClips({ ffmpeg: tools.ffmpeg, clips: norm.map((file, i) => ({ file, frames: frames[i]! })), out: joined, fps: 30, listFile: join(dir, 'fan-list.txt') });
+    expect(r.totalFrames).toBe(153);
+    expect(r.args).toContain('copy');
+    // Stream copy: the decoded frames are exactly the clips' frames, in order (no duplicate or missing frame at a boundary).
+    const expected = (await Promise.all(norm.map(framemd5))).flat();
+    expect(await framemd5(joined)).toEqual(expected);
+    expect(await checkTimestamps(tools.ffprobe, joined, 153, 30)).toEqual([]);
+    const d = await avDurations(tools.ffprobe, joined);
+    expect(d.video).toBeCloseTo(5.1, 3);
+    expect(Math.abs(d.audio! - 5.1)).toBeLessThan(0.05);
+
+    // The same clips through assemble() (one re-encode of the whole timeline): same frames, streams and durations.
+    const single = join(dir, 'fan-single.mp4');
+    await assemble({ ffmpeg: tools.ffmpeg, ffprobe: tools.ffprobe, clips: raw.map((file, i) => ({ sceneId: `s${i}`, file, frames: frames[i]! })), out: single, width: 360, height: 640, fps: 30 });
+    const [a, b] = [await probe(tools.ffprobe, joined), await probe(tools.ffprobe, single)];
+    expect({ ...a }).toEqual({ ...b });
+    const [pa, pb] = [await streamParams(tools.ffprobe, joined), await streamParams(tools.ffprobe, single)];
+    expect({ ...pa, otherStreams: 1 }).toEqual({ ...pb, otherStreams: 1 });
+    expect(await avDurations(tools.ffprobe, single)).toEqual(d);
+    // Scene boundaries carry the right scene on each side (the frames around each cut look alike in both outputs).
+    for (const f of [0, 44, 45, 92, 93, 152]) {
+      const [x, y] = [await frameStats(tools.ffmpeg, joined, f), await frameStats(tools.ffmpeg, single, f)];
+      expect(Math.abs(x.yAvg - y.yAvg)).toBeLessThan(2);
+    }
+  }, 60_000);
+
+  it('FAN-21 checkTimestamps reports a duplicated or missing frame and a wrong count', async () => {
+    const a = join(dir, 'fan-n0.mp4');
+    expect(await checkTimestamps(tools.ffprobe, a, 46, 30)).toEqual(['45 video packets, expected 46']);
+    // Joining a clip encoded at another rate breaks the one-frame step at the boundary.
+    const odd = join(dir, 'fan-odd.mp4');
+    await run(tools.ffmpeg, ['-hide_banner', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=360x640:rate=15', '-frames:v', '10', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', odd], 'fixture');
+    const bad = join(dir, 'fan-bad.mp4');
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(join(dir, 'fan-list2.txt'), `file '${a}'\nfile '${odd}'\n`);
+    await run(tools.ffmpeg, ['-hide_banner', '-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', join(dir, 'fan-list2.txt'), '-c', 'copy', bad], 'fixture');
+    const problems = await checkTimestamps(tools.ffprobe, bad, 55, 30);
+    expect(problems.join('; ')).toMatch(/expected 512 \(a duplicated or missing frame\)/);
+  }, 30_000);
 });

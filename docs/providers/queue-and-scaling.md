@@ -261,9 +261,14 @@ database queue, one long render uses several workers at once:
    is never re-queued by the lease recovery, and a cancel requested before the
    fan-out was stored wins over it.
 2. Units are ordinary queued jobs (leases, attempts, fencing, heartbeats):
-   any worker claims one, renders that scene and uploads its clip, then a small
-   JSON manifest (last: the manifest marks the clip complete), to the run's
-   temporary prefix `projects/<id>/renders/.tmp-<runId>/units/<NN>.mp4|json`.
+   any worker claims one, renders that scene and **normalises it to the final
+   encoding** (`normaliseClip`: the render's size with the same scale/pad as
+   the single-worker assembly, fps, `yuv420p`, `H264_ARGS` = libx264 high
+   CRF 18, exactly the scene's frames, IDR at frame 0, video only, the MP4
+   muxer's time base for that rate), then uploads the clip and a small JSON
+   manifest (last: the manifest marks the clip complete; it records the
+   clip's stream parameters and the FFmpeg build) to the run's temporary
+   prefix `projects/<id>/renders/.tmp-<runId>/units/<NN>.mp4|json`.
 3. A unit's final state is written in one transaction that **locks the parent
    row first** (then the unit: parent before child everywhere, so these never
    deadlock), then applies the shared policy (`packages/core/src/fanout.ts`):
@@ -272,13 +277,34 @@ database queue, one long render uses several workers at once:
    however often it was retried. FAN-02 runs 12 units finishing at the same
    moment on SQLite, PostgreSQL 17 and MySQL 8.4: one join every time.
 4. The join fetches every unit (checking its manifest against the scene,
-   project version and frame count), assembles them with the audio, validates
-   and commits the render exactly as the single-worker pipeline does
-   (`finishRender`: probe, decode check, poster, manifest last), deletes the
-   units, and its success finishes the parent with the join's result in the
-   same transaction (so `render.ready` and `job.succeeded` fire for the
-   render). A join whose earlier attempt already committed finishes with that
-   render.
+   project version and frame count), checks that every clip has the same
+   stream parameters (codec, profile, pixel format, size, SAR, frame rate,
+   time base, video only) and FFmpeg build, and joins them with the **concat
+   demuxer and stream copy** (`-f concat -c:v copy`: the video is encoded
+   once, by the units). It mixes the audio once over the full timeline (music,
+   voice, sfx: the same graph as the single-worker assembly), then validates
+   and commits as the single-worker pipeline does (`finishRender`: probe,
+   frame count, size, rate, codecs, duration, decode check, poster, manifest
+   last) plus two checks of its own: the video timestamps (exactly one packet
+   per frame, one frame apart from pts 0, a key frame first: no duplicated or
+   missing frame at a boundary) and the A/V durations. The manifest says
+   `join: { method: "concat demuxer, video stream copy" }`. Units whose
+   parameters differ (another FFmpeg build on some worker, a unit from an
+   older version) are joined by the filter-graph assembly instead, which
+   re-encodes but is always correct, with a log line saying why. The join
+   deletes the units, and its success finishes the parent with the join's
+   result in the same transaction (so `render.ready` and `job.succeeded` fire
+   for the render). A join whose earlier attempt already committed finishes
+   with that render.
+
+   Why stream copy is safe here: every clip comes from the same FFmpeg build
+   with the same arguments, each libx264 run starts with an IDR frame and
+   closes its last GOP, and the concat demuxer offsets each file by the
+   previous one's duration. FAN-20 joins clips that arrived at three sizes,
+   rates and pixel formats: the decoded frames of the joined file are
+   bit-identical (framemd5) to the clips' frames in order, timestamps step by
+   exactly one frame, and the streams, durations and boundary frames match the
+   same clips through the filter-graph assembly.
 
 **Failure, cancel, retry.** A unit that fails (an error in its render, or
 `lease_expired` after `queue.maxAttempts` lost leases) fails the parent with
@@ -301,6 +327,15 @@ and SSE compute its progress from its children, frames done over the render's
 total frames (90 %, `detail` like `90/140 frames, 1/6 scenes rendered`), then
 the join (10 %). Units and the join are listed by `list_jobs` with `parentId`;
 webhooks and outbound events are sent for the render job only.
+
+**Measured (FAN-30, 2026-11-22).** 6 scenes on 4 engines (Remotion, Motion
+Canvas, html, HyperFrames), 240 frames at 1080x1920 with music, PostgreSQL 17,
+MinIO, an api and 3 worker processes on one shared 4-core machine: single
+worker 32.4 s and 38.2 s, fanned out 22.1 s and 31.7 s (two runs). With scenes
+this short the gain is bounded by the slowest scene (the 2 s Motion Canvas
+scene), the join (fetch, concat, audio, checks, commit) and three workers
+sharing four cores; it grows with longer reels and workers on separate
+machines. These are measurements on one machine, not a benchmark.
 
 **Queue order, fairness and limits.** Units carry the render's API key and
 queue position (`createdAt` just after the parent's, longest scene first; the
@@ -460,6 +495,11 @@ and a job that dies while its worker shuts down is handed back, never failed
 | FAN-05 | `maxRunningPerKey` counts a key's running units, not its fanned-out parent | contract (4 targets) | pass 2026-11-22 |
 | FAN-01u..10u | runner: 6 units over 3 workers, one join, parent result and log; one worker with one slot runs it all; unit failure, cancel cascade (parent or unit), unit worker frozen → attempt 2 and one join, `lease_expired` at `maxAttempts`; parent progress = frames done / total then join, never backwards; running cap counts units only; units and joins cannot be retried; `worker --once` ends `fanned_out` and runs one unit per process | runner (`packages/core/test/fanout.queue.test.ts`) | pass 2026-11-22 |
 | FAN-10..14 | service, fake engine, 1 api + 3 worker instances on one database and data directory: `render.fanOut: scenes` → 4 units (longest first) on several workers, one join, the committed render's manifest lists every scene in timeline order, units removed, ffprobe equal to the same render with `off` (frames, size, rate, duration); previews and one-scene renders never fan out; `scenes+chunks` refused (setting and start-up); a failing unit fails the render and `retry_job` renders only that scene again; `cancel_job` on the api stops units running on workers | service (`packages/core/test/fanout.service.test.ts`) | pass 2026-11-22 |
+| FAN-15 | the retention sweep removes the units of a failed run (`tempHours` passed) and never those of a run still queued or running | service | pass 2026-11-22 |
+| FAN-20 | `normaliseClip` + `concatClips`: clips of three sizes, rates and pixel formats normalised (each IDR first, from pts 0, identical stream parameters) and joined by stream copy: decoded frames bit-identical (framemd5) to the clips in order, timestamps one frame apart, A/V durations equal; same frames, streams, durations and boundary luma as `assemble()` of the same clips | media-pipeline | pass 2026-11-22 |
+| FAN-21 | `checkTimestamps` reports a wrong packet count and a broken one-frame step at a joined boundary | media-pipeline | pass 2026-11-22 |
+| FAN-30 | e2e, real engines: a 6-scene, 4-engine (Remotion, Motion Canvas, html, HyperFrames) 1080x1920 reel with music on PostgreSQL 17, MinIO and an api + 3 worker processes; fanned out (units on all 3 workers, one join, units removed from the bucket) it equals the single-worker render in ffprobe metadata (frames, size, rate, codecs, pixel format), stream parameters, A/V durations, timestamps (one frame apart), per-frame luma and the frames either side of every scene boundary (`frameStats`) | e2e (`apps/server/test/fanout.e2e.test.ts`) | pass 2026-11-22 (PostgreSQL 17, MinIO; two runs on a shared 4-core machine: single worker 32.4 s / 38.2 s, fanned out over 3 workers 22.1 s / 31.7 s; max per-frame luma difference 0.15 / 0.10) |
+| FAN-31 | e2e: the worker rendering a unit is killed with SIGKILL: the unit's lease expires, another worker renders it (attempt 2), exactly one join, the render equals the single-worker one in metadata and timestamps | e2e | pass 2026-11-22 (killed while rendering unit 2, the Motion Canvas scene; attempt 2 on another worker, 1 join) |
 | QUE-12 | migration `0006_job_queue` applies (also concurrently from two processes, contract.test.ts) and the new columns round-trip | contract (4 targets) | pass 2026-11-21 |
 | QUE-14 | claims held open (each stops before its status event) after 60 finished jobs and fresh statistics; jobs of three keys, one row-locked by another transaction: every free job is held by exactly one claim, the extra claims find none, the locked job stays queued. Failed on MySQL before #168 (7 of 11: one claim locked every keyless job) | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
 | QUE-15 | as QUE-14 with 20 of a key's 24 jobs locked elsewhere (more than one page of MySQL claim candidates): the claims read on and take the free ones | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
@@ -506,6 +546,9 @@ Commands:
 
 ```bash
 pnpm --filter @reelforge/core exec vitest run test/jobs.queue.test.ts test/limits.test.ts test/fanout.queue.test.ts test/fanout.service.test.ts
+# render fan-out e2e (FAN-30/31): real engines, PostgreSQL, MinIO (e2e/minio/build-image.sh), an api + 3 worker processes
+FANOUT_E2E=1 TEST_POSTGRES_URL=postgresql://... FANOUT_E2E_S3_ENDPOINT=http://127.0.0.1:9000 FANOUT_E2E_S3_ACCESS_KEY=... FANOUT_E2E_S3_SECRET_KEY=... \
+  REELFORGE_CHROMIUM_PATH=... pnpm --filter @reelforge/server exec vitest run test/fanout.e2e.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://...?allowPublicKeyRetrieval=true \
   pnpm --filter @reelforge/db exec vitest run test/queue.contract.test.ts test/queue.processes.test.ts test/limits.contract.test.ts
 TEST_POSTGRES_URL=postgresql://... pnpm --filter @reelforge/server exec vitest run test/scaling.test.ts
@@ -556,8 +599,9 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
   connections but answers slowly still marks the instance not ready.
 - No Redis/BullMQ provider (D-075).
 - Render fan-out (#156) splits by scene only: frame ranges of long scenes
-  (`scenes+chunks`, Remotion first) are not built. The join still assembles
-  with the filter graph (it re-encodes, like the single-worker path); units
-  normalised to the final encoding and a stream-copy join, with the real-engine
-  e2e on PostgreSQL, MinIO and three workers, are the next step of #156. A
-  fanned-out render's progress is not sent as `job.progress` webhooks.
+  (`scenes+chunks`, Remotion first, step 3 of #156) are not built, so the
+  longest scene bounds a fanned-out render's latency. The video is encoded
+  once per unit and copied by the join, so a fanned-out render is not
+  bit-identical to a single-worker one (each scene is encoded on its own; the
+  frames agree to within a small luma difference, FAN-30). A fanned-out
+  render's progress is not sent as `job.progress` webhooks.
