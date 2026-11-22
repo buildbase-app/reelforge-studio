@@ -119,6 +119,14 @@ the limit; the key is shown as its first group only.
   check and hourly while running), and a clock more than 10 minutes behind
   that gets no grace (`clock_skew`) until it is correct or a check succeeds.
   It cannot see time that passes while the server is stopped.
+- **Several instances (api + workers).** One deployment = one shared database
+  = **one activation**, however many `api` and `worker` instances run or
+  autoscale. Only `api`/`all` instances call the licence server, and between
+  them about once a day (single flight on the shared state); workers never
+  call it and claim no render job while the stored state disallows renders.
+  Give every instance the same `REELFORGE_SECRET_KEY`. Separate databases
+  (other regions, staging) are separate deployments and take separate
+  activations. Details: docs/providers/queue-and-scaling.md#licence-across-instances.
 - **Moving to another server.** The activation belongs to the database (the
   instance id is stored there), so moving the data volume / database moves the
   activation. For a new installation, free the old one first:

@@ -58,6 +58,10 @@ ever shown as its first group.
 
 - The server calls `api.console.buildbase.app` to activate, then **once a day**.
   It never waits for that call at start.
+- With several instances on one database (api + workers), that is still **one
+  activation and about one call a day** for the whole deployment: only api
+  instances call, one at a time; workers never do. A second database (another
+  region, staging) is a second activation.
 - The request body is `{ "key": "<licence key>", "instance": "<instance id>" }`
   and **nothing else**: no hostname, no project, asset or usage data. The
   instance id is random (`rf-<UUID>`), created once and stored in the database.

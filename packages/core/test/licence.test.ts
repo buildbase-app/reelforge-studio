@@ -467,3 +467,304 @@ describe('ReelforgeService with a licence', () => {
     svc.licence.stop();
   });
 });
+
+/**
+ * Licence at scale (#154, D-098): several instances share one stored state (one
+ * repository here, one database in production). Only api/all instances call the
+ * licence server, single flight per deployment; workers only read the sealed state.
+ */
+describe('licence at scale: one check per deployment, workers never call', () => {
+  const SECRET = 'licence-scale-secret-key-0123456789abcdef';
+  /** A licence API a worker must never use. */
+  const forbidden: LicenceApi = {
+    validate: async () => {
+      throw new Error('a worker called validate');
+    },
+    activate: async () => {
+      throw new Error('a worker called activate');
+    },
+    deactivate: async () => {
+      throw new Error('a worker called deactivate');
+    },
+  };
+  function instance(name: string, shared: { repos: Repositories; api: MockApi; clock: { t: number } }, o: { readOnly?: boolean; secret?: string; key?: string | null; clock?: { t: number } } = {}) {
+    const logs: string[] = [];
+    const keyRef = { value: o.key === null ? undefined : (o.key ?? KEY) };
+    const clock = o.clock ?? shared.clock;
+    const m = new LicenceManager({
+      repo: shared.repos.licence,
+      api: o.readOnly ? forbidden : shared.api,
+      key: () => ({ value: keyRef.value, source: 'env (REELFORGE_LICENCE_KEY)' }),
+      mode: 'required',
+      graceDays: 14,
+      licenceServer: { url: 'https://licence.example.test', orgId: 'org123456' },
+      now: () => clock.t,
+      timers: false,
+      log: (level, line) => logs.push(`${level}: ${line}`),
+      sealSecret: o.secret ?? SECRET,
+      readOnly: o.readOnly,
+      instanceName: name,
+    });
+    return { m, logs, keyRef };
+  }
+  function cluster(apis = 2, workers = 3) {
+    const shared = { repos: createMemoryRepositories(), api: new MockApi(), clock: { t: T0 } };
+    return {
+      ...shared,
+      apis: Array.from({ length: apis }, (_, i) => instance(`api-${i + 1}`, shared)),
+      workers: Array.from({ length: workers }, (_, i) => instance(`worker-${i + 1}`, shared, { readOnly: true })),
+    };
+  }
+  const ops = (api: MockApi) => api.calls.map((c) => c.op);
+  const tickAll = (c: ReturnType<typeof cluster>, why = 'scheduled') => Promise.all([...c.apis, ...c.workers].map((x) => x.m.check(why, { claim: true })));
+
+  it('2 api + 3 workers start together: exactly 1 activate; a day later exactly 1 validate; workers make no call', async () => {
+    const c = cluster();
+    await Promise.all([...c.apis, ...c.workers].map((x) => x.m.init()));
+    await tickAll(c, 'start');
+    expect(ops(c.api)).toEqual(['activate']);
+    // Every instance applies the one stored answer (a worker after its next read).
+    await tickAll(c, 'refresh');
+    for (const x of [...c.apis, ...c.workers]) expect(x.m.report()).toMatchObject({ status: 'valid', renderAllowed: true });
+    const ids = new Set([...c.apis, ...c.workers].map((x) => x.m.report().instanceId));
+    expect(ids.size).toBe(1);
+    const leader = c.apis[0]!.m.report().checkedBy;
+    expect(['api-1', 'api-2']).toContain(leader);
+    expect(c.workers[0]!.m.report()).toMatchObject({ checkedBy: leader, checksLicenceServer: false });
+    // Many ticks within the day: no more calls.
+    for (let i = 0; i < 5; i++) {
+      c.clock.t += 3_600_000;
+      await tickAll(c, 'refresh');
+    }
+    expect(ops(c.api)).toEqual(['activate']);
+    // The next day: one validate, whichever api instance wins.
+    for (const day of [1, 2, 3]) {
+      c.clock.t = T0 + day * DAY + 60_000;
+      await tickAll(c);
+      await tickAll(c, 'refresh');
+      expect(ops(c.api).filter((o) => o === 'validate')).toHaveLength(day);
+    }
+    expect(ops(c.api).filter((o) => o === 'activate')).toHaveLength(1);
+    // A restart (or a new replica) with a fresh stored state makes no call at all (scale-to-zero churn).
+    const fresh = instance('api-3', c);
+    await fresh.m.init();
+    await fresh.m.check('start', { claim: true });
+    expect(fresh.m.report().status).toBe('valid');
+    expect(ops(c.api)).toHaveLength(4);
+  });
+
+  it('1 api + 50 workers: 1 activation and 1 call in total at start, 0 from the workers', async () => {
+    const c = cluster(1, 50);
+    await Promise.all([...c.apis, ...c.workers].map((x) => x.m.init()));
+    await tickAll(c, 'start');
+    await tickAll(c, 'refresh');
+    expect(ops(c.api)).toEqual(['activate']);
+    expect(c.workers.every((w) => w.m.report().renderAllowed)).toBe(true);
+  });
+
+  it('a worker with no stored check waits (not allowed, clear log), then applies the api instance check; it never calls', async () => {
+    const c = cluster(1, 1);
+    const w = c.workers[0]!;
+    await w.m.init();
+    w.m.start();
+    expect(w.m.report()).toMatchObject({ status: 'checking', reason: 'waiting_for_api', renderAllowed: false, checksLicenceServer: false });
+    expect(w.m.report().fix).toMatch(/api instance/);
+    expect(w.logs.some((l) => /^warn: licence: checking \(waiting_for_api\).*Workers never call the licence server/.test(l))).toBe(true);
+    await expect(w.m.assertRenderAllowed()).rejects.toMatchObject({ code: 'licence_invalid' });
+    const a = c.apis[0]!;
+    await a.m.init();
+    await a.m.check('start', { claim: true });
+    // assertRenderAllowed re-reads the stored state before it refuses.
+    await expect(w.m.assertRenderAllowed()).resolves.toBeUndefined();
+    expect(w.m.report()).toMatchObject({ status: 'valid', renderAllowed: true });
+    // A worker does not need the key itself: the api instances' check applies.
+    const keyless = instance('worker-x', c, { readOnly: true, key: null });
+    await keyless.m.init();
+    expect(keyless.m.report()).toMatchObject({ status: 'valid', renderAllowed: true });
+    await expect(w.m.deactivate()).rejects.toMatchObject({ code: 'licence_read_only' });
+    expect(ops(c.api)).toEqual(['activate']);
+    w.m.stop();
+  });
+
+  it('a worker refuses an edited state or one sealed with another secret key, and a stored refusal', async () => {
+    const c = cluster(1, 0);
+    const a = c.apis[0]!;
+    await a.m.init();
+    await a.m.check('start', { claim: true });
+    // Another REELFORGE_SECRET_KEY than the api instances: the seal does not verify.
+    const other = instance('worker-other', c, { readOnly: true, secret: 'a-different-secret-key-0123456789abcdef' });
+    await other.m.init();
+    expect(other.m.report()).toMatchObject({ status: 'invalid', reason: 'state_untrusted', renderAllowed: false });
+    expect(other.logs.some((l) => /^error: licence: the stored licence state failed its integrity check .*different REELFORGE_SECRET_KEY/.test(l))).toBe(true);
+    // The database row edited by hand.
+    const stored = (await c.repos.licence.get())!;
+    await c.repos.licence.save({ ...stored, lastSuccessAt: '2099-01-01T00:00:00.000Z' });
+    const w = instance('worker-1', c, { readOnly: true });
+    await w.m.init();
+    expect(w.m.report()).toMatchObject({ status: 'invalid', reason: 'state_untrusted', renderAllowed: false });
+    // The api instance checks again (revoked meanwhile): the worker applies the stored refusal.
+    c.api.keys.get(KEY)!.status = 'revoked';
+    await a.m.check('manual');
+    expect((await w.m.check('refresh')).reason).toBe('revoked');
+    expect(w.m.report().renderAllowed).toBe(false);
+    expect(ops(c.api)).toEqual(['activate', 'validate']);
+  });
+
+  it('a worker honours the offline grace period and the clock checks, from the stored state alone', async () => {
+    const c = cluster(1, 0);
+    const a = c.apis[0]!;
+    await a.m.init();
+    await a.m.check('start', { claim: true });
+    c.api.offline = true;
+    c.clock.t = T0 + 3 * DAY;
+    await a.m.check('scheduled', { claim: true });
+    const w = instance('worker-1', c, { readOnly: true });
+    await w.m.init();
+    expect(w.m.report()).toMatchObject({ status: 'grace', renderAllowed: true, graceUntil: new Date(T0 + 14 * DAY).toISOString() });
+    // Past the grace period: refused by the worker's own clock, even before the api instance checks again.
+    c.clock.t = T0 + 14 * DAY + 1000;
+    expect(w.m.report()).toMatchObject({ status: 'invalid', reason: 'grace_expired', renderAllowed: false });
+    // A worker clock set back behind the latest time the deployment has seen gets no grace.
+    c.clock.t = T0 + 3 * DAY;
+    const skewed = instance('worker-skewed', c, { readOnly: true, clock: { t: T0 + 3 * DAY - 3_600_000 } });
+    await skewed.m.init();
+    expect(skewed.m.report()).toMatchObject({ status: 'invalid', reason: 'clock_skew', renderAllowed: false });
+    // A worker never moves the marker (it only reads).
+    const before = (await c.repos.licence.get())!.updatedAt;
+    await skewed.m.markClock('timer');
+    await w.m.check('refresh');
+    expect((await c.repos.licence.get())!.updatedAt).toBe(before);
+  });
+
+  it('the check lease: an instance that took the check and died is replaced after the lease; backoff keeps doubling across instances', async () => {
+    const c = cluster(2, 0);
+    const [a, b] = c.apis as [ReturnType<typeof instance>, ReturnType<typeof instance>];
+    await Promise.all([a.m.init(), b.m.init()]);
+    // a took the first check and died before answering.
+    expect(await c.repos.licence.claimCheck({ now: new Date(c.clock.t).toISOString(), leaseUntil: new Date(c.clock.t + 120_000).toISOString() })).toBe(true);
+    await b.m.check('start', { claim: true });
+    expect(b.m.report().status).toBe('checking');
+    expect(c.api.calls).toHaveLength(0);
+    c.clock.t += 121_000;
+    await b.m.check('scheduled', { claim: true });
+    expect(b.m.report().status).toBe('valid');
+    expect(ops(c.api)).toEqual(['activate']);
+
+    // Licence server errors: the retries move between instances and still back off 1, 2, 4 minutes.
+    c.api.serverError = true;
+    c.clock.t = T0 + DAY + 200_000;
+    const waits: number[] = [];
+    for (const x of [a, b, a]) {
+      const r = await x.m.check('scheduled', { claim: true });
+      waits.push(Date.parse(r.nextCheckAt!) - c.clock.t);
+      c.clock.t = Date.parse(r.nextCheckAt!) + 1;
+    }
+    expect(waits[0]).toBeGreaterThanOrEqual(60_000);
+    expect(waits[1]).toBeGreaterThanOrEqual(120_000);
+    expect(waits[2]).toBeGreaterThanOrEqual(240_000);
+    expect(ops(c.api).filter((o) => o === 'validate')).toHaveLength(3);
+    expect(await b.m.refresh()).toMatchObject({ status: 'grace', checkedBy: 'api-1' });
+  });
+
+  it('a key change is checked once: the instance that sees it first activates, the others use the stored answer', async () => {
+    const shared = { repos: createMemoryRepositories(), api: new MockApi([{ key: KEY }, { key: KEY2, limit: null }]), clock: { t: T0 } };
+    const a = instance('api-1', shared);
+    const b = instance('api-2', shared);
+    await Promise.all([a.m.init(), b.m.init()]);
+    await Promise.all([a.m.check('start', { claim: true }), b.m.check('start', { claim: true })]);
+    shared.clock.t += 60_000;
+    a.keyRef.value = KEY2;
+    b.keyRef.value = KEY2;
+    a.m.keyChanged();
+    await a.m.check('key changed', { claim: true }); // the running check
+    b.m.keyChanged();
+    await b.m.check('key changed', { claim: true });
+    expect(b.m.report()).toMatchObject({ status: 'valid', key: 'ZZZZZ-*****-*****-*****-*****' });
+    expect(shared.api.calls.map((x) => `${x.op}:${x.key.slice(0, 5)}`)).toEqual(['activate:ABCDE', 'activate:ZZZZZ']);
+  });
+
+  it('instances configured with different keys do not take turns activating them; the conflict is logged', async () => {
+    const shared = { repos: createMemoryRepositories(), api: new MockApi([{ key: KEY }, { key: KEY2, limit: null }]), clock: { t: T0 } };
+    const a = instance('api-1', shared);
+    const b = instance('api-2', shared, { key: KEY2 });
+    await Promise.all([a.m.init(), b.m.init()]);
+    await Promise.all([a.m.check('start', { claim: true }), b.m.check('start', { claim: true })]);
+    for (let i = 0; i < 5; i++) {
+      shared.clock.t += 60_000;
+      await Promise.all([a.m.check('refresh', { claim: true }), b.m.check('refresh', { claim: true })]);
+    }
+    expect(shared.api.calls).toHaveLength(1);
+    const loser = shared.api.calls[0]!.key === KEY ? b : a;
+    expect(loser.logs.filter((l) => /^error: licence: another instance of this deployment checked a different licence key/.test(l))).toHaveLength(1);
+    expect(loser.m.report()).toMatchObject({ status: 'invalid', reason: 'not_checked', renderAllowed: false });
+  });
+
+  it('the hourly clock marker never writes an older state over a newer check (compare-and-set)', async () => {
+    const c = cluster(1, 0);
+    const a = c.apis[0]!;
+    await a.m.init();
+    const stale = (await c.repos.licence.get())!;
+    c.clock.t += 1000;
+    await a.m.check('start', { claim: true });
+    expect(await c.repos.licence.save({ ...stale, highWaterAt: new Date(T0 + 1).toISOString() }, { ifUpdatedAt: stale.updatedAt })).toBe(false);
+    c.clock.t += 3_600_000;
+    await a.m.markClock('timer');
+    expect(a.m.report().status).toBe('valid');
+    expect((await c.repos.licence.get())!.highWaterAt).toBe(new Date(T0 + 1000 + 3_600_000).toISOString());
+  });
+
+  it('services: a worker claims no render job while the stored state disallows renders and says why', async () => {
+    const { dir, cleanup } = tempDir('reelforge-licence-workers-');
+    try {
+      const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
+      const repos = createMemoryRepositories();
+      const api = new MockApi();
+      const clock = { t: Date.now() };
+      const env = { REELFORGE_SECRET_KEY: SECRET, REELFORGE_LICENCE_KEY: KEY, REELFORGE_STORAGE_LOCAL_SHARED: 'true' };
+      const mk = (role: 'api' | 'worker', workerId: string, licenceApi: LicenceApi) =>
+        ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas')), {
+          repositories: repos,
+          dataDir: join(dir, 'data'),
+          configSources: { env: { ...env, REELFORGE_ROLE: role } },
+          licence: { api: licenceApi, now: () => clock.t, refreshMs: 50 },
+          queue: { workerId, pollMs: 50, leaseMs: 4000, heartbeatMs: 300 },
+          maintenance: false,
+        });
+      const worker = await mk('worker', 'worker-1', forbidden);
+      expect(worker.getLicence()).toMatchObject({ status: 'checking', reason: 'waiting_for_api', renderAllowed: false });
+      const apiSvc = await mk('api', 'api-1', api);
+      await apiSvc.licence.assertRenderAllowed();
+      await apiSvc.createProject(sample);
+      const job = await apiSvc.startRender('sample-reel');
+      let done = await apiSvc.waitForJob(job.id, 30);
+      for (let i = 0; i < 3 && !['succeeded', 'failed'].includes(done.status); i++) done = await apiSvc.waitForJob(job.id, 30);
+      expect(done.status).toBe('succeeded');
+      expect(done.workerId).toBe('worker-1');
+
+      // Revoked at the next check: the api refuses to enqueue, and a job already queued is not claimed.
+      api.keys.get(KEY)!.status = 'revoked';
+      await apiSvc.licence.check('manual');
+      await expect(apiSvc.startRender('sample-reel')).rejects.toMatchObject({ code: 'licence_invalid' });
+      for (let i = 0; i < 50 && worker.getLicence().renderAllowed; i++) await new Promise((r) => setTimeout(r, 50));
+      expect(worker.getLicence()).toMatchObject({ status: 'invalid', reason: 'revoked', renderAllowed: false });
+      const queued = await apiSvc.jobs.submit('render', { ...(done.params as object), runId: `run_${Date.now().toString(36)}0123456789` }, { projectId: 'sample-reel' });
+      await new Promise((r) => setTimeout(r, 500));
+      expect((await apiSvc.jobs.get(queued.id)).status).toBe('queued');
+      expect(worker.jobs.status().paused).toMatch(/the licence does not allow renders \(invalid, revoked\)/);
+
+      // Valid again (a new activation): the worker claims it within a refresh.
+      api.keys.get(KEY)!.status = 'active';
+      await apiSvc.activateLicence(undefined);
+      let j = await apiSvc.waitForJob(queued.id, 30);
+      for (let i = 0; i < 3 && !['succeeded', 'failed'].includes(j.status); i++) j = await apiSvc.waitForJob(queued.id, 30);
+      expect(j.status, JSON.stringify(j.error)).toBe('succeeded');
+      expect(api.calls.map((x) => x.op)).toEqual(['activate', 'validate', 'activate']);
+      for (const svc of [worker, apiSvc]) {
+        await svc.jobs.shutdown(1000);
+        await svc.stop();
+      }
+    } finally {
+      cleanup();
+    }
+  }, 120_000);
+});

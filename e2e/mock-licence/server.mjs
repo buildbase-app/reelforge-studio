@@ -10,7 +10,8 @@
 //   POST /_admin/keys                 { key, activationLimit?, status?, expiresAt?, activations?: [instance] }
 //   POST /_admin/keys/:key/revoke     (status "revoked")
 //   POST /_admin/mode                 { mode: "normal" | "rate_limited" | "error" | "drop" }
-//   GET  /_admin/state                keys, activations, and every request seen (field and header names only)
+//   GET  /_admin/state                keys, activations, every request seen (field and header names only), and
+//                                     counts per operation (licence at scale, D-098: one activate per deployment)
 //
 // Standalone:  PORT=8080 ORG_ID=<org> SEED_KEYS='[{"key":"...","activationLimit":1}]' node server.mjs
 import { createServer } from 'node:http';
@@ -18,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 
 const ITEM = { id: 'itm_mock_reelforge', title: 'ReelForge Studio (mock)' };
 
-/** Start the mock. Resolves to { url, port, state, close(), addKey(), revoke(), setMode() }. */
+/** Start the mock. Resolves to { url, port, state, close(), addKey(), revoke(), setMode(), counts() }. */
 export function startMockLicenceServer({ port = 0, host = '127.0.0.1', orgId = '6b01478bb42d2c444e99fcd8', keys = [] } = {}) {
   const store = new Map();
   const requests = [];
@@ -32,6 +33,11 @@ export function startMockLicenceServer({ port = 0, host = '127.0.0.1', orgId = '
     });
   };
   for (const k of keys) addKey(k);
+  const counts = () => {
+    const c = { activate: 0, validate: 0, deactivate: 0 };
+    for (const r of requests) c[r.op]++;
+    return c;
+  };
   const view = (rec) => ({ status: rec.status, activations: rec.activations.size, activationLimit: rec.activationLimit, expiresAt: rec.expiresAt });
   const instanceView = (rec, instance) => (instance && rec.activations.has(instance) ? { instance, activatedAt: rec.activations.get(instance) } : null);
 
@@ -82,6 +88,7 @@ export function startMockLicenceServer({ port = 0, host = '127.0.0.1', orgId = '
             mode,
             keys: Object.fromEntries([...store].map(([k, r]) => [k, { ...view(r), instances: [...r.activations.keys()] }])),
             requests,
+            counts: counts(),
           });
         }
         if (req.method === 'POST' && url.pathname === '/_admin/keys') {
@@ -132,6 +139,7 @@ export function startMockLicenceServer({ port = 0, host = '127.0.0.1', orgId = '
           mode = m;
         },
         activations: (key) => [...(store.get(key)?.activations.keys() ?? [])],
+        counts,
         close: () =>
           new Promise((r) => {
             server.close(() => r());

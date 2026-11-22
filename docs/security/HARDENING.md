@@ -185,6 +185,15 @@ licence terms), not a database edit or a configuration line.
   server's own time (its HTTP `Date` header) is stored with each answer. A
   system clock more than 10 minutes behind either gets no offline grace
   (`reason: clock_skew`) until the clock is right or a check succeeds.
+- **Several instances (D-098).** Only `api`/`all` instances call the licence
+  server, one check a day per deployment (one shared database = one
+  activation). Workers never call it: they verify the seal of the shared state
+  and claim no render job while it disallows renders, so a worker with another
+  `REELFORGE_SECRET_KEY` or a hand-edited row claims nothing
+  (`state_untrusted`), and a worker clock set back gets no grace
+  (`clock_skew`). There is no configurable cluster id: the activation follows
+  the database row, which is not something two companies can share by copying
+  a setting.
 - **Not covered:** someone who patches the code, builds their own image, knows
   `REELFORGE_SECRET_KEY` and writes a valid seal, or runs a fake licence server
   with their own CA. BuildBase's answers are not signed yet (see
