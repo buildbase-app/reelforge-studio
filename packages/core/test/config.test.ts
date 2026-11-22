@@ -68,6 +68,8 @@ describe('config schema', () => {
       maxQueuedJobsPerKey: 100,
       maxQueuedJobs: 1000,
       maxRunningJobsPerKey: 0,
+      // Admission by estimated wait (D-103): off by default
+      maxEstimatedWaitSeconds: 0,
       maxRenderSeconds: 180,
       maxRenderFrames: 5400,
       maxScenes: 50,
@@ -473,7 +475,7 @@ describe('ReelforgeService configuration', () => {
     // A new service on the same database starts with the runtime values.
     const again = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), { repositories: repos, dataDir: join(dir, 'svc'), configSources: { env: {} } });
     expect(again.jobs.concurrency).toBe(3);
-    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', 'runtime', 'default', 'runtime', ...Array(10).fill('default')]);
+    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', 'runtime', 'default', 'runtime', ...Array(11).fill('default')]);
   });
 
   it('configure_provider stores encrypted values that providers see, and get_config shows the same key as runtime', async () => {

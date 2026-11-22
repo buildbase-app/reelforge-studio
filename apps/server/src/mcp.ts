@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { ApiError, ReelforgeService, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
+import { ApiError, PRIORITIES, ReelforgeService, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
 import { auditAction, auditTarget } from './audit';
 import { SCHEMA_VERSION } from '@reelforge/project-schema';
 import { z } from 'zod';
@@ -56,6 +56,10 @@ const pageArgs = {
   cursor: z.string().max(1024).optional().describe('nextCursor from the previous page of this list (same filters), unchanged. Omit for the first page.'),
 };
 
+/** What render_project and preview_scene answer when the queue cannot take more (D-090, D-103). */
+const QUEUE_REFUSALS =
+  ' When the server is busy it refuses with 429: too_many_jobs (your key has too many unfinished jobs), queue_full (the queue is full, or a new job would wait longer than limits.maxEstimatedWaitSeconds; details has the estimate and queued counts) or quota_exceeded. Wait details.retryAfterSeconds, then call again with the same idempotencyKey.';
+
 const idempotencyKey = z
   .string()
   .min(1)
@@ -71,11 +75,26 @@ const keyLimits = {
   rendersPerDay: z.number().int().min(0).nullable().optional().describe('Render and preview jobs per UTC day (null: unlimited).'),
   rendersPerMonth: z.number().int().min(0).nullable().optional().describe('Render and preview jobs per calendar month, UTC (null: unlimited).'),
   ipAllowlist: z.array(z.string()).max(50).nullable().optional().describe('CIDR blocks the key may be used from, e.g. ["203.0.113.0/24"]; null or []: anywhere.'),
+  maxPriority: z
+    .enum(PRIORITIES)
+    .nullable()
+    .optional()
+    .describe(
+      'Highest job priority the key may ask for: "interactive" lets it start renders ahead of other renders; "batch" keeps all its jobs behind everyone else\'s. null: each job type\'s default (previews interactive, renders standard), so the key can lower a job\'s priority but not raise it.'
+    ),
 };
+/** The priority argument of render_project / preview_scene (D-103). */
+const priorityArg = (type: string, def: string) =>
+  z
+    .enum(PRIORITIES)
+    .optional()
+    .describe(
+      `Queue priority: jobs are started interactive first, then standard, then batch (fairly across API keys within a class). Default "${def}" for a ${type}. Use "batch" for work that can wait. A higher class than your key allows (get_capabilities limits.priority.maxForThisKey) is refused with priority_not_allowed.`
+    );
 /** Key options from tool arguments (expiresInDays -> expiresAt). */
 function keyOpts(a: Record<string, unknown>) {
   const o: Record<string, unknown> = {};
-  for (const k of ['expiresAt', 'rateLimitPerMinute', 'rendersPerDay', 'rendersPerMonth', 'ipAllowlist']) if (a[k] !== undefined) o[k] = a[k];
+  for (const k of ['expiresAt', 'rateLimitPerMinute', 'rendersPerDay', 'rendersPerMonth', 'ipAllowlist', 'maxPriority']) if (a[k] !== undefined) o[k] = a[k];
   if (typeof a.expiresInDays === 'number') o.expiresAt = new Date(Date.now() + a.expiresInDays * 86_400_000).toISOString();
   return o;
 }
@@ -336,11 +355,12 @@ export const TOOLS: ToolDef[] = [
     name: 'preview_scene',
     title: 'Render a quick preview',
     description:
-      'Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image).',
+      'Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted. Previews are queued at priority "interactive" (ahead of renders) by default. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image).' +
+      QUEUE_REFUSALS,
     scope: 'render',
-    input: { projectId, sceneId: z.string().optional(), scale: z.number().gt(0).max(1).optional(), idempotencyKey },
+    input: { projectId, sceneId: z.string().optional(), scale: z.number().gt(0).max(1).optional(), priority: priorityArg('preview', 'interactive'), idempotencyKey },
     run: async (a, { service }) => {
-      const opts = { sceneId: a.sceneId, scale: a.scale };
+      const opts = { sceneId: a.sceneId, scale: a.scale, ...(a.priority ? { priority: a.priority } : {}) };
       return service.idempotent(a.idempotencyKey, 'preview_scene', { projectId: a.projectId, ...opts }, async () => ({ job: await service.preview(a.projectId, opts) }));
     },
   },
@@ -348,11 +368,14 @@ export const TOOLS: ToolDef[] = [
     name: 'render_project',
     title: 'Render the project',
     description:
-      'Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Then call get_job with waitSeconds: 45 (repeat while it is still running) until status is succeeded or failed, then call get_render_output.',
+      'Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Renders are queued at priority "standard" by default. Then call get_job with waitSeconds: 45 (repeat while it is still running) until status is succeeded or failed, then call get_render_output.' +
+      QUEUE_REFUSALS,
     scope: 'render',
-    input: { projectId, backend: z.string().optional().describe('Render backend id; default from the manifest ("local").'), idempotencyKey },
-    run: async (a, { service }) =>
-      service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, backend: a.backend }, async () => ({ job: await service.startRender(a.projectId, { backend: a.backend }) })),
+    input: { projectId, backend: z.string().optional().describe('Render backend id; default from the manifest ("local").'), priority: priorityArg('render', 'standard'), idempotencyKey },
+    run: async (a, { service }) => {
+      const opts = { backend: a.backend, ...(a.priority ? { priority: a.priority } : {}) };
+      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, async () => ({ job: await service.startRender(a.projectId, opts) }));
+    },
   },
   {
     name: 'get_job',

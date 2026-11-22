@@ -32,3 +32,4 @@ export * from './licence';
 export * from './telemetry';
 export * from './webhooks/index';
 export * from './limits';
+export * from './priority';

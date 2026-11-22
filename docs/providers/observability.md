@@ -109,18 +109,46 @@ OpenTelemetry names; the Prometheus name is what `GET /metrics` shows.
 | `reelforge.server.role` | `reelforge_server_role` | gauge | `reelforge_role` (`all`/`api`/`worker`): 1 for this instance's role (#36) |
 | `reelforge.jobs.requeued` | `reelforge_jobs_requeued_total` | counter | `reelforge_reason` (`lease_expired`, `released`): database queue (#36) |
 | `reelforge.queue.errors` | `reelforge_queue_errors_total` | counter | `reelforge_operation` (`claim`, `heartbeat`, `recover`): database queue (#36) |
-| `reelforge.limits.rejections` | `reelforge_limits_rejections_total` | counter | `reelforge_limit_reason` (`render_limit`, `jobs_per_key`, `queue_full`, `render_quota`, `upload_too_large`, `provider_runs_per_key`, `provider_budget`): requests refused by a resource limit (D-090..D-092) |
+| `reelforge.limits.rejections` | `reelforge_limits_rejections_total` | counter | `reelforge_limit_reason` (`render_limit`, `jobs_per_key`, `queue_full`, `queue_wait`, `render_quota`, `upload_too_large`, `provider_runs_per_key`, `provider_budget`): requests refused by a resource limit (D-090..D-092) |
 | `reelforge.render.scene.duration` (s) | `reelforge_render_scene_duration_seconds_*` | histogram | `reelforge_engine`, `reelforge_outcome` (`ok`/`error`) |
 | `reelforge.render.frames` | `reelforge_render_frames_total` | counter | `reelforge_engine` |
 | `reelforge.render.fps` | `reelforge_render_fps_*` | histogram | `reelforge_engine` (frames per wall-clock second per scene) |
 | `reelforge.provider.calls` | `reelforge_provider_calls_total` | counter | `reelforge_provider`, `reelforge_provider_kind`, `reelforge_outcome` (`ok`/`cached`/`error`) |
 | `reelforge.licence.state` | `reelforge_licence_state` | gauge | `reelforge_licence_state` (`valid`, `grace`, `invalid`, `unlicensed`, `checking`; 1 for the current one) |
+| `reelforge.job.queue_wait` (s) | `reelforge_job_queue_wait_seconds_*` | histogram | `reelforge_job_type` (`render`/`preview`), `reelforge_job_priority` (`interactive`/`standard`/`batch`): enqueue to first claim, recorded by the instance that claims ([SLO](#queue-wait-slo), #155) |
 | `reelforge.build.info` | `reelforge_build_info` | gauge | `service_version`, `reelforge_edition` |
 | (resource) | `target_info` | gauge | `service_name`, `service_version`, `reelforge_edition` |
 
 Counters and histograms appear after their first event (OpenTelemetry does
 not pre-create series). No label ever holds an id, a path or user input
 (D-052).
+
+### Queue-wait SLO
+
+`reelforge_job_queue_wait_seconds` measures how long a render or preview waited
+from enqueue to its first claim (D-103). Every instance that claims records it
+(workers and `all` instances; with OTLP push, `worker --once` processes too), so
+sum it over all instances. Fan-out units and joins are not measured (their
+queue position is their render's); a job handed back on shutdown is measured
+again from its enqueue at its next claim.
+
+**SLO, at the maximum number of worker replicas:** p95 below **60 s for
+previews** and below **300 s (5 min) for renders**. Both are bucket
+boundaries (buckets 0.1 s to 1 h), so the quantile is exact at the threshold.
+Below the maximum the autoscaler should be adding workers; at the maximum a
+breach means the deployment needs more capacity, lower per-key backlogs, or
+admission control (`limits.maxEstimatedWaitSeconds`, docs/providers/queue-and-scaling.md).
+
+```promql
+histogram_quantile(0.95, sum by (le, reelforge_job_type, reelforge_job_priority) (rate(reelforge_job_queue_wait_seconds_bucket[15m])))
+```
+
+Alert rules: `deployment/observability/alerts.yml` (`ReelforgePreviewQueueWaitSLO`
+p95 > 60 s for 10 min, `ReelforgeRenderQueueWaitSLO` p95 > 300 s for 15 min);
+add it to `rule_files:` in `prometheus.yml`. It passes `promtool check rules`
+and the unit test `promtool test rules alerts.test.yml` (Prometheus v3.7.3; run
+by `e2e/docker/run.sh`). The Grafana dashboard has the panel "Queue wait p95 by
+type and priority" with the two thresholds.
 
 ### Traces
 
@@ -177,7 +205,8 @@ Import `deployment/observability/grafana-dashboard.json` (Dashboards → New →
 Import) and choose your Prometheus data source. Panels: requests per second
 and p95 latency by route, 5xx rate, queue depth and running jobs, jobs
 finished by status, job duration p50/p95, render frames per second and frames
-per minute by engine, provider calls by outcome, licence state, version.
+per minute by engine, provider calls by outcome, licence state, version, and
+queue wait p50/p95 by job type and priority with the SLO thresholds.
 The JSON is generated and checked to parse; it has not been loaded into a
 Grafana instance (untested).
 

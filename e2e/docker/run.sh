@@ -295,6 +295,16 @@ grep -qi '^content-type: text/plain; version=0.0.4' "$WORK/metrics.h" && docker 
   && echo "✔ GET /metrics passes promtool check metrics ($(grep -c '^[a-z]' "$WORK/metrics.txt") samples)" || { echo "✘ /metrics is not valid Prometheus text"; head -20 "$WORK/metrics.txt"; exit 1; }
 for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'reelforge_jobs_finished_total{.*reelforge_job_status="succeeded"' 'reelforge_render_frames_total{.*reelforge_engine="html"' 'reelforge_licence_state{reelforge_licence_state="valid"} 1' 'reelforge_jobs_queued 0'; do
   grep -q "^$m" "$WORK/metrics.txt" || { echo "✘ /metrics lacks $m"; exit 1; }; done; echo "✔ /metrics has HTTP, job, render, licence and queue metrics"
+# Queue-wait SLO (#155, D-103): the histogram is exported with type and priority labels, and the shipped alert
+# rules load and pass their unit test.
+grep -Eq '^reelforge_job_queue_wait_seconds_bucket\{.*reelforge_job_priority="(interactive|standard|batch)"' "$WORK/metrics.txt" \
+  && echo "✔ reelforge_job_queue_wait_seconds is exported with type and priority labels" \
+  || { echo "✘ /metrics lacks the queue-wait histogram"; grep '^reelforge_job_queue_wait' "$WORK/metrics.txt" | head -3; exit 1; }
+# The rule files go in on stdin (no bind mount: the Docker daemon may not see this checkout's path).
+tar -C deployment/observability -cf - alerts.yml alerts.test.yml \
+  | docker run --rm -i --entrypoint sh "$PROM_IMAGE" -c 'mkdir -p /tmp/rules && cd /tmp/rules && tar xf - && promtool check rules alerts.yml && promtool test rules alerts.test.yml' > "$WORK/promtool-rules.txt" 2>&1 \
+  && echo "✔ deployment/observability/alerts.yml passes promtool check rules and test rules" \
+  || { echo "✘ deployment/observability/alerts.yml"; cat "$WORK/promtool-rules.txt"; exit 1; }
 # Label values only (metric names such as reelforge_job_duration_seconds contain "job_").
 grep -o '="[^"]*"' "$WORK/metrics.txt" | sort -u > "$WORK/labels.txt"
 grep -Eq "(job|run|prv|key|ast)_[a-z0-9]{8,}|rf_|e2e-docker-" "$WORK/labels.txt" && { echo "✘ ids or keys in metric labels: $(grep -E '(job|run|prv|key|ast)_[a-z0-9]{8,}|rf_|e2e-docker-' "$WORK/labels.txt" | head -3)"; exit 1; } \

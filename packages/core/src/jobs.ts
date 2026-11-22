@@ -7,6 +7,7 @@ import { NOOP_TELEMETRY, coreInstruments, type Telemetry } from './telemetry';
 import { newId } from './fsutil';
 import type { PageRequest } from './paging';
 import { childJobs, isFannedOut, isTerminal, treeProgress, type ChildSpec } from './fanout';
+import { defaultPriority, effectiveRank, priorityRank, type JobPriority } from './priority';
 import type { ChildSettlement, JobCaps, JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
 
 export type { JobProgress, JobRecord, JobStatus } from './repositories';
@@ -109,6 +110,10 @@ export interface JobRunnerOptions {
   log?: (level: 'info' | 'warn' | 'error', line: string) => void;
   /** Jobs of one API key that may run at the same time (limits.maxRunningJobsPerKey, read before each start; 0 or unset: no limit). */
   maxRunningPerKey?: () => number | undefined;
+  /** queue.priorityAgingSeconds, read before each claim (D-103): a `batch` job queued this long counts as `standard`. 0 or unset: strict. */
+  priorityAgingSeconds?: () => number | undefined;
+  /** Called for every job this instance claims (or starts, in-process): the shared claim throughput (ClaimRate, D-103). */
+  onClaim?: (job: JobRecord) => void;
 }
 
 /** What the database queue looks like from this instance (/readyz, metrics). */
@@ -182,6 +187,8 @@ export class JobRunner {
   readonly once: boolean;
   private readonly logger: NonNullable<JobRunnerOptions['log']>;
   private readonly maxRunningPerKey: () => number | undefined;
+  private readonly agingSeconds: () => number | undefined;
+  private readonly onClaim: (job: JobRecord) => void;
   /** Database queue: the claim (fence) of each job this process runs. */
   private fences = new Map<string, JobLeaseFence>();
   private abortReasons = new Map<string, AbortReason>();
@@ -233,6 +240,18 @@ export class JobRunner {
       const n = opts.maxRunningPerKey?.();
       return n && n > 0 ? n : undefined;
     };
+    this.agingSeconds = () => {
+      const n = opts.priorityAgingSeconds?.();
+      return n && n > 0 ? n : undefined;
+    };
+    this.onClaim = opts.onClaim ?? (() => undefined);
+  }
+
+  /** The claim's options besides worker, types and times: the per-key running cap and priority aging, read now. */
+  private claimLimits(): Pick<ClaimInput, 'maxRunningPerKey' | 'priorityAgingSeconds'> {
+    const cap = this.maxRunningPerKey();
+    const aging = this.agingSeconds();
+    return { ...(cap !== undefined ? { maxRunningPerKey: cap } : {}), ...(aging !== undefined ? { priorityAgingSeconds: aging } : {}) };
   }
 
   get concurrency(): number {
@@ -279,7 +298,7 @@ export class JobRunner {
   async submit(
     type: string,
     params: Record<string, unknown>,
-    meta: { projectId?: string; retryOf?: string; apiKeyId?: string } = {},
+    meta: { projectId?: string; retryOf?: string; apiKeyId?: string; priority?: JobPriority } = {},
     quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps
   ): Promise<JobRecord> {
     if (!this.handlers[type]) throw new ApiError('bad_request', 400, `unknown job type "${type}"`);
@@ -295,12 +314,17 @@ export class JobRunner {
       ...(meta.retryOf ? { retryOf: meta.retryOf } : {}),
       ...(meta.apiKeyId ? { apiKeyId: meta.apiKeyId } : {}),
       ...(this.mode === 'database' ? { queue: 'database' as const, attempts: 0 } : {}),
+      priority: meta.priority ?? defaultPriority(type),
     };
     // Durable before anyone sees the id.
-    const limited = quota && ((meta.apiKeyId && (quota.windows.length || quota.maxActivePerKey !== undefined)) || quota.maxQueuedTotal !== undefined);
+    const limited =
+      quota && ((meta.apiKeyId && (quota.windows.length || quota.maxActivePerKey !== undefined)) || quota.maxQueuedTotal !== undefined || quota.maxEstimatedWait !== undefined);
     if (quota && limited) {
       const r = await this.repo.insertWithQuota(structuredClone(job), job.createdAt, { ...quota, ...(meta.apiKeyId ? { apiKeyId: meta.apiKeyId } : {}) });
-      if (!r.ok) throw 'cap' in r ? new JobCapReached(r.cap, r.used) : new QuotaExceeded(r.window, r.used);
+      if (!r.ok) {
+        if (!('cap' in r)) throw new QuotaExceeded(r.window, r.used);
+        throw new JobCapReached(r.cap, r.used, r.cap === 'estimated_wait' ? { oldestQueuedAt: r.oldestQueuedAt, estimatedWaitSeconds: r.estimatedWaitSeconds } : undefined);
+      }
     } else {
       await this.repo.insert(structuredClone(job), job.createdAt);
     }
@@ -369,17 +393,22 @@ export class JobRunner {
     };
   }
 
-  /** Position in this instance's in-process queue (0 = next), or null if not queued here. */
+  /** Position in this instance's in-process queue (0 = next: higher classes first, then queue order), or null if not queued here. */
   queuePosition(id: string): number | null {
     const i = this.queue.indexOf(id);
-    return i < 0 ? null : i;
+    if (i < 0) return null;
+    const rank = priorityRank(this.active.get(id)?.priority);
+    return this.queue.filter((q, k) => {
+      const r = priorityRank(this.active.get(q)?.priority);
+      return r < rank || (r === rank && k < i);
+    }).length;
   }
 
   /** Position of a queued job (0 = next): in-process or, for the database queue, among all instances. */
   async positionOf(job: JobRecord): Promise<number | null> {
     if (job.status !== 'queued') return null;
     if (job.queue !== 'database') return this.queuePosition(job.id);
-    return this.repo.countQueued({ createdAt: job.createdAt, id: job.id });
+    return this.repo.countQueued({ createdAt: job.createdAt, id: job.id, ...(job.priority ? { priority: job.priority } : {}) });
   }
 
   async cancel(id: string): Promise<JobRecord> {
@@ -444,7 +473,7 @@ export class JobRunner {
   }
 
   /** Start a new job with the same type and parameters. The old job and its output are untouched. */
-  async retry(id: string, meta: { apiKeyId?: string } = {}, quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps): Promise<JobRecord> {
+  async retry(id: string, meta: { apiKeyId?: string; priority?: JobPriority } = {}, quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps): Promise<JobRecord> {
     const job = await this.get(id);
     if (!TERMINAL.includes(job.status) || job.status === 'succeeded') {
       throw new ApiError('conflict', 409, `only failed or cancelled jobs can be retried (job is ${job.status})`);
@@ -564,20 +593,27 @@ export class JobRunner {
       return;
     }
     const cap = this.maxRunningPerKey();
-    // Fair across keys (D-090): start the queued job whose key runs the fewest jobs, oldest first among
-    // equals; jobs of a key at its cap (limits.maxRunningJobsPerKey) wait and keep their place.
+    const aging = this.agingSeconds();
+    // Priority first (D-103; batch aged into standard), then fair across keys (D-090): start the queued job whose
+    // key runs the fewest jobs, oldest first among equals; jobs of a key at its cap (limits.maxRunningJobsPerKey)
+    // wait and keep their place.
     this.queue = this.queue.filter((id) => this.active.get(id)?.status === 'queued');
     while (this.running.size < this.concurrency && this.queue.length > 0) {
       let best = -1;
+      let bestRank = Infinity;
       let bestRunning = Infinity;
+      const now = Date.now();
       for (const [i, id] of this.queue.entries()) {
-        const key = this.active.get(id)!.apiKeyId;
+        const job = this.active.get(id)!;
+        const key = job.apiKeyId;
         const n = key ? this.runningFor(key) : 0;
         if (cap !== undefined && key && n >= cap) continue;
-        if (n < bestRunning) {
+        const r = effectiveRank(priorityRank(job.priority), Date.parse(job.createdAt), now, aging);
+        if (r < bestRank || (r === bestRank && n < bestRunning)) {
           best = i;
+          bestRank = r;
           bestRunning = n;
-          if (n === 0) break;
+          if (n === 0 && r === 0) break;
         }
       }
       if (best < 0) break;
@@ -641,7 +677,7 @@ export class JobRunner {
             types: Object.keys(this.handlers),
             now: new Date(now).toISOString(),
             leaseUntil: new Date(now + this.db.leaseMs).toISOString(),
-            ...(this.maxRunningPerKey() !== undefined ? { maxRunningPerKey: this.maxRunningPerKey() } : {}),
+            ...this.claimLimits(),
           });
           this.ok('claim');
           // Nothing claimed, or shutdown() started meanwhile and the job went straight back.
@@ -698,7 +734,7 @@ export class JobRunner {
             types: Object.keys(this.handlers),
             now: new Date(now).toISOString(),
             leaseUntil: new Date(now + this.db.leaseMs).toISOString(),
-            ...(this.maxRunningPerKey() !== undefined ? { maxRunningPerKey: this.maxRunningPerKey() } : {}),
+            ...this.claimLimits(),
             ...(opts.jobId !== undefined ? { id: opts.jobId } : {}),
           });
           job = claimed.job;
@@ -899,6 +935,7 @@ export class JobRunner {
       job.startedAt = new Date().toISOString();
       job.progress = { stage: 'starting', fraction: 0 };
     }
+    this.recordClaim(job);
     const parent = this.origins.get(job.id) ?? context.active();
     this.origins.delete(job.id);
     const span = this.telemetry.tracer.startSpan(
@@ -976,6 +1013,23 @@ export class JobRunner {
       this.pump();
       if (this.mode === 'database') this.notifyIdle();
     }
+  }
+
+  /**
+   * A claim (or an in-process start): the claim throughput hook, and the queue-wait histogram (D-103) for a render or
+   * preview's first claim, labelled with its type and priority only. Units and joins are not measured: their queue
+   * position (createdAt) is their render's, not when they were queued. A job handed back on shutdown counts again
+   * from its enqueue at its next first claim (its attempt is not counted, D-077).
+   */
+  private recordClaim(job: JobRecord) {
+    try {
+      this.onClaim(job);
+    } catch {
+      // statistics never stop a job
+    }
+    if (job.parentId || (job.attempts ?? 1) > 1 || !job.startedAt) return;
+    const wait = Math.max(0, (Date.parse(job.startedAt) - Date.parse(job.createdAt)) / 1000);
+    coreInstruments(this.telemetry.meter).queueWait.record(wait, { 'reelforge.job.type': job.type, 'reelforge.job.priority': job.priority ?? 'standard' });
   }
 
   /** JobContext.fanOut (D-097): store the children and hand the parent off, in order with the job's other writes. */
@@ -1159,8 +1213,10 @@ export class QuotaExceeded extends Error {
 /** insertWithQuota refused the job: a job cap (D-090) is reached, with the current count. */
 export class JobCapReached extends Error {
   constructor(
-    readonly cap: 'active_per_key' | 'queued_total',
-    readonly used: number
+    readonly cap: 'active_per_key' | 'queued_total' | 'estimated_wait',
+    readonly used: number,
+    /** `estimated_wait`: the oldest queued job ahead and the estimate (D-103). */
+    readonly wait?: { oldestQueuedAt: string; estimatedWaitSeconds: number }
   ) {
     super(`job cap reached (${cap})`);
   }

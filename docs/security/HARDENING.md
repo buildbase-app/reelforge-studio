@@ -43,6 +43,8 @@ Every limit is a runtime setting (config file, environment, or `update_config`
 | Unfinished render and preview jobs per key (queued or running) | `limits.maxQueuedJobsPerKey` (`REELFORGE_MAX_QUEUED_JOBS_PER_KEY`) | `100` | `429 too_many_jobs`, `Retry-After: 30` |
 | Queued jobs in total (every key) | `limits.maxQueuedJobs` (`REELFORGE_MAX_QUEUED_JOBS`) | `1000` with the in-process queue (one instance: protects its memory); `0` (no limit) with the database queue | `429 queue_full`, `Retry-After: 30` |
 | Running jobs per key | `limits.maxRunningJobsPerKey` (`REELFORGE_MAX_RUNNING_JOBS_PER_KEY`) | `0` (no limit; claiming is fair across keys anyway) | the key's next job waits while other keys' jobs use the free slots |
+| Estimated queue wait of a new render or preview | `limits.maxEstimatedWaitSeconds` (`REELFORGE_MAX_ESTIMATED_WAIT_SECONDS`) | `0` (off) | `429 queue_full`, `Retry-After` = the estimate's excess over the limit (30 s to 1 h), `details` with the estimate and the queued jobs ahead |
+| Job priority a key may ask for | the key's `maxPriority` (`create_key` / `update_key`, admin only; CLI `--max-priority`) | unset: each type's default (previews `interactive`, renders `standard`), so a key can lower a job's class but not raise it | `403 priority_not_allowed` |
 | Render or preview length | `limits.maxRenderSeconds` (`REELFORGE_MAX_RENDER_SECONDS`) | `180` (schema maximum) | `422 render_limit_exceeded` |
 | Frames per render or preview | `limits.maxRenderFrames` (`REELFORGE_MAX_RENDER_FRAMES`) | `5400` (180 s at 30 fps, 90 s at 60 fps) | `422 render_limit_exceeded` |
 | Scenes per render | `limits.maxScenes` (`REELFORGE_MAX_SCENES`) | `50` (schema maximum) | `422 render_limit_exceeded` |
@@ -65,6 +67,19 @@ Details:
   among equals), so two keys with 20 queued jobs each share two workers evenly
   even without `limits.maxRunningJobsPerKey`. A single key alone still uses
   every slot.
+- **Priorities** (D-103). Jobs are claimed `interactive`, then `standard`,
+  then `batch`, and fairly across keys within a class. An agent cannot jump the
+  queue: asking for a class above the key's `maxPriority` (or the type's
+  default when it has none) is refused, and only an admin key can change a
+  key's `maxPriority`, as with every other key limit. There is no admin
+  exemption either: an admin key is bound by its own `maxPriority` (a leaked
+  admin key is the worst case, D-090). `batch` jobs count as `standard` after
+  `queue.priorityAgingSeconds` (600) so they are not starved by renders.
+- **Admission by estimated wait** (`limits.maxEstimatedWaitSeconds`): new
+  renders and previews are refused while the queue in front of them would make
+  them wait longer than the setting, instead of piling up. The estimate is
+  measured (the oldest job ahead and the deployment's claim throughput), never
+  configured; see docs/providers/queue-and-scaling.md.
 - **Job caps are counted in the database** together with the job insert, so
   they hold with several api instances (docs/providers/queue-and-scaling.md).
   `retry_job` counts like a new start. Jobs started without an API key (CLI)
@@ -221,6 +236,7 @@ Unit and integration tests are named `SECT-xx` (`security` in the test name):
 | LIMT-01..07 | `packages/core/test/limits.test.ts` | render limits named and checked before a job exists (previews by what they render); job caps per key and in total; the per-key running cap of the in-process queue; provider calls per key and per day (cache hits free); streamed uploads and URL imports stop at the byte cap, leave no file |
 | LIMS-01..07 | `apps/server/test/limits.test.ts` | the same codes and details over REST and MCP, 10 concurrent starts against a cap of 3 (exactly 2 more succeed, 8 get `429 too_many_jobs`; idempotent re-submits never count twice), `Retry-After`, `get_capabilities` limits, streamed multipart with fields after the file, a chunked upload answered `413` while the client is still sending, the rejection metric |
 | LIM-01..06 | `packages/db/test/limits.contract.test.ts` | the counters on memory, SQLite, PostgreSQL and MySQL under concurrency (docs/providers/queue-and-scaling.md) |
+| PRI-01..09, PRIS-01..05, PRS-01..03 | `packages/db/test/priority.contract.test.ts`, `packages/core/test/priority.test.ts`, `apps/server/test/priority.test.ts` | priorities in the claim order on every database, escalation refused for keys without `maxPriority`, admission refusals with `Retry-After` and details, bounded labels of the queue-wait metric (docs/providers/queue-and-scaling.md) |
 
 The Docker end-to-end test (`e2e/docker/run.sh`, `e2e/docker/security.mjs`)
 checks the release image with its hardened flags: Chromium's sandbox active by

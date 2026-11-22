@@ -57,6 +57,7 @@ import { contentTypeFor, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix } from '
 import { StorageManager, type CleanupReport, type RetentionPolicy } from './storage/manager';
 import { ThemeStore } from './themes';
 import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
+import { ClaimRate, DEFAULT_PRIORITY, PRIORITIES, defaultPriority, isPriority, lowerPriority, priorityRank, type JobPriority } from './priority';
 import { WebhookService, jobPayload, renderSummary, type NotificationProvider } from './webhooks/index';
 import type { AuditEntry } from './repositories';
 import type { JobEvent } from './jobs';
@@ -238,6 +239,8 @@ export class ReelforgeService {
   readonly assets: AssetStore;
   readonly keys: KeyStore;
   readonly jobs: JobRunner;
+  /** Claims per second across the deployment, shared through the database (admission by estimated wait, D-103). */
+  readonly claimRate: ClaimRate;
   readonly serverVersion: string;
   readonly publicUrl: string;
   /** Effective configuration: defaults < file < env < runtime settings in the database. */
@@ -336,6 +339,7 @@ export class ReelforgeService {
       readOnly: cfg.server.role === 'worker',
       instanceName: workerId,
     });
+    this.claimRate = new ClaimRate(this.repos.rateLimits, { now: this.now, log: (line) => config.log?.('warn', line) });
     this.jobs = new JobRunner({
       repo: this.repos.jobs,
       concurrency: cfg.server.workerConcurrency ?? config.renderConcurrency ?? 1,
@@ -365,6 +369,8 @@ export class ReelforgeService {
       },
       log: (level, line) => config.log?.(level, line),
       maxRunningPerKey: () => this.settings.current.config.limits.maxRunningJobsPerKey,
+      priorityAgingSeconds: () => this.settings.current.config.queue.priorityAgingSeconds,
+      onClaim: () => this.claimRate.record(),
     });
     if (!registry.listBackends().some((b) => b.id === 'local')) {
       registry.registerBackend(new LocalBackend((req, ctx) => this.renderLocally(req, ctx), () => registry.listEngines().map((e) => e.id)));
@@ -495,6 +501,7 @@ export class ReelforgeService {
     this.storage.stopSweeper();
     // In-flight deliveries get a few seconds; the rest stay pending for the next start (#66).
     await this.webhooks.stop();
+    await this.claimRate.flush();
     await this.auditLog.close();
   }
 
@@ -661,7 +668,20 @@ export class ReelforgeService {
       renderConcurrency: this.jobs.concurrency,
       sceneTimeoutSeconds: this.settings.current.config.render.sceneTimeoutSeconds,
       /** null: no limit. */
-      jobs: { maxQueuedJobsPerKey: off(l.maxQueuedJobsPerKey), maxQueuedJobs: off(l.maxQueuedJobs), maxRunningJobsPerKey: off(l.maxRunningJobsPerKey) },
+      jobs: {
+        maxQueuedJobsPerKey: off(l.maxQueuedJobsPerKey),
+        maxQueuedJobs: off(l.maxQueuedJobs),
+        maxRunningJobsPerKey: off(l.maxRunningJobsPerKey),
+        /** Admission control (D-103): starts are refused with 429 queue_full when the estimated queue wait is longer. */
+        maxEstimatedWaitSeconds: off(l.maxEstimatedWaitSeconds),
+      },
+      /** Job priorities (D-103): claimed in this order; `priority` on render_project / preview_scene, up to the key's maximum. */
+      priority: {
+        classes: [...PRIORITIES],
+        defaults: { ...DEFAULT_PRIORITY },
+        maxForThisKey: { render: this.maxPriorityFor('render'), preview: this.maxPriorityFor('preview') },
+        batchAgingSeconds: off(this.settings.current.config.queue.priorityAgingSeconds),
+      },
       providers: { runsPerKeyPerDay: off(l.providerRunsPerKeyPerDay), runsPerDay: off(l.providerRunsPerDay) },
       rateLimitPerMinute: off(l.rateLimitPerMinute),
     };
@@ -999,17 +1019,43 @@ export class ReelforgeService {
 
   // ---- renders --------------------------------------------------------------
 
-  async startRender(id: string, opts: { backend?: string } = {}): Promise<JobRecord> {
-    return this.enqueueRender(id, 'render', opts.backend);
+  async startRender(id: string, opts: { backend?: string; priority?: unknown } = {}): Promise<JobRecord> {
+    return this.enqueueRender(id, 'render', opts.priority, opts.backend);
   }
 
-  async preview(id: string, opts: { sceneId?: string; scale?: number } = {}): Promise<JobRecord> {
+  async preview(id: string, opts: { sceneId?: string; scale?: number; priority?: unknown } = {}): Promise<JobRecord> {
     const scale = opts.scale ?? 1 / 3;
     if (!(scale > 0 && scale <= 1)) throw badRequest('scale must be > 0 and <= 1');
-    return this.enqueueRender(id, 'preview', undefined, opts.sceneId ? [opts.sceneId] : undefined, scale);
+    return this.enqueueRender(id, 'preview', opts.priority, undefined, opts.sceneId ? [opts.sceneId] : undefined, scale);
   }
 
-  private async enqueueRender(id: string, kind: 'render' | 'preview', backendOverride?: string, sceneIds?: string[], scale?: number) {
+  /** The highest class the calling key may use for a job type: its maxPriority, else the type's default (D-103). */
+  private maxPriorityFor(type: string): JobPriority {
+    const auth = currentRequest()?.auth;
+    return auth?.maxPriority ?? defaultPriority(type);
+  }
+
+  /**
+   * The class of a new render or preview (D-103): the requested one, which may not be higher than the key allows
+   * (`403 priority_not_allowed`), or the type's default lowered to the key's maximum. Checked before any job exists.
+   */
+  private resolvePriority(type: string, requested: unknown): JobPriority {
+    const max = this.maxPriorityFor(type);
+    if (requested === undefined || requested === null) return lowerPriority(defaultPriority(type), max);
+    if (!isPriority(requested)) throw badRequest(`priority must be one of ${PRIORITIES.join(', ')}`);
+    if (priorityRank(requested) < priorityRank(max)) {
+      throw new ApiError(
+        'priority_not_allowed',
+        403,
+        `this API key may start ${type} jobs at priority "${max}" or lower, not "${requested}". Omit priority (the default is "${lowerPriority(defaultPriority(type), max)}"), or ask an admin to raise the key's maxPriority (update_key).`,
+        { requested, maxPriority: max, setting: 'key.maxPriority' }
+      );
+    }
+    return requested;
+  }
+
+  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number) {
+    const priority = this.resolvePriority(kind, requestedPriority);
     await this.licence.assertRenderAllowed();
     const { manifest, meta } = await this.projects.get(id);
     if (sceneIds) {
@@ -1035,9 +1081,9 @@ export class ReelforgeService {
       this.jobs.submit(
         kind,
         { projectId: id, version: meta.version, backend: backendId, runId, ...(sceneIds ? { sceneIds } : {}), ...(scale ? { scale } : {}) },
-        { projectId: id, ...(apiKeyId ? { apiKeyId } : {}) },
+        { projectId: id, priority, ...(apiKeyId ? { apiKeyId } : {}) },
         quota
-      )
+      ), priority
     );
   }
 
@@ -1047,9 +1093,15 @@ export class ReelforgeService {
    * database transaction that locks the key's row, so parallel calls on any
    * number of instances cannot overshoot (D-078).
    */
-  private async withRenderQuota(submit: (apiKeyId?: string, quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps) => Promise<JobRecord>): Promise<JobRecord> {
+  private async withRenderQuota(
+    submit: (apiKeyId?: string, quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps) => Promise<JobRecord>,
+    priority: JobPriority
+  ): Promise<JobRecord> {
     const auth = currentRequest()?.auth;
     const l = this.settings.current.config.limits;
+    // Admission by estimated wait (D-103): the measured claim throughput is read before the transaction (a cached
+    // read of the shared counter); the queue ahead is counted in the cap statement itself.
+    const maxWait = l.maxEstimatedWaitSeconds > 0 ? { seconds: l.maxEstimatedWaitSeconds, claimsPerSecond: await this.claimRate.perSecond(), now: new Date(this.now()).toISOString() } : undefined;
     const caps: JobCaps = {
       ...(l.maxQueuedJobsPerKey > 0 ? { maxActivePerKey: l.maxQueuedJobsPerKey } : {}),
       ...(l.maxQueuedJobs > 0 ? { maxQueuedTotal: l.maxQueuedJobs } : {}),
@@ -1057,9 +1109,32 @@ export class ReelforgeService {
     const keyId = auth && auth.keyId !== 'signed-url' ? auth.keyId : undefined;
     const capped = async (windows: QuotaWindow[]) => {
       try {
-        return await submit(keyId, { types: QUOTA_JOB_TYPES, windows, ...(keyId ? caps : { ...(caps.maxQueuedTotal ? { maxQueuedTotal: caps.maxQueuedTotal } : {}) }) });
+        const keyCaps = keyId ? caps : { ...(caps.maxQueuedTotal ? { maxQueuedTotal: caps.maxQueuedTotal } : {}) };
+        return await submit(keyId, { types: QUOTA_JOB_TYPES, windows, ...keyCaps, ...(maxWait ? { maxEstimatedWait: maxWait } : {}) });
       } catch (e) {
         if (!(e instanceof JobCapReached)) throw e;
+        if (e.cap === 'estimated_wait' && maxWait && e.wait) {
+          const est = Math.ceil(e.wait.estimatedWaitSeconds);
+          const oldest = Math.max(0, Math.round((Date.parse(maxWait.now) - Date.parse(e.wait.oldestQueuedAt)) / 1000));
+          const claimsPerMinute = Math.round(maxWait.claimsPerSecond * 60 * 100) / 100;
+          // Wait about as long as the estimate exceeds the limit: by then the jobs ahead that cause the excess have drained.
+          const retryAfterSeconds = Math.min(3600, Math.max(JOB_CAP_RETRY_SECONDS, est - l.maxEstimatedWaitSeconds));
+          await this.recordLimitRejection('queue_wait', { limit: 'limits.maxEstimatedWaitSeconds', max: l.maxEstimatedWaitSeconds, estimatedWaitSeconds: est, queuedAhead: e.used, priority });
+          throw new ApiError(
+            'queue_full',
+            429,
+            `the render queue is too long: a new ${priority} job would wait about ${est} s (limits.maxEstimatedWaitSeconds is ${l.maxEstimatedWaitSeconds}); ${e.used} job(s) of this priority or higher are waiting. Try again in ${retryAfterSeconds} s${priority === 'interactive' ? '' : ', or use a quick preview_scene meanwhile'}.`,
+            {
+              limit: 'limits.maxEstimatedWaitSeconds',
+              max: l.maxEstimatedWaitSeconds,
+              estimatedWaitSeconds: est,
+              priority,
+              queued: { ahead: e.used, oldestWaitingSeconds: oldest },
+              claimsPerMinute,
+              retryAfterSeconds,
+            }
+          );
+        }
         if (e.cap === 'queued_total') {
           await this.recordLimitRejection('queue_full', { limit: 'limits.maxQueuedJobs', max: l.maxQueuedJobs, used: e.used });
           throw new ApiError('queue_full', 429, `the render queue is full: ${e.used} jobs are waiting (limits.maxQueuedJobs is ${l.maxQueuedJobs}). Try again in a minute.`, {
@@ -1289,7 +1364,9 @@ export class ReelforgeService {
     const job = await this.getJob(id);
     if (job.type === 'render' || job.type === 'preview') {
       await this.licence.assertRenderAllowed();
-      return this.withRenderQuota((apiKeyId, quota) => this.jobs.retry(id, apiKeyId ? { apiKeyId } : {}, quota));
+      // The retry keeps the job's class, lowered to what the retrying key may use (D-103).
+      const priority = lowerPriority(job.priority ?? defaultPriority(job.type), this.maxPriorityFor(job.type));
+      return this.withRenderQuota((apiKeyId, quota) => this.jobs.retry(id, { priority, ...(apiKeyId ? { apiKeyId } : {}) }, quota), priority);
     }
     const apiKeyId = currentRequest()?.auth?.keyId;
     return this.jobs.retry(id, apiKeyId ? { apiKeyId } : {});

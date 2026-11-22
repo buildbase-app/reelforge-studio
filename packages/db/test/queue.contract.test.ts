@@ -30,6 +30,7 @@ function queued(over: Partial<JobRecord> = {}): JobRecord {
     progress: { stage: 'queued', fraction: 0 },
     queue: 'database',
     attempts: 0,
+    priority: 'standard',
     ...over,
   };
 }
@@ -260,7 +261,8 @@ describe.each(targets)('job queue contract: $name', ({ kind }) => {
     expect(await repos.jobs.get(a.id)).toEqual(a);
     const plain: JobRecord = { id: newId('job'), type: 'render', status: 'queued', params: {}, createdAt: iso(now), progress: { stage: 'queued', fraction: 0 } };
     await repos.jobs.insert(plain, plain.createdAt);
-    expect(await repos.jobs.get(plain.id)).toEqual(plain);
+    // A job written without a class reads as standard (migration 0010_job_priority, D-103).
+    expect(await repos.jobs.get(plain.id)).toEqual({ ...plain, priority: 'standard' });
   });
 
   // ---- render fan-out (#156, D-097) -------------------------------------------------------------

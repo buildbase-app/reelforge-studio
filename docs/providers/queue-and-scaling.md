@@ -277,7 +277,9 @@ goes.
 - **Enqueue** (any `api`/`all` instance): `render_project`, `preview_scene` and
   `retry_job` insert a `Job` row with `queue = 'database'`, `status = 'queued'`.
   With a render quota the insert happens under the key's row lock (below).
-- **Claim** (workers): the oldest queued job of the types it can run.
+- **Claim** (workers): the next queued job of the types it can run, in the
+  order of [Priorities, fairness and admission](#priorities-fairness-and-admission-d-103)
+  (class, then the key with the fewest running jobs, then age).
   PostgreSQL / MySQL 8: in one transaction (read committed), PostgreSQL runs
   `SELECT id FROM Job WHERE ... status = 'queued' ORDER BY createdAt, id LIMIT 1 FOR UPDATE SKIP LOCKED`;
   MySQL reads the candidates in that order without locks and locks them one at
@@ -312,7 +314,8 @@ goes.
   that accepted it, start/progress/finish by the worker running it, a
   lease-expiry failure by the instance that recovered it; events replayed from
   the database for watchers are marked `remote` and never reach `onEvent`
-  (SCL-11u).
+  (SCL-11u). `queuePosition` counts the jobs of a higher class and the older
+  jobs of the same class (fairness across keys and aging are not predicted).
 - **Graceful shutdown** (SIGTERM): stop claiming, `/readyz` 503, wait up to
   `queue.shutdownGraceSeconds` for running renders, then abort the rest and
   hand them back (`queued`, the attempt not counted) so another worker starts
@@ -332,6 +335,112 @@ goes.
 - A render that an earlier attempt already committed to storage (its worker
   died between the commit and the final state) is not rendered again: the
   retry finishes with that render.
+
+## Priorities, fairness and admission (D-103)
+
+When many videos are queued at once, previews stay fast, no key starves the
+others, new work is refused with a clear `Retry-After` instead of piling up,
+and operators have a queue-wait SLO to alert on (issue #155).
+
+**Claim order**, on every queue (in-process, SQLite, PostgreSQL, MySQL):
+
+1. **Class**: `interactive` > `standard` > `batch`. Previews are `interactive`
+   by default, renders `standard`. `render_project` and `preview_scene` take a
+   `priority` argument (REST: `priority` in the body). A key may lower a job's
+   class but not raise it: the highest class it may ask for is its
+   `maxPriority` (`create_key` / `update_key`, admin only; CLI
+   `--max-priority`), else the job type's default. A higher request is refused
+   with `403 priority_not_allowed` before any job exists. A key with
+   `maxPriority: batch` gets `batch` for everything. `retry_job` keeps the
+   job's class, lowered to the retrying key's maximum.
+2. **Fairness** (D-090): within a class, the key with the fewest running jobs
+   first (`limits.maxRunningJobsPerKey` skips keys at their cap).
+3. **Age**: oldest first.
+
+Fan-out units and the join inherit their render's class and its queue position
+(PRI-05), so a render in progress is never overtaken at a lower class.
+
+**No starvation of batch:** a `batch` job that has waited
+`queue.priorityAgingSeconds` (default 600, runtime) is claimed as `standard`,
+never as `interactive` (PRI-04). Standard jobs are not aged. What is *not*
+prevented, on purpose: a stream of `interactive` jobs that alone keeps every
+worker busy delays standard and aged batch jobs for as long as it lasts.
+Previews are short (a third of the size) and bounded by
+`limits.maxQueuedJobsPerKey` and the render quotas; size the worker pool so
+previews alone cannot saturate it, and watch the queue-wait panel. `0` makes
+the classes strict.
+
+**How the database claim does it:** the claim index is
+`Job(workspaceId, queue, status, priority, createdAt)` (migration
+`0010_job_priority`, `priority` 0/1/2). SQLite orders its one conditional
+`UPDATE` by `CASE WHEN priority > 1 AND createdAt < :agedBefore THEN 1 ELSE
+priority END`, the running count, `createdAt`, `id`. PostgreSQL and MySQL read
+the queued jobs grouped by `(apiKeyId, priority)` with their oldest
+`createdAt` and the running count per key without locks, order the groups in
+the process with the same rule, then lock one job of the best group exactly as
+before: PostgreSQL with `ORDER BY createdAt, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
+MySQL one candidate at a time by primary key (#171), falling through to the
+next group when another transaction holds them all.
+
+**Fairness under a flood:** with 1,000 queued jobs of key A and one of key B,
+B is claimed by the second claim (PRI-01, all four targets). Workers that claim
+at *exactly* the same instant decide the key order from the same reads, so in
+a burst of `W` simultaneous claims all `W` may still go to A; the next claim
+sees A running `W` jobs and takes B (the overshoot D-090 already accepts for
+the running cap).
+
+**Admission by estimated wait** (`limits.maxEstimatedWaitSeconds`, 0 = off,
+runtime): `render_project` / `preview_scene` / `retry_job` answer `429
+queue_full` with `Retry-After` and `details` when the new job's estimated queue
+wait is longer than the setting:
+
+```json
+{ "error": { "code": "queue_full", "message": "the render queue is too long: a new standard job would wait about 412 s (limits.maxEstimatedWaitSeconds is 300); 37 job(s) of this priority or higher are waiting. Try again in 112 s, or use a quick preview_scene meanwhile.",
+  "details": { "limit": "limits.maxEstimatedWaitSeconds", "max": 300, "estimatedWaitSeconds": 412, "priority": "standard",
+    "queued": { "ahead": 37, "oldestWaitingSeconds": 431 }, "claimsPerMinute": 5.39, "retryAfterSeconds": 112 } } }
+```
+
+The estimate uses measured numbers only:
+
+- *jobs ahead* and the *oldest of them*: queued jobs of the same queue and of
+  the new job's class or higher (any type: units take worker slots too),
+  counted in the **same statement** as the job caps of #183 inside
+  `insertWithQuota` (no extra statement under the lock; without a key and
+  without `maxQueuedJobs` there is no lock at all, since this is an estimate,
+  not a cap to enforce exactly);
+- *claim throughput*: every instance that claims adds its claims to one
+  counter row per minute (`RateLimitWindow` key `stats:claims`, batched to at
+  most one write per 5 s per instance, swept after an hour like request
+  windows); the api reads the last 10 minutes (cached 5 s) as an exponentially
+  decayed average (half-life 2 min), so every instance sees the deployment's
+  rate.
+
+Estimated wait = min(how long the oldest job ahead has waited, jobs ahead ÷
+claims per second). Each signal alone misleads: after an idle period the
+throughput is limited by demand, so the drain time looks long while the queue
+moves fast; one job held back by a per-key running cap makes the head look old
+while everything else flows. Only when both are long does the queue really
+wait. Without measured throughput (nothing claimed for 10 minutes) the head age
+alone decides, so a queue whose workers are all gone starts refusing once its
+oldest job has waited longer than the limit. `Retry-After` is the excess over
+the limit (at least 30 s, at most an hour). The estimate is deployment-wide,
+not per key: a key that floods the queue raises it for everyone, which is what
+`maxQueuedJobsPerKey` bounds. `get_capabilities` reports
+`limits.jobs.maxEstimatedWaitSeconds` and `limits.priority` (classes, defaults,
+the calling key's maximum, `batchAgingSeconds`). Refusals are counted as
+`reelforge_limits_rejections_total{reelforge_limit_reason="queue_wait"}` and
+audited as `limit.rejected`.
+
+**Queue-wait SLO:** `reelforge_job_queue_wait_seconds` (histogram, labels
+`reelforge_job_type` and `reelforge_job_priority` only) is recorded by the
+instance that claims, at a render's or preview's first claim; fan-out units and
+joins are not measured (their queue position is their render's). The SLO, at
+the maximum number of worker replicas: **p95 below 60 s for previews and below
+300 s (5 min) for renders**. Panel: "Queue wait p95 by type and priority" in
+`deployment/observability/grafana-dashboard.json`; alert rules:
+`deployment/observability/alerts.yml` (checked with `promtool check rules` and
+`promtool test rules alerts.test.yml`). See
+[observability](observability.md#queue-wait-slo).
 
 ## Render fan-out
 
@@ -517,11 +626,14 @@ or provider cap off. Full table with defaults and errors:
 | `limits.maxQueuedJobsPerKey` (unfinished jobs of one key) | 100 | in the job insert transaction, under the key's row lock (as the render quota): exact. The job and its event are written first, then the lock, then one statement with every count, then commit: one statement between the lock and commit, so the lock is held for two round trips instead of four to seven (#180) |
 | `limits.maxQueuedJobs` (queued jobs in total) | **0 (off) with the database queue**, 1000 with the in-process queue | when on: in the job insert transaction, under one shared lock row (`RateLimitWindow` key `lock:job-queue`, never swept): exact, but every start of the deployment waits for that one row, held for two round trips. Off by default here because the database and autoscaled workers absorb the queue |
 | `limits.maxRunningJobsPerKey` (running jobs of one key) | 0 (off) | when on: the claim skips keys that already run that many database-queue jobs on a worker (a fanned-out render parent holds no lease and is not counted; its units are, see [Render fan-out](#render-fan-out)). Exact on one worker; two workers claiming at the same moment may each take one more |
+| priorities (always on, D-103) | `queue.priorityAgingSeconds` 600 | the claim orders by class first (`interactive`, `standard`, `batch`; batch counts as standard after the aging period), in the same claim statements as fairness below; fairness and age apply within a class ([below](#priorities-fairness-and-admission-d-103)) |
 | fair claiming (always on) | - | each claim first reads, without locks, the running jobs per key and the oldest queued job per key, then locks one job of the key with the fewest running jobs (oldest first) with `SELECT ... FOR UPDATE SKIP LOCKED` (MySQL: one candidate at a time by primary key, so a claim never holds a job it does not take), falling through to the next key when another transaction holds them all; SQLite does the same in its one conditional `UPDATE`. Two keys with 20 jobs each share 2 workers 10/10 (LIM-07) |
 | `limits.providerRunsPerKeyPerDay`, `limits.providerRunsPerDay` | 500, 0 (off) | usage counters in `RateLimitWindow` (keys `usage:...`, one row per UTC day), one conditional `UPDATE ... SET count = count + 1 WHERE count < limit` per counter in one transaction, all or nothing: exact. Swept after two days |
+| `limits.maxEstimatedWaitSeconds` (admission by estimated wait) | 0 (off) | the jobs ahead and the oldest of them are counted in the job insert's one cap statement; the claim throughput comes from the shared `stats:claims` counter; an estimate, so refusals at the boundary are approximate across instances ([above](#priorities-fairness-and-admission-d-103)) |
 | render size (`maxRenderSeconds`, `maxRenderFrames`, `maxScenes`, `maxRenderDimension`, `maxRenderFps`) | 180 s, 5400, 50, 3840 px, 60 | checked from the manifest before the job is created; no shared state |
 
-Refusals: `429 too_many_jobs` / `429 queue_full` (with `Retry-After: 30`),
+Refusals: `429 too_many_jobs` / `429 queue_full` (with `Retry-After: 30`, or
+the estimate's excess for `maxEstimatedWaitSeconds`), `403 priority_not_allowed`,
 `429 provider_limit_exceeded` / `429 provider_budget_exhausted` (with
 `Retry-After` until midnight UTC), `422 render_limit_exceeded` (every exceeded
 limit in `details.limits`), `413 too_large` for uploads. MCP tools return the
@@ -710,6 +822,24 @@ and a job that dies while its worker shuts down is handed back, never failed
 | LIM-09 | the caps free up on fail, cancel, success and cancel of a fan-out tree; a retry counts like a start; a running job counts per key but not in the queue, and counts again when a lost lease queues it again; fan-out units count neither per key nor in the queue; every refusal reports the real count | contract (4 targets) | pass 2026-11-22 |
 | LIM-10 | render quota windows count only jobs started inside the window | contract (4 targets) | pass 2026-11-22 |
 | LIM-11 | an enqueue (accepted or refused, per-key or total cap) runs exactly one statement between the cap lock and commit (#180) | contract (3 databases) | pass 2026-11-22 |
+| PRI-01 | 1,000 queued jobs of key A, then 1 of key B: B is among the first 4 claims of 4 workers (in fact the second) | contract (4 targets) | pass 2026-11-22 |
+| PRI-02 | the claim takes interactive, then standard, then batch; within a class the key with fewer running jobs, then the oldest | contract (4 targets) | pass 2026-11-22 |
+| PRI-03 | a higher class wins over fairness: a key with a running job gets its interactive job before an idle key's standard job | contract (4 targets) | pass 2026-11-22 |
+| PRI-04 | aging: a batch job older than `priorityAgingSeconds` is claimed as standard (before a newer standard job, after interactive); younger, or aging 0: last | contract (4 targets) | pass 2026-11-22 |
+| PRI-05 | fan-out units inherit an interactive render's class and run before a standard job queued earlier than them | contract (4 targets) | pass 2026-11-22 |
+| PRI-06 | `countQueued` (queue position) counts higher classes and older jobs of the same class | contract (4 targets) | pass 2026-11-22 |
+| PRI-07 | admission: refused (`estimated_wait`, count and oldest) only when the head waited longer than the limit and the jobs ahead drain slower; counted per class; refused starts leave no row | contract (4 targets) | pass 2026-11-22 |
+| PRI-08 | keys store `maxPriority`; null clears it | contract (4 targets) | pass 2026-11-22 |
+| PRI-09 | the claim counter: concurrent `hit(..., n)` add up, `windows()` reads per minute, two `ClaimRate`s sum, the rate is a decayed average | contract (4 targets) | pass 2026-11-22 |
+| PRIS-01 | estimate = min(head age, ahead / rate); decayed rate of per-minute counts | unit (`packages/core/test/priority.test.ts`) | pass 2026-11-22 |
+| PRIS-02 | in-process pump: interactive, then standard (fair, oldest), then batch; queue positions follow | unit | pass 2026-11-22 |
+| PRIS-03 | defaults per type; lowering allowed; escalation `403 priority_not_allowed` with details; invalid `400`; a key with `maxPriority` may escalate, one held to `batch` is held there; capabilities show the key's maximum; retry lowers to the retrier's maximum | service (memory) | pass 2026-11-22 |
+| PRIS-04 | `maxPriority` through `create_key`/`update_key` into the authenticated request; invalid value `400` | service (memory) | pass 2026-11-22 |
+| PRIS-05 | admission refusal: `429 queue_full`, `details` (limit, estimate, priority, queued ahead and oldest wait, claims per minute, `retryAfterSeconds`), audited as `queue_wait`; a preview with nothing ahead admitted; `0` off; capabilities report it | service (memory) | pass 2026-11-22 |
+| PRS-01 | REST and MCP: preview `interactive`, render `batch` on request, escalation `403 priority_not_allowed` on both; an admin sets `maxPriority: interactive` (REST `POST /v1/keys`), a non-admin cannot; null takes it back | server (SQLite, PostgreSQL, MySQL) | pass 2026-11-22 |
+| PRS-02 | REST `429 queue_full` with `Retry-After: 30` and `details` once a queued render waited longer than `maxEstimatedWaitSeconds: 1`; the same over MCP; a preview still admitted and first in the queue; REST and MCP `get_capabilities` report it | server (SQLite, PostgreSQL, MySQL) | pass 2026-11-22 |
+| PRS-03 | `/metrics`: `reelforge_job_queue_wait_seconds` histogram with only `reelforge_job_type` and `reelforge_job_priority` (+ `le`), values from fixed sets, buckets at 60 and 300; the Grafana panel and the alert rules query it | server (SQLite, PostgreSQL, MySQL) | pass 2026-11-22 |
+| PRI-ALERT | `promtool check rules` and `promtool test rules` on `deployment/observability/alerts.yml` (preview p95 117 s fires after 10 min, renders inside the SLO do not; renders p95 570 s fire) | Docker e2e (`e2e/docker/run.sh`) and local promtool v3.7.3 | pass 2026-11-22 (local) |
 
 Commands:
 
@@ -719,7 +849,10 @@ pnpm --filter @reelforge/core exec vitest run test/jobs.queue.test.ts test/limit
 FANOUT_E2E=1 TEST_POSTGRES_URL=postgresql://... FANOUT_E2E_S3_ENDPOINT=http://127.0.0.1:9000 FANOUT_E2E_S3_ACCESS_KEY=... FANOUT_E2E_S3_SECRET_KEY=... \
   REELFORGE_CHROMIUM_PATH=... pnpm --filter @reelforge/server exec vitest run test/fanout.e2e.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://...?allowPublicKeyRetrieval=true \
-  pnpm --filter @reelforge/db exec vitest run test/queue.contract.test.ts test/queue.processes.test.ts test/limits.contract.test.ts
+  pnpm --filter @reelforge/db exec vitest run test/queue.contract.test.ts test/queue.processes.test.ts test/limits.contract.test.ts test/priority.contract.test.ts
+pnpm --filter @reelforge/core exec vitest run test/priority.test.ts
+REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @reelforge/server exec vitest run test/priority.test.ts
+docker run --rm -v "$PWD/deployment/observability:/w:ro" -w /w --entrypoint promtool prom/prometheus:v3.7.3 test rules alerts.test.yml
 TEST_POSTGRES_URL=postgresql://... pnpm --filter @reelforge/server exec vitest run test/scaling.test.ts
 REELFORGE_TEST_DB=mysql TEST_MYSQL_URL=mysql://... pnpm --filter @reelforge/server exec vitest run test/scaling.test.ts
 SCALE=1 E2E_PREFIX=que PORT=4335 e2e/docker/run.sh

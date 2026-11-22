@@ -5,6 +5,7 @@ import { createMemoryWebhookRepository } from './webhooks/memory';
 import { pageOf } from './paging';
 import { summarizeProject } from './store';
 import { isFannedOut, isTerminal, settleChild, stopTree, type SettlementPlan } from './fanout';
+import { effectiveRank, estimateWaitSeconds, priorityRank } from './priority';
 import {
   DEFAULT_WORKSPACE_ID,
   runIdOf,
@@ -27,6 +28,8 @@ import {
 } from './repositories';
 
 const clone = <T>(v: T): T => structuredClone(v);
+/** A job row as stored: like a database, the class is always set (unset reads as standard; D-103). */
+const asStored = (j: JobRecord): JobRecord => ({ ...clone(j), priority: j.priority ?? 'standard' });
 
 /** Apply an ApiKeyPatch to a record (null clears an optional field). */
 export function applyKeyPatch(k: ApiKeyRecord, patch: ApiKeyPatch): ApiKeyRecord {
@@ -35,7 +38,7 @@ export function applyKeyPatch(k: ApiKeyRecord, patch: ApiKeyPatch): ApiKeyRecord
   if (patch.secret) Object.assign(next, patch.secret);
   if (patch.rotatedAt !== undefined) next.rotatedAt = patch.rotatedAt;
   if (patch.revokedAt !== undefined) next.revokedAt = patch.revokedAt;
-  const opt = <K extends 'prev' | 'expiresAt' | 'rateLimitPerMinute' | 'rendersPerDay' | 'rendersPerMonth' | 'ipAllowlist'>(f: K) => {
+  const opt = <K extends 'prev' | 'expiresAt' | 'rateLimitPerMinute' | 'rendersPerDay' | 'rendersPerMonth' | 'ipAllowlist' | 'maxPriority'>(f: K) => {
     const v = patch[f];
     if (v === undefined) return;
     if (v === null) delete next[f];
@@ -47,6 +50,7 @@ export function applyKeyPatch(k: ApiKeyRecord, patch: ApiKeyPatch): ApiKeyRecord
   opt('rendersPerDay');
   opt('rendersPerMonth');
   opt('ipAllowlist');
+  opt('maxPriority');
   return next;
 }
 
@@ -83,6 +87,8 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
   /** A fenced (worker) write keeps the lease, attempts and cancel request: they belong to the heartbeat and other instances. */
   const workerWrite = (job: JobRecord, fence?: { workerId: string; attempts: number }): JobRecord => {
     const next = clone(job);
+    // As a database column: a record without a class keeps the stored one.
+    next.priority ??= jobs.get(job.id)?.priority ?? 'standard';
     if (!fence) return next;
     const stored = jobs.get(job.id)!;
     for (const k of ['leaseExpiresAt', 'cancelRequestedAt', 'attempts'] as const) {
@@ -102,7 +108,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
   /** Apply a fan-out settlement (D-097); synchronous, so atomic like the database transactions. */
   const applyPlan = (plan: SettlementPlan, at: string): ChildSettlement => {
     if (plan.parent) jobs.set(plan.parent.id, clone(plan.parent));
-    if (plan.join) jobs.set(plan.join.id, clone(plan.join));
+    if (plan.join) jobs.set(plan.join.id, asStored(plan.join));
     const cancelled: JobRecord[] = [];
     const stop = [...plan.stop];
     for (const c of plan.cancel) {
@@ -210,7 +216,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
     jobs: {
       async insert(job) {
         if (jobs.has(job.id)) throw conflict(`job "${job.id}" already exists`);
-        jobs.set(job.id, clone(job));
+        jobs.set(job.id, asStored(job));
       },
       async insertWithQuota(job, _at, quota) {
         const all = [...jobs.values()].filter((j) => quota.types.includes(j.type));
@@ -228,8 +234,17 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
           const used = all.filter((j) => j.status === 'queued').length;
           if (used >= quota.maxQueuedTotal) return { ok: false, cap: 'queued_total', used };
         }
+        if (quota.maxEstimatedWait) {
+          // Every queued job of the same queue and of this class or higher, whatever its type (units take slots too).
+          const rank = priorityRank(job.priority);
+          const ahead = [...jobs.values()].filter((j) => j.status === 'queued' && j.queue === job.queue && j.id !== job.id && priorityRank(j.priority) <= rank);
+          const oldest = ahead.reduce<string | undefined>((m, j) => (m === undefined || j.createdAt < m ? j.createdAt : m), undefined);
+          const w = quota.maxEstimatedWait;
+          const est = estimateWaitSeconds({ ahead: ahead.length, oldestQueuedAt: oldest, claimsPerSecond: w.claimsPerSecond, nowMs: Date.parse(w.now) });
+          if (est > w.seconds && oldest) return { ok: false, cap: 'estimated_wait', used: ahead.length, oldestQueuedAt: oldest, estimatedWaitSeconds: est };
+        }
         if (jobs.has(job.id)) throw conflict(`job "${job.id}" already exists`);
-        jobs.set(job.id, clone(job));
+        jobs.set(job.id, asStored(job));
         return { ok: true };
       },
       async update(job, fence) {
@@ -258,7 +273,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         jobs.set(parent.id, next);
         for (const c of children) {
           if (jobs.has(c.id)) throw conflict(`job "${c.id}" already exists`);
-          jobs.set(c.id, clone(c));
+          jobs.set(c.id, asStored(c));
         }
         return 'ok';
       },
@@ -269,14 +284,22 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         const r = applyPlan(stopTree(parent, children, 'cancelled', { code: 'cancelled', message: 'cancelled while running' }, at), at);
         return [r.parent!, ...r.cancelled];
       },
-      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey, id }) {
+      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey, id, priorityAgingSeconds }) {
         const running = new Map<string, number>();
         for (const j of jobs.values()) if (j.status === 'running' && j.queue === 'database' && j.leaseExpiresAt && j.apiKeyId) running.set(j.apiKeyId, (running.get(j.apiKeyId) ?? 0) + 1);
         const next = [...jobs.values()]
           .filter((j) => j.status === 'queued' && j.queue === 'database' && types.includes(j.type) && (id === undefined || j.id === id))
           .filter((j) => maxRunningPerKey === undefined || !j.apiKeyId || (running.get(j.apiKeyId) ?? 0) < maxRunningPerKey)
-          // Fair across keys (D-090): the key with the fewest running jobs first, then the oldest job.
-          .sort((a, b) => (running.get(a.apiKeyId ?? '') ?? 0) - (running.get(b.apiKeyId ?? '') ?? 0) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];
+          // Priority (D-103, batch aged into standard), then fair across keys (D-090): the key with the fewest running
+          // jobs first, then the oldest job.
+          .map((j) => ({ j, r: effectiveRank(priorityRank(j.priority), Date.parse(j.createdAt), Date.parse(now), priorityAgingSeconds) }))
+          .sort(
+            (a, b) =>
+              a.r - b.r ||
+              (running.get(a.j.apiKeyId ?? '') ?? 0) - (running.get(b.j.apiKeyId ?? '') ?? 0) ||
+              a.j.createdAt.localeCompare(b.j.createdAt) ||
+              a.j.id.localeCompare(b.j.id)
+          )[0]?.j;
         if (!next) return null;
         Object.assign(next, { status: 'running', workerId, leaseExpiresAt: leaseUntil, startedAt: now, attempts: (next.attempts ?? 0) + 1, progress: { stage: 'starting', fraction: 0 } });
         return clone(next);
@@ -336,9 +359,13 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         return true;
       },
       async countQueued(before) {
-        return [...jobs.values()].filter(
-          (j) => j.status === 'queued' && j.queue === 'database' && (!before || j.createdAt < before.createdAt || (j.createdAt === before.createdAt && j.id < before.id))
-        ).length;
+        const rank = priorityRank(before?.priority);
+        return [...jobs.values()].filter((j) => {
+          if (j.status !== 'queued' || j.queue !== 'database') return false;
+          if (!before) return true;
+          const r = priorityRank(j.priority);
+          return r < rank || (r === rank && (j.createdAt < before.createdAt || (j.createdAt === before.createdAt && j.id < before.id)));
+        }).length;
       },
       async get(id) {
         const j = jobs.get(id);
@@ -508,11 +535,17 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
       },
     },
     rateLimits: {
-      async hit(key, windowStart) {
+      async hit(key, windowStart, by = 1) {
         const k = `${key}\n${windowStart}`;
-        const n = (rateWindows.get(k)?.count ?? 0) + 1;
+        const n = (rateWindows.get(k)?.count ?? 0) + by;
         rateWindows.set(k, { windowStart, count: n });
         return n;
+      },
+      async windows(key, since) {
+        return [...rateWindows.entries()]
+          .filter(([k, w]) => k === `${key}\n${w.windowStart}` && w.windowStart >= since)
+          .map(([, w]) => ({ windowStart: w.windowStart, count: w.count }))
+          .sort((a, b) => a.windowStart.localeCompare(b.windowStart));
       },
       async deleteOlderThan(cutoff, opts = {}) {
         let n = 0;

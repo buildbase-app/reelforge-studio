@@ -13,12 +13,13 @@ export type LimitReason =
   | 'render_limit'
   | 'jobs_per_key'
   | 'queue_full'
+  | 'queue_wait'
   | 'render_quota'
   | 'upload_too_large'
   | 'provider_runs_per_key'
   | 'provider_budget';
 
-export const LIMIT_REASONS: readonly LimitReason[] = ['render_limit', 'jobs_per_key', 'queue_full', 'render_quota', 'upload_too_large', 'provider_runs_per_key', 'provider_budget'];
+export const LIMIT_REASONS: readonly LimitReason[] = ['render_limit', 'jobs_per_key', 'queue_full', 'queue_wait', 'render_quota', 'upload_too_large', 'provider_runs_per_key', 'provider_budget'];
 
 /** One exceeded render limit: the setting, its value and what the project asks for. */
 export interface RenderLimitViolation {

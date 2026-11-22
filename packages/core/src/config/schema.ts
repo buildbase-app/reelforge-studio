@@ -175,6 +175,14 @@ export const ConfigSchema = z.object({
       description:
         '`worker --once`: how long to wait for a queued job before exiting 0 with nothing done, so a job platform does not pay for an idle container. `reelforge worker --once --wait-ms N` overrides it.',
     }),
+    priorityAgingSeconds: setting(z.number().int().min(0).max(86_400), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_QUEUE_PRIORITY_AGING_SECONDS',
+      default: 600,
+      description:
+        'Job priorities (D-103): jobs are claimed `interactive` (previews) first, then `standard` (renders), then `batch`. A `batch` job that has waited this long is claimed as `standard` (never as `interactive`), so a steady stream of renders cannot starve batch work. `0`: strict classes (batch waits while any higher job can be claimed).',
+    }),
   }),
   limits: z.object({
     rateLimitPerMinute: setting(nonNegative(), {
@@ -243,6 +251,14 @@ export const ConfigSchema = z.object({
       default: 0,
       description:
         "Jobs of one API key that run at the same time; that key's other jobs wait while other keys' jobs run. Off by default: jobs are always claimed fairly across keys (the key with the fewest running jobs first), so one key cannot starve others, and a single organisation key can still use every worker. Set it to reserve capacity. With several workers claiming at the same moment a key may briefly get one more. `0`: no limit.",
+    }),
+    maxEstimatedWaitSeconds: setting(z.number().int().min(0).max(86_400), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_ESTIMATED_WAIT_SECONDS',
+      default: 0,
+      description:
+        'Admission control (D-103): refuse a new render or preview with `429 queue_full`, `Retry-After` and `details` (queued jobs ahead, estimated wait) when its estimated queue wait is longer than this. The estimate is measured, not configured: the smaller of how long the oldest queued job of the same or a higher priority has waited and the jobs ahead divided by the claim throughput of the last minutes (shared by every instance through the database). Checked in the same statement as the job caps. `0`: off.',
     }),
     maxRenderSeconds: setting(z.number().int().min(1).max(180), {
       kind: 'integer',

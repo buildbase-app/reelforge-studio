@@ -253,6 +253,6 @@ describe('limits over REST and MCP', () => {
     const samples = parsePrometheus(r.text).filter((s) => s.name === 'reelforge_limits_rejections_total');
     const by = Object.fromEntries(samples.map((s) => [s.labels.reelforge_limit_reason, s.value]));
     for (const reason of ['render_limit', 'jobs_per_key', 'queue_full', 'provider_runs_per_key', 'upload_too_large']) expect(by[reason]).toBeGreaterThanOrEqual(1);
-    for (const s of samples) expect(['render_limit', 'jobs_per_key', 'queue_full', 'render_quota', 'upload_too_large', 'provider_runs_per_key', 'provider_budget']).toContain(s.labels.reelforge_limit_reason);
+    for (const s of samples) expect(['render_limit', 'jobs_per_key', 'queue_full', 'queue_wait', 'render_quota', 'upload_too_large', 'provider_runs_per_key', 'provider_budget']).toContain(s.labels.reelforge_limit_reason);
   });
 });

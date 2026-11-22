@@ -420,14 +420,14 @@ export function createApp({ service, config, observability }: AppDeps) {
   v1.post('/projects/:id/preview', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const opts = { sceneId: typeof b.sceneId === 'string' ? b.sceneId : undefined, scale: typeof b.scale === 'number' ? b.scale : undefined };
+    const opts = { sceneId: typeof b.sceneId === 'string' ? b.sceneId : undefined, scale: typeof b.scale === 'number' ? b.scale : undefined, ...(b.priority !== undefined ? { priority: b.priority } : {}) };
     return c.json(await service.idempotent(idemKey(c), 'preview_scene', { projectId, ...opts }, async () => ({ job: await service.preview(projectId, opts) })), 202);
   });
   v1.post('/projects/:id/renders', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const backend = typeof b.backend === 'string' ? b.backend : undefined;
-    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, backend }, async () => ({ job: await service.startRender(projectId, { backend }) })), 202);
+    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.priority !== undefined ? { priority: b.priority } : {}) };
+    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, async () => ({ job: await service.startRender(projectId, opts) })), 202);
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
 
@@ -603,7 +603,7 @@ export function createApp({ service, config, observability }: AppDeps) {
 /** Key lifecycle options from a JSON body (create_key / update_key). expiresInDays is a shortcut for expiresAt. */
 function keyOptions(b: Record<string, unknown>): KeyOptions {
   const o: KeyOptions = {};
-  for (const k of ['expiresAt', 'rateLimitPerMinute', 'rendersPerDay', 'rendersPerMonth', 'ipAllowlist'] as const) {
+  for (const k of ['expiresAt', 'rateLimitPerMinute', 'rendersPerDay', 'rendersPerMonth', 'ipAllowlist', 'maxPriority'] as const) {
     if (k in b) (o as Record<string, unknown>)[k] = b[k];
   }
   if (b.expiresInDays !== undefined) {
