@@ -1,0 +1,53 @@
+{
+  "agent": "local-ai",
+  "engine": "multi-engine",
+  "status": "passed",
+  "date": "2026-11-22T08:44:52.761Z",
+  "studioVersion": "0.1.0",
+  "commit": "47e325e",
+  "licenceMode": "off (local development only)",
+  "command": "node scripts/tutorials/local-agent.mjs \"<prompt>\"",
+  "projectId": "tut-local-ai-multi-engine",
+  "jobId": "job_mwrmkaet127f21c103",
+  "renderId": "run_mwrmkaete3f9d1d76c",
+  "renderSeconds": 159.1,
+  "sceneEngines": [
+    "remotion",
+    "motion-canvas",
+    "html",
+    "hyperframes"
+  ],
+  "toolCalls": [
+    "list_templates(engine)",
+    "list_templates(engine)",
+    "list_templates(engine)",
+    "list_templates(engine)",
+    "create_project(manifest)",
+    "validate_project(projectId)",
+    "render_project(projectId)",
+    "get_job(jobId, waitSeconds)",
+    "get_render_output(jobId, includePoster)"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 270,
+    "durationSeconds": 9,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 697029
+  },
+  "poster": "local-ai-multi-engine.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/local-ai/multi-engine",
+  "prompt": "You are connected to a ReelForge video studio through the \"reelforge\" MCP server. Make a vertical reel (1080x1920, 30 fps) about how one reel can mix four render engines: a 9-second reel with four scenes in this order: remotion (kinetic-title, 2 s), motion-canvas (animated-explainer, 3 s), html (html-title, 2 s), hyperframes (hyperframes-title, 2 s). Use the project id \"tut-local-ai-multi-engine\". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.",
+  "llm": {
+    "model": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "turns": 8,
+    "durationMs": 2329953,
+    "costUsd": 0,
+    "isError": false,
+    "reply": "<tool_call>\n{\n  \"name\": \"render_project\",\n  \"arguments\": {\n    \"projectId\": \"tut-local-ai-multi-engine\"\n  }\n}\n</tool_call>"
+  }
+}

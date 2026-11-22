@@ -25,6 +25,8 @@ pnpm keys:create --name me        # prints an rf_... key once
 pnpm dev                          # REST http://127.0.0.1:4321/v1, MCP http://127.0.0.1:4321/mcp
 ```
 
+Step-by-step tutorials for every agent and engine, each with a proof run: [docs/tutorials](docs/tutorials/README.md).
+
 Connect an agent (more in `docs/CONNECT_AGENTS.md`):
 
 ```bash

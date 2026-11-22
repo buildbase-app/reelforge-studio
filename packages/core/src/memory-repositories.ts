@@ -176,9 +176,20 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         jobs.set(job.id, clone(job));
       },
       async insertWithQuota(job, _at, quota) {
-        for (const [i, w] of quota.windows.entries()) {
-          const used = [...jobs.values()].filter((j) => j.apiKeyId === quota.apiKeyId && j.createdAt >= w.since && quota.types.includes(j.type)).length;
-          if (used >= w.limit) return { ok: false, window: i, used };
+        const all = [...jobs.values()].filter((j) => quota.types.includes(j.type));
+        if (quota.apiKeyId) {
+          for (const [i, w] of quota.windows.entries()) {
+            const used = all.filter((j) => j.apiKeyId === quota.apiKeyId && j.createdAt >= w.since).length;
+            if (used >= w.limit) return { ok: false, window: i, used };
+          }
+          if (quota.maxActivePerKey !== undefined) {
+            const used = all.filter((j) => j.apiKeyId === quota.apiKeyId && (j.status === 'queued' || j.status === 'running')).length;
+            if (used >= quota.maxActivePerKey) return { ok: false, cap: 'active_per_key', used };
+          }
+        }
+        if (quota.maxQueuedTotal !== undefined) {
+          const used = all.filter((j) => j.status === 'queued').length;
+          if (used >= quota.maxQueuedTotal) return { ok: false, cap: 'queued_total', used };
         }
         if (jobs.has(job.id)) throw conflict(`job "${job.id}" already exists`);
         jobs.set(job.id, clone(job));
@@ -194,10 +205,14 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         jobs.set(job.id, workerWrite(job, fence));
         return true;
       },
-      async claim({ workerId, types, now, leaseUntil }) {
+      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey }) {
+        const running = new Map<string, number>();
+        for (const j of jobs.values()) if (j.status === 'running' && j.queue === 'database' && j.apiKeyId) running.set(j.apiKeyId, (running.get(j.apiKeyId) ?? 0) + 1);
         const next = [...jobs.values()]
           .filter((j) => j.status === 'queued' && j.queue === 'database' && types.includes(j.type))
-          .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];
+          .filter((j) => maxRunningPerKey === undefined || !j.apiKeyId || (running.get(j.apiKeyId) ?? 0) < maxRunningPerKey)
+          // Fair across keys (D-090): the key with the fewest running jobs first, then the oldest job.
+          .sort((a, b) => (running.get(a.apiKeyId ?? '') ?? 0) - (running.get(b.apiKeyId ?? '') ?? 0) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];
         if (!next) return null;
         Object.assign(next, { status: 'running', workerId, leaseExpiresAt: leaseUntil, startedAt: now, attempts: (next.attempts ?? 0) + 1, progress: { stage: 'starting', fraction: 0 } });
         return clone(next);
@@ -421,15 +436,29 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         rateWindows.set(k, { windowStart, count: n });
         return n;
       },
-      async deleteOlderThan(cutoff) {
+      async deleteOlderThan(cutoff, opts = {}) {
         let n = 0;
         for (const [k, w] of rateWindows) {
-          if (w.windowStart < cutoff) {
+          if (w.windowStart < cutoff && k.startsWith('usage:') === Boolean(opts.usage)) {
             rateWindows.delete(k);
             n++;
           }
         }
         return n;
+      },
+      async reserve(counters) {
+        for (const [index, c] of counters.entries()) {
+          const used = rateWindows.get(`${c.key}\n${c.windowStart}`)?.count ?? 0;
+          if (used >= c.limit) return { ok: false, index, used };
+        }
+        for (const c of counters) {
+          const k = `${c.key}\n${c.windowStart}`;
+          rateWindows.set(k, { windowStart: c.windowStart, count: (rateWindows.get(k)?.count ?? 0) + 1 });
+        }
+        return { ok: true };
+      },
+      async usage(key, windowStart) {
+        return rateWindows.get(`${key}\n${windowStart}`)?.count ?? 0;
       },
     },
   };

@@ -178,7 +178,20 @@ export interface QuotaWindow {
   limit: number;
 }
 
-export type QuotaResult = { ok: true } | { ok: false; window: number; used: number };
+/**
+ * Limits checked by insertWithQuota besides the quota windows (D-090): how many
+ * unfinished (queued or running) jobs of `types` the key may have, and how many
+ * jobs of `types` may wait in the queue in total (every key, every instance).
+ */
+export interface JobCaps {
+  maxActivePerKey?: number;
+  maxQueuedTotal?: number;
+}
+
+export type QuotaResult =
+  | { ok: true }
+  | { ok: false; window: number; used: number }
+  | { ok: false; cap: 'active_per_key' | 'queued_total'; used: number };
 
 export interface JobFilter {
   projectId?: string;
@@ -191,12 +204,14 @@ export interface JobRepository {
   insert(job: JobRecord, at: string): Promise<void>;
   /**
    * Insert a new job (as `insert`) unless the API key already started `limit`
-   * jobs of `types` since a window's `since`. The count and the insert are one
-   * transaction that first locks the key's row (PostgreSQL/MySQL row lock,
-   * SQLite write lock), so instances racing for the last slot cannot overshoot
-   * (D-078). Returns which window was full, and its count, when refused.
+   * jobs of `types` since a window's `since`, or a cap (JobCaps) is reached.
+   * The count and the insert are one transaction that first locks the key's
+   * row (PostgreSQL/MySQL row lock, SQLite write lock), or the workspace row
+   * when `maxQueuedTotal` is set, so instances racing for the last slot cannot
+   * overshoot (D-078, D-090). Returns which window or cap was full, and its
+   * count, when refused. Without `apiKeyId` only `maxQueuedTotal` applies.
    */
-  insertWithQuota(job: JobRecord, at: string, quota: { apiKeyId: string; types: string[]; windows: QuotaWindow[] }): Promise<QuotaResult>;
+  insertWithQuota(job: JobRecord, at: string, quota: { apiKeyId?: string; types: string[]; windows: QuotaWindow[] } & JobCaps): Promise<QuotaResult>;
   /**
    * Overwrite the job's mutable fields (progress updates). No event. With a
    * fence, only while the job is running and still held by that claim;
@@ -220,7 +235,18 @@ export interface JobRepository {
    * never wait for each other; SQLite: one conditional UPDATE under the
    * database write lock. Returns the claimed job, or null when none is queued.
    */
-  claim(opts: { workerId: string; types: string[]; now: string; leaseUntil: string }): Promise<JobRecord | null>;
+  claim(opts: {
+    workerId: string;
+    types: string[];
+    now: string;
+    leaseUntil: string;
+    /**
+     * Skip jobs of API keys that already have this many database-queue jobs
+     * running (limits.maxRunningJobsPerKey, D-090). Exact on one worker; two
+     * workers claiming at the same moment may each take one more.
+     */
+    maxRunningPerKey?: number;
+  }): Promise<JobRecord | null>;
   /**
    * Renew the lease of `ids` still running and held by `workerId`. Returns the
    * ids still held, and those of them whose cancellation was requested.
@@ -459,8 +485,21 @@ export interface IdempotencyRepository {
 export interface RateLimitRepository {
   /** Count one request for `key` in the window starting at `windowStart`; returns the window's count including it (atomic increment). */
   hit(key: string, windowStart: string): Promise<number>;
-  /** Delete windows that started before `cutoff`. Returns how many. */
-  deleteOlderThan(cutoff: string): Promise<number>;
+  /**
+   * Delete windows that started before `cutoff`. Returns how many. Usage
+   * counters (keys starting with `usage:`) are only deleted with `usage: true`,
+   * request windows only without it.
+   */
+  deleteOlderThan(cutoff: string, opts?: { usage?: boolean }): Promise<number>;
+  /**
+   * Usage counters (D-091): add one to every counter, all or nothing, unless one
+   * of them already reached its `limit`. Each increment is one conditional
+   * UPDATE, so instances racing for the last unit cannot overshoot. Keys start
+   * with `usage:`. Returns the index of the full counter and its count when refused.
+   */
+  reserve(counters: Array<{ key: string; windowStart: string; limit: number }>): Promise<{ ok: true } | { ok: false; index: number; used: number }>;
+  /** A usage counter's value (0 when it does not exist). */
+  usage(key: string, windowStart: string): Promise<number>;
 }
 
 // ---- the bundle -------------------------------------------------------------

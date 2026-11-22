@@ -3,7 +3,7 @@
 This page lists the security-relevant defaults of ReelForge Studio and the
 settings that change them. The changes in this version come from a private
 security review (findings SEC-01 to SEC-20; details are not published). The
-decisions are D-085 to D-089 in [DECISIONS.md](../DECISIONS.md). To report a
+decisions are D-085 to D-089 and D-090 to D-092 in [DECISIONS.md](../DECISIONS.md). To report a
 problem, follow [SECURITY.md](../../SECURITY.md).
 
 ## Agent-supplied scenes (html, hyperframes)
@@ -24,6 +24,71 @@ treats that markup as untrusted.
 What changes for agents: a scene that pointed at remote images, fonts or
 stylesheets used to render silently without them. Now the render fails and the
 error says what to do.
+
+## Resource limits
+
+One API key cannot take the whole renderer, the server's memory or the
+operator's paid provider budget (private security review SEC-07; D-090, D-091),
+while one organisation can still scale without limit: deployment-wide caps
+follow the deployment (a single box is bounded, the database queue with
+autoscaled workers is not), per-key caps are generous, and jobs are claimed
+fairly across keys, so one big key can use the whole worker fleet without
+starving the others.
+Every limit is a runtime setting (config file, environment, or `update_config`
+/ `PATCH /v1/config`), applies on every instance, and is reported in
+`get_capabilities` (`limits`). For job and provider caps `0` means no limit.
+
+| Limit | Setting (env) | Default | When it is reached |
+| --- | --- | --- | --- |
+| Unfinished render and preview jobs per key (queued or running) | `limits.maxQueuedJobsPerKey` (`REELFORGE_MAX_QUEUED_JOBS_PER_KEY`) | `100` | `429 too_many_jobs`, `Retry-After: 30` |
+| Queued jobs in total (every key) | `limits.maxQueuedJobs` (`REELFORGE_MAX_QUEUED_JOBS`) | `1000` with the in-process queue (one instance: protects its memory); `0` (no limit) with the database queue | `429 queue_full`, `Retry-After: 30` |
+| Running jobs per key | `limits.maxRunningJobsPerKey` (`REELFORGE_MAX_RUNNING_JOBS_PER_KEY`) | `0` (no limit; claiming is fair across keys anyway) | the key's next job waits while other keys' jobs use the free slots |
+| Render or preview length | `limits.maxRenderSeconds` (`REELFORGE_MAX_RENDER_SECONDS`) | `180` (schema maximum) | `422 render_limit_exceeded` |
+| Frames per render or preview | `limits.maxRenderFrames` (`REELFORGE_MAX_RENDER_FRAMES`) | `5400` (180 s at 30 fps, 90 s at 60 fps) | `422 render_limit_exceeded` |
+| Scenes per render | `limits.maxScenes` (`REELFORGE_MAX_SCENES`) | `50` (schema maximum) | `422 render_limit_exceeded` |
+| Longest output side | `limits.maxRenderDimension` (`REELFORGE_MAX_RENDER_DIMENSION`) | `3840` px | `422 render_limit_exceeded` |
+| Frame rate | `limits.maxRenderFps` (`REELFORGE_MAX_RENDER_FPS`) | `60` | `422 render_limit_exceeded` |
+| Time per html or hyperframes scene | `render.sceneTimeoutSeconds` (start-up) | `900` | the render fails (see above) |
+| Upload or URL import size | `limits.maxUploadBytes` (`REELFORGE_MAX_UPLOAD_BYTES`) | `209715200` (200 MB) | `413 too_large` |
+| Provider calls per key per UTC day (`run_provider`, `generate_voice`) | `limits.providerRunsPerKeyPerDay` (`REELFORGE_PROVIDER_RUNS_PER_KEY_PER_DAY`) | `500` | `429 provider_limit_exceeded`, `Retry-After` until midnight UTC |
+| Provider calls per UTC day, whole server | `limits.providerRunsPerDay` (`REELFORGE_PROVIDER_RUNS_PER_DAY`) | `0` (no limit: providers run on your own accounts) | `429 provider_budget_exhausted`, `Retry-After` until midnight UTC |
+| Requests per key per minute | `limits.rateLimitPerMinute` | `300` | `429 rate_limited` |
+
+Details:
+
+- **Render limits are checked before a job is created**, from the manifest:
+  the error lists every exceeded limit in `details.limits` (`limit`, `max`,
+  `actual`), and `validate_project` reports them as errors starting with
+  `render limit:`. A preview is judged on the scenes and scale it renders.
+- **Fair claiming.** With more than one render slot or worker, the next job is
+  always taken from the key with the fewest running jobs (oldest job first
+  among equals), so two keys with 20 queued jobs each share two workers evenly
+  even without `limits.maxRunningJobsPerKey`. A single key alone still uses
+  every slot.
+- **Job caps are counted in the database** together with the job insert, so
+  they hold with several api instances (docs/providers/queue-and-scaling.md).
+  `retry_job` counts like a new start. Jobs started without an API key (CLI)
+  only count against the total.
+- **Uploads are streamed.** `POST /v1/assets` (multipart) and URL imports are
+  written to a temporary file under `<cacheDir>/upload-staging/` while they
+  arrive and stopped as soon as they pass the limit; a declared
+  `Content-Length` above it is refused before the body is read. Nothing is held
+  in memory whole; the temporary file is deleted when the request ends (and any
+  leftover after a crash by the hourly sweep). MCP `upload_asset` (base64) stays
+  bounded by `limits.maxJsonBytes`.
+- **Provider caps count real calls**: a cached result (the same parameters
+  again) is free; a failed call counts. `acknowledgeCost: true` is still
+  required first. `get_key` shows `usage.providerRunsToday`. The cap counts
+  calls, not money: providers do not report a price, so set it from your
+  provider plan. **Recommended budget:** set `limits.providerRunsPerDay` to
+  what your provider plan covers per day (for example, an ElevenLabs plan's
+  monthly characters divided by 30 and by your typical characters per
+  voice-over), and keep a provider-side spending limit as the hard stop.
+- **Every refusal** is counted in `reelforge_limits_rejections_total` with a
+  `reelforge_limit_reason` label from a fixed set (`render_limit`,
+  `jobs_per_key`, `queue_full`, `render_quota`, `upload_too_large`,
+  `provider_runs_per_key`, `provider_budget`) and written to the audit log as
+  `limit.rejected` (result `denied`, with the limit and the counts).
 
 ## Chromium's own sandbox
 
@@ -153,6 +218,9 @@ Unit and integration tests are named `SECT-xx` (`security` in the test name):
 | SECT-20..25 | `apps/server/test/security.test.ts` | `/metrics` needs a token; minimal anonymous `/readyz`, full for admins; `/mcp` Origin with scheme and port; presigned URL redaction |
 | SECT-30..38 | `packages/engine-hyperframes/test/hyperframes.test.ts` | CSP placement and refusals; CLI environment; deny-all sink; with a browser: no request or UDP packet reaches a local canary from a document, navigation, WebRTC or a remote asset; navigation fails fast; no process of a render remains after success, cancel or timeout |
 | SECT-40 | `packages/engine-html/test/html.test.ts` | html scenes: policy elements refused, CSP first in `<head>` |
+| LIMT-01..07 | `packages/core/test/limits.test.ts` | render limits named and checked before a job exists (previews by what they render); job caps per key and in total; the per-key running cap of the in-process queue; provider calls per key and per day (cache hits free); streamed uploads and URL imports stop at the byte cap, leave no file |
+| LIMS-01..06 | `apps/server/test/limits.test.ts` | the same codes and details over REST and MCP, `Retry-After`, `get_capabilities` limits, streamed multipart with fields after the file, a chunked upload answered `413` while the client is still sending, the rejection metric |
+| LIM-01..06 | `packages/db/test/limits.contract.test.ts` | the counters on memory, SQLite, PostgreSQL and MySQL under concurrency (docs/providers/queue-and-scaling.md) |
 
 The Docker end-to-end test (`e2e/docker/run.sh`, `e2e/docker/security.mjs`)
 checks the release image with its hardened flags: Chromium's sandbox active by

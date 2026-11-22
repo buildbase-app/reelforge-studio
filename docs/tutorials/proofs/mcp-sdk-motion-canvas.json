@@ -1,0 +1,40 @@
+{
+  "agent": "mcp-sdk",
+  "engine": "motion-canvas",
+  "status": "passed",
+  "date": "2026-11-21T19:41:23.851Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "node examples/tutorials/mcp-client.mjs examples/tutorials/motion-canvas.json tut-mcp-sdk-motion-canvas",
+  "projectId": "tut-mcp-sdk-motion-canvas",
+  "jobId": "job_mwqtd3cd69d15c4006",
+  "renderId": "run_mwqtd3cd4742f9eb2f",
+  "renderSeconds": 33.6,
+  "sceneEngines": [
+    "motion-canvas"
+  ],
+  "toolCalls": [
+    "get_capabilities()",
+    "list_templates(engine)",
+    "list_projects()",
+    "create_project(manifest)",
+    "validate_project(projectId)",
+    "render_project(projectId)",
+    "get_job(jobId, waitSeconds)",
+    "get_render_output(jobId)"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 199304
+  },
+  "poster": "mcp-sdk-motion-canvas.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/mcp-sdk/motion-canvas"
+}

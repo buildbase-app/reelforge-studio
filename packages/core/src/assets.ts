@@ -1,4 +1,9 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { createWriteStream } from 'node:fs';
+import { mkdir, open as openFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { Readable } from 'node:stream';
 import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
@@ -181,9 +186,101 @@ export interface FetchLimits {
   maxRedirects: number;
   /** Tests only: allow http:// and private addresses (e.g. a local test server). */
   allowInsecureForTests?: boolean;
+  /** Where uploads and URL imports are written while they arrive (D-090). Default <os tmp>/reelforge-uploads. */
+  stagingDir?: string;
+}
+
+/** An upload or import written to a temporary file while it arrived: its size, sha256 and first bytes (to sniff the type). */
+export interface StagedFile {
+  path: string;
+  bytes: number;
+  sha256: string;
+  head: Buffer;
+}
+
+/** Bytes kept from the start of a staged file: enough for every signature sniffContentType checks. */
+const HEAD_BYTES = 64;
+
+/**
+ * Write a stream to a temporary file in `dir` while hashing it, and stop as
+ * soon as it passes `maxBytes` (`413 too_large`): the source is destroyed and
+ * the partial file deleted, so nothing larger than one chunk is ever held in
+ * memory (D-090).
+ */
+export async function stageStream(source: AsyncIterable<Uint8Array> | Readable, dir: string, maxBytes: number, what = 'file'): Promise<StagedFile> {
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, `upload-${Date.now().toString(36)}-${randomBytes(6).toString('hex')}`);
+  const out = createWriteStream(path, { flags: 'wx', mode: 0o600 });
+  const hash = createHash('sha256');
+  const head: Buffer[] = [];
+  let headBytes = 0;
+  let bytes = 0;
+  const write = (chunk: Buffer) =>
+    new Promise<void>((resolve, reject) => {
+      out.write(chunk, (e) => (e ? reject(e) : resolve()));
+    });
+  try {
+    for await (const c of source as AsyncIterable<Uint8Array>) {
+      const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c.buffer, c.byteOffset, c.byteLength);
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        (source as Readable).destroy?.();
+        throw new ApiError('too_large', 413, `${what} is larger than the limit of ${maxBytes} bytes (limits.maxUploadBytes)`, { limit: 'limits.maxUploadBytes', max: maxBytes });
+      }
+      hash.update(chunk);
+      if (headBytes < HEAD_BYTES) {
+        head.push(chunk.subarray(0, HEAD_BYTES - headBytes));
+        headBytes += Math.min(chunk.length, HEAD_BYTES - headBytes);
+      }
+      await write(chunk);
+    }
+    await new Promise<void>((resolve, reject) => out.end((e?: Error | null) => (e ? reject(e) : resolve())));
+  } catch (e) {
+    out.destroy();
+    await rm(path, { force: true });
+    throw e;
+  }
+  return { path, bytes, sha256: hash.digest('hex'), head: Buffer.concat(head) };
+}
+
+/** The first bytes of a local file (to sniff its type). */
+export async function fileHead(path: string, n = HEAD_BYTES): Promise<Buffer> {
+  const fh = await openFile(path, 'r');
+  try {
+    const b = Buffer.alloc(n);
+    const { bytesRead } = await fh.read(b, 0, n, 0);
+    return b.subarray(0, bytesRead);
+  } finally {
+    await fh.close();
+  }
 }
 
 export async function fetchRemoteFile(url: string, limits: FetchLimits): Promise<{ data: Buffer; finalUrl: string; declaredType?: string }> {
+  const { res, finalUrl, declaredType } = await openRemoteFile(url, limits);
+  const chunks: Buffer[] = [];
+  let total = 0;
+  await new Promise<void>((resolve, reject) => {
+    res.on('data', (c: Buffer) => {
+      total += c.length;
+      if (total > limits.maxBytes) {
+        res.destroy();
+        reject(new ApiError('too_large', 413, `remote file is larger than the limit of ${limits.maxBytes} bytes`));
+        return;
+      }
+      chunks.push(c);
+    });
+    res.on('end', resolve);
+    res.on('error', reject);
+  });
+  return { data: Buffer.concat(chunks), finalUrl, declaredType };
+}
+
+/**
+ * Connect to `url` (HTTPS only, public addresses only, also after each
+ * redirect) and return the response stream of the final 200 answer. A declared
+ * Content-Length above the limit is refused before any body is read.
+ */
+export async function openRemoteFile(url: string, limits: FetchLimits): Promise<{ res: IncomingMessage; finalUrl: string; declaredType?: string }> {
   let current = url;
   for (let hop = 0; hop <= limits.maxRedirects; hop++) {
     let u: URL;
@@ -216,22 +313,7 @@ export async function fetchRemoteFile(url: string, limits: FetchLimits): Promise
       res.destroy();
       throw new ApiError('too_large', 413, `remote file is ${declared} bytes; the limit is ${limits.maxBytes}`);
     }
-    const chunks: Buffer[] = [];
-    let total = 0;
-    await new Promise<void>((resolve, reject) => {
-      res.on('data', (c: Buffer) => {
-        total += c.length;
-        if (total > limits.maxBytes) {
-          res.destroy();
-          reject(new ApiError('too_large', 413, `remote file is larger than the limit of ${limits.maxBytes} bytes`));
-          return;
-        }
-        chunks.push(c);
-      });
-      res.on('end', resolve);
-      res.on('error', reject);
-    });
-    return { data: Buffer.concat(chunks), finalUrl: current, declaredType: res.headers['content-type'] };
+    return { res, finalUrl: current, declaredType: res.headers['content-type'] };
   }
   throw new ApiError('fetch_failed', 502, `too many redirects (more than ${limits.maxRedirects})`);
 }
@@ -295,9 +377,46 @@ export class AssetStore {
   async put(input: PutAssetInput): Promise<StoredAsset> {
     if (input.data.length === 0) throw new ApiError('bad_request', 400, 'the file is empty');
     if (input.data.length > this.limits.maxBytes) {
-      throw new ApiError('too_large', 413, `file is ${input.data.length} bytes; the limit is ${this.limits.maxBytes}`);
+      throw new ApiError('too_large', 413, `file is ${input.data.length} bytes; the limit is ${this.limits.maxBytes}`, { limit: 'limits.maxUploadBytes', max: this.limits.maxBytes });
     }
-    const sniffed = sniffContentType(input.data);
+    const sha256 = createHash('sha256').update(input.data).digest('hex');
+    return this.store(input, { bytes: input.data.length, sha256, head: input.data }, (key, contentType) => this.storage.driver.put(key, input.data, { contentType }));
+  }
+
+  /** Where streamed uploads are written while they arrive. */
+  get stagingDir(): string {
+    return this.limits.stagingDir ?? join(tmpdir(), 'reelforge-uploads');
+  }
+
+  /**
+   * Store a stream (a multipart upload, a URL import) without holding it in
+   * memory: written to a temporary file while it arrives, stopped at
+   * limits.maxBytes, then handed to the storage driver as a file (D-090).
+   */
+  async putStream(source: AsyncIterable<Uint8Array> | Readable, input: Omit<PutAssetInput, 'data'>, what = 'file'): Promise<StoredAsset> {
+    const staged = await stageStream(source, this.stagingDir, this.limits.maxBytes, what);
+    try {
+      return await this.putStaged(staged, input);
+    } finally {
+      await rm(staged.path, { force: true });
+    }
+  }
+
+  /** Store a staged file (stageStream). The caller deletes it afterwards. */
+  async putStaged(staged: StagedFile, input: Omit<PutAssetInput, 'data'>): Promise<StoredAsset> {
+    if (staged.bytes > this.limits.maxBytes) {
+      throw new ApiError('too_large', 413, `file is ${staged.bytes} bytes; the limit is ${this.limits.maxBytes}`, { limit: 'limits.maxUploadBytes', max: this.limits.maxBytes });
+    }
+    return this.store(input, staged, (key, contentType) => this.storage.driver.putFile(key, staged.path, { contentType }));
+  }
+
+  private async store(
+    input: Omit<PutAssetInput, 'data'>,
+    file: { bytes: number; sha256: string; head: Buffer },
+    write: (key: string, contentType: string) => Promise<unknown>
+  ): Promise<StoredAsset> {
+    if (file.bytes === 0) throw new ApiError('bad_request', 400, 'the file is empty');
+    const sniffed = sniffContentType(file.head);
     if (!sniffed) {
       throw new ApiError(
         'unsupported_media_type',
@@ -306,7 +425,7 @@ export class AssetStore {
         { declaredContentType: input.declaredContentType }
       );
     }
-    const sha256 = createHash('sha256').update(input.data).digest('hex');
+    const sha256 = file.sha256;
     const id = `ast-${sha256.slice(0, 16)}`;
     const existing = await this.find(id);
     if (existing) return existing;
@@ -314,7 +433,7 @@ export class AssetStore {
     const record: AssetRecord = {
       id,
       sha256,
-      bytes: input.data.length,
+      bytes: file.bytes,
       contentType: sniffed.contentType,
       mediaType: sniffed.mediaType,
       createdAt: new Date().toISOString(),
@@ -325,13 +444,14 @@ export class AssetStore {
       ...(input.metadata ? { metadata: input.metadata } : {}),
     };
     // Bytes first: a row never points at a missing file.
-    await this.storage.driver.put(ASSETS_PREFIX + storageKey, input.data, { contentType: sniffed.contentType });
+    await write(ASSETS_PREFIX + storageKey, sniffed.contentType);
     return toStored(await this.repo.insertIfAbsent(record));
   }
 
+  /** Import a remote file, streamed to a temporary file and stopped at the size limit (never buffered whole). */
   async fromUrl(url: string, extra: Omit<PutAssetInput, 'data' | 'source'> = {}): Promise<StoredAsset> {
-    const { data, declaredType } = await fetchRemoteFile(url, this.limits);
-    return this.put({ ...extra, data, source: sanitizeSourceUrl(url), declaredContentType: declaredType });
+    const { res, declaredType } = await openRemoteFile(url, this.limits);
+    return this.putStream(res, { ...extra, source: sanitizeSourceUrl(url), declaredContentType: declaredType }, 'the remote file');
   }
 
   async find(id: string): Promise<StoredAsset | undefined> {
