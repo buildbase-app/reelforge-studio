@@ -180,6 +180,27 @@ describe('JobRunner, database queue', () => {
     expect(await repo.get(job.id)).toMatchObject({ status: 'queued', attempts: 0 });
   });
 
+  it('SCL-11u onEvent: each event once, from the instance where it happened (the worker running the job), not from watchers', async () => {
+    const repo = createMemoryRepositories().jobs;
+    const api = make(repo, { render: async () => ({}) }, { workerId: 'api', runJobs: false });
+    const worker = make(repo, { render: async (ctx) => (ctx.progress('half', 0.5), await sleep(150), { ok: 1 }) }, { workerId: 'w1' });
+    const seen: Record<string, string[]> = { api: [], w1: [] };
+    api.onEvent((e) => seen.api!.push(`${e.type}:${e.job.status}`));
+    worker.onEvent((e) => seen.w1!.push(`${e.type}:${e.job.status}`));
+    await api.init();
+    const job = await api.submit('render', {});
+    const watching: JobEvent[] = [];
+    const off = api.subscribe(job.id, (e) => watching.push(e)); // a long-poll on the api: watched through the database
+    await worker.init();
+    expect((await api.waitFor(job.id, 5000)).status).toBe('succeeded');
+    off();
+    expect(watching.some((e) => e.remote && e.job.status === 'succeeded')).toBe(true);
+    expect(seen.api).toEqual(['status:queued']);
+    expect(seen.w1).toContain('status:running');
+    expect(seen.w1).toContain('progress:running');
+    expect(seen.w1!.filter((x) => x === 'status:succeeded')).toHaveLength(1);
+  });
+
   it('SCL-07u database errors: backoff, one warning, lastError in the status, then recovery', async () => {
     const repo = createMemoryRepositories().jobs;
     let down = true;

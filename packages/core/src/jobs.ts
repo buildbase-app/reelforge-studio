@@ -20,6 +20,8 @@ export interface JobEvent {
   type: 'status' | 'progress' | 'log';
   job: JobRecord;
   line?: string;
+  /** Read back from the database for a job running on another instance (database queue); onEvent never sees these. */
+  remote?: true;
 }
 
 export interface JobContext {
@@ -364,6 +366,21 @@ export class JobRunner {
     };
   }
 
+  /**
+   * Every job event that happens on THIS instance: submits, and the status,
+   * progress and log lines of jobs it runs (outbound events, webhooks). With
+   * the database queue each event is emitted once, by the instance where it
+   * happened (the worker running the job), never by instances that merely
+   * watch it. Returns an unsubscribe function.
+   */
+  onEvent(fn: (e: JobEvent) => void): () => void {
+    const listener = (e: JobEvent) => {
+      if (!e.remote) fn(e);
+    };
+    this.events.on('event', listener);
+    return () => this.events.off('event', listener);
+  }
+
   /** Resolves when one job reaches a terminal state (on any instance, for the database queue). */
   async waitFor(id: string, timeoutMs = 600_000): Promise<JobRecord> {
     const job = await this.get(id);
@@ -618,7 +635,7 @@ export class JobRunner {
     const first = w.last === '';
     const statusChanged = first || JSON.parse(w.last)[0] !== job.status;
     w.last = sig;
-    if (!first || TERMINAL.includes(job.status)) this.emit({ jobId: id, type: statusChanged ? 'status' : 'progress', job });
+    if (!first || TERMINAL.includes(job.status)) this.emit({ jobId: id, type: statusChanged ? 'status' : 'progress', job, remote: true });
   }
 
   // ---- running a job ----------------------------------------------------------

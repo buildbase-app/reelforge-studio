@@ -214,7 +214,12 @@ Metrics added by this work (labels bounded, never ids or worker names):
   `queue.pollIntervalMs` until it finishes; `GET /v1/jobs/:id/events` (SSE)
   sends status and progress changes the same way (log lines only from the
   instance that runs the job). `queuePosition` counts queued jobs ahead of it
-  across all instances.
+  across all instances. Outbound job events (`JobRunner.onEvent`, for webhooks)
+  are emitted once, by the instance where they happen: `job.queued` by the api
+  that accepted it, start/progress/finish by the worker running it, a
+  lease-expiry failure by the instance that recovered it; events replayed from
+  the database for watchers are marked `remote` and never reach `onEvent`
+  (SCL-11u).
 - **Graceful shutdown** (SIGTERM): stop claiming, `/readyz` 503, wait up to
   `queue.shutdownGraceSeconds` for running renders, then abort the rest and
   hand them back (`queued`, the attempt not counted) so another worker starts
@@ -289,7 +294,7 @@ and a job that dies while its worker shuts down is handed back, never failed
 | QUE-10 | 10 concurrent quota-limited inserts with limit 3: exactly 3 | contract (4 targets) | pass 2026-11-21 |
 | QUE-11 | shared rate-limit counters: 15 concurrent increments end at 15; sweep | contract (4 targets) | pass 2026-11-21 |
 | QUE-12 | migration `0006_job_queue` applies (also concurrently from two processes, contract.test.ts) and the new columns round-trip | contract (4 targets) | pass 2026-11-21 |
-| SCL-01u..10u | runner: N×M exactly once; api never runs jobs; cross-instance events, long-poll, cancel; lost heartbeat → re-run elsewhere, no overwrite; max attempts; graceful shutdown (finish within grace, hand back the rest); database errors with backoff and a single warning; `canClaim` pause; in-process start leaves database jobs alone; a job that dies during shutdown is handed back | runner | pass 2026-11-21 |
+| SCL-01u..11u | runner: N×M exactly once; api never runs jobs; cross-instance events, long-poll, cancel; lost heartbeat → re-run elsewhere, no overwrite; max attempts; graceful shutdown (finish within grace, hand back the rest); database errors with backoff and a single warning; `canClaim` pause; in-process start leaves database jobs alone; a job that dies during shutdown is handed back; `onEvent` fires once per event, on the instance where it happened | runner | pass 2026-11-21 |
 | SCL-01 | 3 worker processes × 30 jobs: each job ran exactly once (append-only run log), on more than one worker | processes (3 DBs) | pass 2026-11-21 |
 | SCL-02 | worker killed with SIGKILL mid-job: re-queued after its lease, finished by another process (attempt 2) | processes (3 DBs) | pass 2026-11-21 |
 | SCL-03 | killed on every attempt: failed `lease_expired` after `maxAttempts` | processes (3 DBs) | pass 2026-11-21 |
