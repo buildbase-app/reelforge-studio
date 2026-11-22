@@ -220,7 +220,7 @@ describe('render fan-out on the database queue', () => {
     await until(() => gates.size === 6);
     await sleep(600); // progress writes are throttled to one per 500 ms per job
     const half = await api.get(parent.id);
-    expect(half.progress).toMatchObject({ stage: 'render', detail: '70/140 frames, 0/6 scenes rendered' });
+    expect(half.progress).toMatchObject({ stage: 'render', detail: '70/140 frames, 0/6 units rendered' });
     expect(half.progress.fraction).toBeCloseTo(0.45, 5);
     gates.get(3)!(); // 40 frames
     await until(async () => (await api.get(parent.id)).progress.detail?.startsWith('90/140 frames, 1/6') ?? false);

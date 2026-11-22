@@ -45,7 +45,7 @@ import { applyMergePatch, isPlainObject } from './mergePatch';
 import type { BackendContext, BackendEstimate, EstimateRequest, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
 import { PluginRegistry } from './registry';
 import { runRenderPipeline } from './render';
-import { JOIN_JOB_TYPE, UNIT_JOB_TYPE, joinUnits, renderUnit, unitSpecs, type FanOutDeps, type RenderJobParams } from './render-fanout';
+import { JOIN_JOB_TYPE, UNIT_JOB_TYPE, joinUnits, planChunks, renderUnit, unitSpecs, type ChunkPolicy, type FanOutDeps, type RenderJobParams } from './render-fanout';
 import { UrlSigner } from './secrets';
 import { RuntimeConfig, type ConfigSources } from './config/runtime';
 import { createLicenceManager, type LicenceApi, type LicenceManager } from './licence';
@@ -381,7 +381,13 @@ export class ReelforgeService {
       onClaim: () => this.claimRate.record(),
     });
     if (!registry.listBackends().some((b) => b.id === 'local')) {
-      registry.registerBackend(new LocalBackend((req, ctx) => this.renderLocally(req, ctx), () => registry.listEngines().map((e) => e.id)));
+      registry.registerBackend(
+        new LocalBackend(
+          (req, ctx) => this.renderLocally(req, ctx),
+          () => registry.listEngines().map((e) => e.id),
+          () => registry.listEngines().filter((e) => e.capabilities?.().frameRanges).map((e) => e.id)
+        )
+      );
     }
   }
 
@@ -613,6 +619,8 @@ export class ReelforgeService {
           ...(a.reason ? { reason: a.reason } : {}),
           ...(e.browserSandbox ? { browserSandbox: e.browserSandbox() } : {}),
           acceptsSource: e.acceptsSource,
+          // Whether a long scene of this engine can be split into frame ranges (render.fanOut: scenes+chunks).
+          frameRanges: e.capabilities?.().frameRanges ?? false,
           templates: e.templates().map((t) => t.id),
         };
       }),
@@ -1224,6 +1232,24 @@ export class ReelforgeService {
     };
   }
 
+  /** How scenes+chunks splits long scenes on a backend: render.chunk* settings, frame-range engines only. */
+  private chunkPolicy(backendId: string, fps: number): ChunkPolicy | null {
+    const backend = this.registry.backend(backendId);
+    if (!backend.capabilities().frameRanges) return null;
+    const r = this.settings.current.config.render;
+    return {
+      chunkFrames: Math.max(1, Math.round(r.chunkSeconds * fps)),
+      minSceneFrames: Math.max(2, Math.round(r.chunkMinSceneSeconds * fps)),
+      canSplit: (scene) => {
+        try {
+          return this.registry.engine(scene.engine).capabilities?.().frameRanges === true;
+        } catch {
+          return false;
+        }
+      },
+    };
+  }
+
   /** `render_join`: stitch the units and commit the render; its result becomes the parent render job's. */
   private async runRenderJoin(ctx: JobContext): Promise<Record<string, unknown>> {
     const p = ctx.job.params as unknown as RenderJobParams;
@@ -1246,12 +1272,22 @@ export class ReelforgeService {
       return { ...(await this.getRender(p.runId)) };
     }
     const project = await this.projects.getVersion(p.projectId, p.version);
-    // Fan-out (D-097, render.fanOut): one unit per scene on any worker, then one join. Database queue, local backend,
-    // full renders of two or more scenes only; everything else renders on this worker as before.
-    if (ctx.fanOut && ctx.job.type === 'render' && p.backend === 'local' && !p.sceneIds?.length && project.scenes.length > 1 && this.settings.current.config.render.fanOut === 'scenes') {
-      const units = await ctx.fanOut(unitSpecs(p, project));
-      ctx.log(`render.fanOut = scenes: ${units.length} units queued (one per scene, longest first); the last one to finish queues the join`);
-      return {};
+    // Fan-out (D-097, render.fanOut): one unit per scene (scenes+chunks: per chunk of a long scene whose engine renders
+    // frame ranges) on any worker, then one join. Database queue, local backend, full renders of two or more units
+    // only; everything else renders on this worker as before.
+    const fanOut = this.settings.current.config.render.fanOut;
+    if (ctx.fanOut && ctx.job.type === 'render' && p.backend === 'local' && !p.sceneIds?.length && fanOut !== 'off') {
+      const chunks = planChunks(project, fanOut === 'scenes+chunks' ? this.chunkPolicy(p.backend, project.output.fps) : null);
+      const specs = unitSpecs(p, project, chunks);
+      if (specs.length > 1) {
+        // The plan goes onto the render job (and so to its join) in the same write as the units.
+        const units = await ctx.fanOut(specs, { chunks });
+        const split = Object.keys(chunks).length;
+        ctx.log(
+          `render.fanOut = ${fanOut}: ${units.length} units queued (${split ? `${split} long scene(s) split into chunks of up to ${this.settings.current.config.render.chunkSeconds} s, the other scenes whole` : 'one per scene'}, longest first); the last one to finish queues the join`
+        );
+        return {};
+      }
     }
     const backend = this.registry.backend(p.backend);
     const outcome = await backend.submit(

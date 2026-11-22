@@ -565,8 +565,9 @@ every scene and assembles the video, byte for byte as before. With
 database queue, one long render uses several workers at once:
 
 1. The `render` job (the parent) is claimed as usual. For the `local` backend,
-   a full render (not a preview, not a scene subset) of two or more scenes, it
-   inserts one `render_unit` job per scene, fenced by its claim, sets
+   a full render (not a preview, not a scene subset) of two or more units (one
+   per scene; with `scenes+chunks` one per chunk of a long scene, see below), it
+   inserts one `render_unit` job per unit, fenced by its claim, sets
    `pendingChildren` to their number and lets go of its worker and lease: it
    stays `running` (stage `render`) on no worker, so it never holds a slot
    (one worker with one slot still runs the parent, its units and the join),
@@ -618,6 +619,44 @@ database queue, one long render uses several workers at once:
    exactly one frame, and the streams, durations and boundary frames match the
    same clips through the filter-graph assembly.
 
+**Chunks of long scenes (`scenes+chunks`, #156 step 3).** With
+`render.fanOut: scenes+chunks` a scene of at least
+`render.chunkMinSceneSeconds` (default 8 s) whose engine renders frame
+ranges is split into chunks of `render.chunkSeconds` (default 4 s), one
+`render_unit` each, so one long scene no longer bounds a render's latency.
+The last chunk takes the rest: shorter, or up to half a chunk longer when the
+rest would be under half a chunk (no unit for a handful of frames). A render
+that ends up with one unit (one short scene) is not fanned out; one long scene
+alone is. Both chunk settings are runtime settings.
+
+| Engine | Frame ranges | Why |
+| --- | --- | --- |
+| Remotion | **yes** | `renderMedia({ frameRange: [first, last] })` on the self-hosted renderer (no Lambda, no company licence involved, #10); the composition keeps the scene's full `durationInFrames`, and Remotion compositions are frame-pure by design (frames render in parallel tabs, in any order, from `useCurrentFrame()`). `kinetic-title` computes every frame from the frame number only (`spring`, `interpolate`). ENG-REM-FR: frames 20-39 rendered on their own match the whole render's at 47-49 dB PSNR per frame, one frame shifted drops to 31-43 dB |
+| html | no | Seeking every Web Animation is deterministic in time, but not in pixels: Chromium keeps the raster scale of a layer with a running transform animation, so scaled text is sharper or softer depending on the frame the page started at. Measured on `html-title` (2026-11-22): renders starting at frame 8 or 30 had frames at 36-41 dB PSNR against the same frames of the whole render (in one run only the first frame of the range, in another the first four), while a range starting at frame 0 matches at 53-56 dB: a visible change of text sharpness at a seam, so html is not declared |
+| Motion Canvas | no | Scenes are generators that accumulate state from frame 0, and the exporter renders sequentially; a start at frame n would replay frames 0..n-1 |
+| HyperFrames | no | The local `hyperframes render` CLI renders a whole composition; no frame-range start is exposed |
+
+Engines say so in `capabilities()` (`EngineCapabilities.frameRanges`;
+`get_capabilities` reports it per engine), and the `local` backend's
+`capabilities().frameRanges` is true when an installed engine declares it.
+Scenes of the other engines stay one unit each under `scenes+chunks`.
+
+A chunk renders only its frames and is normalised like any unit: its own IDR
+first frame, the same encoding parameters, exactly its frame count. The join
+needs nothing new: chunks are clips in timeline order, stream-copied like
+whole scenes, and the same timestamp check (one packet per frame, one frame
+apart) proves there is no duplicated or missing frame at a seam. The plan
+(which scenes split, at which frames) is stored on the render job in the same
+fenced write that inserts the units (`params.chunks`, by timeline index), and
+the join gets a copy, so it stitches exactly the chunks that were queued even
+if the settings change meanwhile. Chunk units are keyed by their range
+(`units/<NN>.f<first>-<last>.mp4|json`) and their manifest records it, so
+`retry_job` reuses the committed chunks of the same range and renders only
+the missing ones (FAN-46). Chunks appear in the render manifest's `scenes`
+once each, with `frameRange` and their own `startFrame` and `frames`. Unit
+messages name the range: `unit 2/4 (scene "intro", frames 120-179) failed:
+...`.
+
 **Failure, cancel, retry.** A unit that fails (an error in its render, or
 `lease_expired` after `queue.maxAttempts` lost leases) fails the parent with
 `error.unit` naming it and a message such as `unit 3/6 (scene "intro") failed:
@@ -636,13 +675,19 @@ reuse its units.
 
 **Progress.** Agents watch only the parent: `get_job`, `?wait=`/`waitSeconds`
 and SSE compute its progress from its children, frames done over the render's
-total frames (90 %, `detail` like `90/140 frames, 1/6 scenes rendered`), then
+total frames (90 %, `detail` like `90/140 frames, 1/6 units rendered`), then
 the join (10 %). To inspect them, `list_jobs` with `parentId` set to the render
 job's id (REST `GET /v1/jobs?parentId=`) lists its units and its join, newest
 first and paged like every list (D-102: `limit`, `cursor`, `nextCursor`; the
 cursor is bound to the filter, so a cursor of another `parentId` or
 `projectId` answers 400). Webhooks and outbound events are sent for the render
-job only.
+job only. `job.progress` for a fanned-out render: the transaction that
+settles a unit's success also stores the render's progress from the units that
+succeeded (their frames over all frames, × 90 %) and says whether it passed
+another 10 %; exactly one settlement passes each step whatever worker runs it
+(they serialise on the render's row lock), and that worker sends the event,
+so a fanned-out render gets one `job.progress` per 10 % like a one-worker
+render (FAN-45), never one per unit or per worker.
 
 **Measured (FAN-30, 2026-11-22).** 6 scenes on 4 engines (Remotion, Motion
 Canvas, html, HyperFrames), 240 frames at 1080x1920 with music, PostgreSQL 17,
@@ -652,6 +697,25 @@ this short the gain is bounded by the slowest scene (the 2 s Motion Canvas
 scene), the join (fetch, concat, audio, checks, commit) and three workers
 sharing four cores; it grows with longer reels and workers on separate
 machines. These are measurements on one machine, not a benchmark.
+
+**Measured (FAN-32, 2026-11-22), `scenes+chunks`.** An 8 s 1080x1920
+Remotion scene (the longest `kinetic-title` allows) in four 2 s chunks plus a
+1 s html scene, with music, PostgreSQL 17, MinIO, an api and 3 worker
+processes on one shared 4-core machine (wall time is a measurement on a
+shared sandbox, not a benchmark): single worker 22.8 s / 26.3 s / 24.8 s,
+chunked over 3 workers 26.6 s / 21.6 s / 20.0 s (three runs). Each chunk pays
+its own Chromium start and encode, and three workers with two Remotion tabs
+each share four cores (a chunk's engine time was 5-6 s alone and 10-11 s when
+it overlapped another), so the gain here is small or none; it comes from
+workers on separate machines. Correctness: same frames (270), ffprobe
+metadata, stream parameters and A/V durations as the single-worker render;
+timestamps one frame apart; key frames exactly at `[0, 60, 120, 180, 240]`
+(every chunk and scene start); per-frame luma within 0.03 (0.17 in the first
+run); per-frame PSNR against the single-worker render 47.3-50.3 dB on both
+sides of every seam (47.3 dB minimum over the whole video in runs 2 and 3,
+against 23.9 dB for the same video one frame shifted). The first run's
+minimum over the whole video was 35.8 dB at a frame it did not record (not
+at a seam: those were 47.3 dB or more); the report records the frame since.
 
 **Queue order, fairness and limits.** Units carry the render's API key and
 queue position (`createdAt` just after the parent's, longest scene first; the
@@ -1124,11 +1188,19 @@ and a job that dies while its worker shuts down is handed back, never failed
 | FAN-04 | a unit's lease expires: queued again, then at `maxAttempts` failed `lease_expired`, which fails the parent and cancels the rest (`settled`); `cancelTree` cancels the parent and queued units, asks running ones to stop, and refuses anything that is not a fanned-out parent | contract (4 targets) | pass 2026-11-22 |
 | FAN-05 | `maxRunningPerKey` counts a key's running units, not its fanned-out parent | contract (4 targets) | pass 2026-11-22 |
 | FAN-01u..10u | runner: 6 units over 3 workers, one join, parent result and log; one worker with one slot runs it all; unit failure, cancel cascade (parent or unit), unit worker frozen → attempt 2 and one join, `lease_expired` at `maxAttempts`; parent progress = frames done / total then join, never backwards; running cap counts units only; units and joins cannot be retried; `worker --once` ends `fanned_out` and runs one unit per process | runner (`packages/core/test/fanout.queue.test.ts`) | pass 2026-11-22 |
-| FAN-10..14 | service, fake engine, 1 api + 3 worker instances on one database and data directory: `render.fanOut: scenes` → 4 units (longest first) on several workers, one join, the committed render's manifest lists every scene in timeline order, units removed, ffprobe equal to the same render with `off` (frames, size, rate, duration); previews and one-scene renders never fan out; `scenes+chunks` refused (setting and start-up); a failing unit fails the render and `retry_job` renders only that scene again; `cancel_job` on the api stops units running on workers | service (`packages/core/test/fanout.service.test.ts`) | pass 2026-11-22 |
+| FAN-10..14 | service, fake engine, 1 api + 3 worker instances on one database and data directory: `render.fanOut: scenes` → 4 units (longest first) on several workers, one join, the committed render's manifest lists every scene in timeline order, units removed, ffprobe equal to the same render with `off` (frames, size, rate, duration); previews and one-scene renders never fan out; `scenes+chunks` with engines that declare no frame ranges queues the same units as `scenes` (the local backend reports `frameRanges: false`); a failing unit fails the render and `retry_job` renders only that scene again; `cancel_job` on the api stops units running on workers | service (`packages/core/test/fanout.service.test.ts`) | pass 2026-11-22 |
 | FAN-15 | the retention sweep removes the units of a failed run (`tempHours` passed) and never those of a run still queued or running | service | pass 2026-11-22 |
+| FAN-40..43 | chunk planning (pure): `chunkRanges` fixed chunks, last one shorter or (rest under half a chunk) merged, every frame exactly once for any length; `planChunks` splits only scenes ≥ the minimum whose engine renders frame ranges, none without a policy or when one chunk covers the scene; `unitSpecs` one unit per chunk (frames, range) and per whole scene, longest first; the local backend reports frame ranges only when an installed engine declares them | unit (`packages/core/test/fanout.chunks.test.ts`) | pass 2026-11-22 |
+| FAN-44 | service, fake engines (Remotion with frame ranges, drawing frame n at its own luma; Motion Canvas without), 1 api + 3 workers, `scenes+chunks` with 2 s chunks: an 8 s scene → 4 chunk units, a 5 s Motion Canvas scene and two short scenes whole; plan on the render job and its join; one join; render manifest lists the chunks with `frameRange`; every frame of the split scene once and in order (luma of frame n = the engine's frame n); a key frame at every unit start; ffprobe and per-frame luma equal to the single-worker render | service (`packages/core/test/fanout.chunks.test.ts`) | pass 2026-11-22 |
+| FAN-45 | a fanned-out render's progress events: one per 10 % of committed frames, each step once across the three workers, never backwards, ending at 90 %; as many `job.progress` webhooks of the render job, none of a unit | service | pass 2026-11-22 |
+| FAN-46 | a failing chunk fails the render (`unit 1/2 (scene "long", frames 120-179) failed`); `retry_job` renders only the chunks not committed, reuses the others, one join, every frame correct | service | pass 2026-11-22 |
+| FAN-47 | one long scene alone fans out into its chunks; `scenes` keeps it whole (one unit: not fanned out); a scene under `render.chunkMinSceneSeconds` is not split | service | pass 2026-11-22 |
+| FAN-48 | `scenes+chunks` accepted; `render.chunkSeconds` < 1 and `render.chunkMinSceneSeconds` < 2 refused (runtime and start-up); `get_capabilities` reports `frameRanges` per engine and for the local backend | service | pass 2026-11-22 |
+| ENG-REM-FR | Remotion `frameRange`: frames 20-39 of a 60-frame `kinetic-title` alone: exactly 20 frames, progress counts the range, per-frame PSNR against the whole render's frames 20-39 > 40 dB (47-49 measured) and clearly above one frame shifted; a range outside the scene is refused | engine (`packages/engine-remotion/test/render.test.ts`, browser) | pass 2026-11-22 |
 | FAN-20 | `normaliseClip` + `concatClips`: clips of three sizes, rates and pixel formats normalised (each IDR first, from pts 0, identical stream parameters) and joined by stream copy: decoded frames bit-identical (framemd5) to the clips in order, timestamps one frame apart, A/V durations equal; same frames, streams, durations and boundary luma as `assemble()` of the same clips | media-pipeline | pass 2026-11-22 |
 | FAN-21 | `checkTimestamps` reports a wrong packet count and a broken one-frame step at a joined boundary | media-pipeline | pass 2026-11-22 |
 | FAN-30 | e2e, real engines: a 6-scene, 4-engine (Remotion, Motion Canvas, html, HyperFrames) 1080x1920 reel with music on PostgreSQL 17, MinIO and an api + 3 worker processes; fanned out (units on all 3 workers, one join, units removed from the bucket) it equals the single-worker render in ffprobe metadata (frames, size, rate, codecs, pixel format), stream parameters, A/V durations, timestamps (one frame apart), per-frame luma and the frames either side of every scene boundary (`frameStats`) | e2e (`apps/server/test/fanout.e2e.test.ts`) | pass 2026-11-22 (PostgreSQL 17, MinIO; two runs on a shared 4-core machine: single worker 32.4 s / 38.2 s, fanned out over 3 workers 22.1 s / 31.7 s; max per-frame luma difference 0.15 / 0.10) |
+| FAN-32 | e2e, real Remotion: `scenes+chunks` with 2 s chunks, an 8 s 1080x1920 `kinetic-title` scene + a 1 s html scene with music, PostgreSQL 17, MinIO, an api + 3 worker processes: plan `{ "0": 4 chunks }`, 5 units on all 3 workers, one join, units removed; equal to the single-worker render in ffprobe metadata, stream parameters, A/V durations and timestamps; a key frame at every chunk start; per-frame luma and PSNR at every chunk seam (`frameStats`, `framePsnr`) | e2e (`apps/server/test/fanout.e2e.test.ts`) | pass 2026-11-22 (three runs; numbers under [Render fan-out](#render-fan-out)) |
 | FAN-31 | e2e: the worker rendering a unit is killed with SIGKILL: the unit's lease expires, another worker renders it (attempt 2), exactly one join, the render equals the single-worker one in metadata and timestamps | e2e | pass 2026-11-22 (killed while rendering unit 2, the Motion Canvas scene; attempt 2 on another worker, 1 join) |
 | QUE-12 | migration `0006_job_queue` applies (also concurrently from two processes, contract.test.ts) and the new columns round-trip | contract (4 targets) | pass 2026-11-21 |
 | QUE-14 | claims held open (each stops before its status event) after 60 finished jobs and fresh statistics; jobs of three keys, one row-locked by another transaction: every free job is held by exactly one claim, the extra claims find none, the locked job stays queued. Failed on MySQL before #168 (7 of 11: one claim locked every keyless job) | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
@@ -1217,8 +1289,8 @@ and a job that dies while its worker shuts down is handed back, never failed
 Commands:
 
 ```bash
-pnpm --filter @reelforge/core exec vitest run test/jobs.queue.test.ts test/limits.test.ts test/fanout.queue.test.ts test/fanout.service.test.ts
-# render fan-out e2e (FAN-30/31): real engines, PostgreSQL, MinIO (e2e/minio/build-image.sh), an api + 3 worker processes
+pnpm --filter @reelforge/core exec vitest run test/jobs.queue.test.ts test/limits.test.ts test/fanout.queue.test.ts test/fanout.service.test.ts test/fanout.chunks.test.ts
+# render fan-out e2e (FAN-30/31/32): real engines, PostgreSQL, MinIO (e2e/minio/build-image.sh), an api + 3 worker processes
 FANOUT_E2E=1 TEST_POSTGRES_URL=postgresql://... FANOUT_E2E_S3_ENDPOINT=http://127.0.0.1:9000 FANOUT_E2E_S3_ACCESS_KEY=... FANOUT_E2E_S3_SECRET_KEY=... \
   REELFORGE_CHROMIUM_PATH=... pnpm --filter @reelforge/server exec vitest run test/fanout.e2e.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://...?allowPublicKeyRetrieval=true \
@@ -1332,10 +1404,12 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
   follow-up.
 - Measured throughput, connection counts, idle-polling cost and hot spots (load test, #151; so
   far a lower bound on a shared sandbox): [docs/PERFORMANCE.md](../PERFORMANCE.md).
-- Render fan-out (#156) splits by scene only: frame ranges of long scenes
-  (`scenes+chunks`, Remotion first, step 3 of #156) are not built, so the
-  longest scene bounds a fanned-out render's latency. The video is encoded
+- Render fan-out (#156) splits long scenes into frame ranges only for
+  Remotion (`scenes+chunks`); a long html, Motion Canvas or HyperFrames scene
+  is one unit and still bounds a fanned-out render's latency (see the engine
+  table in [Render fan-out](#render-fan-out)). The video is encoded
   once per unit and copied by the join, so a fanned-out render is not
   bit-identical to a single-worker one (each scene is encoded on its own; the
-  frames agree to within a small luma difference, FAN-30). A fanned-out
-  render's progress is not sent as `job.progress` webhooks.
+  frames agree to within a small luma difference, FAN-30). The join's own
+  progress (90-100 %) is not sent as `job.progress`; the render's next event
+  is `job.succeeded`.

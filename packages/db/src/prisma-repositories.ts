@@ -275,7 +275,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       } else stop.push(c.id);
     }
     if (stop.length) await tx.job.updateMany({ where: { ...ws, id: { in: stop }, status: 'running', cancelRequestedAt: null }, data: { cancelRequestedAt: new Date(at) } });
-    return { parent: plan.parent, parentFinished: plan.parentFinished, cancelled, join: plan.join };
+    return { parent: plan.parent, parentFinished: plan.parentFinished, cancelled, join: plan.join, ...(plan.progressed ? { progressed: true } : {}) };
   };
   /** Settle a fan-out child's parent (the parent row is already locked by this transaction). */
   const settleIn = async (tx: Tx, child: JobRecord, at: string): Promise<ChildSettlement> => {

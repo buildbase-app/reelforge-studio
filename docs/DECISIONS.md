@@ -1700,7 +1700,16 @@ once); they do count against `maxRunningJobsPerKey` (worker slots), the fanned-o
 built (#156):** units normalise to the final encoding (`normaliseClip`) and the join concatenates them with the
 concat demuxer and `-c:v copy`, mixes the audio once, checks timestamps and A/V durations, and falls back to the
 filter-graph assembly when the units' stream parameters or FFmpeg builds differ; e2e with real engines on
-PostgreSQL 17, MinIO and three worker processes (FAN-30/31). Not built yet: frame ranges (step 3).\
+PostgreSQL 17, MinIO and three worker processes (FAN-30/31). **Step 3 built (#156):** `render.fanOut:
+scenes+chunks` splits a scene of at least `render.chunkMinSceneSeconds` (default 8 s) into chunks of
+`render.chunkSeconds` (default 4 s) when its engine declares frame ranges (`EngineCapabilities.frameRanges`)
+and the backend allows them; the plan is stored on the render job with its units and copied to the join;
+chunk units are keyed by range, so retry reuses committed chunks; a fanned-out render sends one
+`job.progress` per 10 % of committed frames. Only Remotion declares frame ranges (`renderMedia`
+`frameRange`, self-hosted; frame-pure compositions, measured); html is not declared because Chromium's
+raster-scale caching makes a mid-scene start differ in pixels (measured), Motion Canvas accumulates generator
+state from frame 0, HyperFrames' CLI has no frame-range start. Tested with fake engines (FAN-40..48), the
+Remotion engine (ENG-REM-FR) and e2e on PostgreSQL 17, MinIO and three workers (FAN-32).\
 A render becomes a parent job with one `render_unit` child per scene (per chunk for engines that
 declare frame ranges; Remotion first), all ordinary rows in the queue (same leases, attempts,
 fencing). Each unit renders and normalises its clip to the final encoding (`H264_ARGS`, same

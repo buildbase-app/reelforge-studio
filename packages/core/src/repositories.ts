@@ -217,6 +217,8 @@ export interface ChildSettlement {
   cancelled: JobRecord[];
   /** The single join job, inserted by the transaction that took `pendingChildren` to 0. */
   join: JobRecord | null;
+  /** A unit's success took the parent's stored progress past another 10 % (SettlementPlan.progressed). */
+  progressed?: boolean;
 }
 
 /** A database-queue worker's claim on a job: writes only land while the job is still held by it. */

@@ -822,19 +822,30 @@ export const ConfigSchema = z.object({
       description:
         'Hard limit for rendering one html or hyperframes scene, whatever its length (engines use their per-frame estimate when it is shorter). 30 to 3600 seconds.',
     }),
-    fanOut: setting(
-      z.enum(['off', 'scenes', 'scenes+chunks']).superRefine((v, ctx) => {
-        if (v === 'scenes+chunks') ctx.addIssue({ code: 'custom', message: '`scenes+chunks` is reserved for frame-range rendering of long scenes, which is not built yet (#156); use `scenes`' });
-      }),
-      {
-        kind: 'enum',
-        scope: 'runtime',
-        env: 'REELFORGE_RENDER_FAN_OUT',
-        default: 'off',
-        description:
-          'Split one render across workers (D-097, docs/providers/queue-and-scaling.md#render-fan-out). `off`: one worker renders every scene and assembles the video (the default; unchanged behaviour). `scenes`: with the database queue, a `render` of the `local` backend with two or more scenes becomes one `render_unit` job per scene, claimed by any worker, and one `render_join` job that assembles and commits the video; previews and the in-process queue always use one worker. `scenes+chunks` (frame ranges of long scenes) is reserved and refused until it is built.',
-      }
-    ),
+    fanOut: setting(z.enum(['off', 'scenes', 'scenes+chunks']), {
+      kind: 'enum',
+      scope: 'runtime',
+      env: 'REELFORGE_RENDER_FAN_OUT',
+      default: 'off',
+      description:
+        'Split one render across workers (D-097, docs/providers/queue-and-scaling.md#render-fan-out). `off`: one worker renders every scene and assembles the video (the default; unchanged behaviour). `scenes`: with the database queue, a `render` of the `local` backend with two or more scenes becomes one `render_unit` job per scene, claimed by any worker, and one `render_join` job that assembles and commits the video; previews and the in-process queue always use one worker. `scenes+chunks`: as `scenes`, and a scene of at least `render.chunkMinSceneSeconds` whose engine renders frame ranges (Remotion; not html, Motion Canvas or HyperFrames) is split into chunks of `render.chunkSeconds`, one unit each, so one long scene no longer bounds the render\'s latency.',
+    }),
+    chunkSeconds: setting(z.number().min(1).max(600), {
+      kind: 'number',
+      scope: 'runtime',
+      env: 'REELFORGE_RENDER_CHUNK_SECONDS',
+      default: 4,
+      description:
+        'With `render.fanOut: scenes+chunks`: length of one chunk of a split scene, in seconds of video (1 to 600). The last chunk takes the rest: it is shorter, or up to half a chunk longer when the rest would be under half a chunk. Shorter chunks spread a scene over more workers; each chunk pays a browser start and an encode of its own.',
+    }),
+    chunkMinSceneSeconds: setting(z.number().min(2).max(3600), {
+      kind: 'number',
+      scope: 'runtime',
+      env: 'REELFORGE_RENDER_CHUNK_MIN_SCENE_SECONDS',
+      default: 8,
+      description:
+        'With `render.fanOut: scenes+chunks`: scenes shorter than this (seconds, 2 to 3600) are never split and render as one unit.',
+    }),
     ffmpegPath: setting(nonEmpty(), {
       kind: 'path',
       scope: 'startup',

@@ -29,10 +29,11 @@ What `get_capabilities` reports under `backends[]` (`kind`, `configured`,
 
 | Backend | Kind | Implemented | Engines | Max unit | Frame ranges | Scale to zero | Configured by | Status | Cases |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `local` | `pool` | yes | every engine installed on the server | none of its own | no (whole scenes) | no (the pool's size is the orchestrator's: KEDA can take workers to 0) | nothing | **tested** | BKD-01..08, the render tests of every engine |
+| `local` | `pool` | yes | every engine installed on the server | none of its own | yes when an installed engine declares them (Remotion); used only with `render.fanOut: scenes+chunks` | no (the pool's size is the orchestrator's: KEDA can take workers to 0) | nothing | **tested** | BKD-01..08, the render tests of every engine |
 | `local` through `worker --once` on PostgreSQL 17 | `pool` | yes | as `local` | none | no | yes, per container (the job platform starts one per unit) | `server.role` `worker` + `REELFORGE_WORKER_ONCE=1` or `reelforge worker --once` | **tested** (processes, fake engines) | BKD-10u..18u, BKD-20..25, QUE-13 |
 | `local` through `worker --once` on MySQL 8.4 | `pool` | yes | as `local` | none | no | as above | as above | **tested** (processes, fake engines) | BKD-10u..18u, BKD-20..25, QUE-13 |
-| `local` with `render.fanOut: scenes` (#156, D-097) | `pool` | yes (scene units normalised to the final encoding; the join concatenates by stream copy) | as `local` | one scene per unit | no (`scenes+chunks` reserved, refused) | as the pool | `render.fanOut: scenes` + the database queue | **tested** (contract on SQLite, PostgreSQL 17, MySQL 8.4; e2e with real engines on PostgreSQL 17 + MinIO, 3 worker processes) | FAN-01..05, FAN-01u..10u, FAN-10..15, FAN-20..21, FAN-30..31 ([queue-and-scaling.md](queue-and-scaling.md#render-fan-out)) |
+| `local` with `render.fanOut: scenes` (#156, D-097) | `pool` | yes (scene units normalised to the final encoding; the join concatenates by stream copy) | as `local` | one scene per unit | no (whole scenes) | as the pool | `render.fanOut: scenes` + the database queue | **tested** (contract on SQLite, PostgreSQL 17, MySQL 8.4; e2e with real engines on PostgreSQL 17 + MinIO, 3 worker processes) | FAN-01..05, FAN-01u..10u, FAN-10..15, FAN-20..21, FAN-30..31 ([queue-and-scaling.md](queue-and-scaling.md#render-fan-out)) |
+| `local` with `render.fanOut: scenes+chunks` (#156 step 3) | `pool` | yes (a long scene of a frame-range engine becomes one unit per chunk, joined by stream copy like scenes) | as `local` | one chunk (`render.chunkSeconds`, default 4 s) of a scene ≥ `render.chunkMinSceneSeconds` (default 8 s); other scenes whole | **yes, Remotion** (`renderMedia` `frameRange`); html, Motion Canvas and HyperFrames stay whole (why: [queue-and-scaling.md](queue-and-scaling.md#render-fan-out)) | as the pool | `render.fanOut: scenes+chunks` + the database queue | **tested** (fake engines in the service; Remotion engine test; e2e with real Remotion on PostgreSQL 17 + MinIO, 3 worker processes) | FAN-40..48, ENG-REM-FR, FAN-32 |
 | `local` through `worker --once` on SQLite | — | — | — | — | — | — | — | **refused** (a worker needs a shared database, D-076) | BKD-25 |
 | `remotion-lambda` | `managed` | **no** (configuration check only; `submit` answers `not_implemented` 501) | `remotion` | 900 s (Lambda's 15-minute cap, Remotion docs, read 2026-11-22) | yes (design) | yes (design) | `REMOTION_LAMBDA_REGION`, `REMOTION_LAMBDA_FUNCTION_NAME`, `REMOTION_LAMBDA_SERVE_URL` | skeleton; capabilities describe the design for #157 | BKD-01..08 |
 
@@ -67,7 +68,10 @@ How the service uses it:
 - `validate_project` adds `estimate` (the manifest backend's `estimate()`), and
   for an implemented, configured backend reports a scene whose engine is not in
   `capabilities().engines`, or a scene longer than `maxUnitSeconds` when the
-  backend cannot render frame ranges. A skeleton keeps its single
+  backend cannot render frame ranges. With `render.fanOut: scenes+chunks` a
+  scene is split only when the backend's `capabilities().frameRanges` and its
+  engine's own `capabilities().frameRanges` (`EngineCapabilities`, reported
+  per engine by `get_capabilities`) are both true. A skeleton keeps its single
   "not implemented" error.
 - A new backend runs the contract suite: call `backendContract(name, {
   configured, unconfigured, checkSubmit })` from
@@ -176,8 +180,8 @@ cases in [queue-and-scaling.md](queue-and-scaling.md).
   job's state, logs and duration are in the database like any job's.
 - With `render.fanOut: scenes` a `--once` run that claims a render only fans
   it out (outcome `fanned_out`, exit 0); its units and join are claimed by
-  later runs, one per container. Frame ranges (`capabilities().frameRanges`)
-  are not used by the local pool yet (#156, step 3).
+  later runs, one per container (with `scenes+chunks`, one per chunk of a
+  long Remotion scene too).
 - The once worker starts the full service (database, storage, settings), about
   2–4 s before it claims; pre-built engine bundles (`pnpm prebuild:engines`,
   done in the image) keep the first render fast.

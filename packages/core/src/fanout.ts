@@ -65,14 +65,26 @@ export interface SettlementPlan {
   cancel: JobRecord[];
   /** Running siblings to ask to stop (cancel request). */
   stop: string[];
+  /**
+   * A unit's success took the parent's stored progress past another 10 %
+   * (decided under the parent's row lock, so exactly one settlement crosses
+   * each step, whichever worker it runs on): send it as `job.progress`.
+   */
+  progressed?: boolean;
 }
 
 const NOTHING: SettlementPlan = { parent: null, parentFinished: false, join: null, cancel: [], stop: [] };
 
+/** `unit 3/6 (scene "intro")`, or `unit 3/6 (scene "intro", frames 120-239)` for a chunk of a long scene. */
+export function describeUnit(params: Record<string, unknown>, fallback: string): string {
+  const p = params as { index?: number; count?: number; sceneId?: string; range?: [number, number] };
+  if (typeof p.index !== 'number') return `unit ${fallback}`;
+  const scene = [p.sceneId ? `scene "${p.sceneId}"` : '', p.range ? `frames ${p.range[0]}-${p.range[1]}` : ''].filter(Boolean).join(', ');
+  return `unit ${p.index + 1}${p.count ? `/${p.count}` : ''}${scene ? ` (${scene})` : ''}`;
+}
+
 function describeChild(c: JobRecord): string {
-  if (c.type === JOIN_JOB_TYPE) return 'the join';
-  const p = c.params as { index?: number; count?: number; sceneId?: string };
-  return typeof p.index === 'number' ? `unit ${p.index + 1}${p.count ? `/${p.count}` : ''}${p.sceneId ? ` (scene "${p.sceneId}")` : ''}` : `unit ${c.id}`;
+  return c.type === JOIN_JOB_TYPE ? 'the join' : describeUnit(c.params, c.id);
 }
 
 /** Finish the parent with `status` and stop every unfinished sibling (failure, cancellation). */
@@ -107,7 +119,11 @@ export function settleChild(child: JobRecord, parent: JobRecord | null, siblings
     }
     const left = Math.max(0, (parent.pendingChildren ?? 0) - 1);
     const join = left === 0 && !others.some((s) => s.type === JOIN_JOB_TYPE) ? joinJob(parent) : null;
-    return { ...NOTHING, parent: { ...parent, pendingChildren: left }, join };
+    // The parent's stored progress: frames of the units that succeeded (this one included) over all frames.
+    const progress = committedProgress([...others, child]);
+    const step = (f: number) => Math.floor(f * 10 + 1e-9);
+    const progressed = step(progress.fraction) > step(parent.progress?.fraction ?? 0);
+    return { ...NOTHING, parent: { ...parent, pendingChildren: left, progress }, join, progressed };
   }
   const attempts = child.attempts && child.attempts > 1 ? ` after ${child.attempts} attempts` : '';
   const error = {
@@ -119,6 +135,17 @@ export function settleChild(child: JobRecord, parent: JobRecord | null, siblings
   return stopTree(parent, others, child.status === 'cancelled' ? 'cancelled' : 'failed', error, at);
 }
 
+const framesOf = (c: JobRecord) => Math.max(0, Number((c.params as { frames?: unknown }).frames) || 0);
+
+/** Progress from the units that succeeded only (what a settlement knows for sure): 90 % × their frames / all frames. */
+function committedProgress(children: JobRecord[]): JobProgress {
+  const units = children.filter((c) => c.type === UNIT_JOB_TYPE);
+  const total = units.reduce((n, c) => n + framesOf(c), 0);
+  const ok = units.filter((c) => c.status === 'succeeded');
+  const done = ok.reduce((n, c) => n + framesOf(c), 0);
+  return { stage: 'render', fraction: total > 0 ? (0.9 * done) / total : 0, detail: `${done}/${total} frames, ${ok.length}/${units.length} units rendered` };
+}
+
 /**
  * A fanned-out parent's progress (D-097): frames done across its units over
  * the render's total frames (90 %), then the join (10 %). Agents watch only
@@ -127,7 +154,6 @@ export function settleChild(child: JobRecord, parent: JobRecord | null, siblings
 export function treeProgress(parent: JobRecord, children: JobRecord[]): JobProgress {
   const units = children.filter((c) => c.type === UNIT_JOB_TYPE);
   const join = children.find((c) => c.type === JOIN_JOB_TYPE);
-  const framesOf = (c: JobRecord) => Math.max(0, Number((c.params as { frames?: unknown }).frames) || 0);
   const total = units.reduce((n, c) => n + framesOf(c), 0);
   let done = 0;
   let finished = 0;
@@ -139,7 +165,7 @@ export function treeProgress(parent: JobRecord, children: JobRecord[]): JobProgr
   }
   const unitPart = total > 0 ? done / total : 0;
   const joinPart = join ? (join.status === 'succeeded' ? 1 : join.status === 'running' ? join.progress.fraction : 0) : 0;
-  const frames = `${Math.floor(done)}/${total} frames, ${finished}/${units.length || (parent.pendingChildren ?? 0)} scenes rendered`;
+  const frames = `${Math.floor(done)}/${total} frames, ${finished}/${units.length || (parent.pendingChildren ?? 0)} units rendered`;
   if (join) return { stage: 'join', fraction: Math.min(1, 0.9 + 0.1 * joinPart), detail: `${frames}; joining (${join.status})` };
   return { stage: 'render', fraction: 0.9 * unitPart, detail: frames };
 }

@@ -15,7 +15,9 @@ export class LocalBackend implements RenderBackend {
   constructor(
     private readonly runner: (req: RenderRequest, ctx: BackendContext) => Promise<RenderOutcome>,
     /** Engine ids installed on this server (the registry's). */
-    private readonly engines: () => string[] = () => []
+    private readonly engines: () => string[] = () => [],
+    /** Installed engines that render frame ranges (EngineCapabilities.frameRanges). */
+    private readonly frameRangeEngines: () => string[] = () => []
   ) {}
 
   configured(): boolean {
@@ -23,8 +25,9 @@ export class LocalBackend implements RenderBackend {
   }
 
   capabilities(): BackendCapabilities {
-    // Whole scenes on the worker's own CPU; how many workers run (and whether the pool goes to zero) is the orchestrator's choice.
-    return { engines: this.engines(), maxUnitSeconds: null, frameRanges: false, scaleToZero: false };
+    // On the worker's own CPU; how many workers run (and whether the pool goes to zero) is the orchestrator's choice.
+    // Frame ranges (render.fanOut: scenes+chunks) for the engines that declare them.
+    return { engines: this.engines(), maxUnitSeconds: null, frameRanges: this.frameRangeEngines().length > 0, scaleToZero: false };
   }
 
   estimate(req: EstimateRequest): BackendEstimate {

@@ -2,10 +2,10 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PipelineError, checkExpectation, frameStats, probe, resolveTools } from '@reelforge/media-pipeline';
+import { PipelineError, checkExpectation, framePsnr, frameStats, probe, resolveTools } from '@reelforge/media-pipeline';
 import { builtinTheme } from '@reelforge/project-schema';
 import type { OutputSettings, RenderScene as Scene } from '@reelforge/project-schema';
-import { renderRemotionScene } from '../src/index';
+import { remotionEngine, renderRemotionScene } from '../src/index';
 
 // Remotion downloads its own browser when none is configured; in CI we point
 // it at a preinstalled one so the test does not depend on network access.
@@ -56,6 +56,29 @@ describe.skipIf(!hasBrowser)('renderRemotionScene (needs REELFORGE_CHROMIUM_PATH
     // Midnight's background is darker than the default theme's.
     expect(first.yMin).toBeLessThan(30);
   }, 180_000);
+
+  it('ENG-REM-FR a frame range renders exactly those frames, the same pictures as the whole render (frame-pure, #156)', async () => {
+    expect(remotionEngine().capabilities?.()).toEqual({ frameRanges: true });
+    const tools = resolveTools();
+    const whole = join(dir, 'whole.mp4');
+    await renderRemotionScene({ scene, output, out: whole, cacheDir, concurrency: 2 });
+    // Frames 20-39: the words are still springing in and the whole title is pushing in (every frame differs from the last).
+    const part = join(dir, 'range.mp4');
+    const progress: Array<[number, number]> = [];
+    const res = await renderRemotionScene({ scene, output, out: part, cacheDir, concurrency: 2, frameRange: [20, 39], onProgress: (d, t) => progress.push([d, t]) });
+    expect(res.frames).toBe(20);
+    expect((await probe(tools.ffprobe, part)).frames).toBe(20);
+    expect(progress.at(-1)).toEqual([20, 20]);
+    const same = await framePsnr(tools.ffmpeg, whole, part, 20);
+    const shifted = await framePsnr(tools.ffmpeg, whole, part, 21);
+    expect(same).toHaveLength(20);
+    // Both are Remotion's own encodes (crf 18) of the same pictures; one frame off is clearly worse.
+    expect(Math.min(...same)).toBeGreaterThan(40);
+    expect(Math.min(...same)).toBeGreaterThan(Math.min(...shifted) + 3);
+    const err = await renderRemotionScene({ scene, output, out: join(dir, 'bad.mp4'), cacheDir, frameRange: [50, 60] }).catch((e) => e);
+    expect(err).toBeInstanceOf(PipelineError);
+    expect((err as Error).message).toMatch(/not inside the scene's 60 frames/);
+  }, 240_000);
 
   it('fails with a PipelineError naming the stage for an unknown composition', async () => {
     const err = await renderRemotionScene({
