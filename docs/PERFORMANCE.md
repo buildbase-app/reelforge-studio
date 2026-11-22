@@ -1,0 +1,336 @@
+# Performance: load test results
+
+Measured numbers for the scaled topology (api instances + workers + PostgreSQL), issue #151.
+They replace the estimates of [RENDER_SCALE §10](research/RENDER_SCALE.md#10-capacity-math-and-what-infinite-means)
+once the dedicated run below exists.
+
+> **Read this first.** Every number on this page so far is a **lower bound, shared sandbox
+> (not dedicated)**: a 4-vCPU container that other workloads were using at the same time, with
+> PostgreSQL, PgBouncer, both api instances, every worker process and the load generator all on
+> those same 4 vCPUs. They show what breaks first and prove the queue loses and duplicates
+> nothing; they are **not capacity claims** and must not be quoted as such (store rule, #49).
+> The [dedicated run](#dedicated-run-not-yet-measured) is defined below and is **not yet measured**.
+
+## How to run it
+
+```bash
+export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell   # api instances validate engines; the real reel renders
+pnpm load:smoke          # about 30 s of load, direct connections, every scenario at small size (~2 min with start-up)
+pnpm load                # full: direct and PgBouncer, (a) (b) (c), 10/50/200 workers (~16 min)
+LOAD_POOLERS=pgbouncer LOAD_SCENARIOS=c LOAD_CLAIM_WORKERS=200 pnpm load   # one part
+```
+
+Needs Docker (PostgreSQL 17 and PgBouncer 1.26.1 from `mirror.gcr.io`, started and removed by the
+script on ports 55461/55462, reached on the container bridge address so Docker's port proxy is not
+in the path), Node 22, pnpm, ffprobe. Results go to `out/load/<date>-<profile>.json` (everything,
+including the top statements, rows written per table, lock waits by statement) and `.md` (the
+tables below). The exit status is non-zero if an exactly-once check fails. Settings are
+environment variables at the top of [`scripts/load/run.ts`](../scripts/load/run.ts) (`LOAD_SECONDS`,
+`LOAD_CONNECTIONS`, `LOAD_API_INSTANCES`, `LOAD_API_POOL`, `LOAD_RENDERS`, `LOAD_FAKE_WORKERS`,
+`LOAD_CLAIM_WORKERS`, `LOAD_MIX`, `LOAD_RENDER_KEY`, `LOAD_MAX_QUEUED_JOBS`,
+`LOAD_SERVER_NODE_OPTIONS` for a CPU profile, `LOAD_HARDWARE_NOTE`, ...).
+`pnpm test:load` checks the checker itself: the exactly-once check must flag a lost, a duplicated
+and an unexpected job (needs `TEST_POSTGRES_URL`; the percentile and report tests run without).
+
+## What runs
+
+| Part | What it is | Real or stand-in |
+| --- | --- | --- |
+| api instances | `LOAD_API_INSTANCES` (2) processes of `apps/server/src/main.ts`, `REELFORGE_ROLE=api`, `?connection_limit=10`, shared local storage, licence off, rate limit store `database` (the default with the database queue) | real server from source |
+| load generator | [autocannon](https://github.com/mcollina/autocannon) 8.0.0, one instance per operation and api instance (client-side round robin stands in for an L4 balancer), 64 connections, closed loop | real HTTP |
+| (a) CRUD mix | `get_project` 25 %, `list_projects` 10 %, `update_project` 15 %, `create_project` 10 %, `get_job` 25 %, `list_renders` 15 % of the connections, REST, random key per request | real routes |
+| (a) variants | **many-keys**: 200 keys (6 000/min each, no 429 expected); **hot-key-default-limit**: one key at the default 300/min (429s expected, counted apart from errors); **steady-many-keys** vs **steady-hot-key-high-limit**: a mix without create and list (`get_project` 35 %, `update_project` 15 %, `get_job` 30 %, `list_renders` 20 %), so the cost per request stays put and only the key spread differs: the clean measure of the per-key `RateLimitWindow` hot row | real |
+| (b) renders | 500 `render_project` calls spread over 60 s with an idempotency key each (retried with the same key on errors), while the many-keys CRUD mix runs; 50 workers | the claim, lease heartbeat, progress writes (throttled to 2/s per job), events and fenced finish are the real `JobRunner` ([`scripts/load/queue-worker.ts`](../scripts/load/queue-worker.ts)); only the render is a stand-in (3 s of progress ticks) |
+| (b) real reel | one 1 s 1080×1920 html-engine reel on a real `REELFORGE_ROLE=worker` process, while the CRUD mix runs; ffprobe on the downloaded MP4 | real render |
+| (c) claims | 5 000 jobs inserted with the real `insert` (20 inserters), then 10/50/200 real `JobRunner`s (10 per process, own pool of 2 each) drain them with a no-op handler; then the same workers idle for 10 s | real queue |
+| exactly-once | after (b), the real reel and each (c): every accepted job `succeeded`, no job the client never got (duplicate enqueue), `running` events = attempts, at most one `succeeded` event, re-claims counted ([`scripts/load/check.ts`](../scripts/load/check.ts)) | SQL over all jobs |
+
+Measured alongside every run: DB container CPU (`docker stats`, 100 % = one vCPU), connections and
+lock waits sampled every second from `pg_stat_activity`, commits/s, statements/s
+(`pg_stat_statements`), rows written per table (`pg_stat_user_tables`), api CPU per instance
+(`/proc`), the load generator's own CPU, and the host load average. Queue wait = claim time minus
+enqueue time, first attempts only.
+
+## Results: lower bound, shared sandbox (not dedicated), 2026-11-22
+
+[^s]: **Conditions of every number in this section:** lower bound, shared sandbox (not dedicated).
+    One container, 4 vCPU (Intel Xeon @ 2.10 GHz), 15.7 GiB RAM, 252 GB disk (13 GB free), Linux
+    6.18, shared with other workloads: host load average 3.8 at the start, 4.6 to 16.7 during the
+    runs (each table has its own column), 10.6 at the end. PostgreSQL 17.12
+    (`mirror.gcr.io/library/postgres:17`, `max_connections=600`, `shared_buffers=512MB`, other
+    settings default: `synchronous_commit=on`, `fsync=on`, `work_mem=4MB`, `max_wal_size=1GB`),
+    PgBouncer 1.26.1 (`pool_mode=transaction`, `default_pool_size=20`,
+    `max_prepared_statements=200`), 2 api instances × `connection_limit=10`, workers
+    `connection_limit=2` each, Node 22.23.5, ReelForge `main` at e49b8dc plus this branch, all on
+    the same 4 vCPU as the load generator. Run `2026-11-22T15:37:46Z` (`pnpm load`, full profile);
+    the A/B runs named in the findings are the same command with the stated variables, the same day.
+
+Raw results (everything the tables come from, plus top statements, rows written per table and
+lock waits by statement): [full run](performance/2026-11-22-shared-sandbox-full.json),
+[smoke run](performance/2026-11-22-shared-sandbox-smoke.json) (15:56Z), and the runs behind
+finding 8: [full run with a total queue cap](performance/2026-11-22-shared-sandbox-full-total-cap-on.json)
+(15:22Z), [(b) with one key](performance/2026-11-22-shared-sandbox-b-one-key.json) (15:52Z),
+[(b) with one key and the total cap](performance/2026-11-22-shared-sandbox-b-one-key-total-cap-on.json) (15:54Z).
+
+### Summary [^s]
+
+| Question | Answer on this box [^s] |
+| --- | --- |
+| CRUD req/s, full mix (create/update/get/list, get_job, list_renders), 200 keys | **297 req/s**, p50 208 ms, p95 332 ms, p99 426 ms, **0 errors** (PgBouncer: 285 req/s, p95 345 ms) |
+| CRUD req/s, steady mix (no create, no list) | **757 req/s**, p95 129 ms, 0 errors (PgBouncer: 681 req/s, p95 143 ms) |
+| One hot key at the default 300/min | 1 230 answers/s, of which 9.6/s 2xx and 36 609 `429` in 30 s, **0 errors**: the limiter answers fast and is counted apart |
+| What limits CRUD here | the **api processes' CPU** (each at 89 to 97 % of one core), then list_projects, which is unpaginated (finding 1); DB CPU stayed at ~1 vCPU of 4 |
+| Statements per CRUD request | **6** (5.7 for reads): key lookup, rate-limit UPDATE + SELECT, the work, an audit row for writes |
+| 500 renders during the CRUD mix, 50 workers | **550 jobs, 0 lost, 0 duplicated**, 1 `running` event per attempt, 0 re-claims; queue wait p50/p95/p99 **213 / 463 / 637 ms** (PgBouncer 265 / 527 / 710 ms) |
+| Real short reel during the CRUD mix | succeeded on attempt 1, H.264 1080×1920, 30 frames; exactly-once still holds over all 551 jobs; queue wait 269 ms (smoke run: 7.7 s from enqueue to done, 6.9 s rendering on the worker) |
+| Claims/s, queue only (claim + fenced finish) | 10 workers **267**, 50 workers **330**, 200 workers **219** (PgBouncer 274 / 266 / 187), every job exactly once |
+| DB connections | direct: 21 (CRUD), 124 (CRUD + 50 workers), **401** (200 workers); PgBouncer: **≤ 22** throughout |
+| Idle workers (polling) | 10 / 50 / 200 idle workers = 26 / 94 / **287 tx/s** and 2.6 / 9.9 / **46.6 % of a vCPU** of DB CPU (PgBouncer at 200: 274 tx/s, 17 %) |
+
+These are far below "thousands of CRUD requests per second", and they say nothing about what
+dedicated hardware does: the api instances, the database, the workers and the load generator
+competed for 4 shared vCPU. What they do show: nothing was lost or duplicated, PgBouncer transaction
+mode works, and the order in which things saturate (findings below).
+
+### Tables [^s]
+
+Columns: *req/s (all)* every answer including 429s; *2xx/s* successes; p50/p95/p99 over 2xx
+answers only (429s have their own latency in the JSON); *errors* = non-2xx other than 429 plus
+socket errors and timeouts; *DB CPU* from `docker stats` (100 = one vCPU); *lock waits* = most
+sessions seen waiting on a lock in one sample; *statements per request* = `pg_stat_statements`
+calls / requests (BEGIN/COMMIT included); *api CPU* per instance (100 = one core).
+
+#### Direct connections [^s]
+
+| Run | req/s (all) | 2xx/s | p50 ms | p95 ms | p99 ms | 429s | errors | error rate % | DB CPU % (mean/max, 100 = 1 vCPU) | DB conns (mean/max) | lock waits (max) | DB tx/s | statements per request | api CPU % per instance | client CPU % | host load avg (mean/max) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| a:many-keys | 297.1 | 297.1 | 207.9 | 331.9 | 426.4 | 0 | 0 | 0 | 92 / 111.8 | 20.2 / 21 | 0 | 1536.4 | 6 | 97.3, 96.2 | 7 | 4.77 / 5.11 |
+| a:hot-key-default-limit | 1229.9 | 9.6 | 258 | 367.5 | 435.6 | 36609 | 0 | 0 | 110.6 / 125.2 | 20.3 / 21 | 12 | 3459.5 | 3 | 88.7, 86.9 | 16.5 | 4.62 / 4.84 |
+| a:steady-many-keys | 757.1 | 757.1 | 79.7 | 128.5 | 159 | 0 | 0 | 0 | 105.9 / 121.4 | 20.3 / 21 | 1 | 3807 | 5.7 | 92.1, 92.1 | 10.8 | 5.24 / 6.04 |
+| a:steady-hot-key-high-limit | 765.6 | 765.6 | 78.6 | 125.5 | 156.8 | 0 | 0 | 0 | 107.7 / 126.7 | 20.3 / 21 | 10 | 3783.8 | 5.6 | 90.6, 92.7 | 11.4 | 5.7 / 6 |
+| b:fake-engine | 189.2 | 189.2 | 351.1 | 560.4 | 672.5 | 0 | 0 | 0 | 125.8 / 153.2 | 111.4 / 124 | 0 | 1136.7 | 8 | 89, 88.2 | 6.4 | 7.54 / 8.94 |
+| b:real-reel | 177.6 | 177.6 | 374.1 | 618.1 | 774.1 | 0 | 0 | 0 | 117.2 / 140.8 | 23.1 / 26 | 0 | 864.8 | 5.7 | 92.1, 90.4 | 6.4 | 8.22 / 8.53 |
+
+list_projects on its own, before and after each run (unpaginated: every project and its manifest):
+
+| Run | projects | ms | response bytes |
+| --- | --- | --- | --- |
+| a:many-keys | 609 → 2184 | 26.9 → 68.7 | 111198 → 405812 |
+| a:hot-key-default-limit | 2184 → 2211 | 64 → 73.6 | 405812 → 410861 |
+| a:steady-many-keys | 2211 → 2211 | 70.4 → 84.7 | 410861 → 410861 |
+| a:steady-hot-key-high-limit | 2211 → 2211 | 80.1 → 88.3 | 410861 → 410862 |
+
+Per operation (a:many-keys):
+
+| Operation | req/s | p50 ms | p95 ms | p99 ms | 429s | errors |
+| --- | --- | --- | --- | --- | --- | --- |
+| get_project | 82.6 | 190.9 | 283.2 | 315.9 | 0 | 0 |
+| list_projects | 25.9 | 226.5 | 336.9 | 381.5 | 0 | 0 |
+| update_project | 31.8 | 303.9 | 452 | 561.6 | 0 | 0 |
+| create_project | 26.2 | 226.2 | 324.3 | 363.1 | 0 | 0 |
+| get_job | 82 | 192 | 283 | 321 | 0 | 0 |
+| list_renders | 48.7 | 201.7 | 294.9 | 331.7 | 0 | 0 |
+
+| Run | jobs | lost | unexpected (duplicate enqueue) | duplicated runs | running events ≠ attempts | re-claimed | queue wait p50 / p95 / p99 ms |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| b:fake-engine | 550 | 0 | 0 | 0 | 0 | 0 | 213 / 463.1 / 637.1 |
+| b:real-reel | 551 | 0 | 0 | 0 | 0 | 0 | 269 / 269 / 269 |
+| c:10 | 5000 | 0 | 0 | 0 | 0 | 0 | n/a (all queued up front) |
+| c:50 | 5000 | 0 | 0 | 0 | 0 | 0 | n/a (all queued up front) |
+| c:200 | 5000 | 0 | 0 | 0 | 0 | 0 | n/a (all queued up front) |
+
+| Workers | jobs | claims/s (claim + fenced finish) | enqueue/s | DB CPU % busy (mean/max) | DB conns busy (max) | DB tx/s busy | idle: DB tx/s | idle: DB CPU % | host load avg (mean) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 10 | 5000 | 266.9 | 1199 | 169.6 / 230.6 | 23 | 983.9 | 26.2 | 2.6 | 6.84 |
+| 50 | 5000 | 329.9 | 1402.1 | 192.2 / 211.6 | 102 | 1182.3 | 93.7 | 9.9 | 7 |
+| 200 | 5000 | 219.4 | 1438.8 | 168.6 / 203.6 | 402 | 844.2 | 287.1 | 46.6 | 16.7 |
+
+#### PgBouncer, transaction mode, pool 20 [^s]
+
+| Run | req/s (all) | 2xx/s | p50 ms | p95 ms | p99 ms | 429s | errors | error rate % | DB CPU % (mean/max, 100 = 1 vCPU) | DB conns (mean/max) | lock waits (max) | DB tx/s | statements per request | api CPU % per instance | client CPU % | host load avg (mean/max) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| a:many-keys | 285.3 | 285.3 | 213.8 | 345.1 | 444.1 | 0 | 0 | 0 | 89.3 / 112.8 | 20.2 / 21 | 0 | 1472.6 | 6 | 89.8, 89.6 | 8.4 | 9.45 / 10.88 |
+| a:hot-key-default-limit | 1107 | 9.6 | 274.1 | 407.3 | 524.5 | 32923 | 0 | 0 | 102.3 / 117.3 | 20.3 / 21 | 14 | 3157.6 | 3 | 78.9, 77 | 16.9 | 7.76 / 7.99 |
+| a:steady-many-keys | 681.1 | 681.1 | 89.3 | 142.5 | 168.2 | 0 | 0 | 0 | 101.8 / 129.5 | 20.3 / 21 | 0 | 3382.6 | 5.7 | 82, 80.2 | 10.6 | 6.88 / 7.18 |
+| a:steady-hot-key-high-limit | 678.2 | 678.2 | 89 | 143.6 | 169.9 | 0 | 0 | 0 | 101.9 / 116.6 | 20.3 / 21 | 5 | 3382.1 | 5.6 | 80.1, 81.2 | 11.1 | 6.22 / 6.41 |
+| b:fake-engine | 161.2 | 161.2 | 412.7 | 618.6 | 778.8 | 0 | 0 | 0 | 115.5 / 134 | 20.6 / 22 | 0 | 997.4 | 8.4 | 82, 80.5 | 8.2 | 6.26 / 7.45 |
+| b:real-reel | 163.5 | 163.5 | 408.2 | 632.1 | 786 | 0 | 0 | 0 | 106.2 / 136.9 | 20.8 / 24 | 0 | 810.5 | 5.8 | 84.1, 83.8 | 7.3 | 7.16 / 7.47 |
+
+list_projects on its own, before and after each run (unpaginated: every project and its manifest):
+
+| Run | projects | ms | response bytes |
+| --- | --- | --- | --- |
+| a:many-keys | 666 → 2184 | 35.2 → 77.6 | 121877 → 405812 |
+| a:hot-key-default-limit | 2184 → 2210 | 64.5 → 77.2 | 405812 → 410674 |
+| a:steady-many-keys | 2210 → 2210 | 77.9 → 93.8 | 410674 → 410674 |
+| a:steady-hot-key-high-limit | 2210 → 2210 | 80.2 → 100.4 | 410674 → 410674 |
+
+Per operation (a:many-keys):
+
+| Operation | req/s | p50 ms | p95 ms | p99 ms | 429s | errors |
+| --- | --- | --- | --- | --- | --- | --- |
+| get_project | 79 | 198.2 | 295.1 | 334.6 | 0 | 0 |
+| list_projects | 24.8 | 233 | 352.5 | 411.7 | 0 | 0 |
+| update_project | 30.4 | 315.7 | 485.7 | 608 | 0 | 0 |
+| create_project | 25.2 | 232.9 | 330 | 383.1 | 0 | 0 |
+| get_job | 78.9 | 196.9 | 295.1 | 333 | 0 | 0 |
+| list_renders | 47.1 | 206.8 | 302.9 | 342.1 | 0 | 0 |
+
+| Run | jobs | lost | unexpected (duplicate enqueue) | duplicated runs | running events ≠ attempts | re-claimed | queue wait p50 / p95 / p99 ms |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| b:fake-engine | 550 | 0 | 0 | 0 | 0 | 0 | 265 / 527.1 / 710 |
+| b:real-reel | 551 | 0 | 0 | 0 | 0 | 0 | 439 / 439 / 439 |
+| c:10 | 5000 | 0 | 0 | 0 | 0 | 0 | n/a (all queued up front) |
+| c:50 | 5000 | 0 | 0 | 0 | 0 | 0 | n/a (all queued up front) |
+| c:200 | 5000 | 0 | 0 | 0 | 0 | 0 | n/a (all queued up front) |
+
+| Workers | jobs | claims/s (claim + fenced finish) | enqueue/s | DB CPU % busy (mean/max) | DB conns busy (max) | DB tx/s busy | idle: DB tx/s | idle: DB CPU % | host load avg (mean) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 10 | 5000 | 274.3 | 1312.7 | 129.7 / 162.6 | 22 | 1044.2 | 36.4 | 2.8 | 6.51 |
+| 50 | 5000 | 266 | 1198.8 | 148.5 / 164.1 | 22 | 998.8 | 90.9 | 11 | 6.87 |
+| 200 | 5000 | 186.9 | 1290 | 154.6 / 201.8 | 22 | 743.9 | 273.9 | 17.1 | 11.34 |
+
+PgBouncer transaction-mode probes [^s]:
+
+- max_prepared_statements=0: migrations through PgBouncer (pg_advisory_xact_lock): works
+- max_prepared_statements=0: 2 000 queries, 20 concurrent, insert + claim (SKIP LOCKED) + fenced finish: works
+- max_prepared_statements=200: migrations through PgBouncer (pg_advisory_xact_lock): works
+- max_prepared_statements=200: 2 000 queries, 20 concurrent, insert + claim (SKIP LOCKED) + fenced finish: works
+- non-default schema (?schema=lschema, sent as the startup parameter options=-c search_path=...): migrations land in it; 200 queries from it and 200 from a default-schema client, interleaved on the same server pool, each see their own schema: works
+
+## Findings and hot spots
+
+Each with its evidence (all numbers [^s]). Finding 1 matters most; 2 to 6 are the hot spots #151
+listed, in its order; 7 to 10 are what the run found besides.
+
+1. **list_projects (and list_jobs) are unpaginated, and that is the first CRUD ceiling.** Every
+   `GET /v1/projects` loads every project with its current manifest
+   (`packages/db/src/prisma-repositories.ts` `projects.list`, `service.listProjects`). The mix
+   creates ~26 projects/s, so list grows during the run: alone on a quiet server it went from
+   609 projects / 111 KB / 27 ms to **2 184 projects / 406 KB / 69 ms** in 60 s. With 10 % of the
+   connections on list and 10 % on create the mix does **297 req/s**; the same server and keys
+   with a mix of the other four operations (reweighted) do **757 req/s** (`a:steady-many-keys`). Every operation slows, not only
+   list, because each api instance is one event loop. `list_jobs` has the same shape
+   (`jobs.list`, `findMany` without a limit). Fix (API change with MCP parity, so not in this
+   PR): cursor pagination with a default page size and summaries without manifests: #179.
+2. **The per-key `RateLimitWindow` row is a hot row, but not a bottleneck at these rates.** One
+   key at a high limit against 200 keys, same steady mix: **766 vs 757 req/s** (no loss). The
+   row shows the contention: its `UPDATE` took **1.39 ms** on average instead of **0.057 ms**
+   (24×), and 32 one-second samples caught sessions waiting on it (1 with 200 keys). The hot
+   key at the default limit drove **~1 200 updates/s into one row** (mean 2.75 ms, 75 lock-wait
+   samples) with 0 errors. So on this box one row absorbs ~1 200 increments/s; where its ceiling
+   is on dedicated hardware is for the dedicated run. Each request also pays **two** statements
+   for it (`UPDATE ... count + 1`, then a `SELECT` of the count): one `UPDATE ... RETURNING`
+   would save one of the ~6 statements per request (PostgreSQL and SQLite; MySQL has no
+   `RETURNING`). Not changed here: it is a schema-neutral but behaviour-relevant change to the
+   shared limiter.
+3. **Audit writes:** one `AuditLog` insert per mutating request, as designed (D-055): 58
+   rows/s at 58 writes/s in the full mix, mean 0.15 ms. Not a hot spot here; they are a third of
+   a write request's inserts (project, version, audit).
+4. **Idle claim polling** costs about **1.4 transactions/s per idle worker** (claim attempt
+   every `queue.pollIntervalMs`, plus heartbeat and recovery): 200 idle workers = **287 tx/s,
+   1 215 statements/s and 47 % of a vCPU** of DB CPU with nothing to do (17 % through PgBouncer).
+   It also sets a **queue-wait floor**: an idle worker looks again only after up to 1 s, so even
+   with free workers the queue wait p50 was 213 ms and p95 463 ms. LISTEN/NOTIFY or backoff
+   on empty polls (#158) fix both.
+5. **Progress writes:** throttled to 2/s per running job, as estimated. With ~25 renders running
+   the `Job` table took **76 row writes/s** (progress, claims, finishes) and `JobEvent` 42/s:
+   small next to CRUD here. At 1 000 concurrent renders that is ~2 000 writes/s
+   (RENDER_SCALE §6.2), not measured here.
+6. **Connections:** direct, every worker process holds its own pool: 200 workers with
+   `connection_limit=2` = **401 connections**, and the idle DB CPU above is partly the cost of
+   those backends. Through PgBouncer the server side stayed at **≤ 22** with the same claim
+   throughput (187 vs 219 claims/s at 200 workers, within the noise of this box).
+7. **Claim throughput does not grow past ~50 workers here** (267 → 330 → 219 claims/s for
+   10 → 50 → 200): the host was saturated (load average 16.7 with 20 worker processes on 4
+   vCPU). Exactly-once held at every size. The fair claim (#161) runs two `GROUP BY` reads per
+   claim (running jobs per key, oldest queued per key); with 5 000 queued jobs over 50 keys
+   they stayed cheap (not in the top statements); a deeper queue on dedicated hardware should
+   watch them.
+8. **Job caps hold a row lock across an interactive transaction.** An enqueue locks the key's
+   `ApiKey` row (default, `limits.maxQueuedJobsPerKey`), or the one `Workspace` row when
+   `limits.maxQueuedJobs` is set, then counts, inserts the job and its event, and commits: about
+   five round trips from the api process while the lock is held. On a CPU-saturated api the hold
+   time grows with event-loop lag. Measured with the total cap on (an earlier full run that
+   set `REELFORGE_MAX_QUEUED_JOBS=1000000` by mistake, otherwise the same, run 2026-11-22T15:22Z;
+   ~2 200 projects, so the api was more saturated): the `Workspace` lock waited **240 ms on average (direct) and
+   376 ms (PgBouncer)**, enqueue latency p95 1.8 s / 2.4 s and queue wait p95 1.25 s / 1.69 s at
+   only 8.3 enqueues/s. With the default caps (no total cap; 500 renders over 200 keys): no lock
+   waits, enqueue p95 1.0 s, queue wait p95 463 ms. One key feeding every render (A/B, same
+   load): `ApiKey` lock 6.2 ms average; with the total cap on as well, `Workspace` lock 12.5 ms.
+   So the default is fine at these rates, but the enqueue rate of one key (or of the whole
+   deployment with `limits.maxQueuedJobs`) is capped at roughly 1 / hold time, and the hold time
+   is at the mercy of api CPU. Fix: one statement (conditional insert) or a short server-side
+   function instead of the interactive transaction, and a warning on `limits.maxQueuedJobs` for
+   the database queue: #180.
+9. **api CPU per request is the real ceiling of this setup.** A CPU profile of an api
+   instance during (a) (`LOAD_SCENARIOS=a LOAD_SECONDS=30 LOAD_SERVER_NODE_OPTIONS="--cpu-prof"`, run
+   2026-11-22T15:19Z): Prisma's client runtime
+   **24 %** of all samples (the largest single consumer; the query compiler and result mapping),
+   socket writes 10 %, garbage collection 9 %, node-postgres 7 %, ReelForge's own code ~7 %,
+   idle 18 %. At ~150 req/s per instance at ~95 % CPU the full mix costs ~6 ms of CPU per
+   request on these cores (the steady mix ~2.4 ms). Scale api instances on CPU (as D-076 says);
+   a dedicated run should show how many instances one PostgreSQL primary carries.
+10. **An api instance needs a browser to accept a render.** `render_project` validates engine
+    availability on the instance that takes the call, so an `api` role without Chrome Headless
+    Shell refuses renders (422, "no browser") although it never renders. The release image
+    always has one, so this only bites a slimmed api image; noted for #150/#158.
+
+## PgBouncer transaction mode (#152)
+
+Nothing broke [^s]. Specifically:
+
+| Concern | Result [^s] |
+| --- | --- |
+| Prepared statements | Prisma 7's pg adapter (node-postgres) works with `max_prepared_statements=0` and `=200`: it does not depend on named prepared statements surviving between transactions |
+| Advisory locks | the migrator's `pg_advisory_xact_lock` (transaction-scoped) works through PgBouncer: migrations ran through it on a fresh database. The load test still migrates on the direct port, as #152 recommends |
+| `SKIP LOCKED` claims | claims are one transaction each: 2 000 queries from 20 concurrent clients (insert + claim + fenced finish) through PgBouncer, then the full (b) and (c) scenarios: every job exactly once |
+| Non-default schema (`?schema=`, sent as `options=-c search_path=...`) | **accepted by PgBouncer 1.26.1** without `ignore_startup_parameters`; migrations landed in the schema, and 200 queries from that client interleaved with 200 from a default-schema client on the same server pool each saw their own `current_schema()`. RENDER_SCALE §6.1 expected a refusal; older PgBouncer versions were not tried |
+| Session features | ReelForge uses no `LISTEN`, session `SET` or session advisory locks today. LISTEN/NOTIFY wake-ups (#158) will need a direct (session) connection |
+| Throughput | within the noise of this box: full mix 285 vs 297 req/s, steady 681 vs 757, claims at 200 workers 187 vs 219 |
+| Connections | server side ≤ 22 (pool 20 + the sampler) against 401 direct at 200 workers; idle DB CPU at 200 workers 17 % vs 47 % |
+
+PgBouncer config used: `scripts/load/run.ts` (`startPgBouncer`).
+
+## Dedicated run (not yet measured)
+
+The acceptance criteria of #151 ask for named, dedicated hardware; this sandbox is not that. The
+founder or CI runs **one command** on a dedicated machine (no other workloads; record the
+provider, instance type and disk):
+
+```bash
+git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
+pnpm install --frozen-lockfile
+pnpm --filter @reelforge/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
+export REELFORGE_CHROMIUM_PATH=$(find ~/.cache/ms-playwright -type f -name chrome-headless-shell -perm -u+x | head -n 1)
+LOAD_HARDWARE_NOTE="dedicated: <provider> <instance type>, <vCPU> vCPU, <RAM>, <disk>" \
+LOAD_API_INSTANCES=6 LOAD_CONNECTIONS=256 LOAD_SECONDS=300 LOAD_KEYS=1000 \
+LOAD_RENDERS=5000 LOAD_FAKE_WORKERS=200 LOAD_CLAIM_WORKERS=10,50,200,500 LOAD_CLAIM_JOBS=50000 \
+LOAD_PG_ARGS="-c max_connections=1200 -c shared_buffers=8GB -c effective_cache_size=24GB" \
+pnpm load
+```
+
+Suggested machine: 16+ vCPU, 64 GB RAM, local NVMe, Docker. Commit the generated `.md` tables
+into this page under a new dated heading and the `.json` next to it, and update RENDER_SCALE §10.
+The script runs everything on one host; a run with PostgreSQL on its own machine (the realistic
+production shape) needs an external-database option in `scripts/load/run.ts` (follow-up).
+
+| Number | Value |
+| --- | --- |
+| CRUD req/s at p50 / p95 / p99, error rate (full mix, many keys) | not yet measured |
+| CRUD req/s, hot key | not yet measured |
+| DB CPU and connections at that rate | not yet measured |
+| Claims/s at 10 / 50 / 200 / 500 workers | not yet measured |
+| Jobs lost / duplicated (must be 0) | not yet measured |
+| Queue wait p95 with N renders | not yet measured |
+| Same with PgBouncer transaction mode | not yet measured |
+
+## CI (proposed, not added: `.github/` is maintainer-only)
+
+A `load-test.yml` workflow, `workflow_dispatch` only (never on every PR, per #151), on a large or
+self-hosted runner: inputs `profile` (`smoke`/`full`), `poolers` and `hardware_note`; steps as in
+the HEAVY tier of `ci.yml` (checkout, pnpm install, ffmpeg, the cached Chrome Headless Shell),
+then `pnpm load` (or `pnpm load:smoke`) with `LOAD_HARDWARE_NOTE` from the input, upload
+`out/load/` as an artifact, and fail on a non-zero exit (an exactly-once failure). Optionally the
+smoke profile nightly on a standard runner as a regression guard for lost or duplicated jobs (its
+numbers are not for publication). `pnpm test:load` already runs inside `pnpm test`.
