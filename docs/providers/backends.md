@@ -88,8 +88,10 @@ REELFORGE_ROLE=worker REELFORGE_WORKER_ONCE=1   # the image's default command do
 - It claims at most one job. A job queued while it waits is taken; nothing
   queued within `queue.onceWaitMs` (default 3 × `queue.pollIntervalMs`, 3 s)
   ends it with exit 0, so an idle container costs seconds.
-- `--job <id>` claims exactly that id with the same row-locked, compare-and-set
-  claim as every worker: of ten containers started for one id, one renders it.
+- `--job <id>` claims exactly that id with its own small query (row lock with
+  `SKIP LOCKED` on PostgreSQL/MySQL, one conditional `UPDATE` on SQLite) and
+  the same lease and attempt bookkeeping as every claim: of ten containers
+  started for one id, one renders it.
   A job that is missing or already finished ends the process at once with exit
   0 (duplicate or stale dispatch is a no-op); a job running elsewhere is waited
   for until the wait ends (it may be handed back). The per-key running cap

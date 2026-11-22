@@ -1726,8 +1726,10 @@ are reported next to `implemented: false`. Every backend runs one contract suite
 <id>] [--wait-ms N]`, or `REELFORGE_WORKER_ONCE=1` with the image's default command): role
 `worker` (same guard as D-076), no HTTP listener, no webhook delivery worker or maintenance timers;
 the job runner gets `once: true`, so nothing claims on a timer and `JobRunner.runOnce()` makes the
-only claim. `--job` adds `id = ?` to the same `SELECT ... FOR UPDATE SKIP LOCKED` claim (one atomic
-`UPDATE` on SQLite), so concurrent containers for one id cannot both run it. It waits up to
+only claim. `--job` claims that one row with its own small query, kept apart from the fair claim of
+D-090 but with the same guarantees (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL/MySQL, one
+atomic `UPDATE ... RETURNING` on SQLite, then the same lease and attempt bookkeeping), so concurrent
+containers for one id cannot both run it. It waits up to
 `queue.onceWaitMs` (default 3 × `queue.pollIntervalMs`) for a job; a missing or finished `--job`
 ends at once; the per-key running cap (D-090) applies to `--job` as to any claim. **Exit
 statuses:** `0` succeeded, cancelled or nothing to do; `1` the job failed (final in the database)
