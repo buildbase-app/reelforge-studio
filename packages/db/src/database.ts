@@ -4,6 +4,7 @@ import { DEFAULT_WORKSPACE_ID, hasFilesystemData, importFilesystemV01, type Impo
 import { MIGRATIONS } from './generated/migrations';
 import { applyMigrations, migrationStatus, type MigrationStatus, type RawClient } from './migrate';
 import { createPrismaRepositories, isUniqueViolation, type AnyPrismaClient } from './prisma-repositories';
+import { DEFAULT_PG_SCHEMA, pgIdent } from './sql';
 import { parseDatabaseUrl, parseReadUrl, redactDatabaseUrl, type DatabaseKind, type ParsedDatabaseUrl } from './url';
 
 export interface OpenDatabaseOptions {
@@ -62,6 +63,15 @@ export class Database {
     private readonly readySignal?: ReadySignal
   ) {}
 
+  /**
+   * PostgreSQL: the schema the tables are in, which every raw statement names (#191): the URL's `?schema=`, else
+   * `public` (Prisma's default for its model queries too). null on SQLite and MySQL, where the database in the URL is
+   * the namespace.
+   */
+  get schema(): string | null {
+    return this.kind === 'postgresql' ? (parseDatabaseUrl(this.url).schema ?? DEFAULT_PG_SCHEMA) : null;
+  }
+
   static async open(opts: OpenDatabaseOptions): Promise<Database> {
     const parsed = parseDatabaseUrl(opts.url);
     const readParsed = opts.readUrl ? parseReadUrl(opts.readUrl, parsed) : null;
@@ -74,7 +84,7 @@ export class Database {
         await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON');
         await prisma.$executeRawUnsafe('PRAGMA synchronous = NORMAL');
       } else if (parsed.kind === 'postgresql' && parsed.schema) {
-        const create = () => prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${parsed.schema}"`);
+        const create = () => prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS ${pgIdent(parsed.schema!)}`);
         // Two processes creating the schema at the same moment: one gets a duplicate-key error.
         await create().catch((e) => (/23505|already exists/.test(String((e as Error).message)) ? create() : Promise.reject(e)));
       } else {
@@ -118,12 +128,12 @@ export class Database {
   }
 
   status(): Promise<MigrationStatus> {
-    return migrationStatus(this.raw, this.kind, MIGRATIONS[this.kind] ?? []);
+    return migrationStatus(this.raw, this.kind, MIGRATIONS[this.kind] ?? [], this.schema ?? undefined);
   }
 
   /** Apply pending migrations; returns the ids applied. */
   async migrate(log?: (line: string) => void): Promise<string[]> {
-    const ran = await applyMigrations(this.raw, this.kind, MIGRATIONS[this.kind] ?? [], log);
+    const ran = await applyMigrations(this.raw, this.kind, MIGRATIONS[this.kind] ?? [], log, this.schema ?? undefined);
     await this.ensureWorkspace(DEFAULT_WORKSPACE_ID, 'Default');
     return ran;
   }
@@ -148,7 +158,11 @@ export class Database {
   repositories(workspaceId = DEFAULT_WORKSPACE_ID): Repositories {
     let r = this.repos.get(workspaceId);
     if (!r) {
-      r = createPrismaRepositories(this.prisma, workspaceId, this.kind, { ...(this.readPrisma ? { read: this.readPrisma } : {}), ...(this.readySignal ? { readySignal: this.readySignal } : {}) });
+      r = createPrismaRepositories(this.prisma, workspaceId, this.kind, {
+        schema: this.schema,
+        ...(this.readPrisma ? { read: this.readPrisma } : {}),
+        ...(this.readySignal ? { readySignal: this.readySignal } : {}),
+      });
       this.repos.set(workspaceId, r);
     }
     return r;

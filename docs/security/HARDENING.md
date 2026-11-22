@@ -178,6 +178,24 @@ scrape_configs:
 | Stored asset `source` | scheme, host and path of the import URL only. User names, passwords, the query string (where presigned URLs carry signatures) and the fragment are dropped |
 | Logs | besides secret settings and API keys, signature parameters are redacted: `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`, `X-Goog-Signature`, `X-Goog-Credential`, Azure SAS `sig`, `se`, `sv`, `sp`, `st`, and any parameter whose name contains `signature`, `sig`, `token`, `key`, `credential`, `password` or `secret` |
 
+## Deployments sharing a PostgreSQL database
+
+Deployments can share one PostgreSQL database in separate schemas (`?schema=` in
+`database.url`). Every query names its schema: Prisma's model queries, and since
+#191 the raw SQL too (claims, quotas and admission, row locks, the migrator's
+bookkeeping), so a pooler that does not keep each client's `search_path`
+(PgBouncer in transaction mode on PostgreSQL 17 and older) cannot send a
+statement to the other deployment's tables. The schema name is checked against
+`^[A-Za-z_][A-Za-z0-9_]{0,62}$` at start (anything else is refused) and quoted
+as an identifier; no other input reaches an identifier in raw SQL. NOTIFY
+channels are per schema. A server that finds a non-default schema behind a
+transaction-mode pooler logs a warning at start, because ReelForge versions
+before #191 sharing that pool are not isolated. A schema is a namespace, not a
+security boundary: the database user of one deployment can reach the other
+schemas unless you give each deployment its own user with privileges on its own
+schema only, which is the stronger setup. MySQL deployments are separated by
+database name.
+
 ## Licence enforcement: what is and is not protected
 
 ReelForge is self-hosted and source-available, so it cannot fully stop its own
@@ -235,6 +253,7 @@ Unit and integration tests are named `SECT-xx` (`security` in the test name):
 | SECT-40 | `packages/engine-html/test/html.test.ts` | html scenes: policy elements refused, CSP first in `<head>` |
 | LIMT-01..07 | `packages/core/test/limits.test.ts` | render limits named and checked before a job exists (previews by what they render); job caps per key and in total; the per-key running cap of the in-process queue; provider calls per key and per day (cache hits free); streamed uploads and URL imports stop at the byte cap, leave no file |
 | LIMS-01..07 | `apps/server/test/limits.test.ts` | the same codes and details over REST and MCP, 10 concurrent starts against a cap of 3 (exactly 2 more succeed, 8 get `429 too_many_jobs`; idempotent re-submits never count twice), `Retry-After`, `get_capabilities` limits, streamed multipart with fields after the file, a chunked upload answered `413` while the client is still sending, the rejection metric |
+| SQL-01..03, PGB-04..07 | `packages/db/test/raw-sql-schema.test.ts`, `packages/db/test/schema-isolation.pgbouncer.test.ts` | raw SQL names its schema (a source scan, the recorded statements on PostgreSQL); two schemas through one PgBouncer pool never touch each other's rows; the start-up pooler warning (docs/providers/queue-and-scaling.md) |
 | LIM-01..06 | `packages/db/test/limits.contract.test.ts` | the counters on memory, SQLite, PostgreSQL and MySQL under concurrency (docs/providers/queue-and-scaling.md) |
 | PRI-01..09, PRIS-01..05, PRS-01..03 | `packages/db/test/priority.contract.test.ts`, `packages/core/test/priority.test.ts`, `apps/server/test/priority.test.ts` | priorities in the claim order on every database, escalation refused for keys without `maxPriority`, admission refusals with `Retry-After` and details, bounded labels of the queue-wait metric (docs/providers/queue-and-scaling.md) |
 

@@ -200,8 +200,10 @@ PgBouncer transaction-mode probes [^s]:
 - non-default schema (?schema=lschema, sent as the startup parameter options=-c search_path=...): migrations land in it; 200 queries from it and 200 from a default-schema client, interleaved on the same server pool, each see their own schema: works
   **Corrected by #152:** this probe used schema-qualified model queries only. With raw SQL (the claim,
   quotas, caps) and several clients at once, PostgreSQL 17 + PgBouncer 1.26.1 does not keep each client's
-  `search_path`: do not use `?schema=` behind PgBouncer
-  ([queue-and-scaling.md](providers/queue-and-scaling.md#pgbouncer-transaction-mode)).
+  `search_path`. **Fixed by #191:** every raw statement now names its schema, so `?schema=` behind
+  PgBouncer is safe; two schemas through one pool claim exactly once each (PGB-04/05,
+  [queue-and-scaling.md](providers/queue-and-scaling.md#pgbouncer-transaction-mode)). The probe's own
+  `current_schema()` result still depends on the pool and proves nothing either way.
 
 ## Findings and hot spots
 
@@ -461,7 +463,7 @@ Nothing broke [^s]. Specifically:
 | Prepared statements | Prisma 7's pg adapter (node-postgres) works with `max_prepared_statements=0` and `=200`: it does not depend on named prepared statements surviving between transactions |
 | Advisory locks | the migrator's `pg_advisory_xact_lock` (transaction-scoped) works through PgBouncer: migrations ran through it on a fresh database. The load test still migrates on the direct port, as #152 recommends |
 | `SKIP LOCKED` claims | claims are one transaction each: 2 000 queries from 20 concurrent clients (insert + claim + fenced finish) through PgBouncer, then the full (b) and (c) scenarios: every job exactly once |
-| Non-default schema (`?schema=`, sent as `options=-c search_path=...`) | **accepted by PgBouncer 1.26.1** without `ignore_startup_parameters`; migrations landed in the schema, and 200 queries from that client interleaved with 200 from a default-schema client on the same server pool each saw their own `current_schema()`. RENDER_SCALE §6.1 expected a refusal; older PgBouncer versions were not tried |
+| Non-default schema (`?schema=`, sent as `options=-c search_path=...`) | **accepted by PgBouncer 1.26.1** without `ignore_startup_parameters`; migrations landed in the schema, and 200 queries from that client interleaved with 200 from a default-schema client on the same server pool each saw their own `current_schema()`. RENDER_SCALE §6.1 expected a refusal; older PgBouncer versions were not tried. Corrected by #152 (the `search_path` is not kept under concurrency), safe since #191 (every raw statement names its schema; see above) |
 | Session features | ReelForge uses no session `SET` or session advisory locks. `queue.dispatch: notify` (#158) uses `LISTEN` on one direct session connection per worker (`database.directUrl`): through PgBouncer 1.26.1 in transaction mode `LISTEN` is accepted but its notifications never arrive, which the worker's delivery check catches at start (NTF-04); `NOTIFY` inside the job transactions works through PgBouncer |
 | Throughput | within the noise of this box: full mix 285 vs 297 req/s, steady 681 vs 757, claims at 200 workers 187 vs 219 |
 | Connections | server side ≤ 22 (pool 20 + the sampler) against 401 direct at 200 workers; idle DB CPU at 200 workers 17 % vs 47 % |

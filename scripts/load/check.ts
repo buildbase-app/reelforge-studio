@@ -14,7 +14,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { Database } from '@reelforge/db';
+import { Database, pgTable } from '@reelforge/db';
 import { num, round } from './lib';
 
 export interface ExactlyOnce {
@@ -34,13 +34,15 @@ export interface ExactlyOnce {
 export async function exactlyOnce(url: string, opts: { expectedIds?: string[]; types?: string[]; waitSince?: string } = {}): Promise<ExactlyOnce> {
   const db = await Database.open({ url });
   const q = <T>(sql: string, ...a: unknown[]) => db.prisma.$queryRawUnsafe(sql, ...a) as Promise<T[]>;
+  // Schema-qualified like the app's own raw SQL (#191).
+  const tbl = (table: string) => pgTable(db.schema!, table);
   try {
     const types = opts.types ?? ['render'];
     const rows = await q<{ id: string; status: string; attempts: unknown; running: unknown; succeeded: unknown }>(
       `SELECT j.id, j.status, j.attempts,
               COUNT(e.id) FILTER (WHERE e.type = 'status' AND e.message = 'running') AS running,
               COUNT(e.id) FILTER (WHERE e.type = 'status' AND e.message = 'succeeded') AS succeeded
-         FROM "Job" j LEFT JOIN "JobEvent" e ON e."jobId" = j.id
+         FROM ${tbl('Job')} j LEFT JOIN ${tbl('JobEvent')} e ON e."jobId" = j.id
         WHERE j.type = ANY($1)
         GROUP BY j.id, j.status, j.attempts`,
       types
@@ -81,7 +83,7 @@ export async function exactlyOnce(url: string, opts: { expectedIds?: string[]; t
     const [w] = await q<{ p50: unknown; p95: unknown; p99: unknown; mx: unknown }>(
       `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY ms) AS p50, percentile_cont(0.95) WITHIN GROUP (ORDER BY ms) AS p95,
               percentile_cont(0.99) WITHIN GROUP (ORDER BY ms) AS p99, MAX(ms) AS mx
-         FROM (SELECT EXTRACT(EPOCH FROM ("startedAt" - "createdAt")) * 1000 AS ms FROM "Job"
+         FROM (SELECT EXTRACT(EPOCH FROM ("startedAt" - "createdAt")) * 1000 AS ms FROM ${tbl('Job')}
                 WHERE type = ANY($1) AND attempts = 1 AND "startedAt" IS NOT NULL AND "createdAt" >= ($2::timestamptz AT TIME ZONE 'UTC')) t`,
       types,
       opts.waitSince ?? '1970-01-01T00:00:00Z'
