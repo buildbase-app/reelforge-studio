@@ -45,6 +45,7 @@ import { applyMergePatch, isPlainObject } from './mergePatch';
 import type { BackendContext, BackendEstimate, EstimateRequest, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
 import { PluginRegistry } from './registry';
 import { runRenderPipeline } from './render';
+import { JOIN_JOB_TYPE, UNIT_JOB_TYPE, joinUnits, renderUnit, unitSpecs, type FanOutDeps, type RenderJobParams } from './render-fanout';
 import { UrlSigner } from './secrets';
 import { RuntimeConfig, type ConfigSources } from './config/runtime';
 import { createLicenceManager, type LicenceApi, type LicenceManager } from './licence';
@@ -337,7 +338,13 @@ export class ReelforgeService {
     this.jobs = new JobRunner({
       repo: this.repos.jobs,
       concurrency: cfg.server.workerConcurrency ?? config.renderConcurrency ?? 1,
-      handlers: { render: (ctx) => this.runRenderJob(ctx), preview: (ctx) => this.runRenderJob(ctx) },
+      handlers: {
+        render: (ctx) => this.runRenderJob(ctx),
+        preview: (ctx) => this.runRenderJob(ctx),
+        // Render fan-out (D-097): only ever queued by a fanned-out render on the database queue.
+        [UNIT_JOB_TYPE]: (ctx) => renderUnit(this.fanOutDeps(), ctx),
+        [JOIN_JOB_TYPE]: (ctx) => this.runRenderJoin(ctx),
+      },
       telemetry: this.telemetry,
       mode: queueMode,
       database: {
@@ -494,6 +501,8 @@ export class ReelforgeService {
   private onJobEvent(e: JobEvent) {
     if (e.type === 'log') return;
     const job = e.job;
+    // Fan-out units and joins are internal steps: subscribers hear about the render job (D-097).
+    if (job.parentId) return;
     if (e.type === 'progress') {
       const bucket = Math.floor(job.progress.fraction * 10);
       if (bucket >= 10 || bucket <= (this.progressBuckets.get(job.id) ?? 0)) return;
@@ -1111,8 +1120,37 @@ export class ReelforgeService {
     return value;
   }
 
+  /** What the fan-out unit and join steps need from the service (D-097). */
+  private fanOutDeps(): FanOutDeps {
+    return {
+      storage: this.storage,
+      registry: this.registry,
+      tools: () => this.tools(),
+      cacheDir: this.cacheDir,
+      serverVersion: this.serverVersion,
+      telemetry: this.telemetry,
+      rendersDir: (pid) => this.projects.rendersDir(pid),
+      project: (pid, version) => this.projects.getVersion(pid, version),
+      theme: (project) => this.themes.resolve(project.theme),
+      assets: (project, pid) => this.resolveAssets(project, pid),
+    };
+  }
+
+  /** `render_join`: stitch the units and commit the render; its result becomes the parent render job's. */
+  private async runRenderJoin(ctx: JobContext): Promise<Record<string, unknown>> {
+    const p = ctx.job.params as unknown as RenderJobParams;
+    if (await this.storage.renders.exists(p.projectId, p.runId).catch(() => false)) {
+      // Committed by an earlier attempt of this join (its worker died before recording it): finish with it.
+      ctx.log(`render ${p.runId} was already committed by an earlier attempt; using it`);
+    } else {
+      await joinUnits(this.fanOutDeps(), ctx);
+    }
+    this.renderIndex.set(p.runId, p.projectId);
+    return { ...(await this.getRender(p.runId)) };
+  }
+
   private async runRenderJob(ctx: JobContext): Promise<Record<string, unknown>> {
-    const p = ctx.job.params as { projectId: string; version: number; backend: string; runId: string; sceneIds?: string[]; scale?: number };
+    const p = ctx.job.params as unknown as RenderJobParams;
     if ((ctx.job.attempts ?? 1) > 1 && (await this.storage.renders.exists(p.projectId, p.runId).catch(() => false))) {
       // An earlier attempt committed the render, then its worker died before recording it: finish with that render.
       ctx.log(`render ${p.runId} was already committed by an earlier attempt; using it`);
@@ -1120,6 +1158,13 @@ export class ReelforgeService {
       return { ...(await this.getRender(p.runId)) };
     }
     const project = await this.projects.getVersion(p.projectId, p.version);
+    // Fan-out (D-097, render.fanOut): one unit per scene on any worker, then one join. Database queue, local backend,
+    // full renders of two or more scenes only; everything else renders on this worker as before.
+    if (ctx.fanOut && ctx.job.type === 'render' && p.backend === 'local' && !p.sceneIds?.length && project.scenes.length > 1 && this.settings.current.config.render.fanOut === 'scenes') {
+      const units = await ctx.fanOut(unitSpecs(p, project));
+      ctx.log(`render.fanOut = scenes: ${units.length} units queued (one per scene, longest first); the last one to finish queues the join`);
+      return {};
+    }
     const backend = this.registry.backend(p.backend);
     const outcome = await backend.submit(
       {

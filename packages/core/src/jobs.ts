@@ -5,7 +5,8 @@ import { SpanStatusCode, context, trace, type Context, type Span } from '@opente
 import { ApiError, notFound } from './errors';
 import { NOOP_TELEMETRY, coreInstruments, type Telemetry } from './telemetry';
 import { newId } from './fsutil';
-import type { JobCaps, JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
+import { childJobs, isFannedOut, isTerminal, treeProgress, type ChildSpec } from './fanout';
+import type { ChildSettlement, JobCaps, JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
 
 export type { JobProgress, JobRecord, JobStatus } from './repositories';
 export const TERMINAL: readonly JobStatus[] = ['succeeded', 'failed', 'cancelled'];
@@ -35,6 +36,15 @@ export interface JobContext {
   signal: AbortSignal;
   log(line: string): void;
   progress(stage: string, fraction: number, detail?: string): void;
+  /**
+   * Database queue only (D-097): fan this job out into `children` (queued rows
+   * with `parentId`, fenced by this claim) and hand it off: once this resolves
+   * the job stays `running` without a worker, its handler should return, and
+   * its children's outcomes finish it (the last unit inserts the join, whose
+   * result becomes this job's). Throws when the claim was lost or a cancel was
+   * requested meanwhile.
+   */
+  fanOut?(children: ChildSpec[]): Promise<JobRecord[]>;
 }
 
 export type JobHandler = (ctx: JobContext) => Promise<Record<string, unknown>>;
@@ -73,7 +83,9 @@ export type OnceOutcome =
   /** Stopped by SIGTERM and handed back to the queue (D-077). */
   | 'released'
   /** The lease was lost (database unreachable for a lease period, or another worker took it). */
-  | 'lost';
+  | 'lost'
+  /** A render fanned out into units and a join (D-097): its work is on the queue for any worker. */
+  | 'fanned_out';
 
 export interface OnceResult {
   outcome: OnceOutcome;
@@ -191,6 +203,8 @@ export class JobRunner {
   private releasedClaims = 0;
   /** Claims in flight (claimJob): shutdown() waits for them, so a job they take is handed back, not left `running`. */
   private claims = new Set<Promise<unknown>>();
+  /** Jobs whose handler fanned them out (D-097): when the handler returns, they are handed off, not finished. */
+  private detached = new Set<string>();
   /** Jobs running on other instances that someone here is waiting for (polled from the database). */
   private watchers = new Map<string, { timer: NodeJS.Timeout; refs: number; last: string }>();
 
@@ -308,7 +322,14 @@ export class JobRunner {
     if (a) return structuredClone(a);
     const j = await this.repo.get(id);
     if (!j) throw notFound('job', id);
-    return j;
+    return this.withTreeProgress(j);
+  }
+
+  /** A fanned-out parent's progress is its children's (D-097): frames done / total frames, then the join. */
+  private async withTreeProgress(j: JobRecord): Promise<JobRecord> {
+    if (!isFannedOut(j)) return j;
+    const children = await this.repo.list({ parentId: j.id });
+    return { ...j, progress: treeProgress(j, children) };
   }
 
   async list(filter: JobFilter = {}): Promise<JobRecord[]> {
@@ -352,6 +373,11 @@ export class JobRunner {
   }
 
   async cancel(id: string): Promise<JobRecord> {
+    // Fan-out (D-097): cancelling a unit or the join cancels its render, and a render cascades to its children.
+    const parentId = (this.active.get(id) ?? (await this.repo.get(id)))?.parentId;
+    if (parentId) return this.cancel(parentId);
+    const tree = await this.cancelTree(id);
+    if (tree) return tree;
     const job = this.active.get(id);
     if (job) {
       if (job.status === 'queued') {
@@ -380,7 +406,31 @@ export class JobRunner {
     if (await this.repo.requestCancel(id, at)) {
       await this.repo.appendLog(id, at, `cancel requested (by ${this.workerId}); the worker stops it within ${Math.ceil(this.db.heartbeatMs / 1000)} s`);
     }
+    // It may have fanned out meanwhile (its fan-out wins over the request only if it was stored first): cascade then.
+    return (await this.cancelTree(id)) ?? this.get(id);
+  }
+
+  /** Cancel a fanned-out render and its children (D-097); null when the job is not one. */
+  private async cancelTree(id: string): Promise<JobRecord | null> {
+    if (this.mode !== 'database') return null;
+    const stored = await this.repo.get(id);
+    if (!stored || !isFannedOut(stored)) return null;
+    const at = new Date().toISOString();
+    const changed = await this.repo.cancelTree(id, at);
+    if (!changed) return null;
+    await this.repo.appendLog(id, at, `finished: cancelled (with its ${changed.length - 1} queued unit(s); running units stop at their next heartbeat; by ${this.workerId})`);
+    this.emitSettled(changed);
     return this.get(id);
+  }
+
+  /** Status events and metrics for jobs a fan-out transaction finished or cancelled (they ran on no worker here). */
+  private emitSettled(jobs: JobRecord[]) {
+    const m = coreInstruments(this.telemetry.meter);
+    for (const j of jobs) {
+      if (isTerminal(j.status)) m.jobsFinished.add(1, { 'reelforge.job.type': j.type, 'reelforge.job.status': j.status });
+      if (j.status === 'cancelled' && j.parentId) this.queuedCount = Math.max(0, this.queuedCount - 1);
+      this.emit({ jobId: j.id, type: 'status', job: j });
+    }
   }
 
   /** Start a new job with the same type and parameters. The old job and its output are untouched. */
@@ -389,6 +439,7 @@ export class JobRunner {
     if (!TERMINAL.includes(job.status) || job.status === 'succeeded') {
       throw new ApiError('conflict', 409, `only failed or cancelled jobs can be retried (job is ${job.status})`);
     }
+    if (job.parentId) throw new ApiError('conflict', 409, `job ${id} is part of render job ${job.parentId}; retry that job (its committed units are reused)`);
     return this.submit(job.type, job.params, { projectId: job.projectId, retryOf: job.id, ...meta }, quota);
   }
 
@@ -663,7 +714,7 @@ export class JobRunner {
         if (!claimed?.run) return { outcome: claimed?.handedBack ? 'released' : 'lost', job };
         await claimed.run;
         await this.flush();
-        const outcome: OnceOutcome = TERMINAL.includes(job.status) ? (job.status as OnceOutcome) : job.status === 'queued' ? 'released' : 'lost';
+        const outcome: OnceOutcome = TERMINAL.includes(job.status) ? (job.status as OnceOutcome) : job.status === 'queued' ? 'released' : isFannedOut(job) ? 'fanned_out' : 'lost';
         return { outcome, job: structuredClone(job) };
       }
       const left = deadline - Date.now();
@@ -739,7 +790,7 @@ export class JobRunner {
     }
     this.lastHeartbeatAt = new Date(now).toISOString();
     try {
-      const { requeued, failed } = await this.repo.recoverExpired(new Date(now).toISOString(), this.db.maxAttempts);
+      const { requeued, failed, settled } = await this.repo.recoverExpired(new Date(now).toISOString(), this.db.maxAttempts);
       const m = coreInstruments(this.telemetry.meter);
       for (const j of requeued) {
         m.jobsRequeued.add(1, { 'reelforge.reason': 'lease_expired' });
@@ -751,6 +802,7 @@ export class JobRunner {
         this.log('error', `queue: job ${j.id} failed: ${j.error?.message ?? 'lease expired'}`);
         this.emit({ jobId: j.id, type: 'status', job: j });
       }
+      if (settled?.length) this.emitSettled(settled);
       this.queuedCount = await this.repo.countQueued();
       this.ok('recover');
       if (requeued.length && this.runJobs) void this.claimLoop();
@@ -811,7 +863,8 @@ export class JobRunner {
   private async poll(id: string) {
     const w = this.watchers.get(id);
     if (!w || this.active.has(id)) return; // running here: events come from start()
-    const job = await this.repo.get(id).catch(() => null);
+    const stored = await this.repo.get(id).catch(() => null);
+    const job = stored && (await this.withTreeProgress(stored).catch(() => stored));
     if (!job || !this.watchers.has(id)) return;
     const sig = JSON.stringify([job.status, job.progress]);
     if (sig === w.last) return;
@@ -864,9 +917,16 @@ export class JobRunner {
         this.persistProgress(job);
         this.emit({ jobId: job.id, type: 'progress', job });
       },
+      ...(fence ? { fanOut: (children: ChildSpec[]) => this.fanOut(job, fence, controller, children) } : {}),
     };
     try {
       const result = await context.with(trace.setSpan(parent, span), () => this.handlers[job.type]!(ctx));
+      if (this.detached.delete(job.id)) {
+        // Fanned out: no worker holds it now; its children finish it (D-097).
+        this.emit({ jobId: job.id, type: 'status', job });
+        this.drop(job, 'fanned out');
+        return;
+      }
       if (controller.signal.aborted) throw new Error('cancelled');
       this.finish(job, 'succeeded', { result });
     } catch (e) {
@@ -900,11 +960,51 @@ export class JobRunner {
         this.finish(job, 'failed', { error: { code, message: err.message, ...(err.stage ? { stage: err.stage } : {}) } });
       }
     } finally {
+      this.detached.delete(job.id);
       this.running.delete(job.id);
       this.abortReasons.delete(job.id);
       this.pump();
       if (this.mode === 'database') this.notifyIdle();
     }
+  }
+
+  /** JobContext.fanOut (D-097): store the children and hand the parent off, in order with the job's other writes. */
+  private async fanOut(job: JobRecord, fence: JobLeaseFence, controller: AbortController, specs: ChildSpec[]): Promise<JobRecord[]> {
+    if (!specs.length) throw new Error('fanOut needs at least one child');
+    if (controller.signal.aborted) throw new Error('cancelled');
+    const at = new Date().toISOString();
+    const children = childJobs(job, specs);
+    const snapshot: JobRecord = { ...structuredClone(job), pendingChildren: children.length, progress: { stage: 'render', fraction: 0, detail: `${children.length} units queued` } };
+    let outcome: Awaited<ReturnType<JobRepository['fanOut']>> | undefined;
+    let error: unknown;
+    await this.chain(job.id, async () => {
+      try {
+        outcome = await this.repo.fanOut(snapshot, children, at, fence);
+      } catch (e) {
+        error = e;
+      }
+    });
+    if (error) throw error;
+    if (outcome === 'lost') {
+      this.abort(job.id, 'lost', 'its fan-out could not be stored: another worker holds it now');
+      throw new Error('the job was lost before its fan-out was stored');
+    }
+    if (outcome === 'cancelled') {
+      this.abortReasons.set(job.id, 'cancel');
+      controller.abort();
+      throw new Error('cancelled');
+    }
+    // No heartbeat for it any more: the row has no worker and no lease.
+    this.fences.delete(job.id);
+    this.detached.add(job.id);
+    Object.assign(job, { pendingChildren: children.length, progress: snapshot.progress });
+    delete job.workerId;
+    delete job.leaseExpiresAt;
+    this.queuedCount += children.length;
+    this.log(job, `fanned out into ${children.length} units on the queue; no worker holds this job until its join finishes it`);
+    for (const c of children) this.emit({ jobId: c.id, type: 'status', job: c });
+    if (this.runJobs) queueMicrotask(() => this.pump());
+    return children.map((c) => structuredClone(c));
   }
 
   /** Forget a job this worker no longer holds. */
@@ -972,10 +1072,38 @@ export class JobRunner {
     const snapshot = structuredClone(job);
     const at = job.finishedAt ?? job.startedAt ?? job.createdAt;
     const fence = this.fences.get(job.id);
+    if (job.parentId && isTerminal(job.status) && this.mode === 'database') {
+      return this.chain(job.id, async () => {
+        const settled = await this.repo.finishChild(snapshot, at, fence);
+        if (!settled) {
+          if (fence) this.abort(job.id, 'lost', 'its state could not be written: another worker holds it now');
+          return;
+        }
+        await this.afterChild(job, settled, at);
+      });
+    }
     return this.chain(job.id, async () => {
       const ok = await this.repo.transition(snapshot, at, fence);
       if (!ok && fence) this.abort(job.id, 'lost', 'its state could not be written: another worker holds it now');
     });
+  }
+
+  /** What a child's final state did to its render (D-097): events, the parent's log, and claim the join at once. */
+  private async afterChild(child: JobRecord, s: ChildSettlement, at: string) {
+    if (!s.parent) return;
+    const p = child.params as { index?: number; count?: number; sceneId?: string };
+    const what = child.type.endsWith('_join') ? 'join' : `unit ${typeof p.index === 'number' ? p.index + 1 : '?'}${p.count ? `/${p.count}` : ''}${p.sceneId ? ` (scene "${p.sceneId}")` : ''}`;
+    const line = s.parentFinished
+      ? `finished: ${s.parent.status}${s.parent.error ? ` (${s.parent.error.message})` : ''}${s.cancelled.length ? `; ${s.cancelled.length} queued unit(s) cancelled` : ''}`
+      : `${what} ${child.status} on worker ${this.workerId} (job ${child.id}); ${s.parent.pendingChildren ?? 0} unit(s) left${s.join ? `; join queued as job ${s.join.id}` : ''}`;
+    await this.repo.appendLog(s.parent.id, at, line);
+    if (s.parentFinished) this.emitSettled([s.parent]);
+    if (s.cancelled.length) this.emitSettled(s.cancelled);
+    if (s.join) {
+      this.queuedCount++;
+      this.emit({ jobId: s.join.id, type: 'status', job: s.join });
+      if (this.runJobs) queueMicrotask(() => this.pump());
+    }
   }
 
   /** Progress updates are throttled to one write per 500 ms. */

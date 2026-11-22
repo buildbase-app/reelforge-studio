@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_WORKSPACE_ID, createMemoryRepositories, newId, type JobRecord, type Repositories } from '@reelforge/core';
+import { DEFAULT_WORKSPACE_ID, childJobs, createMemoryRepositories, newId, type JobRecord, type Repositories } from '@reelforge/core';
 import { Database, availableTestDatabases, createPrismaRepositories, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-queue-contract-'));
@@ -261,6 +261,134 @@ describe.each(targets)('job queue contract: $name', ({ kind }) => {
     const plain: JobRecord = { id: newId('job'), type: 'render', status: 'queued', params: {}, createdAt: iso(now), progress: { stage: 'queued', fraction: 0 } };
     await repos.jobs.insert(plain, plain.createdAt);
     expect(await repos.jobs.get(plain.id)).toEqual(plain);
+  });
+
+  // ---- render fan-out (#156, D-097) -------------------------------------------------------------
+
+  const UNIT = ['render_unit'];
+  const JOIN = ['render_join'];
+  /** A claimed render parent fanned out into `n` units; returns the parent and its children as stored. */
+  async function fannedOut(n: number, over: Partial<JobRecord> = {}) {
+    const p = queued({ params: { runId: `run_${seq}` }, ...over });
+    await repos.jobs.insert(p, p.createdAt);
+    const held = (await repos.jobs.claim({ workerId: 'wp', types: ['render'], now: iso(now), leaseUntil: iso(now + 60_000), id: p.id }))!;
+    const kids = childJobs(held, Array.from({ length: n }, (_, index) => ({ type: 'render_unit', params: { index, count: n, frames: 10 } })));
+    expect(await repos.jobs.fanOut({ ...held, progress: { stage: 'render', fraction: 0 } }, kids, iso(now), { workerId: 'wp', attempts: 1 })).toBe('ok');
+    return { parent: (await repos.jobs.get(p.id))!, kids };
+  }
+  const fence = (j: JobRecord) => ({ workerId: j.workerId!, attempts: j.attempts! });
+  const done = (j: JobRecord, status: 'succeeded' | 'failed' | 'cancelled' = 'succeeded', at = now) =>
+    ({ ...j, status, finishedAt: iso(at), ...(status === 'succeeded' ? { result: { unit: j.id } } : { error: { code: 'render_failed', message: 'boom' } }) }) as JobRecord;
+
+  it('FAN-01 fanOut is fenced: children inserted, the parent keeps running with pendingChildren and no worker or lease', async () => {
+    const p = queued();
+    await repos.jobs.insert(p, p.createdAt);
+    const held = (await repos.jobs.claim({ workerId: 'wp', types: ['render'], now: iso(now), leaseUntil: iso(now + 60_000), id: p.id }))!;
+    const kids = childJobs(held, [0, 1, 2].map((index) => ({ type: 'render_unit', params: { index, frames: 10 } })));
+    expect(await repos.jobs.fanOut(held, kids, iso(now), { workerId: 'other', attempts: 1 })).toBe('lost');
+    expect(await repos.jobs.list({ parentId: p.id })).toHaveLength(0);
+    expect(await repos.jobs.fanOut(held, kids, iso(now), { workerId: 'wp', attempts: 1 })).toBe('ok');
+    const parent = (await repos.jobs.get(p.id))!;
+    expect(parent).toMatchObject({ status: 'running', pendingChildren: 3, attempts: 1 });
+    expect(parent.workerId).toBeUndefined();
+    expect(parent.leaseExpiresAt).toBeUndefined();
+    const stored = await repos.jobs.list({ parentId: p.id });
+    expect(stored.map((k) => k.id).sort()).toEqual(kids.map((k) => k.id).sort());
+    expect(stored.every((k) => k.status === 'queued' && k.parentId === p.id && k.queue === 'database' && k.createdAt > p.createdAt)).toBe(true);
+    expect(await repos.jobs.get(kids[0]!.id)).toEqual(kids[0]);
+    // A fanned-out parent holds no lease: recovery never touches it, and a running cap does not count it.
+    const r = await repos.jobs.recoverExpired(iso(now + 3600_000), 3);
+    expect([...r.requeued, ...r.failed].some((j) => j.id === p.id)).toBe(false);
+    // A cancel requested before the fan-out wins over it.
+    const q = queued();
+    await repos.jobs.insert(q, q.createdAt);
+    const h2 = (await repos.jobs.claim({ workerId: 'wp', types: ['render'], now: iso(now), leaseUntil: iso(now + 60_000), id: q.id }))!;
+    await repos.jobs.requestCancel(q.id, iso(now));
+    expect(await repos.jobs.fanOut(h2, childJobs(h2, [{ type: 'render_unit', params: {} }]), iso(now), { workerId: 'wp', attempts: 1 })).toBe('cancelled');
+    expect(await repos.jobs.list({ parentId: q.id })).toHaveLength(0);
+  });
+
+  it('FAN-02 join exactly once under concurrent unit completions (12 units finishing at the same moment, 3 rounds)', async () => {
+    for (let round = 0; round < 3; round++) {
+      const { parent, kids } = await fannedOut(12);
+      const held = await Promise.all(kids.map((_, i) => repos.jobs.claim({ workerId: `w${i}`, types: UNIT, now: iso(now), leaseUntil: iso(now + 60_000) })));
+      expect(new Set(held.map((h) => h!.id)).size).toBe(12);
+      const settled = await Promise.all(held.map((h) => repos.jobs.finishChild(done(h!), iso(now), fence(h!))));
+      expect(settled.every((r) => r !== null && r.parent !== null && !r.parentFinished)).toBe(true);
+      expect(settled.filter((r) => r!.join !== null)).toHaveLength(1);
+      expect(settled.map((r) => r!.parent!.pendingChildren).sort((a, b) => a! - b!)).toEqual(Array.from({ length: 12 }, (_, i) => i));
+      const joins = (await repos.jobs.list({ parentId: parent.id })).filter((k) => k.type === 'render_join');
+      expect(joins).toHaveLength(1);
+      expect(joins[0]).toMatchObject({ status: 'queued', createdAt: parent.createdAt, params: parent.params });
+      expect(await repos.jobs.get(parent.id)).toMatchObject({ status: 'running', pendingChildren: 0 });
+      // A repeated (stale) success of a unit changes nothing: the fence no longer holds.
+      expect(await repos.jobs.finishChild(done(held[0]!), iso(now), fence(held[0]!))).toBeNull();
+      // The join's success finishes the parent with its result, with a status event.
+      const join = (await repos.jobs.claim({ workerId: 'wj', types: JOIN, now: iso(now), leaseUntil: iso(now + 60_000) }))!;
+      expect(join.id).toBe(joins[0]!.id);
+      const end = await repos.jobs.finishChild({ ...join, status: 'succeeded', finishedAt: iso(now), result: { renderId: 'run_1' } }, iso(now), fence(join));
+      expect(end).toMatchObject({ parentFinished: true, parent: { status: 'succeeded', result: { renderId: 'run_1' } }, join: null });
+      expect(await repos.jobs.get(parent.id)).toMatchObject({ status: 'succeeded', result: { renderId: 'run_1' }, finishedAt: iso(now), progress: { stage: 'done', fraction: 1 } });
+    }
+  });
+
+  it('FAN-03 a unit failing while others succeed at the same moment fails the parent once, cancels queued units, stops running ones; no join', async () => {
+    const { parent, kids } = await fannedOut(8);
+    const held = await Promise.all(kids.slice(0, 5).map((_, i) => repos.jobs.claim({ workerId: `w${i}`, types: UNIT, now: iso(now), leaseUntil: iso(now + 60_000) })));
+    const results = await Promise.all(held.map((h, i) => repos.jobs.finishChild(done(h!, i === 2 ? 'failed' : 'succeeded'), iso(now), fence(h!))));
+    expect(results.filter((r) => r?.parentFinished)).toHaveLength(1);
+    expect(results.some((r) => r?.join)).toBe(false);
+    const failed = held[2]!;
+    expect(await repos.jobs.get(parent.id)).toMatchObject({ status: 'failed', error: { code: 'render_failed', unit: failed.id } });
+    const after = await repos.jobs.list({ parentId: parent.id });
+    expect(after.filter((k) => k.status === 'cancelled')).toHaveLength(3); // the three never claimed
+    expect(after.filter((k) => k.type === 'render_join')).toHaveLength(0);
+    // A unit still running when the parent failed gets a cancel request (here: claim one more first).
+    const { parent: p2, kids: k2 } = await fannedOut(3);
+    const r0 = (await repos.jobs.claim({ workerId: 'wa', types: UNIT, now: iso(now), leaseUntil: iso(now + 60_000) }))!;
+    const r1 = (await repos.jobs.claim({ workerId: 'wb', types: UNIT, now: iso(now), leaseUntil: iso(now + 60_000) }))!;
+    await repos.jobs.finishChild(done(r0, 'failed'), iso(now), fence(r0));
+    expect(await repos.jobs.get(r1.id)).toMatchObject({ status: 'running', cancelRequestedAt: iso(now) });
+    expect((await repos.jobs.heartbeat('wb', [r1.id], iso(now + 1000))).cancelRequested).toEqual([r1.id]);
+    // Its late success changes nothing on the failed parent.
+    expect(await repos.jobs.finishChild(done(r1), iso(now), fence(r1))).toMatchObject({ parent: null, parentFinished: false, join: null });
+    expect(await repos.jobs.get(p2.id)).toMatchObject({ status: 'failed', pendingChildren: 3 });
+    expect((await repos.jobs.get(k2[2]!.id))?.status).toBe('cancelled');
+  });
+
+  it('FAN-04 lease expiry of a unit: queued again, then at maxAttempts the parent fails and the rest are cancelled; cancelTree cascades', async () => {
+    const { parent, kids } = await fannedOut(3);
+    const u = (await repos.jobs.claim({ workerId: 'w1', types: UNIT, now: iso(now), leaseUntil: iso(now + 1000) }))!;
+    const first = await repos.jobs.recoverExpired(iso(now + 5000), 2);
+    expect(first.requeued.map((j) => j.id)).toEqual([u.id]);
+    expect(first.settled ?? []).toEqual([]);
+    const again = (await repos.jobs.claim({ workerId: 'w2', types: UNIT, now: iso(now + 6000), leaseUntil: iso(now + 7000), id: u.id }))!;
+    expect(again.attempts).toBe(2);
+    const second = await repos.jobs.recoverExpired(iso(now + 9000), 2);
+    expect(second.failed.map((j) => j.id)).toEqual([u.id]);
+    expect(second.settled?.map((j) => [j.id, j.status]).sort()).toEqual(
+      [[parent.id, 'failed'], ...kids.filter((k) => k.id !== u.id).map((k) => [k.id, 'cancelled'])].sort()
+    );
+    expect(await repos.jobs.get(parent.id)).toMatchObject({ status: 'failed', error: { code: 'lease_expired', unit: u.id } });
+    // cancelTree: the parent and queued units cancelled at once, running units asked to stop; not for other jobs.
+    const t = await fannedOut(3, { apiKeyId: undefined });
+    const running = (await repos.jobs.claim({ workerId: 'w3', types: UNIT, now: iso(now), leaseUntil: iso(now + 60_000) }))!;
+    expect(await repos.jobs.cancelTree(running.id, iso(now))).toBeNull();
+    const changed = (await repos.jobs.cancelTree(t.parent.id, iso(now)))!;
+    expect(changed.map((j) => j.status)).toEqual(['cancelled', 'cancelled', 'cancelled']);
+    expect(changed[0]!.id).toBe(t.parent.id);
+    expect(await repos.jobs.get(running.id)).toMatchObject({ status: 'running', cancelRequestedAt: iso(now) });
+    expect(await repos.jobs.cancelTree(t.parent.id, iso(now))).toBeNull();
+    expect(await repos.jobs.finishChild(done(running, 'cancelled'), iso(now), fence(running))).toMatchObject({ parent: null });
+  });
+
+  it('FAN-05 the per-key running cap counts units on workers, not their fanned-out parent', async () => {
+    const keyId = `key_fan_${kind}`;
+    const { kids } = await fannedOut(3, { apiKeyId: keyId });
+    expect(kids.every((k) => k.apiKeyId === keyId)).toBe(true);
+    const cap = (w: string) => repos.jobs.claim({ workerId: w, types: UNIT, now: iso(now), leaseUntil: iso(now + 60_000), maxRunningPerKey: 1 });
+    expect(await cap('w1')).not.toBeNull(); // the running parent does not count
+    expect(await cap('w2')).toBeNull(); // the running unit does
   });
 });
 

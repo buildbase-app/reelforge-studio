@@ -129,6 +129,10 @@ model Job {
   leaseExpiresAt    DateTime?
   /// cancel_job on another instance: the holding worker stops the job at its next heartbeat.
   cancelRequestedAt DateTime?
+  /// Render fan-out (#156, D-097): the render a render_unit or render_join belongs to.
+  parentId          String?
+  /// Render fan-out, on the parent: units still to succeed; the unit taking it to 0 inserts the join.
+  pendingChildren   Int?
 
   workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   events    JobEvent[]
@@ -139,6 +143,7 @@ model Job {
   @@index([workspaceId, apiKeyId, createdAt])
   @@index([workspaceId, queue, status, createdAt])
   @@index([status, leaseExpiresAt])
+  @@index([parentId])
 }
 
 /// Status changes and log lines of a job, in order (id is monotonic).

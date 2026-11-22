@@ -11,6 +11,8 @@ export const ONCE_EXIT: Record<OnceOutcome, number> = {
   none: 0,
   succeeded: 0,
   cancelled: 0,
+  // A render that fanned out (D-097): its units and join are queued for any worker; this container is done.
+  fanned_out: 0,
   failed: 1,
   // EX_TEMPFAIL: handed back (SIGTERM), lease lost, or (`--job`) still queued after the wait: the job needs another run.
   deferred: 75,
