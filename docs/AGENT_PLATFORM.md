@@ -259,7 +259,7 @@ that was run; "partial" says what is missing.
 | §8 Bind 127.0.0.1 by default; Host/Origin checks on /mcp | done | REST tests |
 | §8 Rate limits per key | done (basic) | In-memory token bucket, single instance; the limit is a runtime setting (`limits.rateLimitPerMinute`) |
 | §8 Provider keys only in env; never in logs/manifests | done | HyperFrames child gets a filtered env (tested) |
-| §8 Chromium sandbox on outside containers | partial | html engine: on unless root or `REELFORGE_CHROMIUM_NO_SANDBOX=1`; Motion Canvas harness still always passes `--no-sandbox`; Remotion uses its own defaults |
+| §8 Chromium sandbox on outside containers | partial | on by default for html, hyperframes and motion-canvas, also in the release image with `deployment/seccomp/chrome.json` (D-086); `REELFORGE_CHROMIUM_NO_SANDBOX=1` is a logged opt-out; Remotion hard-codes `--no-sandbox` (built-in templates only); render processes get no server secrets; agent scenes have no network (D-085) |
 | §9 Single tenant | done | |
 | Web UI | missing (optional by design) | |
 | Audit log, metrics, multi-instance | metrics, structured logs, tracing: built (#64, docs/providers/observability.md); audit log, multi-instance: missing | "Enterprise hardening" pass (#17) |

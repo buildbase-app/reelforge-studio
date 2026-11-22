@@ -248,3 +248,18 @@ implementation or licensing decisions.
     (reports 0.140.1) with the `otlp` receiver and `debug` exporter: our
     records arrive with scope `reelforge.audit`, event name, body and
     attributes (D-058).
+35. **HyperFrames 0.9.77 restricted render network** (read from the installed
+    package `hyperframes@0.9.77`, `dist/`, 2026-11-21; D-085):
+    `PRODUCER_RESTRICT_PAGE_NETWORK=true` starts a local capture proxy and
+    launches Chrome with `--proxy-server=<proxy>`,
+    `--proxy-bypass-list=<-loopback>;<page server host:port>`, `--disable-quic`,
+    `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` and a profile
+    preference `webrtc.ip_handling_policy=disable_non_proxied_udp`; the CLI's
+    own asset downloads use the same policy. `HYPERFRAMES_CAPTURE_PROXY` (an
+    `http://` URL) is the proxy's upstream; `PRODUCER_NON_PUBLIC_CIDRS` adds
+    ranges treated as non-public (refused, logged as
+    `[CaptureProxy:REFUSED] class=...`). Verified with local TCP/UDP canaries
+    (SECT-34..37): no request or packet arrives.
+36. **parse5 8.1.1** (npm registry, 2026-11-21): MIT, ESM, WHATWG-compliant
+    HTML parser and serializer (`parse`, `parseFragment`, `serialize`,
+    `defaultTreeAdapter`).

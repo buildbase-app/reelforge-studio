@@ -1123,3 +1123,109 @@ to 100 000 entries per request, so memory stays flat); `list_audit_events`
 with `format` returns up to 10 000 entries in one MCP result; `reelforge audit
 export` streams any range to a file. CSV cells starting with `= + - @` are
 prefixed with `'` (spreadsheet formula injection).
+
+## O. Security hardening (2026-11-21, private security review SEC-01..SEC-20)
+
+Public-safe summary; findings and reproductions stay private. Defaults and
+settings: docs/security/HARDENING.md. Deferred: SEC-07 (queue and resource
+limits per key) follows the database job queue work.
+
+### D-085 --- Agent scene markup is parsed, and scenes have no network outside the page either
+
+**Status:** DECIDED (reversible).\
+Private security review SEC-01, SEC-02. Agent HTML for `html` and
+`hyperframes` scenes is parsed with parse5 (the WHATWG parser, scripting on,
+the tree a browser builds); ReelForge's head with the CSP becomes the first
+child of the parsed `<head>`, and the serialized document is parsed again to
+check that this CSP is the first and only policy element. `<meta http-equiv>`
+and `<base>` are refused anywhere (also `<template>`, `iframe srcdoc`);
+comments, `<noscript>`/`<noembed>`/`<noframes>` and attributes with unusual
+names are dropped, so tools that re-parse the document with another parser
+(HyperFrames' compiler) see the same structure. A CSP is not enough on its
+own, so HyperFrames renders also run with network blocking outside the page:
+HyperFrames' restricted network mode (`PRODUCER_RESTRICT_PAGE_NETWORK`: a
+local capture proxy as `--proxy-server` without loopback bypass except its
+page server, QUIC off, `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`
+and the matching profile preference), every address declared non-public
+(`PRODUCER_NON_PUBLIC_CIDRS=0.0.0.0/0,::/0`) and the proxy's upstream
+(`HYPERFRAMES_CAPTURE_PROXY`) pointed at a ReelForge sink on loopback that
+refuses every request. The same path carries HyperFrames' own asset downloads,
+so nothing leaves the machine. Any refused attempt (sink hit or the proxy's
+refusal line) kills the render at once with a clear error: a scene that
+navigates away or needs a remote file cannot render correctly anyway, and
+failing fast beats a hang until the timeout. WebRTC constructors are removed
+in the page too (defence in depth; verified that the flags alone stop STUN).
+The html engine keeps its offline context and request abort, adds the WebRTC
+flags and fails the render when the main frame navigates. Rejected: a regex
+on the agent's markup (the cause of SEC-01); request interception in
+HyperFrames' browser (not exposed by its CLI); a network namespace per render
+(not available to an unprivileged container); patching HyperFrames.
+
+### D-086 --- Chromium's sandbox is on in the release image; render processes get no secrets
+
+**Status:** DECIDED (reversible).\
+Private security review SEC-03. Supersedes the image default of D-041
+(`REELFORGE_CHROMIUM_NO_SANDBOX=1`): the release image now sets `0`, and the
+documented run (compose, `docker run`, Kubernetes) uses
+`deployment/seccomp/chrome.json`. Without the profile, html, hyperframes and
+motion-canvas renders fail with a message naming it; secure by default beats
+"works everywhere". `REELFORGE_CHROMIUM_NO_SANDBOX=1` stays as an explicit
+opt-out, logged at start and reported in `get_capabilities` and the admin view
+of `/readyz`. Remotion still hard-codes `--no-sandbox` (D-041); it renders only
+built-in templates. Engines that spawn processes pass an allowlisted
+environment (`renderChildEnv`), and `main.ts` reads the configuration from a
+copy of the environment and then removes every secret setting's variables
+(aliases and `_FILE` included) from its own environment (`scrubSecretEnv`), so
+Remotion's browser and FFmpeg do not inherit them either. Honest limit: a
+non-sandboxed process with the same UID can still read the server's memory;
+the sandbox is the boundary, the environment hygiene is defence in depth.
+
+### D-087 --- A hard time limit per scene
+
+**Status:** DECIDED (reversible).\
+Private security review SEC-02 (part). html and hyperframes renders use
+min(their per-frame estimate, `render.sceneTimeoutSeconds`), default 900 s,
+allowed 30 to 3600 s (`REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS`, start-up
+setting exported to the engines). Before, a maximal scene could hold the
+renderer for hours. Queue and per-key limits (SEC-07) are deferred to the job
+queue work.
+
+### D-088 --- Operational endpoints: /metrics needs its token, /readyz detail needs an admin key, /mcp Origin compares origins
+
+**Status:** DECIDED (reversible).\
+Private security review SEC-06, SEC-09. Changes D-052/D-053. `/metrics`
+answers 401 unless `observability.metrics.bearerToken` is sent, or
+`observability.metrics.allowAnonymous` (new, runtime, default off) is on.
+`/readyz` keeps its status codes for probes, but anonymous callers and
+non-admin keys get only `ok`, `checks` (`ok`/`error`), each dependency's
+`status`/`required` and each engine's `ok`; an admin key gets everything
+(paths, versions, free space, error text, `security.chromiumSandbox` and
+warnings). A browser `Origin` on `/mcp` must equal the public URL's origin or
+`http(s)://<Host header>` (scheme, host and port), not only the host name.
+
+### D-089 --- Integrity and secret hygiene: sealed licence state, fail-closed release edition, strong bootstrap keys, credential-free sources
+
+**Status:** DECIDED (reversible).\
+Private security review SEC-04 (part), SEC-05, SEC-08, SEC-20.
+(1) The stored LicenceState carries an HMAC-SHA256 seal (inside the `answer`
+JSON, no schema change) over the instance id, key hash, answer, check times,
+activation, high-water mark and the licence server's time; key = HKDF of
+`REELFORGE_SECRET_KEY` with the instance id (a fixed label without a secret
+key). A state that fails the check loses its answer and last success
+(`state_untrusted`) until an online check succeeds; once after the upgrade,
+and after the secret key changes. (2) The licence server's HTTP `Date` is
+stored with each answer; a clock more than 10 minutes behind it, like behind
+the high-water mark, gets no grace. The request and BuildBase's contract are
+unchanged. (3) The Dockerfile writes `image-edition.ts` (`release`) in the same
+step as `build-info.json`; release code without that file, or with a dev one,
+refuses to start instead of becoming the dev edition. (4) None of this stops
+an operator who changes code or knows the secret key; the goal is that a
+bypass needs a code change. Signed BuildBase answers remain the real fix
+(docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md). (5) `security.bootstrapKey`
+needs 32+ random URL-safe characters after `rf_` (8+ distinct, 2.75+ bits per
+character; checked in the schema and in `KeyStore.bootstrap`). (6) The URL
+importer's guard also refuses `::/96`, SIIT, `64:ff9b:1::/48`, `2001::/23`
+(Teredo), `2002::/16`, `fec0::/10` and `3fff::/20`, judging IPv4-mapped
+addresses by their IPv4 part. (7) An imported asset's `source` keeps scheme,
+host and path only; log redaction also covers presigned URL parameters
+(S3, GCS, Azure SAS).

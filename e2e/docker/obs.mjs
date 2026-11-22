@@ -20,7 +20,9 @@ const call = async (name, args = {}) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (fn, ms = 60_000) => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(1000); } };
-const readyz = async () => (await fetch(`${BASE}/readyz`)).json();
+// Full /readyz detail needs an admin key (the e2e key is the bootstrap admin key); /metrics needs its token (D-088).
+const readyz = async () => (await fetch(`${BASE}/readyz`, { headers: { Authorization: `Bearer ${KEY}` } })).json();
+const metrics = () => fetch(`${BASE}/metrics`, { headers: { Authorization: `Bearer ${process.env.METRICS_TOKEN}` } });
 const lines = (f) => (existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
 const attrs = (list = []) => Object.fromEntries(list.map((a) => [a.key, a.value?.stringValue ?? (a.value?.intValue !== undefined ? Number(a.value.intValue) : a.value?.boolValue ?? a.value?.doubleValue)]));
 const spans = () => lines('/otel/traces.jsonl').flatMap((r) => r.resourceSpans ?? []).flatMap((rs) => (rs.scopeSpans ?? []).flatMap((ss) => (ss.spans ?? []).map((s) => ({ ...s, attributes: attrs(s.attributes), resource: attrs(rs.resource?.attributes) }))));
@@ -68,7 +70,7 @@ if (PHASE === 'on') {
   check('/readyz: telemetry ok (traces and logs exported)', r.dependencies?.telemetry?.status === 'ok' && r.dependencies.telemetry.otlp?.traces?.ok === true, JSON.stringify(r.dependencies?.telemetry?.otlp ?? {}).slice(0, 300));
 } else if (PHASE === 'metrics-otlp') {
   await call('update_config', { settings: { 'observability.metrics.exporter': 'otlp', 'observability.metrics.exportIntervalSeconds': 5 } });
-  const m = await fetch(`${BASE}/metrics`);
+  const m = await metrics();
   check('/metrics answers 404 once metrics are pushed over OTLP', m.status === 404);
   await call('list_projects');
   const pushed = await until(() => { const n = metricNames(); return n.has('reelforge.jobs.finished') && n.has('http.server.request.duration') ? n : null; });
@@ -81,7 +83,7 @@ if (PHASE === 'on') {
   const reset = Object.fromEntries(['observability.otlp.endpoint', 'observability.tracing.exporter', 'observability.logs.exporter', 'observability.metrics.exporter', 'observability.metrics.exportIntervalSeconds'].map((k) => [k, null]));
   await call('update_config', { settings: reset });
   const after = await readyz();
-  check('settings reset over MCP: telemetry not_configured, /metrics back', after.dependencies.telemetry.status === 'not_configured' && (await fetch(`${BASE}/metrics`)).status === 200);
+  check('settings reset over MCP: telemetry not_configured, /metrics back', after.dependencies.telemetry.status === 'not_configured' && (await metrics()).status === 200);
 }
 await c.close();
 process.exit(fail ? 1 : 0);

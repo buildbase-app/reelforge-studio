@@ -29,6 +29,12 @@ Out of scope: findings that need a compromised machine or stolen credentials,
 missing security headers on pages without sensitive actions, rate limits on
 public pages, and reports from automated scanners without a demonstrated impact.
 
+## Hardening defaults
+
+What the server does by default to isolate agent-supplied scenes, protect its
+secrets and limit what anonymous callers see, and how to configure it:
+[docs/security/HARDENING.md](docs/security/HARDENING.md).
+
 ## Handling secrets
 
 Never paste secrets, licence keys or API keys into issues, pull requests or
