@@ -583,7 +583,7 @@ export class ReelforgeService {
                 `Chromium runs without its own sandbox for: ${sandboxOff.join(', ')}. The container (non-root, read-only, no capabilities) is the isolation boundary.` +
                 (sandboxOff.includes('remotion') ? ' Remotion always passes --no-sandbox.' : '') +
                 (sandboxOff.some((id) => id !== 'remotion')
-                  ? ' To sandbox html, hyperframes and motion-canvas, run the container with the seccomp profile deployment/seccomp/chrome.json and REELFORGE_CHROMIUM_NO_SANDBOX=0 (docs/DEPLOY.md).'
+                  ? ' REELFORGE_CHROMIUM_NO_SANDBOX=1 is an explicit opt-out: to sandbox html, hyperframes and motion-canvas, unset it and run the container with the seccomp profile deployment/seccomp/chrome.json (docs/security/HARDENING.md).'
                   : ''),
             }
           : {}),

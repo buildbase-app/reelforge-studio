@@ -220,7 +220,7 @@ describe('reelforge config (CLI)', () => {
     const t = cli(['check', '--file', typo], {});
     expect(t.status).toBe(1);
     expect(t.stderr).toMatch(/Unrecognized key.*limits\.rateLimit/);
-  });
+  }, 60_000); // three CLI processes (tsx start-up); 5 s was not enough on a loaded machine
 
   it('config show prints the effective configuration with runtime values, secrets redacted', () => {
     const r = cli(['show', '--json'], env);
@@ -233,5 +233,5 @@ describe('reelforge config (CLI)', () => {
     expect(text.status).toBe(0);
     expect(text.stdout).toMatch(/limits\.rateLimitPerMinute\s+500\s+\(env: REELFORGE_RATE_LIMIT_PER_MINUTE\)/);
     expect(text.stdout).toMatch(/server\.port\s+4321\s+\(default, start-up only\)/);
-  });
+  }, 60_000);
 });

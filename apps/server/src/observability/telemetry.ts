@@ -37,6 +37,8 @@ export interface ObservabilitySettings {
   logsExporter: LogsExporter;
   metricsExporter: 'prometheus' | 'otlp' | 'off';
   metricsToken?: string;
+  /** observability.metrics.allowAnonymous: /metrics without a token when none is set. */
+  metricsAllowAnonymous: boolean;
   exportIntervalSeconds: number;
   tracingExporter: 'otlp' | 'off';
   sampleRatio: number;
@@ -70,6 +72,7 @@ export function observabilitySettings(c: Config, serviceVersion: string, edition
     logsExporter: o.logs.exporter,
     metricsExporter: o.metrics.exporter,
     metricsToken: o.metrics.bearerToken,
+    metricsAllowAnonymous: o.metrics.allowAnonymous,
     exportIntervalSeconds: o.metrics.exportIntervalSeconds,
     tracingExporter: o.tracing.exporter,
     sampleRatio: o.tracing.sampleRatio,

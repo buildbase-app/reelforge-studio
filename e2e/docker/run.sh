@@ -96,9 +96,11 @@ fi
 echo "== image $IMAGE: edition $(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$IMAGE"), hardened run flags: $HARDENED"
 [ "$(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$IMAGE")" = "$EDITION" ] || { echo "✘ $IMAGE is not a $EDITION build"; exit 1; }
 # The hardened run flags (docs/DEPLOY.md#hardening). The image's user is 10001:10001.
-HARD=()
+# Chromium's sandbox is the image default (D-086): the hardened run sets no sandbox variable at
+# all; a plain `docker run` (HARDENED=0, Docker's default seccomp profile) needs the explicit opt-out.
+HARD=(-e REELFORGE_CHROMIUM_NO_SANDBOX=1)
 [ "$HARDENED" = 1 ] && HARD=(--read-only --tmpfs /tmp:rw,nosuid,nodev,size=1g --cap-drop ALL --security-opt no-new-privileges
-  --security-opt "seccomp=$PWD/deployment/seccomp/chrome.json" -e REELFORGE_CHROMIUM_NO_SANDBOX=0)
+  --security-opt "seccomp=$PWD/deployment/seccomp/chrome.json")
 # A dev build gets the mock licence server from env; a release build has it baked in.
 LIC_ENV=()
 [ "$EDITION" = dev ] && LIC_ENV=(-e REELFORGE_LICENCE_SERVER_URL=http://licence:8080 -e REELFORGE_LICENCE_ORG_ID=$LIC_ORG)
@@ -110,6 +112,7 @@ printf %s "$KEY" > "$WORK/secret/key"
 S3_ID=e2e$(openssl rand -hex 6) S3_SECRET=$(openssl rand -hex 20) S3_BUCKET=reelforge-e2e
 printf %s "$S3_ID" > "$WORK/secret/s3id"; printf %s "$S3_SECRET" > "$WORK/secret/s3secret"
 openssl rand -base64 32 > "$WORK/secret/secretkey"
+METRICS_TOKEN=$(openssl rand -hex 24); printf %s "$METRICS_TOKEN" > "$WORK/secret/metricstoken"
 # The config file (REELFORGE_CONFIG): one source of settings; env and runtime settings override it.
 printf 'limits:\n  maxJsonBytes: 4194304\nlogging:\n  level: info\n' > "$WORK/config/reelforge.yaml"; chmod 644 "$WORK/config/reelforge.yaml"
 DBPASS=$(openssl rand -hex 16)
@@ -119,9 +122,10 @@ case "$DB" in
   *) : > "$WORK/secret/dburl" ;;
 esac
 # The server runs as UID 10001: a *_FILE secret must be readable by it.
-for f in key dburl secretkey s3id s3secret; do [ -e "$WORK/secret/$f" ] || continue; chown 10001 "$WORK/secret/$f" 2>/dev/null || chmod 644 "$WORK/secret/$f"; done
+for f in key dburl secretkey s3id s3secret metricstoken; do [ -e "$WORK/secret/$f" ] || continue; chown 10001 "$WORK/secret/$f" 2>/dev/null || chmod 644 "$WORK/secret/$f"; done
 chmod 777 "$WORK/out" "$WORK/otel"
 cp e2e/otel/collector.yaml "$WORK/config/collector.yaml"; chmod 644 "$WORK/config/collector.yaml"
+cp "$WORK/secret/metricstoken" "$WORK/config/metrics-token"; chmod 644 "$WORK/config/metrics-token"
 cp e2e/docker/*.mjs e2e/webhooks/receiver.mjs examples/sample-reel.json "$WORK/client/"
 cp e2e/mock-licence/server.mjs "$WORK/mock/"; chmod -R a+rX "$WORK/mock"
 (cd "$WORK/client" && npm init -y >/dev/null && npm i -q --no-audit --no-fund @modelcontextprotocol/sdk@1.32.2 standardwebhooks@1.3.0 $([ "$STORAGE" = s3 ] && echo @aws-sdk/client-s3@3.1164.0) >/dev/null)
@@ -136,6 +140,7 @@ start() {
   docker run -d --name $NAME --network $NET --network-alias reelforge -p 127.0.0.1:$PORT:4321 --shm-size=1g "${HARD[@]}" \
     -v $VOL:/data -v "$WORK/secret/key:/run/secrets/key:ro" -e REELFORGE_BOOTSTRAP_KEY_FILE=/run/secrets/key "${dbenv[@]}" \
     -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secretkey \
+    -v "$WORK/secret/metricstoken:/run/secrets/metricstoken:ro" -e REELFORGE_METRICS_TOKEN_FILE=/run/secrets/metricstoken \
     -v "$WORK/config/reelforge.yaml:/config/reelforge.yaml:ro" -e REELFORGE_CONFIG=/config/reelforge.yaml \
     "${LIC_ENV[@]}" "${s3env[@]}" -e REELFORGE_AUDIT_SINKS=stdout,otlp -e REELFORGE_AUDIT_OTLP_ENDPOINT=http://otel:4318/v1/logs \
     -e REELFORGE_ALLOWED_HOSTS=reelforge,reelforge:4321 \
@@ -147,7 +152,7 @@ start() {
 }
 client() { docker run --rm --network $NET -v "$WORK/client:/c:ro" -v "$WORK/out:/out" -v "$WORK/otel:/otel:ro" -w /c \
   -e URL=http://reelforge:4321/mcp -e KEY="$KEY" -e SAMPLE=sample-reel.json -e PLAIN_V01="$PLAIN_V01" -e PHASE="${PHASE:-before}" -e LICENCE_KEYS="$LICENCE_KEYS" \
-  -e EDITION="$EDITION" -e SANDBOX="$HARDENED" -e RESEND_KEY="$RESEND_KEY" -e POSTMARK_TOKEN="$POSTMARK_TOKEN" -e SENDGRID_KEY="$SENDGRID_KEY" -e SES_KEY_ID="$SES_KEY_ID" -e SES_SECRET="$SES_SECRET" \
+  -e EDITION="$EDITION" -e SANDBOX="$HARDENED" -e RESEND_KEY="$RESEND_KEY" -e POSTMARK_TOKEN="$POSTMARK_TOKEN" -e SENDGRID_KEY="$SENDGRID_KEY" -e SES_KEY_ID="$SES_KEY_ID" -e SES_SECRET="$SES_SECRET" -e METRICS_TOKEN="$METRICS_TOKEN" \
   "$CLIENT_IMAGE" node "$@"; }
 receiver_start() {
   docker run -d --name $RX --network $NET --network-alias receiver -v "$WORK/client:/c:ro" -v "$WORK/out:/out" -e SECRETS_FILE=/out/receiver-secrets.json -w /c -e RESEND_KEY="$RESEND_KEY" -e POSTMARK_TOKEN="$POSTMARK_TOKEN" \
@@ -186,6 +191,7 @@ if [ "$STORAGE" = s3 ]; then
 fi
 echo "== OpenTelemetry Collector (container \"otel\", $OTEL_IMAGE): OTLP audit logs (#65) and telemetry (#64)"
 docker run -d --name $OTEL --network $NET --network-alias otel --user 10001 -v "$WORK/config/collector.yaml:/etc/otelcol/config.yaml:ro" -v "$WORK/otel:/out" \
+  -v "$WORK/config/metrics-token:/etc/otelcol/metrics-token:ro" \
   "$OTEL_IMAGE" --config /etc/otelcol/config.yaml >/dev/null
 for _ in $(seq 1 30); do logs_have $OTEL 'Everything is ready' && break; sleep 1; done
 logs_have $OTEL 'Everything is ready' && echo "✔ collector $OTEL_IMAGE is up" || { docker logs $OTEL | tail -20; echo "✘ the collector did not start"; exit 1; }
@@ -215,6 +221,7 @@ if [ "$HARDENED" = 1 ]; then
   docker exec $NAME sh -c 'touch /etc/rf 2>/dev/null' && { echo "✘ the root filesystem is writable"; exit 1; } || echo "✔ the root filesystem is read-only; /tmp and /data are writable: $(docker exec $NAME sh -c 'touch /tmp/rf /data/.rf && rm /tmp/rf /data/.rf && echo yes')"
   [ "$(docker exec $NAME sh -c 'grep CapEff /proc/1/status' | awk '{print $2}')" = 0000000000000000 ] && echo "✔ no effective capabilities" || { echo "✘ capabilities present"; exit 1; }
   docker exec $NAME sh -c 'grep -q "NoNewPrivs:[[:space:]]*1" /proc/1/status' && echo "✔ NoNewPrivs is set" || { echo "✘ NoNewPrivs not set"; exit 1; }
+  [ "$(docker exec $NAME printenv REELFORGE_CHROMIUM_NO_SANDBOX)" = 0 ] && echo "✔ the image default is REELFORGE_CHROMIUM_NO_SANDBOX=0 (no override in this run)" || { echo "✘ the image does not default to the sandbox"; exit 1; }
   probe=$(docker exec -i $NAME node --input-type=module < e2e/docker/sandbox-probe.mjs)
   echo "$probe" | grep '"sandboxed":true' >/dev/null && echo "✔ Chromium's own sandbox runs (renderers in a nested PID namespace): $probe" || { echo "✘ Chromium sandbox not active: $probe"; exit 1; }
 fi
@@ -226,6 +233,10 @@ if [ "$EDITION" = release ]; then
     out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -e "$override" "$IMAGE" 2>&1) && { echo "✘ started with $override"; exit 1; }
     echo "$out" | grep 'fixed by this release build' >/dev/null && echo "✔ refuses to start with $override: $(echo "$out" | grep -o '"licence[^"]*" is fixed by this release build[^.]*' | head -1)" || { echo "✘ unexpected output for $override"; echo "$out" | tail -5; exit 1; }
   done
+  # D-089: a release image whose build-info.json is replaced by a dev one refuses to start (it never falls back to dev).
+  printf '{"edition":"dev","locked":{}}\n' > "$WORK/config/dev-build-info.json"; chmod 644 "$WORK/config/dev-build-info.json"
+  out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -v "$WORK/config/dev-build-info.json:/app/packages/core/build-info.json:ro" -e REELFORGE_LICENCE_MODE=off "$IMAGE" 2>&1) && { echo "✘ started with a dev build-info.json"; exit 1; }
+  echo "$out" | grep -q 'this is a release image, but the file describes a \\\?"dev\\\?" build' && echo "✔ refuses to start with a dev build-info.json mounted over the release one" || { echo "✘ unexpected output with a dev build-info.json"; echo "$out" | tail -5; exit 1; }
   printf 'licence:\n  mode: "off"\n' > "$WORK/config/off.yaml"; chmod 644 "$WORK/config/off.yaml"
   out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -v "$WORK/config/off.yaml:/config/off.yaml:ro" -e REELFORGE_CONFIG=/config/off.yaml "$IMAGE" 2>&1) && { echo "✘ started with licence.mode off in the config file"; exit 1; }
   echo "$out" | grep '/config/off.yaml (licence.mode): "licence.mode" is fixed' >/dev/null && echo "✔ refuses to start with licence.mode: off in the config file" || { echo "✘ config file override"; echo "$out" | tail -5; exit 1; }
@@ -235,6 +246,8 @@ api /v1/projects/legacy-v01 | grep '"Made by v0.1, edited"' >/dev/null && echo "
 api /v1/themes/legacy-theme | grep '"legacy-theme"' >/dev/null && echo "✔ v0.1 theme imported" || { echo "✘ v0.1 theme"; exit 1; }
 echo "== licence: unlicensed, activate over MCP, render (mock licence server)"; PHASE=start client licence.mjs
 echo "== MCP journey (separate container)"; client journey.mjs
+echo "== scene isolation: outbound network, WebRTC, navigation and policy override (security.mjs, client container \"canary\")"
+docker run --rm --network $NET --network-alias canary -v "$WORK/client:/c:ro" -w /c -e KEY="$KEY" "$CLIENT_IMAGE" node security.mjs
 echo "== ffprobe"; docker run --rm -v "$WORK/out:/o:ro" --entrypoint ffprobe "$IMAGE" -v error -count_frames \
   -show_entries stream=codec_name,width,height,r_frame_rate,nb_read_frames:format=duration -of compact /o/docker-e2e.mp4
 echo "== audit log, key lifecycle, idempotency over MCP (#65, separate container)"; client audit.mjs
@@ -272,7 +285,12 @@ docker logs $NAME > "$WORK/container.log" 2>&1 || true
 grep -m1 '"route":"/mcp".*"status":200' "$WORK/container.log" | grep -q '"request_id":"[^"]\+".*"key_id":"[^"]\+".*"status":200,"duration_ms":' \
   && echo "✔ JSON access log lines: request id, key id, route template, status, duration ($(grep -c '"route":' "$WORK/container.log") lines)" || { echo "✘ no JSON access log"; tail -5 "$WORK/container.log"; exit 1; }
 grep -q -- "$KEY" "$WORK/container.log" && { echo "✘ the server log contains the API key"; exit 1; } || echo "✔ no API key in the server log"
-curl -s -D "$WORK/metrics.h" "http://127.0.0.1:$PORT/metrics" > "$WORK/metrics.txt"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/metrics")" = 401 ] && echo "✔ GET /metrics without the token → 401 (D-088)" || { echo "✘ /metrics is open without a token"; exit 1; }
+ready_anon=$(curl -s "http://127.0.0.1:$PORT/readyz")
+echo "$ready_anon" | grep -q '"ok":true' && ! echo "$ready_anon" | grep -Eq '"(path|version|freeBytes|detail|latencyMs|security)"|/data|Chrome|ffmpeg version' \
+  && echo "✔ anonymous /readyz is minimal (status per dependency only): ${ready_anon:0:160}" || { echo "✘ anonymous /readyz shows details: ${ready_anon:0:300}"; exit 1; }
+api /readyz | grep -q '"freeBytes":.*"chromiumSandbox":{' && echo "✔ /readyz with the admin key has the full report, Chromium sandbox per engine included" || { echo "✘ admin /readyz"; api /readyz | head -c 400; exit 1; }
+curl -s -D "$WORK/metrics.h" -H "Authorization: Bearer $METRICS_TOKEN" "http://127.0.0.1:$PORT/metrics" > "$WORK/metrics.txt"
 grep -qi '^content-type: text/plain; version=0.0.4' "$WORK/metrics.h" && docker run --rm -i --entrypoint promtool "$PROM_IMAGE" check metrics < "$WORK/metrics.txt" \
   && echo "✔ GET /metrics passes promtool check metrics ($(grep -c '^[a-z]' "$WORK/metrics.txt") samples)" || { echo "✘ /metrics is not valid Prometheus text"; head -20 "$WORK/metrics.txt"; exit 1; }
 for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'reelforge_jobs_finished_total{.*reelforge_job_status="succeeded"' 'reelforge_render_frames_total{.*reelforge_engine="html"' 'reelforge_licence_state{reelforge_licence_state="valid"} 1' 'reelforge_jobs_queued 0'; do
@@ -396,9 +414,10 @@ if [ "$STORAGE" = s3 ]; then
   NAME_SAVE=$NAME; NAME=$P-nobucket; S3_BUCKET_OVERRIDE=missing-bucket-$P
   docker run -d --name $NAME --network $NET "${HARD[@]}" --tmpfs /data:rw,uid=10001,gid=10001 -e REELFORGE_STORAGE_DRIVER=s3 -e REELFORGE_S3_ENDPOINT=http://minio:9000 \
     -e REELFORGE_S3_BUCKET=$S3_BUCKET_OVERRIDE -e REELFORGE_S3_FORCE_PATH_STYLE=true -e REELFORGE_S3_ACCESS_KEY_ID_FILE=/run/secrets/s3id -e REELFORGE_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3secret \
-    -v "$WORK/secret/s3id:/run/secrets/s3id:ro" -v "$WORK/secret/s3secret:/run/secrets/s3secret:ro" "${LIC_ENV[@]}" "$IMAGE" >/dev/null
+    -v "$WORK/secret/s3id:/run/secrets/s3id:ro" -v "$WORK/secret/s3secret:/run/secrets/s3secret:ro" "${LIC_ENV[@]}" \
+    -v "$WORK/secret/key:/run/secrets/key:ro" -e REELFORGE_BOOTSTRAP_KEY_FILE=/run/secrets/key "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && break; sleep 2; done
-  ready=$(docker exec $NAME node -e "fetch('http://127.0.0.1:4321/readyz').then(async r=>console.log(r.status, await r.text()))")
+  ready=$(docker exec -e K="$KEY" $NAME node -e "fetch('http://127.0.0.1:4321/readyz',{headers:{authorization:'Bearer '+process.env.K}}).then(async r=>console.log(r.status, await r.text()))")
   echo "   $ready" | cut -c1-240
   echo "$ready" | grep -q '^503 .*"storage":"unavailable (s3): bucket \\"missing-bucket' && echo "✔ STO-25 /readyz is 503 with a clear storage message" || { echo "✘ /readyz did not report the missing bucket"; exit 1; }
   docker rm -f $NAME >/dev/null; NAME=$NAME_SAVE; unset S3_BUCKET_OVERRIDE

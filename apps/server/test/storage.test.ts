@@ -98,13 +98,17 @@ describe('storage over REST', () => {
   it('STO-25 /readyz reports an unreachable bucket (503) with a clear message', async () => {
     healthy = false;
     await new Promise((r) => setTimeout(r, 10_050)); // health is cached for 10 s
-    const res = await req('GET', '/readyz', { key: null });
+    const anon = await req('GET', '/readyz', { key: null });
+    expect(anon.status).toBe(503);
+    expect(((await anon.json()) as any).checks.storage).toBe('error'); // anonymous: status only (D-088)
+    const res = await req('GET', '/readyz'); // admin key: the reason
     expect(res.status).toBe(503);
     expect(((await res.json()) as any).checks.storage).toBe('unavailable (memory): bucket "reelforge" is not reachable (HTTP 404): NotFound');
     healthy = true;
   }, 20_000);
 });
 
+const STO24_ADMIN = 'rf_sto24Admin_Kq7Wm2Xp9Lr4Tz6Vb1Nc8Hd3Fj5Gs0Ya';
 describe('STO-24 no storage credentials in the server log', () => {
   let stub: Server;
   beforeAll(async () => {
@@ -131,12 +135,13 @@ describe('STO-24 no storage credentials in the server log', () => {
             REELFORGE_S3_ACCESS_KEY_ID: 'AKIASTO24EXAMPLE',
             REELFORGE_S3_SECRET_ACCESS_KEY: secret,
             REELFORGE_STORAGE_MAX_ATTEMPTS: '1',
+            REELFORGE_BOOTSTRAP_KEY: STO24_ADMIN,
           },
           storage: { sweep: false },
           logWrite: (_level, line) => void lines.push(line),
         }
       );
-      const ready = await fetch(`${s.url}/readyz`);
+      const ready = await fetch(`${s.url}/readyz`, { headers: { authorization: `Bearer ${STO24_ADMIN}` } });
       expect(ready.status).toBe(503);
       const body = await ready.text();
       await s.close();

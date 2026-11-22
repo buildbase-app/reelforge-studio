@@ -8,7 +8,7 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['reelforge:4321']   # host:port of the studio as Prometheus reaches it
-    # When observability.metrics.bearerToken (REELFORGE_METRICS_TOKEN) is set:
-    # authorization:
-    #   type: Bearer
-    #   credentials_file: /etc/prometheus/reelforge-metrics-token
+    # /metrics needs observability.metrics.bearerToken (REELFORGE_METRICS_TOKEN) by default:
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/reelforge-metrics-token

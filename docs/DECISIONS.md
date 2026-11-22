@@ -1252,7 +1252,175 @@ create and rotate return a secret (D-057). Metrics (bounded labels, no ids):
 `reelforge_webhook_events_total{event_type}`; a `webhook.deliver <channel>`
 client span per attempt.
 
-## P. Job queue and scaling: more than one instance (2026-11-21, issue #36)
+## P. Public docs on BuildBase Docs (2026-11-21, issue #47)
+
+### D-080 --- Public docs: the repository is the source, BuildBase Docs is the published copy
+
+**Status:** DECIDED (founder, 2026-11-21, issue #47).\
+Technical docs (install, REST, MCP, manifest, providers, privacy,
+troubleshooting) stay in this repository: versioned with the code, reviewed in
+PRs, checked by CI and readable offline by self-hosters and agents. The public
+site's `/docs` reads only from BuildBase Docs (`content.docs.tree()` /
+`byPath()`), so it doubles as a BuildBase CMS demo and updates without a site
+deploy. `scripts/docs/sync-buildbase.mjs` publishes repo → BuildBase Docs with
+an org API token kept as a CI secret: development environment first,
+production only from `main` or tags. Only files listed in
+`docs/public/manifest.json` are published; research, decision and status docs
+are never listed. Pages written only in the console (marketing guides, cookbook
+prose) live beside the synced ones and are never touched. Reference pages that
+can drift (MCP tools, REST routes, templates) are generated from the code
+(`pnpm docs:reference`) and checked by `apps/server/test/docs-reference.test.ts`.
+How to run it: docs/DOCS_PUBLISHING.md.
+
+### D-081 --- Sync rules: match by path, own by tag, archive instead of delete
+
+**Status:** DECIDED (reversible).\
+Pages are matched by path (folder path + slug) and only fields that differ are
+patched, so a second run writes nothing and says so. Ownership is the tag
+`source-repo` on every page the sync creates: it never changes a page without
+it, and a page created elsewhere at a wanted path, or holding a wanted slug, is
+a reported conflict (exit 2). A page whose file left the allowlist is
+unpublished and tagged `source-archived`, never deleted (BuildBase docs pages
+have no archive flag; folders and tags do and are restored, never removed).
+Facts found against the development environment that shaped this: doc slugs
+are unique across folders (409), so slugs are checked for uniqueness before any
+write and a page that changes folder is moved, not recreated; tags that are not
+public are dropped from pages written with an API token, so both bookkeeping
+tags are public and the site hides `source-*` tags; a new page is a draft with a
+random slug and a published page keeps its slug and folder, so a page is placed
+while it is a draft and published after. Reading order: BuildBase docs have no
+order field, so front matter `order` becomes `suggestedDocs` = the next page in
+the folder, which the site follows for its sidebar and prev/next links. POSTs
+are never retried after a lost answer (no duplicate pages); a draft created but
+not placed is tagged `source-repo` + `source-archived` so nothing is left
+anonymous.
+
+### D-082 --- The sync is plain Node with no dependencies; credentials only from the environment
+
+**Status:** DECIDED (reversible).\
+`scripts/docs/*.mjs` run on Node 22 alone (global `fetch`, `node:test`), so a CI
+job needs no `pnpm install` and the script cannot pull a supply-chain surprise
+into a job that holds a publishing token. Front matter is a small YAML subset
+parsed in the script. The token comes only from `BUILDBASE_API_TOKEN` or
+`BUILDBASE_API_TOKEN_FILE`, never from arguments, and is never printed;
+`--env` must name the environment the token belongs to (`<orgId>-<env>:` or a
+bare `<orgId>:` for production), so a production token cannot be used by a
+development job or the reverse. `zod` became a root devDependency only so
+`scripts/docs/reference.ts` can turn tool input schemas into tables, the same
+version the server already uses.
+
+## Q. Security hardening (2026-11-21, private security review SEC-01..SEC-20)
+
+Public-safe summary; findings and reproductions stay private. Defaults and
+settings: docs/security/HARDENING.md. Deferred: SEC-07 (queue and resource
+limits per key) follows the database job queue work.
+
+### D-085 --- Agent scene markup is parsed, and scenes have no network outside the page either
+
+**Status:** DECIDED (reversible).\
+Private security review SEC-01, SEC-02. Agent HTML for `html` and
+`hyperframes` scenes is parsed with parse5 (the WHATWG parser, scripting on,
+the tree a browser builds); ReelForge's head with the CSP becomes the first
+child of the parsed `<head>`, and the serialized document is parsed again to
+check that this CSP is the first and only policy element. `<meta http-equiv>`
+and `<base>` are refused anywhere (also `<template>`, `iframe srcdoc`);
+comments, `<noscript>`/`<noembed>`/`<noframes>` and attributes with unusual
+names are dropped, so tools that re-parse the document with another parser
+(HyperFrames' compiler) see the same structure. A CSP is not enough on its
+own, so HyperFrames renders also run with network blocking outside the page:
+HyperFrames' restricted network mode (`PRODUCER_RESTRICT_PAGE_NETWORK`: a
+local capture proxy as `--proxy-server` without loopback bypass except its
+page server, QUIC off, `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`
+and the matching profile preference), every address declared non-public
+(`PRODUCER_NON_PUBLIC_CIDRS=0.0.0.0/0,::/0`) and the proxy's upstream
+(`HYPERFRAMES_CAPTURE_PROXY`) pointed at a ReelForge sink on loopback that
+refuses every request. The same path carries HyperFrames' own asset downloads,
+so nothing leaves the machine. Any refused attempt (sink hit or the proxy's
+refusal line) kills the render at once with a clear error: a scene that
+navigates away or needs a remote file cannot render correctly anyway, and
+failing fast beats a hang until the timeout. WebRTC constructors are removed
+in the page too (defence in depth; verified that the flags alone stop STUN).
+The html engine keeps its offline context and request abort, adds the WebRTC
+flags and fails the render when the main frame navigates. Rejected: editing
+the agent's markup as text; request interception in
+HyperFrames' browser (not exposed by its CLI); a network namespace per render
+(not available to an unprivileged container); patching HyperFrames.
+
+### D-086 --- Chromium's sandbox is on in the release image; render processes get no secrets
+
+**Status:** DECIDED (reversible).\
+Private security review SEC-03. Supersedes the image default of D-041
+(`REELFORGE_CHROMIUM_NO_SANDBOX=1`): the release image now sets `0`, and the
+documented run (compose, `docker run`, Kubernetes) uses
+`deployment/seccomp/chrome.json`. Without the profile, html, hyperframes and
+motion-canvas renders fail with a message naming it; secure by default beats
+"works everywhere". `REELFORGE_CHROMIUM_NO_SANDBOX=1` stays as an explicit
+opt-out, logged at start and reported in `get_capabilities` and the admin view
+of `/readyz`. Remotion still hard-codes `--no-sandbox` (D-041); it renders only
+built-in templates. Engines that spawn processes pass an allowlisted
+environment (`renderChildEnv`), and `main.ts` reads the configuration from a
+copy of the environment and then removes every secret setting's variables
+(aliases and `_FILE` included) from its own environment (`scrubSecretEnv`), so
+Remotion's browser and FFmpeg do not inherit them either. Honest limit: a
+non-sandboxed process with the same UID can still read the server's memory;
+the sandbox is the boundary, the environment hygiene is defence in depth.
+
+### D-087 --- A hard time limit per scene
+
+**Status:** DECIDED (reversible).\
+Private security review SEC-02 (part). html and hyperframes renders use
+min(their per-frame estimate, `render.sceneTimeoutSeconds`), default 900 s,
+allowed 30 to 3600 s (`REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS`, start-up
+setting exported to the engines). Before, a maximal scene could hold the
+renderer for hours. Every HyperFrames render gets its own TMPDIR, inherited by
+the CLI, its browser and any helper; when the render ends (success, failure,
+timeout, cancel) the CLI's process group and every process carrying that
+TMPDIR are killed and awaited, because the browser runs in a process group of
+its own and outlives a group kill. Queue and per-key limits (SEC-07) are
+deferred to the job queue work.
+
+### D-088 --- Operational endpoints: /metrics needs its token, /readyz detail needs an admin key, /mcp Origin compares origins
+
+**Status:** DECIDED (reversible).\
+Private security review SEC-06, SEC-09. Changes D-052/D-053. `/metrics`
+answers 401 unless `observability.metrics.bearerToken` is sent, or
+`observability.metrics.allowAnonymous` (new, runtime, default off) is on.
+`/readyz` keeps its status codes for probes, but anonymous callers and
+non-admin keys get only `ok`, `checks` (`ok`/`error`), each dependency's
+`status`/`required` and each engine's `ok`; an admin key gets everything
+(paths, versions, free space, error text, `security.chromiumSandbox` and
+warnings). A browser `Origin` on `/mcp` must equal the public URL's origin or
+`http(s)://<Host header>` (scheme, host and port), not only the host name.
+
+### D-089 --- Integrity and secret hygiene: sealed licence state, fail-closed release edition, strong bootstrap keys, credential-free sources
+
+**Status:** DECIDED (reversible).\
+Private security review SEC-04 (part), SEC-05, SEC-08, SEC-20.
+(1) The stored LicenceState carries an HMAC-SHA256 seal (inside the `answer`
+JSON, no schema change) over the instance id, key hash, answer, check times,
+activation, high-water mark and the licence server's time; key = HKDF of
+`REELFORGE_SECRET_KEY` with the instance id (a fixed label without a secret
+key). A state that fails the check loses its answer and last success
+(`state_untrusted`) until an online check succeeds; once after the upgrade,
+and after the secret key changes. (2) The licence server's HTTP `Date` is
+stored with each answer; a clock more than 10 minutes behind it, like behind
+the high-water mark, gets no grace. The request and BuildBase's contract are
+unchanged. (3) The Dockerfile writes `image-edition.ts` (`release`) in the same
+step as `build-info.json`; release code without that file, or with a dev one,
+refuses to start instead of becoming the dev edition. (4) None of this stops
+an operator who changes code or knows the secret key; the goal is that a
+bypass needs a code change. Signed BuildBase answers remain the real fix
+(docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md). (5) `security.bootstrapKey`
+needs 32+ random URL-safe characters after `rf_` (8+ distinct, 2.75+ bits per
+character; checked in the schema and in `KeyStore.bootstrap`). (6) The URL
+importer's guard also refuses `::/96`, SIIT, `64:ff9b:1::/48`, `2001::/23`
+(Teredo), `2002::/16`, `fec0::/10` and `3fff::/20`, judging IPv4-mapped
+addresses by their IPv4 part; webhook deliveries (D-072) use the same
+guard. (7) An imported asset's `source` keeps scheme,
+host and path only; log redaction also covers presigned URL parameters
+(S3, GCS, Azure SAS).
+
+## R. Job queue and scaling: more than one instance (2026-11-21, issue #36)
 
 Founder direction (#36 comment, #17 standing rule): providers for the queue
 (in-process, database, Redis), the rate-limit store (memory, database, Redis)
@@ -1363,60 +1531,3 @@ operators patch with overlays; a chart can follow if buyers ask. Validated with
 kubeconform 0.7.0 (strict, 1.31 schemas) on the files and on `kubectl
 kustomize` output. A compose file for an api with N workers is in
 `deployment/compose/docker-compose.scale.yml`.
-
-## Q. Public docs on BuildBase Docs (2026-11-21, issue #47)
-
-### D-080 --- Public docs: the repository is the source, BuildBase Docs is the published copy
-
-**Status:** DECIDED (founder, 2026-11-21, issue #47).\
-Technical docs (install, REST, MCP, manifest, providers, privacy,
-troubleshooting) stay in this repository: versioned with the code, reviewed in
-PRs, checked by CI and readable offline by self-hosters and agents. The public
-site's `/docs` reads only from BuildBase Docs (`content.docs.tree()` /
-`byPath()`), so it doubles as a BuildBase CMS demo and updates without a site
-deploy. `scripts/docs/sync-buildbase.mjs` publishes repo → BuildBase Docs with
-an org API token kept as a CI secret: development environment first,
-production only from `main` or tags. Only files listed in
-`docs/public/manifest.json` are published; research, decision and status docs
-are never listed. Pages written only in the console (marketing guides, cookbook
-prose) live beside the synced ones and are never touched. Reference pages that
-can drift (MCP tools, REST routes, templates) are generated from the code
-(`pnpm docs:reference`) and checked by `apps/server/test/docs-reference.test.ts`.
-How to run it: docs/DOCS_PUBLISHING.md.
-
-### D-081 --- Sync rules: match by path, own by tag, archive instead of delete
-
-**Status:** DECIDED (reversible).\
-Pages are matched by path (folder path + slug) and only fields that differ are
-patched, so a second run writes nothing and says so. Ownership is the tag
-`source-repo` on every page the sync creates: it never changes a page without
-it, and a page created elsewhere at a wanted path, or holding a wanted slug, is
-a reported conflict (exit 2). A page whose file left the allowlist is
-unpublished and tagged `source-archived`, never deleted (BuildBase docs pages
-have no archive flag; folders and tags do and are restored, never removed).
-Facts found against the development environment that shaped this: doc slugs
-are unique across folders (409), so slugs are checked for uniqueness before any
-write and a page that changes folder is moved, not recreated; tags that are not
-public are dropped from pages written with an API token, so both bookkeeping
-tags are public and the site hides `source-*` tags; a new page is a draft with a
-random slug and a published page keeps its slug and folder, so a page is placed
-while it is a draft and published after. Reading order: BuildBase docs have no
-order field, so front matter `order` becomes `suggestedDocs` = the next page in
-the folder, which the site follows for its sidebar and prev/next links. POSTs
-are never retried after a lost answer (no duplicate pages); a draft created but
-not placed is tagged `source-repo` + `source-archived` so nothing is left
-anonymous.
-
-### D-082 --- The sync is plain Node with no dependencies; credentials only from the environment
-
-**Status:** DECIDED (reversible).\
-`scripts/docs/*.mjs` run on Node 22 alone (global `fetch`, `node:test`), so a CI
-job needs no `pnpm install` and the script cannot pull a supply-chain surprise
-into a job that holds a publishing token. Front matter is a small YAML subset
-parsed in the script. The token comes only from `BUILDBASE_API_TOKEN` or
-`BUILDBASE_API_TOKEN_FILE`, never from arguments, and is never printed;
-`--env` must name the environment the token belongs to (`<orgId>-<env>:` or a
-bare `<orgId>:` for production), so a production token cannot be used by a
-development job or the reverse. `zod` became a root devDependency only so
-`scripts/docs/reference.ts` can turn tool input schemas into tables, the same
-version the server already uses.

@@ -174,7 +174,7 @@ pnpm dev                            # http://127.0.0.1:4321 (restarts on code ch
 docker build -t reelforge-studio .
 docker run -d --name reelforge -p 127.0.0.1:4321:4321 --shm-size=1g \
   --read-only --tmpfs /tmp:size=1g --cap-drop ALL --security-opt no-new-privileges \
-  --security-opt seccomp=deployment/seccomp/chrome.json -e REELFORGE_CHROMIUM_NO_SANDBOX=0 \
+  --security-opt seccomp=deployment/seccomp/chrome.json \
   -v reelforge-data:/data \
   -e REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) \
   reelforge-studio
@@ -252,7 +252,10 @@ builds their own image, edits `build-info.json` in a derived image, patches
 the code, answers with a fake server behind DNS plus their own CA in
 `NODE_EXTRA_CA_CERTS` (BuildBase's answers are not signed yet; the request is
 drafted in docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md), or freezes the
-clock while the server is stopped. Doing any of that for commercial use breaks
+clock while the server is stopped. A release image whose `build-info.json` is
+removed or replaced by a dev one refuses to start, and the stored licence state
+is sealed with a key derived from `REELFORGE_SECRET_KEY`, so editing the
+database row does not work either (D-089, docs/security/HARDENING.md). Doing any of that for commercial use breaks
 the licence (LICENSING.md, COMMERCIAL-LICENSE.md); the real protection is the
 licence terms plus updates and support for licensed keys only.
 
@@ -269,13 +272,15 @@ this by default, and e2e/docker/run.sh runs the whole suite with it.
 | `--shm-size=1g` | Chromium's shared memory (Docker's default is 64 MB) |
 | `--cap-drop ALL` | The server needs no Linux capabilities |
 | `--security-opt no-new-privileges` | Nothing can gain privileges (no setuid) |
-| `--security-opt seccomp=deployment/seccomp/chrome.json` with `REELFORGE_CHROMIUM_NO_SANDBOX=0` | Turns on Chromium's own sandbox for the `html`, `hyperframes` and `motion-canvas` engines (below) |
+| `--security-opt seccomp=deployment/seccomp/chrome.json` | Lets Chromium's own sandbox start for the `html`, `hyperframes` and `motion-canvas` engines (on by default, below). Without it those renders fail |
 | UID:GID 10001:10001 (the image's `USER`) | Non-root; `*_FILE` secrets must be readable by UID 10001 |
 
 **Chromium's sandbox.** Chromium sandboxes its renderers with user, PID and
 network namespaces. Docker's default seccomp profile only allows those with
 `CAP_SYS_ADMIN`, so in a default container the sandbox cannot start ("No usable
-sandbox") and the image defaults to `REELFORGE_CHROMIUM_NO_SANDBOX=1`.
+sandbox"). The image keeps the sandbox on (`REELFORGE_CHROMIUM_NO_SANDBOX=0`,
+D-086), so run it with the profile below; without it, html, hyperframes and
+motion-canvas renders fail with a message naming the profile.
 `deployment/seccomp/chrome.json` is Docker's default profile (moby/profiles
 seccomp v0.3.0) plus one rule allowing `clone`, `unshare`, `setns` and `chroot`
 without capabilities. With it, `--cap-drop ALL` and `no-new-privileges` stay
@@ -288,7 +293,11 @@ only ReelForge's own templates with agent-supplied props, run without it
 whatever you set. `get_capabilities` reports `security.chromiumSandbox` per
 engine and a warning. Hosts whose kernel or AppArmor policy blocks
 unprivileged user namespaces (Ubuntu 23.10+ hosts restrict them for
-unconfined programs) need `REELFORGE_CHROMIUM_NO_SANDBOX=1` instead.
+unconfined programs) can set `REELFORGE_CHROMIUM_NO_SANDBOX=1`: an explicit
+opt-out, logged at start and shown in `get_capabilities` and the admin view of
+`/readyz`. Agent-supplied scenes then run in a browser with the server's
+privileges. Render processes never get the server's secrets either way, and
+scenes have no network access (docs/security/HARDENING.md).
 
 **Kubernetes.** The same, as a pod spec (the seccomp profile must be on each
 node under the kubelet's `seccomp/` directory, e.g. `/var/lib/kubelet/seccomp/reelforge-chrome.json`):
@@ -302,12 +311,10 @@ spec:
     fsGroup: 10001
     seccompProfile:
       type: Localhost
-      localhostProfile: reelforge-chrome.json   # or RuntimeDefault, with REELFORGE_CHROMIUM_NO_SANDBOX=1
+      localhostProfile: reelforge-chrome.json   # or RuntimeDefault, with the opt-out REELFORGE_CHROMIUM_NO_SANDBOX=1
   containers:
     - name: reelforge
       image: ghcr.io/buildbase-app/reelforge-studio:<version>
-      env:
-        - { name: REELFORGE_CHROMIUM_NO_SANDBOX, value: "0" }
       securityContext:
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true
@@ -437,10 +444,13 @@ Logs are JSON lines on stdout by default (request id, key id, route, status,
 duration; secrets redacted), Prometheus scrapes `GET /metrics` on the normal
 port, and traces, logs or metrics go to any OpenTelemetry (OTLP/HTTP) endpoint
 once you set `REELFORGE_OTLP_ENDPOINT`. `GET /readyz` reports the database,
-storage, FFmpeg, the browser and the telemetry exporters. Providers, settings,
+storage, FFmpeg, the browser and the telemetry exporters (status only without
+a key; the full report with an admin API key). Providers, settings,
 Prometheus/Grafana/Grafana Cloud/Datadog/Honeycomb examples, tested cases and
 troubleshooting: [providers/observability.md](providers/observability.md).
-Keep `/metrics` on the internal network or set `REELFORGE_METRICS_TOKEN`.
+`/metrics` needs `REELFORGE_METRICS_TOKEN` (sent as `Authorization: Bearer`);
+without one it answers 401 unless `REELFORGE_METRICS_ALLOW_ANONYMOUS=true`
+(D-088).
 
 ## Storage
 

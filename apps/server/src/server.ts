@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
-import { ReelforgeService, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
+import { ReelforgeService, chromiumSandbox, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
 import { defaultDatabaseUrl, prepareDatabase, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
@@ -57,6 +57,14 @@ export async function startServer(
   const log = (line: string) => logger.log('info', line);
   if (config.sources.file) log(`config file: ${config.sources.file.path}`);
   for (const w of config.resolved.warnings) logger.log('warn', w);
+  if (!chromiumSandbox()) {
+    logger.log(
+      'warn',
+      process.env.REELFORGE_CHROMIUM_NO_SANDBOX === '1'
+        ? "REELFORGE_CHROMIUM_NO_SANDBOX=1: Chromium's own sandbox is OFF for every engine (explicit opt-out). Agent-supplied scenes then run in a renderer with the server's privileges; see docs/security/HARDENING.md"
+        : "Chromium's own sandbox is OFF because the server runs as root; run as a non-root user (docs/security/HARDENING.md)"
+    );
+  }
   const edition = config.resolved.build.edition;
   // More than one instance needs a shared database and shared storage (D-076): refuse a role that would lose jobs or files.
   const scaling = scalingProblems(config.resolved, config.databaseUrl);

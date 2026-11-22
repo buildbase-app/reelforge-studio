@@ -126,7 +126,7 @@ describe('sources and precedence', () => {
         REELFORGE_SECRET_KEY_FILE: f('sk', `${KEY}\n`),
         DATABASE_URL_FILE: f('db', 'mysql://u:p@db/rf\n'),
         ELEVENLABS_API_KEY_FILE: f('el', 'sk_from_file'),
-        REELFORGE_BOOTSTRAP_KEY_FILE: f('bk', 'rf_from_a_file_0123456789abcdef'),
+        REELFORGE_BOOTSTRAP_KEY_FILE: f('bk', 'rf_fromAfile_7Qx2Lm9Vb4Nc8Zr1Ty6Hp3Kw5Dj0Gs'),
         REELFORGE_LICENCE_KEY: 'LIC-ENV',
         REELFORGE_LICENCE_KEY_FILE: f('lic', 'LIC-FILE'),
       },
@@ -134,7 +134,7 @@ describe('sources and precedence', () => {
     expect(r.config.security.secretKey).toBe(KEY);
     expect(r.config.database.url).toBe('mysql://u:p@db/rf');
     expect(r.config.providers.elevenlabs.apiKey).toBe('sk_from_file');
-    expect(r.config.security.bootstrapKey).toBe('rf_from_a_file_0123456789abcdef');
+    expect(r.config.security.bootstrapKey).toBe('rf_fromAfile_7Qx2Lm9Vb4Nc8Zr1Ty6Hp3Kw5Dj0Gs');
     expect(r.config.licence.key).toBe('LIC-ENV');
     expect(r.settings.get('security.secretKey')!.origin).toBe('REELFORGE_SECRET_KEY_FILE');
     // Every secret has a _FILE variant; non-secrets do not read one.

@@ -112,6 +112,7 @@ beforeAll(async () => {
   env = {
     ...database.env,
     REELFORGE_SECRET_KEY: SECRET_KEY,
+    REELFORGE_METRICS_TOKEN: 'webhooks-metrics-token-0123456789', // /metrics needs a token by default (D-088)
     REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
     REELFORGE_WEBHOOKS_ALLOW_HTTP: 'true',
     REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
@@ -299,7 +300,7 @@ describe('webhooks over REST and MCP (WHK-20..)', () => {
   });
 
   it('WHK-29 metrics: deliveries by channel and outcome, bounded labels (no ids)', async () => {
-    const r = await fetch(`${server.url}/metrics`);
+    const r = await fetch(`${server.url}/metrics`, { headers: { authorization: 'Bearer webhooks-metrics-token-0123456789' } });
     if (r.status === 404) return; // metrics exporter off in this configuration
     const text = await r.text();
     expect(text).toMatch(/reelforge_webhook_deliveries_total\{[^}]*reelforge_channel="webhook"[^}]*reelforge_outcome="success"/);

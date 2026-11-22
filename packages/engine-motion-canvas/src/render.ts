@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
-import { chromiumSandbox, packageVersion, publishDirAtomically, stampMatches } from '@reelforge/core';
+import { chromiumSandbox, packageVersion, publishDirAtomically, renderChildEnv, stampMatches } from '@reelforge/core';
 import type { OutputSettings, RenderScene, ThemeTokens } from '@reelforge/project-schema';
 import { chromium, type Browser } from 'playwright-core';
 import type { Plugin } from 'vite';
@@ -235,13 +235,20 @@ export async function renderMotionCanvasScene(
       headless: true,
       // Chromium's own sandbox unless REELFORGE_CHROMIUM_NO_SANDBOX=1 or root (same rule as every engine).
       chromiumSandbox: chromiumSandbox(),
-      args: ['--disable-dev-shm-usage', '--hide-scrollbars', '--mute-audio'],
+      env: renderChildEnv(), // no server secrets in the browser's environment (D-086)
+      args: ['--disable-dev-shm-usage', '--hide-scrollbars', '--mute-audio', '--disable-quic', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
       // The server owns shutdown (a worker hands running jobs back on SIGTERM); the job's abort signal closes the browser.
       handleSIGINT: false,
       handleSIGTERM: false,
       handleSIGHUP: false,
     });
     const page = await browser.newPage({ viewport: { width: 640, height: 640 } });
+    // Only the local bundle server (and data:/blob: URLs) is reachable (D-085).
+    const origin = `http://127.0.0.1:${port}/`;
+    await page.route('**/*', (route) => {
+      const url = route.request().url();
+      return url.startsWith(origin) || url.startsWith('data:') || url.startsWith('blob:') ? route.continue() : route.abort('blockedbyclient');
+    });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
     });
