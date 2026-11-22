@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import { H264_ARGS, PipelineError, run } from './ffmpeg';
 import { probe } from './probe';
 
@@ -60,15 +61,8 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
   for (const clip of clips) args.push('-i', clip.file);
 
   const audioIndex = clips.length;
-  if (opts.music) {
-    args.push('-i', opts.music.file);
-  } else {
-    args.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000');
-  }
-  const overlays: Array<{ file: string; volume: number; at: number }> = [];
-  if (opts.voice) overlays.push({ file: opts.voice.file, volume: opts.voice.volume, at: opts.voice.startSeconds ?? 0 });
-  for (const s of opts.sfx ?? []) overlays.push({ file: s.file, volume: s.volume, at: s.atSeconds });
-  for (const o of overlays) args.push('-i', o.file);
+  const audio = audioGraph(opts, audioIndex, totalSeconds);
+  args.push(...audio.inputs);
 
   const filters: string[] = clips.map(
     (clip, i) =>
@@ -77,6 +71,163 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
       `fps=${fps},format=yuv420p,trim=end_frame=${clip.frames},setpts=PTS-STARTPTS[v${i}]`
   );
   filters.push(`${clips.map((_, i) => `[v${i}]`).join('')}concat=n=${clips.length}:v=1:a=0[vout]`);
+  filters.push(...audio.filters);
+
+  args.push(
+    '-filter_complex',
+    filters.join(';'),
+    '-map',
+    '[vout]',
+    '-map',
+    '[aout]',
+    ...H264_ARGS,
+    '-r',
+    String(fps),
+    '-frames:v',
+    String(totalFrames),
+    '-c:a',
+    'aac',
+    '-b:a',
+    '192k',
+    '-ar',
+    '48000',
+    '-t',
+    totalSeconds.toFixed(3),
+    out
+  );
+
+  await run(ffmpeg, args, 'assemble', { signal: opts.signal });
+  return { out, totalFrames, args };
+}
+
+export interface NormaliseOptions {
+  ffmpeg: string;
+  ffprobe: string;
+  /** An engine's clip (any size, rate or pixel format; at least `frames` frames). */
+  input: string;
+  out: string;
+  width: number;
+  height: number;
+  fps: number;
+  /** Exact frames the scene occupies. */
+  frames: number;
+  signal?: AbortSignal;
+}
+
+/**
+ * Encode one scene clip to the final encoding of a render (render fan-out,
+ * D-097): the same scaling, padding, frame rate, pixel format and exact frame
+ * count as assemble() applies to each clip, H264_ARGS (libx264 high, yuv420p:
+ * every run starts with an IDR frame and closes its last GOP), video only, and
+ * the MP4 muxer's time base for that rate (the same as the single-worker
+ * output). Clips encoded this way by the same FFmpeg build can be joined by
+ * concatClips() without re-encoding.
+ */
+export async function normaliseClip(opts: NormaliseOptions): Promise<{ out: string; args: string[] }> {
+  const { width, height, fps, frames } = opts;
+  const info = await probe(opts.ffprobe, opts.input);
+  if (info.frames < frames) throw new PipelineError('normalise', `clip has ${info.frames} frames, needs ${frames} (${opts.input})`);
+  const args = [
+    '-hide_banner',
+    '-y',
+    '-i',
+    opts.input,
+    '-vf',
+    `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,` +
+      `fps=${fps},format=yuv420p,trim=end_frame=${frames},setpts=PTS-STARTPTS`,
+    '-an',
+    '-map_metadata',
+    '-1',
+    ...H264_ARGS,
+    '-r',
+    String(fps),
+    '-frames:v',
+    String(frames),
+    opts.out,
+  ];
+  await run(opts.ffmpeg, args, 'normalise', { signal: opts.signal });
+  return { out: opts.out, args };
+}
+
+export interface ConcatOptions extends AudioOptions {
+  ffmpeg: string;
+  /** Normalised clips (normaliseClip) in timeline order, with their exact frame counts. */
+  clips: Array<{ file: string; frames: number }>;
+  out: string;
+  fps: number;
+  /** Where to write the concat demuxer's list. */
+  listFile: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * Join normalised clips with the concat demuxer and stream copy (`-c:v copy`:
+ * the video is not encoded again), and mix the audio once over the whole
+ * timeline (the same graph as assemble()). The demuxer needs "the same streams
+ * (same codecs, same time base, etc.)" in every file (ffmpeg-formats); the
+ * caller checks that with streamParams() first.
+ */
+export async function concatClips(opts: ConcatOptions): Promise<AssembleResult> {
+  if (opts.clips.length === 0) throw new PipelineError('join', 'no clips to join');
+  const totalFrames = opts.clips.reduce((n, c) => n + c.frames, 0);
+  const totalSeconds = totalFrames / opts.fps;
+  await writeFile(opts.listFile, opts.clips.map((c) => `file '${c.file.replace(/'/g, "'\\''")}'\n`).join(''));
+  const audio = audioGraph(opts, 1, totalSeconds);
+  const args = [
+    '-hide_banner',
+    '-y',
+    '-f',
+    'concat',
+    '-safe',
+    '0',
+    '-i',
+    opts.listFile,
+    ...audio.inputs,
+    '-filter_complex',
+    audio.filters.join(';'),
+    '-map',
+    '0:v',
+    '-map',
+    '[aout]',
+    '-c:v',
+    'copy',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '192k',
+    '-ar',
+    '48000',
+    '-t',
+    totalSeconds.toFixed(3),
+    '-movflags',
+    '+faststart',
+    opts.out,
+  ];
+  await run(opts.ffmpeg, args, 'join', { signal: opts.signal });
+  return { out: opts.out, totalFrames, args };
+}
+
+type AudioOptions = Pick<AssembleOptions, 'music' | 'voice' | 'sfx'>;
+
+/**
+ * The audio inputs and filter graph of a render: the music (trimmed, padded
+ * and faded to the timeline) or silence, with voice and sound effects mixed on
+ * top, ending in `[aout]` of exactly `totalSeconds`. Inputs are numbered from
+ * `audioIndex`. Shared by assemble() and the fan-out join (concatClips), so
+ * both mix the same audio.
+ */
+function audioGraph(opts: AudioOptions, audioIndex: number, totalSeconds: number): { inputs: string[]; filters: string[] } {
+  const inputs: string[] = [];
+  const filters: string[] = [];
+  if (opts.music) {
+    inputs.push('-i', opts.music.file);
+  } else {
+    inputs.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000');
+  }
+  const overlays: Array<{ file: string; volume: number; at: number }> = [];
+  if (opts.voice) overlays.push({ file: opts.voice.file, volume: opts.voice.volume, at: opts.voice.startSeconds ?? 0 });
+  for (const s of opts.sfx ?? []) overlays.push({ file: s.file, volume: s.volume, at: s.atSeconds });
+  for (const o of overlays) inputs.push('-i', o.file);
 
   const T = totalSeconds.toFixed(3);
   const base = overlays.length ? 'abase' : 'aout';
@@ -107,32 +258,7 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
         `atrim=end=${T},asetpts=PTS-STARTPTS[aout]`
     );
   }
-
-  args.push(
-    '-filter_complex',
-    filters.join(';'),
-    '-map',
-    '[vout]',
-    '-map',
-    '[aout]',
-    ...H264_ARGS,
-    '-r',
-    String(fps),
-    '-frames:v',
-    String(totalFrames),
-    '-c:a',
-    'aac',
-    '-b:a',
-    '192k',
-    '-ar',
-    '48000',
-    '-t',
-    totalSeconds.toFixed(3),
-    out
-  );
-
-  await run(ffmpeg, args, 'assemble', { signal: opts.signal });
-  return { out, totalFrames, args };
+  return { inputs, filters };
 }
 
 /**
