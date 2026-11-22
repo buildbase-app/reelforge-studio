@@ -23,6 +23,7 @@ import {
   type PageRequest,
   type ProjectMeta,
   type ProjectSummary,
+  type QuotaResult,
   type Repositories,
   projectStats,
   type Scope,
@@ -59,6 +60,9 @@ const NEWEST = [{ createdAt: 'desc' as const }, { id: 'desc' as const }];
 const CLAIM_CANDIDATES = 16;
 /** Usage counters (D-091) share RateLimitWindow with the request windows; their keys start with this. */
 const USAGE_PREFIX = 'usage:';
+/** RateLimitWindow rows that are only lock targets, never swept; the one below serialises starts under limits.maxQueuedJobs (#180). */
+const LOCK_PREFIX = 'lock:';
+const QUEUE_LOCK_KEY = `${LOCK_PREFIX}job-queue`;
 
 /** Unique-constraint violation (P2002), whichever database raised it. */
 export function isUniqueViolation(e: unknown): boolean {
@@ -524,38 +528,85 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         }
       },
       async insertWithQuota(job, at, quota) {
-        return prisma.$transaction(async (tx) => {
-          // Lock first (a no-op update): PostgreSQL/MySQL row lock, SQLite write lock. With a total
-          // queue cap the workspace row (every start waits here), else only the key's row (starts
-          // for this key wait). Either way the counts below are final (D-078, D-090).
-          if (quota.maxQueuedTotal !== undefined) {
-            await tx.$executeRawUnsafe(`UPDATE ${qi('Workspace')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, workspaceId);
-          } else if (quota.apiKeyId) {
-            await tx.$executeRawUnsafe(`UPDATE ${qi('ApiKey')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, quota.apiKeyId);
+        // Short lock (#180, D-090): the job and its event are written first, before any lock (other transactions
+        // cannot see them until commit), then the lock, then ONE statement with every count, then commit or
+        // roll back. One statement runs under the lock instead of one per count and insert, so the lock is held for
+        // two round trips from the api process (the lock's and the count's) instead of four to seven.
+        const key = quota.apiKeyId;
+        const total = quota.maxQueuedTotal !== undefined;
+        const args: unknown[] = [];
+        const p = (v: unknown) => (args.push(v), ph(args.length));
+        const checks: Array<{ col: string; limit: number; refuse: (used: number) => QuotaResult }> = [];
+        // COUNT of the other jobs (the new row is already in) of `types` matching `cond`; built left to right, so
+        // the placeholders are numbered in the order their values are pushed.
+        const count = (col: string, cond: () => string) =>
+          `(SELECT COUNT(*) FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${p(workspaceId)} AND ${qi('id')} <> ${p(job.id)}` +
+          ` AND ${qi('type')} IN (${quota.types.map(p).join(', ')}) AND ${cond()}) AS ${qi(col)}`;
+        const parts: string[] = [];
+        if (key) {
+          for (const [i, w] of quota.windows.entries()) {
+            parts.push(count(`w${i}`, () => `${qi('apiKeyId')} = ${p(key)} AND ${qi('createdAt')} >= ${p(new Date(w.since))}`));
+            checks.push({ col: `w${i}`, limit: w.limit, refuse: (used) => ({ ok: false, window: i, used }) });
           }
-          if (quota.apiKeyId) {
-            for (const [i, w] of quota.windows.entries()) {
-              const used = await tx.job.count({ where: { ...ws, apiKeyId: quota.apiKeyId, createdAt: { gte: new Date(w.since) }, type: { in: quota.types } } });
-              if (used >= w.limit) return { ok: false as const, window: i, used };
-            }
-            if (quota.maxActivePerKey !== undefined) {
-              const used = await tx.job.count({ where: { ...ws, apiKeyId: quota.apiKeyId, status: { in: ['queued', 'running'] }, type: { in: quota.types } } });
-              if (used >= quota.maxActivePerKey) return { ok: false as const, cap: 'active_per_key' as const, used };
-            }
+          if (quota.maxActivePerKey !== undefined) {
+            parts.push(count('a', () => `${qi('apiKeyId')} = ${p(key)} AND ${qi('status')} IN ('queued', 'running')`));
+            checks.push({ col: 'a', limit: quota.maxActivePerKey, refuse: (used) => ({ ok: false, cap: 'active_per_key', used }) });
           }
-          if (quota.maxQueuedTotal !== undefined) {
-            const used = await tx.job.count({ where: { ...ws, status: 'queued', type: { in: quota.types } } });
-            if (used >= quota.maxQueuedTotal) return { ok: false as const, cap: 'queued_total' as const, used };
-          }
+        }
+        if (total) {
+          parts.push(count('q', () => `${qi('status')} = 'queued'`));
+          checks.push({ col: 'q', limit: quota.maxQueuedTotal!, refuse: (used) => ({ ok: false, cap: 'queued_total', used }) });
+        }
+        const refusal = new Error('job cap reached');
+        const lockMissing = new Error('queue lock row missing');
+        let refused: QuotaResult | undefined;
+        for (let attempt = 0; ; attempt++) {
           try {
-            await tx.job.create({ data: { ...ws, id: job.id, ...jobData(job) } });
+            return await prisma.$transaction(async (tx) => {
+              try {
+                await tx.job.createMany({ data: [{ ...ws, id: job.id, ...jobData(job) }] });
+              } catch (e) {
+                if (isUniqueViolation(e)) throw conflict(`job "${job.id}" already exists`);
+                throw e;
+              }
+              await tx.jobEvent.createMany({ data: [statusEvent(job.id, at, job.status)] });
+              if (!parts.length) return { ok: true as const };
+              // The lock (a no-op update): with a total queue cap one shared row (every start waits here), else the
+              // key's row (starts for this key wait). It is not the Workspace row: every insert holds a foreign-key
+              // lock on that, which on MySQL would turn this into a lock upgrade that deadlocks concurrent starts.
+              if (total) {
+                const n = await tx.$executeRawUnsafe(
+                  `UPDATE ${qi('RateLimitWindow')} SET ${qi('count')} = ${qi('count')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('key')} = ${ph(2)}`,
+                  workspaceId,
+                  QUEUE_LOCK_KEY
+                );
+                if (!n) throw lockMissing;
+              } else {
+                await tx.$executeRawUnsafe(`UPDATE ${qi('ApiKey')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, key);
+              }
+              // A statement after the lock sees every job committed by the previous holder (read committed).
+              const [row] = (await tx.$queryRawUnsafe(`SELECT ${parts.join(', ')}`, ...args)) as Array<Record<string, unknown>>;
+              for (const c of checks) {
+                const used = Number(row?.[c.col] ?? 0);
+                if (used >= c.limit) {
+                  refused = c.refuse(used);
+                  throw refusal; // roll back the job and its event
+                }
+              }
+              return { ok: true as const };
+            }, lockingTx);
           } catch (e) {
-            if (isUniqueViolation(e)) throw conflict(`job "${job.id}" already exists`);
-            throw e;
+            if (e === refusal && refused) return refused;
+            if (e !== lockMissing || attempt >= 2) throw e;
+            // First total-capped start of this workspace: create the lock row (outside a transaction: a unique
+            // violation would abort a PostgreSQL transaction), then start over.
+            try {
+              await prisma.rateLimitWindow.create({ data: { ...ws, key: QUEUE_LOCK_KEY, windowStart: new Date(0), count: 0 } });
+            } catch (err) {
+              if (!isUniqueViolation(err)) throw err;
+            }
           }
-          await tx.jobEvent.create({ data: statusEvent(job.id, at, job.status) });
-          return { ok: true as const };
-        }, lockingTx);
+        }
       },
       async update(job, fence) {
         if (!fence) return (await prisma.job.updateMany({ where: { ...ws, id: job.id }, data: jobData(job) })).count > 0;
@@ -1103,7 +1154,8 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       },
       async deleteOlderThan(cutoff, opts = {}) {
         const usage = { key: { startsWith: USAGE_PREFIX } };
-        return (await prisma.rateLimitWindow.deleteMany({ where: { ...ws, windowStart: { lt: new Date(cutoff) }, ...(opts.usage ? usage : { NOT: usage }) } })).count;
+        const lock = { key: { startsWith: LOCK_PREFIX } };
+        return (await prisma.rateLimitWindow.deleteMany({ where: { ...ws, windowStart: { lt: new Date(cutoff) }, ...(opts.usage ? usage : { NOT: [usage, lock] }) } })).count;
       },
       async reserve(counters) {
         // Make sure every row exists (outside the transaction: a unique violation would abort a PostgreSQL transaction).

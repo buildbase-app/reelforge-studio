@@ -241,11 +241,14 @@ export interface JobRepository {
   /**
    * Insert a new job (as `insert`) unless the API key already started `limit`
    * jobs of `types` since a window's `since`, or a cap (JobCaps) is reached.
-   * The count and the insert are one transaction that first locks the key's
-   * row (PostgreSQL/MySQL row lock, SQLite write lock), or the workspace row
-   * when `maxQueuedTotal` is set, so instances racing for the last slot cannot
-   * overshoot (D-078, D-090). Returns which window or cap was full, and its
-   * count, when refused. Without `apiKeyId` only `maxQueuedTotal` applies.
+   * The count and the insert are one transaction: it writes the job and its
+   * event, then locks the key's row (PostgreSQL/MySQL row lock, SQLite write
+   * lock), or one shared lock row when `maxQueuedTotal` is set, then counts
+   * every window and cap in one statement and commits or rolls back, so
+   * instances racing for the last slot cannot overshoot and only one
+   * statement runs while the lock is held (D-078, D-090, #180). Returns which window or
+   * cap was full, and its count, when refused. Without `apiKeyId` only
+   * `maxQueuedTotal` applies.
    */
   insertWithQuota(job: JobRecord, at: string, quota: { apiKeyId?: string; types: string[]; windows: QuotaWindow[] } & JobCaps): Promise<QuotaResult>;
   /**

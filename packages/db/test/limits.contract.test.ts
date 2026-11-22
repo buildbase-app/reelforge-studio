@@ -10,8 +10,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createMemoryRepositories, newId, type JobRecord, type Repositories } from '@reelforge/core';
-import { Database, availableTestDatabases, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
+import { DEFAULT_WORKSPACE_ID, UNIT_JOB_TYPE, createMemoryRepositories, newId, type JobCaps, type JobRecord, type Repositories } from '@reelforge/core';
+import { Database, availableTestDatabases, createPrismaRepositories, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
+import type { AnyPrismaClient } from '../src/prisma-repositories';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-limits-contract-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -36,6 +37,31 @@ function job(over: Partial<JobRecord> = {}): JobRecord {
   };
 }
 const TYPES = ['render', 'preview'];
+
+/**
+ * The Prisma client, recording every statement a transaction sends (raw SQL text, or "model.method" for a
+ * Prisma call): how many statements an enqueue runs while it holds the cap lock (#180).
+ */
+function recording(client: AnyPrismaClient, log: string[]): AnyPrismaClient {
+  const wrapTx = (tx: any) =>
+    new Proxy(tx, {
+      get(t, prop) {
+        const v = t[prop];
+        if (prop === '$executeRawUnsafe' || prop === '$queryRawUnsafe') return (sql: string, ...a: unknown[]) => (log.push(sql), v.call(t, sql, ...a));
+        if (typeof prop === 'string' && !prop.startsWith('$') && v && typeof v === 'object') {
+          return new Proxy(v, { get: (m: any, op) => (typeof m[op] === 'function' ? (...a: unknown[]) => (log.push(`${prop}.${String(op)}`), m[op](...a)) : m[op]) });
+        }
+        return typeof v === 'function' ? v.bind(t) : v;
+      },
+    });
+  return new Proxy(client, {
+    get(t: any, prop) {
+      if (prop === '$transaction') return (fn: any, opts?: unknown) => (typeof fn === 'function' ? t.$transaction((tx: any) => fn(wrapTx(tx)), opts) : t.$transaction(fn, opts));
+      const v = t[prop];
+      return typeof v === 'function' ? v.bind(t) : v;
+    },
+  });
+}
 
 describe.each(targets)('resource limits contract: $name', ({ kind }) => {
   let repos: Repositories;
@@ -154,6 +180,113 @@ describe.each(targets)('resource limits contract: $name', ({ kind }) => {
     const firstHalf = order.slice(0, 20);
     expect(firstHalf.filter((k) => k === keyA).length).toBe(10);
     expect(firstHalf.filter((k) => k === keyB).length).toBe(10);
+  });
+
+  const start = (r: Repositories, k: string | undefined, caps: JobCaps, over: Partial<JobRecord> = {}) =>
+    r.jobs.insertWithQuota(job({ ...(k ? { apiKeyId: k } : {}), ...over }), iso(now), { ...(k ? { apiKeyId: k } : {}), types: TYPES, windows: [], ...caps });
+  const unfinished = async (k?: string) => (await repos.jobs.listUnfinished()).filter((j) => TYPES.includes(j.type) && (k === undefined || j.apiKeyId === k));
+  const cancelAll = async () => {
+    for (const j of await repos.jobs.listUnfinished()) await repos.jobs.transition({ ...j, status: 'cancelled', finishedAt: iso(now) }, iso(now));
+  };
+
+  it('LIM-08 two instances (two connection pools) racing 24 starts: exactly K succeed per key and in total, refused starts leave no rows', async () => {
+    let second: Database | undefined;
+    // SQLite: one pool (a second one in this process would block the event loop the first needs to commit; several
+    // processes on one file are covered by queue.processes.test.ts).
+    const other = kind === 'memory' || kind === 'sqlite' ? repos : (second = await Database.open({ url: testDb!.url })).repositories();
+    try {
+      const pools = [repos, other];
+      const perKey = await Promise.all(Array.from({ length: 24 }, (_, i) => start(pools[i % 2]!, keyA, { maxActivePerKey: 5 })));
+      expect(perKey.filter((r) => r.ok)).toHaveLength(5);
+      for (const r of perKey.filter((r) => !r.ok)) expect(r).toEqual({ ok: false, cap: 'active_per_key', used: 5 });
+      // Refused starts were rolled back: only the five jobs (and their events) exist.
+      const mine = (await repos.jobs.list()).filter((j) => j.apiKeyId === keyA);
+      expect(mine).toHaveLength(5);
+      if (db) expect(await db.prisma.jobEvent.count({ where: { jobId: { in: mine.map((j) => j.id) } } })).toBe(5);
+      await cancelAll();
+      const keys = [keyA, keyB, undefined];
+      const totals = await Promise.all(Array.from({ length: 24 }, (_, i) => start(pools[i % 2]!, keys[i % 3], { ...(keys[i % 3] ? { maxActivePerKey: 100 } : {}), maxQueuedTotal: 7 })));
+      expect(totals.filter((r) => r.ok)).toHaveLength(7);
+      for (const r of totals.filter((r) => !r.ok)) expect(r).toEqual({ ok: false, cap: 'queued_total', used: 7 });
+      expect(await unfinished()).toHaveLength(7);
+    } finally {
+      await second?.close();
+    }
+  });
+
+  it('LIM-09 the caps free up when jobs finish, fail, are cancelled or handed back; fan-out units do not count; nothing drifts', async () => {
+    const caps = { maxActivePerKey: 3, maxQueuedTotal: 4 };
+    for (let i = 0; i < 3; i++) expect((await start(repos, keyA, caps)).ok).toBe(true);
+    expect(await start(repos, keyA, caps)).toEqual({ ok: false, cap: 'active_per_key', used: 3 });
+    const check = async () => {
+      // The refusal counts what is really there: never a stale number.
+      const used = (await unfinished(keyA)).length;
+      expect(await start(repos, keyA, caps)).toEqual({ ok: false, cap: 'active_per_key', used });
+      expect(used).toBe(3);
+    };
+    const [j1, j2, j3] = await unfinished(keyA);
+    // fail
+    await repos.jobs.transition({ ...j1!, status: 'failed', finishedAt: iso(now), error: { code: 'x', message: 'x' } }, iso(now));
+    expect((await start(repos, keyA, caps)).ok).toBe(true);
+    await check();
+    // cancel while queued
+    expect(await repos.jobs.cancelQueued(j2!.id, iso(now), { code: 'cancelled', message: 'cancelled' })).not.toBeNull();
+    // a retry is a new job with retryOf: it counts like any start
+    expect((await start(repos, keyA, caps, { retryOf: j2!.id })).ok).toBe(true);
+    await check();
+    // claimed (running) still counts per key, but not against the queue cap; handed back after a lost lease, it is queued again
+    const claimed = (await repos.jobs.claim({ workerId: 'w1', types: TYPES, now: iso(now), leaseUntil: iso(now - 1), maxRunningPerKey: 10 }))!;
+    expect(claimed.apiKeyId).toBe(keyA);
+    await check();
+    expect((await start(repos, keyB, caps)).ok).toBe(true); // queued: keyA 2 + keyB 1 = 3 < 4
+    expect((await start(repos, keyB, caps)).ok).toBe(true); // 4
+    expect(await start(repos, keyB, caps)).toEqual({ ok: false, cap: 'queued_total', used: 4 });
+    expect((await repos.jobs.recoverExpired(iso(now), 5)).requeued.map((j) => j.id)).toEqual([claimed.id]);
+    expect(await start(repos, keyB, caps)).toEqual({ ok: false, cap: 'queued_total', used: 5 });
+    // fan-out: the parent counts once, its units never (neither per key nor in the queue)
+    for (const j of await unfinished(keyB)) await repos.jobs.cancelQueued(j.id, iso(now), { code: 'cancelled', message: 'cancelled' });
+    const parent = (await repos.jobs.claim({ workerId: 'w2', types: TYPES, now: iso(now), leaseUntil: iso(now + 60_000), maxRunningPerKey: 10 }))!;
+    expect(parent.apiKeyId).toBe(keyA);
+    const units = Array.from({ length: 4 }, () => job({ type: UNIT_JOB_TYPE, apiKeyId: keyA, parentId: parent.id }));
+    expect(await repos.jobs.fanOut(parent, units, iso(now), { workerId: 'w2', attempts: parent.attempts! })).toBe('ok');
+    await check();
+    expect((await start(repos, keyB, caps)).ok).toBe(true); // queued: keyA 2 + keyB 1; the 4 queued units are not counted
+    // cancelling the tree frees the parent's slot
+    expect(await repos.jobs.cancelTree(parent.id, iso(now))).not.toBeNull();
+    expect((await start(repos, keyA, caps)).ok).toBe(true);
+    await check();
+    expect(j3).toBeDefined();
+  });
+
+  it('LIM-10 render quota windows count only jobs started inside the window', async () => {
+    const old = job({ apiKeyId: keyB, createdAt: iso(now - 120_000) });
+    await repos.jobs.insert(old, old.createdAt);
+    const since = iso(now - 60_000);
+    const q = () => repos.jobs.insertWithQuota(job({ apiKeyId: keyB, createdAt: iso(now) }), iso(now), { apiKeyId: keyB, types: TYPES, windows: [{ since, limit: 1 }] });
+    expect((await q()).ok).toBe(true);
+    expect(await q()).toEqual({ ok: false, window: 0, used: 1 });
+  });
+
+  it.skipIf(kind === 'memory')('LIM-11 an enqueue holds the cap lock across one statement only (then commit), accepted or refused', async () => {
+    const log: string[] = [];
+    const r = createPrismaRepositories(recording(db!.prisma, log), DEFAULT_WORKSPACE_ID, kind as 'sqlite');
+    const afterLock = () => {
+      const i = log.findIndex((s) => / SET .(id|count). = .(id|count). WHERE/.test(s));
+      expect(i).toBeGreaterThan(-1);
+      return log.slice(i + 1);
+    };
+    for (const caps of [{ maxActivePerKey: 1 }, { maxActivePerKey: 1, maxQueuedTotal: 100 }, { maxQueuedTotal: 100 }]) {
+      for (const expected of [true, false]) {
+        log.length = 0;
+        const k = 'maxActivePerKey' in caps ? keyA : undefined;
+        if (!expected && !k) continue;
+        expect((await start(r, k, caps)).ok).toBe(expected);
+        const after = afterLock();
+        expect(after).toHaveLength(1);
+        expect(after[0]).toMatch(/^SELECT \(SELECT COUNT/);
+      }
+      await cancelAll();
+    }
   });
 
   it('LIM-05 usage counters: reserve is atomic across concurrent callers, all-or-nothing, and per window', async () => {
