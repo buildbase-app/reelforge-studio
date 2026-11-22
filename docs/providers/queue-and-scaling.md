@@ -258,6 +258,30 @@ warning is logged once a minute. Semantics differ slightly from the in-memory
 token bucket: a fixed minute window, so a burst at a minute boundary can see up
 to twice the limit within 60 s (QUE-11, SCA-10).
 
+## Resource limits across instances (D-090, D-091)
+
+Every limit is a `limits.*` setting (runtime: `update_config` / `PATCH
+/v1/config` applies it to the next request on every instance). `0` turns a job
+or provider cap off. Full table with defaults and errors:
+[docs/security/HARDENING.md](../security/HARDENING.md#resource-limits).
+
+| Limit | Default | How it is counted with several instances |
+| --- | --- | --- |
+| `limits.maxQueuedJobsPerKey` (unfinished jobs of one key) | 100 | in the job insert transaction, under the key's row lock (as the render quota): exact |
+| `limits.maxQueuedJobs` (queued jobs in total) | **0 (off) with the database queue**, 1000 with the in-process queue | when on: in the job insert transaction, under the `Workspace` row lock (every start waits there): exact. Off by default here because the database and autoscaled workers absorb the queue |
+| `limits.maxRunningJobsPerKey` (running jobs of one key) | 0 (off) | when on: the claim skips keys that already run that many database-queue jobs. Exact on one worker; two workers claiming at the same moment may each take one more |
+| fair claiming (always on) | - | each claim first reads, without locks, the running jobs per key and the oldest queued job per key, then locks one job of the key with the fewest running jobs (oldest first) with an index-ordered `SELECT ... FOR UPDATE SKIP LOCKED`; SQLite does the same in its one conditional `UPDATE`. Two keys with 20 jobs each share 2 workers 10/10 (LIM-07) |
+| `limits.providerRunsPerKeyPerDay`, `limits.providerRunsPerDay` | 500, 0 (off) | usage counters in `RateLimitWindow` (keys `usage:...`, one row per UTC day), one conditional `UPDATE ... SET count = count + 1 WHERE count < limit` per counter in one transaction, all or nothing: exact. Swept after two days |
+| render size (`maxRenderSeconds`, `maxRenderFrames`, `maxScenes`, `maxRenderDimension`, `maxRenderFps`) | 180 s, 5400, 50, 3840 px, 60 | checked from the manifest before the job is created; no shared state |
+
+Refusals: `429 too_many_jobs` / `429 queue_full` (with `Retry-After: 30`),
+`429 provider_limit_exceeded` / `429 provider_budget_exhausted` (with
+`Retry-After` until midnight UTC), `422 render_limit_exceeded` (every exceeded
+limit in `details.limits`), `413 too_large` for uploads. MCP tools return the
+same `code`, `message` and `details` as a tool error. Each refusal is counted in
+`reelforge_limits_rejections_total{reelforge_limit_reason}` and written to the
+audit log as `limit.rejected` (result `denied`).
+
 ## Test cases
 
 Latest run: **2026-11-21**, branch `claude/enterprise-queue`.
@@ -323,13 +347,20 @@ and a job that dies while its worker shuts down is handed back, never failed
 | SCL-16 | Docker: MinIO stopped: worker `/readyz` 503 (storage), a new job stays queued and the log says why; MinIO back: the job runs | Docker | pass 2026-11-21 |
 | SCL-17 | Docker: PostgreSQL stopped: api and worker `/readyz` 503 (database unreachable), no restarts, backoff warning in the log; back: renders again | Docker | pass 2026-11-21 |
 | SCL-18 | Docker: worker metrics (role, queue depth, finished jobs), bounded labels, no secret in any container log | Docker | pass 2026-11-21 |
+| LIM-01 | per-key job cap: 8 concurrent inserts with cap 3 give exactly 3; other keys unaffected; finished jobs free a slot, running jobs count | contract (4 targets) | pass 2026-11-22 |
+| LIM-02 | total queue cap: 12 concurrent inserts by 2 keys and without a key, cap 5: exactly 5; running jobs do not count | contract (4 targets) | pass 2026-11-22 |
+| LIM-03 | render quota windows and caps in one call: the window refuses first | contract (4 targets) | pass 2026-11-22 |
+| LIM-04 | claim with `maxRunningPerKey`: a key at its cap is skipped, others (and jobs without a key) are claimed in order | contract (4 targets) | pass 2026-11-22 |
+| LIM-05 | usage counters: 10 concurrent reserves with limit 4 give exactly 4; all or nothing across two counters; per day | contract (4 targets) | pass 2026-11-22 |
+| LIM-06 | the sweep keeps usage counters and request windows apart | contract (4 targets) | pass 2026-11-22 |
+| LIM-07 | fair claiming: two keys with 20 queued jobs each (one queued first) share 2 workers 10/10 in the first 20 claims, without a running cap | contract (4 targets) | pass 2026-11-22 |
 
 Commands:
 
 ```bash
-pnpm --filter @reelforge/core exec vitest run test/jobs.queue.test.ts
+pnpm --filter @reelforge/core exec vitest run test/jobs.queue.test.ts test/limits.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://...?allowPublicKeyRetrieval=true \
-  pnpm --filter @reelforge/db exec vitest run test/queue.contract.test.ts test/queue.processes.test.ts
+  pnpm --filter @reelforge/db exec vitest run test/queue.contract.test.ts test/queue.processes.test.ts test/limits.contract.test.ts
 TEST_POSTGRES_URL=postgresql://... pnpm --filter @reelforge/server exec vitest run test/scaling.test.ts
 REELFORGE_TEST_DB=mysql TEST_MYSQL_URL=mysql://... pnpm --filter @reelforge/server exec vitest run test/scaling.test.ts
 SCALE=1 E2E_PREFIX=que PORT=4335 e2e/docker/run.sh

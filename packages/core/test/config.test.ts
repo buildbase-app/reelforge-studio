@@ -58,7 +58,29 @@ describe('config schema', () => {
     const r = resolveConfig({ env: {} });
     expect(ConfigSchema.safeParse(r.config).success).toBe(true);
     expect(r.config.server).toMatchObject({ host: '127.0.0.1', port: 4321, allowedHosts: [] });
-    expect(r.config.limits).toEqual({ rateLimitPerMinute: 300, rateLimitStore: 'auto', maxUploadBytes: 209715200, maxJsonBytes: 2097152, renderConcurrency: 1 });
+    expect(r.config.limits).toEqual({
+      rateLimitPerMinute: 300,
+      rateLimitStore: 'auto',
+      maxUploadBytes: 209715200,
+      maxJsonBytes: 2097152,
+      renderConcurrency: 1,
+      // Resource limits (D-090, D-091)
+      maxQueuedJobsPerKey: 100,
+      maxQueuedJobs: 1000,
+      maxRunningJobsPerKey: 0,
+      maxRenderSeconds: 180,
+      maxRenderFrames: 5400,
+      maxScenes: 50,
+      maxRenderDimension: 3840,
+      maxRenderFps: 60,
+      providerRunsPerKeyPerDay: 500,
+      providerRunsPerDay: 0,
+    });
+    // The total queue cap follows the effective queue (D-090): unbounded with the database queue.
+    expect(resolveConfig({ env: { REELFORGE_QUEUE_DRIVER: 'database' } }).config.limits.maxQueuedJobs).toBe(0);
+    expect(resolveConfig({ env: { REELFORGE_ROLE: 'api', DATABASE_URL: 'postgresql://u@db/x' } }).config.limits.maxQueuedJobs).toBe(0);
+    expect(resolveConfig({ env: { REELFORGE_ROLE: 'api', REELFORGE_QUEUE_DRIVER: 'inprocess' } }).config.limits.maxQueuedJobs).toBe(1000);
+    expect(resolveConfig({ env: { REELFORGE_QUEUE_DRIVER: 'database', REELFORGE_MAX_QUEUED_JOBS: '50' } }).config.limits.maxQueuedJobs).toBe(50);
     expect(r.config.database.url).toMatch(/^file:\/.*\/data\/reelforge\.db$/);
     expect([...r.settings.values()].every((s) => s.source === 'default')).toBe(true);
   });
@@ -451,7 +473,7 @@ describe('ReelforgeService configuration', () => {
     // A new service on the same database starts with the runtime values.
     const again = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), { repositories: repos, dataDir: join(dir, 'svc'), configSources: { env: {} } });
     expect(again.jobs.concurrency).toBe(3);
-    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', 'runtime', 'default', 'runtime']);
+    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', 'runtime', 'default', 'runtime', ...Array(10).fill('default')]);
   });
 
   it('configure_provider stores encrypted values that providers see, and get_config shows the same key as runtime', async () => {

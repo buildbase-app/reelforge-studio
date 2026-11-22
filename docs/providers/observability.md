@@ -109,6 +109,7 @@ OpenTelemetry names; the Prometheus name is what `GET /metrics` shows.
 | `reelforge.server.role` | `reelforge_server_role` | gauge | `reelforge_role` (`all`/`api`/`worker`): 1 for this instance's role (#36) |
 | `reelforge.jobs.requeued` | `reelforge_jobs_requeued_total` | counter | `reelforge_reason` (`lease_expired`, `released`): database queue (#36) |
 | `reelforge.queue.errors` | `reelforge_queue_errors_total` | counter | `reelforge_operation` (`claim`, `heartbeat`, `recover`): database queue (#36) |
+| `reelforge.limits.rejections` | `reelforge_limits_rejections_total` | counter | `reelforge_limit_reason` (`render_limit`, `jobs_per_key`, `queue_full`, `render_quota`, `upload_too_large`, `provider_runs_per_key`, `provider_budget`): requests refused by a resource limit (D-090..D-092) |
 | `reelforge.render.scene.duration` (s) | `reelforge_render_scene_duration_seconds_*` | histogram | `reelforge_engine`, `reelforge_outcome` (`ok`/`error`) |
 | `reelforge.render.frames` | `reelforge_render_frames_total` | counter | `reelforge_engine` |
 | `reelforge.render.fps` | `reelforge_render_fps_*` | histogram | `reelforge_engine` (frames per wall-clock second per scene) |
