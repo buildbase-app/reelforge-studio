@@ -12,7 +12,7 @@
   "scripts": {
     "build": "pnpm -r --filter './packages/*' run build",
     "typecheck": "tsc -p tsconfig.json && pnpm -r run typecheck",
-    "test": "pnpm -r run test && pnpm test:docs",
+    "test": "pnpm -r run test && pnpm test:docs && pnpm test:capture",
     "spike": "tsx scripts/spike.ts",
     "gallery": "tsx scripts/gallery/src/cli.ts",
     "prebuild:engines": "tsx apps/server/src/prebuild.ts",
@@ -27,7 +27,9 @@
     "test:docs": "node --test scripts/docs/*.test.mjs",
     "tutorials:prove": "tsx scripts/tutorials/prove.ts",
     "tutorials:docs": "tsx scripts/tutorials/docs.ts",
-    "tutorials:test": "vitest run --dir scripts/tutorials"
+    "tutorials:test": "vitest run --dir scripts/tutorials",
+    "capture": "node scripts/capture/capture.mjs",
+    "test:capture": "node --test scripts/capture/*.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -45,7 +47,8 @@
     "@reelforge/db": "workspace:*",
     "@reelforge/gallery": "workspace:*",
     "zod": "^4.1.0",
-    "@modelcontextprotocol/sdk": "1.32.2"
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "playwright": "1.63.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

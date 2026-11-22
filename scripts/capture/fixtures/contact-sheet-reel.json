@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "0.2",
+  "projectId": "docs-capture-templates",
+  "title": "Every built-in template",
+  "output": { "width": 1080, "height": 1920, "fps": 30, "format": "mp4" },
+  "scenes": [
+    {
+      "id": "kinetic",
+      "engine": "remotion",
+      "template": "kinetic-title",
+      "durationSeconds": 3,
+      "props": { "headline": "Your agent directs", "subline": "kinetic-title on Remotion" }
+    },
+    {
+      "id": "explainer",
+      "engine": "motion-canvas",
+      "template": "animated-explainer",
+      "durationSeconds": 4,
+      "props": { "title": "How a reel is made", "points": ["The agent plans the scenes", "The studio renders each one", "One MP4 comes out"] }
+    },
+    {
+      "id": "html",
+      "engine": "html",
+      "template": "html-title",
+      "durationSeconds": 3,
+      "props": { "kicker": "html engine", "headline": "Built from HTML and CSS", "subline": "html-title, animated with keyframes" }
+    },
+    {
+      "id": "hyperframes",
+      "engine": "hyperframes",
+      "template": "hyperframes-title",
+      "durationSeconds": 3,
+      "props": { "headline": "A HyperFrames composition", "subline": "hyperframes-title, a GSAP timeline" }
+    }
+  ]
+}

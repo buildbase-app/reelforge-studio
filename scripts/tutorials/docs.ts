@@ -144,7 +144,7 @@ Test case: ${id} in [TEST_CASES.md](../TEST_CASES.md).`;
     `| Date | ${p.date.replace('T', ' ').replace(/\.\d+Z$/, ' UTC')} |`,
     `| Studio | ReelForge Studio ${p.studioVersion}, commit \`${p.commit}\`, started from a checkout with \`REELFORGE_LICENCE_MODE=off\` (local development only) |`,
     `| Reproduce | \`pnpm tutorials:prove ${agent} ${engine}\` |`,
-    `| Command the proof ran | \`${p.command.replace(/\|/g, '\\|')}\` |`,
+    `| Command the proof ran | \`${p.command.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')}\` |`,
   ];
   if (p.llm) lines.push(`| Model | ${p.llm.model ?? 'n/a'}; ${p.llm.turns ?? 'n/a'} turns; ${p.toolCalls.length} tool calls; ${p.llm.durationMs ? Math.round(p.llm.durationMs / 1000) + ' s' : 'n/a'} agent time${p.llm.costUsd ? `; ${p.llm.costUsd.toFixed(3)} USD` : ''} |`);
   lines.push(
