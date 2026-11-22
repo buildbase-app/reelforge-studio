@@ -331,8 +331,10 @@ spec:
     - { name: shm, emptyDir: { medium: Memory, sizeLimit: 1Gi } }
 ```
 
-(VERIFY: the Kubernetes spec is not tested here; the same flags are tested
-with Docker.)
+(VERIFY: the Kubernetes spec is not tested on a cluster here; the same flags are
+tested with Docker. Full manifests for an api and workers, schema-validated with
+kubeconform: `deployment/kubernetes/`, see
+[providers/queue-and-scaling.md](providers/queue-and-scaling.md#example-kubernetes).)
 
 ## Supply chain
 
@@ -462,6 +464,32 @@ data volume is still needed for the SQLite database (unless PostgreSQL/MySQL),
 the URL signing key, render staging and caches. Provider matrix, permissions,
 examples, retention and troubleshooting: [providers/storage.md](providers/storage.md).
 
+## Scaling: more than one instance
+
+One instance (`server.role: all`, the default) runs the API and the renders.
+To scale out, run the same image as **`api`** instances (REST + MCP behind a
+load balancer; they enqueue jobs and never render) and **`worker`** instances
+(they claim jobs from the database queue and render; they serve only
+`/healthz`, `/readyz` and `/metrics`). This needs PostgreSQL or MySQL, shared
+storage (`storage.driver` `s3`/`azure`/`gcs`, or one shared volume with
+`REELFORGE_STORAGE_LOCAL_SHARED=true`) and the same `REELFORGE_SECRET_KEY`
+everywhere; the `api`/`worker` roles refuse to start otherwise and say why.
+A crashed worker's job is re-queued after its lease (`queue.leaseSeconds`);
+`docker stop` / a Kubernetes rollout lets running renders finish for
+`queue.shutdownGraceSeconds`, then hands them back: set the orchestrator's stop
+grace period longer. Render quotas and per-key rate limits are counted in the
+database, so they hold across instances.
+
+```bash
+# compose: one api, three workers, PostgreSQL, an S3 bucket
+docker compose -f deployment/compose/docker-compose.scale.yml up -d --scale worker=3
+# Kubernetes: api + worker Deployments, HPAs (CPU; workers also on reelforge_jobs_queued), PDBs
+kubectl apply -k deployment/kubernetes/
+```
+
+Matrix, settings, autoscaling on the queue depth, test cases and
+troubleshooting: [providers/queue-and-scaling.md](providers/queue-and-scaling.md).
+
 ## Database
 
 ReelForge picks the database from the `DATABASE_URL` scheme. Nothing to set up
@@ -571,3 +599,5 @@ statement by statement): restore the backup taken before the upgrade.
   automatic retention yet.
 - Jobs that were running when the server stopped are marked `failed`
   (`interrupted`) on the next start; retry them with `POST /v1/jobs/:id/retry`.
+  With the database queue (`api`/`worker` roles) they are queued again instead
+  (lease expiry, or handed back at shutdown).

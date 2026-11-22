@@ -40,6 +40,10 @@ export interface CoreInstruments {
   framesRendered: Counter;
   renderFps: Histogram;
   providerCalls: Counter;
+  /** Database queue: jobs handed back to the queue (reason: lease_expired, released). */
+  jobsRequeued: Counter;
+  /** Database queue: claim, heartbeat or recovery calls that failed (operation). */
+  queueErrors: Counter;
 }
 
 const SECONDS_BUCKETS = [0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600];
@@ -69,6 +73,8 @@ export function coreInstruments(meter: Meter): CoreInstruments {
         advice: { explicitBucketBoundaries: FPS_BUCKETS },
       }),
       providerCalls: meter.createCounter('reelforge.provider.calls', { description: 'Provider runs (TTS, ...), by provider and outcome (ok, cached, error).' }),
+      jobsRequeued: meter.createCounter('reelforge.jobs.requeued', { description: 'Database queue: jobs queued again, by reason (lease_expired: the worker stopped renewing its lease; released: a worker shut down).' }),
+      queueErrors: meter.createCounter('reelforge.queue.errors', { description: 'Database queue: failed queue operations (claim, heartbeat, recover), e.g. while the database is unreachable.' }),
     };
     cache.set(meter, i);
   }

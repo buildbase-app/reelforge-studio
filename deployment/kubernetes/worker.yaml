@@ -1,0 +1,94 @@
+# The worker role: claims jobs from the database queue and renders them; serves
+# only /healthz, /readyz and /metrics (server.role "worker", D-076). Scale on
+# CPU and the queue depth (hpa.yaml). On SIGTERM a worker stops claiming, lets
+# running renders finish for queue.shutdownGraceSeconds, then hands the rest
+# back to the queue: keep terminationGracePeriodSeconds above that value.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reelforge-worker
+  namespace: reelforge
+  labels: { app.kubernetes.io/name: reelforge, app.kubernetes.io/component: worker }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: reelforge, app.kubernetes.io/component: worker }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: reelforge, app.kubernetes.io/component: worker }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4321"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: reelforge
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 330
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault   # see api.yaml for the Localhost Chromium profile
+      containers:
+        - name: reelforge
+          image: ghcr.io/buildbase-app/reelforge-studio
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 4321, protocol: TCP }
+          env:
+            - { name: REELFORGE_ROLE, value: worker }
+            - { name: REELFORGE_WORKER_CONCURRENCY, value: "1" }   # one render per pod; scale out with replicas
+            - { name: REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS, value: "300" }
+            - { name: DATABASE_URL_FILE, value: /run/secrets/reelforge/database-url }
+            - { name: REELFORGE_SECRET_KEY_FILE, value: /run/secrets/reelforge/secret-key }
+            - { name: REELFORGE_S3_ACCESS_KEY_ID_FILE, value: /run/secrets/reelforge/s3-access-key-id }
+            - { name: REELFORGE_S3_SECRET_ACCESS_KEY_FILE, value: /run/secrets/reelforge/s3-secret-access-key }
+          envFrom:
+            - configMapRef: { name: reelforge }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            # A render uses several cores and 1-2 GB (docs/DEPLOY.md).
+            requests: { cpu: "2", memory: 2Gi }
+            limits: { memory: 4Gi }
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          # Not ready while the database or storage is down or the worker is draining.
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          volumeMounts:
+            - { name: secrets, mountPath: /run/secrets/reelforge, readOnly: true }
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+            - { name: shm, mountPath: /dev/shm }
+      volumes:
+        - name: secrets
+          secret: { secretName: reelforge, defaultMode: 0440 }
+        # Render staging and engine caches (local to the pod; renders are committed to the bucket).
+        - { name: data, emptyDir: { sizeLimit: 20Gi } }
+        - { name: tmp, emptyDir: { medium: Memory, sizeLimit: 1Gi } }
+        - { name: shm, emptyDir: { medium: Memory, sizeLimit: 1Gi } }
+---
+# Metrics of the workers (they have no other HTTP endpoint).
+apiVersion: v1
+kind: Service
+metadata:
+  name: reelforge-worker-metrics
+  namespace: reelforge
+  labels: { app.kubernetes.io/name: reelforge, app.kubernetes.io/component: worker }
+spec:
+  clusterIP: None
+  selector: { app.kubernetes.io/name: reelforge, app.kubernetes.io/component: worker }
+  ports:
+    - { name: http, port: 4321, targetPort: http, protocol: TCP }

@@ -310,3 +310,37 @@ implementation or licensing decisions.
 38. **parse5 8.1.1** (npm registry, 2026-11-21): MIT, ESM, WHATWG-compliant
     HTML parser and serializer (`parse`, `parseFragment`, `serialize`,
     `defaultTreeAdapter`).
+
+39. **Row-locking job queues and autoscaling on queue depth** (consulted
+    2026-11-21, for #36, D-075..D-079):
+    PostgreSQL 17 `SELECT ... FOR UPDATE SKIP LOCKED` ("The Locking Clause",
+    https://www.postgresql.org/docs/17/sql-select.html#SQL-FOR-UPDATE-SHARE:
+    "rows that cannot be immediately locked are skipped ... appropriate for
+    queue-like tables"); MySQL 8.4 `SKIP LOCKED` / `NOWAIT` ("Locking Read
+    Concurrency with NOWAIT and SKIP LOCKED",
+    https://dev.mysql.com/doc/refman/8.4/en/innodb-locking-reads.html), and
+    InnoDB's consistent read snapshot (repeatable read takes it at the first
+    plain read, hence read committed for the claim and quota transactions);
+    MariaDB `SKIP LOCKED` since 10.6
+    (https://mariadb.com/kb/en/select/#skip-locked; not tested here); SQLite
+    `RETURNING` since 3.35 (https://www.sqlite.org/lang_returning.html) and
+    its single writer (https://www.sqlite.org/wal.html). Prisma 7
+    interactive transactions with `isolationLevel` (`ReadCommitted` on
+    PostgreSQL/MySQL; SQLite only `Serializable`) and `$queryRawUnsafe`
+    (https://www.prisma.io/docs/orm/prisma-client/queries/transactions).
+    node-postgres `connectionTimeoutMillis` (default 0 = wait forever,
+    https://node-postgres.com/apis/pool); MariaDB Connector/Node.js
+    `connectTimeout` 1000 ms and pool `acquireTimeout` 10000 ms defaults
+    (https://github.com/mariadb-corporation/mariadb-connector-nodejs/blob/master/documentation/connection-options.md).
+    Kubernetes `autoscaling/v2` HorizontalPodAutoscaler with `External`
+    metrics and `behavior` (https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/),
+    prometheus-adapter `externalRules`
+    (https://github.com/kubernetes-sigs/prometheus-adapter/blob/master/docs/externalmetrics.md),
+    KEDA Prometheus scaler (https://keda.sh/docs/latest/scalers/prometheus/),
+    Pod Security Standards "restricted"
+    (https://kubernetes.io/docs/concepts/security/pod-security-standards/),
+    PodDisruptionBudget (`policy/v1`). Validation tools: kubeconform 0.7.0
+    (https://github.com/yannh/kubeconform, release binary) with its default
+    schema location for Kubernetes 1.31.0, and kubectl 1.31.4 (Kustomize
+    5.4.2, https://dl.k8s.io) for `kubectl kustomize`; both used as
+    developer tools only, nothing added to the image.

@@ -316,6 +316,46 @@ after the job queue work); signed licence answers (needs BuildBase).
 | `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` | pass (SECT-01..16, 20..25, 30..38, 40 added) |
 | Docker e2e, release edition, hardened flags with the sandbox on by image default, `E2E_PREFIX=sec` | **ALL DOCKER E2E CHECKS PASSED** on SQLite (208 checks): renderer processes in a nested PID namespace; a scene's navigation (to an internal address and to a host name) fails the render in under 4 s with nothing reaching a canary container; WebRTC and a full-document scene reach nothing; a scene CSP override is refused; anonymous `/readyz` minimal, admin `/readyz` full; `/metrics` 401 without its token; a dev `build-info.json` over the release one stops the start. PostgreSQL/MySQL Docker e2e not run here |
 
+### Job queue and scaling: more than one instance (2026-11-21, issue #36)
+
+Built (D-075..D-079; operator reference and test record:
+[providers/queue-and-scaling.md](providers/queue-and-scaling.md)): a database
+job queue (`queue.driver` `database`; `inprocess` stays the single-instance
+default) with row-locked claims (`SELECT ... FOR UPDATE SKIP LOCKED` on
+PostgreSQL/MySQL 8, one atomic `UPDATE ... RETURNING` on SQLite, single
+instance), leases renewed by a heartbeat, crashed workers' jobs re-queued up to
+`queue.maxAttempts` then failed with `lease_expired`, fenced writes, cancel and
+progress/long-poll across instances, graceful drain that hands running jobs
+back; roles `server.role` `all` / `api` (never renders) / `worker` (only
+health, readiness, metrics) of one image, refused on SQLite or per-instance
+storage; render quotas counted under a row lock and a shared per-key rate limit
+(`limits.rateLimitStore`), fixing D-056's in-process limit; `/readyz` queue
+status, `reelforge_server_role`, cluster-wide `reelforge_jobs_queued`;
+migration `0006_job_queue` (after #66's `0005_webhooks`); Kubernetes Kustomize
+base (api + worker Deployments, HPAs on CPU and the queue depth, PDBs,
+restricted pod security) and a compose file for an api with N workers.
+
+| Check | Result |
+| --- | --- |
+| `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` (SQLite) | typecheck pass; project-schema 44, media-pipeline 11, engines 30, db 101, core 170 + server 103 passed; 4 timing-bound tests (a 30 s render wait, 5 s CLI spawns) timed out under a host load average of 20-28 from parallel agents and passed when re-run (see the PR) |
+| Queue contract (QUE-01..12) on memory, SQLite, PostgreSQL 17, MySQL 8.4; whole db suite | 48 passed; db suite 203 passed |
+| Worker processes on SQLite, PostgreSQL 17, MySQL 8.4 (SCL-01..06: N×M exactly once, SIGKILL mid-job, max attempts, SIGTERM hand-back, quota race of two processes, cross-instance cancel/long-poll) | 18 passed |
+| Runner (SCL-01u..11u) | 11 passed |
+| Server: guard (SCA-01..04), an api + two workers on one database (SCA-05..12), webhooks exactly once across instances (SCA-13) | 13 passed on PostgreSQL 17, 13 on MySQL 8.4 |
+| Kubernetes manifests | kubeconform 0.7.0 strict (1.31): 12 valid; `kubectl kustomize` output: 11 valid; not applied to a cluster |
+| Docker scale e2e (`SCALE=1 e2e/docker/run.sh`), release image, hardened flags: api + 2 workers, PostgreSQL 17, MinIO | **ALL SCALE E2E CHECKS PASSED** (47 checks): role guard refusals, worker-only routes, 6 renders spread over both workers once each (one `running` event per job in PostgreSQL, none on the api), `docker kill` mid-render → re-queued and finished elsewhere (attempt 2), cancel across instances, `docker stop` hands the job back, MinIO down → workers pause and `/readyz` 503, PostgreSQL down → `/readyz` 503 without restarts and back to work, bounded metrics, no secret in any log |
+
+Found and fixed: Playwright closed Chrome on SIGTERM, so a draining worker
+failed its render instead of handing it back (engines now leave signals to
+the server; a job ending during shutdown is always handed back); `/readyz`
+could hang on an unreachable database (probes capped at 5 s, PostgreSQL
+connect timeout 10 s).
+
+Not done: Redis/BullMQ (not built, D-075), MariaDB and Azure/GCS with several
+instances, the MySQL Docker scale run, a real cluster and the HPA External
+metric path, a Helm chart; CI does not run the scale e2e yet (a `.github/`
+change for a maintainer).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |
