@@ -461,20 +461,25 @@ export class JobRunner {
       return;
     }
     const cap = this.maxRunningPerKey();
-    // Jobs of a key that already runs `cap` jobs wait (keeping their place); the next key's job starts.
-    for (let i = 0; this.running.size < this.concurrency && i < this.queue.length; ) {
-      const id = this.queue[i]!;
-      const job = this.active.get(id);
-      if (!job || job.status !== 'queued') {
-        this.queue.splice(i, 1);
-        continue;
+    // Fair across keys (D-090): start the queued job whose key runs the fewest jobs, oldest first among
+    // equals; jobs of a key at its cap (limits.maxRunningJobsPerKey) wait and keep their place.
+    this.queue = this.queue.filter((id) => this.active.get(id)?.status === 'queued');
+    while (this.running.size < this.concurrency && this.queue.length > 0) {
+      let best = -1;
+      let bestRunning = Infinity;
+      for (const [i, id] of this.queue.entries()) {
+        const key = this.active.get(id)!.apiKeyId;
+        const n = key ? this.runningFor(key) : 0;
+        if (cap !== undefined && key && n >= cap) continue;
+        if (n < bestRunning) {
+          best = i;
+          bestRunning = n;
+          if (n === 0) break;
+        }
       }
-      if (cap !== undefined && job.apiKeyId && this.runningFor(job.apiKeyId) >= cap) {
-        i++;
-        continue;
-      }
-      this.queue.splice(i, 1);
-      void this.start(job);
+      if (best < 0) break;
+      const [id] = this.queue.splice(best, 1);
+      void this.start(this.active.get(id!)!);
     }
     this.notifyIdle();
   }

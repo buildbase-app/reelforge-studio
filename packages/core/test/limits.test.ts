@@ -146,7 +146,7 @@ describe('ReelforgeService limits', () => {
       // 0 turns a cap off.
       await svc.updateConfig({ 'limits.maxQueuedJobs': 0, 'limits.maxQueuedJobsPerKey': 0 });
       expect((await as('key_a', () => svc.startRender('sample-reel'))).status).toBe('queued');
-      expect(svc.capabilities().limits.jobs).toEqual({ maxQueuedJobsPerKey: null, maxQueuedJobs: null, maxRunningJobsPerKey: 2 });
+      expect(svc.capabilities().limits.jobs).toEqual({ maxQueuedJobsPerKey: null, maxQueuedJobs: null, maxRunningJobsPerKey: null });
     } finally {
       await svc.updateConfig({ 'limits.maxQueuedJobsPerKey': null, 'limits.maxQueuedJobs': null });
       for (const j of await svc.listJobs()) if (j.status === 'queued' || j.status === 'running') await svc.cancelJob(j.id);
@@ -211,6 +211,31 @@ describe('per-key running cap (in-process queue)', () => {
     release.get('a2')!();
     release.get('b1')!();
     await runner.idle();
+  });
+});
+
+describe('fair claiming across keys', () => {
+  it('LIMT-08 without a running cap, two keys with 20 queued jobs each share 2 slots evenly (in-process queue)', async () => {
+    const order: string[] = [];
+    const runner = new JobRunner({
+      repo: createMemoryRepositories().jobs,
+      concurrency: 2,
+      handlers: {
+        render: async (ctx) => {
+          order.push(String(ctx.job.apiKeyId));
+          await new Promise((r) => setTimeout(r, 2));
+          return {};
+        },
+      },
+    });
+    await runner.init();
+    // Key A queues all 20 first: a FIFO queue would run all of A before any of B.
+    for (const key of ['key_a', 'key_b']) for (let i = 0; i < 20; i++) await runner.submit('render', { i }, { apiKeyId: key });
+    await runner.idle();
+    expect(order).toHaveLength(40);
+    const firstHalf = order.slice(0, 20);
+    expect(firstHalf.filter((k) => k === 'key_a').length).toBeGreaterThanOrEqual(9);
+    expect(firstHalf.filter((k) => k === 'key_b').length).toBeGreaterThanOrEqual(9);
   });
 });
 

@@ -202,25 +202,31 @@ export const ConfigSchema = z.object({
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_MAX_QUEUED_JOBS_PER_KEY',
-      default: 10,
+      default: 100,
       description:
-        'Unfinished render and preview jobs (queued or running) one API key may have. Another start is refused with `429 too_many_jobs` and `Retry-After` until one finishes. Counted in the database, so it holds across instances. `0`: no limit.',
+        'Unfinished render and preview jobs (queued or running) one API key may have. Another start is refused with `429 too_many_jobs` and `Retry-After` until one finishes. Counted in the database, so it holds across instances. Raise it (or `0`) for one organisation key that feeds a large worker fleet. `0`: no limit.',
     }),
     maxQueuedJobs: setting(nonNegative(), {
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_MAX_QUEUED_JOBS',
-      default: 100,
+      // Scale-aware (D-090): a single box keeps its queue bounded; the database queue scales with the database and the worker fleet.
+      default: (get: Getter) => {
+        const driver = get('queue.driver');
+        const database = driver === 'database' || (driver === 'auto' && get('server.role') !== 'all');
+        return database ? 0 : 1000;
+      },
+      defaultText: '`1000` with the in-process queue, `0` (no limit) with the database queue',
       description:
-        'Render and preview jobs that may wait in the queue in total (every key, every instance). A start beyond it is refused with `429 queue_full` and `Retry-After`. `0`: no limit.',
+        'Render and preview jobs that may wait in the queue in total (every key, every instance). A start beyond it is refused with `429 queue_full` and `Retry-After`. The default follows the effective queue (`queue.driver`, `server.role`): a single instance keeps its queue bounded, the database queue is unbounded because the database and autoscaled workers absorb the load. `0`: no limit.',
     }),
     maxRunningJobsPerKey: setting(nonNegative(), {
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_MAX_RUNNING_JOBS_PER_KEY',
-      default: 2,
+      default: 0,
       description:
-        "Jobs of one API key that run at the same time, so one key cannot take every render slot; that key's other jobs wait while other keys' jobs run. Only matters with more than one slot (`limits.renderConcurrency`, workers). With several workers claiming at the same moment a key may briefly get one more. `0`: no limit.",
+        "Jobs of one API key that run at the same time; that key's other jobs wait while other keys' jobs run. Off by default: jobs are always claimed fairly across keys (the key with the fewest running jobs first), so one key cannot starve others, and a single organisation key can still use every worker. Set it to reserve capacity. With several workers claiming at the same moment a key may briefly get one more. `0`: no limit.",
     }),
     maxRenderSeconds: setting(z.number().int().min(1).max(180), {
       kind: 'integer',
@@ -261,7 +267,7 @@ export const ConfigSchema = z.object({
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_PROVIDER_RUNS_PER_KEY_PER_DAY',
-      default: 50,
+      default: 500,
       description:
         'Provider calls (`run_provider`, `generate_voice`) one API key may make per UTC day; cached results do not count, failed calls do. Refused with `429 provider_limit_exceeded` until midnight UTC. Counted in the database across instances. `0`: no limit.',
     }),
@@ -269,9 +275,9 @@ export const ConfigSchema = z.object({
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_PROVIDER_RUNS_PER_DAY',
-      default: 200,
+      default: 0,
       description:
-        "Provider calls per UTC day for the whole server (every key and instance): a budget for the operator's paid provider accounts. Refused with `429 provider_budget_exhausted` until midnight UTC. `0`: no limit.",
+        "Provider calls per UTC day for the whole server (every key and instance): a budget for the operator's own paid provider accounts. Off by default; set it from your provider plan (docs/security/HARDENING.md recommends one). Refused with `429 provider_budget_exhausted` until midnight UTC. `0`: no limit.",
     }),
   }),
   storage: z.object({

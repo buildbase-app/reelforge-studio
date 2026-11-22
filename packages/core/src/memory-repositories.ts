@@ -211,7 +211,8 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         const next = [...jobs.values()]
           .filter((j) => j.status === 'queued' && j.queue === 'database' && types.includes(j.type))
           .filter((j) => maxRunningPerKey === undefined || !j.apiKeyId || (running.get(j.apiKeyId) ?? 0) < maxRunningPerKey)
-          .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];
+          // Fair across keys (D-090): the key with the fewest running jobs first, then the oldest job.
+          .sort((a, b) => (running.get(a.apiKeyId ?? '') ?? 0) - (running.get(b.apiKeyId ?? '') ?? 0) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];
         if (!next) return null;
         Object.assign(next, { status: 'running', workerId, leaseExpiresAt: leaseUntil, startedAt: now, attempts: (next.attempts ?? 0) + 1, progress: { stage: 'starting', fraction: 0 } });
         return clone(next);

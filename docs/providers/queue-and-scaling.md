@@ -267,10 +267,11 @@ or provider cap off. Full table with defaults and errors:
 
 | Limit | Default | How it is counted with several instances |
 | --- | --- | --- |
-| `limits.maxQueuedJobsPerKey` (unfinished jobs of one key) | 10 | in the job insert transaction, under the key's row lock (as the render quota): exact |
-| `limits.maxQueuedJobs` (queued jobs in total) | 100 | in the job insert transaction, under the `Workspace` row lock (every start waits there while the cap is on): exact |
-| `limits.maxRunningJobsPerKey` (running jobs of one key) | 2 | at claim time: the claim query skips jobs of keys that already run that many database-queue jobs. Exact on one worker; two workers claiming at the same moment may each take one more |
-| `limits.providerRunsPerKeyPerDay`, `limits.providerRunsPerDay` | 50, 200 | usage counters in `RateLimitWindow` (keys `usage:...`, one row per UTC day), one conditional `UPDATE ... SET count = count + 1 WHERE count < limit` per counter in one transaction, all or nothing: exact. Swept after two days |
+| `limits.maxQueuedJobsPerKey` (unfinished jobs of one key) | 100 | in the job insert transaction, under the key's row lock (as the render quota): exact |
+| `limits.maxQueuedJobs` (queued jobs in total) | **0 (off) with the database queue**, 1000 with the in-process queue | when on: in the job insert transaction, under the `Workspace` row lock (every start waits there): exact. Off by default here because the database and autoscaled workers absorb the queue |
+| `limits.maxRunningJobsPerKey` (running jobs of one key) | 0 (off) | when on: the claim skips keys that already run that many database-queue jobs. Exact on one worker; two workers claiming at the same moment may each take one more |
+| fair claiming (always on) | - | each claim first reads, without locks, the running jobs per key and the oldest queued job per key, then locks one job of the key with the fewest running jobs (oldest first) with an index-ordered `SELECT ... FOR UPDATE SKIP LOCKED`; SQLite does the same in its one conditional `UPDATE`. Two keys with 20 jobs each share 2 workers 10/10 (LIM-07) |
+| `limits.providerRunsPerKeyPerDay`, `limits.providerRunsPerDay` | 500, 0 (off) | usage counters in `RateLimitWindow` (keys `usage:...`, one row per UTC day), one conditional `UPDATE ... SET count = count + 1 WHERE count < limit` per counter in one transaction, all or nothing: exact. Swept after two days |
 | render size (`maxRenderSeconds`, `maxRenderFrames`, `maxScenes`, `maxRenderDimension`, `maxRenderFps`) | 180 s, 5400, 50, 3840 px, 60 | checked from the manifest before the job is created; no shared state |
 
 Refusals: `429 too_many_jobs` / `429 queue_full` (with `Retry-After: 30`),
@@ -352,6 +353,7 @@ and a job that dies while its worker shuts down is handed back, never failed
 | LIM-04 | claim with `maxRunningPerKey`: a key at its cap is skipped, others (and jobs without a key) are claimed in order | contract (4 targets) | pass 2026-11-22 |
 | LIM-05 | usage counters: 10 concurrent reserves with limit 4 give exactly 4; all or nothing across two counters; per day | contract (4 targets) | pass 2026-11-22 |
 | LIM-06 | the sweep keeps usage counters and request windows apart | contract (4 targets) | pass 2026-11-22 |
+| LIM-07 | fair claiming: two keys with 20 queued jobs each (one queued first) share 2 workers 10/10 in the first 20 claims, without a running cap | contract (4 targets) | pass 2026-11-22 |
 
 Commands:
 

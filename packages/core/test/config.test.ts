@@ -65,17 +65,22 @@ describe('config schema', () => {
       maxJsonBytes: 2097152,
       renderConcurrency: 1,
       // Resource limits (D-090, D-091)
-      maxQueuedJobsPerKey: 10,
-      maxQueuedJobs: 100,
-      maxRunningJobsPerKey: 2,
+      maxQueuedJobsPerKey: 100,
+      maxQueuedJobs: 1000,
+      maxRunningJobsPerKey: 0,
       maxRenderSeconds: 180,
       maxRenderFrames: 5400,
       maxScenes: 50,
       maxRenderDimension: 3840,
       maxRenderFps: 60,
-      providerRunsPerKeyPerDay: 50,
-      providerRunsPerDay: 200,
+      providerRunsPerKeyPerDay: 500,
+      providerRunsPerDay: 0,
     });
+    // The total queue cap follows the effective queue (D-090): unbounded with the database queue.
+    expect(resolveConfig({ env: { REELFORGE_QUEUE_DRIVER: 'database' } }).config.limits.maxQueuedJobs).toBe(0);
+    expect(resolveConfig({ env: { REELFORGE_ROLE: 'api', DATABASE_URL: 'postgresql://u@db/x' } }).config.limits.maxQueuedJobs).toBe(0);
+    expect(resolveConfig({ env: { REELFORGE_ROLE: 'api', REELFORGE_QUEUE_DRIVER: 'inprocess' } }).config.limits.maxQueuedJobs).toBe(1000);
+    expect(resolveConfig({ env: { REELFORGE_QUEUE_DRIVER: 'database', REELFORGE_MAX_QUEUED_JOBS: '50' } }).config.limits.maxQueuedJobs).toBe(50);
     expect(r.config.database.url).toMatch(/^file:\/.*\/data\/reelforge\.db$/);
     expect([...r.settings.values()].every((s) => s.source === 'default')).toBe(true);
   });

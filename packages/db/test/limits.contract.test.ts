@@ -126,6 +126,36 @@ describe.each(targets)('resource limits contract: $name', ({ kind }) => {
     expect((await repos.jobs.claim({ workerId: 'w6', types: TYPES, now: iso(now), leaseUntil: iso(now + 60_000) }))?.id).toBe(a3.id);
   });
 
+  it('LIM-07 fair claiming: two keys with 20 queued jobs each share 2 workers evenly, without a running cap', async () => {
+    // Key A queued all of its jobs first: plain FIFO would run A's 20 before any of B's.
+    for (const k of [keyA, keyB]) for (let i = 0; i < 20; i++) {
+      const j = job({ apiKeyId: k });
+      await repos.jobs.insert(j, j.createdAt);
+    }
+    const claim = (w: string) => repos.jobs.claim({ workerId: w, types: TYPES, now: iso(now), leaseUntil: iso(now + 60_000) });
+    const order: string[] = [];
+    const held: Array<{ job: JobRecord; w: string }> = [];
+    for (const w of ['w1', 'w2']) {
+      const j = (await claim(w))!;
+      order.push(j.apiKeyId!);
+      held.push({ job: j, w });
+    }
+    // Each worker finishes its job and claims the next one, in turn.
+    while (held.length) {
+      const { job: done, w } = held.shift()!;
+      await repos.jobs.transition({ ...done, status: 'succeeded', finishedAt: iso(now) }, iso(now), { workerId: w, attempts: done.attempts ?? 1 });
+      const next = await claim(w);
+      if (next) {
+        order.push(next.apiKeyId!);
+        held.push({ job: next, w });
+      }
+    }
+    expect(order).toHaveLength(40);
+    const firstHalf = order.slice(0, 20);
+    expect(firstHalf.filter((k) => k === keyA).length).toBe(10);
+    expect(firstHalf.filter((k) => k === keyB).length).toBe(10);
+  });
+
   it('LIM-05 usage counters: reserve is atomic across concurrent callers, all-or-nothing, and per window', async () => {
     const day = iso(Math.floor(now / 86_400_000) * 86_400_000);
     const k = `usage:provider-runs:key:${keyA}`;

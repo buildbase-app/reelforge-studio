@@ -106,7 +106,7 @@ describe('limits over REST and MCP', () => {
       const err = toolError(await client.callTool({ name: 'render_project', arguments: { projectId: 'sample-reel' } }));
       expect(err).toEqual(rest.json.error);
       const caps = JSON.parse(((await client.callTool({ name: 'get_capabilities', arguments: {} })) as any).content[0].text);
-      expect(caps.limits).toMatchObject({ maxRenderFrames: 100, jobs: { maxQueuedJobsPerKey: 10, maxQueuedJobs: 100, maxRunningJobsPerKey: 2 }, providers: { runsPerKeyPerDay: 50, runsPerDay: 200 } });
+      expect(caps.limits).toMatchObject({ maxRenderFrames: 100, jobs: { maxQueuedJobsPerKey: 100, maxQueuedJobs: 1000, maxRunningJobsPerKey: null }, providers: { runsPerKeyPerDay: 500, runsPerDay: null } });
       await client.close();
     } finally {
       await setLimits({ 'limits.maxRenderFrames': null });

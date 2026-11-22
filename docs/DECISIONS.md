@@ -1540,17 +1540,29 @@ several instances: docs/providers/queue-and-scaling.md.
 ### D-090 --- Safe default limits on jobs and render size, counted in the database
 
 **Status:** DECIDED (reversible).\
-Limits are on by default and are runtime settings under `limits.*` (config
-file, environment, `update_config`), reported in `get_capabilities`. **Jobs:**
-`maxQueuedJobsPerKey` 10 (unfinished render/preview jobs of one key),
-`maxQueuedJobs` 100 (queued in total), `maxRunningJobsPerKey` 2. The first two
+Limits are runtime settings under `limits.*` (config file, environment,
+`update_config`), reported in `get_capabilities`. **Scale-aware defaults**
+(founder direction: one organisation licence must scale without a ceiling):
+deployment-wide caps follow the deployment and per-key caps must not stop one
+big key from using a large worker fleet. **Jobs:** `maxQueuedJobsPerKey` 100
+(unfinished render/preview jobs of one key); `maxQueuedJobs` defaults to 1000
+with the in-process queue (one box: protects its memory) and to 0 (off) with
+the database queue (the database and autoscaled workers absorb the load), the
+default being computed from the effective `queue.driver`/`server.role`;
+`maxRunningJobsPerKey` 0 (off). Claiming is **fair across keys** whatever the
+caps: the in-process pump and the database claim take the job of the key with
+the fewest running jobs, oldest first among equals (PostgreSQL/MySQL: plain
+reads decide the key order, then one index-ordered `FOR UPDATE SKIP LOCKED`
+locks a single job, because a locking read with a sort over all queued rows
+would lock all of them on MySQL; SQLite: one conditional `UPDATE`). One key
+alone still gets every slot; two keys share them evenly. The first two caps
 are checked inside the job insert transaction that already serves the render
 quota (D-078): under the key's row lock, or the `Workspace` row lock when the
 total cap is on, so they are exact across instances; jobs without a key count
 only against the total. Refusals are `429 too_many_jobs` / `queue_full` with
 `Retry-After: 30`. The running cap is applied where jobs start: the in-process
 pump skips a key at its cap (keeping its place), and the database claim query
-skips such keys with a non-locking subquery; exact on one worker, with possible
+skips such keys when ordering them; exact on one worker, with possible
 overshoot of one per worker that claims at the same instant (accepted: a
 stricter scheme needs a global lock on every claim). **Render size:**
 `maxRenderSeconds` 180, `maxRenderFrames` 5400, `maxScenes` 50,
@@ -1565,7 +1577,9 @@ admin-key exemptions (a leaked admin key is the worst case).
 ### D-091 --- Provider calls: a daily cap per key and a server-wide daily budget, as shared usage counters
 
 **Status:** DECIDED (reversible).\
-`limits.providerRunsPerKeyPerDay` 50 and `limits.providerRunsPerDay` 200 count
+`limits.providerRunsPerKeyPerDay` 500 and `limits.providerRunsPerDay` 0 (off by
+default: providers run on the buyer's own accounts; HARDENING.md recommends
+setting it from the provider plan) count
 real provider calls (cache hits are free, failed calls count) per UTC day, after
 `acknowledgeCost` and before the call. They reuse the `RateLimitWindow` table
 (keys `usage:provider-runs:key:<id>` and `usage:provider-runs:all`, the window is

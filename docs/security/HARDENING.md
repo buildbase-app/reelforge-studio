@@ -28,16 +28,21 @@ error says what to do.
 ## Resource limits
 
 One API key cannot take the whole renderer, the server's memory or the
-operator's paid provider budget (private security review SEC-07; D-090, D-091).
+operator's paid provider budget (private security review SEC-07; D-090, D-091),
+while one organisation can still scale without limit: deployment-wide caps
+follow the deployment (a single box is bounded, the database queue with
+autoscaled workers is not), per-key caps are generous, and jobs are claimed
+fairly across keys, so one big key can use the whole worker fleet without
+starving the others.
 Every limit is a runtime setting (config file, environment, or `update_config`
 / `PATCH /v1/config`), applies on every instance, and is reported in
 `get_capabilities` (`limits`). For job and provider caps `0` means no limit.
 
 | Limit | Setting (env) | Default | When it is reached |
 | --- | --- | --- | --- |
-| Unfinished render and preview jobs per key (queued or running) | `limits.maxQueuedJobsPerKey` (`REELFORGE_MAX_QUEUED_JOBS_PER_KEY`) | `10` | `429 too_many_jobs`, `Retry-After: 30` |
-| Queued jobs in total (every key) | `limits.maxQueuedJobs` (`REELFORGE_MAX_QUEUED_JOBS`) | `100` | `429 queue_full`, `Retry-After: 30` |
-| Running jobs per key | `limits.maxRunningJobsPerKey` (`REELFORGE_MAX_RUNNING_JOBS_PER_KEY`) | `2` | the key's next job waits while other keys' jobs use the free slots (only matters with more than one slot) |
+| Unfinished render and preview jobs per key (queued or running) | `limits.maxQueuedJobsPerKey` (`REELFORGE_MAX_QUEUED_JOBS_PER_KEY`) | `100` | `429 too_many_jobs`, `Retry-After: 30` |
+| Queued jobs in total (every key) | `limits.maxQueuedJobs` (`REELFORGE_MAX_QUEUED_JOBS`) | `1000` with the in-process queue (one instance: protects its memory); `0` (no limit) with the database queue | `429 queue_full`, `Retry-After: 30` |
+| Running jobs per key | `limits.maxRunningJobsPerKey` (`REELFORGE_MAX_RUNNING_JOBS_PER_KEY`) | `0` (no limit; claiming is fair across keys anyway) | the key's next job waits while other keys' jobs use the free slots |
 | Render or preview length | `limits.maxRenderSeconds` (`REELFORGE_MAX_RENDER_SECONDS`) | `180` (schema maximum) | `422 render_limit_exceeded` |
 | Frames per render or preview | `limits.maxRenderFrames` (`REELFORGE_MAX_RENDER_FRAMES`) | `5400` (180 s at 30 fps, 90 s at 60 fps) | `422 render_limit_exceeded` |
 | Scenes per render | `limits.maxScenes` (`REELFORGE_MAX_SCENES`) | `50` (schema maximum) | `422 render_limit_exceeded` |
@@ -45,8 +50,8 @@ Every limit is a runtime setting (config file, environment, or `update_config`
 | Frame rate | `limits.maxRenderFps` (`REELFORGE_MAX_RENDER_FPS`) | `60` | `422 render_limit_exceeded` |
 | Time per html or hyperframes scene | `render.sceneTimeoutSeconds` (start-up) | `900` | the render fails (see above) |
 | Upload or URL import size | `limits.maxUploadBytes` (`REELFORGE_MAX_UPLOAD_BYTES`) | `209715200` (200 MB) | `413 too_large` |
-| Provider calls per key per UTC day (`run_provider`, `generate_voice`) | `limits.providerRunsPerKeyPerDay` (`REELFORGE_PROVIDER_RUNS_PER_KEY_PER_DAY`) | `50` | `429 provider_limit_exceeded`, `Retry-After` until midnight UTC |
-| Provider calls per UTC day, whole server | `limits.providerRunsPerDay` (`REELFORGE_PROVIDER_RUNS_PER_DAY`) | `200` | `429 provider_budget_exhausted`, `Retry-After` until midnight UTC |
+| Provider calls per key per UTC day (`run_provider`, `generate_voice`) | `limits.providerRunsPerKeyPerDay` (`REELFORGE_PROVIDER_RUNS_PER_KEY_PER_DAY`) | `500` | `429 provider_limit_exceeded`, `Retry-After` until midnight UTC |
+| Provider calls per UTC day, whole server | `limits.providerRunsPerDay` (`REELFORGE_PROVIDER_RUNS_PER_DAY`) | `0` (no limit: providers run on your own accounts) | `429 provider_budget_exhausted`, `Retry-After` until midnight UTC |
 | Requests per key per minute | `limits.rateLimitPerMinute` | `300` | `429 rate_limited` |
 
 Details:
@@ -55,6 +60,11 @@ Details:
   the error lists every exceeded limit in `details.limits` (`limit`, `max`,
   `actual`), and `validate_project` reports them as errors starting with
   `render limit:`. A preview is judged on the scenes and scale it renders.
+- **Fair claiming.** With more than one render slot or worker, the next job is
+  always taken from the key with the fewest running jobs (oldest job first
+  among equals), so two keys with 20 queued jobs each share two workers evenly
+  even without `limits.maxRunningJobsPerKey`. A single key alone still uses
+  every slot.
 - **Job caps are counted in the database** together with the job insert, so
   they hold with several api instances (docs/providers/queue-and-scaling.md).
   `retry_job` counts like a new start. Jobs started without an API key (CLI)
@@ -70,7 +80,10 @@ Details:
   again) is free; a failed call counts. `acknowledgeCost: true` is still
   required first. `get_key` shows `usage.providerRunsToday`. The cap counts
   calls, not money: providers do not report a price, so set it from your
-  provider plan.
+  provider plan. **Recommended budget:** set `limits.providerRunsPerDay` to
+  what your provider plan covers per day (for example, an ElevenLabs plan's
+  monthly characters divided by 30 and by your typical characters per
+  voice-over), and keep a provider-side spending limit as the hard stop.
 - **Every refusal** is counted in `reelforge_limits_rejections_total` with a
   `reelforge_limit_reason` label from a fixed set (`render_limit`,
   `jobs_per_key`, `queue_full`, `render_quota`, `upload_too_large`,

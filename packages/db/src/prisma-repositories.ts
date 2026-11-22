@@ -420,27 +420,57 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       async claim({ workerId, types, now, leaseUntil, maxRunningPerKey }) {
         if (!types.length) return null;
         return prisma.$transaction(async (tx) => {
-          // The oldest queued job of these types; placeholders start at `first` (workspace id, then the types,
-          // then, with a per-key running cap, the workspace id and the cap again).
+          // Fair across API keys (D-090): the queued job whose key has the fewest running database-queue jobs,
+          // oldest first among equals (jobs without a key count as a key with none running). Optionally only
+          // keys below a running cap. Placeholders start at `first`: workspace id (running counts), workspace id,
+          // the types, then the cap.
           const capped = maxRunningPerKey !== undefined;
-          const busyKeys = (first: number) =>
-            ` AND (${qi('apiKeyId')} IS NULL OR ${qi('apiKeyId')} NOT IN (SELECT ${qi('r')}.${qi('apiKeyId')} FROM ${qi('Job')} ${qi('r')}` +
-            ` WHERE ${qi('r')}.${qi('workspaceId')} = ${ph(first)} AND ${qi('r')}.${qi('queue')} = 'database' AND ${qi('r')}.${qi('status')} = 'running' AND ${qi('r')}.${qi('apiKeyId')} IS NOT NULL` +
-            ` GROUP BY ${qi('r')}.${qi('apiKeyId')} HAVING COUNT(*) >= ${ph(first + 1)}))`;
+          const j = qi('j');
+          const running =
+            `LEFT JOIN (SELECT ${qi('apiKeyId')}, COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = PH0` +
+            ` AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}) ${qi('r')}` +
+            ` ON ${qi('r')}.${qi('apiKeyId')} = ${j}.${qi('apiKeyId')}`;
           const pick = (first: number) =>
-            `SELECT ${qi('id')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(first)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued'` +
-            ` AND ${qi('type')} IN (${types.map((_, i) => ph(first + 1 + i)).join(', ')})` +
-            (capped ? busyKeys(first + 1 + types.length) : '') +
-            ` ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT 1`;
-          const capArgs = capped ? [workspaceId, maxRunningPerKey] : [];
-          let rows: Array<{ id: string }>;
+            (`SELECT ${j}.${qi('id')} FROM ${qi('Job')} ${j} ${running}` +
+              ` WHERE ${j}.${qi('workspaceId')} = ${ph(first + 1)} AND ${j}.${qi('queue')} = 'database' AND ${j}.${qi('status')} = 'queued'` +
+              ` AND ${j}.${qi('type')} IN (${types.map((_, i) => ph(first + 2 + i)).join(', ')})` +
+              (capped ? ` AND COALESCE(${qi('r')}.${qi('n')}, 0) < ${ph(first + 2 + types.length)}` : '') +
+              ` ORDER BY COALESCE(${qi('r')}.${qi('n')}, 0), ${j}.${qi('createdAt')}, ${j}.${qi('id')} LIMIT 1`).replace('PH0', ph(first));
+          const args = [workspaceId, workspaceId, ...types, ...(capped ? [maxRunningPerKey] : [])];
+          let rows: Array<{ id: string }> = [];
           if (kind === 'sqlite') {
             // One statement under the write lock (the first write of the transaction waits for it): atomic, no lost claims.
-            rows = await tx.$queryRawUnsafe(`UPDATE "Job" SET "status" = 'running', "workerId" = ? WHERE "id" = (${pick(2)}) AND "status" = 'queued' RETURNING "id"`, workerId, workspaceId, ...types, ...capArgs);
+            rows = await tx.$queryRawUnsafe(`UPDATE "Job" SET "status" = 'running', "workerId" = ? WHERE "id" = (${pick(2)}) AND "status" = 'queued' RETURNING "id"`, workerId, ...args);
           } else {
-            // Row locks: a job another worker is claiming right now is skipped, never waited for.
-            // (The running-jobs subquery takes no locks: locking clauses apply to the outer rows only.)
-            rows = await tx.$queryRawUnsafe(`${pick(1)} FOR UPDATE SKIP LOCKED`, workspaceId, ...types, ...capArgs);
+            // Row locks: a locking read with a sort over every queued row would lock all of them on MySQL, so
+            // decide the key order with plain reads first, then lock one job of the best key with an
+            // index-ordered SELECT ... FOR UPDATE SKIP LOCKED (a job another worker is claiming is skipped).
+            const typeIn = (first: number) => `${qi('type')} IN (${types.map((_, i) => ph(first + i)).join(', ')})`;
+            const runningRows: Array<{ k: string; n: unknown }> = await tx.$queryRawUnsafe(
+              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, COUNT(*) AS ${qi('n')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}`,
+              workspaceId
+            );
+            const busy = new Map(runningRows.map((r) => [r.k, Number(r.n)]));
+            const queuedRows: Array<{ k: string | null; t: unknown }> = await tx.$queryRawUnsafe(
+              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, MIN(${qi('createdAt')}) AS ${qi('t')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} GROUP BY ${qi('apiKeyId')}`,
+              workspaceId,
+              ...types
+            );
+            const order = queuedRows
+              .map((r) => ({ k: r.k, n: r.k ? (busy.get(r.k) ?? 0) : 0, t: new Date(r.t as string).getTime() }))
+              .filter((r) => !capped || r.k === null || r.n < maxRunningPerKey!)
+              .sort((a, b) => a.n - b.n || a.t - b.t);
+            for (const c of order) {
+              const keyWhere = c.k === null ? `${qi('apiKeyId')} IS NULL` : `${qi('apiKeyId')} = ${ph(2 + types.length)}`;
+              rows = await tx.$queryRawUnsafe(
+                `SELECT ${qi('id')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${keyWhere}` +
+                  ` ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT 1 FOR UPDATE SKIP LOCKED`,
+                workspaceId,
+                ...types,
+                ...(c.k === null ? [] : [c.k])
+              );
+              if (rows.length) break;
+            }
           }
           const id = rows[0]?.id;
           if (!id) return null;
