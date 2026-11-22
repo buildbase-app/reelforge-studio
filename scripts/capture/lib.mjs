@@ -97,7 +97,7 @@ export const LICENCE_KEY = /\b[A-Z0-9]{5}(?:-[A-Z0-9]{5}){4}\b/g;
 export const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 /** Studio API keys, Stripe secrets, bearer tokens, signed download links. */
 export const TOKEN =
-  /\b(?:rf_[A-Za-z0-9_]{12,}|sk_(?:test|live)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9]{8,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+)|(?<=Bearer\s)[A-Za-z0-9._~+/-]{16,}|(?<=[?&]sig=)[A-Za-z0-9_-]{16,}/g;
+  /\b(?:rf_[A-Za-z0-9_-]{12,}|sk_(?:test|live)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9]{8,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+)|(?<=Bearer\s)[A-Za-z0-9._~+/-]{16,}|(?<=[?&]sig=)[A-Za-z0-9_-]{16,}/g;
 
 export const MASK = {
   key: 'XXXXX-XXXXX-XXXXX-XXXXX-XXXXX',

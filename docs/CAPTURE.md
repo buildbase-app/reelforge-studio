@@ -136,3 +136,15 @@ ffmpeg unless `REELFORGE_REQUIRE_BROWSER=1`).
 | The gallery is deployed | the same two commands (gallery page and gallery walkthrough) |
 | R2 is enabled (#89) | move `public/walkthroughs/` to R2 and change `VIDEO_BASE` |
 | A page, flow or template changes | the step that shows it, with `--upload`, then `pnpm docs:sync` |
+
+## Known limits
+
+- The captures of 2026-11-22 ran behind an egress proxy that refused
+  `www.buildbase.app`, so the store footer's "Built with BuildBase" badge shows
+  as its alt text in those images. It loads normally for visitors; a capture
+  from an unrestricted network shows it.
+- Stills of a page whose data loads slowly can show it before the last request
+  finished: the capture waits for network idle (at most 15 s) and, on order and
+  licence pages, for the masked key.
+- The BuildBase console itself is not captured (no agent signs in as the
+  founder): see the console setup page and CONSOLE_SCREENSHOTS.md.

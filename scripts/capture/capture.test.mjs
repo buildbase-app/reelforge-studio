@@ -73,13 +73,13 @@ describe('deterministic names', () => {
 
 describe('masking', () => {
   it('masks licence keys, emails and tokens, keeping allowed addresses', () => {
-    const text = `key ${KEY} for docs-buyer-x1+test@reelforge.dev, api rf_${'a'.repeat(40)}, Bearer abcdefghijklmnopqrstuvwx, /v1/renders/r/output?expires=1&sig=8XGmGz0qiKdhe8KCgZ2NzSdMfzeggcgg, sk_test_${'b'.repeat(20)}, ok noreply@anthropic.com`;
+    const text = `key ${KEY} for docs-buyer-x1+test@reelforge.dev, api rf_${'a'.repeat(20)}-${'c'.repeat(22)}, Bearer abcdefghijklmnopqrstuvwx, /v1/renders/r/output?expires=1&sig=8XGmGz0qiKdhe8KCgZ2NzSdMfzeggcgg, sk_test_${'b'.repeat(20)}, ok noreply@anthropic.com`;
     const out = maskText(text);
     assert.ok(out.includes(MASK.key));
     assert.ok(!out.includes(KEY));
     assert.ok(!out.includes('+test@'));
     assert.ok(out.includes(MASK.email));
-    assert.ok(!/rf_a{10}/.test(out));
+    assert.ok(!/rf_a{10}/.test(out) && !out.includes('ccccccccc'), 'a base64url key is masked whole');
     assert.ok(!out.includes('abcdefghijklmnopqrstuvwx'));
     assert.ok(!out.includes('8XGmGz0q'));
     assert.ok(!out.includes('sk_test_b'));

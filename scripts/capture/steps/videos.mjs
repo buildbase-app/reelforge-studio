@@ -85,14 +85,14 @@ async function agentsBody(site) {
     await settle(page);
     await page.waitForTimeout(1800);
     step('Open /agents, the page that explains how an agent connects');
-    const tab = page.getByRole('button', { name: 'Claude Code', exact: true }).first();
+    const tab = page.locator('button, [role=tab]').filter({ hasText: /^\s*Claude Code\s*$/ }).filter({ visible: true }).first();
     await tab.scrollIntoViewIfNeeded();
     await smoothScroll(page, { by: -120, ms: 400 });
     await page.waitForTimeout(800);
     await glideClick(page, tab);
     step('Choose the Claude Code tab');
     await page.waitForTimeout(1200);
-    const copy = page.getByRole('button', { name: /Copy the Claude Code snippet/ }).first();
+    const copy = page.getByRole('button', { name: /Copy the Claude Code snippet/ }).filter({ visible: true }).first();
     await glideClick(page, copy);
     await page.waitForTimeout(1500);
     const copied = await page.evaluate(() => navigator.clipboard.readText()).catch(() => '');
@@ -134,8 +134,9 @@ async function docsBody(site) {
 async function galleryBody(site) {
   return async ({ page, step }) => {
     const res = await page.goto(`${site}/gallery`, { waitUntil: 'load' });
-    if (!res || res.status() === 404) return 'the gallery is not deployed on this site yet';
     await settle(page);
+    const notFound = /page not found|couldn't find the page/i.test(await page.innerText('main').catch(() => ''));
+    if (!res || res.status() === 404 || notFound) return 'the gallery is not deployed on this site yet';
     step('Open /gallery');
     await page.waitForTimeout(1500);
     await smoothScroll(page, { by: 800, ms: 1600 });
@@ -210,12 +211,22 @@ export async function captureVideos(run, site) {
   }
   const browser = await launch();
   try {
+    const failed = [];
+    const attempt = async (slug, fn) => {
+      try {
+        await fn();
+      } catch (e) {
+        failed.push(slug);
+        run.note(`walkthrough ${slug} failed: ${e.message.split('\n')[0]}`);
+      }
+    };
     for (const [slug, w] of Object.entries(WALKTHROUGHS)) {
       run.log(`videos: ${w.title}`);
-      await record(run, browser, { slug, title: w.title, proves: w.proves, site, permissions: w.permissions, body: await w.body(site) });
+      await attempt(slug, async () => record(run, browser, { slug, title: w.title, proves: w.proves, site, permissions: w.permissions, body: await w.body(site) }));
     }
     run.log('videos: agent session replay');
-    await agentSession(run, browser);
+    await attempt('agent-session', () => agentSession(run, browser));
+    if (failed.length) run.results.failed = [...(run.results.failed ?? []), ...failed];
     await run.flush();
   } finally {
     await browser.close();

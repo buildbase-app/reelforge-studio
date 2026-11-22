@@ -80,7 +80,7 @@ Console: **Billing** > **Selling** (tabs **Overview**, **Settings**, **Items**, 
 | Seller terms | https://reelforge-dev.buildbase.app/terms |
 | Refund policy | https://reelforge-dev.buildbase.app/refund |
 | Buyer terms (licence) | https://reelforge-dev.buildbase.app/licence |
-| Privacy policy |  |
+| Privacy policy | (not set) |
 
 ### Go-live checklist (development)
 
@@ -93,7 +93,7 @@ Console: **Billing** > **Selling** (tabs **Overview**, **Settings**, **Items**, 
 | Stripe events reach the app | todo | Set up the Connect endpoint under Settings. |
 | Reconcile runs clean | warn | No Reconcile in the last two days: run it from Settings. |
 | A seller can sell | todo | No seller has finished onboarding yet. |
-| A test sale paid | ok | 5 test orders paid. |
+| A test sale paid | ok | 6 test orders paid. |
 | A test refund made | warn | Refund a test order to see the money go back. |
 | Going live | info | development uses Stripe test keys: nothing real is charged. When your test sale works here, go live from your Production environment, with your live keys saved there under Billing, Credentials. |
 

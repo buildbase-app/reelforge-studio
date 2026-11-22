@@ -51,7 +51,12 @@ async function waitReady(url, ms = 180_000) {
 /** Renders a terminal view to PNG (full height, 2x) and saves it. */
 async function saveView(run, page, work, slug, view) {
   const file = join(work, `${slug}.html`);
-  writeFileSync(file, terminalPage(view));
+  // Long output (a log, a progress loop) keeps its head and tail so the view stays one readable image.
+  const blocks = view.blocks.map((b) => {
+    const lines = String(b.output ?? '').split('\n');
+    return lines.length <= 48 ? b : { ...b, output: [...lines.slice(0, 22), `… ${lines.length - 44} more lines …`, ...lines.slice(-22)].join('\n') };
+  });
+  writeFileSync(file, terminalPage({ ...view, blocks }));
   await page.goto(`file://${file}`);
   await assertMasked(page);
   const full = await page.screenshot({ type: 'png', fullPage: true });
@@ -97,13 +102,16 @@ export async function captureStudio(run) {
 
   // 1. An API key (printed once; it stays in this process).
   const created = await sh('pnpm --silent reelforge keys create --name docs-capture --scopes read,write,render,admin', env, { cwd: REPO_ROOT });
-  const key = /rf_[A-Za-z0-9_]+/.exec(created.output)?.[0];
+  const key = /rf_[A-Za-z0-9_-]{40,}/.exec(created.output)?.[0];
   if (!key) throw new Error(`keys create printed no key: ${cleanOutput(created.output).slice(0, 200).replace(/rf_\S+/g, 'rf_…')}`);
   env.REELFORGE_KEY = key;
   const listed = await sh('pnpm --silent reelforge keys list', env, { cwd: REPO_ROOT });
 
   // 2. The server.
-  const server = spawn('pnpm', ['--silent', 'start'], { cwd: REPO_ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  // A server left over from another run would answer instead (with another database): refuse.
+  if (await fetch(`${api}/readyz`).then(() => true, () => false)) throw new Error(`something already listens on ${api}; stop it or set CAPTURE_STUDIO_PORT`);
+  // What `pnpm start` runs, started directly in its own process group so stopping it stops tsx's child too.
+  const server = spawn(process.execPath, [join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs'), 'apps/server/src/main.ts'], { cwd: REPO_ROOT, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   let serverLog = '';
   server.stdout.on('data', (d) => (serverLog += d));
   server.stderr.on('data', (d) => (serverLog += d));
@@ -158,7 +166,7 @@ export async function captureStudio(run) {
     renderEnv.JOB = job;
     steps.push({ cmd: `JOB=$(curl -s -X POST "$API/v1/projects/docs-capture-templates/renders" -H "Authorization: Bearer $REELFORGE_KEY" -d '{}' | jq -r .job.id); echo $JOB`, output: job });
     const poll = await sh(
-      `while :; do J=$(curl -s "$API/v1/jobs/$JOB?wait=8" -H "Authorization: Bearer $REELFORGE_KEY"); echo "$J" | jq -r '"\\(.status)  \\((.progress.fraction // 0) * 100 | floor)%  \\(.progress.stage // "")  \\(.progress.detail // "")"'; case $(echo "$J" | jq -r .status) in succeeded|failed|cancelled) break;; esac; done`,
+      `P=; while :; do J=$(curl -s "$API/v1/jobs/$JOB?wait=8" -H "Authorization: Bearer $REELFORGE_KEY"); L=$(echo "$J" | jq -r '"\\(.status)  \\((.progress.fraction // 0) * 100 | floor)%  \\(.progress.stage // "")"'); [ "$L" != "$P" ] && echo "$L"; P=$L; case $(echo "$J" | jq -r .status) in succeeded|failed|cancelled) break;; esac; done`,
       renderEnv,
       { timeout: 900_000 }
     );
@@ -176,7 +184,12 @@ export async function captureStudio(run) {
     else await composeView(run, page, work, env, image, meta);
     await ctx.close();
   } finally {
-    server.kill('SIGTERM');
+    try {
+      process.kill(-server.pid, 'SIGTERM');
+    } catch {
+      server.kill('SIGTERM');
+    }
+    writeFileSync(join(work, 'server.log'), cleanOutput(serverLog));
     await browser.close();
     rmSync(join(work, 'home'), { recursive: true, force: true }); // the throwaway Claude config holds the key
   }
