@@ -227,7 +227,10 @@ Metrics added by this work (labels bounded, never ids or worker names):
 - **Graceful shutdown** (SIGTERM): stop claiming, `/readyz` 503, wait up to
   `queue.shutdownGraceSeconds` for running renders, then abort the rest and
   hand them back (`queued`, the attempt not counted) so another worker starts
-  them at once instead of after the lease.
+  them at once instead of after the lease. A claim still in flight when
+  SIGTERM arrives is waited for and its job handed back the same way, never
+  started (#172); that wait, like the one for aborted renders, ends after 15 s,
+  and a job left behind then waits for its lease.
 - **Storage down**: a worker does not claim while its storage health check
   fails (cached 10 s), so jobs wait instead of failing their attempts; `/readyz`
   says why.
@@ -384,6 +387,8 @@ and a job that dies while its worker shuts down is handed back, never failed
 | SCL-04 | SIGTERM: the running job is handed back at once (not after the lease) and finished by another process | processes (3 DBs) | pass 2026-11-21 |
 | SCL-05 | render quota raced by two processes (8 + 8 attempts, limit 5): exactly 5 jobs | processes (3 DBs) | pass 2026-11-21 |
 | SCL-06 | two instances (separate connections): cancel and long-poll of a job running on the other one, < 5 s | processes (3 DBs) | pass 2026-11-21 |
+| SCL-07 | SIGTERM while a claim is in flight (held before its status event, as QUE-14): `shutdown()` waits for it and returns `released: 1`; the job is `queued` with attempts 0 at once (60 s lease), and does not run there. Failed before #172 (the job stayed `running`, attempt 1, until its lease ended) | runner on the database (3 DBs) | pass 2026-11-22 |
+| SCL-08 | as SCL-07 for `worker --once`: `runOnce()` returns `released` (exit 75) and `shutdown()` waits for the hand-back | runner on the database (3 DBs) | pass 2026-11-22 |
 | SCA-01 | `worker`/`api` on SQLite refuse to start, naming PostgreSQL/MySQL | server | pass 2026-11-21 |
 | SCA-02 | local storage refused for `worker` unless `storage.localShared`; no password in the message | server | pass 2026-11-21 |
 | SCA-03 | `queue.driver: inprocess` refused for `api` | server | pass 2026-11-21 |
