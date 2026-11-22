@@ -32,6 +32,8 @@ const iso = (d: Date) => d.toISOString();
 const json = (v: unknown) => JSON.stringify(v);
 const parse = <T>(s: string): T => JSON.parse(s) as T;
 const TX = { maxWait: 10_000, timeout: 30_000 };
+/** Usage counters (D-091) share RateLimitWindow with the request windows; their keys start with this. */
+const USAGE_PREFIX = 'usage:';
 
 /** Unique-constraint violation (P2002), whichever database raised it. */
 export function isUniqueViolation(e: unknown): boolean {
@@ -364,12 +366,27 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       },
       async insertWithQuota(job, at, quota) {
         return prisma.$transaction(async (tx) => {
-          // Lock the key's row first (a no-op update): PostgreSQL/MySQL row lock, SQLite write lock.
-          // Every instance starting a job for this key waits here, so the count below is final.
-          await tx.$executeRawUnsafe(`UPDATE ${qi('ApiKey')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, quota.apiKeyId);
-          for (const [i, w] of quota.windows.entries()) {
-            const used = await tx.job.count({ where: { ...ws, apiKeyId: quota.apiKeyId, createdAt: { gte: new Date(w.since) }, type: { in: quota.types } } });
-            if (used >= w.limit) return { ok: false as const, window: i, used };
+          // Lock first (a no-op update): PostgreSQL/MySQL row lock, SQLite write lock. With a total
+          // queue cap the workspace row (every start waits here), else only the key's row (starts
+          // for this key wait). Either way the counts below are final (D-078, D-090).
+          if (quota.maxQueuedTotal !== undefined) {
+            await tx.$executeRawUnsafe(`UPDATE ${qi('Workspace')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, workspaceId);
+          } else if (quota.apiKeyId) {
+            await tx.$executeRawUnsafe(`UPDATE ${qi('ApiKey')} SET ${qi('id')} = ${qi('id')} WHERE ${qi('id')} = ${ph(1)}`, quota.apiKeyId);
+          }
+          if (quota.apiKeyId) {
+            for (const [i, w] of quota.windows.entries()) {
+              const used = await tx.job.count({ where: { ...ws, apiKeyId: quota.apiKeyId, createdAt: { gte: new Date(w.since) }, type: { in: quota.types } } });
+              if (used >= w.limit) return { ok: false as const, window: i, used };
+            }
+            if (quota.maxActivePerKey !== undefined) {
+              const used = await tx.job.count({ where: { ...ws, apiKeyId: quota.apiKeyId, status: { in: ['queued', 'running'] }, type: { in: quota.types } } });
+              if (used >= quota.maxActivePerKey) return { ok: false as const, cap: 'active_per_key' as const, used };
+            }
+          }
+          if (quota.maxQueuedTotal !== undefined) {
+            const used = await tx.job.count({ where: { ...ws, status: 'queued', type: { in: quota.types } } });
+            if (used >= quota.maxQueuedTotal) return { ok: false as const, cap: 'queued_total' as const, used };
           }
           try {
             await tx.job.create({ data: { ...ws, id: job.id, ...jobData(job) } });
@@ -400,20 +417,30 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           return true;
         }, TX);
       },
-      async claim({ workerId, types, now, leaseUntil }) {
+      async claim({ workerId, types, now, leaseUntil, maxRunningPerKey }) {
         if (!types.length) return null;
         return prisma.$transaction(async (tx) => {
-          // The oldest queued job of these types; placeholders start at `first` (workspace id, then the types).
+          // The oldest queued job of these types; placeholders start at `first` (workspace id, then the types,
+          // then, with a per-key running cap, the workspace id and the cap again).
+          const capped = maxRunningPerKey !== undefined;
+          const busyKeys = (first: number) =>
+            ` AND (${qi('apiKeyId')} IS NULL OR ${qi('apiKeyId')} NOT IN (SELECT ${qi('r')}.${qi('apiKeyId')} FROM ${qi('Job')} ${qi('r')}` +
+            ` WHERE ${qi('r')}.${qi('workspaceId')} = ${ph(first)} AND ${qi('r')}.${qi('queue')} = 'database' AND ${qi('r')}.${qi('status')} = 'running' AND ${qi('r')}.${qi('apiKeyId')} IS NOT NULL` +
+            ` GROUP BY ${qi('r')}.${qi('apiKeyId')} HAVING COUNT(*) >= ${ph(first + 1)}))`;
           const pick = (first: number) =>
             `SELECT ${qi('id')} FROM ${qi('Job')} WHERE ${qi('workspaceId')} = ${ph(first)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued'` +
-            ` AND ${qi('type')} IN (${types.map((_, i) => ph(first + 1 + i)).join(', ')}) ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT 1`;
+            ` AND ${qi('type')} IN (${types.map((_, i) => ph(first + 1 + i)).join(', ')})` +
+            (capped ? busyKeys(first + 1 + types.length) : '') +
+            ` ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT 1`;
+          const capArgs = capped ? [workspaceId, maxRunningPerKey] : [];
           let rows: Array<{ id: string }>;
           if (kind === 'sqlite') {
             // One statement under the write lock (the first write of the transaction waits for it): atomic, no lost claims.
-            rows = await tx.$queryRawUnsafe(`UPDATE "Job" SET "status" = 'running', "workerId" = ? WHERE "id" = (${pick(2)}) AND "status" = 'queued' RETURNING "id"`, workerId, workspaceId, ...types);
+            rows = await tx.$queryRawUnsafe(`UPDATE "Job" SET "status" = 'running', "workerId" = ? WHERE "id" = (${pick(2)}) AND "status" = 'queued' RETURNING "id"`, workerId, workspaceId, ...types, ...capArgs);
           } else {
             // Row locks: a job another worker is claiming right now is skipped, never waited for.
-            rows = await tx.$queryRawUnsafe(`${pick(1)} FOR UPDATE SKIP LOCKED`, workspaceId, ...types);
+            // (The running-jobs subquery takes no locks: locking clauses apply to the outer rows only.)
+            rows = await tx.$queryRawUnsafe(`${pick(1)} FOR UPDATE SKIP LOCKED`, workspaceId, ...types, ...capArgs);
           }
           const id = rows[0]?.id;
           if (!id) return null;
@@ -796,8 +823,43 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           return row?.count ?? 1;
         }
       },
-      async deleteOlderThan(cutoff) {
-        return (await prisma.rateLimitWindow.deleteMany({ where: { ...ws, windowStart: { lt: new Date(cutoff) } } })).count;
+      async deleteOlderThan(cutoff, opts = {}) {
+        const usage = { key: { startsWith: USAGE_PREFIX } };
+        return (await prisma.rateLimitWindow.deleteMany({ where: { ...ws, windowStart: { lt: new Date(cutoff) }, ...(opts.usage ? usage : { NOT: usage }) } })).count;
+      },
+      async reserve(counters) {
+        // Make sure every row exists (outside the transaction: a unique violation would abort a PostgreSQL transaction).
+        for (const c of counters) {
+          try {
+            await prisma.rateLimitWindow.create({ data: { ...ws, key: c.key, windowStart: new Date(c.windowStart), count: 0 } });
+          } catch (e) {
+            if (!isUniqueViolation(e)) throw e;
+          }
+        }
+        const full = new Error('usage counter full');
+        let refused: { ok: false; index: number; used: number } | undefined;
+        try {
+          await prisma.$transaction(async (tx) => {
+            for (const [index, c] of counters.entries()) {
+              const where = { ...ws, key: c.key, windowStart: new Date(c.windowStart) };
+              // One conditional increment: the row lock makes the check and the add atomic across instances.
+              const r = await tx.rateLimitWindow.updateMany({ where: { ...where, count: { lt: c.limit } }, data: { count: { increment: 1 } } });
+              if (!r.count) {
+                const row = await tx.rateLimitWindow.findFirst({ where, select: { count: true } });
+                refused = { ok: false, index, used: row?.count ?? 0 };
+                throw full; // roll back the counters already incremented
+              }
+            }
+          }, lockingTx);
+        } catch (e) {
+          if (e === full && refused) return refused;
+          throw e;
+        }
+        return { ok: true };
+      },
+      async usage(key, windowStart) {
+        const row = await prisma.rateLimitWindow.findUnique({ where: { workspaceId_key_windowStart: { workspaceId, key, windowStart: new Date(windowStart) } }, select: { count: true } });
+        return row?.count ?? 0;
       },
     },
   };

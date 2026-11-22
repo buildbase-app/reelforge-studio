@@ -181,7 +181,7 @@ export const ConfigSchema = z.object({
       scope: 'runtime',
       env: 'REELFORGE_MAX_UPLOAD_BYTES',
       default: 200 * 1024 * 1024,
-      description: 'Largest asset upload or URL import, in bytes.',
+      description: 'Largest asset upload or URL import, in bytes. Uploads and imports are streamed to a temporary file and stopped as soon as they pass it (`413 too_large`); they are never held in memory whole.',
     }),
     maxJsonBytes: setting(z.number().int().min(1024), {
       kind: 'integer',
@@ -196,6 +196,82 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_RENDER_CONCURRENCY',
       default: 1,
       description: 'Renders at the same time. Each uses several CPU cores and 1-2 GB RAM. A lower value lets running renders finish.',
+    }),
+    // Resource limits (D-090, D-091; docs/security/HARDENING.md). `0` turns a job or provider cap off.
+    maxQueuedJobsPerKey: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_QUEUED_JOBS_PER_KEY',
+      default: 10,
+      description:
+        'Unfinished render and preview jobs (queued or running) one API key may have. Another start is refused with `429 too_many_jobs` and `Retry-After` until one finishes. Counted in the database, so it holds across instances. `0`: no limit.',
+    }),
+    maxQueuedJobs: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_QUEUED_JOBS',
+      default: 100,
+      description:
+        'Render and preview jobs that may wait in the queue in total (every key, every instance). A start beyond it is refused with `429 queue_full` and `Retry-After`. `0`: no limit.',
+    }),
+    maxRunningJobsPerKey: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_RUNNING_JOBS_PER_KEY',
+      default: 2,
+      description:
+        "Jobs of one API key that run at the same time, so one key cannot take every render slot; that key's other jobs wait while other keys' jobs run. Only matters with more than one slot (`limits.renderConcurrency`, workers). With several workers claiming at the same moment a key may briefly get one more. `0`: no limit.",
+    }),
+    maxRenderSeconds: setting(z.number().int().min(1).max(180), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_RENDER_SECONDS',
+      default: 180,
+      description: 'Longest render or preview, in seconds (the project schema allows at most 180). Longer projects are refused with `422 render_limit_exceeded`.',
+    }),
+    maxRenderFrames: setting(z.number().int().min(1).max(10_800), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_RENDER_FRAMES',
+      default: 5400,
+      description: 'Most frames in one render or preview (duration × fps; 5400 is 180 s at 30 fps or 90 s at 60 fps). Refused with `422 render_limit_exceeded`.',
+    }),
+    maxScenes: setting(z.number().int().min(1).max(50), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_SCENES',
+      default: 50,
+      description: 'Most scenes in one render (the project schema allows at most 50). Refused with `422 render_limit_exceeded`.',
+    }),
+    maxRenderDimension: setting(z.number().int().min(16).max(4096), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_RENDER_DIMENSION',
+      default: 3840,
+      description: 'Largest output width or height in pixels (3840 allows 4K in either orientation; the schema allows 4096). Refused with `422 render_limit_exceeded`.',
+    }),
+    maxRenderFps: setting(z.number().int().min(24).max(60), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_RENDER_FPS',
+      default: 60,
+      description: 'Highest output frame rate (supported: 24, 25, 30, 60). Refused with `422 render_limit_exceeded`.',
+    }),
+    providerRunsPerKeyPerDay: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_PROVIDER_RUNS_PER_KEY_PER_DAY',
+      default: 50,
+      description:
+        'Provider calls (`run_provider`, `generate_voice`) one API key may make per UTC day; cached results do not count, failed calls do. Refused with `429 provider_limit_exceeded` until midnight UTC. Counted in the database across instances. `0`: no limit.',
+    }),
+    providerRunsPerDay: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_PROVIDER_RUNS_PER_DAY',
+      default: 200,
+      description:
+        "Provider calls per UTC day for the whole server (every key and instance): a budget for the operator's paid provider accounts. Refused with `429 provider_budget_exhausted` until midnight UTC. `0`: no limit.",
     }),
   }),
   storage: z.object({

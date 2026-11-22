@@ -1312,8 +1312,8 @@ version the server already uses.
 ## Q. Security hardening (2026-11-21, private security review SEC-01..SEC-20)
 
 Public-safe summary; findings and reproductions stay private. Defaults and
-settings: docs/security/HARDENING.md. Deferred: SEC-07 (queue and resource
-limits per key) follows the database job queue work.
+settings: docs/security/HARDENING.md. SEC-07 (queue and resource limits per
+key) followed the database job queue work: section S.
 
 ### D-085 --- Agent scene markup is parsed, and scenes have no network outside the page either
 
@@ -1376,8 +1376,7 @@ renderer for hours. Every HyperFrames render gets its own TMPDIR, inherited by
 the CLI, its browser and any helper; when the render ends (success, failure,
 timeout, cancel) the CLI's process group and every process carrying that
 TMPDIR are killed and awaited, because the browser runs in a process group of
-its own and outlives a group kill. Queue and per-key limits (SEC-07) are
-deferred to the job queue work.
+its own and outlives a group kill. Queue and per-key limits (SEC-07): D-090.
 
 ### D-088 --- Operational endpoints: /metrics needs its token, /readyz detail needs an admin key, /mcp Origin compares origins
 
@@ -1531,3 +1530,64 @@ operators patch with overlays; a chart can follow if buyers ask. Validated with
 kubeconform 0.7.0 (strict, 1.31 schemas) on the files and on `kubectl
 kustomize` output. A compose file for an api with N workers is in
 `deployment/compose/docker-compose.scale.yml`.
+
+## S. Resource limits (2026-11-22, issue #107, private security review SEC-07)
+
+Public-safe summary; the finding stays private. Defaults, errors and tests:
+docs/security/HARDENING.md#resource-limits; how each counter behaves with
+several instances: docs/providers/queue-and-scaling.md.
+
+### D-090 --- Safe default limits on jobs and render size, counted in the database
+
+**Status:** DECIDED (reversible).\
+Limits are on by default and are runtime settings under `limits.*` (config
+file, environment, `update_config`), reported in `get_capabilities`. **Jobs:**
+`maxQueuedJobsPerKey` 10 (unfinished render/preview jobs of one key),
+`maxQueuedJobs` 100 (queued in total), `maxRunningJobsPerKey` 2. The first two
+are checked inside the job insert transaction that already serves the render
+quota (D-078): under the key's row lock, or the `Workspace` row lock when the
+total cap is on, so they are exact across instances; jobs without a key count
+only against the total. Refusals are `429 too_many_jobs` / `queue_full` with
+`Retry-After: 30`. The running cap is applied where jobs start: the in-process
+pump skips a key at its cap (keeping its place), and the database claim query
+skips such keys with a non-locking subquery; exact on one worker, with possible
+overshoot of one per worker that claims at the same instant (accepted: a
+stricter scheme needs a global lock on every claim). **Render size:**
+`maxRenderSeconds` 180, `maxRenderFrames` 5400, `maxScenes` 50,
+`maxRenderDimension` 3840, `maxRenderFps` 60, checked from the manifest before
+any job exists (`422 render_limit_exceeded`, every exceeded limit named) and
+reported by `validate_project`; settings can only tighten the schema's maxima.
+The per-scene time limit of D-087 stays. `0` turns a job cap off; render limits
+have no off value because the schema bounds them anyway. Rejected: per-key
+overrides of every limit (the key-level render quotas of D-056 remain);
+admin-key exemptions (a leaked admin key is the worst case).
+
+### D-091 --- Provider calls: a daily cap per key and a server-wide daily budget, as shared usage counters
+
+**Status:** DECIDED (reversible).\
+`limits.providerRunsPerKeyPerDay` 50 and `limits.providerRunsPerDay` 200 count
+real provider calls (cache hits are free, failed calls count) per UTC day, after
+`acknowledgeCost` and before the call. They reuse the `RateLimitWindow` table
+(keys `usage:provider-runs:key:<id>` and `usage:provider-runs:all`, the window is
+the UTC day), so no migration: every counter row is created first, then one
+transaction does a conditional `count = count + 1 WHERE count < limit` per
+counter, all or nothing; the row locks make it exact across instances. The
+hourly sweep deletes request windows after an hour and usage counters after two
+days. Refusals: `429 provider_limit_exceeded` / `provider_budget_exhausted`
+with `Retry-After` until midnight UTC; `get_key` shows `providerRunsToday`. The
+cap counts calls, not money: providers have no machine-readable price (only a
+`costNote`), so a per-provider cost unit is a possible follow-up.
+
+### D-092 --- Uploads and URL imports are streamed to a temporary file with a hard byte cap
+
+**Status:** DECIDED (reversible).\
+REST multipart uploads are parsed with busboy 1.6.0 (MIT) as a stream; the file
+part and URL import bodies go through `stageStream`: written to
+`<cacheDir>/upload-staging/` while hashing, stopped (source destroyed, partial
+file deleted, `413 too_large`) as soon as `limits.maxUploadBytes` is passed;
+then the storage driver's `putFile` stores the file. A declared
+`Content-Length` above the limit is refused before reading; Hono's `bodyLimit`
+is no longer used for uploads because it buffers chunked bodies. Form fields
+may come before or after the file. Every limit refusal (D-090..D-092) is counted
+in `reelforge.limits.rejections` with a fixed `reason` label and audited as
+`limit.rejected` (result `denied`).

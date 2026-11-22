@@ -5,7 +5,7 @@ import { SpanStatusCode, context, trace, type Context, type Span } from '@opente
 import { ApiError, notFound } from './errors';
 import { NOOP_TELEMETRY, coreInstruments, type Telemetry } from './telemetry';
 import { newId } from './fsutil';
-import type { JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
+import type { JobCaps, JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
 
 export type { JobProgress, JobRecord, JobStatus } from './repositories';
 export const TERMINAL: readonly JobStatus[] = ['succeeded', 'failed', 'cancelled'];
@@ -64,6 +64,8 @@ export interface JobRunnerOptions {
   mode?: QueueMode;
   database?: DatabaseQueueOptions;
   log?: (level: 'info' | 'warn' | 'error', line: string) => void;
+  /** Jobs of one API key that may run at the same time (limits.maxRunningJobsPerKey, read before each start; 0 or unset: no limit). */
+  maxRunningPerKey?: () => number | undefined;
 }
 
 /** What the database queue looks like from this instance (/readyz, metrics). */
@@ -135,6 +137,7 @@ export class JobRunner {
   readonly runJobs: boolean;
   private readonly db: Required<Omit<DatabaseQueueOptions, 'canClaim' | 'workerId' | 'runJobs'>> & Pick<DatabaseQueueOptions, 'canClaim'>;
   private readonly logger: NonNullable<JobRunnerOptions['log']>;
+  private readonly maxRunningPerKey: () => number | undefined;
   /** Database queue: the claim (fence) of each job this process runs. */
   private fences = new Map<string, JobLeaseFence>();
   private abortReasons = new Map<string, AbortReason>();
@@ -175,6 +178,10 @@ export class JobRunner {
       canClaim: d.canClaim,
     };
     this.logger = opts.log ?? (() => undefined);
+    this.maxRunningPerKey = () => {
+      const n = opts.maxRunningPerKey?.();
+      return n && n > 0 ? n : undefined;
+    };
   }
 
   get concurrency(): number {
@@ -184,6 +191,11 @@ export class JobRunner {
   /** Change how many jobs run at once (runtime setting limits.renderConcurrency). Running jobs are never stopped. */
   setConcurrency(n: number): void {
     this._concurrency = Math.max(1, Math.floor(n));
+    queueMicrotask(() => this.pump());
+  }
+
+  /** Look at the queue again (a limit read by the pump changed at runtime). */
+  wake(): void {
     queueMicrotask(() => this.pump());
   }
 
@@ -209,14 +221,15 @@ export class JobRunner {
 
   /**
    * Create a job. With `quota`, the job is only inserted while the API key's
-   * render quota has room; the check and the insert are atomic across
-   * processes (JobRepository.insertWithQuota). Returns the refused window.
+   * render quota and the job caps (JobCaps) have room; the check and the insert
+   * are atomic across processes (JobRepository.insertWithQuota). Throws
+   * QuotaExceeded or JobCapReached when refused.
    */
   async submit(
     type: string,
     params: Record<string, unknown>,
     meta: { projectId?: string; retryOf?: string; apiKeyId?: string } = {},
-    quota?: { types: string[]; windows: QuotaWindow[] }
+    quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps
   ): Promise<JobRecord> {
     if (!this.handlers[type]) throw new ApiError('bad_request', 400, `unknown job type "${type}"`);
     if (this.stopping && this.mode === 'inprocess') throw new ApiError('shutting_down', 503, 'the server is shutting down; retry on another instance or after the restart');
@@ -233,9 +246,10 @@ export class JobRunner {
       ...(this.mode === 'database' ? { queue: 'database' as const, attempts: 0 } : {}),
     };
     // Durable before anyone sees the id.
-    if (quota && meta.apiKeyId) {
-      const r = await this.repo.insertWithQuota(structuredClone(job), job.createdAt, { apiKeyId: meta.apiKeyId, ...quota });
-      if (!r.ok) throw new QuotaExceeded(r.window, r.used);
+    const limited = quota && ((meta.apiKeyId && (quota.windows.length || quota.maxActivePerKey !== undefined)) || quota.maxQueuedTotal !== undefined);
+    if (quota && limited) {
+      const r = await this.repo.insertWithQuota(structuredClone(job), job.createdAt, { ...quota, ...(meta.apiKeyId ? { apiKeyId: meta.apiKeyId } : {}) });
+      if (!r.ok) throw 'cap' in r ? new JobCapReached(r.cap, r.used) : new QuotaExceeded(r.window, r.used);
     } else {
       await this.repo.insert(structuredClone(job), job.createdAt);
     }
@@ -334,7 +348,7 @@ export class JobRunner {
   }
 
   /** Start a new job with the same type and parameters. The old job and its output are untouched. */
-  async retry(id: string, meta: { apiKeyId?: string } = {}, quota?: { types: string[]; windows: QuotaWindow[] }): Promise<JobRecord> {
+  async retry(id: string, meta: { apiKeyId?: string } = {}, quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps): Promise<JobRecord> {
     const job = await this.get(id);
     if (!TERMINAL.includes(job.status) || job.status === 'succeeded') {
       throw new ApiError('conflict', 409, `only failed or cancelled jobs can be retried (job is ${job.status})`);
@@ -446,13 +460,30 @@ export class JobRunner {
       void this.claimLoop();
       return;
     }
-    while (this.running.size < this.concurrency && this.queue.length > 0) {
-      const id = this.queue.shift()!;
+    const cap = this.maxRunningPerKey();
+    // Jobs of a key that already runs `cap` jobs wait (keeping their place); the next key's job starts.
+    for (let i = 0; this.running.size < this.concurrency && i < this.queue.length; ) {
+      const id = this.queue[i]!;
       const job = this.active.get(id);
-      if (!job || job.status !== 'queued') continue;
+      if (!job || job.status !== 'queued') {
+        this.queue.splice(i, 1);
+        continue;
+      }
+      if (cap !== undefined && job.apiKeyId && this.runningFor(job.apiKeyId) >= cap) {
+        i++;
+        continue;
+      }
+      this.queue.splice(i, 1);
       void this.start(job);
     }
     this.notifyIdle();
+  }
+
+  /** Jobs of this API key running in this process. */
+  private runningFor(apiKeyId: string): number {
+    let n = 0;
+    for (const id of this.running.keys()) if (this.active.get(id)?.apiKeyId === apiKeyId) n++;
+    return n;
   }
 
   private notifyIdle() {
@@ -502,6 +533,7 @@ export class JobRunner {
             types: Object.keys(this.handlers),
             now: new Date(now).toISOString(),
             leaseUntil: new Date(now + this.db.leaseMs).toISOString(),
+            ...(this.maxRunningPerKey() !== undefined ? { maxRunningPerKey: this.maxRunningPerKey() } : {}),
           });
           this.ok('claim');
           if (!job) break;
@@ -832,6 +864,16 @@ export class QuotaExceeded extends Error {
     readonly used: number
   ) {
     super('render quota exceeded');
+  }
+}
+
+/** insertWithQuota refused the job: a job cap (D-090) is reached, with the current count. */
+export class JobCapReached extends Error {
+  constructor(
+    readonly cap: 'active_per_key' | 'queued_total',
+    readonly used: number
+  ) {
+    super(`job cap reached (${cap})`);
   }
 }
 
