@@ -2,6 +2,8 @@ import type { Project, Theme } from '@reelforge/project-schema';
 import { conflict } from './errors';
 import { newId, newSequentialId } from './fsutil';
 import { createMemoryWebhookRepository } from './webhooks/memory';
+import { pageOf } from './paging';
+import { summarizeProject } from './store';
 import { isFannedOut, isTerminal, settleChild, stopTree, type SettlementPlan } from './fanout';
 import {
   DEFAULT_WORKSPACE_ID,
@@ -12,6 +14,7 @@ import {
   type AuditFilter,
   type ChildSettlement,
   type IdempotencyRecord,
+  type JobFilter,
   type JobRecord,
   type ProjectMeta,
   type LicenceStateRecord,
@@ -126,6 +129,10 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
   const idempotency = new Map<string, IdempotencyRecord>();
   const idem = (actorId: string, key: string) => `${actorId}\u0000${key}`;
   let licence: LicenceStateRecord | null = null;
+  const matchingJobs = (filter: JobFilter) =>
+    [...jobs.values()]
+      .filter((j) => (!filter.projectId || j.projectId === filter.projectId) && (!filter.parentId || j.parentId === filter.parentId) && (!filter.status || j.status === filter.status) && (!filter.type || j.type === filter.type))
+      .sort(byNewest);
 
   return {
     workspaceId,
@@ -150,6 +157,10 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         return [...projects.values()]
           .map((p) => ({ meta: clone(p.meta), manifest: clone(p.versions.get(p.meta.version)!) }))
           .sort((a, b) => b.meta.updatedAt.localeCompare(a.meta.updatedAt) || a.meta.id.localeCompare(b.meta.id));
+      },
+      async page(req) {
+        const all = [...projects.values()].map((p) => summarizeProject(clone(p.meta), p.versions.get(p.meta.version)!)).sort(byNewest);
+        return pageOf(all, req);
       },
       async saveVersion(id, expectedVersion, manifest, updatedAt) {
         const p = projects.get(id);
@@ -333,10 +344,10 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
         return j ? clone(j) : null;
       },
       async list(filter = {}) {
-        return [...jobs.values()]
-          .filter((j) => (!filter.projectId || j.projectId === filter.projectId) && (!filter.parentId || j.parentId === filter.parentId) && (!filter.status || j.status === filter.status) && (!filter.type || j.type === filter.type))
-          .sort(byNewest)
-          .map(clone);
+        return matchingJobs(filter).map(clone);
+      },
+      async page(filter, req) {
+        return pageOf(matchingJobs(filter), req).map(clone);
       },
       async listUnfinished() {
         return [...jobs.values()].filter((j) => j.status === 'queued' || j.status === 'running').map(clone);
@@ -431,6 +442,9 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID): Re
       },
       async list() {
         return [...assets.values()].sort(byNewest).map(clone);
+      },
+      async page(req) {
+        return pageOf([...assets.values()].sort(byNewest), req).map(clone);
       },
       async update(id, patch) {
         const a = assets.get(id);

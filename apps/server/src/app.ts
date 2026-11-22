@@ -362,7 +362,9 @@ export function createApp({ service, config, observability }: AppDeps) {
     return c.body(null, 204);
   });
 
-  v1.get('/projects', need('read'), async (c) => c.json({ projects: await service.listProjects() }));
+  // Lists are pages (D-102): ?limit= (default 50, max 200) and ?cursor= (nextCursor of the previous page).
+  const page = (c: { req: { query(k: string): string | undefined } }) => ({ limit: c.req.query('limit'), cursor: c.req.query('cursor') });
+  v1.get('/projects', need('read'), async (c) => c.json(await service.listProjects(page(c))));
   v1.post('/projects', need('write'), json, async (c) => {
     const b = await body(c);
     const manifest = 'manifest' in b && typeof b.manifest === 'object' ? b.manifest : b;
@@ -429,7 +431,7 @@ export function createApp({ service, config, observability }: AppDeps) {
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
 
-  v1.get('/jobs', need('read'), async (c) => c.json({ jobs: await service.listJobs({ projectId: c.req.query('projectId') }) }));
+  v1.get('/jobs', need('read'), async (c) => c.json(await service.listJobs({ projectId: c.req.query('projectId') }, page(c))));
   v1.get('/jobs/:id', need('read'), async (c) => {
     // ?wait=N long-polls up to N seconds (max 50) for the job to finish.
     const wait = Number(c.req.query('wait') ?? 0);
@@ -475,7 +477,7 @@ export function createApp({ service, config, observability }: AppDeps) {
     return sendStored(c, service, o, file.split('/').pop()!);
   });
 
-  v1.get('/assets', need('read'), async (c) => c.json({ assets: await service.listAssets({ projectId: c.req.query('projectId') }) }));
+  v1.get('/assets', need('read'), async (c) => c.json(await service.listAssets({ projectId: c.req.query('projectId') }, page(c))));
   v1.get('/assets/:id', need('read'), async (c) => c.json(await service.getAsset(c.req.param('id'))));
   v1.post(
     '/assets',

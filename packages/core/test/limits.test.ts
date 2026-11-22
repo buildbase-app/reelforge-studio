@@ -90,7 +90,7 @@ describe('ReelforgeService limits', () => {
     await svc.createProject(sample);
   });
   afterAll(async () => {
-    for (const j of await svc.listJobs()) if (j.status === 'queued' || j.status === 'running') await svc.cancelJob(j.id);
+    for (const j of (await svc.listJobs({}, { limit: 200 })).jobs) if (j.status === 'queued' || j.status === 'running') await svc.cancelJob(j.id);
     await svc.jobs.idle();
     await svc.stop();
   });
@@ -132,7 +132,7 @@ describe('ReelforgeService limits', () => {
       const err = await as('key_a', () => svc.startRender('sample-reel')).catch((e) => e);
       expect(err).toMatchObject({ code: 'too_many_jobs', status: 429, details: { limit: 'limits.maxQueuedJobsPerKey', max: 2, used: 2, retryAfterSeconds: 30 } });
       // retry_job counts the same way.
-      const done = (await svc.listJobs()).find((j) => j.status === 'cancelled');
+      const done = (await svc.listJobs()).jobs.find((j) => j.status === 'cancelled');
       if (done) await expect(as('key_a', () => svc.retryJob(done.id))).rejects.toMatchObject({ code: 'too_many_jobs' });
       // Another key still starts.
       const b = await as('key_b', () => svc.startRender('sample-reel'));
@@ -149,7 +149,7 @@ describe('ReelforgeService limits', () => {
       expect(svc.capabilities().limits.jobs).toEqual({ maxQueuedJobsPerKey: null, maxQueuedJobs: null, maxRunningJobsPerKey: null });
     } finally {
       await svc.updateConfig({ 'limits.maxQueuedJobsPerKey': null, 'limits.maxQueuedJobs': null });
-      for (const j of await svc.listJobs()) if (j.status === 'queued' || j.status === 'running') await svc.cancelJob(j.id);
+      for (const j of (await svc.listJobs({}, { limit: 200 })).jobs) if (j.status === 'queued' || j.status === 'running') await svc.cancelJob(j.id);
       await svc.jobs.idle();
     }
   });

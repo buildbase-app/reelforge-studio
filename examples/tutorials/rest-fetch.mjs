@@ -38,8 +38,15 @@ const json = async (...a) => (await api(...a)).json();
 const caps = await json('GET', '/v1/capabilities');
 console.log('engines:', caps.engines.map((e) => `${e.id}${e.available ? '' : ' (unavailable)'}`).join(', '));
 
-const list = await json('GET', '/v1/projects');
-if (list.projects.some((p) => p.id === projectId)) await api('DELETE', `/v1/projects/${projectId}`);
+// GET /v1/projects returns one page (newest first) and nextCursor: follow it until null.
+let existing = false;
+for (let cursor; !existing; ) {
+  const page = await json('GET', `/v1/projects?limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+  existing = page.projects.some((p) => p.id === projectId);
+  if (!page.nextCursor) break;
+  cursor = page.nextCursor;
+}
+if (existing) await api('DELETE', `/v1/projects/${projectId}`);
 await json('POST', '/v1/projects', manifest);
 
 const report = await json('POST', `/v1/projects/${projectId}/validate`, {});

@@ -16,11 +16,15 @@ import {
   type AuditEntry,
   type AuditFilter,
   type IdempotencyRecord,
+  type JobFilter,
   type JobLeaseFence,
   type JobRecord,
   type LicenceStateRecord,
+  type PageRequest,
   type ProjectMeta,
+  type ProjectSummary,
   type Repositories,
+  projectStats,
   type Scope,
   type StoredProject,
 } from '@reelforge/core';
@@ -38,6 +42,19 @@ const iso = (d: Date) => d.toISOString();
 const json = (v: unknown) => JSON.stringify(v);
 const parse = <T>(s: string): T => JSON.parse(s) as T;
 const TX = { maxWait: 10_000, timeout: 30_000 };
+
+/**
+ * Keyset page (D-102): rows strictly before `after` in (createdAt, id)
+ * descending order. Written as `createdAt <= t AND (createdAt < t OR id < i)`
+ * so every database can range-scan the (workspaceId, ..., createdAt, id) index.
+ */
+function keyset(req: PageRequest) {
+  const a = req.after;
+  if (!a) return {};
+  const t = new Date(a.createdAt);
+  return { createdAt: { lte: t }, OR: [{ createdAt: { lt: t } }, { id: { lt: a.id } }] };
+}
+const NEWEST = [{ createdAt: 'desc' as const }, { id: 'desc' as const }];
 /** MySQL claim: queued jobs of a key read per page, then locked one at a time (see claim). */
 const CLAIM_CANDIDATES = 16;
 /** Usage counters (D-091) share RateLimitWindow with the request windows; their keys start with this. */
@@ -346,6 +363,17 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     meta: { id: p.id, version: p.version, createdAt: iso(p.createdAt), updatedAt: iso(p.updatedAt) },
     manifest: parse<Project>(p.versions[0]!.manifest),
   });
+  /** The summary columns written with every version (D-102). */
+  const summaryColumns = (m: Project) => {
+    const { title, scenes, durationSeconds } = projectStats(m);
+    return { title, sceneCount: scenes, durationSeconds };
+  };
+  const jobWhere = (filter: JobFilter) => ({
+    ...(filter.projectId ? { projectId: filter.projectId } : {}),
+    ...(filter.parentId ? { parentId: filter.parentId } : {}),
+    ...(filter.status ? { status: filter.status } : {}),
+    ...(filter.type ? { type: filter.type } : {}),
+  });
   const latest = { versions: { orderBy: { version: 'desc' as const }, take: 1, select: { manifest: true } } };
 
   return {
@@ -357,7 +385,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         try {
           await prisma.$transaction([
             prisma.project.create({
-              data: { ...ws, id: meta.id, version: meta.version, title: manifest.title, createdAt: new Date(meta.createdAt), updatedAt: new Date(meta.updatedAt) },
+              data: { ...ws, id: meta.id, version: meta.version, ...summaryColumns(manifest), createdAt: new Date(meta.createdAt), updatedAt: new Date(meta.updatedAt) },
             }),
             prisma.projectVersion.create({
               data: { ...ws, projectId: meta.id, version: meta.version, manifest: json(manifest), createdAt: new Date(meta.updatedAt) },
@@ -384,12 +412,35 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         const rows = await prisma.project.findMany({ where: ws, include: latest, orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }] });
         return rows.filter((p) => p.versions.length).map(toProject);
       },
+      async page(req) {
+        const rows = await prisma.project.findMany({
+          where: { ...ws, ...keyset(req) },
+          orderBy: NEWEST,
+          take: req.limit,
+          select: { id: true, version: true, title: true, sceneCount: true, durationSeconds: true, createdAt: true, updatedAt: true },
+        });
+        // Rows saved before migration 0008 have no summary columns yet: read just their manifests (at most one page).
+        const missing = rows.filter((r) => r.sceneCount === null || r.durationSeconds === null).map((r) => r.id);
+        const manifests = new Map<string, Project>();
+        if (missing.length) {
+          const old = await prisma.project.findMany({ where: { ...ws, id: { in: missing } }, include: latest });
+          for (const p of old) if (p.versions.length) manifests.set(p.id, parse<Project>(p.versions[0]!.manifest));
+        }
+        const out: ProjectSummary[] = [];
+        for (const r of rows) {
+          const meta = { id: r.id, version: r.version, createdAt: iso(r.createdAt), updatedAt: iso(r.updatedAt) };
+          const m = manifests.get(r.id);
+          if (r.sceneCount !== null && r.durationSeconds !== null) out.push({ ...meta, title: r.title, scenes: r.sceneCount, durationSeconds: r.durationSeconds });
+          else if (m) out.push({ ...meta, ...projectStats(m) });
+        }
+        return out;
+      },
       async saveVersion(id, expectedVersion, manifest, updatedAt): Promise<ProjectMeta | null> {
         const at = new Date(updatedAt);
         return prisma.$transaction(async (tx: Tx) => {
           const r = await tx.project.updateMany({
             where: { ...ws, id, version: expectedVersion },
-            data: { version: expectedVersion + 1, title: manifest.title, updatedAt: at },
+            data: { version: expectedVersion + 1, ...summaryColumns(manifest), updatedAt: at },
           });
           if (r.count !== 1) return null;
           await tx.projectVersion.create({ data: { ...ws, projectId: id, version: expectedVersion + 1, manifest: json(manifest), createdAt: at } });
@@ -723,8 +774,16 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       },
       async list(filter = {}) {
         const rows = await prisma.job.findMany({
-          where: { ...ws, ...(filter.projectId ? { projectId: filter.projectId } : {}), ...(filter.parentId ? { parentId: filter.parentId } : {}), ...(filter.status ? { status: filter.status } : {}), ...(filter.type ? { type: filter.type } : {}) },
+          where: { ...ws, ...jobWhere(filter) },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        });
+        return rows.map(toJob);
+      },
+      async page(filter, req) {
+        const rows = await prisma.job.findMany({
+          where: { ...ws, ...jobWhere(filter), ...keyset(req) },
+          orderBy: NEWEST,
+          take: req.limit,
         });
         return rows.map(toJob);
       },
@@ -899,6 +958,9 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       },
       async list() {
         return (await prisma.asset.findMany({ where: ws, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })).map(toAsset);
+      },
+      async page(req) {
+        return (await prisma.asset.findMany({ where: { ...ws, ...keyset(req) }, orderBy: NEWEST, take: req.limit })).map(toAsset);
       },
       async update(id, patch) {
         const data = {

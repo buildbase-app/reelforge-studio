@@ -68,7 +68,7 @@ const toolError = (r: any) => {
 };
 const setLimits = (settings: Record<string, unknown>) => api('PATCH', '/v1/config', admin, { settings });
 const cancelAll = async () => {
-  for (const j of await server.service.listJobs()) if (j.status === 'queued' || j.status === 'running') await server.service.cancelJob(j.id);
+  for (const j of (await server.service.listJobs({}, { limit: 200 })).jobs) if (j.status === 'queued' || j.status === 'running') await server.service.cancelJob(j.id);
   await server.service.jobs.idle();
 };
 

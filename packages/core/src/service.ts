@@ -50,7 +50,8 @@ import { UrlSigner } from './secrets';
 import { RuntimeConfig, type ConfigSources } from './config/runtime';
 import { createLicenceManager, type LicenceApi, type LicenceManager } from './licence';
 import type { ResolvedConfig } from './config/load';
-import { ProjectStore } from './store';
+import { ProjectStore, isProjectId } from './store';
+import { parsePageQuery, readPage } from './paging';
 import { createStorageDriver, type StorageFactory } from './storage/factory';
 import { contentTypeFor, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix } from './storage/keys';
 import { StorageManager, type CleanupReport, type RetentionPolicy } from './storage/manager';
@@ -721,13 +722,15 @@ export class ReelforgeService {
     return r;
   }
 
-  async listProjects() {
-    return (await this.projects.listWithManifests()).map(({ meta, manifest }) => ({
-      ...meta,
-      title: manifest.title,
-      scenes: manifest.scenes.length,
-      durationSeconds: totalFrames(manifest) / manifest.output.fps,
-    }));
+  /**
+   * One page of project summaries, newest created first (D-102): `limit`
+   * (default 50, max 200) and `cursor` (nextCursor of the previous page).
+   * nextCursor is null on the last page.
+   */
+  async listProjects(q: { limit?: unknown; cursor?: unknown } = {}) {
+    const req = parsePageQuery('projects', '', q);
+    const { items, nextCursor } = await readPage('projects', '', req, (r) => this.projects.page(r));
+    return { projects: items, nextCursor };
   }
 
   async createProject(input: unknown) {
@@ -1262,8 +1265,13 @@ export class ReelforgeService {
     if (secs > 0) await this.jobs.waitFor(id, secs * 1000).catch(() => undefined);
     return this.getJob(id);
   }
-  async listJobs(filter: { projectId?: string } = {}) {
-    return this.jobs.list(filter);
+  /** One page of jobs, newest first, optionally of one project (D-102; paged like listProjects). */
+  async listJobs(filter: { projectId?: string } = {}, q: { limit?: unknown; cursor?: unknown } = {}) {
+    const projectId = filter.projectId || undefined;
+    const req = parsePageQuery('jobs', projectId ?? '', q);
+    if (projectId !== undefined && !isProjectId(projectId)) return { jobs: [], nextCursor: null }; // no job can have it
+    const { items, nextCursor } = await readPage('jobs', projectId ?? '', req, (r) => this.jobs.page(projectId ? { projectId } : {}, r));
+    return { jobs: items, nextCursor };
   }
   cancelJob(id: string) {
     return this.jobs.cancel(id);
@@ -1502,10 +1510,19 @@ export class ReelforgeService {
     return this.assets.get(id);
   }
 
-  async listAssets(opts: { projectId?: string } = {}) {
-    if (!opts.projectId) return this.assets.list();
-    const { manifest } = await this.projects.get(opts.projectId);
-    return manifest.assets;
+  /**
+   * With projectId: the project's manifest entries (bounded by the manifest,
+   * one page, nextCursor null). Otherwise one page of the server asset store,
+   * newest first (D-102; paged like listProjects).
+   */
+  async listAssets(opts: { projectId?: string } = {}, q: { limit?: unknown; cursor?: unknown } = {}) {
+    if (opts.projectId) {
+      const { manifest } = await this.projects.get(opts.projectId);
+      return { assets: manifest.assets as unknown[], nextCursor: null };
+    }
+    const req = parsePageQuery('assets', '', q);
+    const { items, nextCursor } = await readPage('assets', '', req, (r) => this.assets.page(r));
+    return { assets: items as unknown[], nextCursor };
   }
 
   // ---- providers ------------------------------------------------------------

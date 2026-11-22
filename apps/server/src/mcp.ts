@@ -48,6 +48,14 @@ const licenseObj = z
   .optional()
   .describe('Licence metadata for the asset (recommended; missing licences produce a warning).');
 
+/** Paged lists (D-102): the same arguments and nextCursor on list_projects, list_jobs and list_assets. */
+const PAGING =
+  ' Returns one page, newest first: at most `limit` items (default 50, max 200) and `nextCursor`. When nextCursor is not null there are more: call again with the same arguments plus `cursor: nextCursor` until it is null. Without a cursor you get the first (newest) page only, not everything.';
+const pageArgs = {
+  limit: z.number().int().min(1).max(200).optional().describe('Page size: 1 to 200, default 50.'),
+  cursor: z.string().max(1024).optional().describe('nextCursor from the previous page of this list (same filters), unchanged. Omit for the first page.'),
+};
+
 const idempotencyKey = z
   .string()
   .min(1)
@@ -141,11 +149,11 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_projects',
     title: 'List projects',
-    description: 'Lists projects on this server with title, version, scene count and duration.',
+    description: 'Lists projects on this server with title, version, scene count and duration (no manifests; get_project has the manifest).' + PAGING,
     scope: 'read',
-    input: {},
+    input: { ...pageArgs },
     annotations: { readOnlyHint: true },
-    run: async (_a, { service }) => ({ projects: await service.listProjects() }),
+    run: async (a, { service }) => service.listProjects({ limit: a.limit, cursor: a.cursor }),
   },
   {
     name: 'create_project',
@@ -317,11 +325,12 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_assets',
     title: 'List assets',
-    description: 'Lists assets: those of a project (manifest entries) with projectId, otherwise everything in the server asset store.',
+    description:
+      'Lists assets: with projectId, all of that project\'s manifest entries (one page, nextCursor null); otherwise the server asset store.' + PAGING,
     scope: 'read',
-    input: { projectId: projectId.optional() },
+    input: { projectId: projectId.optional(), ...pageArgs },
     annotations: { readOnlyHint: true },
-    run: async (a, { service }) => ({ assets: await service.listAssets({ projectId: a.projectId }) }),
+    run: async (a, { service }) => service.listAssets({ projectId: a.projectId }, { limit: a.limit, cursor: a.cursor }),
   },
   {
     name: 'preview_scene',
@@ -420,11 +429,11 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_jobs',
     title: 'List jobs',
-    description: 'Lists render and preview jobs (newest first), optionally only those of one project.',
+    description: 'Lists render and preview jobs, optionally only those of one project. To follow one job, call get_job with its id instead.' + PAGING,
     scope: 'read',
-    input: { projectId: projectId.optional() },
+    input: { projectId: projectId.optional(), ...pageArgs },
     annotations: { readOnlyHint: true },
-    run: async (a, { service }) => ({ jobs: await service.listJobs({ projectId: a.projectId }) }),
+    run: async (a, { service }) => service.listJobs({ projectId: a.projectId }, { limit: a.limit, cursor: a.cursor }),
   },
   {
     name: 'retry_job',
@@ -984,7 +993,8 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
       list: async () => {
         requireRead();
         return {
-          resources: (await service.listProjects()).map((p) => ({ uri: `reelforge://projects/${p.id}`, name: p.title, mimeType: 'application/json' })),
+          // The newest 200 (one page, D-102): this list callback gets no cursor; list_projects pages through all.
+          resources: (await service.listProjects({ limit: 200 })).projects.map((p) => ({ uri: `reelforge://projects/${p.id}`, name: p.title, mimeType: 'application/json' })),
         };
       },
     }),

@@ -438,7 +438,7 @@ describe('ReelforgeService with a licence', () => {
     expect(err.message).toMatch(/revoked/);
     await expect(svc.preview('sample-reel')).rejects.toMatchObject({ code: 'licence_invalid' });
     await expect(svc.retryJob(job.id)).rejects.toMatchObject({ code: 'licence_invalid' });
-    expect((await svc.listProjects()).length).toBe(1);
+    expect((await svc.listProjects()).projects.length).toBe(1);
     const renders = await svc.listRenders('sample-reel');
     expect(renders.length).toBe(1);
     expect((await svc.renderFile(renders[0]!.renderId)).path).toMatch(/final\.mp4$/);
