@@ -1926,3 +1926,48 @@ recorded by the instance that claims at a render's or preview's first claim; uni
 Buckets 0.1 s .. 1 h with 60 and 300 as boundaries, so the SLO quantiles (p95 < 60 s previews, < 300 s renders at
 maximum replicas) are exact at the threshold. Grafana panel and Prometheus alert rules in
 `deployment/observability/`, unit-tested with `promtool test rules`.
+
+## X. Database pooling and read replicas (2026-11-22, issue #152)
+
+Builds on D-099 (pooling is part of every multi-instance recipe) and the #151 load test (PgBouncer
+1.26.1 in transaction mode: claims exactly once, migrations and `?schema=` through it, 401 → ≤ 22
+server connections at 200 workers; docs/PERFORMANCE.md). Recipe, sizing, sources and test cases:
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#connection-pooling).
+
+### D-104 --- Small worker pools by default; PgBouncer transaction mode with migrations on the direct port; a read replica for six list reads only
+
+**Status:** DECIDED (reversible).\
+**Pools:** a `worker` process whose database URL has no `?connection_limit=` uses
+`database.workerConnectionLimit` (3; `0` = the drivers' default of 10); the URL always wins and the
+`api`/`all` roles keep 10. A worker needs a claim loop, a heartbeat and throttled progress writes; 2
+per worker carried #151's 200-worker drain. Sizing rule: `api × connection_limit + workers × N
+(+ CLI, headroom) ≤ pooler client limit`, and the pooler's server pool ≤ the database's
+`max_connections`. *Rejected:* a smaller default for every role (the api is CPU-bound at 10, #151);
+computing the pool from `server.workerConcurrency` (opaque; the operator can set the URL).\
+**Pooler:** PgBouncer in transaction mode is the tested recipe (pinned `edoburu/pgbouncer` 1.26.1
+image, compose overlay `deployment/compose/docker-compose.pgbouncer.yml` with its settings in
+`pgbouncer.env`, shared with the Docker scale e2e). Migrations run once on the direct port
+(`--migrate-only`, then `REELFORGE_MIGRATE_ON_START=0`), although they also worked through PgBouncer:
+it keeps DDL off the app's pool and works with RDS Proxy on MySQL, where `GET_LOCK` pins.
+`?schema=` is not supported behind PgBouncer on PostgreSQL ≤ 17: measured here, the per-client
+`search_path` (sent as startup `options`) is not kept under concurrency and the raw SQL names tables
+without a schema (#151's probe had used schema-qualified model queries only); use the default schema
+or a role-level `search_path`. The db contract and server suites pass through PgBouncer with the
+default schema (a database per run, `TEST_POSTGRES_ISOLATION=database`). RDS Proxy (writer
+only on RDS; statements over 16 KB pin the session, and manifests can be larger; MySQL prepared
+statements pin) and Cloud SQL managed pooling are documented from their documentation and untested.
+A direct, non-pooled URL for LISTEN/NOTIFY belongs to the dispatch work (#158), not here.\
+**Read replica:** `database.readUrl` (`DATABASE_READ_URL`) routes exactly six repository reads
+(`READ_REPLICA_READS`: `projects.page`, `projects.listVersions`, `jobs.page`, `assets.page`,
+`themes.list`, `audit.list`), the lists behind `list_projects`, `list_project_versions`,
+`list_jobs`, `list_assets`, `list_themes` and `list_audit_events`, to a second Prisma client in
+`createPrismaRepositories`. Everything else, including every read a decision or a write depends on
+(job state, claims, quotas, caps, rate limits, keys, licence, idempotency, settings, webhooks,
+single-row gets, the unpaged job list the retention sweep uses), stays on the primary. Unset:
+everything on the primary. SQLite and a replica of another kind are refused at start. The replica is
+connected to, never migrated or written. Tests point it at a database without tables (every write
+path still works; exactly the six reads fail) and at a migrated database with other rows.
+*Rejected:* Prisma's read-replicas extension (unverified with driver adapters, and it routes every
+read outside a transaction, including reads that precede writes); routing per service method (the
+repository is where the query is, and the list of reads is checkable there); a fallback to the
+primary when the replica fails (hides a broken replica; the six lists fail loudly instead).

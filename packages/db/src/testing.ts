@@ -7,6 +7,7 @@ import type { DatabaseKind } from './url';
  *
  *   sqlite      always: a file in `tmpDir`
  *   postgresql  when TEST_POSTGRES_URL is set: a new schema in that database
+ *               (TEST_POSTGRES_ISOLATION=database: a new database instead, e.g. behind PgBouncer)
  *   mysql       when TEST_MYSQL_URL is set: a new database (the user needs CREATE/DROP DATABASE)
  */
 export interface TestDatabase {
@@ -35,6 +36,29 @@ export async function createTestDatabase(kind: DatabaseKind, tmpDir: string, env
     const base = env.TEST_POSTGRES_URL;
     if (!base) throw new Error('TEST_POSTGRES_URL is not set');
     const u = new URL(base);
+    if (env.TEST_POSTGRES_ISOLATION === 'database') {
+      // A database per run in the default schema: what runs behind PgBouncer in transaction mode, where a
+      // per-client search_path (?schema=) is not kept on PostgreSQL < 18 (#152, D-104).
+      const admin = await Database.open({ url: base });
+      try {
+        await admin.prisma.$executeRawUnsafe(`CREATE DATABASE "${name}"`);
+      } finally {
+        await admin.close();
+      }
+      u.pathname = `/${name}`;
+      return {
+        kind,
+        url: u.toString(),
+        drop: async () => {
+          const a = await Database.open({ url: base });
+          try {
+            await a.prisma.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+          } finally {
+            await a.close();
+          }
+        },
+      };
+    }
     u.searchParams.set('schema', name);
     return {
       kind,

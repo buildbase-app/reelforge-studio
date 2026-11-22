@@ -63,7 +63,7 @@ import {
   type Scope,
   type StorageDriverId,
 } from '@reelforge/core';
-import { Database, parseDatabaseUrl, prepareDatabase } from '@reelforge/db';
+import { Database, parseDatabaseUrl, parseReadUrl, prepareDatabase } from '@reelforge/db';
 import { resolve } from 'node:path';
 import { loadConfig, type ServerConfig } from './config';
 import { onceArgs, runWorkerOnce } from './worker';
@@ -365,7 +365,12 @@ function configCheck(argv: string[]): void {
   }
   const problems: string[] = [];
   try {
-    parseDatabaseUrl(config.databaseUrl);
+    const primary = parseDatabaseUrl(config.databaseUrl);
+    try {
+      if (config.databaseReadUrl) parseReadUrl(config.databaseReadUrl, primary);
+    } catch (e) {
+      problems.push(`database.readUrl: ${(e as Error).message}`);
+    }
   } catch (e) {
     // parseDatabaseUrl messages redact the URL.
     problems.push(`database.url: ${(e as Error).message}`);

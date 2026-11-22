@@ -539,6 +539,24 @@ export const ConfigSchema = z.object({
       example: 'postgresql://reelforge:<password>@db:5432/reelforge',
       description: 'Database: `file:` (SQLite), `postgresql://...`, `mysql://...` or `mariadb://...`. Secret because the URL usually holds a password.',
     }),
+    readUrl: setting(nonEmpty().optional(), {
+      kind: 'string',
+      scope: 'startup',
+      env: 'REELFORGE_DATABASE_READ_URL',
+      aliases: ['DATABASE_READ_URL'],
+      secret: true,
+      example: 'postgresql://reelforge:<password>@db-replica:5432/reelforge',
+      description:
+        'A read replica of `database.url` (PostgreSQL or MySQL; refused with SQLite) for the list reads that tolerate lag: list_projects, list_project_versions, list_jobs, list_assets, list_themes, list_audit_events and audit exports. Job state, claims, quotas, rate limits, keys, licence, idempotency and every read-then-write stay on `database.url`. Unset: everything uses `database.url`. Never migrated. See docs/providers/queue-and-scaling.md#read-replica.',
+    }),
+    workerConnectionLimit: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_DB_WORKER_CONNECTION_LIMIT',
+      default: 3,
+      description:
+        'Pool size of a `worker` role process when its database URL has no `?connection_limit=` (claims, heartbeats and progress need few connections; hundreds of workers at the drivers\' default of 10 each would exhaust the database). `0`: the driver default (10). Other roles keep the driver default. Sizing: docs/providers/queue-and-scaling.md#connection-pooling.',
+    }),
     migrateOnStart: setting(z.boolean(), {
       kind: 'boolean',
       scope: 'startup',

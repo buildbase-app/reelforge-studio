@@ -93,9 +93,10 @@ export function secretValues(resolved: ResolvedConfig, providerOverlay: Record<s
   for (const s of resolved.settings.values()) {
     if (!s.def.secret || typeof s.value !== 'string' || !s.value) continue;
     // A SQLite file path is not secret (and is logged on start); any other database URL is.
-    if (s.def.key === 'database.url' && s.value.startsWith('file:')) continue;
+    const dbUrl = s.def.key === 'database.url' || s.def.key === 'database.readUrl';
+    if (dbUrl && s.value.startsWith('file:')) continue;
     out.push(s.value);
-    if (s.def.key === 'database.url') {
+    if (dbUrl) {
       try {
         const password = decodeURIComponent(new URL(s.value).password);
         if (password) out.push(password);

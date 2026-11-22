@@ -15,6 +15,8 @@ the latest result. Nothing is called supported without a passing case.
 - [Render fan-out](#render-fan-out)
 - [Quotas and rate limits across instances](#quotas-and-rate-limits-across-instances)
 - [Licence across instances](#licence-across-instances)
+- [Connection pooling](#connection-pooling) (sizing, `connection_limit` per role, PgBouncer, RDS Proxy, Cloud SQL; D-104)
+- [Read replica](#read-replica) (`database.readUrl`: which reads go where; D-104)
 - [Test cases](#test-cases)
 - [Troubleshooting](#troubleshooting)
 - [Known limits](#known-limits)
@@ -75,6 +77,8 @@ All start-up only unless marked; environment names and defaults in
 | `storage.localShared` | `REELFORGE_STORAGE_LOCAL_SHARED` | `false` | the data directory is one shared volume (NFS, EFS, Azure Files, RWX PVC) mounted by every instance |
 | `limits.rateLimitStore` | `REELFORGE_RATE_LIMIT_STORE` | `auto` | `memory` (per instance) or `database` (shared); `auto` = `database` with the database queue |
 | `limits.renderConcurrency` | `REELFORGE_RENDER_CONCURRENCY` | `1` | runtime; used by workers when `server.workerConcurrency` is unset |
+| `database.workerConnectionLimit` | `REELFORGE_DB_WORKER_CONNECTION_LIMIT` | `3` | pool size of a `worker` process whose database URL has no `?connection_limit=`; `0` = the driver default (10) ([Connection pooling](#connection-pooling)) |
+| `database.readUrl` | `REELFORGE_DATABASE_READ_URL` / `DATABASE_READ_URL` (or `_FILE`) | unset | a read replica for the lag-tolerant lists only ([Read replica](#read-replica)); refused with SQLite |
 
 Every instance needs the same `REELFORGE_SECRET_KEY`: it decrypts the secret
 settings in the database and, with the database queue, is the key that signs
@@ -641,6 +645,219 @@ same `code`, `message` and `details` as a tool error. Each refusal is counted in
 `reelforge_limits_rejections_total{reelforge_limit_reason}` and written to the
 audit log as `limit.rejected` (result `denied`).
 
+## Connection pooling
+
+Decision D-104; measurements: [docs/PERFORMANCE.md](../PERFORMANCE.md) (#151). Every ReelForge
+process opens its own pool per database URL. Prisma 7 uses the driver's pool: node-postgres
+`max` and the mariadb connector's `connectionLimit`, both **10** by default; `?connection_limit=N`
+in the URL sets it (`packages/db/src/url.ts`, `database.ts`). A thousand workers at the default
+could open 10 000 connections; PostgreSQL's default `max_connections` is 100.
+
+**Sizing rule.** Without a pooler, what the database sees is the sum of every process's pool;
+with one, the sum is what the **pooler** must accept, and the pooler's own server pool is what the
+database sees:
+
+```
+api instances × connection_limit(api) + workers × connection_limit(worker) (+ CLI runs, migrations, headroom)
+    ≤ pooler client limit (PgBouncer max_client_conn, RDS Proxy: no fixed client limit)
+pooler server pool (PgBouncer default_pool_size per database/user, RDS Proxy MaxConnectionsPercent)
+    ≤ database max_connections − superuser_reserved_connections − other users
+```
+
+Without a pooler, the first line must fit `max_connections` directly. The server pool itself is
+best near 2-4 × the database's vCPUs (**ESTIMATE**, common practice; #151 ran with 20 on a 4-vCPU
+sandbox and PostgreSQL never saw more than 22 connections at 200 workers).
+
+**Recommended `connection_limit` per role:**
+
+| Role | Recommended | Default here | Why |
+| --- | --- | --- | --- |
+| `worker` | **2-3** | **3** when the URL has no `connection_limit` (`database.workerConnectionLimit`) | a worker runs one claim loop, one heartbeat, progress writes (2/s per running render) and the licence/settings re-reads; #151 drained 5 000 jobs with 200 workers at 2 each with every job exactly once. Raise it with `server.workerConcurrency` > 1 (about 1 + 2 per concurrent render) |
+| `api` | **10** (the driver default) | 10 | one event loop; #151's two api instances at 10 each were CPU-bound, not pool-bound (≤ 21 connections for ~300-750 req/s) |
+| `all` | 10 | 10 | one instance does both |
+| CLI (`reelforge migrate`, `keys`, ...) | 1-2 | 10 | short-lived; count them in the headroom |
+
+Set it per role in the URL (`DATABASE_URL_FILE` per Deployment): `...?connection_limit=10` for
+the api, nothing for workers (the default of 3 applies) or `...?connection_limit=2`. The worker
+default applies to `database.readUrl` too. It never applies to the `api` or `all` roles.
+
+**Migrations on the direct port.** Run migrations once, on a direct connection to the
+database (not through PgBouncer or RDS Proxy), then start every instance with
+`REELFORGE_MIGRATE_ON_START=0`:
+
+```bash
+docker run --rm -e DATABASE_URL=postgresql://reelforge:...@db:5432/reelforge \
+  ghcr.io/buildbase-app/reelforge-studio apps/server/node_modules/.bin/tsx apps/server/src/main.ts --migrate-only
+# or: reelforge migrate (a Kubernetes Job / init container with the direct URL)
+```
+
+The migrator's PostgreSQL lock is `pg_advisory_xact_lock` (transaction-scoped) and did run
+through PgBouncer 1.26.1 in transaction mode (#151), but a direct connection keeps DDL off the
+app's pool, works with any pooler, and is required for RDS Proxy on MySQL, where the
+migrator's `GET_LOCK` pins the session (below). Instances refuse to start while migrations are
+pending (`assertMigrated`). The compose overlay below does this with a `migrate` service.
+
+### PgBouncer (transaction mode)
+
+Tested: PgBouncer **1.26.1** (#151 load test; SCL-19 below). Older versions were not tried.
+
+[deployment/compose/docker-compose.pgbouncer.yml](../../deployment/compose/docker-compose.pgbouncer.yml)
+is an overlay for the scale compose file: a pinned `edoburu/pgbouncer` image (1.26.1, by digest,
+from `mirror.gcr.io`), the settings in
+[deployment/compose/pgbouncer.env](../../deployment/compose/pgbouncer.env), a one-shot `migrate`
+service on `postgres:5432`, and api/workers on `pgbouncer:6432` with
+`REELFORGE_MIGRATE_ON_START=0`. The Docker scale e2e runs the same image and settings
+(`SCALE=1 POOLER=pgbouncer e2e/docker/run.sh`).
+
+```bash
+docker compose -f deployment/compose/docker-compose.scale.yml \
+               -f deployment/compose/docker-compose.pgbouncer.yml up -d --scale worker=10
+```
+
+The equivalent `pgbouncer.ini`, for any other packaging:
+
+```ini
+[databases]
+* = host=postgres port=5432
+
+[pgbouncer]
+listen_port = 6432
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt
+pool_mode = transaction
+default_pool_size = 20          ; server connections per database/user: what PostgreSQL sees
+max_client_conn = 2000          ; >= api × connection_limit + workers × 3
+max_prepared_statements = 200   ; protocol-level prepared statements (0 also worked in #151)
+ignore_startup_parameters = extra_float_digits
+```
+
+What ReelForge needs from it, and why it works (sources: [PgBouncer configuration](https://www.pgbouncer.org/config.html),
+read 2026-11-22; measurements: #151):
+
+- **Transaction mode** gives a server connection to a client only for one transaction. ReelForge
+  keeps all state inside transactions: claims (`SELECT ... FOR UPDATE SKIP LOCKED` + update),
+  quotas and caps (one transaction under a row lock), fenced writes, the migrator's
+  transaction-scoped advisory lock. It uses no session `SET`, SQL `PREPARE`, `LISTEN` or session
+  advisory locks. #151: 5 000 claims at 10/50/200 workers through PgBouncer, every job exactly
+  once.
+- **`max_prepared_statements`** (PgBouncer default 200): with a non-zero value PgBouncer tracks
+  protocol-level named prepared statements. Prisma's pg adapter also worked with 0 (#151).
+- **Do not use `?schema=` behind PgBouncer transaction mode (PostgreSQL 17 and older).**
+  ReelForge sends it as the startup parameter `options=-c search_path=...`, and its raw SQL (the
+  claim, the quota and cap statements) names tables without a schema. PgBouncer 1.26.1 accepts
+  the parameter, but on PostgreSQL 17 it does **not** keep it per client under concurrency
+  (measured here on 2026-11-22: four concurrent `psql` sessions with four different
+  `search_path` values through one pool each saw other clients' values in 3-7 of 300
+  statements; the db contract suite with a schema per run failed with
+  `relation "Job" does not exist`). The PgBouncer documentation says the same: before
+  PostgreSQL 18 it only knows `search_path` from the startup packet, so a server connection can
+  carry another client's value. #151's probe passed only because Prisma's model queries are
+  schema-qualified. Use the default schema (a database per deployment), or give the database
+  user its own schema with `ALTER ROLE reelforge SET search_path = reelforge` and leave
+  `?schema=` out (every server connection then starts with it). Do not list `options` in
+  `ignore_startup_parameters` either: that silently drops the schema. Qualifying the raw SQL
+  with the schema would lift this limit (follow-up).
+- **Tested through PgBouncer** with the default schema (2026-11-22, PgBouncer 1.26.1 with
+  `pgbouncer.env`, PostgreSQL 17): the whole db contract suite (296 tests, a database per run:
+  `TEST_POSTGRES_ISOLATION=database TEST_POSTGRES_POOLER=pgbouncer`) and the whole server suite
+  including `scaling.test.ts` (api + two workers, quotas and rate limits across two api
+  instances), and the Docker scale e2e (SCL-19).
+- **LISTEN/NOTIFY** dispatch (#158, separate) needs a direct, non-pooled connection of its own;
+  it is not part of this recipe.
+
+### RDS Proxy (AWS)
+
+Sources: [Amazon RDS Proxy](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html),
+[Avoiding pinning](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-pinning.html),
+[RDS Proxy endpoints (Aurora)](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/rds-proxy-endpoints.html),
+all read 2026-11-22. **Untested here** (no AWS account in CI): VERIFY before recommending.
+
+- **Writer only on RDS:** "For RDS DB instances in replication configurations, you can associate
+  a proxy only with the writer DB instance, not a read replica." Point `database.readUrl` at the
+  replica's own endpoint (with a small `connection_limit`), not at the proxy. Aurora is
+  different: a proxy can have **reader endpoints** that spread connections over the Aurora
+  Replicas, usable as `database.readUrl`.
+- **Statements over 16 KB pin the session:** "Any statement with a text size greater than 16 KB
+  causes the proxy to pin the session to the current connection" (all engines). A pinned client
+  keeps its server connection until it disconnects. Project manifests are stored as one JSON
+  value in `ProjectVersion.manifest`; a manifest over 16 KB (long briefs, many scenes, inline
+  source scenes) can make the insert statement exceed it, so some sessions **will** pin. Watch
+  `DatabaseConnectionsCurrentlySessionPinned` in CloudWatch and size the proxy for it. Whether
+  a bound parameter counts toward the "text size" is not stated (VERIFY).
+- **PostgreSQL pins** on session `SET`, SQL `PREPARE`, `LISTEN`, session advisory locks and
+  sequence functions such as `nextval`; **not** on `pg_advisory_xact_lock`. ReelForge's queries
+  use none of the session-level ones. `?schema=` (startup `options`) is untested with the proxy:
+  use the default schema.
+- **MySQL pins** on prepared statements ("whether the prepared statement uses SQL text or the
+  binary protocol") and on `GET_LOCK`. The mariadb connector behind Prisma's adapter may use
+  binary prepared statements (VERIFY), which would pin every session and remove the benefit; run
+  migrations (`GET_LOCK`) on the direct endpoint in any case. RDS Proxy's `caching_sha2_password`
+  support for MySQL needs TLS (`?ssl=true`).
+- The proxy queues or rejects clients over its limit instead of failing the database; size the
+  ReelForge side with the sizing rule against the proxy's `MaxConnectionsPercent` of the writer.
+
+### Cloud SQL (Google Cloud)
+
+Sources: [Managed Connection Pooling, PostgreSQL](https://docs.cloud.google.com/sql/docs/postgres/managed-connection-pooling)
+and [MySQL](https://docs.cloud.google.com/sql/docs/mysql/managed-connection-pooling), read
+2026-11-22. **Untested here.**
+
+- **PostgreSQL:** Managed Connection Pooling (Enterprise Plus edition only; enabling it restarts
+  the instance) puts a pooler in front of the instance: port **6432** (direct to the pooler),
+  **3307** (through the Cloud SQL Auth Proxy 2.15.2+), **5432** stays the direct port for
+  migrations. Transaction mode is the default and has the same rules as PgBouncer (no
+  `SET`/`RESET`, `LISTEN`, `PREPARE`, session advisory locks); `max_prepared_statements`
+  defaults to **0** there, which Prisma's pg adapter handled through PgBouncer (#151).
+- **MySQL:** Managed Connection Pooling is a server-side thread pool (Enterprise Plus): it does
+  **not** reduce connections, each client still counts toward `max_connections`. Keep the
+  per-role `connection_limit` small, or put ProxySQL in front (untested).
+- Without managed pooling (Enterprise edition, or before enabling it), run PgBouncer yourself
+  (the recipe above) or keep the sizing rule within `max_connections`. The Cloud SQL Auth Proxy
+  and the language connectors handle authentication and TLS, not pooling.
+- Cloud SQL read replicas have their own address: use it as `database.readUrl`.
+
+## Read replica
+
+Decision D-104. `database.readUrl` (`REELFORGE_DATABASE_READ_URL`, alias `DATABASE_READ_URL`,
+or `..._FILE`) points at a read replica of `database.url` (a streaming replica, an Aurora
+reader, a Cloud SQL read replica, a MySQL replica). **Unset (the default): every query goes to
+`database.url`, as before.** Same kind as the primary; SQLite refuses it at start ("SQLite is
+one local file and has no read replica"), and so do `reelforge config check` and a replica of
+another kind. ReelForge only connects to the replica (one `SELECT 1` at start; a replica that
+does not answer stops the start like the primary would); it never migrates it and never writes
+to it. Its pool follows the same rules as the primary's (`?connection_limit=`, the worker
+default). The start-up log names the reads it serves.
+
+**Reads that go to the replica** (`READ_REPLICA_READS` in `packages/db/src/database.ts`), all
+lists that an agent or an admin pages through, where a row written a moment ago may be missing
+for the replica's lag:
+
+| Repository read | Used by |
+| --- | --- |
+| `projects.page` | `list_projects` / `GET /v1/projects` |
+| `projects.listVersions` | `list_project_versions` / `GET /v1/projects/:id/versions` |
+| `jobs.page` | `list_jobs` / `GET /v1/jobs` (renders, previews and their units) |
+| `assets.page` | `list_assets` / `GET /v1/assets` |
+| `themes.list` | `list_themes` / `GET /v1/themes` (stored themes; built-ins are in code), and the "available:" hint of an unknown-theme error (a failure there keeps the real error) |
+| `audit.list` | `list_audit_events` / `GET /v1/audit` and audit exports |
+
+**Everything else stays on the primary**, in particular: job state and every job read by id
+(`get_job`, long-polls, SSE), claims, heartbeats, leases, recovery, cancels, fan-out; queue
+position and admission counts; render quotas, job caps, provider usage counters and rate
+limits; API keys (authentication, lifecycle, `list_keys`); the licence state; idempotency keys;
+runtime and provider settings; webhooks and their outbox; single-row gets (`get_project`,
+`get_asset`, `get_theme`); the unpaged `jobs.list` (the retention sweep decides deletions from
+it); and every read-then-write. `list_renders` reads storage, not the database. Templates are in
+code.
+
+What a client sees: right after `create_project` a `list_projects` may not show it yet (the
+replica's lag); `get_project` always does. Pages are keyset pages, so a lagging replica never
+makes a cursor skip or repeat a row it already has; it only lacks the newest rows.
+
+Tests (REP-01..08 below) point the replica at a database **without tables**: every write path
+works (so none of them reads the replica), and exactly the six reads above fail (so they do).
+A second case feeds a migrated replica different rows than the primary.
+
 ## Test cases
 
 Licence across instances (#154): `apps/server/test/licence-scale.test.ts`:
@@ -811,6 +1028,18 @@ and a job that dies while its worker shuts down is handed back, never failed
 | SCL-16 | Docker: MinIO stopped: worker `/readyz` 503 (storage), a new job stays queued and the log says why; MinIO back: the job runs | Docker | pass 2026-11-21 |
 | SCL-17 | Docker: PostgreSQL stopped: api and worker `/readyz` 503 (database unreachable), no restarts, backoff warning in the log; back: renders again | Docker | pass 2026-11-21 |
 | SCL-18 | Docker: worker metrics (role, queue depth, finished jobs), bounded labels, no secret in any container log | Docker | pass 2026-11-21 |
+| PGB-01 | db contract suite through PgBouncer 1.26.1 (transaction mode, `pgbouncer.env`), default schema, a database per run (`TEST_POSTGRES_ISOLATION=database TEST_POSTGRES_POOLER=pgbouncer TEST_POSTGRES_URL=<pgbouncer>`): 296 passed | contract (PostgreSQL 17) | pass 2026-11-22 |
+| PGB-02 | server suite through PgBouncer, including `scaling.test.ts` (SCA-05..13: api + two workers, cancel, long-poll, quotas and rate limits across two api instances, graceful shutdown) and REP-06..08: 175 passed | server (PostgreSQL 17) | pass 2026-11-22 |
+| PGB-03 | `?schema=` behind PgBouncer on PostgreSQL 17: per-client `search_path` is not kept under concurrency (the contract suite with a schema per run fails with `relation ... does not exist`); hence the rule above | probe | finding 2026-11-22 |
+| SCL-19 | Docker, `POOLER=pgbouncer`: SCL-10..18 through PgBouncer 1.26.1 in transaction mode (the overlay's image and `pgbouncer.env`); migrations once with `--migrate-only` on the direct port, instances with `REELFORGE_MIGRATE_ON_START=0` (the api applies none); PostgreSQL sees only PgBouncer's connections, at most `DEFAULT_POOL_SIZE`; workers log `(pool 3)` | Docker | pass 2026-11-22 (also fixed for this run: `/readyz` detail and `/metrics` need an admin key and the metrics token since #146, which the script did not send yet) |
+| REP-01 | `database.readUrl` with SQLite is refused at once (no retries) naming the setting and the fix; a replica of another kind or a bad replica URL is refused; no password in the message | contract (SQLite) | pass 2026-11-22 |
+| REP-02 | replica = a database **without tables**: every write path and every read outside `READ_REPLICA_READS` works: projects (create, save, delete), keys, quota insert, claim, heartbeat, fenced progress and finish, cancel, recovery, counts, logs, rate limits and usage counters, idempotency, licence claim and compare-and-set, settings, provider settings, themes, assets, audit write and retention, webhooks, migrations and system state | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
+| REP-03 | the six reads of `READ_REPLICA_READS` fail on that replica (they do read it) | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
+| REP-04 | a migrated replica with other rows than the primary: lists answer from the replica, gets, counts and claims from the primary; nothing is written to the replica | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
+| REP-05 | pool size: the default (3) for a URL without `connection_limit`, the URL's value wins, the driver's 10 otherwise; with 12 queries at once the database sees at most that many new connections (`pg_stat_activity` / `PROCESSLIST`) | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
+| REP-06 | the server refuses to start with a read URL on SQLite; no password printed | server | pass 2026-11-22 |
+| REP-07 | `worker` role: pool 3 by default, the URL's `connection_limit` wins, `REELFORGE_DB_WORKER_CONNECTION_LIMIT=0` gives 10; the `api` role keeps 10; the start-up log shows the pool | server (PostgreSQL, MySQL) | pass 2026-11-22 |
+| REP-08 | server with a replica without tables, database queue and database rate limits: key with quota and rate limit, idempotent create (replayed), update, a render claimed and finished through the database queue, quota refusal, settings, themes, licence, webhooks, keys, `/readyz` all work; the six list routes answer 500; the replica password is in no log | server (PostgreSQL, MySQL) | pass 2026-11-22 |
 | LIM-01 | per-key job cap: 8 concurrent inserts with cap 3 give exactly 3; other keys unaffected; finished jobs free a slot, running jobs count | contract (4 targets) | pass 2026-11-22 |
 | LIM-02 | total queue cap: 12 concurrent inserts by 2 keys and without a key, cap 5: exactly 5; running jobs do not count | contract (4 targets) | pass 2026-11-22 |
 | LIM-03 | render quota windows and caps in one call: the window refuses first | contract (4 targets) | pass 2026-11-22 |
@@ -885,6 +1114,10 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 | workers do not claim and log `queue: not claiming jobs: the licence does not allow renders (checking, waiting_for_api)` | no api (or all) instance has checked the licence on this database yet: start one with the licence key, or activate it there |
 | workers log `the stored licence state failed its integrity check` (`state_untrusted`) | the worker's `REELFORGE_SECRET_KEY` differs from the api instances': use the same value everywhere |
 | `429 rate_limited` sooner than expected with several api instances | that is the shared limit working: each key gets `rateLimitPerMinute` per calendar minute across all instances |
+| `too many clients already` / `remaining connection slots are reserved` (PostgreSQL), `Too many connections` (MySQL) | the sum of the pools is above `max_connections`: apply the [sizing rule](#connection-pooling) (small worker pools, PgBouncer or RDS Proxy) |
+| a new project is missing from `list_projects` right after `create_project` | `database.readUrl` is set and the replica lags; `get_project` reads the primary. Check the replica's lag (`pg_stat_replication`, `SHOW REPLICA STATUS`) |
+| `cannot connect to the read replica (...)` at start | the replica in `database.readUrl` is down or the URL is wrong; unset it to read everything from the primary |
+| `DATABASE_READ_URL (database.readUrl) needs PostgreSQL or MySQL` | a read URL with SQLite: unset it |
 
 ## Known limits
 
@@ -905,6 +1138,13 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 - Each `/readyz` dependency probe is capped at 5 s; a database that accepts
   connections but answers slowly still marks the instance not ready.
 - No Redis/BullMQ provider (D-075).
+- Pooling: only PgBouncer 1.26.1 was run (load test and Docker e2e); RDS Proxy and Cloud SQL
+  managed pooling are documented from their documentation, untested. The PgBouncer scale e2e
+  is not in CI (`.github/workflows/` is maintainer-only).
+- Read replica: replica lag is not measured or bounded by ReelForge (no fallback to the primary
+  when the replica lags or is down after start: the six lists fail until it is back); `/readyz`
+  does not probe the replica. Tested with a second database fed by the test, not a streaming
+  replica container.
 - Measured throughput, connection counts, idle-polling cost and hot spots (load test, #151; so
   far a lower bound on a shared sandbox): [docs/PERFORMANCE.md](../PERFORMANCE.md).
 - Render fan-out (#156) splits by scene only: frame ranges of long scenes

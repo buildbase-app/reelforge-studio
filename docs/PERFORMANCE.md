@@ -197,6 +197,10 @@ PgBouncer transaction-mode probes [^s]:
 - max_prepared_statements=200: migrations through PgBouncer (pg_advisory_xact_lock): works
 - max_prepared_statements=200: 2 000 queries, 20 concurrent, insert + claim (SKIP LOCKED) + fenced finish: works
 - non-default schema (?schema=lschema, sent as the startup parameter options=-c search_path=...): migrations land in it; 200 queries from it and 200 from a default-schema client, interleaved on the same server pool, each see their own schema: works
+  **Corrected by #152:** this probe used schema-qualified model queries only. With raw SQL (the claim,
+  quotas, caps) and several clients at once, PostgreSQL 17 + PgBouncer 1.26.1 does not keep each client's
+  `search_path`: do not use `?schema=` behind PgBouncer
+  ([queue-and-scaling.md](providers/queue-and-scaling.md#pgbouncer-transaction-mode)).
 
 ## Findings and hot spots
 
