@@ -1,4 +1,6 @@
 # promtool unit test for alerts.yml: `promtool test rules alerts.test.yml` (e2e/docker/run.sh).
+# The annotations round the quantile to whole seconds: floating point differs slightly between CPUs
+# (arm64 computed 569.99... where amd64 computed 570), so the test values sit away from a rounding edge.
 rule_files:
   - alerts.yml
 evaluation_interval: 1m
@@ -31,7 +33,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: Previews wait more than 60 s for a worker (p95, 15 min)
-              description: "p95 queue wait of previews is 1m 56s. Add worker replicas (or raise the autoscaler's maximum), check that workers are claiming (reelforge_queue_errors_total, /readyz), or set limits.maxEstimatedWaitSeconds so new work is refused with Retry-After instead of piling up."
+              description: "p95 queue wait of previews is 117 s. Add worker replicas (or raise the autoscaler's maximum), check that workers are claiming (reelforge_queue_errors_total, /readyz), or set limits.maxEstimatedWaitSeconds so new work is refused with Retry-After instead of piling up."
       - eval_time: 30m
         alertname: ReelforgeRenderQueueWaitSLO
         exp_alerts: []
@@ -52,4 +54,4 @@ tests:
               severity: warning
             exp_annotations:
               summary: Renders wait more than 5 min for a worker (p95, 15 min)
-              description: "p95 queue wait of renders is 9m 30s. Add worker replicas (or raise the autoscaler's maximum), lower per-key backlogs (limits.maxQueuedJobsPerKey), or set limits.maxEstimatedWaitSeconds."
+              description: "p95 queue wait of renders is 570 s. Add worker replicas (or raise the autoscaler's maximum), lower per-key backlogs (limits.maxQueuedJobsPerKey), or set limits.maxEstimatedWaitSeconds."

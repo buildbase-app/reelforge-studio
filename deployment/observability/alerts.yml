@@ -18,7 +18,7 @@ groups:
         annotations:
           summary: Previews wait more than 60 s for a worker (p95, 15 min)
           description: >-
-            p95 queue wait of previews is {{ $value | humanizeDuration }}. Add worker replicas (or raise the autoscaler's
+            p95 queue wait of previews is {{ $value | printf "%.0f" }} s. Add worker replicas (or raise the autoscaler's
             maximum), check that workers are claiming (reelforge_queue_errors_total, /readyz), or set
             limits.maxEstimatedWaitSeconds so new work is refused with Retry-After instead of piling up.
       - alert: ReelforgeRenderQueueWaitSLO
@@ -30,5 +30,5 @@ groups:
         annotations:
           summary: Renders wait more than 5 min for a worker (p95, 15 min)
           description: >-
-            p95 queue wait of renders is {{ $value | humanizeDuration }}. Add worker replicas (or raise the autoscaler's
+            p95 queue wait of renders is {{ $value | printf "%.0f" }} s. Add worker replicas (or raise the autoscaler's
             maximum), lower per-key backlogs (limits.maxQueuedJobsPerKey), or set limits.maxEstimatedWaitSeconds.
