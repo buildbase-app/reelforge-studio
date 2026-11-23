@@ -496,11 +496,13 @@ progress.settled::-moz-progress-bar {
 }
 .big-progress {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 16px;
+  gap: 8px 16px;
   margin-bottom: 12px;
 }
 .figure {
+  white-space: nowrap;
   font-size: 32px;
   line-height: 1;
   font-weight: 500;
