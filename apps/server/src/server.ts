@@ -185,7 +185,7 @@ export async function startServer(
     ? null
     : await new Promise((resolve) => {
         // Backpressure (#307): a bounded number of requests in progress, the rest refused at once with 503 + Retry-After.
-        const guard = inflightGuard(app.fetch, () => config.maxInflightRequests);
+        const guard = inflightGuard(app.fetch, () => config.maxInflightRequests, () => config.inflightWaitMs);
         const s = serve({ fetch: guard.fetch, hostname: config.host, port: config.port }, () => resolve(s));
       });
   // Agents poll with keep-alive connections; a short server keep-alive races with

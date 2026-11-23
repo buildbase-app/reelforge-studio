@@ -5,9 +5,9 @@
  * 10 s timeout or failed with 500 when the pool's own wait ran out ("timeout exceeded when trying to
  * connect"). Now:
  *
- *   - at most `limits.maxInflightRequests` requests are in progress per instance; one more is answered at
- *     once with 503 `overloaded` and `Retry-After`, before any database work, so a client backs off instead
- *     of piling on; health, readiness and metrics are never refused (an orchestrator must still see the
+ *   - at most `limits.maxInflightRequests` requests are in progress per instance; one more waits up to
+ *     `limits.inflightWaitMs` for a slot (first come first served), then is answered with 503 `overloaded` and
+ *     `Retry-After`, before any database work, so a client backs off instead of piling on; health, readiness and metrics are never refused (an orchestrator must still see the
  *     instance, and its load), and long-polls and event streams are not counted (they wait without a
  *     database connection);
  *   - a request that still runs out of database capacity (no pool connection, or no transaction started,
@@ -30,30 +30,64 @@ type Fetch = (req: Request, ...rest: any[]) => Response | Promise<Response>;
 
 export interface InflightGuard<F extends Fetch = Fetch> {
   fetch: F;
-  /** Requests in progress now, and refused so far (for /metrics and tests). */
-  stats(): { inflight: number; refused: number };
+  /** Requests in progress now, waiting for a slot now, and refused so far (for tests). */
+  stats(): { inflight: number; refused: number; waiting: number };
 }
 
-/** Wrap an app's fetch with the in-flight cap; `limit()` is read per request (runtime setting; 0 = off). */
-export function inflightGuard<F extends Fetch>(fetch: F, limit: () => number): InflightGuard<F> {
+/**
+ * Wrap an app's fetch with the in-flight cap. `limit()` (0 = off) and `waitMs()` are read per request (runtime
+ * settings). A request over the cap waits up to `waitMs()` for a slot, first come first served, so a short burst
+ * is absorbed without letting more requests at the database pool; then it is refused with 503.
+ */
+export function inflightGuard<F extends Fetch>(fetch: F, limit: () => number, waitMs: () => number = () => 0): InflightGuard<F> {
   let inflight = 0;
   let refused = 0;
+  const waiting: Array<() => void> = [];
+  const release = () => {
+    const next = waiting.shift();
+    // The slot goes straight to the next waiter (in-flight unchanged), else it is free.
+    if (next) next();
+    else inflight--;
+  };
+  /** Wait up to `wait` ms for a slot handed over by release(); false when the wait runs out. */
+  const queue = (wait: number) =>
+    new Promise<boolean>((ok) => {
+      const grant = () => {
+        clearTimeout(timer);
+        ok(true);
+      };
+      const timer = setTimeout(() => {
+        const i = waiting.indexOf(grant);
+        if (i >= 0) waiting.splice(i, 1);
+        ok(false);
+      }, wait);
+      waiting.push(grant);
+    });
   return {
-    stats: () => ({ inflight, refused }),
-    fetch: (async (req: Request, ...rest: unknown[]) => {
-      const max = limit();
+    stats: () => ({ inflight, refused, waiting: waiting.length }),
+    fetch: ((req: Request, ...rest: unknown[]) => {
       const url = new URL(req.url);
       if (EXEMPT.has(url.pathname) || waits(req, url)) return fetch(req, ...rest);
-      if (max > 0 && inflight >= max) {
+      const max = limit() > 0 ? limit() : Infinity;
+      const run = async () => {
+        try {
+          return await fetch(req, ...rest);
+        } finally {
+          release();
+        }
+      };
+      const refuse = () => {
         refused++;
         return overloadedResponse(`the server has ${inflight} requests in progress (limits.maxInflightRequests ${max}); retry after ${OVERLOAD_RETRY_AFTER_SECONDS} s`);
+      };
+      // A free slot: in at once (no extra tick). Else wait for one, or refuse when waiting is off.
+      if (inflight < max) {
+        inflight++;
+        return run();
       }
-      inflight++;
-      try {
-        return await fetch(req, ...rest);
-      } finally {
-        inflight--;
-      }
+      const wait = waitMs();
+      if (wait <= 0) return refuse();
+      return queue(wait).then((granted) => (granted ? run() : refuse()));
     }) as F,
   };
 }

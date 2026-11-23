@@ -313,7 +313,8 @@ goes.
 - **Claim** (workers): the next queued job of the types it can run, in the
   order of [Priorities, fairness and admission](#priorities-fairness-and-admission-d-103)
   (class, then the key with the fewest running jobs, then age).
-  PostgreSQL / MySQL 8: in one transaction (read committed), PostgreSQL runs
+  PostgreSQL / MySQL 8: after one plain read that plans the claim (below), in
+  one transaction (read committed), PostgreSQL runs
   `SELECT id FROM Job WHERE ... status = 'queued' ORDER BY createdAt, id LIMIT 1 FOR UPDATE SKIP LOCKED`;
   MySQL reads the candidates in that order without locks and locks them one at
   a time by primary key (`SELECT id FROM Job WHERE id = ? AND status = 'queued' FOR UPDATE SKIP LOCKED`),
@@ -646,17 +647,42 @@ Previews are short (a third of the size) and bounded by
 previews alone cannot saturate it, and watch the queue-wait panel. `0` makes
 the classes strict.
 
-**How the database claim does it:** the claim index is
-`Job(workspaceId, queue, status, priority, createdAt)` (migration
-`0010_job_priority`, `priority` 0/1/2). SQLite orders its one conditional
+**How the database claim does it:** SQLite orders its one conditional
 `UPDATE` by `CASE WHEN priority > 1 AND createdAt < :agedBefore THEN 1 ELSE
-priority END`, the running count, `createdAt`, `id`. PostgreSQL and MySQL read
-the queued jobs grouped by `(apiKeyId, priority)` with their oldest
-`createdAt` and the running count per key without locks, order the groups in
-the process with the same rule, then lock one job of the best group exactly as
-before: PostgreSQL with `ORDER BY createdAt, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
-MySQL one candidate at a time by primary key (#171), falling through to the
-next group when another transaction holds them all.
+priority END`, the running count, `createdAt`, `id` (index
+`Job(workspaceId, queue, status, priority, createdAt)`, migration
+`0010_job_priority`, `priority` 0/1/2). PostgreSQL and MySQL first **plan** the
+claim with one read outside any transaction: one row per `(apiKeyId, priority)`
+with queued jobs, its oldest `createdAt`, and the running count of its key. They
+order these rows in the process with the same rule, then lock one job of the
+best `(key, class)`: PostgreSQL with `ORDER BY createdAt, id LIMIT 1 FOR UPDATE
+SKIP LOCKED`, MySQL one candidate at a time by primary key (#171), falling
+through to the next `(key, class)` when another transaction holds them all. An
+empty plan (an idle poll) opens no transaction.
+
+Until #307 the plan was a `GROUP BY` over every queued job, run on every claim,
+so its cost grew with the queue. Since migration `0013_claim_index` (D-1XX) it
+reads the claim index `Job_claim_idx(workspaceId, queue, status, apiKeyId,
+priority, createdAt)`:
+
+- **PostgreSQL** walks it with a recursive skip scan: each step is one index
+  descent to the first job of the worker's types after the previous
+  `(key, class)`, which is the next `(key, class)`'s oldest. The cost follows the
+  number of `(key, class)` pairs with queued jobs, not the number of jobs.
+  When the queue holds fewer than 32 jobs per pair, the type-filtered `GROUP BY`
+  is cheaper, and the claim takes that (both give the same order; the choice is
+  checked every 100 claims or 30 s). Measured with 20 keys: flat from 5,000 to
+  20,000 queued jobs. With 200 keys queueing at once, it costs about what it did
+  before ([SCALE.md](../SCALE.md#the-job-queue)).
+- **MySQL** cannot seek on an outer reference inside a recursive step, and does
+  not use a loose index scan for this `GROUP BY` (both tried on 8.4). It groups
+  the claim index itself instead, which covers the query, so it reads no table
+  rows. That index has no room for `type` (MySQL's 3,072-byte key limit), so a
+  key's oldest job may be of a type the worker does not run. That age is a lower
+  bound: the lock step reads the oldest job of the worker's types first, and if
+  it is newer, ranks that `(key, class)` again and moves on to whichever is now
+  best (PRI-10). The cost still grows with the queue, but about 5 to 20 times
+  more slowly than before.
 
 **Fairness under a flood:** with 1,000 queued jobs of key A and one of key B,
 B is claimed by the second claim (PRI-01, all four targets). Workers that claim
@@ -1497,6 +1523,9 @@ and a job that dies while its worker shuts down is handed back, never failed
 | PRI-07 | admission: refused (`estimated_wait`, count and oldest) only when the head waited longer than the limit and the jobs ahead drain slower; counted per class; refused starts leave no row | contract (4 targets) | pass 2026-11-22 |
 | PRI-08 | keys store `maxPriority`; null clears it | contract (4 targets) | pass 2026-11-22 |
 | PRI-09 | the claim counter: concurrent `hit(..., n)` add up, `windows()` reads per minute, two `ClaimRate`s sum, the rate is a decayed average | contract (4 targets) | pass 2026-11-22 |
+| PRI-10 | a worker that runs only `render`: a key whose oldest job is a `preview` is ordered by its oldest `render` (exact order with MySQL's type-less plan, #307) | contract (4 targets) | pass 2026-11-23 |
+| PRI-11 | 1,100 keys with one queued job each (more than MySQL's default recursion depth of 1,000): claims go oldest first through all of them | contract (4 targets) | pass 2026-11-23 |
+| OVL-01..05 | in-flight cap: the request over `limits.maxInflightRequests` gets 503 `overloaded` + `Retry-After` (at once without a wait); health, readiness, metrics, long-polls and event streams are never refused; the runtime limit applies, 0 = off; pool and transaction-start timeouts are told apart from other errors; with `limits.inflightWaitMs` a request waits for a slot first come first served and is refused only when the wait runs out | unit (server) | pass 2026-11-23 |
 | PRIS-01 | estimate = min(head age, ahead / rate); decayed rate of per-minute counts | unit (`packages/core/test/priority.test.ts`) | pass 2026-11-22 |
 | PRIS-02 | in-process pump: interactive, then standard (fair, oldest), then batch; queue positions follow | unit | pass 2026-11-22 |
 | PRIS-03 | defaults per type; lowering allowed; escalation `403 priority_not_allowed` with details; invalid `400`; a key with `maxPriority` may escalate, one held to `batch` is held there; capabilities show the key's maximum; retry lowers to the retrier's maximum | service (memory) | pass 2026-11-22 |

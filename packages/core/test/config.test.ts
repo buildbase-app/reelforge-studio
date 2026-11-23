@@ -71,7 +71,8 @@ describe('config schema', () => {
       maxJsonBytes: 2097152,
       renderConcurrency: 1,
       // Backpressure (#307): 503 overloaded past this many requests in progress per instance
-      maxInflightRequests: 256,
+      maxInflightRequests: 64,
+      inflightWaitMs: 3000,
       // Resource limits (D-090, D-091)
       maxQueuedJobsPerKey: 100,
       maxQueuedJobs: 1000,
@@ -483,7 +484,7 @@ describe('ReelforgeService configuration', () => {
     // A new service on the same database starts with the runtime values.
     const again = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), { repositories: repos, dataDir: join(dir, 'svc'), configSources: { env: {} } });
     expect(again.jobs.concurrency).toBe(3);
-    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', ...Array(4).fill('default'), 'runtime', 'default', 'runtime', ...Array(12).fill('default')]);
+    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', ...Array(4).fill('default'), 'runtime', 'default', 'runtime', ...Array(13).fill('default')]);
   });
 
   it('applies the encoder memory settings (#307) at start and at runtime, to every encode of the process', async () => {

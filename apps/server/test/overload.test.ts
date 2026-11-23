@@ -27,7 +27,7 @@ describe('in-flight cap', () => {
     expect(c.status).toBe(503);
     expect(c.headers.get('retry-after')).toBe(String(OVERLOAD_RETRY_AFTER_SECONDS));
     expect(((await c.json()) as { error: { code: string } }).error.code).toBe('overloaded');
-    expect(g.stats()).toEqual({ inflight: 2, refused: 1 });
+    expect(g.stats()).toEqual({ inflight: 2, refused: 1, waiting: 0 });
     h.release();
     expect([(await a).status, (await b).status]).toEqual([200, 200]);
     expect(g.stats().inflight).toBe(0);
@@ -42,7 +42,7 @@ describe('in-flight cap', () => {
     const g = inflightGuard(h.fetch, () => 1);
     const busy = g.fetch(get('/v1/jobs/j1'));
     const exempt = [get('/healthz'), get('/readyz'), get('/metrics'), get('/v1/jobs/j1?wait=30'), get('/v1/jobs/j1/events'), get('/mcp', { accept: 'application/json, text/event-stream' })].map((r) => g.fetch(r));
-    expect(g.stats()).toEqual({ inflight: 1, refused: 0 });
+    expect(g.stats()).toEqual({ inflight: 1, refused: 0, waiting: 0 });
     h.release();
     for (const r of [busy, ...exempt]) expect((await r).status).toBe(200);
   });
@@ -58,6 +58,37 @@ describe('in-flight cap', () => {
     expect(g.stats().inflight).toBe(51);
     h.release();
     for (const r of [first, ...more]) expect((await r).status).toBe(200);
+  });
+});
+
+describe('waiting for a slot', () => {
+  it('OVL-05 a request over the cap waits for a slot, first come first served, and is refused only when the wait runs out', async () => {
+    const h = held();
+    const g = inflightGuard(h.fetch, () => 1, () => 200);
+    const first = g.fetch(get('/v1/a'));
+    const second = g.fetch(get('/v1/b'));
+    const third = g.fetch(get('/v1/c'));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(g.stats()).toEqual({ inflight: 1, refused: 0, waiting: 2 });
+    h.release(); // the slot goes to /v1/b, then to /v1/c
+    expect(await (await first).text()).toBe('ok /v1/a');
+    await new Promise((r) => setTimeout(r, 10));
+    h.release();
+    expect(await (await second).text()).toBe('ok /v1/b');
+    await new Promise((r) => setTimeout(r, 10));
+    h.release();
+    expect(await (await third).text()).toBe('ok /v1/c');
+    expect(g.stats()).toEqual({ inflight: 0, refused: 0, waiting: 0 });
+    // Nobody frees the slot: the waiter is refused after the wait, and the slot count stays right.
+    const busy = g.fetch(get('/v1/d'));
+    const t0 = Date.now();
+    const late = await g.fetch(get('/v1/e'));
+    expect(late.status).toBe(503);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(190);
+    expect(g.stats()).toEqual({ inflight: 1, refused: 1, waiting: 0 });
+    h.release();
+    expect((await busy).status).toBe(200);
+    expect(g.stats().inflight).toBe(0);
   });
 });
 

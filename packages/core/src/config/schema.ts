@@ -379,9 +379,17 @@ export const ConfigSchema = z.object({
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_MAX_INFLIGHT_REQUESTS',
-      default: 256,
+      default: 64,
       description:
-        'Requests one instance works on at the same time (0 = no limit). One more is answered at once with `503 overloaded` and `Retry-After: 1` instead of queueing behind the database pool until a timeout (D-1XX, docs/SCALE.md). Not counted: `/healthz`, `/readyz`, `/metrics`, long-polls (`?wait=`) and event streams, which hold no database connection while they wait. Size it as the requests per second one instance serves times the queueing you accept (256 is about 1.7 s at the 150 requests/s per instance measured on a shared 4-vCPU host).',
+        'Requests one instance works on at the same time (0 = no limit). One more waits up to `limits.inflightWaitMs` for a slot, then is answered with `503 overloaded` and `Retry-After: 1`, instead of queueing behind the database pool until a timeout or a 500 (D-1XX, docs/SCALE.md). Not counted: `/healthz`, `/readyz`, `/metrics`, long-polls (`?wait=`) and event streams, which hold no database connection while they wait. Keep it a small multiple of the database pool (`connection_limit`, 10 for an api instance): more requests in progress than the pool serves only wait inside it.',
+    }),
+    inflightWaitMs: setting(z.number().int().min(0).max(60_000), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_INFLIGHT_WAIT_MS',
+      default: 3000,
+      description:
+        'How long a request over `limits.maxInflightRequests` waits for a slot, first come first served, before `503 overloaded` (milliseconds; 0 = refuse at once). Absorbs short bursts; keep it below your clients\' timeouts.',
     }),
     // Resource limits (D-090, D-091; docs/security/HARDENING.md). `0` turns a job or provider cap off.
     maxQueuedJobsPerKey: setting(nonNegative(), {

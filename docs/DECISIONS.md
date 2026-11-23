@@ -2301,3 +2301,73 @@ not added to the engines: DoH is already off in the browser we ship.
 case and renders fine on the other engines); patching HyperFrames' bundle (D-085); a network namespace per render
 (not available to an unprivileged container); ignoring failed `connect()` calls in the test (the CI leak only
 failed for want of a route); allowing every UDP `connect()` (a connected UDP socket can send DNS).
+## Scale hot spots from the live load test (2026-11-23, issue #307)
+
+Section letter and decision number are assigned at merge (D-110 is taken; D-111..D-114 are claimed by open pull requests).
+Measurements, sizing and how to scale: [SCALE.md](SCALE.md); the load-test results:
+[PERFORMANCE.md](PERFORMANCE.md#queue-depth-encoder-memory-and-backpressure-307).
+
+### D-1XX --- The claim is planned from a claim index; encoder memory is bounded by default; an overloaded api answers 503 with Retry-After
+
+**Status:** DECIDED (reversible). Number assigned at merge.\
+**Claim plan.** The fair claim (D-090, D-103) used to run a `GROUP BY (apiKeyId, priority)` over every queued job
+on every claim, reading each row from the table. Its cost grew with the queue: on PostgreSQL 17 it was the most
+expensive statement of the Track B load test, and at 20,000 queued jobs it cost 27–43 ms of database time per
+claim; on MySQL 8.4, 520–680 ms (about 43,000–47,000 rows examined per claim). Migration `0013_claim_index` adds
+`Job_claim_idx(workspaceId, queue, status, apiKeyId, priority, createdAt)`. The plan becomes one statement, read
+outside the claim's transaction, and an empty plan (an idle poll) opens no transaction:
+
+- **PostgreSQL** has two exact plans and picks the cheaper one. The `GROUP BY` costs about 1.7 µs per queued job.
+  A recursive skip scan costs one index descent, 35–66 µs, per (key, class) with queued jobs. The `GROUP BY` also
+  counts the jobs, and the skip scan is used while the queue holds more than 32 jobs per (key, class). The choice
+  is checked again every 100 claims or 30 s.
+- **MySQL** cannot seek on an outer reference inside a recursive step (each step read the whole queue, measured),
+  and does not use a loose index scan for this `GROUP BY`, even with `GROUP_INDEX`. It groups the claim index
+  itself, which covers the query. `type` does not fit in that index (MySQL's 3,072-byte key limit), so the age
+  of a (key, class) is the age of its oldest job of any type, which is a lower bound. The lock step reads the
+  oldest job of the worker's types first and re-ranks that (key, class) when that job is younger (a lazy priority
+  queue), so the order stays exact (PRI-10, PRI-12).
+
+The lock step is unchanged (`FOR UPDATE SKIP LOCKED`, MySQL one candidate at a time by primary key, #168, #171),
+and so are leases, fencing and exactly-once (SCL-01..21, QUE-*, PRI-01..12 on SQLite, PostgreSQL 17 and
+MySQL 8.4). *Rejected:*
+
+- Materialised per-key counters or head rows: every path that queues, claims, cancels, re-queues or hands back a
+  job would have to keep them right, and one missed path starves a key (the reason D-090 rejected counter rows).
+  The index heals itself.
+- A per-tenant round-robin cursor: it would replace "fewest running jobs first", a semantic change to D-090.
+- Skip scan alone: with 200 keys and three classes it was slower than the old `GROUP BY` at 5,000, 10,000 and
+  20,000 queued jobs (measured, rep 1); with 20 keys it was 3 to 11 times faster.
+- `type` in the index: it does not fit on MySQL, and on PostgreSQL the lock step would lose its age order across
+  types.
+
+**Encoder memory.** x264 with automatic threads (1.5 per core) and the `medium` preset's 40-frame lookahead peaked
+at 607 MB for a 1080x1920 encode on 4 vCPU, and it grows with the node's core count, not with the video.
+`render.encoderThreads` (default 2) and `render.encoderLookahead` (default 20) are runtime settings, applied in the
+media pipeline to every H.264 encode of the process: the engines' PNG pipe, assembly, and fan-out normalising.
+Captions burn-in keeps the bounded defaults until #332 lands. The thread count does not change the encoded video
+(byte-identical output, measured). The lookahead lowered SSIM against the source frames from 0.99972 to 0.99965
+and PSNR from 58.8 to 57.6 dB, with 7 % smaller files (1080x1920). Neither setting changes the stream format, so
+fan-out clips still join by stream copy (ENC-02). The preset and `-tune` are not exposed: both change the stream
+parameters (references, B-frames), which would break stream-copy joins between workers with different values,
+and the preset trades quality for speed rather than memory. Frames stay PNG on the pipe: raw RGBA at 1080x1920 is
+8 MB a frame, about 100 times more pipe traffic, for no memory gain in FFmpeg.
+
+**Backpressure.** Under the Track B burst (5,000 renders in 30 s, 200 workers on the same host), each api instance
+queued every request behind its 10-connection database pool with no bound. 3.1–3.5 % of CRUD calls failed: client
+timeouts after 10 s, and 500s when Prisma could not start a transaction within its 10 s wait for a connection
+(the api logs: "Unable to start a transaction in the given time"). Each instance now:
+
+- keeps at most `limits.maxInflightRequests` (default 64, runtime) requests in progress. One more waits up to
+  `limits.inflightWaitMs` (3 s) for a slot, first come first served, then gets `503 overloaded` with
+  `Retry-After: 1`. Health, readiness, metrics, long-polls and event streams are not counted;
+- turns a pool or transaction-start timeout into the same 503 instead of a 500.
+
+The guard wraps the server's fetch callback (`apps/server/src/overload.ts`), outside the routes, so auth and rate
+limits are unchanged. *503, not 429:* 429 means "this key sent too many" (D-078); overload is the server's state,
+the same for every key. *Why a short wait, then 503:* refusing at once (the first version, cap 256) left
+requests waiting inside Prisma's pool queue anyway, and refused a well-behaved client's renders in a burst
+that a few seconds would have absorbed (measured: [SCALE.md](SCALE.md#backpressure-the-api-tier)). A small
+cap near the pool's capacity keeps the queue in front of the pool, where its wait is bounded. *Rejected:* a
+separate pool for enqueues. It would not have helped, because the burst was
+of enqueues, and it would add connections the pooler sizing of D-104 has to count.
