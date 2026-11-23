@@ -56,6 +56,14 @@ export interface RenderSummary {
   downloadUrlExpiresAt: string;
   downloadVia: 'bucket' | 'server';
   storage?: { driver: string; prefix: string };
+  captions?: {
+    mode: string;
+    burned: boolean;
+    cues: number;
+    language: string | null;
+    files: Array<{ format: string; file: string; downloadUrl: string; downloadUrlExpiresAt: string }>;
+    qa: { ok: boolean; issues: Array<{ cue: number; rule: string; message: string }> };
+  };
 }
 
 export interface RenderManifest {

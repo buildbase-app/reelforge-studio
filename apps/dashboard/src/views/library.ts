@@ -9,6 +9,7 @@ const CHECK_LABEL: Record<string, string> = {
   duration: 'Length matches the timeline',
   timestamps: 'Timestamps are continuous',
   avDuration: 'Audio and video end together',
+  captions: 'Captions meet the reading rules',
 };
 
 function format(r: Pick<RenderSummary, 'width' | 'height' | 'fps' | 'durationSeconds'>): string {
@@ -188,6 +189,10 @@ export const renderView: View = (ctx, main, renderId) => {
       .objectUrl(`/v1/renders/${enc}/output?file=poster.png`, ac.signal)
       .then((u) => (urls.push(u), (video.poster = u)))
       .catch(() => undefined);
+    // Sidecar captions play in the player from this server (a <track> needs the same origin).
+    const vtt = r.captions?.files.find((f) => f.format === 'vtt');
+    const vttLink = vtt ? sameOriginLink({ downloadUrl: vtt.downloadUrl, downloadVia: r.downloadVia }) : null;
+    if (vttLink && !r.captions?.burned) video.append(h('track', { kind: 'captions', src: vttLink, srclang: r.captions?.language ?? 'en', label: 'Captions', default: true }));
     if (link) video.src = link;
     else
       ctx.api
@@ -196,6 +201,7 @@ export const renderView: View = (ctx, main, renderId) => {
         .catch(() => undefined);
 
     const checks = Object.entries(m.checks ?? {});
+    if (r.captions) checks.push(['captions', r.captions.qa.ok ? 'pass' : `${r.captions.qa.issues.length} issues`]);
     const scenes = m.scenes ?? [];
     const engines = Object.entries(m.versions?.engines ?? {});
     const storage = h('dd', null, r.storage ? h('span', { class: 'mono break' }, r.storage.prefix) : '–');
@@ -218,12 +224,16 @@ export const renderView: View = (ctx, main, renderId) => {
             ['Length', `${r.durationSeconds.toFixed(1)} s · ${r.frames} frames`],
             ['Render time', m.wallClockMillis !== undefined ? duration(m.wallClockMillis) : '–'],
             ['Project version', m.projectVersion !== undefined ? String(m.projectVersion) : '–'],
+            ['Captions', r.captions ? `${r.captions.burned ? 'Burned in' : 'Sidecar files'} · ${r.captions.cues} cues${r.captions.language ? ` · ${r.captions.language}` : ''}` : 'None'],
           ]),
           h(
             'div',
             { class: 'actions' },
             h('a', { class: 'btn btn-primary', href: link ?? r.downloadUrl, download: `${id}.mp4`, rel: 'noreferrer' }, 'Download MP4'),
-            h('button', { type: 'button', class: 'btn', onclick: () => downloadManifest(m) }, 'Download manifest')
+            h('button', { type: 'button', class: 'btn', onclick: () => downloadManifest(m) }, 'Download manifest'),
+            (r.captions?.files ?? []).map((f) =>
+              h('a', { class: 'btn btn-quiet', href: sameOriginLink({ downloadUrl: f.downloadUrl, downloadVia: r.downloadVia }) ?? f.downloadUrl, download: f.file, rel: 'noreferrer' }, `${f.format.toUpperCase()} captions`)
+            )
           ),
           h('p', { class: 'help' }, `The download link is signed and works until ${clock(new Date(r.downloadUrlExpiresAt))}.`)
         ),
