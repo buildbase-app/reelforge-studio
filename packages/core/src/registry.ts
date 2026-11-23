@@ -4,7 +4,7 @@ import {
   type TemplateDefinition,
 } from '@reelforge/project-schema';
 import { ApiError } from './errors';
-import type { EnginePlugin, ProviderPlugin, RenderBackend, StorageDriver, TemplateInfo } from './plugins';
+import type { EnginePlugin, ProviderPlugin, RenderBackend, SpeechToTextPlugin, StorageDriver, TemplateInfo } from './plugins';
 
 /** Plugins registered at startup. Unknown ids are rejected with the installed list. */
 export class PluginRegistry {
@@ -12,6 +12,7 @@ export class PluginRegistry {
   private providers = new Map<string, ProviderPlugin>();
   private backends = new Map<string, RenderBackend>();
   private storages = new Map<string, StorageDriver>();
+  private sttProviders = new Map<string, SpeechToTextPlugin>();
   private catalogCache: TemplateCatalog | null = null;
 
   registerEngine(p: EnginePlugin): this {
@@ -30,6 +31,11 @@ export class PluginRegistry {
     this.backends.set(b.id, b);
     return this;
   }
+  registerStt(p: SpeechToTextPlugin): this {
+    if (this.sttProviders.has(p.id)) throw new Error(`speech-to-text provider "${p.id}" is already registered`);
+    this.sttProviders.set(p.id, p);
+    return this;
+  }
   registerStorage(s: StorageDriver): this {
     this.storages.set(s.id, s);
     return this;
@@ -43,6 +49,9 @@ export class PluginRegistry {
   }
   listBackends(): RenderBackend[] {
     return [...this.backends.values()];
+  }
+  listStt(): SpeechToTextPlugin[] {
+    return [...this.sttProviders.values()];
   }
   listStorages(): StorageDriver[] {
     return [...this.storages.values()];
@@ -62,6 +71,11 @@ export class PluginRegistry {
     const b = this.backends.get(id);
     if (!b) throw new ApiError('unknown_backend', 400, `unknown render backend "${id}"; installed: ${[...this.backends.keys()].join(', ') || '(none)'}`);
     return b;
+  }
+  stt(id: string): SpeechToTextPlugin {
+    const p = this.sttProviders.get(id);
+    if (!p) throw new ApiError('unknown_stt_provider', 404, `unknown speech-to-text provider "${id}"; installed: ${[...this.sttProviders.keys()].join(', ') || '(none)'}`);
+    return p;
   }
   storage(id: string): StorageDriver {
     const s = this.storages.get(id);

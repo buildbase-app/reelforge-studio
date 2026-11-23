@@ -469,3 +469,21 @@ implementation or licensing decisions.
   per https://ffmpeg.org/ffmpeg-filters.html#ass; checked locally with FFmpeg 6.1.1 (Ubuntu
   `6.1.1-3ubuntu5`, `--enable-libass`) and by the render tests; the release image's Debian
   `ffmpeg` package is built with libass too (the burn-in test runs in CI; VERIFY in the image e2e).
+
+- **faster-whisper for local speech-to-text (2026-11-23, issue #300, D-110).** faster-whisper
+  1.2.1 (PyPI, MIT, https://github.com/SYSTRAN/faster-whisper), read from the wheel's source on
+  2026-11-23: `WhisperModel(model_size_or_path, device, compute_type, download_root,
+  local_files_only)` (a name is resolved through `download_model`, a directory is loaded as is),
+  `transcribe(audio, language=None, word_timestamps=True, vad_filter=True, ...)` returning segments
+  with `words` (`word`, `start`, `end`, `probability`) and `TranscriptionInfo.language` /
+  `language_probability` / `duration`; `download_model(size_or_id, cache_dir=...)`; model names
+  map to `Systran/faster-whisper-*` repositories. Requires ctranslate2 4.x, huggingface-hub,
+  tokenizers, onnxruntime (Silero VAD, bundled in the wheel) and av. Measured: with PyAV 19.0.2
+  `transcribe` fails with `open() got an unexpected keyword argument 'metadata_errors'`; PyAV
+  15.1.0 to 18.0.0 work (Python 3.13, ctranslate2 4.9.1, onnxruntime 1.32.0). The `tiny` model
+  transcribed an FFmpeg `flite` sentence offline (`HF_HUB_OFFLINE=1`) in about 9 s on the
+  sandbox CPU, language `en`, word timings within the 4.5 s clip. Hugging Face's Xet download
+  host was blocked by the sandbox proxy; `HF_HUB_DISABLE_XET=1` downloads over plain HTTPS.
+  WebVTT `Kind:` / `Language:` header lines follow the form YouTube and other players write;
+  they are metadata lines in the WebVTT header block (W3C WebVTT, "file header"), not cue
+  settings. BCP 47 well-formedness is checked with `Intl.getCanonicalLocales` (ECMA-402).

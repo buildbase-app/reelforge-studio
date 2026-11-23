@@ -182,7 +182,7 @@ REST handlers, with descriptions written for agents:
 Implemented extras (v0.1), so every REST route has a tool: projects and versions,
 themes, renders and jobs (`list_jobs`, `retry_job`, `list_renders`), assets,
 providers, keys and their lifecycle, the audit log (#65), configuration, licence,
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->62<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->65<!-- /mcp-tool-count --> tools in total**; the grouped list with every
 tool's scope, arguments and REST equivalent is generated from the server's
 registry: [public/mcp/tools.md](public/mcp/tools.md) (`pnpm docs:reference`).
 Create and render tools take an optional `idempotencyKey` (D-057). Resource
@@ -259,7 +259,7 @@ that was run; "partial" says what is missing.
 | §5 transitionIn | partial | Only `cut` accepted (placeholder, D-009) |
 | §5 audio voice/music/sfx | done | Mixed by the media pipeline (test with music + delayed voice + sfx) |
 | §5 music ducking | missing | Stored; validation warns it is not applied |
-| §5 captions (per scene / from voice timestamps) | partial (#300 step 1) | `captions.mode` off/burned/sidecar/both (default off; `render_project` `captions` per render); cues manual, imported (`import_captions`, SRT/WebVTT) or built from TTS word timestamps or scene text; libass burn-in with theme caption tokens, safe area and word highlight; SRT/VTT/ASS sidecars in `get_render_output`; quality rules as warnings and in the render manifest (docs/CAPTIONS.md, D-107). STT and the approval tools are not built |
+| §5 captions (per scene / from voice timestamps) | partial (#300 step 1) | `captions.mode` off/burned/sidecar/both (default off; `render_project` `captions` per render); cues manual, imported (`import_captions`, SRT/WebVTT) or built from TTS word timestamps or scene text; libass burn-in with theme caption tokens, safe area and word highlight; SRT/VTT/ASS sidecars in `get_render_output`; quality rules as warnings and in the render manifest (docs/CAPTIONS.md, D-107). Step 2 (D-110): local speech-to-text (`transcribe_captions`, faster-whisper as an optional image layer), `get_captions` / `update_captions` approval with an etag, several languages (`captions.tracks`, one `burnLanguage`, sidecars per language), text audio description (`kind: "description"`, WebVTT `kind=descriptions`), server default `captions.defaultMode` |
 | §5 licence metadata on assets | done | Missing licence = warning |
 | §6 REST table | done | Every route implemented (`apps/server/src/routes.ts`); REST tests + REST e2e against a real server process |
 | §6 Preview (one scene or frame range, low res) | partial | One scene or the whole project at a scale (default 1/3); frame ranges not supported |
@@ -271,7 +271,7 @@ that was run; "partial" says what is missing.
 | Licence activation (#25, D-028, D-035..D-038) | done | BuildBase licence API (key + instance id only), `LicenceState` table on all three databases, daily validate, 14-day offline grace, backoff, clock checks; renders/previews refused with `licence_required` / `licence_invalid` + fix; `get_licence` / `activate_licence` / `deactivate_licence`, `/v1/licence`, `reelforge licence`; unit tests (mock LicensesApi), server tests (mock licence server, injected clock), Docker e2e on SQLite and PostgreSQL, one live check against the dev environment. `licence.mode: trial` reserved |
 | Workflow guide for agents without docs | done | MCP resource `reelforge://guide/workflow` and prompt `make_reel`; the guide's manifest is validated by a test |
 | §6 Assets: upload or URL, licence, checksum | done | Content-addressed store, byte sniffing, https only, SSRF guard at connect time, size limit |
-| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->62<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->65<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 Resources and prompts `plan_reel`, `review_reel` | done | MCP tests |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |

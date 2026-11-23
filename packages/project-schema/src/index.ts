@@ -11,6 +11,9 @@ import {
 import { BUILTIN_CATALOG, type TemplateCatalog } from './templates';
 import {
   CAPTION_RULES,
+  isLanguageTag,
+  sameLanguage,
+  splitCueKinds,
   buildCuesFromText,
   buildCuesFromWords,
   checkCaptions,
@@ -45,6 +48,8 @@ export type ParseResult =
 export interface ParseOptions {
   /** Engines and templates that exist (defaults to every built-in template). */
   catalog?: TemplateCatalog;
+  /** The server's captions.defaultMode, for the caption warnings of projects without captions.mode. */
+  captionsDefaultMode?: CaptionMode;
 }
 
 /**
@@ -68,12 +73,12 @@ export function parseProject(input: unknown, opts: ParseOptions = {}): ParseResu
   return {
     ok: true,
     project: result.data,
-    warnings: collectWarnings(result.data),
+    warnings: collectWarnings(result.data, opts.captionsDefaultMode),
     migratedFrom: migrated.migratedFrom,
   };
 }
 
-function collectWarnings(p: Project): ValidationWarning[] {
+function collectWarnings(p: Project, captionsDefaultMode?: CaptionMode): ValidationWarning[] {
   const warnings: ValidationWarning[] = [];
   p.assets.forEach((a, i) => {
     if (!a.license) {
@@ -100,7 +105,7 @@ function collectWarnings(p: Project): ValidationWarning[] {
       }
     }
   });
-  warnings.push(...captionWarnings(p));
+  warnings.push(...captionWarnings(p, captionsDefaultMode));
   if (p.audio.music?.ducking) {
     warnings.push({ path: 'audio.music.ducking', message: 'ducking is not applied by this server version yet' });
   }
@@ -122,61 +127,101 @@ function collectWarnings(p: Project): ValidationWarning[] {
   return warnings;
 }
 
-function captionWarnings(p: Project): ValidationWarning[] {
+function captionWarnings(p: Project, defaultMode?: CaptionMode): ValidationWarning[] {
   const warnings: ValidationWarning[] = [];
-  const c = resolveCaptions(p);
+  const c = resolveCaptions(p, defaultMode ? { defaultMode } : {});
   if (p.captions.enabled && !p.captions.mode) {
     warnings.push({ path: 'captions.enabled', message: 'captions.enabled does nothing; set captions.mode to "burned", "sidecar" or "both" to render captions' });
   }
+  const tracksWithCues = c.tracks.filter((t) => !t.primary && t.cues.length);
   if (c.mode === 'off') {
     if (c.cues.length) {
       warnings.push({ path: 'captions.mode', message: `${c.cues.length} caption cue(s) (from ${c.source}) are not rendered while captions.mode is "off"; set it to "burned", "sidecar" or "both" (or pass captions to render_project)` });
     }
     // Quality rules matter once captions are shown; for manual cues they are useful while editing too.
-    if (c.source !== 'cues') return warnings;
-  } else if (!c.cues.length) {
-    warnings.push({ path: 'captions.mode', message: `captions.mode is "${c.mode}" but there are no cues: add captions.cues (or import_captions), generate the voice with word timestamps, or give scenes captions.text` });
+    if (c.source !== 'cues' && !tracksWithCues.length) return warnings;
+  } else if (!c.cues.length && !tracksWithCues.length) {
+    warnings.push({ path: 'captions.mode', message: `captions.mode is "${c.mode}" but there are no cues: add captions.cues (or import_captions), generate the voice with word timestamps, transcribe the voice (transcribe_captions), or give scenes captions.text` });
   }
-  const base = c.source === 'cues' ? 'captions.cues' : 'captions';
-  for (const issue of c.qa.issues) {
-    warnings.push({
-      path: c.source === 'cues' ? `${base}.${issue.cue}` : base,
-      message: `caption ${issue.cue + 1}${c.source === 'cues' ? '' : ` (built from ${c.source})`} [${issue.rule}]: ${issue.message}`,
-    });
+  for (const t of c.tracks) {
+    if (!t.primary && !t.cues.length) continue;
+    if (t.primary && c.mode === 'off' && c.source !== 'cues') continue;
+    const manual = t.source === 'cues';
+    const base = t.primary ? 'captions.cues' : `captions.tracks.${t.language}.cues`;
+    for (const issue of t.qa.issues) {
+      warnings.push({
+        path: manual ? `${base}.${t.captionIndex[issue.cue] ?? issue.cue}` : 'captions',
+        message: `caption ${issue.cue + 1}${t.primary ? '' : ` (${t.language})`}${manual ? '' : ` (built from ${t.source})`} [${issue.rule}]: ${issue.message}`,
+      });
+    }
   }
   return warnings;
 }
 
-export interface ResolvedCaptions {
-  mode: CaptionMode;
-  /** Where the cues came from: the manifest's cues, the voice's word timestamps, scene caption text, or none. */
+/** The cues of one language, resolved for a render. */
+export interface ResolvedCaptionTrack {
+  /** BCP 47 tag; null for a primary language that is not set. */
+  language: string | null;
+  /** The primary language (captions.cues / voice / scenes); the others come from captions.tracks. */
+  primary: boolean;
+  /** Burned into the video by this render (modes burned and both, the burn language). */
+  burned: boolean;
   source: 'cues' | 'voice' | 'scenes' | 'none';
+  /** Caption cues (shown and burned). */
   cues: CaptionCue[];
-  language?: string;
-  maxLineChars: number;
-  maxCharsPerCue: number;
-  highlight: 'none' | 'word';
+  /** Description cues (WebVTT kind=descriptions sidecar only). */
+  descriptions: CaptionCue[];
+  /** For manual cues: the index of each caption cue in the manifest's list (descriptions may sit in between). */
+  captionIndex: number[];
   qa: CaptionQa;
 }
 
+export interface ResolvedCaptions {
+  mode: CaptionMode;
+  /** Where the mode came from: render_project's captions, the project's captions.mode, the server default (captions.defaultMode) or off by default. */
+  modeSource: 'render' | 'project' | 'server' | 'default';
+  /** Where the primary language's cues came from: the manifest's cues, the voice's word timestamps, scene caption text, or none. */
+  source: 'cues' | 'voice' | 'scenes' | 'none';
+  /** Caption cues of the primary language. */
+  cues: CaptionCue[];
+  /** Description cues of the primary language. */
+  descriptions: CaptionCue[];
+  language?: string;
+  /** The language burned in (null: the primary one, which has no tag). */
+  burnLanguage: string | null;
+  maxLineChars: number;
+  maxCharsPerCue: number;
+  highlight: 'none' | 'word';
+  /** Quality check of the primary language's caption cues. */
+  qa: CaptionQa;
+  /** Every language: the primary one first, then captions.tracks in manifest order. */
+  tracks: ResolvedCaptionTrack[];
+}
+
 /**
- * The captions a render shows, in video seconds: the manifest's cues when
- * there are any, else cues built from the voice's word timestamps (shifted by
- * the voice start), else from scene `captions.text` over each scene. `mode`
- * overrides `captions.mode` (render_project's `captions` option).
+ * The captions a render shows, in video seconds. Primary language: the
+ * manifest's caption cues when there are any, else cues built from the
+ * voice's word timestamps (shifted by the voice start), else from scene
+ * `captions.text` over each scene. Other languages: captions.tracks. Mode:
+ * `opts.mode` (render_project's `captions`), else `captions.mode`, else
+ * `opts.defaultMode` (the server's captions.defaultMode), else off.
  */
-export function resolveCaptions(p: Project, opts: { mode?: CaptionMode } = {}): ResolvedCaptions {
+export function resolveCaptions(p: Project, opts: { mode?: CaptionMode; defaultMode?: CaptionMode } = {}): ResolvedCaptions {
   const fps = p.output.fps;
   const endSeconds = totalFrames(p) / fps;
   const portrait = p.output.height > p.output.width;
   const maxLineChars = p.captions.maxLineChars ?? (portrait ? 32 : CAPTION_RULES.maxLineChars);
   const maxCharsPerCue = p.captions.maxCharsPerCue ?? maxLineChars * CAPTION_RULES.maxLines;
+  const qaOf = (cues: CaptionCue[]) => checkCaptions(cues, { fps, maxLineChars, endSeconds });
   let source: ResolvedCaptions['source'] = 'none';
   let cues: CaptionCue[] = [];
+  const own = splitCueKinds(p.captions.cues ?? []);
+  let captionIndex: number[] = [];
   const voice = p.audio.voice;
-  if (p.captions.cues?.length) {
+  if (own.captions.length) {
     source = 'cues';
-    cues = p.captions.cues;
+    cues = own.captions;
+    captionIndex = own.captionIndex;
   } else if (voice?.words?.length) {
     source = 'voice';
     cues = buildCuesFromWords(voice.words, { offsetSeconds: voice.startFrame / fps, maxCharsPerCue, fps, endSeconds });
@@ -187,16 +232,36 @@ export function resolveCaptions(p: Project, opts: { mode?: CaptionMode } = {}): 
       cues.push(...buildCuesFromText(s.captions.text, s.startFrame / fps, s.endFrame / fps, { maxCharsPerCue, fps, endSeconds }));
     }
   }
-  const language = p.captions.language ?? p.brief?.language;
+  const language = p.captions.language ?? (p.brief?.language && isLanguageTag(p.brief.language) ? p.brief.language : undefined);
+  const mode = opts.mode ?? p.captions.mode ?? opts.defaultMode ?? 'off';
+  const modeSource: ResolvedCaptions['modeSource'] = opts.mode ? 'render' : p.captions.mode ? 'project' : opts.defaultMode && opts.defaultMode !== 'off' ? 'server' : 'default';
+  const burnLanguage = p.captions.burnLanguage ?? language ?? null;
+  const burning = mode === 'burned' || mode === 'both';
+  const qa = qaOf(cues);
+  const tracks: ResolvedCaptionTrack[] = [
+    { language: language ?? null, primary: true, burned: false, source, cues, descriptions: own.descriptions, captionIndex, qa },
+    ...Object.entries(p.captions.tracks ?? {}).map(([lang, t]): ResolvedCaptionTrack => {
+      const k = splitCueKinds(t.cues);
+      return { language: lang, primary: false, burned: false, source: k.captions.length ? 'cues' : 'none', cues: k.captions, descriptions: k.descriptions, captionIndex: k.captionIndex, qa: qaOf(k.captions) };
+    }),
+  ];
+  if (burning) {
+    const burned = (burnLanguage && tracks.find((t) => sameLanguage(t.language, burnLanguage))) || tracks[0]!;
+    burned.burned = true;
+  }
   return {
-    mode: opts.mode ?? p.captions.mode ?? 'off',
+    mode,
+    modeSource,
     source,
     cues,
+    descriptions: own.descriptions,
     ...(language ? { language } : {}),
+    burnLanguage,
     maxLineChars,
     maxCharsPerCue,
     highlight: p.captions.highlight ?? 'word',
-    qa: checkCaptions(cues, { fps, maxLineChars, endSeconds }),
+    qa,
+    tracks,
   };
 }
 

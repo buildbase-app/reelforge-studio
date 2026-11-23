@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""reelforge-whisper: local speech-to-text for ReelForge Studio (issue #300, D-110).
+
+Transcribes one audio or video file with faster-whisper and prints word
+timings as JSON on stdout:
+
+  {"language": "en", "languageProbability": 0.98, "duration": 3.2,
+   "words": [{"text": "Hello", "start": 0.12, "end": 0.48, "probability": 0.93}],
+   "engine": {"name": "faster-whisper", "version": "1.2.1", "model": "small"}}
+
+It never downloads a model: Hugging Face offline mode is forced and the model
+is loaded with local_files_only, so it must be pre-downloaded (README.md).
+The server starts it with a fixed argument list, never through a shell.
+Exit codes: 0 ok, 2 bad arguments, 3 model not available offline, 4 the
+file could not be transcribed.
+"""
+import argparse
+import json
+import os
+import sys
+
+# Before huggingface_hub is imported (it reads these once).
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+
+COMPUTE_TYPES = ["default", "auto", "int8", "int8_float32", "int8_float16", "int8_bfloat16", "int16", "float16", "bfloat16", "float32"]
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="reelforge-whisper", description="Word-timed speech-to-text with faster-whisper (offline).")
+    p.add_argument("--input", required=True, help="audio or video file")
+    p.add_argument("--model", default="small", help="model name (pre-downloaded) or a converted model directory")
+    p.add_argument("--model-dir", default=None, help="directory the model was downloaded into")
+    p.add_argument("--language", default="auto", help='"auto" or an ISO 639-1 code such as en')
+    p.add_argument("--compute-type", default="int8", choices=COMPUTE_TYPES)
+    p.add_argument("--device", default="cpu", choices=["cpu", "cuda", "auto"])
+    p.add_argument("--output", default="json", choices=["json"])
+    a = p.parse_args(argv)
+
+    from faster_whisper import WhisperModel, __version__
+
+    try:
+        model = WhisperModel(a.model, device=a.device, compute_type=a.compute_type, download_root=a.model_dir, local_files_only=True)
+    except Exception as e:  # noqa: BLE001 - report any load failure the same way
+        where = a.model_dir or "the Hugging Face cache"
+        print(f"reelforge-whisper: model {a.model!r} is not available offline in {where}: {e}", file=sys.stderr)
+        return 3
+
+    try:
+        segments, info = model.transcribe(
+            a.input,
+            language=None if a.language == "auto" else a.language,
+            word_timestamps=True,
+            vad_filter=True,
+            condition_on_previous_text=False,
+        )
+        words = []
+        for segment in segments:
+            for w in segment.words or []:
+                text = w.word.strip()
+                if text:
+                    words.append({"text": text, "start": round(w.start, 3), "end": round(w.end, 3), "probability": round(w.probability, 3)})
+    except Exception as e:  # noqa: BLE001
+        print(f"reelforge-whisper: could not transcribe the file: {e}", file=sys.stderr)
+        return 4
+
+    json.dump(
+        {
+            "language": info.language,
+            "languageProbability": round(info.language_probability, 3),
+            "duration": round(info.duration, 3),
+            "words": words,
+            "engine": {"name": "faster-whisper", "version": __version__, "model": a.model, "computeType": a.compute_type},
+        },
+        sys.stdout,
+        ensure_ascii=False,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

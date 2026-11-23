@@ -2180,3 +2180,55 @@ top line; nouns and adjectives are not told apart (no part-of-speech tagging). *
 manifest and in `get_render_output` (`captions.files` with signed download links). Previews of one scene show that
 scene's cues at preview time. **Not in this step:** speech-to-text for uploaded voice-overs, the caption approval
 tools (`get_captions` / `update_captions`), multiple languages per render, audio description.
+
+## AB. Captions step 2: speech-to-text, approval, languages, audio description (2026-11-23, issue #300)
+
+How they work: [docs/CAPTIONS.md](CAPTIONS.md) (sections "Speech-to-text", "Review and approval",
+"Several languages", "Audio description").
+
+### D-110 --- Local speech-to-text as an external program in an optional image layer; caption approval by etag; languages as tracks with one burned; descriptions as a WebVTT text track
+
+**Status:** DECIDED (reversible). *Number:* D-108 and D-109 are taken by open PRs (#317 formats, #323
+variants); renumber if needed.\
+**Speech-to-text:** a new plugin kind, `SpeechToTextPlugin` (`availability(settings)`,
+`transcribe({ file, language, settings }, ctx)` returning timed words), registered with
+`registerStt()`; settings `captions.stt.*` (provider, command, model, modelDir, language, compute type,
+device, timeout), all runtime, admin-only. The default, faster-whisper, is Python, so it runs as an
+**external program** (`reelforge-whisper`, a short script with a JSON contract) that the optional
+layer `deployment/stt/Dockerfile` installs with one model downloaded **at build time**; the base
+image stays as it is (the layer adds about 800 MB). At run time nothing is downloaded: the server
+sets `HF_HUB_OFFLINE=1`, the program sets it before importing the library and loads the model with
+`local_files_only`. The program is started with an argument array (no shell), an allowlisted
+environment (no server secrets), the asset store's absolute file path, a timeout and a 16 MB output
+cap; its JSON is validated and every word reduced to plain text. Words go onto `audio.voice.words`,
+the same place as TTS timestamps (D-107), so cues come from `buildCuesFromWords` and follow the voice
+start. One transcription per process at a time, in the request (no job yet); results cached by
+content hash and settings. *Rejected:* bundling Python and a model in the release image (size, and
+most buyers never use it); a Node binding to whisper.cpp (a native module per platform to maintain,
+and the issue asks for faster-whisper); a cloud STT API by default (network egress, seller-paid or
+key-paid; founder decision 4); a sidecar HTTP service (more moving parts than a process for a
+request that runs a few seconds to minutes, and another port to secure).
+**Approval:** `get_captions` (read) and `update_captions` (write) are on the shared route table
+(REST `GET`/`PATCH /v1/projects/:id/captions`, `GET /v1/renders/:id/captions`). Concurrency uses an
+**etag of what the captions show** (mode, burn language, highlight, style and every language's
+resolved cues, built ones included), not the project version: an edit elsewhere in the project does
+not make a caption review stale, but a new voice does. `approve: true` stores `captions.approval`
+with the etag after the update; it holds only while the etag is the same. Renders record the etag and
+whether it was approved; rendering never requires approval (the agent asks; the workflow guide and
+`make_reel` prompt say so). Every update is an audit event (`captions.update` / `captions.approve`).
+Editing cues built from the voice materialises them as manual cues; an edited text drops its word
+timings. *Rejected:* the project version as the check (spurious conflicts while an agent edits
+scenes); an approval gate in `render_project` (a server cannot know whether a human looked; it
+would only add a flag agents learn to set).
+**Languages:** the primary language stays `captions.cues` / `captions.language` (so step 1 manifests
+and file names are unchanged); others are `captions.tracks` keyed by BCP 47 tag (at most 20
+languages). Exactly one is burned (`captions.burnLanguage`, default the primary); every language gets
+sidecars (`captions.<tag>.srt|vtt|ass`) with the tag in the WebVTT and ASS headers. Tags are checked
+for well-formedness with `Intl.getCanonicalLocales` plus a letters/digits/hyphen scan (safe in file
+names and header lines), compared case-insensitively, not against the IANA registry.
+**Audio description:** cues with `kind: "description"` in any language, written only to
+`descriptions[.<tag>].vtt` (`Kind: descriptions`) for `<track kind="descriptions">`, in every mode but
+`off`, never burned, never in SRT/ASS, not checked by the caption rules. A recorded description voice
+track is not built. **Toggles:** a server default `captions.defaultMode` (runtime) below the
+project's `captions.mode`, below `render_project`'s `captions`; the default is captured when a render
+is queued.

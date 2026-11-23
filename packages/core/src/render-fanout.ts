@@ -56,6 +56,8 @@ export interface RenderJobParams {
   scale?: number;
   /** captions.mode override of this render (render_project's `captions`). */
   captions?: CaptionMode;
+  /** The server's captions.defaultMode when the render was queued. */
+  captionsDefault?: CaptionMode;
   /**
    * Set when the render fans out: the scenes split into chunks, by timeline
    * index, each with its chunks' frame ranges (first, last, inclusive). Scenes
@@ -341,6 +343,7 @@ export async function joinUnits(deps: FanOutDeps, ctx: JobContext): Promise<Join
         progress: ctx.progress,
         telemetry: deps.telemetry,
         ...(p.captions ? { captionsMode: p.captions } : {}),
+        ...(p.captionsDefault ? { captionsDefault: p.captionsDefault } : {}),
       },
       tmp,
       finalDir,

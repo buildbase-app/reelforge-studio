@@ -238,6 +238,20 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `providers.elevenlabs.apiKey` | `REELFORGE_ELEVENLABS_API_KEY`, `ELEVENLABS_API_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Enables the ElevenLabs TTS provider. Same setting as `configure_provider` / `PUT /v1/providers/elevenlabs/config`; stored encrypted when set at runtime. |
 
+## captions
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `captions.defaultMode` | `REELFORGE_CAPTIONS_DEFAULT_MODE` | `off` \| `burned` \| `sidecar` \| `both` | `off` | runtime |  | Captions for projects that do not set `captions.mode` (docs/CAPTIONS.md): `off` (the default; projects render as before), `burned` into the video, `sidecar` files (SRT, WebVTT, ASS) next to final.mp4, or `both`. A project's `captions.mode` and render_project's `captions` override it. |
+| `captions.stt.provider` | `REELFORGE_STT_PROVIDER` | string | `faster-whisper` | runtime |  | Speech-to-text provider used by `transcribe_captions` (get_capabilities `captions.stt` lists the installed ones and whether each can run here). |
+| `captions.stt.command` | `REELFORGE_STT_COMMAND` | path | `reelforge-whisper` | runtime |  | The local speech-to-text program: a name looked up on PATH or an absolute path. It is started directly (never through a shell) with a fixed argument list and no network access is needed (deployment/stt/README.md). The default `reelforge-whisper` is installed by the optional speech-to-text image layer; without it speech-to-text is off and get_capabilities says so. Admin-only like every setting, and audit-logged. |
+| `captions.stt.model` | `REELFORGE_STT_MODEL` | string | `small` | runtime |  | Whisper model: a name (tiny, base, small, medium, large-v3, distil-large-v3, ... and the .en variants) that must already be downloaded into `captions.stt.modelDir`, or the path of a converted model directory. Models are never downloaded at run time. |
+| `captions.stt.modelDir` | `REELFORGE_STT_MODEL_DIR` | path | (the Hugging Face cache of the server user) | runtime |  | Directory the models were pre-downloaded into (the image layer uses `/opt/reelforge/whisper-models`). |
+| `captions.stt.language` | `REELFORGE_STT_LANGUAGE` | string | `auto` | runtime |  | Spoken language of voice-overs: `auto` detects it, or a BCP 47 tag (its primary subtag is passed to Whisper, e.g. `pt` for `pt-BR`). `transcribe_captions` can pass one per call. |
+| `captions.stt.computeType` | `REELFORGE_STT_COMPUTE_TYPE` | `default` \| `auto` \| `int8` \| `int8_float32` \| `int8_float16` \| `int8_bfloat16` \| `int16` \| `float16` \| `bfloat16` \| `float32` | `int8` | runtime |  | CTranslate2 compute type: `int8` is fast on a CPU; `float16` needs a GPU. |
+| `captions.stt.device` | `REELFORGE_STT_DEVICE` | `cpu` \| `cuda` \| `auto` | `cpu` | runtime |  | `cpu`, `cuda` (an NVIDIA GPU with CUDA libraries in the image) or `auto`. |
+| `captions.stt.timeoutSeconds` | `REELFORGE_STT_TIMEOUT_SECONDS` | integer | `600` | runtime |  | Longest one transcription may run (10 to 3600 seconds); the process is killed after it. |
+
 ## logging
 
 | Key | Env | Type | Default | Scope | Secret | Description |

@@ -52,8 +52,8 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   },
   {
     title: 'Captions',
-    intro: 'Caption cues: imported from SRT or WebVTT, written by hand, or built from the voice\'s word timestamps. Rendered when captions.mode is burned, sidecar or both.',
-    tools: ['import_captions'],
+    intro: 'Caption cues in one or more languages: imported from SRT or WebVTT, written by hand, built from the voice\'s word timestamps (TTS or local speech-to-text), reviewed and approved before the final render. Rendered when captions.mode (or the server default) is burned, sidecar or both.',
+    tools: ['import_captions', 'get_captions', 'update_captions', 'transcribe_captions'],
   },
   {
     title: 'Media providers',
