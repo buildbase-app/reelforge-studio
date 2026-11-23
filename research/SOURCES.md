@@ -478,6 +478,28 @@ implementation or licensing decisions.
   NOT from a platform specification: it is a conservative margin chosen to clear the common social apps' UI;
   platforms differ and change it (TODO/VERIFY against each platform's current guidance before quoting numbers per
   platform).
+
+- 2026-11-23 (#305, D-110). **Debian snapshot archive** (https://snapshot.debian.org/): a URL
+  `http://snapshot.debian.org/archive/debian/<YYYYMMDDTHHMMSSZ>/` serves the archive as it was at
+  that time (the latest state at or before it); checked here by building the release image with
+  `DEBIAN_SNAPSHOT=20261116T000000Z` (apt signature checks on, `Acquire::Check-Valid-Until false`).
+  The base image `node:22-bookworm-slim` names its own snapshot (20261104T212339Z) in
+  `/etc/apt/sources.list.d/debian.sources`. **RateLimit header fields**: IETF HTTPAPI draft
+  *RateLimit header fields for HTTP* (draft-ietf-httpapi-ratelimit-headers,
+  https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/): ReelForge sends the
+  separate `RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset` fields and
+  `RateLimit-Policy: <limit>;w=<seconds>`, the form most client libraries parse; later draft
+  revisions combine them into `RateLimit` and `RateLimit-Policy` structured fields (VERIFY the
+  current revision; not fetched from this sandbox). `Retry-After`: RFC 9110 §10.2.3. **InnoDB
+  locking of `INSERT ... SELECT`**: MySQL 8.4 Reference Manual, *Locks Set by Different SQL
+  Statements in InnoDB* (https://dev.mysql.com/doc/refman/8.4/en/innodb-locks-set.html): under
+  repeatable read the rows read from the source table get shared next-key locks (a gap lock when the
+  row is missing); reproduced here on MySQL 8.4.13 as deadlocks of concurrent first requests (LIM-17).
+  **Sliding window counter**: Cloudflare, *How we built rate limiting capable of scaling to millions
+  of domains* (https://blog.cloudflare.com/counting-things-a-lot-of-different-things/, 2017).
+  **Kubernetes NetworkPolicy**: https://kubernetes.io/docs/concepts/services-networking/network-policies/
+  (default deny with an empty `podSelector`; policies match addresses, not DNS names); the manifests
+  pass kubeconform 0.7.0 -strict against the Kubernetes 1.31 schemas (`e2e/k8s/kubeconform.sh`).
 - **Loudness and A/V sync (2026-11-23, issue #301).** Read 2026-11-23. *EBU R 128-2023*
   (https://tech.ebu.ch/docs/r/r128.pdf, November 2023): Programme Loudness normalised to −23.0 LUFS,
   ±1.0 LU where the target "is not achievable practically (for example, live programmes)", ±0.2 LU QC
@@ -501,4 +523,4 @@ implementation or licensing decisions.
   checked locally with FFmpeg 6.1.1 (Ubuntu `6.1.1-3ubuntu5`): loudnorm 6.1 ranges I −70..−5, LRA 1..50,
   TP −9..0; linear mode needs every `measured_*` value with `measured_LRA` ≠ 0 and the measured LRA at or
   under the LRA target (else dynamic mode); ebur128 `peak=true` reports true peak. Used in
-  `packages/project-schema/src/audio.ts` and `packages/media-pipeline/src/audio.ts` (D-1XX).
+  `packages/project-schema/src/audio.ts` and `packages/media-pipeline/src/audio.ts` (D-116).

@@ -277,14 +277,16 @@ const mysqlAdapters = new WeakMap<AnyPrismaClient, { adapter?: InsertIdQueryable
  * set in that statement, without a second `SELECT LAST_INSERT_ID()` that would need the same connection, hence a
  * transaction (#196). Prisma's raw API returns only rows or the affected-row count.
  */
-export async function mysqlInsertId(client: AnyPrismaClient, sql: string, args: Array<string | number | Date>): Promise<number> {
+export async function mysqlInsertId(client: AnyPrismaClient, sql: string, args: Array<string | number | Date>): Promise<number | bigint> {
   const slot = mysqlAdapters.get(client);
   if (!slot) throw new Error('not a MySQL client created by Database');
   if (!slot.adapter) await client.$connect();
   const argTypes = args.map((a) => ({ scalarType: a instanceof Date ? ('datetime' as const) : typeof a === 'number' ? ('int' as const) : ('string' as const), arity: 'scalar' as const }));
   const r = await slot.adapter!.queryRaw({ sql, args, argTypes });
   if (r.lastInsertId === undefined) throw new Error('MySQL returned no insert id');
-  return Number(r.lastInsertId);
+  // A bigint when it does not fit a double exactly (the sliding-window counter packs two counts into one id, #305).
+  const n = BigInt(r.lastInsertId);
+  return n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : n;
 }
 
 export interface PrepareOptions {

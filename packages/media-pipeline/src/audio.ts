@@ -1,7 +1,7 @@
 import { PipelineError, run } from './ffmpeg';
 
 /**
- * The audio half of a render (#301, D-1XX): one mix over the whole timeline
+ * The audio half of a render (#301, D-116): one mix over the whole timeline
  * into 48 kHz stereo PCM (never per scene or chunk, so scene joins and fan-out
  * seams cannot click), then a two-pass EBU R128 normalisation with FFmpeg's
  * loudnorm, then (after the AAC encode) a measurement of the finished file.

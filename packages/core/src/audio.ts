@@ -25,7 +25,7 @@ import {
 import type { ResolvedAsset } from './plugins';
 
 /**
- * The audio of a render (#301, #298, D-1XX): which buses play, the mix (bus
+ * The audio of a render (#301, #298, D-116): which buses play, the mix (bus
  * gains, ducking, fades) into one PCM track over the whole timeline, two-pass
  * loudness normalisation to a preset, and after the final encode the
  * measurement and QA of what the file really carries.

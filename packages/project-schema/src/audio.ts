@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * Audio mixing and loudness settings shared by the manifest (`audio.*`), the
  * per-render `audio` option of render_project and the server defaults
- * (`render.audio.*`). docs/public/manifest/audio.md, D-1XX (#301, #298).
+ * (`render.audio.*`). docs/public/manifest/audio.md, D-116 (#301, #298).
  */
 
 /** Loudness presets: what a finished render is normalised to (two-pass loudnorm, verified after the AAC encode). */
