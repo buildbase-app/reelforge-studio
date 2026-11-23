@@ -16,12 +16,14 @@ import {
 import {
   SCHEMA_VERSION,
   timeline,
+  type CaptionMode,
   toRenderScene,
   type OutputSettings,
   type Project,
   type ThemeTokens,
   type TimelineScene,
 } from '@reelforge/project-schema';
+import { captionPass } from './captions';
 import { writeJsonAtomic } from './fsutil';
 import type { Logger, ResolvedAsset } from './plugins';
 import type { PluginRegistry } from './registry';
@@ -47,6 +49,8 @@ export interface RenderPipelineInput {
   progress(stage: string, fraction: number, detail?: string): void;
   /** Spans for each engine render and FFmpeg step, render metrics (D-050). Default: none. */
   telemetry?: Telemetry;
+  /** Overrides the manifest's `captions.mode` for this render (render_project's `captions`). */
+  captionsMode?: CaptionMode;
 }
 
 export interface RenderPipelineResult {
@@ -299,6 +303,27 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     signal,
   }));
 
+  // Captions (#300, D-107): sidecars next to final.mp4, and the libass burn-in pass over the assembled file.
+  input.progress('captions', 0.9);
+  const captions = await ffmpegSpan('captions', () =>
+    captionPass(
+      {
+        project,
+        theme: input.theme,
+        output,
+        ...(input.captionsMode ? { modeOverride: input.captionsMode } : {}),
+        ...(fullTimeline ? {} : { subset: clips }),
+        durationSeconds: assembled.totalFrames / output.fps,
+        dir: tmp,
+        workDir: join(tmp, 'work', 'captions'),
+        tools,
+        signal,
+        log,
+      },
+      finalTmp
+    )
+  );
+
   input.progress('validate', 0.93);
   const info = await ffmpegSpan('ffprobe output', () => probe(tools.ffprobe, finalTmp));
   const problems = checkExpectation(info, {
@@ -359,6 +384,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
       browser: browsers.length ? browsers : ['(not reported)'],
     },
     ffmpegAssembleArgs: assembled.args.map((arg) => (arg.startsWith(tmp) ? rel(arg) : arg.includes(sep) && arg.startsWith('/') ? '<asset>' : arg)),
+    ...(captions ? { captions: { ...captions, ...(captions.burnArgs ? { burnArgs: captions.burnArgs.map((arg) => (arg.startsWith(tmp) ? rel(arg) : arg)) } : {}) } } : {}),
     checks: { metadata: 'pass', decode: 'pass', duration: 'pass', ...(f.streamCopy ? { timestamps: 'pass', avDuration: 'pass' } : {}) },
     ...(f.streamCopy ? { join: { method: 'concat demuxer, video stream copy', clips: clips.length } } : {}),
     project,

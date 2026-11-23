@@ -221,7 +221,7 @@ export const TOOLS: ToolDef[] = [
     name: 'validate_project',
     title: 'Validate a project',
     description:
-      'Full validation report: errors (block rendering) and warnings (e.g. missing licence, rounding of durationSeconds, captions not rendered yet), plus a summary (scenes, total frames, duration, size, engines). Checks schema, template props and durations, theme, assets on disk, render backend and engine availability on this machine.',
+      'Full validation report: errors (block rendering) and warnings (e.g. missing licence, rounding of durationSeconds, caption quality rules), plus a summary (scenes, total frames, duration, size, engines). Checks schema, template props and durations, theme, assets on disk, render backend and engine availability on this machine.',
     scope: 'read',
     input: { projectId },
     annotations: { readOnlyHint: true },
@@ -306,6 +306,22 @@ export const TOOLS: ToolDef[] = [
     run: async (a, { service }) => service.setAudio(a.projectId, a.audio, a.expectedVersion),
   },
   {
+    name: 'import_captions',
+    title: 'Import captions (SRT or WebVTT)',
+    description:
+      'Parses an SRT or WebVTT file (content as text; format detected from the WEBVTT header unless given) into caption cues and stores them as the project\'s captions.cues, replacing any. Optionally sets captions.mode (off, burned, sidecar, both) and language. Cues are checked against the caption quality rules by validate_project (42 characters per line, 2 lines, 20 characters per second, 0.833-7 s, 2-frame gaps).',
+    scope: 'write',
+    input: {
+      projectId,
+      content: z.string().min(1).max(1_000_000).describe('The SRT or WebVTT file as text.'),
+      format: z.enum(['srt', 'vtt']).optional(),
+      mode: z.enum(['off', 'burned', 'sidecar', 'both']).optional(),
+      language: z.string().min(2).max(35).optional().describe('BCP 47 language tag, e.g. "en".'),
+      expectedVersion,
+    },
+    run: async (a, { service }) => service.importCaptions(a.projectId, { content: a.content, format: a.format, mode: a.mode, language: a.language }, a.expectedVersion),
+  },
+  {
     name: 'generate_voice',
     title: 'Generate a voice-over (TTS provider)',
     description:
@@ -371,9 +387,18 @@ export const TOOLS: ToolDef[] = [
       'Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Renders are queued at priority "standard" by default. Then call get_job with waitSeconds: 45 (repeat while it is still running) until status is succeeded or failed, then call get_render_output.' +
       QUEUE_REFUSALS,
     scope: 'render',
-    input: { projectId, backend: z.string().optional().describe('Render backend id; default from the manifest ("local").'), priority: priorityArg('render', 'standard'), idempotencyKey },
+    input: {
+      projectId,
+      backend: z.string().optional().describe('Render backend id; default from the manifest ("local").'),
+      priority: priorityArg('render', 'standard'),
+      captions: z
+        .enum(['off', 'burned', 'sidecar', 'both'])
+        .optional()
+        .describe('Captions for this render, overriding the manifest\'s captions.mode: off, burned into the video, sidecar files (SRT, WebVTT, ASS) next to final.mp4, or both.'),
+      idempotencyKey,
+    },
     run: async (a, { service }) => {
-      const opts = { backend: a.backend, ...(a.priority ? { priority: a.priority } : {}) };
+      const opts = { backend: a.backend, ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}) };
       return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, async () => ({ job: await service.startRender(a.projectId, opts) }));
     },
   },

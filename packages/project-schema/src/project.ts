@@ -13,7 +13,8 @@ import {
   SOURCE_SCENE_SECONDS,
   type TemplateCatalog,
 } from './templates';
-import { themeId, themeTokensPatch, captionStyle } from './themes';
+import { themeId, themeTokensPatch } from './themes';
+import { captionWord, projectCaptions } from './captions';
 
 /**
  * Manifest v0.2: the agent-facing contract (docs/AGENT_PLATFORM.md §5).
@@ -136,6 +137,8 @@ export const voiceTrack = z
     volume: z.number().min(0).max(2).default(1),
     /** Frame at which the voice starts. */
     startFrame: z.number().int().min(0).default(0),
+    /** Word timings relative to the voice start (stored by generate_voice); captions are built from them. */
+    words: z.array(captionWord).max(5000).optional(),
   })
   .strict();
 
@@ -190,13 +193,6 @@ export const projectTheme = z.union([
     .strict()
     .describe('Inline tokens applied on top of a base theme'),
 ]);
-
-export const projectCaptions = z
-  .object({
-    enabled: z.boolean().default(false),
-    style: captionStyle.partial().optional(),
-  })
-  .strict();
 
 export const renderSettings = z
   .object({
@@ -344,6 +340,15 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
   if (p.audio.voice && p.audio.voice.startFrame >= cursor) {
     add(['audio', 'voice', 'startFrame'], `startFrame is after the end of the video (${cursor} frames)`);
   }
+
+  (p.captions.cues ?? []).forEach((c, i) => {
+    if (c.end <= c.start) add(['captions', 'cues', i, 'end'], `the cue ends (${c.end}s) before it starts (${c.start}s)`);
+    const prev = p.captions.cues![i - 1];
+    if (prev && c.start < prev.start) add(['captions', 'cues', i, 'start'], 'cues must be in time order');
+    c.words?.forEach((w, j) => {
+      if (w.end < w.start) add(['captions', 'cues', i, 'words', j, 'end'], 'the word ends before it starts');
+    });
+  });
 
   const totalSeconds = cursor / p.output.fps;
   if (totalSeconds > MAX_PROJECT_SECONDS) {

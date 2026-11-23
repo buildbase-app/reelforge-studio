@@ -30,7 +30,8 @@ ARG BASE_DIGEST=sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba
 # ---- os: what the runtime needs from Debian ------------------------------------------
 FROM ${BASE_IMAGE}@${BASE_DIGEST} AS os
 ENV DEBIAN_FRONTEND=noninteractive
-# FFmpeg (system build, D-011), fonts (Chrome renders text with them), tini, and the
+# FFmpeg (system build with libass for burned captions, D-011, D-107), fonts (Chrome and
+# libass render text with them; fc-match picks the caption font), tini, and the
 # system libraries Chrome Headless Shell needs (Playwright's list for this
 # distribution, playwright-core pinned to the version in pnpm-lock.yaml). Security
 # updates of the pinned base are applied (apt-get upgrade).
@@ -38,7 +39,7 @@ RUN --mount=type=secret,id=extra_ca,required=false \
     if [ -f /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
     apt-get update \
  && apt-get upgrade -y \
- && apt-get install -y --no-install-recommends ffmpeg ca-certificates tini \
+ && apt-get install -y --no-install-recommends ffmpeg ca-certificates tini fontconfig \
       fonts-dejavu-core fonts-liberation2 fonts-noto-core fonts-noto-color-emoji \
  && npx -y playwright-core@1.65.1 install-deps chromium-headless-shell \
  && rm -rf /var/lib/apt/lists/* /root/.npm /root/.cache /tmp/*

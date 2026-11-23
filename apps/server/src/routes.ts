@@ -38,6 +38,7 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'DELETE', path: '/v1/projects/:id/scenes/:sceneId', scope: 'write', tool: 'remove_scene' },
   { method: 'PUT', path: '/v1/projects/:id/theme', scope: 'write', tool: 'set_theme' },
   { method: 'PATCH', path: '/v1/projects/:id/audio', scope: 'write', tool: 'set_audio' },
+  { method: 'POST', path: '/v1/projects/:id/captions/import', scope: 'write', tool: 'import_captions' },
   { method: 'POST', path: '/v1/projects/:id/preview', scope: 'render', tool: 'preview_scene' },
   { method: 'POST', path: '/v1/projects/:id/renders', scope: 'render', tool: 'render_project' },
   { method: 'GET', path: '/v1/projects/:id/renders', scope: 'read', tool: 'list_renders' },

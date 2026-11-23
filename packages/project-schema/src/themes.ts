@@ -33,11 +33,23 @@ export const themeColors = z
 
 export const captionStyle = z
   .object({
+    /** Inside the safe area: bottom (default), top or centre (docs/CAPTIONS.md#style). */
     position: z.enum(['top', 'center', 'bottom']).default('bottom'),
-    /** Font size as a fraction of the video width. */
+    /** Font size as a fraction of the shorter side of the video (min(width, height)). */
     fontScale: z.number().min(0.02).max(0.12).default(0.05),
     color: hexColor.default('#ffffff'),
+    /** Box behind each line; null for no box (text with an outline instead). */
     background: hexColor.nullable().default('#000000'),
+    /** Opacity of the box, 0..1. Default 0.8. */
+    backgroundOpacity: z.number().min(0).max(1).optional(),
+    /** Caption font. Default: the theme's fontFamily (its first family is used). */
+    fontFamily: fontFamily.optional(),
+    /** Default 700. */
+    weight: z.number().int().min(100).max(900).optional(),
+    /** Outline colour when there is no box. Default: #000000; null for none. */
+    outline: hexColor.nullable().optional(),
+    /** Colour of the word being spoken (word highlight). Default: the theme's accent. */
+    highlightColor: hexColor.optional(),
   })
   .strict();
 
