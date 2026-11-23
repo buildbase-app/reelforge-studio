@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import { resolveTools, toolVersion, type Tools } from '@reelforge/media-pipeline';
+import { resolveTools, toolPaths, toolVersionAsync, type Tools } from '@reelforge/media-pipeline';
 import {
   DEFAULT_OUTPUT,
   MAX_PROJECT_SECONDS,
@@ -165,6 +165,8 @@ const QUOTA_JOB_TYPES = ['render', 'preview'];
 /** Validation errors for exceeded render limits start with this (a preview of some scenes is checked on its own). */
 const RENDER_LIMIT_PREFIX = 'render limit: ';
 const SWEEP_INTERVAL_MS = 3_600_000;
+/** FFmpeg/ffprobe versions in get_capabilities are probed again this often (#319). */
+const TOOL_VERSIONS_REFRESH_MS = 600_000;
 const SETTINGS_REFRESH_MS = 15_000;
 
 /** Who made a change (audit log). */
@@ -290,6 +292,10 @@ export class ReelforgeService {
   /** The clock (ServiceConfig.now). */
   readonly now: () => number;
   private toolsCache: Tools | null = null;
+  /** FFmpeg/ffprobe versions for capabilities(), probed off the request path (#319); null: not found (or not probed yet). */
+  private toolVersions: { ffmpeg: string | null; ffprobe: string | null } = { ffmpeg: null, ffprobe: null };
+  private toolVersionsProbe: Promise<{ ffmpeg: string | null; ffprobe: string | null }> | null = null;
+  private toolVersionsTimer: NodeJS.Timeout | null = null;
   private activatingLicence = false;
   private renderIndex = new Map<string, string>();
   private readonly fetchImpl: typeof fetch;
@@ -461,6 +467,11 @@ export class ReelforgeService {
       }, SETTINGS_REFRESH_MS);
       s.refreshTimer.unref();
     }
+    // Tool versions for get_capabilities: probed now with async processes (start-up waits for the
+    // answer, the event loop does not), then every 10 minutes (#319).
+    await s.refreshToolVersions();
+    s.toolVersionsTimer = setInterval(() => void s.refreshToolVersions(), TOOL_VERSIONS_REFRESH_MS);
+    s.toolVersionsTimer.unref();
     if (config.maintenance !== false) {
       // First sweep shortly after start (never delays it), then hourly.
       const run = () => void s.sweep().catch((e) => config.log?.('warn', `maintenance sweep failed: ${(e as Error).message}`));
@@ -533,6 +544,8 @@ export class ReelforgeService {
     this.sweepTimer = null;
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     this.refreshTimer = null;
+    if (this.toolVersionsTimer) clearInterval(this.toolVersionsTimer);
+    this.toolVersionsTimer = null;
     this.licence.stop();
     if (this.licenceTimer) clearInterval(this.licenceTimer);
     this.licenceTimer = null;
@@ -615,18 +628,28 @@ export class ReelforgeService {
     return this.toolsCache;
   }
 
-  private toolsOrNull(): Tools | null {
-    try {
-      return this.tools();
-    } catch {
-      return null;
-    }
+  /**
+   * Probe the FFmpeg and ffprobe versions with async child processes and keep
+   * them for capabilities() (#319): at start-up, every 10 minutes, or on
+   * demand. Concurrent calls share one probe. A request never starts a
+   * process: get_capabilities used to run two synchronous ones per call,
+   * which blocked the event loop for every client.
+   */
+  refreshToolVersions(): Promise<{ ffmpeg: string | null; ffprobe: string | null }> {
+    this.toolVersionsProbe ??= (async () => {
+      const tools = this.toolsCache ?? toolPaths();
+      const [ffmpeg, ffprobe] = await Promise.all([toolVersionAsync(tools.ffmpeg), toolVersionAsync(tools.ffprobe)]);
+      this.toolVersions = { ffmpeg, ffprobe };
+      return this.toolVersions;
+    })().finally(() => {
+      this.toolVersionsProbe = null;
+    });
+    return this.toolVersionsProbe;
   }
 
   // ---- discovery ------------------------------------------------------------
 
   capabilities() {
-    const tools = this.toolsOrNull();
     const engines = this.registry.listEngines();
     const sandboxOff = engines.filter((e) => e.browserSandbox?.() === false).map((e) => e.id);
     return {
@@ -678,8 +701,8 @@ export class ReelforgeService {
       },
       versions: {
         node: process.version,
-        ffmpeg: tools ? toolVersion(tools.ffmpeg) : null,
-        ffprobe: tools ? toolVersion(tools.ffprobe) : null,
+        // Probed at start-up and every 10 minutes, never on this request path (#319).
+        ...this.toolVersions,
       },
       workflow: [
         'list_templates and list_themes to see what exists',
