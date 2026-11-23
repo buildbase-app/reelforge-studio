@@ -1,0 +1,275 @@
+/**
+ * Flagship reel: "How small is Earth, really?" One HyperFrames composition,
+ * 32 s, drawn on a canvas by a pure function of time (seeked by the runtime
+ * through window.__hfAnime). One continuous zoom-out on a logarithmic camera:
+ * a person on a hill, the city, Earth, Jupiter, the Moon's distance, the Sun,
+ * Betelgeuse, the Milky Way and the cosmic web of galaxies. Every body sits
+ * in one world (metres); the camera scale is a monotone cubic through
+ * keyframes in log10(px per metre), and the camera centre moves linearly in
+ * 1/scale, so each step is a true zoom about a fixed point.
+ *
+ * Facts used (rounded, well known): Earth about 12,742 km wide; Moon about
+ * 384,400 km away (about 30 Earth widths); Jupiter about 11 Earths wide; the
+ * Sun about 109 Earths wide (about 1.3 million Earths by volume), and the
+ * Moon's orbit (about 769,000 km across) fits inside it; Betelgeuse several
+ * hundred solar radii (700 used here); the Milky Way about 100,000 light-years
+ * across, the Sun about 26,000 light-years from its centre, 100-400 billion
+ * stars. Continents: Natural Earth 1:110m land (public domain), sampled on an
+ * equal-area 1.5 degree grid and embedded as a bitmask.
+ */
+import { composition, type FlagshipReel } from './kit';
+
+const DUR = 32;
+
+/** Natural Earth 110m land on an equal-area 1.5 degree grid, 1 bit per point (5,191 land points). */
+const LAND = 'AAAAIAAA8P//H//9/z/wb/7/f/g/9P//P/B/wP///wf8/4D///8fAMgfwP///38AAIAA/P///z8AAIABgP/f//8HAADAAADAP///BwAAAAAAAIA///8BAAAAgAAAAMAAaBoAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAAAAAAAAAAAAAACOAQAAAAAAAAAAAAAAAAAAAACAAwAAAAAAAAAAAAAAAAAAAAAAADwAAAAAAAAAAAAAAAAAAAAAAAAAPAAAAAAAAAAAAAAAAAAAAAAAAADAAQAAAAAAAAAAAAAAAMAAAAAAAADABwAAAAAAAAAAAAAAAAAMAAAAAAAA8AEAAAAAAAAAAAAAAIAAEAAAAAAAAOABAAAAAAAAAAAAAAAADAADAAAAAAAA+AEAAAAAAAAAAAAAAAAAAAQAAAAAAADgHwAAAAAAAAAAAAAAAKAAwAAAAAAAAAD8BwAAAAAAAAAAAAAAAPABAAAAAAAAAADwDwAAAAAAAAAAAAAAAMAfAAIAAAAAAAAA/gcAAAAAeAAAAAAAAD7QHwAAAAAAAAAAAPwfAAAAAOAHAAAAAADww/8BAAAAAAAAAADA/wMAAAAA/gAAAAAAAP7/fwAAAAAAAAAAAOD/AwAAAAD/AQAAAAAA/v//AAAAAAAAAAAAgP8PAAAAAPwPAAAAAADw//8HAAAAAAAAAAAA8P8BAAAAgP8DAAAAAAD8//8DAAAAAAAAAAAA8P8DAAAAAP8PDAAAAADw//8HAAAAAAAAAAAAgP9/AAAAAPj/4AAAAAAA//9/AAAAAAAAAAAAAOD/fwAAAAD+PzgAAAAAAP//H4AAAAAAAAAAAADg/38AAAAA/j9wAAAAAAD4/x8AAAAAAAAAAAAAwP//AQAAAPz/wQMAAAAAgP9/AAAAAAAAAAAAAAD+/z8AAADA/384AAAAAADwfwcAAAAAAAAAAAAA4P//DwAAAPD/PwwAAAAAAPCPAwAAAAAAAAAAAAD4//8HAAAA8P9/EAAAAAAAQA8DAAAAAAAAAAAAAPD//x8AAACA//8AAAAAAAAAeAQAAAAAAAAAAAAAwP///wAAAAD+/wcAAAAAAAAAIAAAAAAAAAAAAAAA/v//HwAAAOD/fwAAAAAAAEgAQAAAAAAAAAAAAADA////BwAAAPj/DwAAAAAAMADgCQgAAAAAAAAAAAD4////AQAAAP//AwAAAADAAgDwgQAAAAAAAAAAAAD+//9/AAAAwP//AAAAAAAQAAB8AAAAAAAAAAAAAAD///8PAAAA4P//AAAAAAAOQMAfAAAAAAAAAAAAAID//38AAAAA+P//AAAAAADHN0ADAAAAAAAAAAAAAID//z8AAAAA+P//AQAAAADDByQAAAAAAAAAAAAAAAD//w8AAAAA+P//AwAAAIDD7wQAAAAAAAAAAAAAAAD+/wcAAAAA+P//DwAAAMCCDwAAAAAAAAAAAAAAAAD+/wcAAAAA+P//DwAAAKABBwAAAAAAAAAAAAAAAAD//wEAAOCH////DwAAAMgABwAAAAAAAAAAAAAAAID/DwAAAPz/////BwCAABCAMAAAAAAAAAAAAAAAAPT/AQAAgP//////AQAoAAIADgAAAAAAAAAAAAAAYLAfAAAA8P////9/AAADQAhIAAAAAAAAAAAAAAAABhwAAACA/////z8GADgA5IAKAAAAAAAAAAAAAAA4AAAAAAD+/////wEA4ADQBxAAAAAAAAAAAAAAAPwAAAAAAPz/////HgDAAeAPEAAAAAAAAAAAAACAfgAAAAAA+P///39+AOAB8AcMAAAAAAAAAAAAAPgHAAAAAAD+////z38A/AD/AAEAAAAAAAAAAADAxwAMAAAA4P///3/+B+Af+BMAAAAAAAAAAAAAgB8GBgAAAID/////+T+A//gPAAAAAAAAAAAAAAAfAAMAAACA//////w/4P/9fwAAAAAAAAAAAADABwAAAAAAwP///5//D/z//38CAAAAAAAAAACA/AAAAAAAAPz////8E/D///8XAAAAAAAAAAAA/QEIAAAAAPj////+wf////8HAAAAAAAAAABA/wADAAAAAP7//98///////8AAAAAAAAAAAD8jwgAAAAAwP///3/+/////wMAAAAAAAAAAPz/DwAAAADg/9//////////AAAAAAAAAADA//8DAAAAAPz/GPj//////w8CAAAAAAAAgP//HwAAAADgfwDg//////8PGgAAAAAAAOD//z8AAAAA0B8Q+P//////kAcAAAAAAAD///8BAAAAwHgA9///////MwwAAAAAAID///8AAAAAfADs//n///8fAwEAAAAAAPz//wcAAADgAZD/5////38FAgAAAAAA/P//DwAAAPDBPPf5/////0EAAAAAAOD//38AAADAx/nA8f/////DAAAAAADg//9/AQAAgL8/OP//////EQAAAAAA////PwAAAP5/+vz/////AQAAAADA////YQAA4P////////8fAAAAAAD///9nAADg/////////z8AAAAA8P//PwUAAPj///////+/AAAAAOD///4DAID7////////HwQAAAD///c/AADP////////DwwABID///sHAEAB//////8/wABAAP7/4QcAgFD+/////w84ADDw/wc+AAAE4/////8/MAAc/P+BCwAA+Pz/////JwHw/f8HBwgAeP//////7wH+/38QYADA+f//////B/z/vzAcCHD//////3////////9HBAAAAADw//////8fEBAAAAD8//////+BAgAAAMCnLow/AAf6//8oAJoP//+//H8PAGAz+AEA6X8AAAiAPwAIHgAAEMEPAIJDAADoHwAAAADgfwgAAAD4hwABAPwDAACAAAAAAAAAAAAA';
+
+const SCRIPT = String.raw`
+var cv=document.getElementById('cv'),g=cv.getContext('2d'),W=1080,H=1920;
+var sd=1977;function R(){sd=(sd+0x6d2b79f5)>>>0;var t=sd;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296}
+function gs(){var u=R()||1e-9,v=R();return Math.sqrt(-2*Math.log(u))*Math.cos(6.283185*v)}
+function cl(x){return x<0?0:x>1?1:x}
+function seg(t,a,b){return cl((t-a)/(b-a))}
+function eo(x){x=cl(x);return 1-Math.pow(1-x,3)}
+function lerp(a,b,f){return a+(b-a)*f}
+function rgba(c,a){return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'}
+var TAU=6.283185,D2R=Math.PI/180;
+var AMBER=[255,181,71];
+var ELEMENTS=0,S=1,CX=0,CY=0,POS={};
+function X(x){return 540+(x-CX)*S}
+function Y(y){return 960+(y-CY)*S}
+
+/* ---------- the world, in metres; y points down; the person's feet are the origin ---------- */
+var RE=6.371e6,RM=1.737e6,DM=3.844e8,RJ=6.9911e7,RS=6.957e8,RB=700*RS,RG=4.73e20,RSG=2.46e20;
+var EY=RE,MY=RE-DM,JY=2*RE+RJ,SY=2*RE+2*RJ+RS,BY=2*RE+2*RJ+2*RS+RB,GY=RSG;
+/* light comes from the front left; the hilltop sits right on the terminator (dusk) */
+var LX=-.62,LY=-.05,LZ=.78;
+
+/* ---------- camera: monotone cubic in log10(scale), centre linear in 1/scale ---------- */
+function at(t,s,px,py,sx,sy){return [t,Math.log(s)/Math.LN10,px-(sx-540)/s,py-(sy-960)/s]}
+var KF=[at(0,150,0,0,540,1420),at(1.3,104,0,0,540,1420),at(3.5,.62,0,0,540,1560),at(4.5,.4,0,0,540,1560),
+at(6,6.2e-5,0,EY,540,1130),at(7.6,5.4e-5,0,EY,540,1130),
+at(9,6.2e-6,0,JY,540,1200),at(10.6,5.6e-6,0,JY,540,1200),
+at(12.2,2.25e-6,0,0,540,1480),at(13.9,2.05e-6,0,0,540,1480),
+at(15.4,7.4e-7,0,SY,540,1260),at(18.8,6.6e-7,0,SY,540,1260),
+at(20.4,1.12e-9,0,BY,540,1250),at(22.4,1e-9,0,BY,540,1250),
+at(24.6,1.1e-18,0,GY,540,1100),at(27.2,.95e-18,0,GY,540,1100),
+at(29.4,4e-22,0,GY,540,1000),at(32,3.3e-22,0,GY,540,1000)];
+var KN=KF.length,KD=[],KM=[];for(var i=0;i<KN-1;i++)KD.push((KF[i+1][1]-KF[i][1])/(KF[i+1][0]-KF[i][0]));
+KM[0]=KD[0];KM[KN-1]=KD[KN-2];for(var i=1;i<KN-1;i++){var d0=KD[i-1],d1=KD[i];if(d0*d1<=0)KM[i]=0;else{var h0=KF[i][0]-KF[i-1][0],h1=KF[i+1][0]-KF[i][0];KM[i]=3*(h0+h1)/((2*h1+h0)/d0+(h1+2*h0)/d1)}}
+function cam(t){var k=0;while(k<KN-2&&t>KF[k+1][0])k++;var a=KF[k],b=KF[k+1],h=b[0]-a[0],u=cl((t-a[0])/h),u2=u*u,u3=u2*u;
+var L=(2*u3-3*u2+1)*a[1]+(u3-2*u2+u)*h*KM[k]+(-2*u3+3*u2)*b[1]+(u3-u2)*h*KM[k+1];var s=Math.pow(10,L),sa=Math.pow(10,a[1]),sb=Math.pow(10,b[1]);
+var w=Math.abs(b[1]-a[1])>.02?cl((1/s-1/sa)/(1/sb-1/sa)):u;return {s:s,L:L,cx:lerp(a[2],b[2],w),cy:lerp(a[3],b[3],w)}}
+
+/* ---------- background: a screen-space star tunnel that streams inward as we zoom out ---------- */
+var TS=[];for(var k=0;k<3;k++){var lay=[];for(var i=0;i<680;i++){var c=R();lay.push([R()*2-1,R()*2-1,.7+R()*1.5,R()*TAU,c<.12?1:c<.2?2:0,.35+R()*.65])}lay.sort(function(a,b){return a[4]-b[4]});TS.push(lay)}
+var TSC=['rgb(214,226,255)','rgb(255,222,184)','rgb(176,200,255)'];
+function tunnel(t,Z,dz,dim){var tail=Math.pow(2,.2*Math.max(0,dz)),streak=tail>1.012;for(var k=0;k<3;k++){var ph=((Z*.2+k/3)%1+1)%1;var m=Math.pow(2,1-ph),la=Math.sin(Math.PI*ph)*dim;if(la<.02)continue;var lay=TS[k],cc=-1;
+for(var i=0;i<lay.length;i++){var st=lay[i];var dx=st[0]*620*m,dy=st[1]*1100*m,x=540+dx,y=960+dy;if(x<-4||x>W+4||y<-4||y>H+4)continue;
+var a=la*st[5]*(.75+.25*Math.sin(t*1.7+st[3]));if(a<.02)continue;g.globalAlpha=a;var z=st[2]*(.55+.45*m);
+if(streak){g.strokeStyle=TSC[st[4]];g.lineWidth=z;g.beginPath();g.moveTo(540+dx*tail,960+dy*tail);g.lineTo(x,y);g.stroke()}else{if(st[4]!==cc){cc=st[4];g.fillStyle=TSC[cc]}g.fillRect(x,y,z,z)}ELEMENTS++}}g.globalAlpha=1}
+
+/* ---------- the hill, the city and the person ---------- */
+function hill(x){return 57.8*Math.exp(-Math.pow(x/170,2))+2.2*Math.exp(-Math.pow(x/6,2))}
+function base(x){var q=RE*RE-x*x;return (q>0?RE-Math.sqrt(q):RE)+60}
+function ridge(x){var ax=Math.abs(x);return cl((ax-1500)/2600)*Math.max(0,150+95*Math.sin(x/2300+1)+60*Math.sin(x/870+2)+28*Math.sin(x/310+.5))}
+var BLD=[[],[],[]],WIN=[[],[],[]];
+for(var row=0;row<3;row++){var n=[110,120,130][row];for(var i=0;i<n;i++){var side=R()<.66?1:-1;var dist=240+Math.pow(R(),1.2)*2800*(row==0?1.2:1);var x=side*dist;
+var dt=side>0?Math.exp(-Math.pow((dist-760)/420,2)):Math.exp(-Math.pow((dist-900)/360,2))*.45;var h=(12+R()*40)*(1+row*.1)+dt*(60+R()*200)*(row==0?1.2:.85);var w=14+R()*34;
+BLD[row].push([x,w,h]);var cols=Math.floor(w/6),rows=Math.floor(h/4.6);for(var cI=0;cI<cols;cI++)for(var r=1;r<rows;r++){if(R()<(row==2?.3:.22))WIN[row].push([x-w/2+3+cI*6,60-r*4.6,R()<.82?0:1])}}}
+var BCOL=['rgb(22,33,56)','rgb(14,22,40)','rgb(8,13,25)'],WCOL=['rgb(255,196,120)','rgb(178,206,255)'],WAL=[.5,.7,.92];
+var TOWN=[];for(var i=0;i<420;i++){var side=R()<.5?1:-1;TOWN.push(side*(4500+Math.pow(R(),1.6)*150000),R())}
+var GRASS=[];for(var i=0;i<560;i++)GRASS.push([(R()*2-1)*7.5,.05+R()*.2,R()*TAU,(R()-.5)*.6]);
+function sky(yo,pf){if(pf>0){var gr=g.createLinearGradient(0,yo-1900,0,yo);gr.addColorStop(0,'rgb(4,8,20)');gr.addColorStop(.5,'rgb(10,22,50)');gr.addColorStop(.84,'rgb(26,44,84)');gr.addColorStop(.96,'rgb(52,62,100)');gr.addColorStop(1,'rgb(92,78,100)');g.globalAlpha=pf;g.fillStyle=gr;g.fillRect(0,0,W,H);g.globalAlpha=1;ELEMENTS++}
+if(pf<1){var y0=Y(60),y1=Y(-1.2e5);if(y0>y1+1){var gr=g.createLinearGradient(0,y0,0,y1);gr.addColorStop(0,'rgba(70,110,190,.7)');gr.addColorStop(.12,'rgba(40,74,140,.42)');gr.addColorStop(1,'rgba(20,40,90,0)');g.globalAlpha=1-pf;g.fillStyle=gr;g.fillRect(0,Math.max(0,y1),W,Math.min(H,y0)-Math.max(0,y1));g.globalAlpha=1;ELEMENTS++}}}
+function surfPath(f){g.beginPath();g.moveTo(-10,H+10);for(var sx=-10;sx<=W+10;sx+=6){var x=CX+(sx-540)/S;g.lineTo(sx,Y(f(x)))}g.lineTo(W+10,H+10);g.closePath()}
+function ground(t){var lim=6/S;
+/* far ridges */surfPath(function(x){return base(x)-ridge(x)});g.fillStyle='rgb(17,27,48)';g.fill();ELEMENTS++;
+/* city rows, back to front */for(var row=0;row<3;row++){var bl=BLD[row];g.fillStyle=BCOL[row];g.beginPath();for(var i=0;i<bl.length;i++){var b=bl[i];var x0=X(b[0]-b[1]/2),x1=X(b[0]+b[1]/2);if(x1<0||x0>W)continue;var yb=Y(base(b[0])),yt=Y(base(b[0])-b[2]);g.rect(x0,yt,Math.max(x1-x0,.6),yb-yt+1);ELEMENTS++}g.fill();
+var wz=2.2*S;if(wz>=.6){var wl=WIN[row];for(var c=0;c<2;c++){g.fillStyle=WCOL[c];g.globalAlpha=WAL[row]*cl(wz-.4);g.beginPath();for(var i=0;i<wl.length;i++){var wi=wl[i];if(wi[2]!==c)continue;var x=X(wi[0]);if(x<-4||x>W+4)continue;var y=Y(wi[1]);if(y<-4||y>H+4)continue;g.rect(x,y,wz,1.6*S);ELEMENTS++}g.fill()}g.globalAlpha=1}}
+/* city glow when the windows get too small to see */var cg=cl((.6-2.2*S)/.4);if(cg>0){g.fillStyle=rgba(AMBER,.8*cg);g.beginPath();for(var row=0;row<3;row++){var bl=BLD[row];for(var i=0;i<bl.length;i++){var b=bl[i];var x=X(b[0]);if(x<-2||x>W+2)continue;g.rect(x-.8,Y(base(b[0])-b[2]*.5)-.8,1.6,1.6);ELEMENTS++}}
+for(var i=0;i<TOWN.length;i+=2){var x=X(TOWN[i]);if(x<-2||x>W+2)continue;g.rect(x-.7,Y(base(TOWN[i]))-1.5-TOWN[i+1]*1.5,1.4,1.4);ELEMENTS++}g.fill()}
+/* the hill and the ground in front */surfPath(function(x){return base(x)-hill(x)});var y0=Y(0);var gg=g.createLinearGradient(0,y0,0,H);gg.addColorStop(0,'rgb(7,11,21)');gg.addColorStop(.25,'rgb(10,14,26)');gg.addColorStop(1,'rgb(4,6,12)');g.fillStyle=gg;g.fill();ELEMENTS++;
+if(S>2){g.strokeStyle='rgba(120,150,210,.22)';g.lineWidth=2;g.beginPath();for(var sx=-10;sx<=W+10;sx+=6){var x=CX+(sx-540)/S;var y=Y(base(x)-hill(x));sx<-9?g.moveTo(sx,y):g.lineTo(sx,y)}g.stroke()}
+/* grass on the crest */if(S>12){g.strokeStyle='rgb(6,10,19)';g.lineWidth=Math.max(1,S*.012);g.beginPath();for(var i=0;i<GRASS.length;i++){var gb=GRASS[i];var x=gb[0],y=base(x)-hill(x);var sw=gb[3]*gb[1]+.025*Math.sin(t*1.3+gb[2]);var sx=X(x),sy=Y(y)+2;if(sx<-20||sx>W+20)continue;g.moveTo(sx,sy);g.quadraticCurveTo(sx+sw*S*.3,sy-gb[1]*S*.6,sx+sw*S,sy-gb[1]*S);ELEMENTS++}g.stroke()}
+/* the person, facing the city */if(S*1.75>1.4){person(t)}}
+function person(t){g.fillStyle='rgb(4,7,13)';g.strokeStyle='rgb(4,7,13)';g.lineCap='round';g.lineJoin='round';
+function P(pts){g.beginPath();for(var i=0;i<pts.length;i++){var q=pts[i];if(q.length==4)g.quadraticCurveTo(X(q[0]),Y(q[1]),X(q[2]),Y(q[3]));else i?g.lineTo(X(q[0]),Y(q[1])):g.moveTo(X(q[0]),Y(q[1]))}g.closePath();g.fill();ELEMENTS++}
+/* legs */P([[-.17,0],[-.15,-.45],[-.155,-.94],[.155,-.94],[.15,-.45],[.19,0],[.07,0],[.03,-.5],[.01,-.78],[-.01,-.78],[-.035,-.5],[-.06,0]]);
+/* torso, rounded shoulders */P([[-.165,-.9],[-.19,-1.2],[-.205,-1.39,-.13,-1.43],[.13,-1.43],[.205,-1.39,.19,-1.2],[.165,-.9]]);
+/* arms */g.lineWidth=.085*S;g.beginPath();g.moveTo(X(-.17),Y(-1.36));g.quadraticCurveTo(X(-.25),Y(-1.2),X(-.245),Y(-.86));g.moveTo(X(.17),Y(-1.36));g.quadraticCurveTo(X(.25),Y(-1.2),X(.235),Y(-.88));g.stroke();ELEMENTS+=2;
+/* neck and head */g.fillRect(X(-.045),Y(-1.5),.09*S,.1*S);g.beginPath();g.ellipse(X(.012),Y(-1.6),.098*S,.118*S,0,0,TAU);g.fill();ELEMENTS+=2;g.lineCap='butt'}
+
+/* ---------- Earth seen from space: ocean, 5,000 land points (about 2,500 on the near side), night side, air ---------- */
+var LAND=[];(function(){var b=atob('${LAND}'),D=1.5,i=0;for(var la=-90+D/2;la<90;la+=D){var m=Math.max(1,Math.round(360/D*Math.cos(la*Math.PI/180)));for(var k=0;k<m;k++){if((b.charCodeAt(i>>3)>>(i&7))&1){var lo=-180+(k+.5)*360/m;var f=la*D2R;LAND.push([Math.cos(f),Math.sin(f),lo*D2R,R()])}i++}}})();
+function shadow(cx,cy,r,a){var ln=Math.sqrt(LX*LX+LY*LY),ex=-LX/ln,ey=-LY/ln,qx=-ey,qy=ex;g.fillStyle='rgba(2,5,12,'+(a*.3).toFixed(3)+')';
+var N=Math.max(24,Math.min(600,Math.round(r/6)));for(var i=0;i<4;i++){var kz=LZ+.06-i*.07;g.beginPath();for(var j=0;j<=N;j++){var th=-Math.PI/2+j/N*Math.PI;var c=Math.cos(th),s=Math.sin(th);var x=cx+r*(c*ex+s*qx),y=cy+r*(c*ey+s*qy);j?g.lineTo(x,y):g.moveTo(x,y)}
+for(var j=N;j>=0;j--){var th=-Math.PI/2+j/N*Math.PI;var c=Math.cos(th),s=Math.sin(th);g.lineTo(cx+r*(kz*c*ex+s*qx),cy+r*(kz*c*ey+s*qy))}g.closePath();g.fill()}ELEMENTS+=4}
+function earth(t,cx,cy,r){if(cx+r*1.1<0||cx-r*1.1>W||cy+r*1.1<0||cy-r*1.1>H)return;
+var hg=g.createRadialGradient(cx,cy,r*.98,cx,cy,r*1.07);hg.addColorStop(0,'rgba(110,170,255,.55)');hg.addColorStop(.3,'rgba(80,140,240,.2)');hg.addColorStop(1,'rgba(60,120,230,0)');g.fillStyle=hg;g.beginPath();g.arc(cx,cy,r*1.07,0,TAU);g.fill();
+var og=g.createRadialGradient(cx-r*.38,cy-r*.22,r*.04,cx,cy,r);og.addColorStop(0,'rgb(50,124,214)');og.addColorStop(.55,'rgb(22,70,152)');og.addColorStop(1,'rgb(10,30,78)');g.fillStyle=og;g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();ELEMENTS+=2;
+var la=cl((6000-r)/4000),night=[];if(la>0){var p0=22*D2R,sp=Math.sin(p0),cp=Math.cos(p0),l0=(32-2.4*t)*D2R,sz=r*.0262*.36,big=sz>1.1;g.fillStyle='rgba(214,230,222,'+(.94*la).toFixed(3)+')';g.beginPath();
+for(var i=0;i<LAND.length;i++){var q=LAND[i],lm=q[2]-l0,cf=q[0],sf=q[1],cm=Math.cos(lm);var z=sp*sf+cp*cf*cm;if(z<=.03)continue;var x=cf*Math.sin(lm),y=cp*sf-sp*cf*cm;var px=cx+x*r,py=cy-y*r;if(px<-4||px>W+4||py<-4||py>H+4)continue;var rd=sz*(.5+.5*z);
+if(big){g.moveTo(px+rd,py);g.arc(px,py,rd,0,TAU)}else g.rect(px-rd,py-rd,rd*2,rd*2);ELEMENTS++;if(x*LX-y*LY+z*LZ<-.04&&q[3]<.4)night.push(px,py,rd)}g.fill()}
+shadow(cx,cy,r,.92);
+if(night.length){g.fillStyle='rgba(255,190,110,'+(.75*la).toFixed(3)+')';g.beginPath();for(var i=0;i<night.length;i+=3){var rd=Math.max(.6,night[i+2]*.55);g.rect(night[i]-rd,night[i+1]-rd,rd*2,rd*2);ELEMENTS++}g.fill()}
+g.strokeStyle='rgba(160,205,255,.5)';g.lineWidth=Math.max(1,r*.006);g.beginPath();g.arc(cx,cy,r*1.004,0,TAU);g.stroke();ELEMENTS++}
+
+/* ---------- the Moon and the 29 Earths that fit in the gap ---------- */
+function moon(cx,cy,r,a){if(a<=0||cy+r<0||cy-r>H)return;g.globalAlpha=a;r=Math.max(r,2.2);var mg=g.createRadialGradient(cx-r*.4,cy-r*.3,r*.1,cx,cy,r);mg.addColorStop(0,'rgb(222,222,216)');mg.addColorStop(1,'rgb(120,120,118)');g.fillStyle=mg;g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();
+if(r>6){g.fillStyle='rgba(70,72,80,.35)';g.beginPath();g.arc(cx-r*.2,cy-r*.3,r*.28,0,TAU);g.arc(cx+r*.25,cy-r*.05,r*.22,0,TAU);g.arc(cx-r*.05,cy+r*.3,r*.18,0,TAU);g.fill()}shadow(cx,cy,r,.9);g.globalAlpha=1;ELEMENTS+=2}
+function column(t,a){if(a<=0)return;var r=RE*S;for(var k=1;k<=29;k++){var ka=a*seg(t,11.4+k*.05,11.6+k*.05);if(ka<=0)continue;var y=Y(-(2*k-1)*RE);if(y<-r||y>H+r)continue;g.globalAlpha=ka;g.fillStyle='rgba(60,120,220,.16)';g.strokeStyle='rgba(126,176,255,.75)';g.lineWidth=1.5;g.beginPath();g.arc(X(0),y,Math.max(r-.8,1),0,TAU);g.fill();g.stroke();ELEMENTS++}g.globalAlpha=1}
+
+/* ---------- Jupiter: banded clouds, 1,600 storm streaks, the Great Red Spot ---------- */
+var JB=[[90,[132,118,108]],[54,[148,130,114]],[45,[196,168,136]],[36,[228,210,180]],[28,[178,132,96]],[22,[232,216,188]],[17,[152,100,70]],[8,[212,182,146]],[5,[240,224,196]],[-5,[236,214,178]],[-8,[166,112,78]],[-19,[148,96,66]],[-22,[232,216,190]],[-28,[192,156,120]],[-36,[226,206,176]],[-44,[180,150,122]],[-56,[150,132,118]],[-90,[134,120,110]]];
+var JP=[];for(var i=0;i<1600;i++){var lat=(R()*2-1)*62;var f=lat*D2R;var b=0;for(var k=0;k<JB.length-1;k++)if(lat<=JB[k][0]&&lat>JB[k+1][0])b=k;JP.push([Math.cos(f),Math.sin(f),R()*TAU,(b%2?1:-1)*(.05+R()*.05),.012+R()*.03,R()<.55?0:1])}
+function jupiter(t,cx,cy,r,a){if(a<=0||cy-r>H||cy+r<0||cx-r>W||cx+r<0)return;g.globalAlpha=a;
+if(r>20000){g.fillStyle='rgb(140,124,112)';g.beginPath();g.moveTo(-10,H+10);for(var sx=-10;sx<=W+10;sx+=20){var dx=sx-cx;g.lineTo(sx,Math.min(H+10,cy-Math.sqrt(Math.max(0,r*r-dx*dx))))}g.lineTo(W+10,H+10);g.fill();g.globalAlpha=1;ELEMENTS++;return}
+g.save();g.beginPath();g.arc(cx,cy,r,0,TAU);g.clip();var lg=g.createLinearGradient(0,cy-r,0,cy+r);for(var k=0;k<JB.length;k++)lg.addColorStop((1-Math.sin(JB[k][0]*D2R))/2,rgba(JB[k][1],1));g.fillStyle=lg;g.fillRect(cx-r,cy-r,2*r,2*r);ELEMENTS++;
+var cols=['rgba(252,240,216,.28)','rgba(118,70,46,.26)'];if(r<1800)for(var c=0;c<2;c++){g.fillStyle=cols[c];g.beginPath();for(var i=0;i<JP.length;i++){var p=JP[i];if(p[5]!==c)continue;var lm=p[2]+p[3]*t;var cm=Math.cos(lm);if(cm<.05)continue;var x=cx+r*p[0]*Math.sin(lm),y=cy-r*p[1];var w=r*p[4]*cm*p[0],h=Math.max(1,r*.006);g.rect(x-w/2,y-h/2,w,h);ELEMENTS++}g.fill()}
+var gl=.6-.03*t,gc=Math.cos(gl);if(gc>0){var gf=-22*D2R;var gx=cx+r*Math.cos(gf)*Math.sin(gl),gy=cy-r*Math.sin(gf);g.fillStyle='rgba(236,206,170,.7)';g.beginPath();g.ellipse(gx,gy,r*.085*gc,r*.05,0,0,TAU);g.fill();g.fillStyle='rgb(196,112,78)';g.beginPath();g.ellipse(gx,gy,r*.065*gc,r*.036,0,0,TAU);g.fill();ELEMENTS+=2}
+var dg=g.createRadialGradient(cx,cy,r*.55,cx,cy,r);dg.addColorStop(0,'rgba(20,12,10,0)');dg.addColorStop(1,'rgba(20,12,10,.5)');g.fillStyle=dg;g.fillRect(cx-r,cy-r,2*r,2*r);g.restore();shadow(cx,cy,r,.92);g.globalAlpha=1}
+
+/* ---------- the Sun: limb darkening, 1,700 granules, sunspots, corona ---------- */
+var SG=[];for(var i=0;i<1700;i++){var f=Math.asin(R()*2-1);SG.push([Math.cos(f),Math.sin(f),R()*TAU,.006+R()*.012,R()<.6?0:1])}
+var SPOT=[[14,.4,.02],[16,.48,.012],[13,.52,.009],[-11,1.6,.016],[-12,1.68,.01],[-9,2.4,.008]];
+function sunDot(cx,cy,r,a){var gr=g.createRadialGradient(cx,cy,0,cx,cy,24);gr.addColorStop(0,'rgba(255,240,200,'+a+')');gr.addColorStop(.25,'rgba(255,190,90,'+(a*.5)+')');gr.addColorStop(1,'rgba(255,160,60,0)');g.fillStyle=gr;g.fillRect(cx-24,cy-24,48,48);g.fillStyle='rgba(255,246,222,'+a+')';g.beginPath();g.arc(cx,cy,Math.max(r,2.4),0,TAU);g.fill();ELEMENTS+=2}
+function sun(t,cx,cy,r,a){if(a<=0||cy-r*1.5>H||cy+r*1.5<0)return;if(r<3){sunDot(cx,cy,r,a);return}g.globalAlpha=a;
+if(r>20000){g.fillStyle='rgb(250,170,80)';g.beginPath();g.moveTo(-10,H+10);for(var sx=-10;sx<=W+10;sx+=20){var dx=sx-cx;g.lineTo(sx,Math.min(H+10,cy-Math.sqrt(Math.max(0,r*r-dx*dx))))}g.lineTo(W+10,H+10);g.fill();g.globalAlpha=1;ELEMENTS++;return}
+var co=g.createRadialGradient(cx,cy,r*.95,cx,cy,r*1.5);co.addColorStop(0,'rgba(255,170,80,.42)');co.addColorStop(.3,'rgba(255,140,60,.12)');co.addColorStop(1,'rgba(255,120,40,0)');g.fillStyle=co;g.beginPath();g.arc(cx,cy,r*1.5,0,TAU);g.fill();
+var sg=g.createRadialGradient(cx,cy,0,cx,cy,r);sg.addColorStop(0,'rgb(255,250,232)');sg.addColorStop(.55,'rgb(255,222,146)');sg.addColorStop(.86,'rgb(255,172,74)');sg.addColorStop(1,'rgb(232,108,38)');g.fillStyle=sg;g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();ELEMENTS+=2;
+var cols=['rgba(255,246,214,.2)','rgba(196,88,30,.16)'];for(var c=0;c<2;c++){g.fillStyle=cols[c];g.beginPath();for(var i=0;i<SG.length;i++){var p=SG[i];if(p[4]!==c)continue;var lm=p[2]+t*.02,cm=Math.cos(lm);if(cm<.04)continue;var x=cx+r*p[0]*Math.sin(lm),y=cy-r*p[1];if(y<-5||y>H+5)continue;var rd=r*p[3]*(.45+.55*cm);g.moveTo(x+rd,y);g.arc(x,y,rd,0,TAU);ELEMENTS++}g.fill()}
+for(var i=0;i<SPOT.length;i++){var sp=SPOT[i];var f=sp[0]*D2R,lm=sp[1]+t*.02-.9,cm=Math.cos(lm);if(cm<.1)continue;var x=cx+r*Math.cos(f)*Math.sin(lm),y=cy-r*Math.sin(f);g.fillStyle='rgba(150,70,24,.55)';g.beginPath();g.ellipse(x,y,r*sp[2]*1.8*cm,r*sp[2]*1.8,0,0,TAU);g.fill();g.fillStyle='rgba(70,26,10,.85)';g.beginPath();g.ellipse(x,y,r*sp[2]*cm,r*sp[2],0,0,TAU);g.fill();ELEMENTS+=2}g.globalAlpha=1}
+function ghost(t,a){if(a<=0)return;var cx=X(0),cy=Y(SY),rr=DM*S;g.globalAlpha=a;g.setLineDash([12,10]);g.strokeStyle='rgba(18,22,40,.8)';g.lineWidth=3.5;g.beginPath();g.arc(cx,cy,rr,0,TAU);g.stroke();g.setLineDash([]);
+g.fillStyle='rgb(30,80,170)';g.beginPath();g.arc(cx,cy,Math.max(RE*S,3.5),0,TAU);g.fill();var ma=t*.5;g.fillStyle='rgb(40,40,46)';g.beginPath();g.arc(cx+rr*Math.cos(ma),cy+rr*Math.sin(ma),3.5,0,TAU);g.fill();g.globalAlpha=1;ELEMENTS+=3}
+
+/* ---------- Betelgeuse: a red supergiant with giant convection cells ---------- */
+var BC=[];for(var i=0;i<240;i++){var f=Math.asin(R()*2-1);BC.push([Math.cos(f),Math.sin(f),R()*TAU,.07+R()*.16,R()<.5?0:1])}
+var BG=[];for(var i=0;i<1400;i++){var f=Math.asin(R()*2-1);BG.push([Math.cos(f),Math.sin(f),R()*TAU,R()<.5?0:1])}
+function betel(t,cx,cy,r,a){if(a<=0||cy-r*1.6>H||cy+r*1.6<0)return;g.globalAlpha=a;
+if(r>20000){g.fillStyle='rgb(190,64,36)';g.beginPath();g.moveTo(-10,H+10);for(var sx=-10;sx<=W+10;sx+=20){var dx=sx-cx;g.lineTo(sx,Math.min(H+10,cy-Math.sqrt(Math.max(0,r*r-dx*dx))))}g.lineTo(W+10,H+10);g.fill();g.globalAlpha=1;ELEMENTS++;return}
+var ha=g.createRadialGradient(cx,cy,r*.9,cx,cy,r*1.6);ha.addColorStop(0,'rgba(255,96,52,.3)');ha.addColorStop(.35,'rgba(220,70,40,.08)');ha.addColorStop(1,'rgba(200,60,40,0)');g.fillStyle=ha;g.beginPath();g.arc(cx,cy,r*1.6,0,TAU);g.fill();
+var bg=g.createRadialGradient(cx-r*.15,cy-r*.12,0,cx,cy,r);bg.addColorStop(0,'rgb(255,156,92)');bg.addColorStop(.6,'rgb(226,90,48)');bg.addColorStop(1,'rgb(132,34,24)');g.fillStyle=bg;g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();ELEMENTS+=2;
+g.save();g.beginPath();g.arc(cx,cy,r,0,TAU);g.clip();var cols=['rgba(255,190,120,.11)','rgba(110,24,16,.14)'];
+var CC=[[255,196,130,.16],[96,18,12,.2]];for(var i=0;i<BC.length;i++){var p=BC[i];var lm=p[2]+t*.01,cm=Math.cos(lm);if(cm<0)continue;var x=cx+r*p[0]*Math.sin(lm),y=cy-r*p[1],rd=r*p[3]*(.5+.5*cm);if(y+rd<0||y-rd>H)continue;var q=CC[p[4]];var cg=g.createRadialGradient(x,y,0,x,y,rd);cg.addColorStop(0,rgba(q,q[3]));cg.addColorStop(1,rgba(q,0));g.fillStyle=cg;g.fillRect(x-rd,y-rd,rd*2,rd*2);ELEMENTS++}
+var gc=['rgba(255,214,160,.16)','rgba(90,20,12,.16)'];for(var c=0;c<2;c++){g.fillStyle=gc[c];g.beginPath();for(var i=0;i<BG.length;i++){var p=BG[i];if(p[3]!==c)continue;var lm=p[2]+t*.01,cm=Math.cos(lm);if(cm<.05)continue;var x=cx+r*p[0]*Math.sin(lm),y=cy-r*p[1];var rd=Math.max(.7,r*.004*(.4+.6*cm));g.moveTo(x+rd,y);g.arc(x,y,rd,0,TAU);ELEMENTS++}g.fill()}g.restore();g.globalAlpha=1}
+
+/* ---------- the solar neighbourhood: stars at log-spaced distances, streaming past in the warp ---------- */
+var LS=[];for(var i=0;i<1100;i++){var d=Math.pow(10,13.6+R()*6.9),a=R()*TAU;var c=R();LS.push([d*Math.cos(a),d*Math.sin(a),1+R()*1.5,c<.15?1:c<.22?2:0,.4+R()*.6])}
+LS.sort(function(a,b){return a[3]-b[3]});
+function local(L,pc){var la=cl((L+17.4)/.8)*cl((-8.6-L)/.4);if(la<=0)return;var cc=-1;var hx=X(0),hy=Y(0);for(var i=0;i<LS.length;i++){var s=LS[i];var x=X(s[0]),y=Y(s[1]);if(x<-3||x>W+3||y<-3||y>H+3)continue;var dd=Math.hypot(x-hx,y-hy);var a=la*s[4]*cl((dd-10)/40);if(a<.02)continue;if(s[3]!==cc){cc=s[3];g.fillStyle=TSC[cc]}g.globalAlpha=a;var px=540+(s[0]-pc.cx)*pc.s,py=960+(s[1]-pc.cy)*pc.s;if(Math.abs(px-x)+Math.abs(py-y)>3){g.strokeStyle=TSC[cc];g.lineWidth=s[2];g.beginPath();g.moveTo(px,py);g.lineTo(x,y);g.stroke()}else g.fillRect(x-s[2]/2,y-s[2]/2,s[2],s[2]);ELEMENTS++}g.globalAlpha=1}
+
+/* ---------- the Milky Way: a barred spiral of 9,000 stars, rotating slowly ---------- */
+var MW=[],MWD=[];var PITCH=1/Math.tan(19*D2R),A0=-Math.PI/2-Math.log(.52/.12)*PITCH-Math.PI/2;
+function mwPush(arr,x,y,sz,b){var r=Math.sqrt(x*x+y*y);arr.push([r,Math.atan2(y,x),sz,b,1+.8*Math.exp(-r/.12)])}
+function armAt(k,r){return A0+k*Math.PI/2+Math.log(r/.12)*PITCH}
+for(var i=0;i<1900;i++){var bx=gs()*.12,by=gs()*.045,ba=.45;if(i%3==0){bx=gs()*.065;by=gs()*.065}mwPush(MW,bx*Math.cos(ba)-by*Math.sin(ba),bx*Math.sin(ba)+by*Math.cos(ba),1+R()*.8,0)}
+for(var i=0;i<4400;i++){var k=i%4;var major=k%2==0;if(!major&&R()<.3)k=(k+1)%4;var r=.12+.9*Math.pow(R(),major?.85:.7);var th=armAt(k,r)+gs()*.075*(.4+r);r+=gs()*.016;var c=R();mwPush(MW,r*Math.cos(th),r*Math.sin(th),1+R()*1.1,c<.55?1:2)}
+for(var i=0;i<150;i++){var k=i%4;var r=.18+.8*R();var th=armAt(k,r)+gs()*.05;var kx=r*Math.cos(th),ky=r*Math.sin(th),hii=R()<.3;for(var j=0;j<9;j++)mwPush(MW,kx+gs()*.008,ky+gs()*.008,1.2+R()*1.2,hii&&j<3?3:1)}
+for(var i=0;i<1700;i++){var r=Math.min(1.05,-Math.log(R()||.01)*.3);var th=R()*TAU;mwPush(MW,r*Math.cos(th),r*Math.sin(th),.8+R()*.5,4)}
+for(var i=0;i<1100;i++){var k=i%4;var r=.14+.62*R();var th=armAt(k,r)-.09+gs()*.035;r+=gs()*.01;mwPush(MWD,r*Math.cos(th),r*Math.sin(th),1.6+R()*1.6,5)}
+MW.sort(function(a,b){return a[3]-b[3]});
+var MWC=['rgba(255,226,184,.6)','rgba(178,204,255,.82)','rgba(240,242,255,.75)','rgba(255,150,176,.8)','rgba(196,196,220,.26)'];
+function mwRot(r,f,t){return -.035*Math.max(0,t-24.6)*f}
+function sunInGalaxy(t){var f=1+.8*Math.exp(-.52/.12),a=-Math.PI/2+mwRot(.52,f,t);return [RG*.52*Math.cos(a),GY+RG*.52*Math.sin(a)]}
+function milky(t){var rp=RG*S;if(rp<1||rp>3e5)return;var gx=X(0),gy=Y(GY);if(gx+rp<0||gx-rp>W||gy+rp<0||gy-rp>H)return;var ga=cl((Math.log(3e5/rp))/2.3);
+if(rp<12){var bl=g.createRadialGradient(gx,gy,0,gx,gy,Math.max(5,rp*1.6));bl.addColorStop(0,'rgba(255,236,200,'+ga+')');bl.addColorStop(1,'rgba(200,210,255,0)');g.fillStyle=bl;g.beginPath();g.arc(gx,gy,Math.max(5,rp*1.6),0,TAU);g.fill();ELEMENTS++;return}
+if(rp<4e4){var hz=g.createRadialGradient(gx,gy,0,gx,gy,rp*1.05);hz.addColorStop(0,'rgba(255,224,176,'+(.6*ga)+')');hz.addColorStop(.1,'rgba(255,206,160,'+(.26*ga)+')');hz.addColorStop(.4,'rgba(130,150,210,'+(.09*ga)+')');hz.addColorStop(1,'rgba(90,110,180,0)');g.fillStyle=hz;g.beginPath();g.arc(gx,gy,rp*1.05,0,TAU);g.fill();ELEMENTS++}
+var zs=Math.min(2.4,Math.max(1,Math.sqrt(rp/520)*1.5));g.globalCompositeOperation='lighter';g.globalAlpha=ga;var cc=-1;
+for(var i=0;i<MW.length;i++){var p=MW[i];var a=p[1]+mwRot(p[0],p[4],t);var x=gx+Math.cos(a)*p[0]*rp,y=gy+Math.sin(a)*p[0]*rp;if(x<-3||x>W+3||y<-3||y>H+3)continue;if(p[3]!==cc){cc=p[3];g.fillStyle=MWC[cc]}var z=p[2]*zs;g.fillRect(x-z/2,y-z/2,z,z);ELEMENTS++}
+g.globalCompositeOperation='source-over';g.fillStyle='rgba(6,8,16,.4)';g.beginPath();for(var i=0;i<MWD.length;i++){var p=MWD[i];var a=p[1]+mwRot(p[0],p[4],t);var x=gx+Math.cos(a)*p[0]*rp,y=gy+Math.sin(a)*p[0]*rp;if(x<-5||x>W+5||y<-5||y>H+5)continue;var z=p[2]*zs;g.rect(x-z/2,y-z/2,z,z);ELEMENTS++}g.fill();g.globalAlpha=1}
+
+/* ---------- the cosmic web: about 4,500 galaxies on filaments between clusters ---------- */
+var NODES=[[0,0]];for(var i=0;i<46;i++)NODES.push([(R()*2-1)*2.6e24,(R()*2-1)*4.2e24]);
+var FG=[];function fgPush(x,y,lo,hi){var sz=Math.pow(10,lo+R()*(hi-lo));var c=R();FG.push([x,y,sz,c<.35?0:1,R()*Math.PI,.3+R()*.65,R()<.18?2:R()<.5?1:0])}
+for(var i=0;i<NODES.length;i++){var a=NODES[i],near=[];for(var j=0;j<NODES.length;j++)if(j!==i)near.push([Math.hypot(NODES[j][0]-a[0],NODES[j][1]-a[1]),j]);near.sort(function(p,q){return p[0]-q[0]});
+for(var e=0;e<3;e++){var j=near[e][1];if(j<i&&e<2)continue;var b=NODES[j],len=near[e][0];var n=Math.round(len/1.25e22);var nx=-(b[1]-a[1])/len,ny=(b[0]-a[0])/len;for(var m=0;m<n;m++){var f=R();var off=gs()*.016*len*(.6+Math.sin(f*Math.PI));fgPush(lerp(a[0],b[0],f)+nx*off,lerp(a[1],b[1],f)+ny*off,19.9,20.8)}}
+if(i>0){var cn=50+Math.floor(R()*80);for(var m=0;m<cn;m++){var sp=4.5e22*Math.abs(gs());var an=R()*TAU;fgPush(a[0]+Math.cos(an)*sp,a[1]+Math.sin(an)*sp,20,20.9)}}}
+for(var i=0;i<1600;i++){var d=Math.pow(10,22.5+R()*2),an=R()*TAU;fgPush(Math.cos(an)*d,Math.sin(an)*d,19.8,20.8)}
+for(var i=0;i<40;i++)fgPush(gs()*1.6e22,gs()*1.6e22,19,19.7);
+FG.push([2.0e22,-1.35e22,1.1e21,0,.6,.32,2],[2.55e22,-.95e22,3e20,1,1.1,.6,1],[1.0e21,1.15e21,7e19,1,.3,.7,1],[1.45e21,1.35e21,3.5e19,1,.9,.7,0]);
+FG.sort(function(a,b){return (a[3]*3+a[6])-(b[3]*3+b[6])});
+var FGC=['rgb(255,220,176)','rgb(196,212,255)'],FGA=[.45,.7,1];
+function field(t){var gx=X(0),gy=Y(GY);if(S>3e-19)return;var nr=7e22*S;if(nr>3&&nr<700){for(var i=1;i<NODES.length;i++){var x=X(NODES[i][0]),y=Y(GY+NODES[i][1]);if(x<-nr||x>W+nr||y<-nr||y>H+nr)continue;var ng=g.createRadialGradient(x,y,0,x,y,nr);ng.addColorStop(0,'rgba(150,170,230,.09)');ng.addColorStop(1,'rgba(120,140,210,0)');g.fillStyle=ng;g.fillRect(x-nr,y-nr,nr*2,nr*2);ELEMENTS++}}
+g.globalCompositeOperation='lighter';var key=-1;g.beginPath();for(var i=0;i<FG.length;i++){var q=FG[i];var x=X(q[0]),y=Y(GY+q[1]);if(x<-20||x>W+20||y<-20||y>H+20)continue;var k=q[3]*3+q[6];if(k!==key){g.fill();key=k;g.fillStyle=FGC[q[3]];g.globalAlpha=FGA[q[6]];g.beginPath()}
+var px=q[2]*S;if(px<.9){g.rect(x-.7,y-.7,1.4,1.4)}else{g.moveTo(x+px,y);g.ellipse(x,y,px,Math.max(.7,px*q[5]),q[4],0,TAU)}ELEMENTS++}g.fill();
+g.fillStyle='rgba(255,244,226,.8)';g.globalAlpha=1;g.beginPath();for(var i=0;i<FG.length;i++){var q=FG[i];var px=q[2]*S;if(px<2.5)continue;var x=X(q[0]),y=Y(GY+q[1]);if(x<-20||x>W+20||y<-20||y>H+20)continue;var cr=Math.min(px*.25,6);g.moveTo(x+cr,y);g.arc(x,y,cr,0,TAU);ELEMENTS++}g.fill();g.globalCompositeOperation='source-over'}
+
+function marker(x,y,a){if(a<=0)return;g.globalAlpha=a;g.strokeStyle=rgba(AMBER,1);g.lineWidth=3;g.beginPath();g.arc(x,y,16,0,TAU);g.stroke();g.fillStyle=rgba(AMBER,1);g.beginPath();g.arc(x,y,3.6,0,TAU);g.fill();g.globalAlpha=1;ELEMENTS+=2}
+
+/* ---------- captions and labels (DOM), driven by the seek ---------- */
+var CAP=[].slice.call(document.querySelectorAll('[data-in]'));
+function captions(t){CAP.forEach(function(el){var a=+el.dataset.in,b=+el.dataset.out;var o=Math.min(seg(t,a,a+.45),1-seg(t,b-.35,b));el.style.opacity=o.toFixed(3);
+if(el.dataset.a){var p=POS[el.dataset.a];if(!p){el.style.opacity='0';return}var w=el.offsetWidth,h=el.offsetHeight,gap=p[2]+20;var l=el.dataset.side=='l'?p[0]-gap-w:p[0]+gap;l=Math.max(84,Math.min(996-w,l));var tp=Math.max(240,Math.min(1600-h,p[1]-h/2));el.style.left=l.toFixed(1)+'px';el.style.top=tp.toFixed(1)+'px'}
+else el.style.transform='translateY('+((1-eo(seg(t,a,a+.6)))*34).toFixed(1)+'px)'});
+var n=document.getElementById('nM');if(n)n.textContent=Math.round(1300000*eo(seg(t,14.7,16.3))).toLocaleString('en-US')}
+
+var draw=function(t){ELEMENTS=0;g.setTransform(1,0,0,1,0,0);g.globalAlpha=1;g.globalCompositeOperation='source-over';g.setLineDash([]);
+var c=cam(t);S=c.s;CX=c.cx;CY=c.cy;var L=c.L;
+var bg=g.createLinearGradient(0,0,0,H);bg.addColorStop(0,'rgb(4,7,14)');bg.addColorStop(1,'rgb(8,13,26)');g.fillStyle=bg;g.fillRect(0,0,W,H);
+var rE=RE*S,gm=rE>30000,pf=gm?cl((L+1.7)/1.5):0;
+if(gm)sky(Y(0),pf);
+var c0=cam(Math.max(0,t-.05));tunnel(t,-L,c0.L-L,gm?.85:1);
+field(t);milky(t);local(L,c0);
+betel(t,X(0),Y(BY),RB*S,seg(t,18.9,19.7));
+sun(t,X(0),Y(SY),RS*S,seg(t,13.9,14.6));ghost(t,seg(t,17,17.6)*(1-seg(t,19.3,19.8)));
+jupiter(t,X(0),Y(JY),RJ*S,seg(t,7.6,8.4));
+var ma=seg(t,10.5,11.2)*(1-seg(t,14.2,14.8));moon(X(0),Y(MY),RM*S,ma);column(t,1-seg(t,14,14.6));
+if(gm)ground(t);else{earth(t,X(0),Y(EY),rE);if(S>1e-3)ground(t)}
+var hx=X(0),hy=Y(0);if(t>24.6){var sp=sunInGalaxy(t);hx=X(sp[0]);hy=Y(sp[1])}
+marker(hx,hy,cl((4-1.75*S)/2));
+POS={you:[hx,hy,16],earth:[X(0),Y(EY),Math.max(rE,4)],moon:[X(0),Y(MY),Math.max(RM*S,3)],jup:[X(0),Y(JY),RJ*S],sun:[X(0),Y(SY),Math.max(RS*S,8)]};
+captions(t);window.__rfElements=ELEMENTS};
+`;
+
+const CSS = `
+.cap{position:absolute;left:84px;right:84px;opacity:0;color:#F2F4F8;font-family:"Inter Display",Inter,sans-serif;letter-spacing:-.02em;text-align:center}
+.cap.top{top:250px}
+.cap.pan{padding:28px 30px;border-radius:28px;background:rgba(5,8,16,.66);border:2px solid rgba(242,244,248,.1)}
+.cap .k{font-size:34px;font-weight:500;color:#9FB0C8;letter-spacing:0;margin-bottom:18px;font-family:"JetBrains Mono","DejaVu Sans Mono",monospace}
+.cap h2{margin:0;font-size:88px;line-height:1.02;font-weight:600}
+.cap p{margin:0;font-size:54px;line-height:1.18;font-weight:500}
+.cap b{color:#FFB547;font-weight:600}
+.lbl{position:absolute;left:0;top:0;opacity:0;font:500 34px/1 "JetBrains Mono","DejaVu Sans Mono",monospace;color:#F2F4F8;padding:10px 16px;border-radius:10px;background:rgba(5,8,16,.74);border:2px solid rgba(242,244,248,.18);white-space:nowrap}
+.lbl.you{color:#FFB547;border-color:rgba(255,181,71,.45)}
+.lbl.end{font-size:44px;padding:14px 20px}
+.brand{position:absolute;left:0;right:0;top:1500px;text-align:center;opacity:0;font:500 34px/1 "JetBrains Mono","DejaVu Sans Mono",monospace;color:#B9C6D8}
+`;
+
+const HTML = `
+<div class="cap top" data-in="0.3" data-out="2.8"><div class="k">One person, one hill</div><h2>You are here</h2></div>
+<div class="cap top" data-in="2.8" data-out="5"><p>One of about <b>8 billion</b> people,<br>on one planet</p></div>
+<div class="cap top" data-in="5.2" data-out="8.1"><div class="k">Earth</div><p>About <b>12,700 km</b> wide.<br>Everything you have ever known.</p></div>
+<div class="cap top" data-in="8.3" data-out="11"><div class="k">Jupiter</div><h2>About 11 Earths wide</h2></div>
+<div class="cap top" data-in="11.2" data-out="14.1"><div class="k">The Moon, about 384,000 km away</div><p>About <b>30 Earths</b> fit in the gap</p></div>
+<div class="cap top" data-in="14.3" data-out="17"><div class="k">The Sun</div><p>About <b>109 Earths</b> wide. Roughly<br><b id="nM">0</b> Earths fit inside</p></div>
+<div class="cap top" data-in="17" data-out="19.4"><p>Even the Moon's whole orbit<br>would fit inside it</p></div>
+<div class="cap top" data-in="19.6" data-out="22.5"><div class="k">Betelgeuse, a red supergiant</div><p>Hundreds of Suns wide.<br>Now the Sun is a dot.</p></div>
+<div class="cap top" data-in="22.6" data-out="24.6"><p>Now zoom out about<br><b>a billion times</b> more</p></div>
+<div class="cap top pan" data-in="24.8" data-out="27.6"><div class="k">The Milky Way</div><p>The Sun is one of roughly<br><b>100 to 400 billion</b> stars</p></div>
+<div class="cap top pan" data-in="27.7" data-out="30.2"><p>And there are more galaxies<br>than anyone can count</p></div>
+<div class="lbl you" data-a="you" data-in="5.6" data-out="8.1">You are here</div>
+<div class="lbl" data-a="earth" data-side="l" data-in="8.7" data-out="11">Earth</div>
+<div class="lbl" data-a="earth" data-side="l" data-in="11.5" data-out="14.1">Earth</div>
+<div class="lbl" data-a="moon" data-in="11.5" data-out="14.1">Moon</div>
+<div class="lbl" data-a="earth" data-side="l" data-in="14.6" data-out="17">Earth</div>
+<div class="lbl" data-a="jup" data-in="14.6" data-out="17">Jupiter</div>
+<div class="lbl" data-a="sun" data-in="20" data-out="22.5">The Sun</div>
+<div class="lbl you" data-a="you" data-in="25.2" data-out="27.6">You are here</div>
+<div class="lbl you end" data-a="you" data-in="29.6" data-out="32.4">You are here</div>
+<div class="brand" data-in="30.4" data-out="32.4">Rendered with ReelForge</div>
+`;
+
+export const SCALE: FlagshipReel = {
+  slug: 'how-small-is-earth',
+  title: 'How small is Earth, really?',
+  category: 'Science',
+  tags: ['science', 'space', 'explainer', 'scale', 'astronomy'],
+  description:
+    'One unbroken logarithmic zoom-out from a person on a hill to the cosmic web: Earth in 2,500 land dots, Jupiter, the Moon, the Sun, Betelgeuse and a 9,000-star Milky Way.',
+  prompt:
+    'Make a 30-second vertical scale explainer called "How small is Earth, really?" as one continuous zoom-out on a logarithmic camera, so each object grows out of the last: a person on a hill above a city, the whole Earth with dotted continents, Jupiter (about 11 Earths wide), the Moon about 30 Earths away, the Sun (about 109 Earths wide, 1.3 million Earths inside), the red supergiant Betelgeuse, a rotating Milky Way of thousands of stars and finally a web of galaxies. Use well-known rounded figures, deep-space colours with a warm Sun and a blue Earth, and end on "You are here" as a single bright dot.',
+  duration: DUR,
+  music: 'ambient',
+  html: composition(DUR, HTML, CSS, SCRIPT),
+};

@@ -1,0 +1,369 @@
+/**
+ * Flagship reel: "How a watch keeps time with no battery". One HyperFrames
+ * composition, 30 s, drawn on a canvas by a pure function of time (seeked by
+ * the runtime through window.__hfAnime). Acts: the hook (a dial ticking), the
+ * flip to the movement and the bridges lifting off, then the chain one part
+ * at a time (mainspring, gear train, escapement, balance) and the payoff with
+ * everything running together.
+ *
+ * The mechanism is one machine, not a set of loops. A single mechanism clock
+ * tau(t) (the integral of a speed factor: real speed, a labelled 60x
+ * time-lapse for the gear train, an 8x slow motion for the escapement) drives
+ * the balance (4 Hz, 28,800 beats an hour). The balance's impulse pin drags
+ * the pallet fork, the fork releases the escape wheel half a tooth per beat,
+ * and every wheel up the train is derived from the escape wheel through the
+ * real tooth counts, with mesh phases solved so teeth sit in gaps:
+ *   barrel 80 -> centre pinion 12, centre wheel 80 -> third pinion 10,
+ *   third wheel 75 -> fourth pinion 10, fourth wheel 84 -> escape pinion 7,
+ *   escape wheel 20 teeth. So the escape wheel turns 12 times a minute, the
+ *   fourth wheel once a minute, the centre wheel once an hour.
+ * Teeth are involute profiles (20 degree pressure angle) built once into
+ * Path2D objects.
+ *
+ * Facts used (general, well known): a typical modern balance beats 28,800
+ * times an hour (4 Hz, 8 ticks a second), so 691,200 beats a day; a good
+ * movement keeps time within a few seconds a day; a mainspring runs a watch
+ * for about two days.
+ */
+import { composition, type FlagshipReel } from './kit';
+
+const DUR = 30;
+
+const SCRIPT = String.raw`
+var cv=document.getElementById('cv'),g=cv.getContext('2d'),W=1080,H=1920;
+var sd=28800;function R(){sd=(sd+0x6d2b79f5)>>>0;var t=sd;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296}
+function cl(x){return x<0?0:x>1?1:x}
+function seg(t,a,b){return cl((t-a)/(b-a))}
+function eo(x){x=cl(x);return 1-Math.pow(1-x,3)}
+function eio(x){x=cl(x);return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2}
+function lerp(a,b,f){return a+(b-a)*f}
+function rgba(c,a){return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'}
+function mix(c1,c2,f){return [Math.round(lerp(c1[0],c2[0],f)),Math.round(lerp(c1[1],c2[1],f)),Math.round(lerp(c1[2],c2[2],f))]}
+function dir(a){return [Math.cos(a),Math.sin(a)]}
+function ang(a,b){return Math.atan2(b[1]-a[1],b[0]-a[0])}
+function nrm(a){while(a>Math.PI)a-=2*Math.PI;while(a<-Math.PI)a+=2*Math.PI;return a}
+var PI=Math.PI,TAU=2*PI,D2R=PI/180;
+var BG0=[13,19,30],BG1=[6,9,15],NAVY=[18,32,58],BRASS=[200,160,78],BRL=[244,218,150],BRD=[112,82,34],STEEL=[164,175,190],STL=[232,237,244],STD=[70,80,96],RUBY=[196,22,56],RBL=[255,128,150],BLUE=[38,66,140],PLATE=[40,48,62],INKT=[238,240,244];
+var ELEMENTS=0;
+
+/* ---------- mechanism clock: tau(t) is the integral of the speed factor k(t) ---------- */
+var KS=[[0,1],[11.9,1],[12.9,60],[14.4,60],[15.8,1],[16.9,1],[17.7,.125],[25.3,.125],[26.3,1],[30.5,1]];
+function kAt(t){for(var i=0;i<KS.length-1;i++){var a=KS[i],b=KS[i+1];if(t<b[0]||i===KS.length-2){var f=eio(seg(t,a[0],b[0]));return Math.exp(lerp(Math.log(a[1]),Math.log(b[1]),f))}}return 1}
+var DT=.005,TT=[1003.37];for(var i=1;i<=6200;i++)TT.push(TT[i-1]+kAt((i-.5)*DT)*DT);
+function tauAt(t){var x=Math.max(0,t)/DT,i=Math.floor(x);if(i>=TT.length-1)return TT[TT.length-1];return lerp(TT[i],TT[i+1],x-i)}
+
+/* ---------- layout (world units, movement centred on 0,0, plate radius 470) ---------- */
+var PLR=470;
+var MB=4,MC=3.6,MT=3.2,MF=2.6;
+var rB=80*MB/2,rCp=12*MB/2,rC=80*MC/2,rTp=10*MC/2,rT=75*MT/2,rFp=10*MT/2,rF=84*MF/2,rEp=7*MF/2;
+function add(a,d,an){return [a[0]+d*Math.cos(an),a[1]+d*Math.sin(an)]}
+var C=[0,0],B=add(C,rB+rCp,-125*D2R),T=add(C,rC+rTp,15*D2R),F=add(T,rT+rFp,75*D2R),E=add(F,rF+rEp,130*D2R);
+var PHI=170*D2R,RE=62,DP=88,LV=150,P=add(E,DP,PHI),BC=add(P,LV,PHI);
+var RROLL=28,BETA=.75,AMP=4.2,BF=4,HALF=PI/20;
+
+/* mesh phase: pinion angle = -wheel*Nw/Np + c, solved so a wheel tooth meets a pinion gap */
+function meshC(Nw,Np,gm){return (gm*Nw/TAU+(gm+PI)*Np/TAU-.5)*TAU/Np}
+var cFE=meshC(84,7,ang(F,E)),cTF=meshC(75,10,ang(T,F)),cCT=meshC(80,10,ang(C,T)),cBC=meshC(80,12,ang(B,C));
+
+/* ---------- fork and escapement geometry ---------- */
+var A0=ang(BC,P),BASE=ang(P,BC);
+function forkOf(c){var pin=add(BC,RROLL,A0+c);return nrm(ang(P,pin)-BASE)}
+var FKP=forkOf(BETA),FKM=forkOf(-BETA);
+function rot(v,a){var c=Math.cos(a),s=Math.sin(a);return [v[0]*c-v[1]*s,v[0]*s+v[1]*c]}
+function toLocal(w,fa){return rot([w[0]-P[0],w[1]-P[1]],-(BASE+fa))}
+function toWorld(l,fa){var v=rot(l,BASE+fa);return [P[0]+v[0],P[1]+v[1]]}
+var LD=7,EPS=.5*D2R,aEP=ang(E,P),best=null;
+[1,-1].forEach(function(s){var psB=aEP+31.5*D2R*s,psA=aEP-31.5*D2R*s;
+ var Aw=add(E,RE-LD,psA),Bw=add(E,RE-LD,psB),Al=toLocal(Aw,FKP),Bl=toLocal(Bw,FKM);
+ var ra=Math.hypot(toWorld(Al,FKM)[0]-E[0],toWorld(Al,FKM)[1]-E[1]),rb=Math.hypot(toWorld(Bl,FKP)[0]-E[0],toWorld(Bl,FKP)[1]-E[1]);
+ var m=Math.min(ra,rb);if(!best||m>best.m)best={m:m,psA:psA,psB:psB,Al:Al,Bl:Bl}});
+var TH0=best.psB-EPS;
+function stoneLocal(psi,fa,corner){var o=rot(dir(psi),-(BASE+fa)),h=rot(dir(psi+PI/2),-(BASE+fa));return {c:corner,o:o,h:h}}
+var STA=stoneLocal(best.psA,FKP,best.Al),STB=stoneLocal(best.psB,FKM,best.Bl);
+
+/* escapement state at mechanism time tau: balance angle, fork angle, escape arbor angle */
+function esc(tau){var ph=TAU*BF*tau,thb=AMP*Math.sin(ph),k=Math.round(ph/PI),c=Math.max(-BETA,Math.min(BETA,thb));var fk=forkOf(c);
+ var even=(k%2+2)%2===0,f0=even?FKM:FKP,f1=even?FKP:FKM,p=cl((fk-f0)/(f1-f0));var q=eio(cl((p-.12)/.8));
+ return {thb:thb,fork:fk,thE:HALF*(k+q),k:k,ph:ph}}
+function train(thE){var tF=-(thE-cFE)*7/84,tT=-(tF-cTF)*10/75,tC=-(tT-cCT)*10/80,tB=-(tC-cBC)*12/80;return {E:thE,F:tF,T:tT,C:tC,B:tB}}
+
+/* ---------- geometry built once ---------- */
+function gearOutline(p,N,r,ad,de){var pa=20*D2R,rb=r*Math.cos(pa),ra=r+ad,rr=r-de,half=PI/(2*N),ip=Math.tan(pa)-pa,pr=TAU/N,S=5;
+ function psi(rho){if(rho<=rb)return half+ip;var a=Math.acos(rb/rho);return Math.max(half*.16,half+ip-(Math.tan(a)-a))}
+ var p0=psi(rr);
+ for(var i=0;i<N;i++){var c=i*pr,g0=c-pr/2;if(i===0)p.moveTo(rr*Math.cos(g0),rr*Math.sin(g0));
+  p.arc(0,0,rr,g0,c-p0);for(var j=1;j<=S;j++){var rho=lerp(rr,ra,j/S),a=c-psi(rho);p.lineTo(rho*Math.cos(a),rho*Math.sin(a))}
+  p.arc(0,0,ra,c-psi(ra),c+psi(ra));for(var j=S;j>=0;j--){var rho=lerp(rr,ra,j/S),a=c+psi(rho);p.lineTo(rho*Math.cos(a),rho*Math.sin(a))}
+  p.arc(0,0,rr,c+p0,c+pr/2)}
+ p.closePath()}
+function crossings(p,n,ri,rh,w,r0){for(var k=0;k<n;k++){var a0=r0+k*TAU/n,a1=a0+TAU/n,o1=w/2/ri,o2=w/2/rh;p.moveTo(ri*Math.cos(a0+o1),ri*Math.sin(a0+o1));p.arc(0,0,ri,a0+o1,a1-o1);p.arc(0,0,rh,a1-o2,a0+o2,true);p.closePath()}}
+function wheelPath(N,m,cross,rimw,hub,arm){var r=N*m/2,p=new Path2D();gearOutline(p,N,r,m,1.25*m);if(cross)crossings(p,cross,r-1.25*m-rimw,hub,arm,.4);return p}
+function pinionPath(N,m){var r=N*m/2,p=new Path2D();gearOutline(p,N,r,.9*m,1.3*m);return p}
+var PB=new Path2D();gearOutline(PB,80,rB,MB,1.25*MB);PB.moveTo(rB-18,0);PB.arc(0,0,rB-18,0,TAU);
+var PC=wheelPath(80,MC,4,10,30,15),PT=wheelPath(75,MT,5,9,24,11),PF=wheelPath(84,MF,4,8,20,9);
+var PCp=pinionPath(12,MB),PTp=pinionPath(10,MC),PFp=pinionPath(10,MT),PEp=pinionPath(7,MF);
+var PE=(function(){var p=new Path2D(),pr=TAU/20,prof=[[-9,.70],[-6.2,.80],[-4.6,.90],[-3.6,.975],[0,1],[.5,.95],[1.2,.84],[2,.70]];
+ for(var i=0;i<20;i++){var c=i*pr;for(var j=0;j<prof.length;j++){var a=c+prof[j][0]*D2R,rr=RE*prof[j][1];(i===0&&j===0)?p.moveTo(rr*Math.cos(a),rr*Math.sin(a)):p.lineTo(rr*Math.cos(a),rr*Math.sin(a))}p.arc(0,0,RE*.7,c+2*D2R,c+pr-9*D2R)}
+ p.closePath();crossings(p,4,RE*.6,RE*.2,6,.3);return p})();
+var PBAL=(function(){var p=new Path2D();p.arc(0,0,100,0,TAU);crossings(p,3,91,15,10,0);return p})();
+/* the fork, in its own frame: x points from the pivot to the balance */
+var PFORK=(function(){var p=new Path2D(),sx=LV-RROLL;p.moveTo(0,-7);p.lineTo(sx-18,-4.5);p.lineTo(sx-18,-12);p.lineTo(sx+12,-12);p.lineTo(sx+12,-5);p.lineTo(sx-6,-5);p.lineTo(sx-6,5);p.lineTo(sx+12,5);p.lineTo(sx+12,12);p.lineTo(sx-18,12);p.lineTo(sx-18,4.5);p.lineTo(0,7);p.closePath();
+ p.moveTo(14,0);p.arc(0,0,14,0,TAU);return p})();
+var SL=24,SW=9;
+function stoneEnd(s,f){return [s.c[0]+s.o[0]*f*SL+s.h[0]*SW/2,s.c[1]+s.o[1]*f*SL+s.h[1]*SW/2]}
+/* the anchor: a curved bar from one pallet stone, past the pivot, to the other */
+var PANCH=(function(){var p=new Path2D(),a=stoneEnd(STA,.75),b=stoneEnd(STB,.75);p.moveTo(a[0],a[1]);p.quadraticCurveTo(0,0,b[0],b[1]);return p})();
+
+/* perlage sprite, drawn once */
+var SP=document.createElement('canvas');SP.width=SP.height=96;(function(){var s=SP.getContext('2d');var gr=s.createRadialGradient(40,38,4,48,48,48);gr.addColorStop(0,'rgb(88,100,120)');gr.addColorStop(.75,'rgb(58,68,86)');gr.addColorStop(1,'rgb(42,50,66)');s.fillStyle=gr;s.beginPath();s.arc(48,48,47,0,TAU);s.fill();
+ for(var r=6;r<46;r+=3.2){s.strokeStyle='rgba(255,255,255,'+(.05+.04*Math.sin(r))+')';s.lineWidth=1.2;s.beginPath();s.arc(48,48,r,-2.6,-.4);s.stroke();s.strokeStyle='rgba(0,0,0,.08)';s.beginPath();s.arc(48,48,r,.5,2.6);s.stroke()}
+ s.strokeStyle='rgba(10,14,22,.32)';s.lineWidth=1.6;s.beginPath();s.arc(48,48,46,0,TAU);s.stroke()})();
+var PERL=[];(function(){var sp=17,j=0;for(var y=-PLR;y<=PLR;y+=sp*.866){var off=(j++%2)*sp/2;for(var x=-PLR+off;x<=PLR;x+=sp){if(Math.hypot(x,y)<PLR-10)PERL.push([x,y])}}})();
+
+/* bridges (removed in the reveal): unions of capsules, with Geneva stripes */
+function capsule(p,a,b,r){var an=ang(a,b);p.moveTo(a[0]+r*Math.cos(an+PI/2),a[1]+r*Math.sin(an+PI/2));p.arc(a[0],a[1],r,an+PI/2,an+3*PI/2);p.arc(b[0],b[1],r,an-PI/2,an+PI/2);p.closePath()}
+function disc(p,a,r){p.moveTo(a[0]+r,a[1]);p.arc(a[0],a[1],r,0,TAU)}
+var BRS=[];
+(function(){var p=new Path2D();disc(p,B,128);capsule(p,B,add(B,220,205*D2R),70);capsule(p,B,add(B,190,-70*D2R),56);BRS.push({p:p,c:B,j:[B],s:[add(B,96,150*D2R),add(B,96,-20*D2R),add(B,175,-72*D2R)],r:260});
+ p=new Path2D();disc(p,C,50);capsule(p,C,T,32);capsule(p,T,F,40);capsule(p,F,E,34);capsule(p,T,add(T,260,-35*D2R),46);capsule(p,F,add(F,250,30*D2R),46);BRS.push({p:p,c:[150,120],j:[C,T,F,E],s:[add(T,150,-35*D2R),add(F,150,30*D2R),add(C,30,-120*D2R)],r:330});
+ p=new Path2D();capsule(p,P,add(P,110,95*D2R),24);BRS.push({p:p,c:P,j:[P],s:[add(P,90,95*D2R)],r:130});
+ p=new Path2D();disc(p,BC,44);capsule(p,BC,add(BC,300,250*D2R),40);capsule(p,add(BC,170,250*D2R),add(BC,300,250*D2R),62);BRS.push({p:p,c:BC,j:[BC],s:[add(BC,250,250*D2R)],r:330})})();
+var SCREWA=[];for(var i=0;i<12;i++)SCREWA.push(R()*PI);
+
+/* ---------- camera ---------- */
+var AX=540,AY=1100;
+var EPm=[(E[0]+P[0])/2+6,(E[1]+P[1])/2+4];
+var CAM=[[0,0,0,.8],[4.4,0,0,.86],[5.6,0,0,.86],[7.4,0,0,.98],[8.8,B[0]+8,B[1]+16,2.05],[11.5,B[0]+14,B[1]+24,2.15],[12.7,C[0]+40,C[1]-10,1.7],[13.9,T[0]+10,T[1]+20,1.75],[15.1,F[0]-12,F[1]+10,1.95],[16.7,EPm[0],EPm[1],3.0],[21.0,EPm[0]+8,EPm[1]+4,3.15],[22.5,BC[0]+14,BC[1]-6,2.3],[25.3,BC[0]+12,BC[1]-2,2.45],[27.0,0,-64,.8],[30.5,0,-64,.85]];
+var cx=0,cy=0,cz=1,vx0,vx1,vy0,vy1;
+function camAt(t){for(var i=0;i<CAM.length-1;i++){var a=CAM[i],b=CAM[i+1];if(t<b[0]||i===CAM.length-2){var f=eio(seg(t,a[0],b[0]));cx=lerp(a[1],b[1],f);cy=lerp(a[2],b[2],f);cz=Math.exp(lerp(Math.log(a[3]),Math.log(b[3]),f));break}}
+ vx0=cx-AX/cz;vx1=cx+(W-AX)/cz;vy0=cy-AY/cz;vy1=cy+(H-AY)/cz}
+function vis(p,r){return p[0]+r>vx0&&p[0]-r<vx1&&p[1]+r>vy0&&p[1]-r<vy1}
+function scr(p){return [AX+(p[0]-cx)*cz,AY+(p[1]-cy)*cz]}
+function setCam(sx){g.setTransform(cz*sx,0,0,cz,AX-cx*cz*sx,AY-cy*cz)}
+
+/* ---------- drawing helpers (world units) ---------- */
+function metal(kind,x,y,r){var gr=g.createLinearGradient(x-r,y-r,x+r,y+r);if(kind==='b'){gr.addColorStop(0,rgba(BRL,1));gr.addColorStop(.45,rgba(BRASS,1));gr.addColorStop(1,rgba(BRD,1))}else if(kind==='s'){gr.addColorStop(0,rgba(STL,1));gr.addColorStop(.5,rgba(STEEL,1));gr.addColorStop(1,rgba(STD,1))}else{gr.addColorStop(0,'rgb(206,212,222)');gr.addColorStop(1,'rgb(128,138,154)')}return gr}
+function part(path,x,y,a,kind,r,teeth,ghosts,alpha){if(!vis([x,y],r+8))return;var n=ghosts?ghosts.length:1;
+ g.save();g.globalAlpha=alpha==null?1:alpha;g.translate(x+4,y+7);g.rotate(n>1?ghosts[0]:a);g.fillStyle='rgba(0,0,0,.38)';g.fill(path,'evenodd');g.restore();
+ var edge=kind==='b'?rgba(BRD,.9):rgba(STD,.9);
+ for(var i=0;i<n;i++){g.save();g.globalAlpha=(alpha==null?1:alpha)*(n>1?Math.min(1,2.2/n):1);g.translate(x,y);g.rotate(n>1?ghosts[i]:a);
+  g.fillStyle=fillLocal(kind,r,n>1?ghosts[i]:a);g.fill(path,'evenodd');if(n===1){g.lineWidth=1.1/cz;g.strokeStyle=edge;g.stroke(path)}g.restore()}
+ ELEMENTS+=teeth}
+/* light comes from the top left in world space, so a rotating part's gradient is counter-rotated */
+function fillLocal(kind,r,a){var d=rot([-r,-r],-a),gr=g.createLinearGradient(d[0],d[1],-d[0],-d[1]);if(kind==='b'){gr.addColorStop(0,rgba(BRL,1));gr.addColorStop(.5,rgba(BRASS,1));gr.addColorStop(1,rgba(BRD,1))}else{gr.addColorStop(0,rgba(STL,1));gr.addColorStop(.55,rgba(STEEL,1));gr.addColorStop(1,rgba(STD,1))}return gr}
+function jewel(p,r){if(!vis(p,r*2))return;var x=p[0],y=p[1];g.fillStyle=metal('b',x,y,r*1.7);g.beginPath();g.arc(x,y,r*1.65,0,TAU);g.fill();
+ var gr=g.createRadialGradient(x-r*.35,y-r*.4,r*.1,x,y,r);gr.addColorStop(0,rgba(RBL,1));gr.addColorStop(.45,rgba(RUBY,1));gr.addColorStop(1,'rgb(90,6,24)');g.fillStyle=gr;g.beginPath();g.arc(x,y,r,0,TAU);g.fill();
+ g.fillStyle='rgba(30,4,12,.9)';g.beginPath();g.arc(x,y,r*.28,0,TAU);g.fill();ELEMENTS+=3}
+function screw(p,r,a){if(!vis(p,r*2))return;var x=p[0],y=p[1];var gr=g.createLinearGradient(x-r,y-r,x+r,y+r);gr.addColorStop(0,'rgb(96,132,214)');gr.addColorStop(.5,rgba(BLUE,1));gr.addColorStop(1,'rgb(14,24,58)');g.fillStyle=gr;g.beginPath();g.arc(x,y,r,0,TAU);g.fill();
+ g.strokeStyle='rgba(6,10,24,.95)';g.lineWidth=r*.28;g.beginPath();g.moveTo(x-r*Math.cos(a)*.85,y-r*Math.sin(a)*.85);g.lineTo(x+r*Math.cos(a)*.85,y+r*Math.sin(a)*.85);g.stroke();ELEMENTS+=2}
+
+/* ---------- the movement ---------- */
+function plate(){g.save();g.fillStyle='rgba(0,0,0,.5)';g.beginPath();g.arc(6,10,PLR+4,0,TAU);g.fill();g.fillStyle=rgba(PLATE,1);g.beginPath();g.arc(0,0,PLR,0,TAU);g.fill();g.clip();
+ var s=13.5;for(var i=0;i<PERL.length;i++){var q=PERL[i];if(q[0]+s<vx0||q[0]-s>vx1||q[1]+s<vy0||q[1]-s>vy1)continue;g.drawImage(SP,q[0]-s,q[1]-s,2*s,2*s);ELEMENTS++}
+ g.restore();g.strokeStyle='rgba(220,228,238,.35)';g.lineWidth=3;g.beginPath();g.arc(0,0,PLR-1.5,0,TAU);g.stroke();
+ /* sinks and recesses under the wheels */
+ [[B,rB+12],[C,rC+10],[T,rT+9],[F,rF+8],[E,RE+10],[BC,118]].forEach(function(o){if(!vis(o[0],o[1]))return;g.fillStyle='rgba(8,11,18,.42)';g.beginPath();g.arc(o[0][0],o[0][1],o[1],0,TAU);g.fill();g.strokeStyle='rgba(200,210,224,.16)';g.lineWidth=1.5/cz;g.stroke();ELEMENTS++})}
+
+function spring(tw,thB){/* tw: arbor wind angle; thB: barrel angle. outer end rides the drum, inner end the arbor */
+ var D=-1,rin=27,rout=rB-21;var N=D*(thB+SPC-tw)/TAU;var gm=lerp(.5,2.3,cl((N-7)/5));var a0=tw;
+ var seg2=Math.max(60,Math.round(N*64));g.save();g.translate(B[0],B[1]);
+ var pts=[];for(var i=0;i<=seg2;i++){var s=i/seg2;var r=rin+(rout-rin)*Math.pow(s,gm);var a=a0+D*TAU*N*s;pts.push([r*Math.cos(a),r*Math.sin(a)])}
+ g.lineJoin='round';g.lineCap='round';g.strokeStyle='rgba(6,9,14,.9)';g.lineWidth=5.6;g.beginPath();for(var i=0;i<pts.length;i++){i?g.lineTo(pts[i][0]+1.2,pts[i][1]+1.8):g.moveTo(pts[i][0]+1.2,pts[i][1]+1.8)}g.stroke();
+ g.strokeStyle=rgba(STEEL,1);g.lineWidth=3.6;g.beginPath();for(var i=0;i<pts.length;i++){i?g.lineTo(pts[i][0],pts[i][1]):g.moveTo(pts[i][0],pts[i][1])}g.stroke();
+ g.strokeStyle='rgba(250,252,255,.75)';g.lineWidth=1.1;g.beginPath();for(var i=0;i<pts.length;i++){i?g.lineTo(pts[i][0]-.7,pts[i][1]-.9):g.moveTo(pts[i][0]-.7,pts[i][1]-.9)}g.stroke();
+ /* arbor with its hook */g.rotate(tw);g.fillStyle=fillLocal('s',26,tw);g.beginPath();g.arc(0,0,25,0,TAU);g.fill();g.fillStyle='rgba(20,26,36,.7)';g.fillRect(-9,-9,18,18);g.fillStyle=rgba(STL,1);g.beginPath();g.moveTo(22,-4);g.lineTo(31,0);g.lineTo(22,6);g.fill();
+ g.restore();ELEMENTS+=Math.ceil(N)+3}
+var SPC=0;
+
+function hairspring(thb){var x=BC[0],y=BC[1],n=13,rin=13,rout=70,S=n*40;g.save();g.translate(x,y);g.strokeStyle='rgba(150,180,236,.95)';g.lineWidth=1.5;g.beginPath();
+ for(var i=0;i<=S;i++){var s=i/S;var r=(rin+(rout-rin)*s)*(1+.07*(thb/AMP)*Math.sin(PI*s));var a=A0+PI+TAU*n*s+thb*(1-s);i?g.lineTo(r*Math.cos(a),r*Math.sin(a)):g.moveTo(r*Math.cos(a),r*Math.sin(a))}g.stroke();
+ /* stud and collet */g.fillStyle=rgba(STL,1);var sa=A0+PI;g.beginPath();g.arc(rout*Math.cos(sa),rout*Math.sin(sa),5,0,TAU);g.fill();g.beginPath();g.arc(0,0,11,0,TAU);g.fill();g.restore();ELEMENTS+=n+2}
+
+function balance(thb,alpha){var x=BC[0],y=BC[1];if(!vis(BC,120))return;g.save();g.globalAlpha=alpha;
+ g.save();g.translate(x+5,y+9);g.rotate(thb);g.fillStyle='rgba(0,0,0,.4)';g.fill(PBAL,'evenodd');g.restore();
+ g.save();g.translate(x,y);g.rotate(thb);g.fillStyle=fillLocal('b',100,thb);g.fill(PBAL,'evenodd');g.lineWidth=1.1/cz;g.strokeStyle=rgba(BRD,.9);g.stroke(PBAL);
+ /* inner bevel of the rim */g.strokeStyle='rgba(255,236,190,.35)';g.lineWidth=1.4;g.beginPath();g.arc(0,0,98,0,TAU);g.stroke();
+ for(var i=0;i<16;i++){var a=i/16*TAU+.1;var sx=104*Math.cos(a),sy=104*Math.sin(a);g.fillStyle=fillLocal('b',6,thb+a);g.beginPath();g.arc(sx,sy,6,0,TAU);g.fill();g.strokeStyle='rgba(90,60,20,.9)';g.lineWidth=1.4;g.beginPath();g.moveTo(sx-4*Math.cos(a+PI/2),sy-4*Math.sin(a+PI/2));g.lineTo(sx+4*Math.cos(a+PI/2),sy+4*Math.sin(a+PI/2));g.stroke();ELEMENTS+=2}
+ g.restore();g.restore();ELEMENTS+=4}
+function roller(thb,alpha){var x=BC[0],y=BC[1];g.save();g.globalAlpha=alpha;g.translate(x,y);g.rotate(A0+thb);g.fillStyle=fillLocal('s',32,A0+thb);g.beginPath();g.arc(0,0,33,0,TAU);g.fill();g.strokeStyle=rgba(STD,1);g.lineWidth=1;g.stroke();
+ g.fillStyle='rgba(10,14,22,.6)';g.beginPath();g.arc(RROLL,0,9,-PI/2,PI/2);g.fill();
+ var gr=g.createRadialGradient(RROLL-1.5,-1.5,.5,RROLL,0,5);gr.addColorStop(0,rgba(RBL,1));gr.addColorStop(1,rgba(RUBY,1));g.fillStyle=gr;g.beginPath();g.arc(RROLL,0,4.6,0,TAU);g.fill();g.restore();ELEMENTS+=2}
+function fork(fa,alpha){g.save();g.globalAlpha=alpha;g.lineCap='round';g.lineJoin='round';g.translate(P[0]+4,P[1]+7);g.rotate(BASE+fa);g.fillStyle='rgba(0,0,0,.4)';g.fill(PFORK,'nonzero');g.strokeStyle='rgba(0,0,0,.4)';g.lineWidth=15;g.stroke(PANCH);g.restore();
+ g.save();g.globalAlpha=alpha;g.lineCap='round';g.lineJoin='round';g.translate(P[0],P[1]);g.rotate(BASE+fa);var fs=fillLocal('s',60,BASE+fa);g.strokeStyle=rgba(STD,1);g.lineWidth=15;g.stroke(PANCH);g.strokeStyle=fs;g.lineWidth=12.6;g.stroke(PANCH);g.fillStyle=fs;g.fill(PFORK,'nonzero');g.lineWidth=1/cz;g.strokeStyle=rgba(STD,1);g.stroke(PFORK);
+ [STA,STB].forEach(function(s){var c=s.c,o=s.o,h=s.h,L=SL,Wd=SW;g.beginPath();g.moveTo(c[0],c[1]);g.lineTo(c[0]+h[0]*Wd,c[1]+h[1]*Wd);g.lineTo(c[0]+h[0]*Wd+o[0]*L,c[1]+h[1]*Wd+o[1]*L);g.lineTo(c[0]+o[0]*L,c[1]+o[1]*L);g.closePath();
+  var gr=g.createLinearGradient(c[0],c[1],c[0]+h[0]*Wd,c[1]+h[1]*Wd);gr.addColorStop(0,rgba(RBL,1));gr.addColorStop(.5,rgba(RUBY,1));gr.addColorStop(1,'rgb(110,8,30)');g.fillStyle=gr;g.fill();g.strokeStyle='rgba(60,0,14,.8)';g.lineWidth=.8;g.stroke();ELEMENTS++});
+ g.restore();ELEMENTS+=3}
+
+function bridges(lift,tau){if(lift>=1)return;for(var i=0;i<BRS.length;i++){var b=BRS[i];var l=eio(cl(lift*1.25-i*.08));if(l>=1)continue;var d=dir(ang([0,0],b.c));var ox=d[0]*l*260,oy=d[1]*l*260-l*140,sc=1+l*.25;
+ g.save();g.globalAlpha=1-l;g.translate(b.c[0]+ox,b.c[1]+oy);g.scale(sc,sc);g.translate(-b.c[0],-b.c[1]);
+ g.save();g.translate(6+l*40,10+l*60);g.fillStyle='rgba(0,0,0,'+(.45*(1-l))+')';g.fill(b.p);g.restore();
+ g.save();g.clip(b.p);g.fillStyle='rgb(150,160,176)';g.fillRect(b.c[0]-b.r,b.c[1]-b.r,2*b.r,2*b.r);g.translate(b.c[0],b.c[1]);g.rotate(-.55);
+ var gr=g.createLinearGradient(0,0,28,0);gr.addColorStop(0,'rgb(118,128,146)');gr.addColorStop(.5,'rgb(222,228,236)');gr.addColorStop(1,'rgb(118,128,146)');g.fillStyle=gr;
+ for(var s=-b.r;s<b.r;s+=28){g.save();g.translate(s,0);g.fillRect(0,-b.r*1.5,28,b.r*3);g.restore();ELEMENTS++}g.restore();
+ g.lineWidth=3;g.strokeStyle='rgba(240,244,250,.8)';g.stroke(b.p);
+ for(var j=0;j<b.j.length;j++)jewel(b.j[j],8);for(var j=0;j<b.s.length;j++)screw(b.s[j],11,SCREWA[(i*3+j)%12]);
+ g.restore()}}
+
+function caseRing(a){if(a<=0)return;g.save();g.globalAlpha=a;g.fillStyle=metal('s',0,0,520);g.beginPath();g.arc(0,0,505,0,TAU);g.arc(0,0,PLR+2,0,TAU,true);g.fill();
+ g.strokeStyle='rgba(255,255,255,.5)';g.lineWidth=2;g.beginPath();g.arc(0,0,503,0,TAU);g.stroke();g.strokeStyle='rgba(20,26,36,.8)';g.beginPath();g.arc(0,0,PLR+3,0,TAU);g.stroke();
+ for(var i=0;i<6;i++){var an=i/6*TAU+PI/6;screw([488*Math.cos(an),488*Math.sin(an)],9,SCREWA[i])}
+ /* crystal sheen */g.save();g.beginPath();g.arc(0,0,PLR,0,TAU);g.clip();g.fillStyle='rgba(220,232,255,.06)';g.beginPath();g.moveTo(-520,-200);g.lineTo(-120,-520);g.lineTo(60,-520);g.lineTo(-520,60);g.fill();g.restore();
+ g.restore();ELEMENTS+=4}
+
+/* focus: how solid each group is (barrel, centre, third, fourth, escapement, balance); the rest turn to glass */
+var FW=[[7.6,1,1,1,1,1,1],[8.6,1,.55,.28,.28,.28,.28],[11.4,1,.55,.28,.28,.28,.28],[12.4,1,1,1,1,.55,.45],[16.0,1,1,1,1,.55,.45],[17.0,.25,.25,.25,.4,1,.55],[21.2,.25,.25,.25,.4,1,.55],[22.2,.25,.25,.25,.25,.55,1],[25.4,.25,.25,.25,.25,.55,1],[26.6,1,1,1,1,1,1]];
+function fw(t){if(t<=FW[0][0])return FW[0].slice(1);for(var i=0;i<FW.length-1;i++){var a=FW[i],b=FW[i+1];if(t<b[0]){var f=eio(seg(t,a[0],b[0]));return a.slice(1).map(function(v,j){return lerp(v,b[j+1],f)})}}return FW[FW.length-1].slice(1)}
+function movement(t,tau,o){var w=fw(t);/* o: {lift, caseA, focus:[x,y,r,amt], kRate} */
+ plate();
+ var K=kAt(t),sh=K/60,st=esc(tau),tr=train(st.thE);
+ /* motion blur: when a part turns a lot during the shutter, draw it at several sub-frame times */
+ var M=K>2.5?7:1,gh=null;if(M>1){gh=[];for(var i=0;i<M;i++)gh.push(esc(tau-sh*i/(M-1)))}
+ function ghosts(fn){if(!gh)return null;return gh.map(function(s){return fn(train(s.thE))})}
+ /* barrel and spring */
+ if(vis(B,rB+10)){part(PB,B[0],B[1],tr.B,'b',rB,80,null,w[0]);g.save();g.globalAlpha=w[0];g.fillStyle='rgba(10,14,22,.9)';g.beginPath();g.arc(B[0],B[1],rB-19,0,TAU);g.fill();
+  g.strokeStyle='rgba(200,170,110,.13)';g.lineWidth=1;for(var r=36;r<rB-22;r+=7){g.beginPath();g.arc(B[0],B[1],r,0,TAU);g.stroke()}
+  spring(o.wind,tr.B);g.restore()}
+ part(PC,C[0],C[1],tr.C,'b',rC,80,ghosts(function(x){return x.C}),w[1]);
+ part(PT,T[0],T[1],tr.T,'b',rT,75,ghosts(function(x){return x.T}),w[2]);
+ part(PCp,C[0],C[1],tr.C,'s',rCp,12,null,w[1]);
+ part(PF,F[0],F[1],tr.F,'b',rF,84,ghosts(function(x){return x.F}),w[3]);
+ part(PTp,T[0],T[1],tr.T,'s',rTp,10,null,w[2]);
+ part(PFp,F[0],F[1],tr.F,'s',rFp,10,ghosts(function(x){return x.F}),w[3]);
+ part(PEp,E[0],E[1],tr.E,'s',rEp,7,ghosts(function(x){return x.E}),w[4]);
+ part(PE,E[0],E[1],tr.E+TH0,'s',RE,20,gh?gh.map(function(s){return s.thE+TH0}):null,w[4]);
+ /* balance, hairspring, roller and fork */
+ if(vis(BC,130)||vis(P,60)){var bs=gh||[st];for(var i=0;i<bs.length;i++){var a=bs.length>1?Math.min(1,2.2/bs.length):1;balance(bs[i].thb,a*w[5])}
+  g.save();g.globalAlpha=w[5];hairspring(st.thb);g.restore();for(var i=0;i<bs.length;i++){var a=bs.length>1?Math.min(1,2.2/bs.length):1;roller(bs[i].thb,a*w[5]);fork(bs[i].fork,a*Math.max(w[4],w[5]))}}
+ [B,C,T,F,E,P,BC].forEach(function(p,i){g.globalAlpha=[w[0],w[1],w[2],w[3],w[4],Math.max(w[4],w[5]),w[5]][i];jewel(p,i===0?13:i<4?10:8)});g.globalAlpha=1;
+ bridges(o.lift,tau);caseRing(o.caseA);
+ return st}
+
+/* ---------- the dial side (hook) ---------- */
+var SEC0=10*3600+9*60+31;
+function strap(back){g.fillStyle=back?'rgb(24,30,40)':'rgb(16,26,44)';[[-1],[1]].forEach(function(s){var y0=s[0]*420,y1=s[0]*2400;g.beginPath();g.moveTo(-188,y0);g.lineTo(-180,y1);g.lineTo(180,y1);g.lineTo(188,y0);g.fill();
+ g.fillStyle='rgba(255,255,255,.04)';g.fillRect(-188,Math.min(y0,y1),18,Math.abs(y1-y0));g.fillStyle=back?'rgb(24,30,40)':'rgb(16,26,44)';
+ g.strokeStyle='rgba(190,170,130,.55)';g.lineWidth=3;for(var k=0;k<44;k++){var yy=y0+s[0]*(70+k*34);if(Math.abs(yy)*cz>1500/cz*cz+200)continue;g.beginPath();g.moveTo(-160,yy);g.lineTo(-160,yy+s[0]*18);g.moveTo(160,yy);g.lineTo(160,yy+s[0]*18);g.stroke();ELEMENTS+=2}})}
+function lugs(){g.fillStyle=metal('s',0,0,560);[[1,1],[1,-1],[-1,1],[-1,-1]].forEach(function(q){g.beginPath();g.moveTo(q[0]*150,q[1]*440);g.lineTo(q[0]*200,q[1]*600);g.lineTo(q[0]*240,q[1]*596);g.lineTo(q[0]*300,q[1]*400);g.closePath();g.fill();ELEMENTS++})}
+function dial(tau,st,t){
+ strap(false);lugs();
+ /* crown */g.fillStyle=metal('s',530,0,40);g.fillRect(498,-48,62,96);g.strokeStyle='rgba(30,38,52,.7)';g.lineWidth=2.4;for(var i=0;i<16;i++){g.beginPath();g.moveTo(504+i*3.6,-46);g.lineTo(504+i*3.6,46);g.stroke();ELEMENTS++}
+ /* case and coin-edge bezel */g.fillStyle='rgba(0,0,0,.5)';g.beginPath();g.arc(8,14,510,0,TAU);g.fill();
+ g.fillStyle=metal('s',0,0,520);g.beginPath();g.arc(0,0,505,0,TAU);g.fill();
+ for(var i=0;i<180;i++){var a=i/180*TAU;var lt=.5+.5*Math.cos(a+2.3);g.strokeStyle=i%2?'rgba(20,28,40,'+(.25+.3*(1-lt))+')':'rgba(255,255,255,'+(.12+.35*lt)+')';g.lineWidth=3;g.beginPath();g.moveTo(474*Math.cos(a),474*Math.sin(a));g.lineTo(500*Math.cos(a),500*Math.sin(a));g.stroke();ELEMENTS++}
+ g.fillStyle=metal('s',0,0,470);g.beginPath();g.arc(0,0,472,0,TAU);g.fill();
+ /* dial: navy sunburst */g.save();g.beginPath();g.arc(0,0,460,0,TAU);g.clip();var gr=g.createRadialGradient(-60,-80,20,0,0,470);gr.addColorStop(0,'rgb(30,52,92)');gr.addColorStop(1,'rgb(9,17,34)');g.fillStyle=gr;g.fillRect(-470,-470,940,940);
+ var bins=[[],[],[],[]];for(var i=0;i<720;i++){var a=i/720*TAU;var b=.5+.5*Math.cos(2*(a+.75));bins[Math.min(3,Math.floor(b*4))].push(a);ELEMENTS++}
+ for(var k=0;k<4;k++){g.fillStyle=k<2?'rgba(0,6,20,'+(.16-k*.07)+')':'rgba(150,190,255,'+(.03+(k-2)*.05)+')';g.beginPath();for(var j=0;j<bins[k].length;j++){var a=bins[k][j];g.moveTo(0,0);g.lineTo(470*Math.cos(a),470*Math.sin(a));g.lineTo(470*Math.cos(a+TAU/1440),470*Math.sin(a+TAU/1440))}g.fill()}
+ g.restore();
+ /* chapter ring */g.strokeStyle='rgba(220,226,236,.55)';g.lineWidth=1.6;g.beginPath();g.arc(0,0,432,0,TAU);g.stroke();g.beginPath();g.arc(0,0,412,0,TAU);g.stroke();
+ for(var i=0;i<240;i++){var a=i/240*TAU-PI/2;var maj=i%4===0,big=i%20===0;var r0=big?394:maj?408:420;g.strokeStyle=big?'rgba(244,226,180,.95)':maj?'rgba(230,234,242,.8)':'rgba(200,210,226,.45)';g.lineWidth=big?4:maj?2.4:1.2;g.beginPath();g.moveTo(r0*Math.cos(a),r0*Math.sin(a));g.lineTo(432*Math.cos(a),432*Math.sin(a));g.stroke();ELEMENTS++}
+ /* applied indices */for(var i=0;i<12;i++){var a=i/12*TAU-PI/2;g.save();g.rotate(a+PI/2);var wdt=i===0?16:i%3===0?20:14,len=i%3===0?78:62;var xs=i===0?[-15,15]:[0];
+  xs.forEach(function(x0){g.fillStyle='rgba(0,0,0,.5)';g.fillRect(x0-wdt/2+3,-372+5,wdt,len);var gg=g.createLinearGradient(x0-wdt/2,0,x0+wdt/2,0);gg.addColorStop(0,rgba(BRL,1));gg.addColorStop(.5,rgba(BRL,1));gg.addColorStop(.51,rgba(BRD,1));gg.addColorStop(1,rgba(BRASS,1));g.fillStyle=gg;g.fillRect(x0-wdt/2,-372,wdt,len);ELEMENTS++});g.restore()}
+ /* hands */var S=SEC0+st.thE/HALF/8,hA=S/43200*TAU,mA=S/3600*TAU,sA=(S%60)/60*TAU;
+ function dauph(a,len,w){g.save();g.rotate(a);g.fillStyle='rgba(0,0,0,.45)';g.beginPath();g.moveTo(6,10);g.lineTo(6-w,-len*.1+10);g.lineTo(6,-len+10);g.lineTo(6+w,-len*.1+10);g.fill();
+  g.fillStyle=rgba(BRL,1);g.beginPath();g.moveTo(0,0);g.lineTo(-w,-len*.1);g.lineTo(0,-len);g.closePath();g.fill();g.fillStyle=rgba(BRD,1);g.beginPath();g.moveTo(0,0);g.lineTo(w,-len*.1);g.lineTo(0,-len);g.closePath();g.fill();g.restore();ELEMENTS+=2}
+ dauph(hA,250,22);dauph(mA,380,18);
+ g.save();g.rotate(sA);g.fillStyle='rgba(0,0,0,.4)';g.fillRect(4,-410,4,520);g.fillStyle=rgba(STL,1);g.fillRect(-2,-420,4,520);g.fillStyle=rgba(RUBY,1);g.fillRect(-3,-420,6,64);g.beginPath();g.arc(0,80,13,0,TAU);g.fill();g.restore();
+ g.fillStyle=metal('b',0,0,20);g.beginPath();g.arc(0,0,20,0,TAU);g.fill();g.fillStyle=rgba(RUBY,1);g.beginPath();g.arc(0,0,7,0,TAU);g.fill();ELEMENTS+=4;
+ /* crystal sheen: a soft band of light that drifts across as the camera pushes in */
+ g.save();g.beginPath();g.arc(0,0,460,0,TAU);g.clip();var so=lerp(-260,220,eio(seg(t,0,4.6)));g.translate(so,so*.6);var sg=g.createLinearGradient(-300,-300,0,0);sg.addColorStop(0,'rgba(220,232,255,0)');sg.addColorStop(.5,'rgba(220,232,255,.075)');sg.addColorStop(1,'rgba(220,232,255,0)');g.fillStyle=sg;g.beginPath();g.moveTo(-620,-60);g.lineTo(-60,-620);g.lineTo(160,-620);g.lineTo(-620,160);g.fill();g.restore()}
+
+/* ---------- labels: DOM chips pinned to world points, with leader lines ---------- */
+var LBL=[].slice.call(document.querySelectorAll('.lbl')).map(function(el){var w=el.dataset.w.split(',').map(Number);return {el:el,w:w,dx:+el.dataset.dx,dy:+el.dataset.dy}});
+function labels(t){g.setTransform(1,0,0,1,0,0);for(var i=0;i<LBL.length;i++){var L=LBL[i],o=+L.el.style.opacity||0;if(o<=0)continue;var s=scr(L.w),w=L.el.offsetWidth,h=L.el.offsetHeight;
+ var x=L.dx<0?s[0]+L.dx-w:s[0]+L.dx,y=s[1]+L.dy-h/2;x=Math.max(84,Math.min(996-w,x));y=Math.max(600,Math.min(1500-h,y));L.el.style.left=x.toFixed(1)+'px';L.el.style.top=y.toFixed(1)+'px';
+ var ex=L.dx<0?x+w:x,ey=y+h/2;if(s[0]>x&&s[0]<x+w)ex=s[0]<x+w/2?x:x+w;
+ g.globalAlpha=o;g.strokeStyle='rgba(236,214,160,.9)';g.lineWidth=2.5;g.beginPath();g.moveTo(ex,ey);g.lineTo(s[0],s[1]);g.stroke();g.fillStyle='rgba(8,12,20,.9)';g.beginPath();g.arc(s[0],s[1],9,0,TAU);g.fill();g.strokeStyle='rgba(244,226,180,1)';g.lineWidth=3;g.stroke();g.globalAlpha=1;ELEMENTS+=2}}
+
+/* ---------- captions (DOM), driven by the seek ---------- */
+var CAP=[].slice.call(document.querySelectorAll('[data-in]'));
+function fmt(n){return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g,',')}
+function captions(t,st,tau){CAP.forEach(function(el){var a=+el.dataset.in,b=+el.dataset.out;var o=Math.min(seg(t,a,a+.45),1-seg(t,b-.35,b));el.style.opacity=o.toFixed(3);if(!el.classList.contains('lbl'))el.style.transform='translateY('+((1-eo(seg(t,a,a+.6)))*30).toFixed(1)+'px)'});
+ var K=kAt(t),sp=document.getElementById('spd');if(sp)sp.textContent=K>=1.5?'Sped up '+Math.round(K)+'×':K<=.67?'Slowed down '+Math.round(1/K)+'×':'Real speed';
+ var a=document.getElementById('n28');if(a)a.textContent=fmt(28800*eo(seg(t,26.4,28)));var b=document.getElementById('n69');if(b)b.textContent=fmt(691200*eo(seg(t,26.9,28.5)));
+ /* tick and tock: pops at each beat while the escapement is on screen */
+ var tk=document.getElementById('tk');if(tk){var kc=Math.floor(st.ph/PI),dtau=tau-kc/(2*BF),dr=dtau/K;var win=seg(t,17.6,18)*(1-seg(t,21,21.3));var op=win*Math.exp(-dr*2.4);tk.style.opacity=op.toFixed(3);tk.textContent=kc%2?'Tock':'Tick';
+  var s=scr(kc%2?E:P);tk.style.left=(kc%2?190:640)+'px';tk.style.top='1330px';tk.style.transform='scale('+(1+.25*Math.exp(-dr*6)).toFixed(3)+')'}}
+
+/* ---------- the frame ---------- */
+var draw=function(t){ELEMENTS=0;g.setTransform(1,0,0,1,0,0);
+ var bg=g.createLinearGradient(0,0,0,H);bg.addColorStop(0,rgba(BG0,1));bg.addColorStop(1,rgba(BG1,1));g.fillStyle=bg;g.fillRect(0,0,W,H);
+ var tau=tauAt(t);camAt(t);
+ /* faint drafting rings around the movement */
+ setCam(1);g.strokeStyle='rgba(180,196,220,.05)';g.lineWidth=1.5/cz;for(var i=0;i<14;i++){g.beginPath();g.arc(0,0,560+i*70,0,TAU);g.stroke();ELEMENTS++}
+ for(var i=0;i<36;i++){var a=i/36*TAU;g.beginPath();g.moveTo(540*Math.cos(a),540*Math.sin(a));g.lineTo(1500*Math.cos(a),1500*Math.sin(a));g.stroke();ELEMENTS++}
+ var fl=eio(seg(t,4.4,5.8)),sx=Math.cos(PI*fl),st;
+ if(sx>0){setCam(Math.max(.002,sx));st=esc(tau);dial(tau,st,t)}
+ else{setCam(Math.max(.002,-sx));var sa=1-seg(t,6.2,7.4);if(sa>0){g.save();g.globalAlpha=sa;strap(true);lugs();g.restore()}
+  var wind=-TAU*3.6*eio(seg(t,8.5,10.6));st=movement(t,tau,{lift:seg(t,6.0,7.7),caseA:1-seg(t,7.0,8.2),wind:wind})}
+ /* edge-on shading during the flip */
+ if(fl>0&&fl<1){g.setTransform(1,0,0,1,0,0);g.fillStyle='rgba(6,9,15,'+(.6*(1-Math.abs(sx)))+')';g.fillRect(0,0,W,H)}
+ /* spotlight on the part being explained */
+ g.setTransform(1,0,0,1,0,0);var fa=seg(t,8,8.8)*(1-seg(t,25.4,26.6));if(fa>0){var fx=AX,fy=AY;var vg=g.createRadialGradient(fx,fy,260,fx,fy,900);vg.addColorStop(0,'rgba(6,9,15,0)');vg.addColorStop(1,'rgba(6,9,15,'+(.7*fa)+')');g.fillStyle=vg;g.fillRect(0,0,W,H)}
+ var vg2=g.createRadialGradient(540,1000,500,540,1000,1300);vg2.addColorStop(0,'rgba(0,0,0,0)');vg2.addColorStop(1,'rgba(0,0,0,.45)');g.fillStyle=vg2;g.fillRect(0,0,W,H);
+ captions(t,st,tau);labels(t);window.__rfElements=ELEMENTS};
+SPC=(function(){var st=esc(tauAt(0)),tr=train(st.thE);return -7.6*TAU-tr.B})();
+`;
+
+const CSS = `
+.cap{position:absolute;left:84px;right:84px;opacity:0;color:#EEF0F4;font-family:"Inter Display",Inter,sans-serif;letter-spacing:-.015em;text-align:center;padding:30px 40px 36px;border-radius:30px;background:rgba(8,12,20,.82);border:2px solid rgba(214,180,104,.24);box-sizing:border-box}
+.cap.top{top:250px}
+.cap .k{font:500 34px/1.2 "JetBrains Mono","DejaVu Sans Mono",monospace;color:#CDAE68;letter-spacing:0;margin-bottom:16px}
+.cap h2{margin:0;font-size:88px;line-height:1.02;font-weight:600;letter-spacing:-.03em}
+.cap p{margin:0;font-size:52px;line-height:1.16;font-weight:500}
+.cap b{color:#E6C680;font-weight:600}
+.lbl{position:absolute;left:0;top:0;opacity:0;white-space:nowrap;font:500 34px/1 "JetBrains Mono","DejaVu Sans Mono",monospace;color:#EEF0F4;padding:13px 18px;border-radius:12px;background:rgba(8,12,20,.86);border:2px solid rgba(214,180,104,.4)}
+.lbl span{color:#A9B6C8}
+#spd{position:absolute;left:0;right:0;margin:0 auto;width:max-content;top:1528px;opacity:0;font:500 34px/1 "JetBrains Mono","DejaVu Sans Mono",monospace;color:#EEF0F4;padding:12px 22px;border-radius:40px;background:rgba(8,12,20,.86);border:2px solid rgba(238,240,244,.22)}
+#tk{position:absolute;opacity:0;font:600 64px/1 "Inter Display",Inter,sans-serif;letter-spacing:-.02em;color:#F4F0E6;padding:14px 26px;border-radius:18px;background:rgba(8,12,20,.84);border:2px solid rgba(214,40,74,.6);transform-origin:50% 50%}
+.facts{position:absolute;left:84px;right:84px;top:250px;display:grid;gap:16px}
+.fact{opacity:0;display:flex;justify-content:space-between;align-items:baseline;padding:22px 34px;border-radius:24px;background:rgba(8,12,20,.82);border:2px solid rgba(214,180,104,.22);color:#EEF0F4;font-family:"Inter Display",Inter,sans-serif}
+.fact span{font-size:40px;color:#B9C4D4}.fact strong{font-size:60px;font-weight:600;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.brand{position:absolute;left:0;right:0;top:1564px;text-align:center;opacity:0;font:500 34px/1 "JetBrains Mono","DejaVu Sans Mono",monospace;color:#B9C4D4}
+`;
+
+const HTML = `
+<div class="cap top" data-in="0.3" data-out="4.5"><div class="k">A mechanical watch</div><h2>No battery. No chip.</h2><p data-in="1.9" data-out="4.6" style="margin-top:18px">So how does it <b>know the time?</b></p></div>
+<div class="cap top" data-in="5.7" data-out="7.7"><div class="k">Turn it over</div><p>Inside, a tiny machine<br>that runs on a <b>spring</b></p></div>
+<div class="cap top" data-in="7.9" data-out="9.9"><div class="k">1 of 4 · Mainspring</div><p>Winding coils a steel<br>spring <b>tight</b></p></div>
+<div class="cap top" data-in="9.9" data-out="11.6"><div class="k">1 of 4 · Mainspring</div><p>It lets go slowly,<br>over about <b>two days</b></p></div>
+<div class="cap top" data-in="11.8" data-out="14.1"><div class="k">2 of 4 · Gear train</div><p>Each wheel spins <b>faster</b><br>than the one before</p></div>
+<div class="cap top" data-in="14.1" data-out="16.5"><div class="k">2 of 4 · Gear train</div><p>Left alone, it would race.<br>It needs a <b>brake</b></p></div>
+<div class="cap top" data-in="16.7" data-out="18.9"><div class="k">3 of 4 · Escapement</div><p>A fork locks the wheel,<br>then frees <b>one tooth</b></p></div>
+<div class="cap top" data-in="18.9" data-out="21.3"><div class="k">3 of 4 · Escapement</div><p>Lock, release, lock:<br>the <b>tick</b> and the <b>tock</b></p></div>
+<div class="cap top" data-in="21.5" data-out="23.5"><div class="k">4 of 4 · Balance wheel</div><p>A weighted wheel swings<br>on a <b>hairspring</b></p></div>
+<div class="cap top" data-in="23.5" data-out="25.7"><div class="k">4 of 4 · Balance wheel</div><p>Every swing frees a tooth:<br><b>8 ticks a second</b></p></div>
+<div class="lbl" data-in="8.4" data-out="11.5" data-w="-40,-160" data-dx="150" data-dy="-190">Mainspring</div>
+<div class="lbl" data-in="8.9" data-out="11.5" data-w="-140,-60" data-dx="80" data-dy="260">Barrel <span>· 80 teeth</span></div>
+<div class="lbl" data-in="12.4" data-out="13.9" data-w="-60,60" data-dx="-90" data-dy="230">Centre wheel <span>· 1 turn an hour</span></div>
+<div class="lbl" data-in="13.4" data-out="15.2" data-w="200,-10" data-dx="40" data-dy="-230">Third wheel <span>· 75 teeth</span></div>
+<div class="lbl" data-in="14.6" data-out="16.4" data-w="240,180" data-dx="-60" data-dy="250">Fourth wheel <span>· 1 turn a minute</span></div>
+<div class="lbl" data-in="17.2" data-out="21.3" data-w="150,230" data-dx="70" data-dy="-200">Escape wheel</div>
+<div class="lbl" data-in="17.6" data-out="21.3" data-w="20,260" data-dx="-60" data-dy="-260">Pallet fork</div>
+<div class="lbl" data-in="18.0" data-out="21.3" data-w="70,300" data-dx="-40" data-dy="240">Ruby pallet stones</div>
+<div class="lbl" data-in="21.9" data-out="25.4" data-w="-200,290" data-dx="-30" data-dy="-230">Balance wheel</div>
+<div class="lbl" data-in="22.3" data-out="25.4" data-w="-150,330" data-dx="40" data-dy="260">Hairspring</div>
+<div id="spd" data-in="11.7" data-out="26.6">Real speed</div>
+<div id="tk">Tick</div>
+<div class="facts">
+ <div class="fact" data-in="26.0" data-out="30.4"><span>Balance</span><strong>4 Hz</strong></div>
+ <div class="fact" data-in="26.4" data-out="30.4"><span>Ticks an hour</span><strong id="n28">0</strong></div>
+ <div class="fact" data-in="26.8" data-out="30.4"><span>Ticks a day</span><strong id="n69">0</strong></div>
+ <div class="fact" data-in="27.2" data-out="30.4"><span>Accuracy</span><strong style="color:#E6C680">a few s a day</strong></div>
+</div>
+<div class="brand" data-in="27.8" data-out="30.4">Rendered with ReelForge</div>
+`;
+
+export const WATCH: FlagshipReel = {
+  slug: 'how-a-mechanical-watch-works',
+  title: 'How a watch keeps time with no battery',
+  category: 'How it works',
+  tags: ['explainer', 'mechanics', 'watchmaking', 'engineering'],
+  description:
+    'A mechanical movement taken apart one part at a time: mainspring, gear train, escapement and balance, with every involute tooth drawn and meshing at real ratios.',
+  prompt:
+    'Make a 30-second vertical explainer on how a mechanical watch keeps time with no battery. Hook on a luxury-looking dial ticking, flip it over and lift the bridges off, then follow the power one part at a time: the mainspring, the gear train with real tooth counts, the escapement locking and releasing, and the balance wheel on its hairspring. End with the whole movement running and the facts: 28,800 beats an hour, 691,200 a day, accurate to a few seconds a day.',
+  duration: DUR,
+  music: 'ambient',
+  html: composition(DUR, HTML, CSS, SCRIPT),
+};
