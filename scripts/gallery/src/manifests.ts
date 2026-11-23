@@ -26,7 +26,9 @@ export function validateEntry(entry: GalleryEntry): string[] {
   else {
     if (r.migratedFrom) problems.push(`manifest migrated from ${r.migratedFrom}`);
     const secs = entry.gallery.durationSeconds;
-    if (secs < 8 || secs > 25) problems.push(`duration ${secs}s outside 8-25 s`);
+    // Story reels (category "How it works" and other flagship stories) run longer than the short showcase reels.
+    const max = entry.gallery.tags.includes('explainer') ? 60 : 25;
+    if (secs < 8 || secs > max) problems.push(`duration ${secs}s outside 8-${max} s`);
   }
   if (!entry.gallery.prompt || entry.gallery.prompt.length < 40) problems.push('prompt missing or too short');
   return problems;
