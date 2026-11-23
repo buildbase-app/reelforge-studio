@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { builtinTheme } from '@reelforge/project-schema';
 import { hyperframesEnv, renderHyperframesScene, startNetworkSink } from '../src/index';
+import { externalNetworkCalls } from './strace-egress';
 
 /**
  * #318: HyperFrames resolves web fonts with the CLI's own Node `fetch`
@@ -19,7 +20,7 @@ import { hyperframesEnv, renderHyperframesScene, startNetworkSink } from '../src
 const browser = process.env.REELFORGE_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const repoRoot = resolve(import.meta.dirname, '../../..');
-const hasStrace = spawnSync('strace', ['-f', '-qq', '-e', 'trace=connect', '-o', '/dev/null', 'true']).status === 0;
+const hasStrace = spawnSync('strace', ['-f', '-qq', '-yy', '-e', 'trace=connect', '-o', '/dev/null', 'true']).status === 0;
 const [major, minor] = process.versions.node.split('.').map(Number) as [number, number];
 /** NODE_USE_ENV_PROXY (fetch and http through HTTP(S)_PROXY) exists from Node 22.21 and 24.5. */
 const nodeHasEnvProxy = major > 24 || (major === 24 && minor >= 5) || (major === 22 && minor >= 21);
@@ -92,19 +93,36 @@ describe('SECT-41 the HyperFrames CLI process cannot fetch fonts (or anything) f
   });
 });
 
-/** connect() calls in an strace log that leave loopback (IPv4, IPv6) or go to a DNS port. */
-function externalConnects(log: string): string[] {
-  return log.split('\n').filter((line) => {
-    if (!/\bconnect\(/.test(line)) return false;
-    const v4 = /sin_port=htons\((\d+)\), sin_addr=inet_addr\("([^"]+)"\)/.exec(line);
-    const v6 = /sin6_port=htons\((\d+)\).*inet_pton\(AF_INET6, "([^"]+)"/.exec(line);
-    const m = v4 ?? v6;
-    if (!m) return false;
-    const [, port, addr] = m as unknown as [string, string, string];
-    const loopback = /^127\./.test(addr) || addr === '::1' || /^::ffff:127\./.test(addr);
-    return !loopback || port === '53';
+describe('SECT-43 the strace egress check (#318, D-110)', () => {
+  // The line CI saw on a runner with an IPv6 stack but no IPv6 route (job 137840212606), as `-yy` prints it.
+  const probe = '14841 connect(24<UDPv6:[5531201]>, {sa_family=AF_INET6, sin6_port=htons(443), sin6_flowinfo=htonl(0), inet_pton(AF_INET6, "2001:4860:4860::8888", &sin6_addr), sin6_scope_id=0}, 28) = -1 ENETUNREACH (Network is unreachable)';
+
+  it("allows only Chromium's IPv6 reachability check: a UDP connect() that sends nothing", () => {
+    expect(externalNetworkCalls(probe)).toEqual([]);
+    expect(externalNetworkCalls(probe.replace('= -1 ENETUNREACH (Network is unreachable)', '= 0'))).toEqual([]);
+    expect(externalNetworkCalls('7 connect(5<TCP:[9]>, {sa_family=AF_INET, sin_port=htons(41231), sin_addr=inet_addr("127.0.0.1")}, 16) = 0')).toEqual([]);
   });
-}
+
+  it('counts every other connect() or send outside loopback, whatever its result', () => {
+    const leaks = [
+      // the same line without -yy (as CI printed it): the socket type is unknown, so it counts
+      probe.replace('<UDPv6:[5531201]>', ''),
+      // DNS over HTTPS to the same address is TCP
+      probe.replace('UDPv6', 'TCPv6'),
+      probe.replace('2001:4860:4860::8888', '2001:4860:4860::8844'),
+      probe.replace('htons(443)', 'htons(853)'),
+      '9 connect(31<TCP:[77]>, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr("142.251.183.95")}, 16) = -1 EINPROGRESS (Operation now in progress)',
+      '9 connect(31<UDP:[78]>, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("8.8.8.8")}, 16) = 0',
+      '9 connect(31<UDP:[79]>, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("127.0.0.53")}, 16) = 0', // a DNS lookup, even via a local resolver
+      '9 sendto(31<UDP:[80]>, "x", 1, 0, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("8.8.4.4")}, 16) = 1',
+      '9 sendto(31<UDPv6:[[2001:db8::2]:5000->[2001:4860:4860::8888]:443]>, "x", 1, 0, NULL, 0) = 1',
+    ];
+    for (const line of leaks) expect(externalNetworkCalls(line), line).toEqual([line]);
+    // anything sent on the probe socket after its connect()
+    const send = '14841 sendmsg(24<UDPv6:[5531201]>, {msg_name=NULL, msg_namelen=0, msg_iov=[{iov_base="x", iov_len=1}], msg_iovlen=1}, 0) = 1';
+    expect(externalNetworkCalls(`${probe}\n${send}`)).toEqual([send]);
+  });
+});
 
 describe.skipIf(!hasBrowser)('SECT-42 a HyperFrames scene that names a missing web font renders offline (needs REELFORGE_CHROMIUM_PATH)', () => {
   const theme = { ...builtinTheme('default')!.tokens, fontFamily: '"Roboto", sans-serif' };
@@ -127,13 +145,13 @@ describe.skipIf(!hasBrowser)('SECT-42 a HyperFrames scene that names a missing w
     expect(log.join('\n')).toMatch(/not installed and was not downloaded/);
   }, 300_000);
 
-  it.runIf(hasStrace)('strace: the whole render (CLI, browser, children) makes 0 connect() calls outside loopback and no DNS lookups', async () => {
+  it.runIf(hasStrace)('strace: the whole render (CLI, browser, children) connects and sends nothing outside loopback and makes no DNS lookup', async () => {
     const out = join(dir, 'strace');
     const traceFile = join(dir, 'strace-connect.txt');
     const res = await new Promise<{ stdout: string; stderr: string }>((resolve_) => {
       execFile(
         'strace',
-        ['-f', '-qq', '-e', 'trace=connect', '-o', traceFile, process.execPath, '--import', 'tsx', join(import.meta.dirname, 'fixtures', 'render-missing-font.mts'), out],
+        ['-f', '-qq', '-yy', '-e', 'trace=connect,sendto,sendmsg,sendmmsg', '-o', traceFile, process.execPath, '--import', 'tsx', join(import.meta.dirname, 'fixtures', 'render-missing-font.mts'), out],
         { cwd: repoRoot, env: { ...process.env, REELFORGE_CHROMIUM_PATH: browser }, timeout: 280_000, maxBuffer: 16 * 1024 * 1024 },
         (_e, stdout, stderr) => resolve_({ stdout, stderr })
       );
@@ -145,7 +163,8 @@ describe.skipIf(!hasBrowser)('SECT-42 a HyperFrames scene that names a missing w
     expect(result.ok).toBe(true);
     const trace = readFileSync(traceFile, 'utf8');
     expect(trace).toMatch(/AF_INET/); // the trace did see the render's (loopback) connections
-    expect(externalConnects(trace)).toEqual([]);
+    expect(trace).toMatch(/<(TCP|UDP|UNIX)/); // -yy labelled the sockets (the probe exception needs it)
+    expect(externalNetworkCalls(trace)).toEqual([]);
     expect(result.log.join('\n')).toMatch(/not installed and was not downloaded/);
   }, 300_000);
 });
