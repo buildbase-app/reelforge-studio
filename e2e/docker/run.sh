@@ -241,6 +241,9 @@ if [ "$EDITION" = release ]; then
   printf 'licence:\n  mode: "off"\n' > "$WORK/config/off.yaml"; chmod 644 "$WORK/config/off.yaml"
   out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -v "$WORK/config/off.yaml:/config/off.yaml:ro" -e REELFORGE_CONFIG=/config/off.yaml "$IMAGE" 2>&1) && { echo "✘ started with licence.mode off in the config file"; exit 1; }
   echo "$out" | grep '/config/off.yaml (licence.mode): "licence.mode" is fixed' >/dev/null && echo "✔ refuses to start with licence.mode: off in the config file" || { echo "✘ config file override"; echo "$out" | tail -5; exit 1; }
+  # #305: no REELFORGE_SECRET_KEY, no start (the licence-state seal has no fixed fallback).
+  out=$(timeout 120 docker run --rm --network none "${HARD[@]}" "$IMAGE" 2>&1) && { echo "✘ started without REELFORGE_SECRET_KEY"; exit 1; }
+  echo "$out" | grep -q 'REELFORGE_SECRET_KEY is not set: the release edition does not start without it' && echo "✔ refuses to start without REELFORGE_SECRET_KEY" || { echo "✘ unexpected output without REELFORGE_SECRET_KEY"; echo "$out" | tail -5; exit 1; }
 fi
 [ "$(api /v1/projects/legacy-v01/versions)" = '{"versions":[1,2]}' ] && echo "✔ v0.1 project imported with both versions; the imported key works" || { echo "✘ v0.1 import"; api /v1/projects/legacy-v01/versions; exit 1; }
 api /v1/projects/legacy-v01 | grep '"Made by v0.1, edited"' >/dev/null && echo "✔ current manifest is version 2" || { echo "✘ v0.1 manifest"; exit 1; }
@@ -426,6 +429,7 @@ if [ "$STORAGE" = s3 ]; then
   docker run -d --name $NAME --network $NET "${HARD[@]}" --tmpfs /data:rw,uid=10001,gid=10001 -e REELFORGE_STORAGE_DRIVER=s3 -e REELFORGE_S3_ENDPOINT=http://minio:9000 \
     -e REELFORGE_S3_BUCKET=$S3_BUCKET_OVERRIDE -e REELFORGE_S3_FORCE_PATH_STYLE=true -e REELFORGE_S3_ACCESS_KEY_ID_FILE=/run/secrets/s3id -e REELFORGE_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3secret \
     -v "$WORK/secret/s3id:/run/secrets/s3id:ro" -v "$WORK/secret/s3secret:/run/secrets/s3secret:ro" "${LIC_ENV[@]}" \
+    -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secretkey \
     -v "$WORK/secret/key:/run/secrets/key:ro" -e REELFORGE_BOOTSTRAP_KEY_FILE=/run/secrets/key "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && break; sleep 2; done
   ready=$(docker exec -e K="$KEY" $NAME node -e "fetch('http://127.0.0.1:4321/readyz',{headers:{authorization:'Bearer '+process.env.K}}).then(async r=>console.log(r.status, await r.text()))")

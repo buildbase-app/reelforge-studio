@@ -370,6 +370,67 @@ describe.each(targets)('resource limits contract: $name', ({ kind }) => {
     expect(log).toEqual(['rateLimitWindow.findUnique']);
   });
 
+  it('LIM-17 sliding-window counter: counts this window and reads the previous one, exact under concurrency from two pools', async () => {
+    let second: Database | undefined;
+    const other = kind === 'memory' || kind === 'sqlite' ? repos : (second = await Database.open({ url: testDb!.url })).repositories();
+    try {
+      const key = `req_slide_${kind}_${seq++}`;
+      const w0 = minute(now - 60_000);
+      const w1 = minute(now);
+      // No previous window: previous is 0.
+      expect(await repos.rateLimits.slide(key, w0, minute(now - 120_000))).toEqual({ count: 1, previous: 0 });
+      for (let i = 2; i <= 7; i++) expect(await repos.rateLimits.slide(key, w0, minute(now - 120_000))).toEqual({ count: i, previous: 0 });
+      // A new window starts at 1 and sees the 7 of the previous one.
+      const results = await Promise.all(Array.from({ length: 30 }, (_, i) => [repos, other][i % 2]!.rateLimits.slide(key, w1, w0)));
+      expect(results.map((r) => r.count).sort((a, b) => a - b)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+      expect(new Set(results.map((r) => r.previous))).toEqual(new Set([7]));
+      expect(await repos.rateLimits.windows(key, w0)).toEqual([
+        { windowStart: w0, count: 7 },
+        { windowStart: w1, count: 30 },
+      ]);
+      // A fresh key (no row for the previous window: on MySQL a gap lock, so concurrent first requests can deadlock
+      // and are retried): still every count exactly once.
+      const fresh = `req_slide_fresh_${kind}_${seq++}`;
+      const first = await Promise.all(Array.from({ length: 30 }, (_, i) => [repos, other][i % 2]!.rateLimits.slide(fresh, w1, w0)));
+      expect(first.map((r) => r.count).sort((a, b) => a - b)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+      expect(new Set(first.map((r) => r.previous))).toEqual(new Set([0]));
+      // Rows written by slide are ordinary request windows: hit() adds to them and the sweep deletes them.
+      expect(await repos.rateLimits.hit(key, w1)).toBe(31);
+      expect(await repos.rateLimits.deleteOlderThan(w1)).toBeGreaterThanOrEqual(1);
+      expect(await repos.rateLimits.slide(key, w1, w0)).toEqual({ count: 32, previous: 0 });
+    } finally {
+      await second?.close();
+    }
+  });
+
+  it('LIM-18 sliding-window counter: large counts in both windows come back exactly (MySQL packs both into one insert id)', async () => {
+    const key = `req_slide_big_${kind}_${seq++}`;
+    const w0 = minute(now - 60_000);
+    const w1 = minute(now);
+    await repos.rateLimits.hit(key, w0, 3_000_000);
+    await repos.rateLimits.hit(key, w1, 2_500_000);
+    expect(await repos.rateLimits.slide(key, w1, w0)).toEqual({ count: 2_500_001, previous: 3_000_000 });
+    if (kind === 'mysql') {
+      // Without Database's insert-id hook: the statement and SELECT LAST_INSERT_ID() in one transaction.
+      const plain = createPrismaRepositories(db!.prisma, DEFAULT_WORKSPACE_ID, 'mysql');
+      expect(await plain.rateLimits.slide(key, w1, w0)).toEqual({ count: 2_500_002, previous: 3_000_000 });
+    }
+  });
+
+  it.skipIf(kind === 'memory')('LIM-19 sliding-window counter: one statement per check (no transaction)', async () => {
+    const log: string[] = [];
+    const insertId = kind === 'mysql' ? (sql: string, a: Array<string | number | Date>) => (log.push(`insertId: ${sql}`), mysqlInsertId(db!.prisma, sql, a)) : undefined;
+    const r = createPrismaRepositories(recording(db!.prisma, log, true), DEFAULT_WORKSPACE_ID, kind as 'sqlite', { schema: db!.schema, ...(insertId ? { insertId } : {}) });
+    const key = `req_slide_stmt_${kind}_${seq++}`;
+    await r.rateLimits.hit(key, minute(now - 60_000), 4);
+    for (const expected of [1, 2, 3]) {
+      log.length = 0;
+      expect(await r.rateLimits.slide(key, minute(now), minute(now - 60_000))).toEqual({ count: expected, previous: 4 });
+      expect(log).toHaveLength(1);
+      expect(log[0]).toMatch(kind === 'mysql' ? /^insertId: INSERT INTO .*SELECT .*ON DUPLICATE KEY UPDATE .*LAST_INSERT_ID/ : /^INSERT INTO .*ON CONFLICT .*DO UPDATE .*RETURNING .*SELECT/);
+    }
+  });
+
   it('LIM-05 usage counters: reserve is atomic across concurrent callers, all-or-nothing, and per window', async () => {
     const day = iso(Math.floor(now / 86_400_000) * 86_400_000);
     const k = `usage:provider-runs:key:${keyA}`;

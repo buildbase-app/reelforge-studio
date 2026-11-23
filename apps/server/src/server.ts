@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
-import { OutboxRelay, ReelforgeService, chromiumSandbox, createBrokerDispatch, effectiveQueueMode, isBrokerDispatch, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
+import { OutboxRelay, ReelforgeService, chromiumSandbox, createBrokerDispatch, effectiveQueueMode, isBrokerDispatch, secretKeyProblem, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
 import { createNotifyListener, defaultDatabaseUrl, notifyChannel, pooledSchemaWarning, prepareDatabase, READ_REPLICA_READS, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
@@ -58,6 +58,13 @@ export async function startServer(
   if (overrides.dataDir && !overrides.databaseUrl && config.resolved.settings.get('database.url')?.source === 'default') {
     config.databaseUrl = defaultDatabaseUrl(config.dataDir);
   }
+  // Every reason not to start, together and before anything is created: more than one instance needs a shared
+  // database and shared storage (D-076), and a release build needs REELFORGE_SECRET_KEY (#305: no fixed fallback
+  // for the licence-state seal).
+  const scaling = scalingProblems(config.resolved, config.databaseUrl);
+  const secretKey = secretKeyProblem(config.resolved);
+  const refusals = [...scaling.errors, ...(secretKey.error ? [secretKey.error] : [])];
+  if (refusals.length) throw new Error(`refusing to start: ${refusals.join(' | ')}`);
   exportProcessEnv(config.resolved);
   await mkdir(config.dataDir, { recursive: true });
   const logger = createLogger(config, opts.quiet, opts.logWrite);
@@ -73,10 +80,7 @@ export async function startServer(
     );
   }
   const edition = config.resolved.build.edition;
-  // More than one instance needs a shared database and shared storage (D-076): refuse a role that would lose jobs or files.
-  const scaling = scalingProblems(config.resolved, config.databaseUrl);
   for (const w of scaling.warnings) logger.log('warn', w);
-  if (scaling.errors.length) throw new Error(`refusing to start: ${scaling.errors.join(' | ')}`);
   const role = config.resolved.config.server.role;
   // Exporters from the file and env now; runtime settings from the database are applied once it is open.
   const obs = new Observability(observabilitySettings(config.resolved.config, SERVER_VERSION, edition), logger);
@@ -215,7 +219,7 @@ export async function startServer(
   if (existsSync(join(config.dataDir, 'secrets.json'))) {
     logger.log('warn', `${join(config.dataDir, 'secrets.json')} (v0.1) still holds provider keys in plain text; they are in the database now${service.settings.cipher ? ' (encrypted)' : ''}: delete the file once you have checked them`);
   }
-  if (!service.settings.cipher) log('REELFORGE_SECRET_KEY is not set: provider keys and other secrets cannot be stored through the API (see docs/CONFIG.md)');
+  if (secretKey.warning) logger.log('warn', `${secretKey.warning} (see docs/CONFIG.md)`);
   if ((await service.keys.count()) === 0) {
     log('no API keys yet: run `pnpm keys:create --name me` or set REELFORGE_BOOTSTRAP_KEY');
   }
