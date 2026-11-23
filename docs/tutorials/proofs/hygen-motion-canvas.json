@@ -1,0 +1,39 @@
+{
+  "agent": "hygen",
+  "engine": "motion-canvas",
+  "status": "passed",
+  "date": "2026-11-23T10:06:45.610Z",
+  "studioVersion": "0.1.0",
+  "commit": "9fcc722",
+  "licenceMode": "off (local development only)",
+  "command": "HYGEN_TMPLS=examples/hygen/_templates pnpm exec hygen reel animated-explainer --name tut-hygen-motion-canvas --title 'Tutorial: Motion Canvas engine' --headline 'Three steps to a reel' --points 'Describe the reel|Let the agent build the scenes|Render and download' --out reel.json && examples/tutorials/rest.sh reel.json tut-hygen-motion-canvas final.mp4",
+  "projectId": "tut-hygen-motion-canvas",
+  "jobId": "job_mwt3pspi6c828f3bb1",
+  "renderId": "run_mwt3pspia36ba55a3a",
+  "renderSeconds": 20.7,
+  "sceneEngines": [
+    "motion-canvas"
+  ],
+  "toolCalls": [
+    "hygen reel animated-explainer()",
+    "GET /v1/capabilities()",
+    "POST /v1/projects()",
+    "POST /v1/projects/tut-hygen-motion-canvas/validate()",
+    "POST /v1/projects/tut-hygen-motion-canvas/renders()",
+    "GET /v1/jobs/job_mwt3pspi6c828f3bb1?wait=50()",
+    "GET /v1/renders/run_mwt3pspia36ba55a3a/output()"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 167001
+  },
+  "poster": "hygen-motion-canvas.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/hygen/motion-canvas"
+}

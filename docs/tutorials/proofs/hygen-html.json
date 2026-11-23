@@ -1,0 +1,40 @@
+{
+  "agent": "hygen",
+  "engine": "html",
+  "status": "passed",
+  "date": "2026-11-23T10:07:08.731Z",
+  "studioVersion": "0.1.0",
+  "commit": "9fcc722",
+  "licenceMode": "off (local development only)",
+  "command": "HYGEN_TMPLS=examples/hygen/_templates pnpm exec hygen reel html-title --name tut-hygen-html --title 'Tutorial: HTML engine' --kicker TUTORIAL --headline 'Your first reel with the HTML engine' --subline 'Plain HTML and CSS, rendered frame by frame' --cta-kicker NEXT --cta 'Swap the props, render again' --cta-subline 'Same manifest, any agent' --out reel.json && examples/tutorials/rest.sh reel.json tut-hygen-html final.mp4",
+  "projectId": "tut-hygen-html",
+  "jobId": "job_mwt3qahgf3f7c7e246",
+  "renderId": "run_mwt3qahg3df8a9c399",
+  "renderSeconds": 30.6,
+  "sceneEngines": [
+    "html",
+    "html"
+  ],
+  "toolCalls": [
+    "hygen reel html-title()",
+    "GET /v1/capabilities()",
+    "POST /v1/projects()",
+    "POST /v1/projects/tut-hygen-html/validate()",
+    "POST /v1/projects/tut-hygen-html/renders()",
+    "GET /v1/jobs/job_mwt3qahgf3f7c7e246?wait=50()",
+    "GET /v1/renders/run_mwt3qahg3df8a9c399/output()"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 341459
+  },
+  "poster": "hygen-html.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/hygen/html"
+}

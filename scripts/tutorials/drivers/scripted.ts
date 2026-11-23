@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ENGINE_INFO, promptFor } from '../cells';
+import { ENGINE_INFO, HYGEN, HYGEN_TMPLS, hygenArgs, promptFor, shellQuote } from '../cells';
 import { REPO } from '../lib/studio';
 import { runToFile } from './llm-cli';
 import type { Driver, DriverResult } from './types';
@@ -58,4 +58,21 @@ export const localAi: Driver = async ({ studio, outDir, agent, engine }) => {
     llm: { model: r.model ?? null, turns: r.turns ?? null, durationMs: Date.now() - t0, costUsd: 0, isError: r.done !== true, reply: r.reply ?? '' },
   };
   return result;
+};
+
+/** Hygen: the generator writes the manifest from flags, then the REST script sends and renders it. */
+export const hygenDriver: Driver = async ({ studio, outDir, engine, projectId }) => {
+  const manifest = join(outDir, 'manifest.json');
+  const log = join(outDir, 'hygen.txt');
+  const env = { ...process.env, HYGEN_TMPLS, HYGEN_OVERWRITE: '1' };
+  const code = await runToFile('pnpm', ['exec', 'hygen', ...hygenArgs(engine, projectId, manifest)], { env, cwd: REPO, out: log, timeoutMs: 120_000 });
+  if (code !== 0) throw new Error(`hygen reel ${HYGEN[engine].action} exited with ${code}: ${readFileSync(log, 'utf8').slice(-1000)}`);
+  const r = await runExample('bash', ['examples/tutorials/rest.sh', manifest, projectId, join(outDir, 'client-download.mp4')], { RF: studio.url, KEY: studio.key }, outDir);
+  const shown = hygenArgs(engine, projectId, 'reel.json').map(shellQuote).join(' ');
+  return {
+    command: `HYGEN_TMPLS=${HYGEN_TMPLS} pnpm exec hygen ${shown} && examples/tutorials/rest.sh reel.json ${projectId} final.mp4`,
+    toolCalls: [{ name: `hygen reel ${HYGEN[engine].action}`, input: {} }, ...r.toolCalls],
+    jobId: r.jobId,
+    transcriptPath: r.transcriptPath,
+  };
 };

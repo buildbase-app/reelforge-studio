@@ -33,5 +33,12 @@
     "how": "Observed: the first `pnpm tutorials:prove rest multi-engine` run failed because the HyperFrames scene stopped on low disk space (0.7 GB free, the machine is shared); the script exited 1 and recorded the failed job. The re-run with 14 GB free passed (TUT-20)",
     "result": "✅ pass",
     "date": "2026-11-21"
+  },
+  {
+    "id": "TUT-36",
+    "what": "Hygen reel generators (examples/hygen): each one's output passes @reelforge/project-schema with no warnings and equals its tutorial manifest apart from the project id; flags fill the fields (defaults for the rest); missing, unknown or over-limit flags stop hygen with exit 1, a message naming the flag and the usage line, and nothing written",
+    "how": "`pnpm tutorials:test` (scripts/tutorials/test/hygen.test.ts)",
+    "result": "✅ pass",
+    "date": "2026-11-23"
   }
 ]

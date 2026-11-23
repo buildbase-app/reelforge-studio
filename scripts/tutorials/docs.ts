@@ -7,18 +7,19 @@
  *   pnpm tutorials:docs --check   # exit 1 if a page is out of date
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { AGENTS, AGENT_INFO, CELL_ENGINES, ENGINE_INFO, expectationFor, projectIdFor, promptFor, type AgentId, type CellEngine } from './cells';
+import { AGENTS, AGENT_INFO, CELL_ENGINES, ENGINE_INFO, HYGEN, HYGEN_TMPLS, expectationFor, hygenArgs, projectIdFor, promptFor, shellQuote, type AgentId, type CellEngine } from './cells';
 import type { Proof } from './prove';
 import { REPO } from './lib/studio';
 
 const DOCS = join(REPO, 'docs/tutorials');
 const RF = 'http://127.0.0.1:4321';
 
-/** Test-case id of a cell: TUT-01..25 in matrix order. */
+/** Test-case id of a cell, in matrix order: TUT-01..25 for the first five rows; TUT-26..30 are extra cases (proofs/extra.json), so later rows go on at TUT-31. */
 export function caseId(agent: AgentId, engine: CellEngine): string {
   const n = AGENTS.indexOf(agent) * CELL_ENGINES.length + CELL_ENGINES.indexOf(engine) + 1;
-  return `TUT-${String(n).padStart(2, '0')}`;
+  return `TUT-${String(n > 25 ? n + 5 : n).padStart(2, '0')}`;
 }
 
 export function loadProof(agent: AgentId, engine: CellEngine, dir = join(DOCS, 'proofs')): Proof | null {
@@ -419,6 +420,83 @@ ${fence('bash', `LOCAL_AGENT_BACKEND=openai LOCAL_AGENT_BASE_URL=http://127.0.0.
 ${fence('bash', `curl -fsS -H "Authorization: Bearer $KEY" -o reel.mp4 "$RF/v1/renders/<renderId>/output"\nffprobe -v error -count_frames -select_streams v:0 \\\n  -show_entries stream=width,height,r_frame_rate,nb_read_frames:format=duration -of compact reel.mp4`)}`;
 }
 
+/** Flags of each Hygen generator, read from the generators' own hook (examples/hygen/lib/reel.js). */
+const HYGEN_FLAGS: Record<string, Record<string, { max: number; required?: boolean; list?: number }>> = createRequire(import.meta.url)('../../examples/hygen/lib/reel.js').FLAGS;
+
+function hygenSteps(engine: CellEngine): string {
+  const h = HYGEN[engine];
+  const id = projectIdFor('hygen', engine);
+  const m = ENGINE_INFO[engine].manifest;
+  const dir = `${HYGEN_TMPLS}/reel/${h.action}`;
+  const argv = hygenArgs(engine, id, 'reel.json').map(shellQuote);
+  const lines = [argv.slice(0, 4).join(' '), ...Array.from({ length: (argv.length - 4) / 2 }, (_, i) => `${argv[4 + 2 * i]} ${argv[5 + 2 * i]}`)];
+  const flags = Object.entries(HYGEN_FLAGS[h.action]!).map(
+    ([k, f]) => `| \`--${k}\` | ${f.required ? 'yes' : 'no'} | ${f.list ? `1 to ${f.list} points separated by \`|\`, each up to ${f.max} characters` : `up to ${f.max} characters`} |`
+  );
+  const prompt = [
+    `Make a vertical reel about ${ENGINE_INFO[engine].topic} with the Hygen generator "reel ${h.action}".`,
+    `Run \`pnpm exec hygen reel ${h.action} --name ${id} --out reel.json\` with your texts as flags (run it without flags first: it stops with a usage line).`,
+    `Then read reel.json and, with the reelforge MCP tools, call create_project with it, validate_project, render_project,`,
+    `and get_job with waitSeconds 45 until the job succeeds. Reply with the project id, job id and render id.`,
+  ].join(' ');
+  return `### 2. The generator
+
+[\`${dir}/\`](../../../${dir}): \`manifest.ejs.t\` is the v0.2 manifest with
+the answers filled in; \`index.js\` reads the flags and checks them against the
+template's limits ([\`examples/hygen/lib/reel.js\`](../../../examples/hygen/lib/reel.js)),
+so bad input stops with one error that names the flag, and nothing is written.
+Hygen 6.2.11 is a devDependency of this repository and needs no network to
+generate. Elsewhere: \`npm i -D hygen@6.2.11\` and copy \`examples/hygen/\`.
+
+| Flag | Required | Limit |
+| --- | --- | --- |
+| \`--name\` | yes | the project id: lowercase letters, digits and dashes |
+${flags.join('\n')}
+${engine === 'multi-engine' ? '' : '| `--seconds` | no | the whole reel, default 8, split evenly over the scenes |\n'}| \`--title\`, \`--theme\`, \`--accent\`, \`--out\` | no | defaults: the headline, \`midnight\`, the theme's accent, \`reels/<name>.json\` |
+
+### 3. Generate the manifest
+
+${fence('bash', `export HYGEN_TMPLS=${HYGEN_TMPLS}\npnpm exec hygen ${lines.join(' \\\n  ')}`)}
+
+It writes \`reel.json\` with the same content as [\`${m}\`](../../../${m}), apart
+from the project id (\`pnpm tutorials:test\` compares them field by field):
+
+${fence('json', JSON.stringify({ ...readJson(m), projectId: id }, null, 2))}
+
+Hygen asks before it overwrites a file; set \`HYGEN_OVERWRITE=1\` (or pick a new
+\`--out\`) when nobody can answer, e.g. in an agent's shell.
+
+### 4. Render it
+
+The REST script creates the project, validates it, renders it and downloads
+the MP4 (each call is explained in [REST + ${ENGINE_INFO[engine].title}](../rest/${engine}.md#3-make-the-reel-with-curl)):
+
+${fence('bash', `RF=$RF KEY=$KEY examples/tutorials/rest.sh reel.json ${id} final.mp4`)}
+
+### 5. With an AI agent
+
+**Only the CLI path above, plus the studio render, is proven for this row.**
+An agent can drive the same generator: it runs \`hygen\` with its answers in its
+shell, reads \`reel.json\`, then calls \`create_project\`, \`validate_project\` and
+\`render_project\` over MCP. That MCP part is what the proven
+[Claude Code row](../claude-code/${engine}.md) does; an agent calling \`hygen\`
+has not been run. **Codex is not proven** (OpenAI key pending).
+
+A prompt:
+
+${fence('text', prompt)}
+
+**Claude Code** (connect it as in [step 2 of the Claude Code tutorial](../claude-code/${engine}.md#2-connect-claude-code-to-the-studio)),
+with only the generator, file reads and the studio's tools allowed:
+
+${fence('bash', `export HYGEN_TMPLS=${HYGEN_TMPLS} HYGEN_OVERWRITE=1\nclaude -p "$(cat prompt.txt)" --mcp-config mcp.json --strict-mcp-config \\\n  --allowedTools "Bash(pnpm exec hygen:*)" Read mcp__reelforge --max-turns 25`)}
+
+**Codex** (connect it as in [step 2 of the Codex tutorial](../codex/${engine}.md#2-install-codex-and-connect-it-to-the-studio));
+VERIFY the flags against \`codex exec --help\` of your version:
+
+${fence('bash', `export HYGEN_TMPLS=${HYGEN_TMPLS} HYGEN_OVERWRITE=1\ncodex exec --sandbox workspace-write -c 'approval_policy="never"' "$(cat prompt.txt)"`)}`;
+}
+
 function readJson(rel: string): any {
   return JSON.parse(readFileSync(join(REPO, rel), 'utf8'));
 }
@@ -429,6 +507,7 @@ const PREREQS: Record<AgentId, string> = {
   'mcp-sdk': '- Node.js 22 and `@modelcontextprotocol/sdk` 1.32.2 (already in this repository).',
   rest: '- `curl`, `jq` and `ffprobe` (or Node.js 22 for the fetch version).',
   'local-ai': '- Node.js 22, about 3 GB of disk for the model and 4 GB of free RAM; no GPU needed (a GPU makes it faster).',
+  hygen: '- Node.js 22 and pnpm (Hygen 6.2.11 comes with this repository), plus `curl`, `jq` and `ffprobe` for the render step. For step 5: Claude Code or Codex.',
 };
 
 const AGENT_DOES: Record<AgentId, string> = {
@@ -437,6 +516,7 @@ const AGENT_DOES: Record<AgentId, string> = {
   'mcp-sdk': 'The script makes these calls, always in this order (no model involved):',
   rest: 'The REST calls, in order (each MCP tool has a REST route: [AGENT_PLATFORM.md §6](../../AGENT_PLATFORM.md)):',
   'local-ai': 'The local model gets the prompt and the tool subset; the agent loop executes every tool call it makes and feeds the result back:',
+  hygen: 'The proof runs the generator, then the REST script (no model involved):',
 };
 
 const TYPICAL: Record<AgentId, string[]> = {
@@ -445,6 +525,7 @@ const TYPICAL: Record<AgentId, string[]> = {
   'mcp-sdk': ['get_capabilities', 'list_templates', 'list_projects (following nextCursor; delete_project on a re-run)', 'create_project', 'validate_project', 'render_project', 'get_job (repeated, waitSeconds 45)', 'get_render_output'],
   rest: ['GET /v1/capabilities', 'POST /v1/projects', 'POST /v1/projects/:id/validate', 'POST /v1/projects/:id/renders', 'GET /v1/jobs/:id?wait=50 (repeated)', 'GET /v1/renders/:id/output'],
   'local-ai': ['list_templates', 'create_project', 'validate_project', 'render_project', 'get_job (repeated)', 'get_render_output'],
+  hygen: ['hygen reel <generator> --name ... --out reel.json (offline)', 'GET /v1/capabilities', 'POST /v1/projects', 'POST /v1/projects/:id/validate', 'POST /v1/projects/:id/renders', 'GET /v1/jobs/:id?wait=50 (repeated)', 'GET /v1/renders/:id/output'],
 };
 
 const AGENT_TROUBLE: Record<AgentId, string> = {
@@ -465,12 +546,15 @@ const AGENT_TROUBLE: Record<AgentId, string> = {
 | The model invents template props | It gets the \`invalid_manifest\` error with every path and usually fixes it in the next call; a bigger model (7B) makes fewer mistakes. |
 | \`NOT done after 25 tool calls\` | Raise \`LOCAL_AGENT_MAX_TOOL_CALLS\`, make the prompt more specific, or use a bigger model. |
 | Out of memory | Lower \`LOCAL_AGENT_CONTEXT\` (e.g. 6144) or use a smaller quantization. |`,
+  hygen: `| \`Error: reel <generator>: ...\` | A flag is missing, unknown or over a template limit; the message names it and ends with the usage line. Nothing was written. |
+| \`exists: reel.json. Overwrite? (y/N)\` | Hygen asks before overwriting. Set \`HYGEN_OVERWRITE=1\` for runs nobody answers, or use a new \`--out\`. |
+| \`I can't find action ... for generator 'reel'\` | \`HYGEN_TMPLS\` does not point at \`${HYGEN_TMPLS}\` (relative paths start where hygen runs). |`,
 };
 
 export function cellPage(agent: AgentId, engine: CellEngine, p: Proof | null): string {
   const a = AGENT_INFO[agent];
   const e = ENGINE_INFO[engine];
-  const steps = { 'claude-code': claudeSteps, codex: codexSteps, 'mcp-sdk': sdkSteps, rest: restSteps, 'local-ai': localSteps }[agent](engine);
+  const steps = { 'claude-code': claudeSteps, codex: codexSteps, 'mcp-sdk': sdkSteps, rest: restSteps, 'local-ai': localSteps, hygen: hygenSteps }[agent](engine);
   const status = statusOf(agent, engine, p);
   const banner =
     p?.status === 'passed'
@@ -641,6 +725,7 @@ export function testCasesPage(proofs: Map<string, Proof | null>, extra: { id: st
       );
     }
   for (const x of extra) rows.push(`| ${x.id} | ${x.what} | ${x.how} | ${x.result} | ${x.date} |`);
+  rows.sort(); // by id: the extra cases TUT-26..30 sit between the first five rows and the later ones
   return `<!-- Generated by scripts/tutorials/docs.ts. Edit it, then run pnpm tutorials:docs. -->
 
 # Tutorial test cases

@@ -4,7 +4,7 @@
  * is the prompt the proof ran.
  */
 
-export const AGENTS = ['claude-code', 'codex', 'mcp-sdk', 'rest', 'local-ai'] as const;
+export const AGENTS = ['claude-code', 'codex', 'mcp-sdk', 'rest', 'local-ai', 'hygen'] as const;
 export type AgentId = (typeof AGENTS)[number];
 
 export const CELL_ENGINES = ['remotion', 'motion-canvas', 'html', 'hyperframes', 'multi-engine'] as const;
@@ -34,6 +34,7 @@ export const AGENT_INFO: Record<AgentId, AgentInfo> = {
   'mcp-sdk': { title: 'Any MCP client (TypeScript SDK script)', label: 'Any MCP client (SDK script)', llm: false },
   rest: { title: 'REST API (curl and fetch)', label: 'REST (curl / fetch)', llm: false },
   'local-ai': { title: 'Local AI over MCP (open-weight model on your CPU)', label: 'Local AI (node-llama-cpp, MCP)', llm: true },
+  hygen: { title: 'Hygen templates (CLI or any agent)', label: 'Hygen templates (+ any agent)', llm: false },
 };
 
 export interface EngineInfo {
@@ -100,6 +101,65 @@ export const ENGINE_INFO: Record<CellEngine, EngineInfo> = {
       'a 9-second reel with four scenes in this order: remotion (kinetic-title, 2 s), motion-canvas (animated-explainer, 3 s), html (html-title, 2 s), hyperframes (hyperframes-title, 2 s)',
   },
 };
+
+/**
+ * The Hygen row: generator (examples/hygen/_templates/reel/<action>) and the
+ * answers that make it write the same reel as ENGINE_INFO[engine].manifest
+ * (pnpm tutorials:test compares them).
+ */
+export const HYGEN: Record<CellEngine, { action: string; flags: Record<string, string> }> = {
+  remotion: {
+    action: 'kinetic-title',
+    flags: { title: 'Tutorial: Remotion engine', headline: 'Your first Remotion reel', subline: 'Springs in word by word', cta: 'Change a prop, render again', 'cta-subline': 'Same manifest, any agent' },
+  },
+  'motion-canvas': {
+    action: 'animated-explainer',
+    flags: { title: 'Tutorial: Motion Canvas engine', headline: 'Three steps to a reel', points: 'Describe the reel|Let the agent build the scenes|Render and download' },
+  },
+  html: {
+    action: 'html-title',
+    flags: {
+      title: 'Tutorial: HTML engine',
+      kicker: 'TUTORIAL',
+      headline: 'Your first reel with the HTML engine',
+      subline: 'Plain HTML and CSS, rendered frame by frame',
+      'cta-kicker': 'NEXT',
+      cta: 'Swap the props, render again',
+      'cta-subline': 'Same manifest, any agent',
+    },
+  },
+  hyperframes: {
+    action: 'hyperframes-title',
+    flags: { title: 'Tutorial: HyperFrames engine', headline: 'Your first HyperFrames reel', subline: 'A GSAP timeline, rendered locally', cta: 'Swap the props, render again', 'cta-subline': 'Same manifest, any agent' },
+  },
+  'multi-engine': {
+    action: 'multi-engine',
+    flags: {
+      title: 'Tutorial: four engines, one reel',
+      headline: 'Four engines, one reel',
+      'steps-title': 'How it works',
+      points: 'Plan the scenes|Pick an engine per scene',
+      kicker: 'HTML',
+      card: 'Cut to an HTML card',
+      outro: 'Ends on HyperFrames',
+      'outro-subline': 'Rendered and joined to the frame',
+    },
+  },
+};
+
+/** Where the reel generators live; hygen reads it from HYGEN_TMPLS. */
+export const HYGEN_TMPLS = 'examples/hygen/_templates';
+
+/** Hygen's argv for a cell: `hygen <these>`. */
+export function hygenArgs(engine: CellEngine, name: string, out: string): string[] {
+  const h = HYGEN[engine];
+  return ['reel', h.action, '--name', name, ...Object.entries(h.flags).flatMap(([k, v]) => [`--${k}`, v]), '--out', out];
+}
+
+/** Quote an argument for a shell command line shown to a reader. */
+export function shellQuote(a: string): string {
+  return /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`;
+}
 
 /** Project id an agent must use, so the proof can find its project. */
 export function projectIdFor(agent: AgentId, engine: CellEngine): string {

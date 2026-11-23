@@ -3,7 +3,7 @@
  *
  *   pnpm tutorials:prove <agent> <engine|all> [--record]
  *
- *   agent:  claude-code | codex | mcp-sdk | rest | local-ai
+ *   agent:  claude-code | codex | mcp-sdk | rest | local-ai | hygen
  *   engine: remotion | motion-canvas | html | hyperframes | multi-engine | all
  *
  * Starts a studio from this checkout (REELFORGE_LICENCE_MODE=off, local
@@ -21,13 +21,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { AGENT_INFO, CELL_ENGINES, ENGINE_INFO, expectationFor, isAgent, isCellEngine, projectIdFor, type AgentId, type CellEngine } from './cells';
 import { claudeCode, codex } from './drivers/llm-cli';
-import { localAi, mcpSdk, restDriver } from './drivers/scripted';
+import { hygenDriver, localAi, mcpSdk, restDriver } from './drivers/scripted';
 import type { Driver, DriverResult } from './drivers/types';
 import { checkEngines, checkReel, probeFile, sceneEngines, type ReelProbe } from './lib/probe';
 import { REPO, rest, useStudio, type Studio } from './lib/studio';
 import { describeCall } from './lib/transcript';
 
-const DRIVERS: Record<AgentId, Driver> = { 'claude-code': claudeCode, codex, 'mcp-sdk': mcpSdk, rest: restDriver, 'local-ai': localAi };
+const DRIVERS: Record<AgentId, Driver> = { 'claude-code': claudeCode, codex, 'mcp-sdk': mcpSdk, rest: restDriver, 'local-ai': localAi, hygen: hygenDriver };
 
 export interface Proof {
   agent: AgentId;
@@ -167,7 +167,7 @@ async function main() {
   const record = process.argv.includes('--record');
   const [agent, engineArg] = args;
   if (!agent || !isAgent(agent) || !engineArg || !(engineArg === 'all' || isCellEngine(engineArg))) {
-    console.error('usage: pnpm tutorials:prove <claude-code|codex|mcp-sdk|rest|local-ai> <remotion|motion-canvas|html|hyperframes|multi-engine|all> [--record]');
+    console.error('usage: pnpm tutorials:prove <claude-code|codex|mcp-sdk|rest|local-ai|hygen> <remotion|motion-canvas|html|hyperframes|multi-engine|all> [--record]');
     process.exit(2);
   }
   const engines = engineArg === 'all' ? [...CELL_ENGINES] : [engineArg as CellEngine];

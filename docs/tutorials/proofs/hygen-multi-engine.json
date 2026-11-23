@@ -1,0 +1,42 @@
+{
+  "agent": "hygen",
+  "engine": "multi-engine",
+  "status": "passed",
+  "date": "2026-11-23T10:08:35.764Z",
+  "studioVersion": "0.1.0",
+  "commit": "9fcc722",
+  "licenceMode": "off (local development only)",
+  "command": "HYGEN_TMPLS=examples/hygen/_templates pnpm exec hygen reel multi-engine --name tut-hygen-multi-engine --title 'Tutorial: four engines, one reel' --headline 'Four engines, one reel' --steps-title 'How it works' --points 'Plan the scenes|Pick an engine per scene' --kicker HTML --card 'Cut to an HTML card' --outro 'Ends on HyperFrames' --outro-subline 'Rendered and joined to the frame' --out reel.json && examples/tutorials/rest.sh reel.json tut-hygen-multi-engine final.mp4",
+  "projectId": "tut-hygen-multi-engine",
+  "jobId": "job_mwt3s5ne161bf246b1",
+  "renderId": "run_mwt3s5neb0a837f88e",
+  "renderSeconds": 37.5,
+  "sceneEngines": [
+    "remotion",
+    "motion-canvas",
+    "html",
+    "hyperframes"
+  ],
+  "toolCalls": [
+    "hygen reel multi-engine()",
+    "GET /v1/capabilities()",
+    "POST /v1/projects()",
+    "POST /v1/projects/tut-hygen-multi-engine/validate()",
+    "POST /v1/projects/tut-hygen-multi-engine/renders()",
+    "GET /v1/jobs/job_mwt3s5ne161bf246b1?wait=50()",
+    "GET /v1/renders/run_mwt3s5neb0a837f88e/output()"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 270,
+    "durationSeconds": 9,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 496958
+  },
+  "poster": "hygen-multi-engine.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/hygen/multi-engine"
+}

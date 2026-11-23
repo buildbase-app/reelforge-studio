@@ -15,6 +15,7 @@ says why it is not proven.
 | **Any MCP client (SDK script)** | [✅ 2026-11-21](mcp-sdk/remotion.md) | [✅ 2026-11-21](mcp-sdk/motion-canvas.md) | [✅ 2026-11-21](mcp-sdk/html.md) | [✅ 2026-11-21](mcp-sdk/hyperframes.md) | [✅ 2026-11-21](mcp-sdk/multi-engine.md) |
 | **REST (curl / fetch)** | [✅ 2026-11-21](rest/remotion.md) | [✅ 2026-11-21](rest/motion-canvas.md) | [✅ 2026-11-21](rest/html.md) | [✅ 2026-11-21](rest/hyperframes.md) | [✅ 2026-11-21](rest/multi-engine.md) |
 | **Local AI (node-llama-cpp, MCP)** | [✅ 2026-11-22](local-ai/remotion.md) | [✅ 2026-11-22](local-ai/motion-canvas.md) | [✅ 2026-11-21](local-ai/html.md) | [✅ 2026-11-22](local-ai/hyperframes.md) | [✅ 2026-11-22](local-ai/multi-engine.md) |
+| **Hygen templates (+ any agent)** | [✅ 2026-11-23](hygen/remotion.md) | [✅ 2026-11-23](hygen/motion-canvas.md) | [✅ 2026-11-23](hygen/html.md) | [✅ 2026-11-23](hygen/hyperframes.md) | [✅ 2026-11-23](hygen/multi-engine.md) |
 
 ✅ proven on that date (a real run passed every check) · 📝 documented, not
 proven, with the reason · ❌ a proof run failed (the page has the cause).
