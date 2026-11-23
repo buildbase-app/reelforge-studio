@@ -1,0 +1,52 @@
+# Test-only additions to deployment/kubernetes/base/networkpolicy.yaml (#305):
+# the e2e runs PostgreSQL (namespace db, 5432), MinIO (namespace minio, plain
+# HTTP on 9000) and the mock licence server (this namespace, 8080) in the
+# cluster, and reaches the api through a NodePort from the host. Everything
+# else stays denied, so the e2e also exercises the default-deny base.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: reelforge-e2e-deps
+  namespace: reelforge
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: reelforge }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: db } }
+      ports: [{ protocol: TCP, port: 5432 }]
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: minio } }
+      ports: [{ protocol: TCP, port: 9000 }]
+    - to:
+        - podSelector: { matchLabels: { app: licence } }
+      ports: [{ protocol: TCP, port: 8080 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: reelforge-e2e-licence
+  namespace: reelforge
+spec:
+  podSelector:
+    matchLabels: { app: licence }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: reelforge } }
+      ports: [{ protocol: TCP, port: 8080 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: reelforge-e2e-nodeport
+  namespace: reelforge
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: reelforge, app.kubernetes.io/component: api }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock: { cidr: 0.0.0.0/0 }
+      ports: [{ protocol: TCP, port: 4321 }]

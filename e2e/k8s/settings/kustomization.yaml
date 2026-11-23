@@ -1,11 +1,13 @@
 # Test-only settings shared by the two e2e overlays (e2e/k8s/keda.sh): the
 # locally built release image (loaded into kind, never pulled), in-cluster
 # MinIO and the mock licence server, short leases, one api replica, small pod
-# requests so four workers fit on one kind node, and a NodePort for the api.
+# requests so four workers fit on one kind node, a NodePort for the api, and
+# network-policy allowances for these in-cluster dependencies.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:
   - api-nodeport.yaml
+  - networkpolicy-e2e.yaml
 images:
   - name: ghcr.io/buildbase-app/reelforge-studio
     newName: reelforge-studio

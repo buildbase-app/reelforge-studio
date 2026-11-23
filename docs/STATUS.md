@@ -568,9 +568,22 @@ sidecar download (server). A real four-engine render with burned captions was ch
 yet: speech-to-text for uploaded voice-overs, `get_captions` / `update_captions` approval, several
 languages, audio description; the ElevenLabs path is still tested with a mocked API only.
 
+### Auth hardening (2026-11-23, issue #305, step 1)
+
+Built (D-110): per-address limits before the key lookup (`limits.preAuthPerMinute`, and
+`limits.authFailuresPerMinute` with a lockout that doubles up to `limits.authLockoutMaxSeconds`), so a
+bad-key flood does no database work (AUTH-01 counts the lookups); the shared per-key limit is a
+sliding 60-second window, still one statement per check on PostgreSQL, MySQL and SQLite (LIM-15..19,
+run on all three); `RateLimit-*` fields on every keyed response, `Retry-After` and
+`error.details.scope`/`hint` on a 429; the release edition does not start without
+`REELFORGE_SECRET_KEY`, and the licence-state seal has no fixed key; Debian packages from a dated
+`snapshot.debian.org` archive (release image built and checked here: contents, size, secrets, start);
+a default-deny `NetworkPolicy` with an allowlist (kubeconform). Not yet: MCP OAuth 2.1 (step 2), a
+scheduled workflow for the weekly snapshot bump (maintainer, `.github/`), the kind e2e and the
+Docker e2e with these changes (heavy tier).
 ### Webhooks for operations (2026-11-23, issue #306)
 
-Built (D-110, docs/providers/webhooks-and-notifications.md): every render or preview job ends with exactly one
+Built (D-113, docs/providers/webhooks-and-notifications.md): every render or preview job ends with exactly one
 terminal event, `render.ready`, `render.failed` (typed code, stage, the last 20 log lines), `render.timeout` (new
 runtime setting `render.timeoutSeconds`, 3600), `render.cancelled`, `render.qa_failed` (reserved for #294) or
 `render.blocked` (the licence gate refused the render; moderation later), each with timing, costs (CPU seconds when

@@ -364,6 +364,7 @@ export class ReelforgeService {
       // D-098: only api/all instances call the licence server (single flight per deployment); a worker reads the stored state.
       readOnly: cfg.server.role === 'worker',
       instanceName: workerId,
+      dataDir: this.dataDir,
     });
     this.claimRate = new ClaimRate(this.repos.rateLimits, { now: this.now, log: (line) => config.log?.('warn', line) });
     this.jobs = new JobRunner({

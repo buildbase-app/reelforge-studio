@@ -1,5 +1,7 @@
-import { createHmac, hkdfSync, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHmac, hkdfSync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
+import { join } from 'node:path';
 import { ApiError } from './errors';
 import type { RuntimeConfig } from './config/runtime';
 import type { LicenceRepository, LicenceStateRecord, Repositories } from './repositories';
@@ -322,13 +324,53 @@ interface Seal {
 }
 
 /**
- * Key for the stored-state seal: HKDF-SHA256 of REELFORGE_SECRET_KEY (a fixed
- * label without it) with the instance id as salt. Anyone who knows the secret
- * key can still forge a state; the point is that editing the database row
- * alone no longer works, and a forged state needs code or the secret key.
+ * Key for the stored-state seal: HKDF-SHA256 of the seal secret (see
+ * licenceSealSecret) with the instance id as salt. Anyone who knows the secret
+ * can still forge a state; the point is that editing the database row alone
+ * does not work, and a forged state needs code or the secret. There is no
+ * fixed fallback (#305): a seal keyed by a constant anyone can read in the
+ * source protected nothing.
  */
-export function licenceSealKey(secret: string | undefined, instanceId: string): Buffer {
-  return Buffer.from(hkdfSync('sha256', secret ?? 'reelforge-licence-state-unkeyed-v1', instanceId, 'reelforge licence state seal v1', 32));
+export function licenceSealKey(secret: string, instanceId: string): Buffer {
+  if (!secret) throw new Error('the licence state seal needs a secret (REELFORGE_SECRET_KEY)');
+  return Buffer.from(hkdfSync('sha256', secret, instanceId, 'reelforge licence state seal v1', 32));
+}
+
+/** Where a dev build without REELFORGE_SECRET_KEY keeps its random seal secret. */
+export const LOCAL_SEAL_FILE = 'licence-seal.key';
+
+/**
+ * The secret the stored licence state is sealed with (#305): security.secretKey
+ * (REELFORGE_SECRET_KEY or _FILE). A release build refuses to start without it
+ * (secretKeyProblem); this throws as a last guard. A dev build without it uses a
+ * random secret kept in `<dataDir>/licence-seal.key` (mode 0600, created on
+ * first use), so a restart keeps trusting its own state; instances that share a
+ * database then need the same REELFORGE_SECRET_KEY to trust each other's.
+ * Without a data directory the secret lives only as long as the process.
+ */
+export function licenceSealSecret(settings: RuntimeConfig, dataDir?: string): string {
+  const key = settings.config.security.secretKey;
+  if (key) return key;
+  if (settings.current.build.edition === 'release') throw new Error('the release edition needs REELFORGE_SECRET_KEY (or REELFORGE_SECRET_KEY_FILE) to seal the licence state');
+  if (!dataDir) return randomBytes(32).toString('hex');
+  const file = join(dataDir, LOCAL_SEAL_FILE);
+  try {
+    const text = readFileSync(file, 'utf8').trim();
+    if (text.length >= 32) return text;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
+  mkdirSync(dataDir, { recursive: true });
+  const fresh = randomBytes(32).toString('hex');
+  try {
+    writeFileSync(file, fresh + '\n', { mode: 0o600, flag: 'wx' });
+  } catch (e) {
+    // Another process of this data directory created it first: use that one.
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') return readFileSync(file, 'utf8').trim();
+    throw e;
+  }
+  chmodSync(file, 0o600);
+  return fresh;
 }
 
 function sealMac(key: Buffer, s: LicenceStateRecord, answer: Record<string, unknown> | undefined, serverTimeAt: string | undefined): string {
@@ -347,7 +389,7 @@ function sealMac(key: Buffer, s: LicenceStateRecord, answer: Record<string, unkn
 }
 
 /** The state as stored: the seal (and the licence server's time) inside `answer`. */
-export function sealLicenceState(s: LicenceStateRecord & { serverTimeAt?: string }, secret: string | undefined): LicenceStateRecord {
+export function sealLicenceState(s: LicenceStateRecord & { serverTimeAt?: string }, secret: string): LicenceStateRecord {
   const { serverTimeAt, ...rest } = s;
   const answer = rest.answer ? stripSeal(rest.answer) : undefined;
   const seal: Seal = { v: 1, ...(serverTimeAt ? { serverTimeAt } : {}), mac: sealMac(licenceSealKey(secret, s.instanceId), rest, answer, serverTimeAt) };
@@ -365,7 +407,7 @@ function stripSeal(answer: Record<string, unknown>): Record<string, unknown> | u
  * fields are dropped (`untrusted: true`), so the server needs an online check
  * before it renders again.
  */
-export function unsealLicenceState(stored: LicenceStateRecord, secret: string | undefined): { state: LicenceStateRecord & { serverTimeAt?: string }; untrusted: boolean } {
+export function unsealLicenceState(stored: LicenceStateRecord, secret: string): { state: LicenceStateRecord & { serverTimeAt?: string }; untrusted: boolean } {
   const raw = stored.answer;
   const seal = raw?.[SEAL_FIELD] as Seal | undefined;
   const answer = raw ? stripSeal(raw) : undefined;
@@ -403,8 +445,8 @@ export interface LicenceManagerOptions {
   newInstanceId?: () => string;
   /** Schedule the daily check and retries (default true; the CLI turns it off). */
   timers?: boolean;
-  /** security.secretKey: keys the seal of the stored state (D-089). */
-  sealSecret?: string;
+  /** Keys the seal of the stored state (D-089): security.secretKey, see licenceSealSecret. Required (#305). */
+  sealSecret: string;
   /**
    * Worker role (D-098): never call the licence server, only read the stored
    * state (every `refreshMs`) and apply it. Never writes the state.
@@ -940,7 +982,12 @@ export class LicenceManager {
 export function createLicenceManager(
   settings: RuntimeConfig,
   repos: Repositories,
-  opts: Pick<LicenceManagerOptions, 'now' | 'checkIntervalMs' | 'timers' | 'log' | 'readOnly' | 'instanceName' | 'refreshMs'> & { api?: LicenceApi; fetch?: typeof fetch } = {}
+  opts: Pick<LicenceManagerOptions, 'now' | 'checkIntervalMs' | 'timers' | 'log' | 'readOnly' | 'instanceName' | 'refreshMs'> & {
+    api?: LicenceApi;
+    fetch?: typeof fetch;
+    /** The data directory: where a dev build without REELFORGE_SECRET_KEY keeps its seal secret (licenceSealSecret). */
+    dataDir?: string;
+  } = {}
 ): LicenceManager {
   const lc = settings.config.licence;
   return new LicenceManager({
@@ -959,7 +1006,7 @@ export function createLicenceManager(
     checkIntervalMs: opts.checkIntervalMs,
     timers: opts.timers,
     log: opts.log,
-    sealSecret: settings.config.security.secretKey,
+    sealSecret: licenceSealSecret(settings, opts.dataDir),
     readOnly: opts.readOnly,
     instanceName: opts.instanceName,
     refreshMs: opts.refreshMs,
