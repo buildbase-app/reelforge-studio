@@ -185,7 +185,8 @@ describe('render fan-out on the database queue', () => {
   it('FAN-06u a unit that loses its lease maxAttempts times fails the parent with lease_expired and cancels the rest', async () => {
     const repo = createMemoryRepositories().jobs;
     const log: string[] = [];
-    const dead: JobRepository = { ...repo, heartbeat: async () => Promise.reject(new Error('down')), recoverExpired: async () => ({ requeued: [], failed: [] }) };
+    // Its database is gone: no heartbeat, no recovery, and it cannot take the housekeeping lease either (D-106).
+    const dead: JobRepository = { ...repo, heartbeat: async () => Promise.reject(new Error('down')), recoverExpired: async () => ({ requeued: [], failed: [] }), takeLease: async () => Promise.reject(new Error('down')) };
     const w1 = make(dead, handlers('w1', log, (ctx) => untilAborted(ctx.signal)), { workerId: 'w1', leaseMs: 1000, maxAttempts: 1 });
     await w1.init();
     const parent = await w1.submit('render', {});

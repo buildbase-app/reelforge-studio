@@ -2078,3 +2078,54 @@ same on every server from 6.2. Metric labels stay bounded: driver `sqs`/`redis`;
 `published{reason="outbox"}` and the transaction's outbox write is not counted a second time. Tested against SQS on
 LocalStack and Redis 8.4 (contract DSP-01..09, 11, BRK-01..08, server DSP-25..29); CI runs the same cases on an
 in-memory competing-consumer queue.
+
+## Z. Queue housekeeping on one instance (2026-11-23, issue #195)
+
+The rest of the idle load after D-105. How it works and test cases:
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#how-the-queue-works);
+measured idle load: [docs/PERFORMANCE.md](PERFORMANCE.md#queue-housekeeping-195-one-instance-instead-of-every-one).
+
+### D-106 --- Lease recovery and the queue count run on the holder of one instance lease; the others read its count
+
+**Status:** DECIDED (reversible).\
+Until now every instance on the database queue re-queued expired job leases and counted the queue every
+`queue.leaseSeconds / 4` (15 s): about 2 transactions per instance per 15 s, which grew with the number of
+workers although one instance per deployment is enough (D-075's recovery is a compare-and-set per job, so it was
+never needed for correctness that every instance runs it). **Election:** a new table `InstanceLease`
+(`0012_instance_lease`: workspace, name, holder, `expiresAt`, an optional integer `value`) holds the
+`queue-housekeeping` lease. It is taken and renewed with one `UPDATE ... WHERE name = ? AND (holder = me OR
+expiresAt <= now)` (the row is created on first use; a unique violation means another instance created it), so
+of instances racing for a free or expired lease exactly one wins (QUE-16), on SQLite, PostgreSQL and MySQL alike,
+through the Prisma model API (no raw SQL). *Rejected:* a PostgreSQL advisory lock (session state, which PgBouncer
+transaction mode does not keep, #152/D-104; and PostgreSQL only); a `RateLimitWindow` `lock:` row as in #180
+(that table is keyed by window and has no holder or expiry, and it is the rate limiter's); the api tier only
+(a deployment of `all` instances or a worker-only pool with an external enqueuer would have no recovery).
+**Holder** (any `all`, `api` or `worker` instance): every `min(heartbeat, leaseSeconds / 4)` it re-queues expired
+job leases, counts the queue and renews the lease for `leaseSeconds / 2` with that count in `value`; it renews only
+after a run that worked, so a holder that cannot reach the database loses the lease. **Others:** read the lease row
+every `leaseSeconds / 2` (minus up to 10 % at random, so they do not read in step): one primary-key read, which
+also gives them the holder's count; an instance that finds the lease missing or expired takes it and runs at once.
+Graceful shutdown expires the holder's lease, so the next instance to look takes it. Workers keep only their own
+job heartbeats. **Bounds:** a dead holder's lease ends at most `leaseSeconds / 2` after its last renewal and
+another instance looks at most `leaseSeconds / 2` later: **a new holder within one lease period (60 s)**. An
+expired job lease is re-queued within `leaseSeconds / 4` (15 s) while the holder lives (as before), and **within
+one lease period (60 s) of its expiry**, plus the length of one housekeeping run, when the holder dies (the
+holder's last run before it died may just have missed the job; the next holder runs at once when it takes over). A
+crashed worker's job therefore comes back at most 2 lease periods after the worker's last heartbeat (was 1.25),
+and that only when the holder dies too; measured SCL-21u and SCL-21 (the holder killed mid-job on SQLite,
+PostgreSQL 17 and MySQL 8.4: a new holder 1.0 to 1.7 s and the job re-queued 4 to 207 ms after its expiry, with a
+2 s lease). **Exactly once:** unchanged, because recovery stays the per-job compare-and-set on the lease the
+recoverer read (QUE-05) and every write stays fenced by the claim; two instances that both believe they hold the
+lease for a moment (a frozen holder that wakes up) only run the same safe recovery twice. **Metrics:**
+`reelforge_jobs_queued` stays on every instance with the same meaning (the adapter rule keeps `max`): the holder
+exports its own count, the others the count stored in the lease row (at most `leaseSeconds / 2 + leaseSeconds / 4`
+old, plus their own enqueues meanwhile). *Rejected:* exporting the gauge only on the holder: the HPA and KEDA
+Prometheus recipes select worker pods, and the holder may be an api instance. `reelforge_queue_errors_total` gains
+the operation `housekeeping` (reading or taking the lease). `/readyz` `dependencies.queue.housekeeping` says
+whether this instance holds the lease and who did when it last looked. **`worker --once`** (D-100) never takes the
+lease: a process that exits after one job would hand it around and leave it to expire on every exit; it reads the
+count like the others. Its jobs are recovered by the long-running instances (the api tier always runs one).
+**Clocks:** `expiresAt` is compared with the reading instance's clock, as job leases are (D-075); clock skew
+between instances shifts the bounds by the skew. **Measured** (lower bound, shared sandbox, PERFORMANCE.md): 200 idle
+workers 71 → 46 tx/s with `poll` and 42 → 25 tx/s with `notify`; 50 idle workers 16 → 12 and 10 → 7. What still grows
+with the number of instances is one lease read per instance per `leaseSeconds / 2`.

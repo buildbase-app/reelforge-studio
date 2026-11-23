@@ -9,7 +9,7 @@ import type { PageRequest } from './paging';
 import { childJobs, describeUnit, isFannedOut, isTerminal, treeProgress, type ChildSpec } from './fanout';
 import { defaultPriority, effectiveRank, priorityRank, type JobPriority } from './priority';
 import type { DispatchListener, DispatchListenerStatus, DispatchMessage, OutboxRelayStatus } from './dispatch';
-import type { ChildSettlement, JobCaps, JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
+import type { ChildSettlement, InstanceLeaseRecord, JobCaps, JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
 
 export type { JobProgress, JobRecord, JobStatus } from './repositories';
 export const TERMINAL: readonly JobStatus[] = ['succeeded', 'failed', 'cancelled'];
@@ -22,6 +22,8 @@ const MAX_BACKOFF_MS = 30_000;
 const SETTLE_MS = 15_000;
 /** Ready ids remembered per worker while they wait to be claimed (dispatch, D-105); more are dropped (the fallback poll covers them). */
 const MAX_PENDING = 10_000;
+/** The instance lease (D-106) whose holder runs the lease recovery and the queue count for the whole deployment. */
+export const HOUSEKEEPING_LEASE = 'queue-housekeeping';
 
 /** What started a claim loop: the idle poll, the dispatch fallback poll, a dispatch message, or something on this instance. */
 type ClaimTrigger = 'poll' | 'fallback' | 'wake' | 'local';
@@ -68,7 +70,7 @@ export interface DatabaseQueueOptions {
   workerId?: string;
   /** Lease length (queue.leaseSeconds). Default 60 000. */
   leaseMs?: number;
-  /** Lease renewal, cancel check and recovery interval. Default leaseMs / 4. */
+  /** Lease renewal and cancel check interval, and (at most leaseMs / 4) the housekeeping leader's recovery interval (D-106). Default leaseMs / 4. */
   heartbeatMs?: number;
   /** Claims per job before a lost lease fails it (queue.maxAttempts). Default 3. */
   maxAttempts?: number;
@@ -153,6 +155,11 @@ export interface QueueStatus {
   /** The last failed queue operation, cleared by the next success. */
   lastError?: { operation: string; message: string; at: string };
   lastHeartbeatAt?: string;
+  /**
+   * Queue housekeeping (D-106): whether this instance holds the lease and runs the lease recovery and the queue count
+   * for the deployment (`leader`), and who held it when this instance last looked.
+   */
+  housekeeping?: { leader: boolean; holder?: string };
   /** Queue dispatch (D-105): the driver, and this worker's listener when it has one. */
   dispatch?: {
     driver: string;
@@ -268,6 +275,16 @@ export class JobRunner {
   private detached = new Set<string>();
   /** Jobs running on other instances that someone here is waiting for (polled from the database). */
   private watchers = new Map<string, { timer: NodeJS.Timeout; refs: number; last: string }>();
+  /**
+   * Queue housekeeping (D-106): `ttlMs` the lease length (leaseMs / 2), `leaderMs` how often the holder recovers,
+   * counts and renews, `followerMs` how often the others read the lease (and take it when it expired).
+   */
+  private readonly hk: { ttlMs: number; leaderMs: number; followerMs: number };
+  private leader = false;
+  private holder: string | undefined;
+  private hkTimer: NodeJS.Timeout | null = null;
+  private hkRun: Promise<void> | null = null;
+  private hkStopped = false;
 
   constructor(opts: JobRunnerOptions) {
     this.repo = opts.repo;
@@ -290,6 +307,10 @@ export class JobRunner {
       canClaim: d.canClaim,
     };
     this.db.pollMaxMs = Math.max(this.db.pollMs, d.pollMaxMs ?? 5000);
+    // A dead holder's lease ends at most ttlMs after its last renewal and another instance looks at most followerMs
+    // later: a new holder within one lease period (D-106).
+    const ttlMs = Math.floor(leaseMs / 2);
+    this.hk = { ttlMs, leaderMs: Math.min(this.db.heartbeatMs, Math.floor(leaseMs / 4)), followerMs: ttlMs };
     this.idleMs = this.db.pollMs;
     this.dispatch = {
       driver: d.dispatch?.driver ?? 'poll',
@@ -351,6 +372,7 @@ export class JobRunner {
       }
       this.started = true;
       this.scheduleHeartbeat();
+      this.scheduleHousekeeping(0);
       this.schedulePoll(0, 'local');
       return;
     }
@@ -470,6 +492,7 @@ export class JobRunner {
       ...(this.lastHeartbeatAt ? { lastHeartbeatAt: this.lastHeartbeatAt } : {}),
       ...(this.mode === 'database'
         ? {
+            housekeeping: { leader: this.leader, ...(this.holder ? { holder: this.holder } : {}) },
             dispatch: {
               driver: this.dispatch.driver,
               ...(this.dispatch.listener && this.runJobs ? { listening: this.listening, listener: this.dispatch.listener.status(), fallbackMs: this.dispatch.fallbackMs } : {}),
@@ -673,6 +696,7 @@ export class JobRunner {
     }
     if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer);
     this.heartbeatTimer = null;
+    await this.stopHousekeeping();
     for (const w of this.watchers.values()) clearInterval(w.timer);
     this.watchers.clear();
     await this.flush();
@@ -1100,7 +1124,7 @@ export class JobRunner {
     return true;
   }
 
-  /** Renew leases, see cancellations from other instances, re-queue jobs of crashed workers, count the queue. */
+  /** Renew this worker's leases and see cancellations from other instances (recovery is the housekeeping's, D-106). */
   async heartbeat(): Promise<void> {
     const now = Date.now();
     // The pause reason stays current between (backed-off) polls, and a worker that may claim again does so at once.
@@ -1130,7 +1154,66 @@ export class JobRunner {
       this.lastHeartbeatOk = now;
     }
     this.lastHeartbeatAt = new Date(now).toISOString();
+  }
+
+  private scheduleHousekeeping(ms: number) {
+    if (this.hkStopped) return;
+    if (this.hkTimer) clearTimeout(this.hkTimer);
+    this.hkTimer = setTimeout(() => {
+      this.hkTimer = null;
+      const run = this.housekeeping().finally(() => {
+        this.hkRun = null;
+        // Followers look a little early at random (up to 10 %), so they do not read in step.
+        this.scheduleHousekeeping(this.leader ? this.hk.leaderMs : this.hk.followerMs - Math.floor(Math.random() * this.hk.followerMs * 0.1));
+      });
+      this.hkRun = run;
+    }, ms);
+    this.hkTimer.unref();
+  }
+
+  /**
+   * Queue housekeeping (D-106), on one instance per deployment instead of every one: the holder of the
+   * `queue-housekeeping` instance lease re-queues jobs whose lease expired, counts the queue and renews the lease
+   * with that count, every `leaderMs`. The others read the lease row every `followerMs` and take the count from it
+   * (`reelforge_jobs_queued` stays the same on every instance); one that finds the lease free or expired takes it
+   * (compare-and-set: one wins) and starts at once. `worker --once` processes only read: they never hold it.
+   * Recovery stays exactly-once without the lease (each expired job is a compare-and-set on its row), so two
+   * instances that both believe they hold it for a moment are harmless.
+   */
+  private async housekeeping(): Promise<void> {
+    if (!this.leader) {
+      const now = Date.now();
+      let lease: InstanceLeaseRecord | null;
+      try {
+        lease = await this.repo.readLease(HOUSEKEEPING_LEASE);
+        this.ok('housekeeping');
+      } catch (e) {
+        this.failed('housekeeping', e as Error);
+        return;
+      }
+      this.holder = lease?.holder;
+      // Held by another instance (or this --once process may not take it). A lease under this worker id is from this
+      // instance before a restart with the same `queue.workerId`: taken back at once.
+      if (lease && ((Date.parse(lease.expiresAt) > now && lease.holder !== this.workerId) || this.once)) {
+        if (lease.value !== undefined) this.queuedCount = lease.value;
+        return;
+      }
+      if (this.once || this.hkStopped) return;
+      try {
+        const took = await this.repo.takeLease(HOUSEKEEPING_LEASE, this.workerId, new Date(now).toISOString(), new Date(now + this.hk.ttlMs).toISOString());
+        this.ok('housekeeping');
+        if (!took) return;
+      } catch (e) {
+        this.failed('housekeeping', e as Error);
+        return;
+      }
+      this.leader = true;
+      this.holder = this.workerId;
+      this.log('info', `queue: this instance runs the queue housekeeping now (lease recovery and queue count)${lease ? `, taking over from ${lease.holder}` : ''}`);
+    }
+    let count: number | undefined;
     try {
+      const now = Date.now();
       const { requeued, failed, settled } = await this.repo.recoverExpired(new Date(now).toISOString(), this.db.maxAttempts);
       const m = coreInstruments(this.telemetry.meter);
       for (const j of requeued) {
@@ -1144,13 +1227,43 @@ export class JobRunner {
         this.emit({ jobId: j.id, type: 'status', job: j });
       }
       if (settled?.length) this.emitSettled(settled);
-      this.queuedCount = await this.repo.countQueued();
+      count = await this.repo.countQueued();
+      this.queuedCount = count;
       this.ok('recover');
       this.published(requeued.length, 'requeue');
       if (requeued.length && this.runJobs) void this.claimLoop('local');
     } catch (e) {
       this.failed('recover', e as Error);
     }
+    // Renewed only after a run that worked: a holder that cannot recover loses the lease when it ends.
+    if (count === undefined || this.hkStopped) return;
+    try {
+      const now = Date.now();
+      const held = await this.repo.takeLease(HOUSEKEEPING_LEASE, this.workerId, new Date(now).toISOString(), new Date(now + this.hk.ttlMs).toISOString(), count);
+      this.ok('housekeeping');
+      if (!held) {
+        this.leader = false;
+        this.holder = undefined;
+        // A recovery error of the holder's last runs is not this instance's problem any more (it no longer runs it).
+        if (this.lastError?.operation === 'recover') this.lastError = undefined;
+        this.log('info', 'queue: another instance took over the queue housekeeping');
+      }
+    } catch (e) {
+      this.failed('housekeeping', e as Error);
+    }
+  }
+
+  /** Stop the housekeeping (shutdown) and hand the lease on, so the next instance to look takes it at once. */
+  private async stopHousekeeping(): Promise<void> {
+    this.hkStopped = true;
+    if (this.hkTimer) clearTimeout(this.hkTimer);
+    this.hkTimer = null;
+    await this.hkRun;
+    if (!this.leader) return;
+    this.leader = false;
+    await this.repo.releaseLease(HOUSEKEEPING_LEASE, this.workerId, new Date().toISOString()).catch((e: Error) => {
+      this.log('warn', `queue: could not hand on the queue housekeeping lease (another instance takes it when it ends): ${e.message}`);
+    });
   }
 
   private abort(id: string, reason: AbortReason, why: string) {

@@ -3,6 +3,7 @@
  * mode on DB_URL, like a `worker` instance without the HTTP server.
  *
  *   MODE=worker  claims and runs `render` jobs; each run appends "<jobId> <workerId>" to OUT, sleeps JOB_MS
+ *                (TRACE_HOUSEKEEPING=1: logs each lease recovery and queue count it runs)
  *   MODE=quota   at START_AT (epoch ms) tries COUNT quota-limited inserts for KEY_ID (limit LIMIT); prints how many succeeded
  */
 import { appendFileSync } from 'node:fs';
@@ -32,8 +33,16 @@ if (env.MODE === 'quota') {
   process.exit(0);
 }
 
+// TRACE_HOUSEKEEPING=1: print a line for every lease recovery and queue count this process runs (SCL-20).
+const jobs = env.TRACE_HOUSEKEEPING
+  ? {
+      ...repos.jobs,
+      recoverExpired: (now: string, max: number) => (console.log(`housekeeping recover ${env.WORKER_ID}`), repos.jobs.recoverExpired(now, max)),
+      countQueued: (before?: Parameters<typeof repos.jobs.countQueued>[0]) => (before ? repos.jobs.countQueued(before) : (console.log(`housekeeping count ${env.WORKER_ID}`), repos.jobs.countQueued())),
+    }
+  : repos.jobs;
 const runner = new JobRunner({
-  repo: repos.jobs,
+  repo: jobs,
   concurrency: Number(env.CONCURRENCY ?? 1),
   mode: 'database',
   database: { workerId: env.WORKER_ID, leaseMs: Number(env.LEASE_MS ?? 3000), heartbeatMs: 250, pollMs: 50, maxAttempts: Number(env.MAX_ATTEMPTS ?? 3) },

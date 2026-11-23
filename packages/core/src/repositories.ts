@@ -265,6 +265,15 @@ export interface JobFilter {
   type?: string;
 }
 
+/** A named lease one instance of the deployment holds at a time (InstanceLease, D-106). */
+export interface InstanceLeaseRecord {
+  holder: string;
+  expiresAt: string;
+  /** What the holder published with it (queue-housekeeping: queued jobs). */
+  value?: number;
+  updatedAt: string;
+}
+
 export interface JobRepository {
   /** Insert a new job and its first status event, atomically. */
   insert(job: JobRecord, at: string): Promise<void>;
@@ -375,6 +384,16 @@ export interface JobRepository {
   recoverExpired(now: string, maxAttempts: number): Promise<{ requeued: JobRecord[]; failed: JobRecord[]; /** Parents and siblings a failed fan-out child finished or cancelled (D-097). */ settled?: JobRecord[] }>;
   /** Hand a held job back to the queue (graceful shutdown): queued, no worker, the attempt not counted. */
   release(id: string, fence: JobLeaseFence, at: string): Promise<boolean>;
+  /**
+   * Take or renew the instance lease `name` for `holder` until `until` (D-106): only while nobody holds it, it
+   * expired (`expiresAt <= now`) or `holder` already does. One compare-and-set UPDATE (the row is created on first
+   * use), so of instances racing for a free lease exactly one gets it. `value` is stored with it for the others.
+   */
+  takeLease(name: string, holder: string, now: string, until: string, value?: number): Promise<boolean>;
+  /** The instance lease `name` as stored, or null before anyone took it. */
+  readLease(name: string): Promise<InstanceLeaseRecord | null>;
+  /** Give the lease up while `holder` still has it (shutdown): it is expired at once, the next instance to look takes it. */
+  releaseLease(name: string, holder: string, at: string): Promise<boolean>;
   /** Cancel a job that is still queued. Returns the cancelled job, or null when it is not queued (any more). */
   cancelQueued(id: string, at: string, error: { code: string; message: string }): Promise<JobRecord | null>;
   /** Ask the worker holding a running job to stop it. Returns false when the job is not running. */

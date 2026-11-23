@@ -153,6 +153,8 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
     concurrency: q.concurrency,
     ...(q.paused ? { paused: q.paused } : {}),
     ...(q.lastHeartbeatAt ? { lastHeartbeatAt: q.lastHeartbeatAt } : {}),
+    // Queue housekeeping (D-106): whether this instance runs the lease recovery and the queue count, and who does.
+    ...(q.housekeeping ? { housekeeping: q.housekeeping } : {}),
     ...(q.lastError ? { detail: `queue ${q.lastError.operation} failing since ${q.lastError.at}: ${q.lastError.message}` } : q.paused ? { detail: q.paused } : {}),
   };
 

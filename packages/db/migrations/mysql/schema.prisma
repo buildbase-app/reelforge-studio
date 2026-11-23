@@ -30,6 +30,7 @@ model Workspace {
   webhookAttempts  WebhookAttempt[]
   rateLimitWindows RateLimitWindow[]
   dispatchOutbox   DispatchOutbox[]
+  instanceLeases   InstanceLease[]
 }
 
 /// A project; its manifests live in ProjectVersion (one row per saved version).
@@ -463,4 +464,24 @@ model DispatchOutbox {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, nextAttemptAt])
+}
+
+/// A named lease that one instance of the deployment holds at a time (#195,
+/// D-106). `queue-housekeeping`: its holder re-queues jobs whose lease expired
+/// and counts the queue for every instance, and stores that count in `value`
+/// where the others read it. Taken and renewed with one compare-and-set UPDATE
+/// (free, expired, or already the holder's), so a dead holder's lease is taken
+/// over once `expiresAt` passes.
+model InstanceLease {
+  workspaceId String   @db.VarChar(191)
+  name        String   @db.VarChar(191)
+  holder      String   @db.VarChar(191)
+  expiresAt   DateTime
+  /// A number the holder publishes for the other instances (queue-housekeeping: queued jobs).
+  value       Int?
+  updatedAt   DateTime
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, name])
 }

@@ -17,6 +17,7 @@ import {
   type AuditFilter,
   type ChildSettlement,
   type IdempotencyRecord,
+  type InstanceLeaseRecord,
   type JobFilter,
   type JobRecord,
   type ProjectMeta,
@@ -102,6 +103,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID, opt
   const projects = new Map<string, { meta: ProjectMeta; versions: Map<number, Project> }>();
   const keys = new Map<string, ApiKeyRecord>();
   const jobs = new Map<string, JobRecord>();
+  const leases = new Map<string, InstanceLeaseRecord>();
   const rateWindows = new Map<string, { windowStart: string; count: number }>();
   const holds = (id: string, fence?: { workerId: string; attempts: number }) => {
     const j = jobs.get(id);
@@ -394,6 +396,22 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID, opt
         }
         ready(requeued.map((j) => j.id));
         return { requeued, failed, settled };
+      },
+      async takeLease(name, holder, now, until, value) {
+        const l = leases.get(name);
+        if (l && l.holder !== holder && l.expiresAt > now) return false;
+        leases.set(name, { holder, expiresAt: until, updatedAt: now, ...(value !== undefined ? { value } : l?.value !== undefined ? { value: l.value } : {}) });
+        return true;
+      },
+      async readLease(name) {
+        const l = leases.get(name);
+        return l ? { ...l } : null;
+      },
+      async releaseLease(name, holder, at) {
+        const l = leases.get(name);
+        if (!l || l.holder !== holder) return false;
+        leases.set(name, { ...l, expiresAt: at, updatedAt: at });
+        return true;
       },
       async release(id, fence, at) {
         const j = jobs.get(id);

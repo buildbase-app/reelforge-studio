@@ -181,6 +181,7 @@ export type WorkspaceWhereInput = {
   webhookAttempts?: Prisma.WebhookAttemptListRelationFilter
   rateLimitWindows?: Prisma.RateLimitWindowListRelationFilter
   dispatchOutbox?: Prisma.DispatchOutboxListRelationFilter
+  instanceLeases?: Prisma.InstanceLeaseListRelationFilter
 }
 
 export type WorkspaceOrderByWithRelationInput = {
@@ -202,6 +203,7 @@ export type WorkspaceOrderByWithRelationInput = {
   webhookAttempts?: Prisma.WebhookAttemptOrderByRelationAggregateInput
   rateLimitWindows?: Prisma.RateLimitWindowOrderByRelationAggregateInput
   dispatchOutbox?: Prisma.DispatchOutboxOrderByRelationAggregateInput
+  instanceLeases?: Prisma.InstanceLeaseOrderByRelationAggregateInput
 }
 
 export type WorkspaceWhereUniqueInput = Prisma.AtLeast<{
@@ -226,6 +228,7 @@ export type WorkspaceWhereUniqueInput = Prisma.AtLeast<{
   webhookAttempts?: Prisma.WebhookAttemptListRelationFilter
   rateLimitWindows?: Prisma.RateLimitWindowListRelationFilter
   dispatchOutbox?: Prisma.DispatchOutboxListRelationFilter
+  instanceLeases?: Prisma.InstanceLeaseListRelationFilter
 }, "id">
 
 export type WorkspaceOrderByWithAggregationInput = {
@@ -265,6 +268,7 @@ export type WorkspaceCreateInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateInput = {
@@ -286,6 +290,7 @@ export type WorkspaceUncheckedCreateInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUpdateInput = {
@@ -307,6 +312,7 @@ export type WorkspaceUpdateInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateInput = {
@@ -328,6 +334,7 @@ export type WorkspaceUncheckedUpdateInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateManyInput = {
@@ -589,6 +596,20 @@ export type WorkspaceUpdateOneRequiredWithoutDispatchOutboxNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.WorkspaceUpdateToOneWithWhereWithoutDispatchOutboxInput, Prisma.WorkspaceUpdateWithoutDispatchOutboxInput>, Prisma.WorkspaceUncheckedUpdateWithoutDispatchOutboxInput>
 }
 
+export type WorkspaceCreateNestedOneWithoutInstanceLeasesInput = {
+  create?: Prisma.XOR<Prisma.WorkspaceCreateWithoutInstanceLeasesInput, Prisma.WorkspaceUncheckedCreateWithoutInstanceLeasesInput>
+  connectOrCreate?: Prisma.WorkspaceCreateOrConnectWithoutInstanceLeasesInput
+  connect?: Prisma.WorkspaceWhereUniqueInput
+}
+
+export type WorkspaceUpdateOneRequiredWithoutInstanceLeasesNestedInput = {
+  create?: Prisma.XOR<Prisma.WorkspaceCreateWithoutInstanceLeasesInput, Prisma.WorkspaceUncheckedCreateWithoutInstanceLeasesInput>
+  connectOrCreate?: Prisma.WorkspaceCreateOrConnectWithoutInstanceLeasesInput
+  upsert?: Prisma.WorkspaceUpsertWithoutInstanceLeasesInput
+  connect?: Prisma.WorkspaceWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.WorkspaceUpdateToOneWithWhereWithoutInstanceLeasesInput, Prisma.WorkspaceUpdateWithoutInstanceLeasesInput>, Prisma.WorkspaceUncheckedUpdateWithoutInstanceLeasesInput>
+}
+
 export type WorkspaceCreateWithoutProjectsInput = {
   id: string
   name: string
@@ -607,6 +628,7 @@ export type WorkspaceCreateWithoutProjectsInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutProjectsInput = {
@@ -627,6 +649,7 @@ export type WorkspaceUncheckedCreateWithoutProjectsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutProjectsInput = {
@@ -663,6 +686,7 @@ export type WorkspaceUpdateWithoutProjectsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutProjectsInput = {
@@ -683,6 +707,7 @@ export type WorkspaceUncheckedUpdateWithoutProjectsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutApiKeysInput = {
@@ -703,6 +728,7 @@ export type WorkspaceCreateWithoutApiKeysInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutApiKeysInput = {
@@ -723,6 +749,7 @@ export type WorkspaceUncheckedCreateWithoutApiKeysInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutApiKeysInput = {
@@ -759,6 +786,7 @@ export type WorkspaceUpdateWithoutApiKeysInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutApiKeysInput = {
@@ -779,6 +807,7 @@ export type WorkspaceUncheckedUpdateWithoutApiKeysInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutJobsInput = {
@@ -799,6 +828,7 @@ export type WorkspaceCreateWithoutJobsInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutJobsInput = {
@@ -819,6 +849,7 @@ export type WorkspaceUncheckedCreateWithoutJobsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutJobsInput = {
@@ -855,6 +886,7 @@ export type WorkspaceUpdateWithoutJobsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutJobsInput = {
@@ -875,6 +907,7 @@ export type WorkspaceUncheckedUpdateWithoutJobsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutThemesInput = {
@@ -895,6 +928,7 @@ export type WorkspaceCreateWithoutThemesInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutThemesInput = {
@@ -915,6 +949,7 @@ export type WorkspaceUncheckedCreateWithoutThemesInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutThemesInput = {
@@ -951,6 +986,7 @@ export type WorkspaceUpdateWithoutThemesInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutThemesInput = {
@@ -971,6 +1007,7 @@ export type WorkspaceUncheckedUpdateWithoutThemesInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutProviderSettingsInput = {
@@ -991,6 +1028,7 @@ export type WorkspaceCreateWithoutProviderSettingsInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutProviderSettingsInput = {
@@ -1011,6 +1049,7 @@ export type WorkspaceUncheckedCreateWithoutProviderSettingsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutProviderSettingsInput = {
@@ -1047,6 +1086,7 @@ export type WorkspaceUpdateWithoutProviderSettingsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutProviderSettingsInput = {
@@ -1067,6 +1107,7 @@ export type WorkspaceUncheckedUpdateWithoutProviderSettingsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutSettingsInput = {
@@ -1087,6 +1128,7 @@ export type WorkspaceCreateWithoutSettingsInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutSettingsInput = {
@@ -1107,6 +1149,7 @@ export type WorkspaceUncheckedCreateWithoutSettingsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutSettingsInput = {
@@ -1143,6 +1186,7 @@ export type WorkspaceUpdateWithoutSettingsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutSettingsInput = {
@@ -1163,6 +1207,7 @@ export type WorkspaceUncheckedUpdateWithoutSettingsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutAssetsInput = {
@@ -1183,6 +1228,7 @@ export type WorkspaceCreateWithoutAssetsInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutAssetsInput = {
@@ -1203,6 +1249,7 @@ export type WorkspaceUncheckedCreateWithoutAssetsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutAssetsInput = {
@@ -1239,6 +1286,7 @@ export type WorkspaceUpdateWithoutAssetsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutAssetsInput = {
@@ -1259,6 +1307,7 @@ export type WorkspaceUncheckedUpdateWithoutAssetsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutAuditLogsInput = {
@@ -1279,6 +1328,7 @@ export type WorkspaceCreateWithoutAuditLogsInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutAuditLogsInput = {
@@ -1299,6 +1349,7 @@ export type WorkspaceUncheckedCreateWithoutAuditLogsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutAuditLogsInput = {
@@ -1335,6 +1386,7 @@ export type WorkspaceUpdateWithoutAuditLogsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutAuditLogsInput = {
@@ -1355,6 +1407,7 @@ export type WorkspaceUncheckedUpdateWithoutAuditLogsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutIdempotencyKeysInput = {
@@ -1375,6 +1428,7 @@ export type WorkspaceCreateWithoutIdempotencyKeysInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutIdempotencyKeysInput = {
@@ -1395,6 +1449,7 @@ export type WorkspaceUncheckedCreateWithoutIdempotencyKeysInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutIdempotencyKeysInput = {
@@ -1431,6 +1486,7 @@ export type WorkspaceUpdateWithoutIdempotencyKeysInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutIdempotencyKeysInput = {
@@ -1451,6 +1507,7 @@ export type WorkspaceUncheckedUpdateWithoutIdempotencyKeysInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutRateLimitWindowsInput = {
@@ -1471,6 +1528,7 @@ export type WorkspaceCreateWithoutRateLimitWindowsInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryCreateNestedManyWithoutWorkspaceInput
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutRateLimitWindowsInput = {
@@ -1491,6 +1549,7 @@ export type WorkspaceUncheckedCreateWithoutRateLimitWindowsInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryUncheckedCreateNestedManyWithoutWorkspaceInput
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutRateLimitWindowsInput = {
@@ -1527,6 +1586,7 @@ export type WorkspaceUpdateWithoutRateLimitWindowsInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryUpdateManyWithoutWorkspaceNestedInput
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutRateLimitWindowsInput = {
@@ -1547,6 +1607,7 @@ export type WorkspaceUncheckedUpdateWithoutRateLimitWindowsInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryUncheckedUpdateManyWithoutWorkspaceNestedInput
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutLicenceStatesInput = {
@@ -1567,6 +1628,7 @@ export type WorkspaceCreateWithoutLicenceStatesInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutLicenceStatesInput = {
@@ -1587,6 +1649,7 @@ export type WorkspaceUncheckedCreateWithoutLicenceStatesInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutLicenceStatesInput = {
@@ -1623,6 +1686,7 @@ export type WorkspaceUpdateWithoutLicenceStatesInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutLicenceStatesInput = {
@@ -1643,6 +1707,7 @@ export type WorkspaceUncheckedUpdateWithoutLicenceStatesInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutWebhookEndpointsInput = {
@@ -1663,6 +1728,7 @@ export type WorkspaceCreateWithoutWebhookEndpointsInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutWebhookEndpointsInput = {
@@ -1683,6 +1749,7 @@ export type WorkspaceUncheckedCreateWithoutWebhookEndpointsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutWebhookEndpointsInput = {
@@ -1719,6 +1786,7 @@ export type WorkspaceUpdateWithoutWebhookEndpointsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutWebhookEndpointsInput = {
@@ -1739,6 +1807,7 @@ export type WorkspaceUncheckedUpdateWithoutWebhookEndpointsInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutWebhookDeliveriesInput = {
@@ -1759,6 +1828,7 @@ export type WorkspaceCreateWithoutWebhookDeliveriesInput = {
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutWebhookDeliveriesInput = {
@@ -1779,6 +1849,7 @@ export type WorkspaceUncheckedCreateWithoutWebhookDeliveriesInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutWebhookDeliveriesInput = {
@@ -1815,6 +1886,7 @@ export type WorkspaceUpdateWithoutWebhookDeliveriesInput = {
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutWebhookDeliveriesInput = {
@@ -1835,6 +1907,7 @@ export type WorkspaceUncheckedUpdateWithoutWebhookDeliveriesInput = {
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutWebhookAttemptsInput = {
@@ -1855,6 +1928,7 @@ export type WorkspaceCreateWithoutWebhookAttemptsInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutWebhookAttemptsInput = {
@@ -1875,6 +1949,7 @@ export type WorkspaceUncheckedCreateWithoutWebhookAttemptsInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutWebhookAttemptsInput = {
@@ -1911,6 +1986,7 @@ export type WorkspaceUpdateWithoutWebhookAttemptsInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutWebhookAttemptsInput = {
@@ -1931,6 +2007,7 @@ export type WorkspaceUncheckedUpdateWithoutWebhookAttemptsInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
   dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceCreateWithoutDispatchOutboxInput = {
@@ -1951,6 +2028,7 @@ export type WorkspaceCreateWithoutDispatchOutboxInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryCreateNestedManyWithoutWorkspaceInput
   webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceUncheckedCreateWithoutDispatchOutboxInput = {
@@ -1971,6 +2049,7 @@ export type WorkspaceUncheckedCreateWithoutDispatchOutboxInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryUncheckedCreateNestedManyWithoutWorkspaceInput
   webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedCreateNestedManyWithoutWorkspaceInput
 }
 
 export type WorkspaceCreateOrConnectWithoutDispatchOutboxInput = {
@@ -2007,6 +2086,7 @@ export type WorkspaceUpdateWithoutDispatchOutboxInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryUpdateManyWithoutWorkspaceNestedInput
   webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUpdateManyWithoutWorkspaceNestedInput
 }
 
 export type WorkspaceUncheckedUpdateWithoutDispatchOutboxInput = {
@@ -2027,6 +2107,107 @@ export type WorkspaceUncheckedUpdateWithoutDispatchOutboxInput = {
   webhookDeliveries?: Prisma.WebhookDeliveryUncheckedUpdateManyWithoutWorkspaceNestedInput
   webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
   rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
+  instanceLeases?: Prisma.InstanceLeaseUncheckedUpdateManyWithoutWorkspaceNestedInput
+}
+
+export type WorkspaceCreateWithoutInstanceLeasesInput = {
+  id: string
+  name: string
+  createdAt?: Date | string
+  projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
+  apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
+  jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
+  themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
+  providerSettings?: Prisma.ProviderSettingCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingCreateNestedManyWithoutWorkspaceInput
+  assets?: Prisma.AssetCreateNestedManyWithoutWorkspaceInput
+  auditLogs?: Prisma.AuditLogCreateNestedManyWithoutWorkspaceInput
+  licenceStates?: Prisma.LicenceStateCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutWorkspaceInput
+  webhookEndpoints?: Prisma.WebhookEndpointCreateNestedManyWithoutWorkspaceInput
+  webhookDeliveries?: Prisma.WebhookDeliveryCreateNestedManyWithoutWorkspaceInput
+  webhookAttempts?: Prisma.WebhookAttemptCreateNestedManyWithoutWorkspaceInput
+  rateLimitWindows?: Prisma.RateLimitWindowCreateNestedManyWithoutWorkspaceInput
+  dispatchOutbox?: Prisma.DispatchOutboxCreateNestedManyWithoutWorkspaceInput
+}
+
+export type WorkspaceUncheckedCreateWithoutInstanceLeasesInput = {
+  id: string
+  name: string
+  createdAt?: Date | string
+  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
+  apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
+  jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
+  themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
+  providerSettings?: Prisma.ProviderSettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  settings?: Prisma.SettingUncheckedCreateNestedManyWithoutWorkspaceInput
+  assets?: Prisma.AssetUncheckedCreateNestedManyWithoutWorkspaceInput
+  auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutWorkspaceInput
+  licenceStates?: Prisma.LicenceStateUncheckedCreateNestedManyWithoutWorkspaceInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutWorkspaceInput
+  webhookEndpoints?: Prisma.WebhookEndpointUncheckedCreateNestedManyWithoutWorkspaceInput
+  webhookDeliveries?: Prisma.WebhookDeliveryUncheckedCreateNestedManyWithoutWorkspaceInput
+  webhookAttempts?: Prisma.WebhookAttemptUncheckedCreateNestedManyWithoutWorkspaceInput
+  rateLimitWindows?: Prisma.RateLimitWindowUncheckedCreateNestedManyWithoutWorkspaceInput
+  dispatchOutbox?: Prisma.DispatchOutboxUncheckedCreateNestedManyWithoutWorkspaceInput
+}
+
+export type WorkspaceCreateOrConnectWithoutInstanceLeasesInput = {
+  where: Prisma.WorkspaceWhereUniqueInput
+  create: Prisma.XOR<Prisma.WorkspaceCreateWithoutInstanceLeasesInput, Prisma.WorkspaceUncheckedCreateWithoutInstanceLeasesInput>
+}
+
+export type WorkspaceUpsertWithoutInstanceLeasesInput = {
+  update: Prisma.XOR<Prisma.WorkspaceUpdateWithoutInstanceLeasesInput, Prisma.WorkspaceUncheckedUpdateWithoutInstanceLeasesInput>
+  create: Prisma.XOR<Prisma.WorkspaceCreateWithoutInstanceLeasesInput, Prisma.WorkspaceUncheckedCreateWithoutInstanceLeasesInput>
+  where?: Prisma.WorkspaceWhereInput
+}
+
+export type WorkspaceUpdateToOneWithWhereWithoutInstanceLeasesInput = {
+  where?: Prisma.WorkspaceWhereInput
+  data: Prisma.XOR<Prisma.WorkspaceUpdateWithoutInstanceLeasesInput, Prisma.WorkspaceUncheckedUpdateWithoutInstanceLeasesInput>
+}
+
+export type WorkspaceUpdateWithoutInstanceLeasesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
+  apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
+  jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
+  themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
+  providerSettings?: Prisma.ProviderSettingUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUpdateManyWithoutWorkspaceNestedInput
+  assets?: Prisma.AssetUpdateManyWithoutWorkspaceNestedInput
+  auditLogs?: Prisma.AuditLogUpdateManyWithoutWorkspaceNestedInput
+  licenceStates?: Prisma.LicenceStateUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutWorkspaceNestedInput
+  webhookEndpoints?: Prisma.WebhookEndpointUpdateManyWithoutWorkspaceNestedInput
+  webhookDeliveries?: Prisma.WebhookDeliveryUpdateManyWithoutWorkspaceNestedInput
+  webhookAttempts?: Prisma.WebhookAttemptUpdateManyWithoutWorkspaceNestedInput
+  rateLimitWindows?: Prisma.RateLimitWindowUpdateManyWithoutWorkspaceNestedInput
+  dispatchOutbox?: Prisma.DispatchOutboxUpdateManyWithoutWorkspaceNestedInput
+}
+
+export type WorkspaceUncheckedUpdateWithoutInstanceLeasesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
+  apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
+  jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
+  themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
+  providerSettings?: Prisma.ProviderSettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  settings?: Prisma.SettingUncheckedUpdateManyWithoutWorkspaceNestedInput
+  assets?: Prisma.AssetUncheckedUpdateManyWithoutWorkspaceNestedInput
+  auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutWorkspaceNestedInput
+  licenceStates?: Prisma.LicenceStateUncheckedUpdateManyWithoutWorkspaceNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
+  webhookEndpoints?: Prisma.WebhookEndpointUncheckedUpdateManyWithoutWorkspaceNestedInput
+  webhookDeliveries?: Prisma.WebhookDeliveryUncheckedUpdateManyWithoutWorkspaceNestedInput
+  webhookAttempts?: Prisma.WebhookAttemptUncheckedUpdateManyWithoutWorkspaceNestedInput
+  rateLimitWindows?: Prisma.RateLimitWindowUncheckedUpdateManyWithoutWorkspaceNestedInput
+  dispatchOutbox?: Prisma.DispatchOutboxUncheckedUpdateManyWithoutWorkspaceNestedInput
 }
 
 
@@ -2050,6 +2231,7 @@ export type WorkspaceCountOutputType = {
   webhookAttempts: number
   rateLimitWindows: number
   dispatchOutbox: number
+  instanceLeases: number
 }
 
 export type WorkspaceCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -2068,6 +2250,7 @@ export type WorkspaceCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensi
   webhookAttempts?: boolean | WorkspaceCountOutputTypeCountWebhookAttemptsArgs
   rateLimitWindows?: boolean | WorkspaceCountOutputTypeCountRateLimitWindowsArgs
   dispatchOutbox?: boolean | WorkspaceCountOutputTypeCountDispatchOutboxArgs
+  instanceLeases?: boolean | WorkspaceCountOutputTypeCountInstanceLeasesArgs
 }
 
 /**
@@ -2185,6 +2368,13 @@ export type WorkspaceCountOutputTypeCountDispatchOutboxArgs<ExtArgs extends runt
   where?: Prisma.DispatchOutboxWhereInput
 }
 
+/**
+ * WorkspaceCountOutputType without action
+ */
+export type WorkspaceCountOutputTypeCountInstanceLeasesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.InstanceLeaseWhereInput
+}
+
 
 export type WorkspaceSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -2205,6 +2395,7 @@ export type WorkspaceSelect<ExtArgs extends runtime.Types.Extensions.InternalArg
   webhookAttempts?: boolean | Prisma.Workspace$webhookAttemptsArgs<ExtArgs>
   rateLimitWindows?: boolean | Prisma.Workspace$rateLimitWindowsArgs<ExtArgs>
   dispatchOutbox?: boolean | Prisma.Workspace$dispatchOutboxArgs<ExtArgs>
+  instanceLeases?: boolean | Prisma.Workspace$instanceLeasesArgs<ExtArgs>
   _count?: boolean | Prisma.WorkspaceCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["workspace"]>
 
@@ -2243,6 +2434,7 @@ export type WorkspaceInclude<ExtArgs extends runtime.Types.Extensions.InternalAr
   webhookAttempts?: boolean | Prisma.Workspace$webhookAttemptsArgs<ExtArgs>
   rateLimitWindows?: boolean | Prisma.Workspace$rateLimitWindowsArgs<ExtArgs>
   dispatchOutbox?: boolean | Prisma.Workspace$dispatchOutboxArgs<ExtArgs>
+  instanceLeases?: boolean | Prisma.Workspace$instanceLeasesArgs<ExtArgs>
   _count?: boolean | Prisma.WorkspaceCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type WorkspaceIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
@@ -2266,6 +2458,7 @@ export type $WorkspacePayload<ExtArgs extends runtime.Types.Extensions.InternalA
     webhookAttempts: Prisma.$WebhookAttemptPayload<ExtArgs>[]
     rateLimitWindows: Prisma.$RateLimitWindowPayload<ExtArgs>[]
     dispatchOutbox: Prisma.$DispatchOutboxPayload<ExtArgs>[]
+    instanceLeases: Prisma.$InstanceLeasePayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -2680,6 +2873,7 @@ export interface Prisma__WorkspaceClient<T, Null = never, ExtArgs extends runtim
   webhookAttempts<T extends Prisma.Workspace$webhookAttemptsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$webhookAttemptsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$WebhookAttemptPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   rateLimitWindows<T extends Prisma.Workspace$rateLimitWindowsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$rateLimitWindowsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RateLimitWindowPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   dispatchOutbox<T extends Prisma.Workspace$dispatchOutboxArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$dispatchOutboxArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$DispatchOutboxPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  instanceLeases<T extends Prisma.Workspace$instanceLeasesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Workspace$instanceLeasesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$InstanceLeasePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -3462,6 +3656,30 @@ export type Workspace$dispatchOutboxArgs<ExtArgs extends runtime.Types.Extension
   take?: number
   skip?: number
   distinct?: Prisma.DispatchOutboxScalarFieldEnum | Prisma.DispatchOutboxScalarFieldEnum[]
+}
+
+/**
+ * Workspace.instanceLeases
+ */
+export type Workspace$instanceLeasesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the InstanceLease
+   */
+  select?: Prisma.InstanceLeaseSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the InstanceLease
+   */
+  omit?: Prisma.InstanceLeaseOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.InstanceLeaseInclude<ExtArgs> | null
+  where?: Prisma.InstanceLeaseWhereInput
+  orderBy?: Prisma.InstanceLeaseOrderByWithRelationInput | Prisma.InstanceLeaseOrderByWithRelationInput[]
+  cursor?: Prisma.InstanceLeaseWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.InstanceLeaseScalarFieldEnum | Prisma.InstanceLeaseScalarFieldEnum[]
 }
 
 /**
