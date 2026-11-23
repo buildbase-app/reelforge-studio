@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { ChangeMessageVisibilityCommand, DeleteMessageCommand, GetQueueAttributesCommand, ReceiveMessageCommand, SQSClient, SendMessageBatchCommand } from '@aws-sdk/client-sqs';
 import { BrokerListener, brokerError, readyBody, type BrokerDelivery } from './dispatch-broker';
 import type { DispatchPublisher } from './dispatch';
@@ -54,8 +53,8 @@ class SqsClients {
     if (!c.queueUrl) throw new Error('queue.sqs.queueUrl is not set');
     const region = c.region ?? sqsRegionFromUrl(c.queueUrl);
     const creds = c.accessKeyId && c.secretAccessKey ? { accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey, ...(c.sessionToken ? { sessionToken: c.sessionToken } : {}) } : undefined;
-    // A fingerprint, not the values: the key itself is never kept outside the settings.
-    const fp = createHash('sha256').update(JSON.stringify([region, c.endpoint, creds])).digest('hex');
+    // What the client was built with (compared, never logged): a change rebuilds it.
+    const fp = JSON.stringify([region, c.endpoint, creds]);
     if (!this.client || fp !== this.fp) {
       this.client?.destroy();
       this.client = new SQSClient({

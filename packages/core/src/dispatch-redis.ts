@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { Redis, type RedisOptions } from 'ioredis';
@@ -50,8 +50,9 @@ export function redactRedisUrl(url: string | undefined): string {
   }
 }
 
+/** What a connection was opened with (compared, never logged): a change reconnects. */
 function fingerprint(c: RedisDispatchConfig): string {
-  return createHash('sha256').update(JSON.stringify([c.url, c.password, c.tlsCaFile])).digest('hex');
+  return JSON.stringify([c.url, c.password, c.tlsCaFile]);
 }
 
 /** The URL with queue.redis.password in it (ioredis lets a URL's own empty password win over an option). */
