@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
  * Outbound network blocking for HyperFrames renders (D-085).
@@ -72,3 +73,36 @@ export async function startNetworkSink(onAttempt: (target: string) => void): Pro
 
 /** HyperFrames prints this line when its capture proxy refuses a non-public destination. */
 export const REFUSED_LINE = /\[CaptureProxy:REFUSED\]\s*class=([\w-]+)/;
+
+/**
+ * The CLI's own Node-side `fetch` (HyperFrames' web-font resolver asks
+ * fonts.googleapis.com for every family the page names, with the page's
+ * characters) does not go through the capture proxy (#318). `egress-guard.mjs`
+ * is preloaded into the CLI and refuses every global fetch that leaves the
+ * machine, before any DNS lookup or connection. These are the lines it prints.
+ */
+export const FONT_REFUSED_LINE = /\[ReelForge:FONT_REFUSED\] host=(\S+)/;
+export const EGRESS_REFUSED_LINE = /\[ReelForge:EGRESS_REFUSED\] host=(\S+)/;
+
+/** file: URL of the fetch guard, for `--import`. */
+export function egressGuardUrl(): string {
+  return pathToFileURL(fileURLToPath(new URL('./egress-guard.mjs', import.meta.url))).href;
+}
+
+/**
+ * Environment additions that keep the CLI's Node side off the network:
+ * the fetch guard preloaded through NODE_OPTIONS (kept after the base value,
+ * so it applies to every Node process the CLI starts) and, with `sink`,
+ * Node's own proxy support pointed at the deny-all sink as a second line
+ * (Node >= 22.21 honours it for `fetch` and `http(s).request`; loopback stays
+ * direct), so a request that slips past the guard is refused and reported.
+ */
+export function nodeEgressEnv(baseNodeOptions: string | undefined, sink?: string): Record<string, string> {
+  const nodeOptions = [baseNodeOptions?.trim(), `--import=${egressGuardUrl()}`].filter(Boolean).join(' ');
+  return {
+    NODE_OPTIONS: nodeOptions,
+    ...(sink
+      ? { NODE_USE_ENV_PROXY: '1', HTTP_PROXY: sink, HTTPS_PROXY: sink, NO_PROXY: 'localhost,127.0.0.1,::1' }
+      : {}),
+  };
+}

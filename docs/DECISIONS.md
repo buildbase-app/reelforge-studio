@@ -2261,6 +2261,47 @@ an allowlist operators narrow (NetworkPolicy has no host names).
 per the MCP authorization spec (protected-resource metadata, JWT access tokens checked against the issuer's JWKS,
 audience = the server's MCP URL, scopes mapped to `read`/`write`/`admin`), with API keys unchanged.
 
+### D-111 --- HyperFrames' Node-side fetch is refused by a preloaded guard; missing web fonts fall back instead of downloading
+
+**Status:** DECIDED (reversible).\
+Live test #318: with a theme or scene that names a web font that is not installed, the HyperFrames CLI (0.9.77)
+asked `fonts.googleapis.com` for it from its own Node process, with the family name and the characters used on
+the page in `text=`. That request uses Node's global `fetch`, not the capture proxy that D-085 points at the
+deny-all sink, so it left the machine and the render still succeeded. HyperFrames has no option that turns the
+fetch off (`failClosedFontFetch` only changes what happens when it fails). **Decision:** every HyperFrames render
+runs with `NODE_OPTIONS=--import=<engine-hyperframes/src/egress-guard.mjs>` (after any operator `NODE_OPTIONS`, so
+every Node process the CLI starts loads it too). The guard replaces the global `fetch`: `data:`, `blob:`, `file:`
+and loopback pass; everything else is refused with an `ECONNREFUSED` error before any DNS lookup or connection.
+Google Fonts hosts are refused quietly: HyperFrames then keeps the CSS fallback (installed, bundled or project
+fonts), the same result as the html engine, and the job log says the font was not downloaded. Any other host is
+refused and reported, and the engine fails the render with its usual network error (D-085). As a second line,
+Node's own proxy support (`NODE_USE_ENV_PROXY=1`, `HTTP_PROXY`/`HTTPS_PROXY` = the sink, `NO_PROXY` = loopback;
+Node 22.21 and later) sends anything that slips past the guard to the sink, which refuses and fails the render.
+HyperFrames' font cache (`HYPERFRAMES_FONT_CACHE_DIR`) moves into ReelForge's cache directory, so fonts that other
+tools downloaded into `~/.cache` do not change renders. Tested by SECT-41..43, including an `strace` run of a
+whole render (no `connect()` or send outside loopback, no DNS). html, Remotion and Motion Canvas renders with the
+same missing font were measured under `strace` too: no connection outside loopback, so they are unchanged.
+**Chromium's IPv6 reachability check (found by that test in CI, job 137840212606).** On a runner with an IPv6
+stack, three processes of a HyperFrames render (one per browser launch) called `connect()` to
+`[2001:4860:4860::8888]:443`, Google's public DNS address; the runner has no IPv6 route, so it failed with
+`ENETUNREACH`. This is not DNS over HTTPS: Chrome Headless Shell 157's net-log shows `secure_dns_mode` Off, no DoH
+servers, no DoH upgrade and no secure DNS transactions, even with 8.8.8.8 as the system resolver (the upgrade
+candidate). It is Chromium's IPv6 reachability check (`HOST_RESOLVER_MANAGER_IPV6_REACHABILITY_CHECK`): before its
+first host resolution, which every engine's page load needs, even of `127.0.0.1` (a `data:` URL alone does not
+trigger it), Chromium `connect()`s a **UDP** socket to that address to learn whether the kernel has an IPv6
+route, reads the local address and closes it. A UDP `connect()` sends no packet. No switch turns it off in this
+build: `--host-resolver-rules` and `--enable-features=EnableIPv6ReachabilityOverride` were tried and the check
+still ran. On hosts without IPv6 (this repository's development sandbox) Chromium cannot create the socket, which
+is why the local run did not see it. The `strace` test therefore allows exactly this call (UDP over IPv6, that
+address, port 443 or 80) and still fails on anything sent on that socket, on TCP to the same address (DoH), on any
+other address and on any DNS port; it traces `connect`, `sendto`, `sendmsg` and `sendmmsg` with socket types
+(`strace -yy`) and counts every call whatever its result, since a missing route only hides a leak. DoH flags are
+not added to the engines: DoH is already off in the browser we ship.
+*Rejected:* failing every render that names a missing web font (a theme font that is not installed is a normal
+case and renders fine on the other engines); patching HyperFrames' bundle (D-085); a network namespace per render
+(not available to an unprivileged container); ignoring failed `connect()` calls in the test (the CI leak only
+failed for want of a route); allowing every UDP `connect()` (a connected UDP socket can send DNS).
+
 ### D-112 --- MCP accepts OAuth 2.1 access tokens as a resource server; JWT and JWKS only; API keys stay
 
 **Status:** DECIDED (reversible), issue #305 (step 2; step 1 is D-110).\
