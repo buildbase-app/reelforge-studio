@@ -380,6 +380,74 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       return toJob(row);
     }, lockingTx);
 
+  /**
+   * The claim's plan on PostgreSQL and MySQL (#307, D-1XX): one row per (key, class) with queued jobs, with the
+   * class (`p`), the time of its oldest queued job (`t`) and the key's running jobs (`n`; 0 without a key), in one
+   * statement. Before, every claim grouped every queued job (a GROUP BY that read each row from the table: 10.7 ms
+   * per claim at ~4 000 queued on PostgreSQL 17, growing with the queue). Both use the claim index (Job_claim_idx:
+   * workspaceId, queue, status, apiKeyId, priority, createdAt).
+   *   PostgreSQL has two exact plans and takes the cheaper. The GROUP BY reads every queued job (about 1.7 us
+   *   each, measured); the recursive skip scan reads one index entry per (key, class): each step is one index
+   *   descent to the first job of these types after the previous (key, class), which is the next one's oldest
+   *   (35 to 66 us a step on the same host, so 21 to 39 queued jobs' worth). So the skip scan wins once the queue
+   *   holds more than SKIP_FACTOR jobs per (key, class), and then the cost no longer grows with the queue. The
+   *   GROUP BY also counts the jobs, so it decides; it runs again every PLAN_RECHECK claims or seconds to see the
+   *   queue change. The choice is per process and only about cost: both plans give the same order.
+   *   MySQL: it cannot seek on an outer reference inside a recursive step (each step read the whole queue) and
+   *   does not use a loose index scan for this GROUP BY, so it groups the claim index itself, which covers the
+   *   query (no table reads; 8.5 ms instead of 52 ms over 20 000 queued, measured). That index has no room for
+   *   `type` (MySQL's 3 072-byte key limit), so `t` is the oldest job of any type: a lower bound, which the lock
+   *   loop corrects (see claim).
+   */
+  const SKIP_FACTOR = 32;
+  const PLAN_RECHECK = { claims: 100, ms: 30_000 };
+  const planState = { skip: false, plans: 0, checkedAt: 0 };
+  const claimPlan = async (types: string[]): Promise<Array<{ k: string | null; p: number; t: number; n: number }>> => {
+    const args: unknown[] = [];
+    const arg = (v: unknown) => (args.push(v), ph(args.length));
+    const c = (a: string, col: string) => `${qi(a)}.${qi(col)}`;
+    const ofQueue = (a: string, status: string) => `${c(a, 'workspaceId')} = ${arg(workspaceId)} AND ${c(a, 'queue')} = 'database' AND ${c(a, 'status')} = '${status}'`;
+    const running =
+      `SELECT ${c('r', 'apiKeyId')} AS ${qi('k')}, COUNT(*) AS ${qi('n')} FROM ${tbl('Job')} ${qi('r')} WHERE ${ofQueue('r', 'running')}` +
+      ` AND ${c('r', 'leaseExpiresAt')} IS NOT NULL AND ${c('r', 'apiKeyId')} IS NOT NULL GROUP BY ${c('r', 'apiKeyId')}`;
+    let sql: string;
+    const skip = kind === 'postgresql' && planState.skip && planState.plans < PLAN_RECHECK.claims && Date.now() - planState.checkedAt < PLAN_RECHECK.ms;
+    if (skip) {
+      const typeIn = (a: string) => `${c(a, 'type')} IN (${types.map((t) => arg(t)).join(', ')})`;
+      const cols = (a: string) => `${c(a, 'apiKeyId')}, ${c(a, 'priority')}, ${c(a, 'createdAt')}`;
+      // The next (key, class) after the previous one, keyed and keyless apart (a row comparison is never true for NULL).
+      const step = (prev: string, keyed: boolean) =>
+        `SELECT ${cols('j')} FROM ${tbl('Job')} ${qi('j')} WHERE ${ofQueue('j', 'queued')} AND ${typeIn('j')} AND ` +
+        (keyed
+          ? prev ? `(${c('j', 'apiKeyId')}, ${c('j', 'priority')}) > (${c(prev, 'k')}, ${c(prev, 'p')})` : `${c('j', 'apiKeyId')} IS NOT NULL`
+          : `${c('j', 'apiKeyId')} IS NULL` + (prev ? ` AND ${c('j', 'priority')} > ${c(prev, 'p')}` : '')) +
+        // apiKeyId leads the order also when it is NULL, so the keyless walk reads the claim index too.
+        ` ORDER BY ${c('j', 'apiKeyId')}, ${c('j', 'priority')}, ${c('j', 'createdAt')} LIMIT 1`;
+      const walk = (name: string, keyed: boolean) =>
+        `${qi(name)} (${qi('k')}, ${qi('p')}, ${qi('t')}) AS ((${step('', keyed)}) UNION ALL SELECT ${cols('x')} FROM ${qi(name)}, LATERAL (${step(name, keyed)}) ${qi('x')})`;
+      sql =
+        `WITH RECURSIVE ${walk('g', true)}, ${walk('h', false)}, ${qi('r')} AS (${running})` +
+        ` SELECT ${qi('q')}.*, COALESCE(${c('r', 'n')}, 0) AS ${qi('n')} FROM (SELECT * FROM ${qi('g')} UNION ALL SELECT * FROM ${qi('h')}) ${qi('q')}` +
+        ` LEFT JOIN ${qi('r')} ON ${c('r', 'k')} = ${c('q', 'k')}`;
+    } else {
+      // PostgreSQL filters the types here (exact `t`) and counts the jobs (the choice above); MySQL groups the
+      // covering index without `type` (no table reads; `t` a lower bound).
+      const pg = kind === 'postgresql';
+      sql =
+        `SELECT ${c('q', 'k')}, ${c('q', 'p')}, ${c('q', 't')}, ${c('q', 'c')}, COALESCE(${c('r', 'n')}, 0) AS ${qi('n')} FROM` +
+        ` (SELECT ${qi('apiKeyId')} AS ${qi('k')}, ${qi('priority')} AS ${qi('p')}, MIN(${qi('createdAt')}) AS ${qi('t')}, COUNT(*) AS ${qi('c')} FROM ${tbl('Job')} ${qi('j')}${pg ? '' : ` FORCE INDEX (${qi('Job_claim_idx')})`}` +
+        ` WHERE ${ofQueue('j', 'queued')}${pg ? ` AND ${c('j', 'type')} IN (${types.map((t) => arg(t)).join(', ')})` : ''} GROUP BY ${qi('apiKeyId')}, ${qi('priority')}) ${qi('q')}` +
+        ` LEFT JOIN (${running}) ${qi('r')} ON ${c('r', 'k')} = ${c('q', 'k')}`;
+    }
+    const rows = (await prisma.$queryRawUnsafe(sql, ...args)) as Array<{ k: string | null; p: unknown; t: unknown; c?: unknown; n: unknown }>;
+    if (skip) planState.plans++;
+    else if (kind === 'postgresql') {
+      const queued = rows.reduce((a, r) => a + Number(r.c), 0);
+      Object.assign(planState, { skip: queued > SKIP_FACTOR * rows.length, plans: 0, checkedAt: Date.now() });
+    }
+    return rows.map((r) => ({ k: r.k, p: Number(r.p), t: new Date(r.t as string).getTime(), n: Number(r.n) }));
+  };
+
   type KeyRow = {
     id: string;
     name: string;
@@ -829,14 +897,34 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       async claim({ workerId, types, now, leaseUntil, maxRunningPerKey, id: only, priorityAgingSeconds }) {
         if (!types.length) return null;
         if (only !== undefined) return claimOne({ workerId, types, now, leaseUntil, maxRunningPerKey, id: only });
-        return prisma.$transaction(async (tx) => {
-          // Priority first (D-103): the highest class, a batch job queued before `agedBefore` counting as standard.
-          // Then fair across API keys (D-090): the queued job whose key has the fewest running database-queue jobs,
-          // oldest first among equals (jobs without a key count as a key with none running). Optionally only
-          // keys below a running cap. Placeholders start at `first`: workspace id (running counts), workspace id,
-          // the types, the cap, then the aging cut-off.
-          const capped = maxRunningPerKey !== undefined;
-          const aging = priorityAgingSeconds !== undefined && priorityAgingSeconds > 0;
+        // Priority first (D-103): the highest class, a batch job queued before `agedBefore` counting as standard.
+        // Then fair across API keys (D-090): the queued job whose key has the fewest running database-queue jobs,
+        // oldest first among equals (jobs without a key count as a key with none running). Optionally only
+        // keys below a running cap.
+        const capped = maxRunningPerKey !== undefined;
+        const aging = priorityAgingSeconds !== undefined && priorityAgingSeconds > 0;
+        const take = async (tx: Tx, id: string | undefined) => {
+          if (!id) return null;
+          const row = await tx.job.update({
+            where: { id },
+            data: {
+              status: 'running',
+              workerId,
+              attempts: { increment: 1 },
+              startedAt: new Date(now),
+              leaseExpiresAt: new Date(leaseUntil),
+              cancelRequestedAt: null,
+              progress: json({ stage: 'starting', fraction: 0 }),
+            },
+          });
+          await tx.jobEvent.create({ data: statusEvent(id, now, 'running') });
+          await claimed(tx, row, now);
+          return toJob(row);
+        };
+        if (kind === 'sqlite') {
+          // One statement under the write lock (the first write of the transaction waits for it): atomic, no lost
+          // claims. Placeholders start at `first`: workspace id (running counts), workspace id, the types, the cap,
+          // then the aging cut-off. SQLite is one instance (D-076), so this plan is not on the scale path (#307).
           const agedBefore = aging ? new Date(Date.parse(now) - priorityAgingSeconds! * 1000) : undefined;
           const j = qi('j');
           const running =
@@ -854,85 +942,78 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
                 : `${j}.${qi('priority')}`) +
               `, COALESCE(${qi('r')}.${qi('n')}, 0), ${j}.${qi('createdAt')}, ${j}.${qi('id')} LIMIT 1`).replace('PH0', ph(first));
           const args = [workspaceId, workspaceId, ...types, ...(capped ? [maxRunningPerKey] : []), ...(aging ? [agedBefore] : [])];
+          return prisma.$transaction(async (tx) => {
+            const rows: Array<{ id: string }> = await tx.$queryRawUnsafe(`UPDATE ${tbl('Job')} SET "status" = 'running', "workerId" = ? WHERE "id" = (${pick(2)}) AND "status" = 'queued' RETURNING "id"`, workerId, ...args);
+            return take(tx, rows[0]?.id);
+          }, lockingTx);
+        }
+        // PostgreSQL and MySQL (#307, D-1XX). Plan with one plain read outside the transaction (claimPlan): every
+        // (key, class) with queued jobs, its oldest job and the key's running jobs. Then lock one job of the best
+        // (key, class) that no other transaction holds (SKIP LOCKED: a job another worker is claiming is skipped,
+        // never waited for), falling through to the next when all of its jobs are held. An empty plan (an idle
+        // poll) opens no transaction at all.
+        const nowMs = Date.parse(now);
+        const rank = (a: { e: number; n: number; t: number }, b: { e: number; n: number; t: number }) => a.e - b.e || a.n - b.n || a.t - b.t;
+        const order = (await claimPlan(types))
+          .map((r) => ({ ...r, e: effectiveRank(r.p, r.t, nowMs, priorityAgingSeconds) }))
+          .filter((r) => !capped || r.k === null || r.n < maxRunningPerKey!)
+          .sort(rank);
+        if (!order.length) return null;
+        return prisma.$transaction(async (tx) => {
+          const typeIn = (first: number) => `${qi('type')} IN (${types.map((_, i) => ph(first + i)).join(', ')})`;
           let rows: Array<{ id: string }> = [];
-          if (kind === 'sqlite') {
-            // One statement under the write lock (the first write of the transaction waits for it): atomic, no lost claims.
-            rows = await tx.$queryRawUnsafe(`UPDATE ${tbl('Job')} SET "status" = 'running', "workerId" = ? WHERE "id" = (${pick(2)}) AND "status" = 'queued' RETURNING "id"`, workerId, ...args);
-          } else {
-            // Row locks: decide the key order with plain reads first, then lock one job of the best key that no
-            // other transaction holds (SKIP LOCKED: a job another worker is claiming is skipped, never waited
-            // for), falling through to the next key when all of this key's jobs are held.
-            const typeIn = (first: number) => `${qi('type')} IN (${types.map((_, i) => ph(first + i)).join(', ')})`;
-            const runningRows: Array<{ k: string; n: unknown }> = await tx.$queryRawUnsafe(
-              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, COUNT(*) AS ${qi('n')} FROM ${tbl('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'running' AND ${qi('leaseExpiresAt')} IS NOT NULL AND ${qi('apiKeyId')} IS NOT NULL GROUP BY ${qi('apiKeyId')}`,
-              workspaceId
-            );
-            const busy = new Map(runningRows.map((r) => [r.k, Number(r.n)]));
-            // One row per (key, class): the class orders first (aged by its oldest job), then the key's running jobs, then age.
-            const queuedRows: Array<{ k: string | null; p: unknown; t: unknown }> = await tx.$queryRawUnsafe(
-              `SELECT ${qi('apiKeyId')} AS ${qi('k')}, ${qi('priority')} AS ${qi('p')}, MIN(${qi('createdAt')}) AS ${qi('t')} FROM ${tbl('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} GROUP BY ${qi('apiKeyId')}, ${qi('priority')}`,
-              workspaceId,
-              ...types
-            );
-            const nowMs = Date.parse(now);
-            const order = queuedRows
-              .map((r) => {
-                const t = new Date(r.t as string).getTime();
-                const p = Number(r.p);
-                return { k: r.k, p, e: effectiveRank(p, t, nowMs, priorityAgingSeconds), n: r.k ? (busy.get(r.k) ?? 0) : 0, t };
-              })
-              .filter((r) => !capped || r.k === null || r.n < maxRunningPerKey!)
-              .sort((a, b) => a.e - b.e || a.n - b.n || a.t - b.t);
-            for (const c of order) {
-              // Placeholders in text order (MySQL's are positional): the class, then the key.
-              const keyWhere = `${qi('priority')} = ${ph(2 + types.length)} AND ` + (c.k === null ? `${qi('apiKeyId')} IS NULL` : `${qi('apiKeyId')} = ${ph(3 + types.length)}`);
-              const queuedOfKey = `FROM ${tbl('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${keyWhere}`;
-              const keyArgs = [workspaceId, ...types, c.p, ...(c.k === null ? [] : [c.k])];
-              if (kind === 'postgresql') {
-                // PostgreSQL locks only the rows the LIMIT lets through, whatever the plan.
-                rows = await tx.$queryRawUnsafe(`SELECT ${qi('id')} ${queuedOfKey} ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT 1 FOR UPDATE SKIP LOCKED`, ...keyArgs);
-              } else {
-                // MySQL locks every matching row its plan reads, not only the one it returns: with a sort (the
-                // optimiser picks the status index once the table has history) `LIMIT 1 FOR UPDATE SKIP LOCKED`
-                // locked every queued job of the key, and concurrent claims found nothing to take (#168). So read
-                // the candidates in order without locks, then lock them one at a time by primary key, skipping a
-                // job another transaction holds or a worker took meanwhile; page on until the key has none left.
-                let after: { t: unknown; id: string } | undefined;
-                do {
-                  const page: Array<{ id: string; t: unknown }> = await tx.$queryRawUnsafe(
-                    `SELECT ${qi('id')}, ${qi('createdAt')} AS ${qi('t')} ${queuedOfKey}` +
-                      (after ? ` AND (${qi('createdAt')} > ? OR (${qi('createdAt')} = ? AND ${qi('id')} > ?))` : '') +
-                      ` ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT ${CLAIM_CANDIDATES}`,
-                    ...keyArgs,
-                    ...(after ? [after.t, after.t, after.id] : [])
-                  );
-                  for (const cand of page) {
-                    rows = await tx.$queryRawUnsafe(`SELECT ${qi('id')} FROM ${tbl('Job')} WHERE ${qi('id')} = ? AND ${qi('status')} = 'queued' FOR UPDATE SKIP LOCKED`, cand.id);
-                    if (rows.length) break;
-                  }
-                  after = page.length === CLAIM_CANDIDATES ? page[page.length - 1] : undefined;
-                } while (!rows.length && after);
-              }
-              if (rows.length) break;
+          while (order.length && !rows.length) {
+            const c = order[0]!;
+            // Placeholders in text order (MySQL's are positional): the class, then the key. Key and class lead the
+            // claim index after the queue columns, so this reads the (key, class) range in age order.
+            const keyWhere = `${qi('priority')} = ${ph(2 + types.length)} AND ` + (c.k === null ? `${qi('apiKeyId')} IS NULL` : `${qi('apiKeyId')} = ${ph(3 + types.length)}`);
+            const queuedOfKey = `FROM ${tbl('Job')} WHERE ${qi('workspaceId')} = ${ph(1)} AND ${qi('queue')} = 'database' AND ${qi('status')} = 'queued' AND ${typeIn(2)} AND ${keyWhere}`;
+            const keyArgs = [workspaceId, ...types, c.p, ...(c.k === null ? [] : [c.k])];
+            if (kind === 'postgresql') {
+              // PostgreSQL locks only the rows the LIMIT lets through, whatever the plan.
+              rows = await tx.$queryRawUnsafe(`SELECT ${qi('id')} ${queuedOfKey} ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT 1 FOR UPDATE SKIP LOCKED`, ...keyArgs);
+              if (!rows.length) order.shift();
+              continue;
             }
+            // MySQL locks every matching row its plan reads, not only the one it returns: with a sort
+            // `LIMIT 1 FOR UPDATE SKIP LOCKED` locked every queued job of the key, and concurrent claims found
+            // nothing to take (#168). So read the candidates in order without locks, then lock them one at a time
+            // by primary key, skipping a job another transaction holds or a worker took meanwhile; page on until
+            // the (key, class) has none left. The plan's `t` is the oldest job of any type (claimPlan), a lower
+            // bound: the first page gives the oldest job of these types, and when that is younger the (key, class)
+            // is ranked again with it and yields to a better one (a lazy priority queue: a key only ever grows,
+            // so what is taken is the best by the exact order).
+            let after: { t: unknown; id: string } | undefined;
+            let yielded = false;
+            do {
+              const page: Array<{ id: string; t: unknown }> = await tx.$queryRawUnsafe(
+                `SELECT ${qi('id')}, ${qi('createdAt')} AS ${qi('t')} ${queuedOfKey}` +
+                  (after ? ` AND (${qi('createdAt')} > ? OR (${qi('createdAt')} = ? AND ${qi('id')} > ?))` : '') +
+                  ` ORDER BY ${qi('createdAt')}, ${qi('id')} LIMIT ${CLAIM_CANDIDATES}`,
+                ...keyArgs,
+                ...(after ? [after.t, after.t, after.id] : [])
+              );
+              if (!after && page.length) {
+                const t = new Date(page[0]!.t as string).getTime();
+                if (t > c.t) {
+                  c.t = t;
+                  c.e = effectiveRank(c.p, t, nowMs, priorityAgingSeconds);
+                  order.sort(rank);
+                  if (order[0] !== c) {
+                    yielded = true;
+                    break;
+                  }
+                }
+              }
+              for (const cand of page) {
+                rows = await tx.$queryRawUnsafe(`SELECT ${qi('id')} FROM ${tbl('Job')} WHERE ${qi('id')} = ? AND ${qi('status')} = 'queued' FOR UPDATE SKIP LOCKED`, cand.id);
+                if (rows.length) break;
+              }
+              after = page.length === CLAIM_CANDIDATES ? page[page.length - 1] : undefined;
+            } while (!rows.length && after);
+            if (!rows.length && !yielded) order.splice(order.indexOf(c), 1);
           }
-          const id = rows[0]?.id;
-          if (!id) return null;
-          const row = await tx.job.update({
-            where: { id },
-            data: {
-              status: 'running',
-              workerId,
-              attempts: { increment: 1 },
-              startedAt: new Date(now),
-              leaseExpiresAt: new Date(leaseUntil),
-              cancelRequestedAt: null,
-              progress: json({ stage: 'starting', fraction: 0 }),
-            },
-          });
-          await tx.jobEvent.create({ data: statusEvent(id, now, 'running') });
-          await claimed(tx, row, now);
-          return toJob(row);
+          return take(tx, rows[0]?.id);
         }, lockingTx);
       },
       async heartbeat(workerId, ids, leaseUntil) {

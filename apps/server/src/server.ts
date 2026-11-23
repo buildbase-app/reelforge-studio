@@ -7,6 +7,7 @@ import { OutboxRelay, ReelforgeService, chromiumSandbox, createBrokerDispatch, e
 import { createNotifyListener, defaultDatabaseUrl, notifyChannel, pooledSchemaWarning, prepareDatabase, READ_REPLICA_READS, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
+import { inflightGuard } from './overload';
 import { secretValues } from './observability/logger';
 import { Observability, observabilitySettings } from './observability/telemetry';
 import { createDefaultRegistry } from './registry';
@@ -183,7 +184,9 @@ export async function startServer(
   const server: ServerType | null = opts.once
     ? null
     : await new Promise((resolve) => {
-        const s = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, () => resolve(s));
+        // Backpressure (#307): a bounded number of requests in progress, the rest refused at once with 503 + Retry-After.
+        const guard = inflightGuard(app.fetch, () => config.maxInflightRequests);
+        const s = serve({ fetch: guard.fetch, hostname: config.host, port: config.port }, () => resolve(s));
       });
   // Agents poll with keep-alive connections; a short server keep-alive races with
   // their next request (ECONNRESET) while a render keeps the event loop busy.

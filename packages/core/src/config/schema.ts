@@ -373,7 +373,15 @@ export const ConfigSchema = z.object({
       scope: 'runtime',
       env: 'REELFORGE_RENDER_CONCURRENCY',
       default: 1,
-      description: 'Renders at the same time. Each uses several CPU cores and 1-2 GB RAM. A lower value lets running renders finish.',
+      description: 'Renders at the same time. Each keeps about 1 to 1.5 CPU cores busy and peaks at about 0.8 GB (1080x1920) or 1.7 GB (3840x2160), measured with the html engine (docs/SCALE.md); more renders than cores / 1.5 only slow each one down. A lower value lets running renders finish.',
+    }),
+    maxInflightRequests: setting(z.number().int().min(0).max(100_000), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_INFLIGHT_REQUESTS',
+      default: 256,
+      description:
+        'Requests one instance works on at the same time (0 = no limit). One more is answered at once with `503 overloaded` and `Retry-After: 1` instead of queueing behind the database pool until a timeout (D-1XX, docs/SCALE.md). Not counted: `/healthz`, `/readyz`, `/metrics`, long-polls (`?wait=`) and event streams, which hold no database connection while they wait. Size it as the requests per second one instance serves times the queueing you accept (256 is about 1.7 s at the 150 requests/s per instance measured on a shared 4-vCPU host).',
     }),
     // Resource limits (D-090, D-091; docs/security/HARDENING.md). `0` turns a job or provider cap off.
     maxQueuedJobsPerKey: setting(nonNegative(), {
@@ -943,6 +951,22 @@ export const ConfigSchema = z.object({
       default: 900,
       description:
         'Hard limit for rendering one html or hyperframes scene, whatever its length (engines use their per-frame estimate when it is shorter). 30 to 3600 seconds.',
+    }),
+    encoderThreads: setting(z.number().int().min(0).max(64), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_RENDER_ENCODER_THREADS',
+      default: 2,
+      description:
+        "Threads of each H.264 encode (x264), and of the decoders and filters in the same FFmpeg process (0 to 64). `0`: x264's own choice, 1.5 per CPU core, so memory per render grows with the machine (607 MB for a 1080x1920 encode on 4 vCPU, more on bigger nodes). The default 2 keeps a 1080x1920 encode near 350 MB with the same output (the thread count does not change the encoded video) and still encodes faster than a browser renders frames; a node gets its parallelism from running several renders (`server.workerConcurrency`). Clips of workers with other values still join by stream copy. Measurements: docs/SCALE.md.",
+    }),
+    encoderLookahead: setting(z.number().int().min(0).max(250), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_RENDER_ENCODER_LOOKAHEAD',
+      default: 20,
+      description:
+        "Frames x264's rate control looks ahead (`rc-lookahead`, 0 to 250); each one is held in memory at full size. `0`: the preset's own (40 for `medium`). The default 20 halves that buffer for a small, measured quality cost (1080x1920: SSIM 0.99965 instead of 0.99972 against the source frames, files 7 % smaller); docs/SCALE.md.",
     }),
     fanOut: setting(z.enum(['off', 'scenes', 'scenes+chunks']), {
       kind: 'enum',
