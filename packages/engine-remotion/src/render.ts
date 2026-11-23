@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer';
@@ -22,6 +23,8 @@ export interface RemotionRenderOptions {
   output: OutputSettings;
   /** Theme tokens; templates read colours and fonts from them (props override). */
   theme?: ThemeTokens;
+  /** brief.platform (ui safe zone on tall frames, #287). */
+  platform?: string;
   /** Where to write the clip (H.264 MP4, no audio). */
   out: string;
   /** Directory for the Webpack bundle. Reused between renders. */
@@ -70,6 +73,8 @@ function sourceHash(): string {
     }
   };
   walk(compositionsDir);
+  // The compositions import the shared layout module (#287); a change to it must rebuild the bundle.
+  h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/layout')));
   return h.digest('hex');
 }
 
@@ -122,6 +127,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
   const inputProps = {
     ...(scene.props as Record<string, unknown>),
     ...(opts.theme ? { __theme: opts.theme } : {}),
+    ...(opts.platform ? { __platform: opts.platform } : {}),
     __output: {
       width: output.width,
       height: output.height,

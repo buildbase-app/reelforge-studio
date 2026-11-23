@@ -72,3 +72,27 @@ export const output = z
 export type OutputSettings = z.infer<typeof output>;
 
 export const DEFAULT_OUTPUT: OutputSettings = { width: 1080, height: 1920, fps: 30, format: 'mp4' };
+
+/** Most output variants one project may declare (each is one render). */
+export const MAX_OUTPUT_VARIANTS = 8;
+
+/**
+ * One extra output format of a project (#287): the same scenes rendered at
+ * another size. fps and format come from `output`, so the timeline is the
+ * same in every variant; templates lay out again for the new size (reflow,
+ * not cropping). `platform` overrides `brief.platform` for this variant
+ * (safe areas for app overlays on tall frames).
+ */
+export const outputVariant = z
+  .object({
+    id: slugId,
+    width: z.number().int().min(16).max(4096),
+    height: z.number().int().min(16).max(4096),
+    platform: z.string().min(1).max(40).optional(),
+  })
+  .strict()
+  .refine((o) => o.width % 2 === 0 && o.height % 2 === 0, {
+    message: 'width and height must be even (required by H.264 yuv420p)',
+  });
+
+export type OutputVariant = z.infer<typeof outputVariant>;

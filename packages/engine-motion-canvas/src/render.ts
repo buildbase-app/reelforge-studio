@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +26,8 @@ export interface MotionCanvasRenderOptions {
   output: OutputSettings;
   /** Theme tokens; templates read colours and fonts from them (props override). */
   theme?: ThemeTokens;
+  /** brief.platform (ui safe zone on tall frames, #287). */
+  platform?: string;
   /** Where to write the clip (H.264 MP4, no audio). */
   out: string;
   /** Directory for the built browser bundle. Reused between renders. */
@@ -174,6 +177,8 @@ function sourceHash(): string {
     }
   };
   walk(scenesDir);
+  // The scenes import the shared layout module (#287); a change to it must rebuild the bundle.
+  h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/layout')));
   return h.digest('hex');
 }
 
@@ -271,7 +276,12 @@ export async function renderMotionCanvasScene(
       (req) => window.__reelforgeRender!(req),
       {
         template: scene.template ?? '',
-        variables: { ...props, durationSeconds: scene.durationFrames / output.fps, ...(opts.theme ? { theme: opts.theme } : {}) },
+        variables: {
+          ...props,
+          durationSeconds: scene.durationFrames / output.fps,
+          ...(opts.theme ? { theme: opts.theme } : {}),
+          ...(opts.platform ? { platform: opts.platform } : {}),
+        },
         width: output.width,
         height: output.height,
         fps: output.fps,

@@ -141,3 +141,34 @@ describe('workflow guide', () => {
     expect(r.ok, JSON.stringify(!r.ok && r.issues)).toBe(true);
   });
 });
+
+describe('output variants over MCP (#287)', () => {
+  it('VAR-11 render_project on a manifest with variants answers { job, jobs, batchId }; variant renders one', async () => {
+    const client = await connect(adminKey);
+    const manifest = {
+      schemaVersion: '0.2',
+      projectId: 'mcp-variants',
+      title: 'variants',
+      output: { width: 216, height: 384, fps: 30, format: 'mp4' },
+      variants: [
+        { id: 'vertical', width: 216, height: 384, platform: 'tiktok' },
+        { id: 'square', width: 216, height: 216 },
+      ],
+      scenes: [{ id: 'hook', engine: 'remotion', template: 'kinetic-title', durationFrames: 45, props: { headline: 'Two formats' } }],
+    };
+    expect(json(await client.callTool({ name: 'create_project', arguments: { manifest } })).manifest.variants).toHaveLength(2);
+    const r = json(await client.callTool({ name: 'render_project', arguments: { projectId: 'mcp-variants' } }));
+    expect(r.jobs.map((j: any) => j.params.variant)).toEqual(['vertical', 'square']);
+    expect(new Set(r.jobs.map((j: any) => j.params.runId)).size).toBe(2);
+    for (const j of r.jobs) {
+      const done = json(await client.callTool({ name: 'get_job', arguments: { jobId: j.id, waitSeconds: 30 } }));
+      expect(done.status).toBe('succeeded');
+      expect(done.result.height).toBe(j.params.variant === 'square' ? 216 : 384);
+    }
+    const one = json(await client.callTool({ name: 'render_project', arguments: { projectId: 'mcp-variants', variant: 'square' } }));
+    expect(one.jobs).toBeUndefined();
+    expect(one.job.params).toMatchObject({ variant: 'square' });
+    await client.callTool({ name: 'delete_project', arguments: { projectId: 'mcp-variants' } });
+    await client.close();
+  }, 120_000);
+});

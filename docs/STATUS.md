@@ -75,6 +75,14 @@ the log, `/readyz` admin view and metrics). Measured on the mock licence
 server: 2 api + 3 worker licence managers on SQLite, PostgreSQL 17 and MySQL
 8.4, and 2 api + 3 worker server instances on PostgreSQL 17 and MySQL 8.4 = 1
 activate, 1 validate per day, 0 worker calls (`apps/server/test/licence-scale.test.ts`).
+**Any output format (#287, D-108, 2026-11-23):** every built-in template lays out from one unit (1 % of the
+shorter side) inside shared safe areas (EBU R 95 / ITU-R BT.1848 title and action safe, plus a conservative
+app-overlay zone on tall frames), with fit-to-box headlines and a row layout on wide frames; checked by an overflow
+test on rendered pixels at 16:9, 1:1, 4:5, 9:16 and 4K and by contact sheets in `docs/proofs/formats/`
+([Formats and layouts](public/manifest/formats.md)).
+**Output variants (#287, D-109, 2026-11-23):** a manifest may list `variants` (extra sizes); one `render_project`
+call (REST or MCP) starts one render per variant, each its own job and run id, grouped by a `batchId`
+([manifest](public/manifest/v0-2.md#output-variants)).
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,

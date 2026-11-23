@@ -178,7 +178,7 @@ export const TOOLS: ToolDef[] = [
     name: 'create_project',
     title: 'Create a project',
     description:
-      'Creates a project from a manifest. Minimal manifest: { schemaVersion: "0.2", projectId, title, output: { width: 1080, height: 1920, fps: 30, format: "mp4" }, scenes: [{ id, engine, template, durationSeconds, props }] }. Optional: brief, theme, audio, assets, captions. The manifest is validated against installed engines and templates; on failure you get every problem with its path. v0.1 manifests are migrated automatically.',
+      'Creates a project from a manifest. Minimal manifest: { schemaVersion: "0.2", projectId, title, output: { width: 1080, height: 1920, fps: 30, format: "mp4" }, scenes: [{ id, engine, template, durationSeconds, props }] }. output can be any even size from 16 to 4096 px, e.g. 1920x1080 (16:9), 1080x1080 (1:1), 1080x1350 (4:5), 1080x1920 (9:16, the usual default) or 3840x2160 (4K); built-in templates lay themselves out for the aspect ratio and keep text inside the safe area. Optional: brief (brief.platform sets the safe area for app overlays), theme, audio, assets, captions. The manifest is validated against installed engines and templates; on failure you get every problem with its path. v0.1 manifests are migrated automatically.',
     scope: 'write',
     input: { manifest: manifestObj, idempotencyKey },
     run: async (a, { service }) => {
@@ -384,12 +384,14 @@ export const TOOLS: ToolDef[] = [
     name: 'render_project',
     title: 'Render the project',
     description:
-      'Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Renders are queued at priority "standard" by default. Then call get_job with waitSeconds: 45 (repeat while it is still running) until status is succeeded or failed, then call get_render_output.' +
+      'Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Renders are queued at priority "standard" by default. Then call get_job with waitSeconds: 45 (repeat while it is still running) until status is succeeded or failed, then call get_render_output. ' +
+      'Several formats from one project: give the manifest variants, e.g. [{ id: "vertical", width: 1080, height: 1920 }, { id: "wide", width: 1920, height: 1080 }, { id: "square", width: 1080, height: 1080 }]; this call then starts one render per variant (each its own job and render id, the templates laid out again for each size) and answers { job, jobs, batchId }: wait for every job in jobs. Pass variant to render only one of them.' +
       QUEUE_REFUSALS,
     scope: 'render',
     input: {
       projectId,
       backend: z.string().optional().describe('Render backend id; default from the manifest ("local").'),
+      variant: z.string().optional().describe('Render only this output variant (an id from the manifest\'s variants). Omit to render every variant, or output when the manifest has none.'),
       priority: priorityArg('render', 'standard'),
       captions: z
         .enum(['off', 'burned', 'sidecar', 'both'])
@@ -398,8 +400,8 @@ export const TOOLS: ToolDef[] = [
       idempotencyKey,
     },
     run: async (a, { service }) => {
-      const opts = { backend: a.backend, ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}) };
-      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, async () => ({ job: await service.startRender(a.projectId, opts) }));
+      const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}) };
+      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, opts));
     },
   },
   {
@@ -941,12 +943,17 @@ done with tools; there is no UI.
 - html/hyperframes scenes have no network: inline everything (data: URLs);
   CSS animations and the Web Animations API are seeked frame by frame. Theme
   tokens are CSS variables: --rf-bg, --rf-text, --rf-muted, --rf-accent,
-  --rf-accent2, --rf-font, --rf-unit (1% of the width).
+  --rf-accent2, --rf-font, --rf-unit (1% of the shorter side), --rf-safe-top/right/bottom/left
+  (keep text inside these insets) and --rf-content-w/h.
+- Any size works: pick output for where the video goes (1080x1920 for Reels,
+  TikTok and Shorts; 1920x1080 for YouTube and the web; 1080x1080 or 1080x1350
+  for feed posts; 3840x2160 for 4K). Built-in templates reflow for the aspect
+  ratio; on tall frames they keep clear of the app's buttons and captions.
 - Ask the user before anything that costs money (providers) or deletes data.
 `;
 
 const DELIVERY_CHECKLIST = [
-  'Size and frame rate match the target platform (default 1080x1920 at 30 fps).',
+  'Size and frame rate match where the video goes (1080x1920 for Reels/TikTok/Shorts, 1920x1080 for YouTube and the web, 1080x1080 or 1080x1350 for feed posts; default 1080x1920 at 30 fps).',
   'The first frame is not empty (platforms use it as a thumbnail).',
   'Every scene has a clear single message; on-screen text is short enough to read in its duration (about 3 words per second).',
   'Scene durations are within each template\'s range; the total matches brief.targetSeconds.',
@@ -962,7 +969,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
     { name: 'reelforge-studio', version: service.serverVersion },
     {
       instructions:
-        'ReelForge Studio renders short vertical videos from a JSON manifest. You decide the scenes; the server validates, renders and checks. ' +
+        'ReelForge Studio renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ' +
         'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
         'Full guide with a minimal manifest: resource reelforge://guide/workflow or prompt make_reel. ' +
         'Renders need a valid licence: get_capabilities.licence / get_licence say whether renders are allowed and, if not, what the user must do. ' +
@@ -1081,7 +1088,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
           role: 'user',
           content: {
             type: 'text',
-            text: `Make a short vertical reel about: ${topic}\n\nFollow this guide exactly, using only the ReelForge tools. Show me the scene list with timings before rendering, and give me the downloadUrl at the end.\n\n${WORKFLOW_GUIDE}`,
+            text: `Make a short video about: ${topic}\n\nUse the size the user asked for (vertical 1080x1920 if they did not say). Follow this guide exactly, using only the ReelForge tools. Show me the scene list with timings before rendering, and give me the downloadUrl at the end.\n\n${WORKFLOW_GUIDE}`,
           },
         },
       ],
@@ -1109,10 +1116,10 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
             content: {
               type: 'text',
               text:
-                `Plan a short vertical video for ReelForge Studio.\n\nBrief: ${brief}\nTarget length: ${targetSeconds ?? '15'} seconds\nPlatform: ${platform ?? 'instagram-reels'}\n\n` +
+                `Plan a short video for ReelForge Studio.\n\nBrief: ${brief}\nTarget length: ${targetSeconds ?? '15'} seconds\nPlatform: ${platform ?? 'instagram-reels'}\n\n` +
                 `Installed templates:\n${templates}\n\nThemes:\n${themes}\n\n` +
                 'Steps:\n1. Call list_templates to read each template\'s props schema.\n' +
-                '2. Write a manifest with schemaVersion "0.2", output 1080x1920 at 30 fps, a brief, a theme, and 3-6 scenes that add up to the target length. Use durationSeconds within each template\'s range. Open with a hook; keep on-screen text short (about 3 words per second).\n' +
+                '2. Write a manifest with schemaVersion "0.2", output sized for the platform at 30 fps (1080x1920 for instagram-reels, tiktok and youtube-shorts; 1920x1080 for youtube or the web; 1080x1080 or 1080x1350 for feed posts; any size the user asks for), a brief with that platform, a theme, and 3-6 scenes that add up to the target length. Use durationSeconds within each template\'s range. Open with a hook; keep on-screen text short (about 3 words per second).\n' +
                 '3. Call create_project, then validate_project, and fix every error.\n' +
                 '4. Show the user the scene list with timings before calling render_project.',
             },
