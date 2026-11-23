@@ -14,6 +14,12 @@ import {
   projectJsonSchema,
   sceneFrames,
   totalFrames,
+  CAPTION_MODES,
+  CaptionParseError,
+  captionMode,
+  parseCaptions,
+  type CaptionCue,
+  type CaptionMode,
   type Project,
   type ValidationIssue,
   type ValidationWarning,
@@ -214,7 +220,24 @@ export interface RenderSummary {
   downloadUrlExpiresAt: string;
   /** "bucket": signed by the storage bucket (D-067); "server": a signed link to this server. */
   downloadVia: 'bucket' | 'server';
+  /** Present when the render had captions on (#300): whether they were burned in, the sidecar files and the quality check. */
+  captions?: RenderCaptions;
 }
+
+export interface RenderCaptions {
+  mode: CaptionMode;
+  burned: boolean;
+  cues: number;
+  source: string;
+  language: string | null;
+  /** Sidecar files next to final.mp4 (modes sidecar and both). */
+  files: Array<{ format: 'srt' | 'vtt' | 'ass'; file: string; url: string; downloadUrl: string; downloadUrlExpiresAt: string }>;
+  /** Quality rules (docs/CAPTIONS.md#quality-rules): ok, and the problems found. */
+  qa: { ok: boolean; maxCps: number; issues: Array<{ cue: number; rule: string; message: string }> };
+}
+
+/** Caption sidecar files a render can have. */
+const CAPTION_FILES = { srt: 'captions.srt', vtt: 'captions.vtt', ass: 'captions.ass' } as const;
 
 const DEFAULT_MAX_UPLOAD = 200 * 1024 * 1024;
 
@@ -1031,15 +1054,52 @@ export class ReelforgeService {
     if (!isPlainObject(audioPatch)) throw badRequest('audio must be an object');
     return this.projects.update(
       id,
-      (current) => this.parseOrThrow({ ...current, audio: applyMergePatch(current.audio, audioPatch) }).project,
+      (current) => {
+        const audio = applyMergePatch(current.audio, audioPatch) as Record<string, unknown>;
+        // A different voice asset makes the old word timestamps wrong: drop them unless the patch brings new ones.
+        const v = isPlainObject(audioPatch.voice) ? audioPatch.voice : undefined;
+        if (v && 'asset' in v && !('words' in v) && v.asset !== current.audio.voice?.asset && isPlainObject(audio.voice)) delete audio.voice.words;
+        return this.parseOrThrow({ ...current, audio }).project;
+      },
       expectedVersion
     );
   }
 
+  /**
+   * Import SubRip or WebVTT captions (#300): parse them into cues and store them
+   * as the project's `captions.cues` (replacing any). Optionally set the mode
+   * and language. Unknown format, a bad timestamp or a cue that ends before it
+   * starts is a 422 with the line number.
+   */
+  async importCaptions(id: string, input: { content?: unknown; format?: unknown; mode?: unknown; language?: unknown }, expectedVersion?: number) {
+    if (typeof input.content !== 'string' || !input.content.trim()) throw badRequest('content must be the text of an SRT or WebVTT file');
+    if (input.content.length > 1_000_000) throw badRequest('content is larger than 1 MB');
+    if (input.format !== undefined && input.format !== 'srt' && input.format !== 'vtt') throw badRequest('format must be "srt" or "vtt" (or omitted to detect it)');
+    let cues: CaptionCue[];
+    try {
+      cues = parseCaptions(input.content, input.format as 'srt' | 'vtt' | undefined);
+    } catch (e) {
+      if (e instanceof CaptionParseError) throw new ApiError('invalid_captions', 422, `the captions could not be parsed: ${e.message}`, { line: e.line });
+      throw e;
+    }
+    if (!cues.length) throw new ApiError('invalid_captions', 422, 'the file has no cues');
+    const patch: Record<string, unknown> = { cues };
+    if (input.mode !== undefined) patch.mode = input.mode;
+    if (input.language !== undefined) patch.language = input.language;
+    const r = await this.projects.update(id, (current) => this.parseOrThrow({ ...current, captions: { ...current.captions, ...patch } }).project, expectedVersion);
+    return { ...r, imported: cues.length };
+  }
+
   // ---- renders --------------------------------------------------------------
 
-  async startRender(id: string, opts: { backend?: string; priority?: unknown } = {}): Promise<JobRecord> {
-    return this.enqueueRender(id, 'render', opts.priority, opts.backend);
+  async startRender(id: string, opts: { backend?: string; priority?: unknown; captions?: unknown } = {}): Promise<JobRecord> {
+    let captions: CaptionMode | undefined;
+    if (opts.captions !== undefined && opts.captions !== null) {
+      const m = captionMode.safeParse(opts.captions);
+      if (!m.success) throw badRequest(`captions must be one of ${CAPTION_MODES.join(', ')}`);
+      captions = m.data;
+    }
+    return this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, captions);
   }
 
   async preview(id: string, opts: { sceneId?: string; scale?: number; priority?: unknown } = {}): Promise<JobRecord> {
@@ -1073,7 +1133,7 @@ export class ReelforgeService {
     return requested;
   }
 
-  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number) {
+  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, captions?: CaptionMode) {
     const priority = this.resolvePriority(kind, requestedPriority);
     await this.licence.assertRenderAllowed();
     const { manifest, meta } = await this.projects.get(id);
@@ -1099,7 +1159,7 @@ export class ReelforgeService {
     return this.withRenderQuota((apiKeyId, quota) =>
       this.jobs.submit(
         kind,
-        { projectId: id, version: meta.version, backend: backendId, runId, ...(sceneIds ? { sceneIds } : {}), ...(scale ? { scale } : {}) },
+        { projectId: id, version: meta.version, backend: backendId, runId, ...(sceneIds ? { sceneIds } : {}), ...(scale ? { scale } : {}), ...(captions ? { captions } : {}) },
         { projectId: id, priority, ...(apiKeyId ? { apiKeyId } : {}) },
         quota
       ), priority
@@ -1300,6 +1360,7 @@ export class ReelforgeService {
         projectVersion: p.version,
         sceneIds: p.sceneIds,
         scale: p.scale,
+        ...(p.captions ? { captionsMode: p.captions } : {}),
       },
       { signal: ctx.signal, log: ctx.log, progress: ctx.progress }
     );
@@ -1348,6 +1409,7 @@ export class ReelforgeService {
       log: ctx.log,
       progress: ctx.progress,
       telemetry: this.telemetry,
+      ...(req.captionsMode ? { captionsMode: req.captionsMode } : {}),
     });
     if (!local) {
       try {
@@ -1449,9 +1511,22 @@ export class ReelforgeService {
       createdAt: string;
       output: { durationSeconds: number; frames: number; width: number; height: number; fps: number };
       scenes: Array<{ file: string }>;
+      captions?: { mode: CaptionMode; burned: boolean; cues: number; source: string; language: string | null; files: Partial<Record<'srt' | 'vtt' | 'ass', string>>; qa: RenderCaptions['qa'] };
     }>(projectId, runId);
     if (!m) throw notFound('render', runId);
     const base = `/v1/renders/${runId}/output`;
+    let captions: RenderCaptions | undefined;
+    if (m.captions) {
+      const files: RenderCaptions['files'] = [];
+      for (const format of ['srt', 'vtt', 'ass'] as const) {
+        const file = m.captions.files[format];
+        if (file !== CAPTION_FILES[format]) continue;
+        const { downloadUrl, downloadUrlExpiresAt } = await this.downloadLink(projectId, runId, file);
+        files.push({ format, file, url: this.url(`${base}?file=${file}`), downloadUrl, downloadUrlExpiresAt });
+      }
+      const { mode, burned, cues, source, language, qa } = m.captions;
+      captions = { mode, burned, cues, source, language, files, qa: { ok: qa.ok, maxCps: qa.maxCps, issues: qa.issues } };
+    }
     return {
       renderId: runId,
       projectId,
@@ -1462,11 +1537,12 @@ export class ReelforgeService {
       width: m.output.width,
       height: m.output.height,
       fps: m.output.fps,
-      files: ['final.mp4', 'poster.png', 'render-manifest.json', ...m.scenes.map((s) => s.file)],
+      files: ['final.mp4', 'poster.png', 'render-manifest.json', ...(captions?.files.map((f) => f.file) ?? []), ...m.scenes.map((s) => s.file)],
       outputUrl: this.url(base),
       posterUrl: this.url(`${base}?file=poster.png`),
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
       ...(await this.downloadLink(projectId, runId)),
+      ...(captions ? { captions } : {}),
     };
   }
 
@@ -1513,8 +1589,8 @@ export class ReelforgeService {
 
   /** A file of a render in storage (final.mp4 by default): its key, type and size, for streaming. */
   async renderObject(runId: string, file = 'final.mp4'): Promise<{ key: string; contentType: string; bytes: number }> {
-    if (!isSafeRelativePath(file) || !/^(final\.mp4|poster\.png|render-manifest\.json|clips\/[\w.-]+\.mp4)$/.test(file)) {
-      throw badRequest('file must be final.mp4, poster.png, render-manifest.json or clips/<name>.mp4');
+    if (!isSafeRelativePath(file) || !/^(final\.mp4|poster\.png|render-manifest\.json|captions\.(srt|vtt|ass)|clips\/[\w.-]+\.mp4)$/.test(file)) {
+      throw badRequest('file must be final.mp4, poster.png, render-manifest.json, captions.srt, captions.vtt, captions.ass or clips/<name>.mp4');
     }
     const { projectId } = await this.findRender(runId);
     const key = renderPrefix(projectId, runId) + file;
@@ -1721,6 +1797,8 @@ export class ReelforgeService {
       projectAssetId = await this.attachToProject(opts.projectId, result.asset, opts.assetId ?? (provider.kind === 'tts' ? 'voice' : undefined));
       if (provider.kind === 'tts' && (opts.attachAs ?? 'voice') === 'voice') {
         const p = parsed.data as { text?: string; voiceId?: string };
+        // Word timestamps (ElevenLabs "with-timestamps") are kept on the voice track: captions are built from them (#300).
+        const words = voiceWords(result.data?.words);
         await this.projects.update(opts.projectId, (current) =>
           this.parseOrThrow({
             ...current,
@@ -1733,6 +1811,7 @@ export class ReelforgeService {
                 ...(p.voiceId ? { voiceId: p.voiceId } : {}),
                 volume: current.audio.voice?.volume ?? 1,
                 startFrame: current.audio.voice?.startFrame ?? 0,
+                ...(words.length ? { words } : {}),
               },
             },
           }).project
@@ -2040,4 +2119,19 @@ export class ReelforgeService {
       return t;
     });
   }
+}
+
+/** Provider word timestamps ({ word | text, start, end } in seconds) as manifest caption words; anything malformed is dropped. */
+export function voiceWords(raw: unknown): Array<{ text: string; start: number; end: number }> {
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ text: string; start: number; end: number }> = [];
+  for (const w of raw.slice(0, 5000)) {
+    if (!isPlainObject(w)) continue;
+    const text = typeof w.text === 'string' ? w.text : typeof w.word === 'string' ? w.word : '';
+    const start = Number(w.start);
+    const end = Number(w.end);
+    if (!text.trim() || text.length > 100 || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || end > MAX_PROJECT_SECONDS) continue;
+    out.push({ text: text.trim(), start: Math.round(start * 1000) / 1000, end: Math.round(end * 1000) / 1000 });
+  }
+  return out;
 }

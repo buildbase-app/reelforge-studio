@@ -31,7 +31,7 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->61<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->62<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -75,7 +75,7 @@ the log, `/readyz` admin view and metrics). Measured on the mock licence
 server: 2 api + 3 worker licence managers on SQLite, PostgreSQL 17 and MySQL
 8.4, and 2 api + 3 worker server instances on PostgreSQL 17 and MySQL 8.4 = 1
 activate, 1 validate per day, 0 worker calls (`apps/server/test/licence-scale.test.ts`).
-**Any output format (#287, D-107, 2026-11-23):** every built-in template lays out from one unit (1 % of the
+**Any output format (#287, D-108, 2026-11-23):** every built-in template lays out from one unit (1 % of the
 shorter side) inside shared safe areas (EBU R 95 / ITU-R BT.1848 title and action safe, plus a conservative
 app-overlay zone on tall frames), with fit-to-box headlines and a row layout on wide frames; checked by an overflow
 test on rendered pixels at 16:9, 1:1, 4:5, 9:16 and 4K and by contact sheets in `docs/proofs/formats/`
@@ -546,6 +546,24 @@ period of its expiry even when the holder dies (SCL-20u..22u, QUE-16, SCL-20, SC
 PostgreSQL 17, MySQL 8.4). `worker --once` never takes the lease. Measured on the shared sandbox (lower
 bound): 200 idle workers 71 → 46 tx/s (`poll`), 42 → 25 tx/s (`notify`)
 ([PERFORMANCE.md](PERFORMANCE.md#queue-housekeeping-195-one-instance-instead-of-every-one)).
+
+### Captions rendered (2026-11-23, issue #300, step 1)
+
+Built (D-107, [CAPTIONS.md](CAPTIONS.md)): `captions.mode` `off` (default, renders unchanged) /
+`burned` / `sidecar` / `both`, overridable per render (`render_project` `captions`). Cues from
+`captions.cues` (manual or `import_captions`: SRT/WebVTT parsed), else from the voice's word
+timestamps (`generate_voice` now stores them on `audio.voice.words`), else from scene caption text.
+Burn-in is one libass pass over an ASS file generated from the theme's caption tokens (font size from
+`min(width, height)`, box or outline, bottom/top/centre in a local safe area, word highlight as a
+second layer); sidecars `captions.srt`, `captions.vtt`, `captions.ass` next to `final.mp4`, in the
+render manifest and in `get_render_output` with signed links. Quality rules (42 characters per line,
+2 lines, 20 characters per second, 0.833-7 s, 2-frame gaps) are validation warnings and
+`captions.qa` in the render manifest; a Netflix-style line breaker. Tests: parsers, line breaker,
+cue builder and rules (project-schema), ASS and a render with the fake engine whose burned frames are
+checked by pixel statistics in the caption band, highlight colour included (core), REST import and
+sidecar download (server). A real four-engine render with burned captions was checked by eye. Not
+yet: speech-to-text for uploaded voice-overs, `get_captions` / `update_captions` approval, several
+languages, audio description; the ElevenLabs path is still tested with a mocked API only.
 
 ## 4. Infrastructure inventory (no secrets)
 

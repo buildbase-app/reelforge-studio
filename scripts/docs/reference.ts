@@ -51,6 +51,11 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
     tools: ['add_asset_from_url', 'upload_asset', 'list_assets', 'get_asset', 'set_audio'],
   },
   {
+    title: 'Captions',
+    intro: 'Caption cues: imported from SRT or WebVTT, written by hand, or built from the voice\'s word timestamps. Rendered when captions.mode is burned, sidecar or both.',
+    tools: ['import_captions'],
+  },
+  {
     title: 'Media providers',
     intro: 'Optional providers the operator configures with their own keys. Calls that cost money ask for acknowledgeCost.',
     tools: ['list_providers', 'configure_provider', 'run_provider', 'generate_voice'],

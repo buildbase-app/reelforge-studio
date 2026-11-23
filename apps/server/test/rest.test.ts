@@ -265,6 +265,30 @@ describe('REST v1', () => {
     expect((await req('GET', `/v1/renders/${renderId}/output?file=../../keys.json`)).status).toBe(400);
   }, 120_000);
 
+  it('imports captions and serves the sidecars of a render (captions option), signed links included', async () => {
+    const bad = await req('POST', '/v1/projects/sample-reel/captions/import', { body: { content: '1\n00:00:01 --> 00:00:02\nHi' } });
+    expect(bad.status).toBe(422);
+    expect(((await bad.json()) as any).error).toMatchObject({ code: 'invalid_captions', details: { line: 2 } });
+    const imp = await req('POST', '/v1/projects/sample-reel/captions/import', { body: { content: 'WEBVTT\n\n00:00.500 --> 00:02.000\nHello reels\n', language: 'en' } });
+    expect(imp.status).toBe(200);
+    expect(((await imp.json()) as any)).toMatchObject({ imported: 1, manifest: { captions: { cues: [{ start: 0.5, end: 2, text: 'Hello reels' }] } } });
+    expect((await req('POST', '/v1/projects/sample-reel/renders', { body: { captions: 'sometimes' } })).status).toBe(400);
+    const start = await req('POST', '/v1/projects/sample-reel/renders', { body: { captions: 'sidecar' } });
+    expect(start.status).toBe(202);
+    const done = await pollJob(((await start.json()) as any).job.id);
+    expect(done.status, JSON.stringify(done.error)).toBe('succeeded');
+    const summary = (await (await req('GET', `/v1/renders/${done.result.renderId}`)).json()) as any;
+    expect(summary.captions).toMatchObject({ mode: 'sidecar', burned: false, cues: 1, language: 'en' });
+    const vtt = await req('GET', `/v1/renders/${done.result.renderId}/output?file=captions.vtt`);
+    expect(vtt.headers.get('content-type')).toMatch(/^text\/vtt/);
+    expect(await vtt.text()).toBe('WEBVTT\nLanguage: en\n\n00:00:00.500 --> 00:00:02.000\nHello reels\n');
+    const link = new URL(summary.captions.files.find((f: any) => f.format === 'srt').downloadUrl);
+    const viaLink = await req('GET', link.pathname + link.search, { key: null });
+    expect(viaLink.status).toBe(200);
+    expect(await viaLink.text()).toBe('1\n00:00:00,500 --> 00:00:02,000\nHello reels\n');
+    await service.updateProject('sample-reel', { captions: { cues: null, language: null } });
+  }, 120_000);
+
   it('rejects renders on unconfigured backends and runs on unconfigured providers', async () => {
     const lambda = await req('POST', '/v1/projects/sample-reel/renders', { body: { backend: 'remotion-lambda' } });
     expect(lambda.status).toBe(409);

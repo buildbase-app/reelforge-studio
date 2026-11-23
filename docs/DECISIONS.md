@@ -2139,7 +2139,49 @@ between instances shifts the bounds by the skew. **Measured** (lower bound, shar
 workers 71 → 46 tx/s with `poll` and 42 → 25 tx/s with `notify`; 50 idle workers 16 → 12 and 10 → 7. What still grows
 with the number of instances is one lease read per instance per `leaseSeconds / 2`.
 
-### D-107 --- Templates lay out from one unit (1 % of the shorter side) inside shared safe areas; headlines fit their box
+## AA. Captions rendered (2026-11-23, issue #300)
+
+Captions were stored but never rendered. How they work, the model and the quality rules:
+[docs/CAPTIONS.md](CAPTIONS.md).
+
+### D-107 --- Burn captions with libass from a generated ASS file, after assembly; sidecars SRT, WebVTT and ASS; off by default
+
+**Status:** DECIDED (reversible).\
+**Model:** the manifest's `captions` gains `mode` (`off` | `burned` | `sidecar` | `both`, absent = `off`, so
+existing projects render exactly as before), `cues` (`{start, end, text, words?}` in video seconds), `language`,
+`highlight` (`word` | `none`), `maxLineChars` (≤ 42; default 42, 32 for portrait) and `maxCharsPerCue`; `style`
+stays a partial of the theme's `captionStyle` tokens, which gain optional `fontFamily`, `weight`, `outline`,
+`backgroundOpacity` and `highlightColor`. `audio.voice.words` keeps TTS word timestamps (relative to the voice
+start). All additions are optional: v0.2 stays v0.2. `render_project` takes `captions` to override the mode per
+render. **Cues** come from, in order: `captions.cues` (manual or `import_captions`), else built from the voice
+words at render and validation time (so moving the voice keeps them in sync), else from scenes' `captions.text`.
+**Burn-in:** one FFmpeg pass after assembly with the `ass` filter (libass) over an ASS file we generate from the
+theme tokens (PlayRes = output size, so every number is a pixel); video re-encoded with the assembly's H.264
+settings, audio copied, every frame kept; then the usual probe and decode checks run on the burned file. The word
+highlight is a second ASS layer that draws only the active word (the others fully transparent, same layout), so the
+box under a cue stays one piece. *Why libass:* deterministic for a given FFmpeg + libass + font set (no browser, no
+timing), one extra encode instead of a render per frame, it is already in the Debian/Ubuntu `ffmpeg` package and the
+release image, and the same ASS is a useful sidecar for editors. *Rejected:* an HTML caption overlay rendered by
+Chromium and composited with alpha (a second render of every frame, an alpha codec or PNG sequence between engine
+and FFmpeg, and per-engine font loading; better kept for animated "social" caption styles later); burning inside
+each engine (four implementations, and captions would split at scene boundaries); FFmpeg `drawtext` (no word-level
+styling, no line boxes, one filter per cue). The font is the first installed family of the theme's list, picked
+with `fc-match` (the image installs `fontconfig`), recorded in the render manifest; without `fc-match` libass gets
+the first family and falls back through fontconfig. A missing libass fails the render with a fix (use `sidecar`).
+**Layout:** bottom (default), top or centre inside a local safe area (portrait 12 % top / 20 % bottom / 8 % sides;
+otherwise 10 %); TODO switch to the shared safe-area helper of #287. Font size `fontScale × min(width, height)`,
+reduced when a full line of `maxLineChars` would not fit the safe width. **Quality rules** (Netflix Timed Text Style
+Guide, research/SOURCES.md): ≤ 42 characters per line, ≤ 2 lines, ≤ 20 characters per second, 0.833-7 s, ≥ 2 frames
+between cues; they are validation warnings (never errors: a deliberate fast caption is the author's call) and the
+render manifest's `captions.qa`. The line breaker breaks after punctuation, before conjunctions and prepositions,
+never after an article or possessive (English list), prefers a bottom-heavy shape and avoids one or two words on the
+top line; nouns and adjectives are not told apart (no part-of-speech tagging). **Sidecars** `captions.srt`,
+`captions.vtt` (with inline word timestamps) and `captions.ass` sit next to `final.mp4`, are listed in the render
+manifest and in `get_render_output` (`captions.files` with signed download links). Previews of one scene show that
+scene's cues at preview time. **Not in this step:** speech-to-text for uploaded voice-overs, the caption approval
+tools (`get_captions` / `update_captions`), multiple languages per render, audio description.
+
+### D-108 --- Templates lay out from one unit (1 % of the shorter side) inside shared safe areas; headlines fit their box
 
 **Status:** DECIDED (reversible).\
 Built-in templates scaled from the width only, so a 16:9 headline was about 200 px tall at 1920x1080 and ran off
