@@ -104,7 +104,7 @@ function tubeExt(P,w,col,dark,capEnd,capStart){g.lineCap='butt';g.lineJoin='roun
 g.save();g.translate(-w*.14,-w*.14);g.strokeStyle=rgba(mix(col,WHITE,.35),.55);g.lineWidth=w*.2;line(P);g.stroke();g.restore();ELEMENTS+=3;
 if(capEnd)endCap(P,w,mix(dark,[0,0,0],.3),false);if(capStart)endCap(P,w,mix(dark,[0,0,0],.3),true)}
 function shadeSil(s){g.save();g.translate(0,80);g.scale(s,s);g.translate(0,-80);blob(SIL,0,0,1);g.fillStyle=rgba(MUSD,1);g.fill();g.clip();blob(SIL,-26,-30,.95);g.fillStyle=rgba(MUS,1);g.fill();
-g.strokeStyle=rgba(MUSL,.2);g.lineWidth=4;g.lineCap='round';for(var i=0;i<FIB.length;i++){var f=FIB[i];g.beginPath();g.moveTo(f[0],f[1]);g.quadraticCurveTo(f[2],f[3],f[4],f[5]);g.stroke();ELEMENTS++}
+g.strokeStyle=rgba(MUSL,.16);g.lineWidth=4;g.lineCap='round';for(var i=0;i<FIB.length;i++){var f=FIB[i];g.beginPath();g.moveTo(f[0],f[1]);g.quadraticCurveTo(f[2],f[3],f[4],f[5]);g.stroke();ELEMENTS++}
 g.fillStyle=rgba(MUSL,.5);g.beginPath();g.ellipse(-150,-120,120,56,-.6,0,6.283);g.fill();g.restore();ELEMENTS+=3}
 /* outside view */
 function heartExt(th){g.save();
@@ -177,8 +177,8 @@ var ids=[];for(var i=0;i<leaves.length;i++)ids.push(i);rec(ids,root,[[root[0],ro
 function bed(leaves,ra,rv,frac,ncell){return bedFrom(buildTree(leaves,ra,frac),buildTree(leaves,rv,frac*.92),leaves,ncell)}
 function bedFrom(A,V,leaves,ncell){var P=[];for(var i=0;i<leaves.length;i++){var a=A.p[i],v=V.p[i].slice().reverse();var path=mkPath(a.concat(v.slice(1)));path.split=mkPath(a).len;P.push(path)}
 var C=[];for(var i=0;i<ncell;i++)C.push([Math.floor(R()*leaves.length),R(),R()*2-1,.8+R()*.4]);return{A:A,V:V,P:P,C:C,leaves:leaves}}
-function edges(E,col,dark,alpha){g.lineCap='round';g.globalAlpha=alpha;for(var i=0;i<E.length;i++){var e=E[i];g.strokeStyle=rgba(dark,1);g.lineWidth=e[4]+5;g.beginPath();g.moveTo(e[0],e[1]);g.lineTo(e[2],e[3]);g.stroke();ELEMENTS++}
-for(var i=0;i<E.length;i++){var e=E[i];g.strokeStyle=rgba(col,1);g.lineWidth=e[4];g.beginPath();g.moveTo(e[0],e[1]);g.lineTo(e[2],e[3]);g.stroke()}g.globalAlpha=1}
+function edges(E,col,dark,alpha){if(!E.bk){E.bk={};E.keys=[];for(var i=0;i<E.length;i++){var k=Math.round(E[i][4]*2)/2;if(!E.bk[k]){E.bk[k]=[];E.keys.push(k)}E.bk[k].push(E[i])}}
+g.lineCap='round';g.globalAlpha=alpha;for(var pass=0;pass<2;pass++){g.strokeStyle=rgba(pass?col:dark,1);for(var j=0;j<E.keys.length;j++){var k=E.keys[j],L=E.bk[k];g.lineWidth=pass?k:k+5;g.beginPath();for(var i=0;i<L.length;i++){var e=L[i];g.moveTo(e[0],e[1]);g.lineTo(e[2],e[3])}g.stroke()}}ELEMENTS+=E.length;g.globalAlpha=1}
 function bedCells(BD,B,f0,f1,rad,pxPerBeat){var D=B*.45+.55*DOUT(B);for(var i=0;i<BD.C.length;i++){var c=BD.C[i];var P=BD.P[c[0]];var len=P.len;var s=((c[1]*len+D*pxPerBeat*c[3])%len+len)%len;var p=at(P,s);var nx=-Math.sin(p[3]),ny=Math.cos(p[3]);var o=c[2]*p[2]*.36;var f=lerp(f0,f1,sm((s-P.split+14)/34));
 cell(p[0]+nx*o,p[1]+ny*o,rad*sm(s/24)*sm((len-s)/24),f)}flush()}
 function hero(BD,leaf,u,f0,f1,rad){var P=BD.P[leaf];var s=u*P.len;var p=at(P,s);var x=p[0],y=p[1];var f=lerp(f0,f1,sm((s-P.split+14)/34));
@@ -279,24 +279,29 @@ var CAP=[].slice.call(document.querySelectorAll('[data-in]'));
 function fmt(n){return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g,',')}
 function captions(t){CAP.forEach(function(el){var a=+el.dataset.in,b=+el.dataset.out;var o=Math.min(seg(t,a,a+.45),1-seg(t,b-.35,b));el.style.opacity=o.toFixed(3);el.style.transform='translateY('+((1-eo(seg(t,a,a+.6)))*34).toFixed(1)+'px)'});
 var n=document.getElementById('nbeat');if(n)n.textContent=fmt(Math.round(100000*eo(seg(t,.5,3.2))/10)*10);
-var f=fr(BT(t)),sa=sqA(f),sv=sqV(f);var ph=document.getElementById('phase');if(ph){var txt=f<.16?'Atria squeeze':f<.56?'Ventricles squeeze':'Both relax and refill';if(ph.textContent!==txt)ph.textContent=txt}
+var f=fr(BT(t)),sa=sqA(f),sv=sqV(f);var ph=document.getElementById('phase');if(ph){var txt=f<.16?'Atria squeeze':f<.5?'Ventricles squeeze':'Both relax and refill';if(ph.textContent!==txt)ph.textContent=txt}
 [['lra',sa],['lla',sa],['lrv',sv],['llv',sv]].forEach(function(p){var el=document.getElementById(p[0]);if(el)el.style.borderColor='rgba(255,204,112,'+(.22+.78*cl(p[1]*1.6)).toFixed(2)+')'})}
 
+function cover(cx,cy){return Math.max(Math.hypot(cx,cy),Math.hypot(W-cx,cy),Math.hypot(cx,H-cy),Math.hypot(W-cx,H-cy))+4}
+function bodyHero(t){var P=BODY.P[BHERO];var p=at(P,seg(t,17.6,20.8)*P.split);return[p[0],p[1]]}
+/* iris transitions: once an iris covers the frame, the outgoing scene is not drawn at all */
+function iris(t,a,b,cx,cy,R){var r=t>=a?eio(seg(t,a,b))*R:0;return{r:r,x:cx,y:cy,full:t>=b||r>=cover(cx,cy)}}
+function irisClip(I){if(!I.full){g.beginPath();g.arc(I.x,I.y,I.r,0,6.283);g.clip()}}
 var draw=function(t){ELEMENTS=0;g.setTransform(1,0,0,1,0,0);g.globalAlpha=1;var B=BT(t);
+var I1=iris(t,13.4,14.1,480,1110,1500),I2=iris(t,17.4,18.1,546,1440,1700),h3=bodyHero(20.8),I3=iris(t,20.8,21.5,h3[0],h3[1],1900);
 /* Acts 1-2: the hook, then the heart splits open into the cutaway */
-if(t<14.1){bg(BG,BG2);
+if(t<14.1&&!I1.full){bg(BG,BG2);
 var q=eio(seg(t,4.4,5.6));hookCells(B,1-seg(t,4.4,5.2),540,1230);
 var hx=540,hy=lerp(1230,1180,q),hs=lerp(.8,1.1,q);
 if(t>=4.4){g.save();g.translate(hx,hy);g.scale(hs,hs);heartCut(B);g.restore()}
 if(t<5.6){var th=thump(fr(B));g.save();g.translate(hx,hy);g.scale(hs,hs);
-if(q<=0)heartExt(th);else{for(var s=-1;s<=1;s+=2){g.save();g.globalAlpha=1-q;g.translate(s*q*560,q*40);g.rotate(s*q*.22);g.beginPath();if(s<0)g.rect(-2000,-2000,1990,4000);else g.rect(-10,-2000,2010,4000);g.clip();heartExt(0);g.restore()}}g.restore()}}
+if(q<=0)heartExt(th);else{for(var s=-1;s<=1;s+=2){g.save();g.globalAlpha=1-seg(q,.5,1);g.translate(s*q*760,q*60);g.rotate(s*q*.3);g.beginPath();if(s<0)g.rect(-2000,-2000,1990,4000);else g.rect(-10,-2000,2010,4000);g.clip();heartExt(0);g.restore()}}g.restore()}}
 /* Act 3a: lungs, through an iris from the pulmonary artery */
-var hp=null;
-if(t>=13.4&&t<18.1){var iq=seg(t,13.4,14.1);g.save();if(iq<1){g.beginPath();g.arc(480,1110,eio(iq)*1500,0,6.283);g.clip()}hp=lungs(t,B);g.restore()}
+if(t>=13.4&&t<18.1&&!I2.full){g.save();irisClip(I1);lungs(t,B);g.restore()}
 /* Act 3b: the body */
-if(t>=17.4&&t<21.5){var iq=seg(t,17.4,18.1);g.save();if(iq<1){g.beginPath();g.arc(546,1440,eio(iq)*1700,0,6.283);g.clip()}hp=body(t,B);g.restore()}
+if(t>=17.4&&t<21.5&&!I3.full){g.save();irisClip(I2);body(t,B);g.restore()}
 /* Act 3c: into a capillary at the hand */
-if(t>=20.8&&t<24.8){var iq=seg(t,20.8,21.5);g.save();if(iq<1){g.beginPath();g.arc(hp?hp[0]:776,hp?hp[1]:1286,eio(iq)*1900,0,6.283);g.clip()}capillary(t);g.restore()}
+if(t>=20.8&&t<24.8){g.save();irisClip(I3);capillary(t);g.restore()}
 /* ECG under acts 1-3 */
 ecg(B,1-seg(t,20.6,21.1));
 /* Act 4: facts */
@@ -323,9 +328,9 @@ const CSS = `
 `;
 
 const HTML = `
-<div class="cap top" data-in="0.3" data-out="4.6"><div class="k">Your heart beats about</div><h2 class="big"><span id="nbeat">0</span></h2><p style="margin-top:10px">times a day</p></div>
+<div class="cap top" data-in="0.1" data-out="4.6"><div class="k">Your heart beats about</div><h2 class="big"><span id="nbeat">0</span></h2><p style="margin-top:10px">times a day</p></div>
 <div class="cap" style="top:640px" data-in="2.5" data-out="4.6"><p style="font-size:44px;color:#CFC4DA">and it never takes a day off</p></div>
-<div class="cap top" data-in="5.6" data-out="7.8"><div class="k">Cut one open</div><h2>Four chambers,<br><b>two pumps</b></h2></div>
+<div class="cap top" data-in="5.1" data-out="7.8"><div class="k">Cut one open</div><h2>Four chambers,<br><b>two pumps</b></h2></div>
 <div class="cap top" data-in="7.8" data-out="10.4"><p>In: <i>blue</i> from the body,<br><b>red</b> from the lungs</p></div>
 <div class="cap top" data-in="10.4" data-out="13.4"><p>Atria squeeze first,<br>then the ventricles</p></div>
 <div class="pill" data-in="7.8" data-out="13.4"><span id="phase">Atria squeeze</span></div>

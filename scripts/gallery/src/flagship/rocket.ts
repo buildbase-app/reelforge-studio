@@ -104,7 +104,7 @@ ring(cx,cy,Rr-6,[150,196,255],.4,14);g.restore()}
 var GLP=[];var CONT=[[.7,.2],[-.3,1.3],[.3,2.5],[-.6,3.5],[.9,4.4],[.05,5.3],[-1.1,.6]];for(var c=0;c<CONT.length;c++)for(var k=0;k<38;k++)GLP.push([CONT[c][0]+(R()+R()-1)*.42,CONT[c][1]+(R()+R()-1)*.62,.035+.06*R(),R()]);
 var GCL=[];for(var i=0;i<560;i++)GCL.push([Math.asin(R()*2-1),R()*6.2832,.02+.04*R(),R()]);
 function sph(lat,lon){var c=Math.cos(lat);var x=c*Math.sin(lon),y=-Math.sin(lat),z=c*Math.cos(lon);var T=.38,ct=Math.cos(T),st=Math.sin(T);return [x,y*ct-z*st,y*st+z*ct]}
-function globe(cx,cy,Rr,rot,t){for(var k=0;k<7;k++)ring(cx,cy,Rr+4+k*6,[110,170,255],.08,6);
+function globe(cx,cy,Rr,rot,t){for(var k=0;k<6;k++)ring(cx,cy,Rr+2+k*4,[130,186,255],.1-k*.014,4);
 circ(cx,cy,Rr,OCEAN,1);g.save();g.beginPath();g.arc(cx,cy,Rr,0,6.2832);g.clip();
 var nx=cx+Rr*1.02,ny=cy+Rr*.6,nr=Rr*1.3;
 for(var i=0;i<GLP.length;i++){var p=GLP[i];var v=sph(p[0],p[1]+rot);if(v[2]<-.05)continue;circ(cx+v[0]*Rr,cy+v[1]*Rr,p[2]*Rr*(.4+.6*cl(v[2])),p[3]<.55?LAND1:LAND2,1)}
@@ -137,7 +137,7 @@ var MX=[RX-330,RX+430,RX+760];for(var i=0;i<3;i++){if(vis(-600,700)){line(MX[i],
 if(vis(-1100,80)){g.strokeStyle=rgba([34,36,54],.8);g.lineWidth=2;g.beginPath();g.moveTo(MX[0],-1150);g.quadraticCurveTo((MX[0]+RX+106)/2,-1020,RX+106,-1130);g.quadraticCurveTo((RX+106+MX[1])/2,-1020,MX[1],-1150);g.quadraticCurveTo((MX[1]+MX[2])/2,-1040,MX[2],-1150);g.stroke();ELEMENTS++}
 /* treeline and ground */
 if(vis(0,60))for(var i=0;i<BUSH.length;i++){var b=BUSH[i];circ(b[0],-2,b[1],mix(GROUND,[60,56,84],b[2]*.5),1)}
-if(vis(200,260)){rect(-1400,0,4000,3000,GROUND);rect(RX-300,-8,600,14,[92,90,112]);rect(RX-56,-4,112,16,[12,12,20]);rect(RX-50,-42,14,40,DARK);rect(RX+36,-42,14,40,DARK);rect(RX-52,-46,104,8,DARK)}
+if(vis(200,260)){rect(-1400,0,4000,3000,GROUND);poly([RX-40,10,RX+40,10,RX+340,900,RX-260,900],[58,58,80]);for(var j=0;j<9;j++){var y0=40+j*j*11;rect(RX+(y0/900)*40-3,y0,6,8+j*4,[150,140,150],.6)}rect(RX-300,-8,600,14,[92,90,112]);rect(RX-56,-4,112,16,[12,12,20]);rect(RX-50,-42,14,40,DARK);rect(RX+36,-42,14,40,DARK);rect(RX-52,-46,104,8,DARK)}
 /* service tower, two faces */
 var TX=RX+66,TW=80,NL=36;
 for(var f=0;f<2;f++){var c=f?[26,28,42]:[66,64,92],dx=f?0:16,dy=f?0:-10;if(!vis(-540,620))break;
@@ -181,7 +181,8 @@ var fx=-Math.sin(th),fy=Math.cos(th),F=aF(t);
 function clouds(near){for(var i=0;i<ACL.length;i++){var c=ACL[i];if((c.par>1.25)!=near)continue;var d=(F-aF(c.Tc))*c.par;var x=c.mx+fx*d,y=c.my+fy*d;if(y<-300||y>H+300||x<-500||x>W+500)continue;
 g.save();g.translate(x,y);g.scale(1,.6);puffs(0,0,c.s,c.p,mix([150,146,192],[120,130,180],k),[240,236,244],near?.95:.9);g.restore()}}
 clouds(false);
-streaks(t,150,F*.6,fx,fy,.08+.22*q,WHITE,.2+.3*q);
+for(var j=0;j<90;j++){var P=PS[(3300+j)%4096];var par=.25+.6*P[2];var off=F*par*.5;var x=((P[0]*1700+fx*off)%1700+1700)%1700-310,y=((P[1]*2500+fy*off)%2500+2500)%2500-290;
+ell(x,y,(60+170*P[3])*(.6+par),4+6*P[4],(P[5]-.5)*.12,mix([200,196,232],[150,160,214],k),(.18+.2*P[5])*(1-.5*k))}
 var C=[540,1040],SC=.5;
 emit(t,8.6,13.2,230,1.2,1.8,2300,function(P,b,a,f){var tb=lerp(.05,.42,eio(seg(b,9.3,13.4)));var dx=-Math.sin(tb),dy=Math.cos(tb);var s=330+700*a,sp=(P[2]-.5)*(50+150*a);var x=C[0]+dx*s-dy*sp,y=C[1]+dy*s+dx*sp;if(y>H+120)return;var r=(24+70*f)*(.6+.6*P[3]);circ(x,y,r,mix([170,160,186],[120,124,170],k),.75*(1-f));circ(x-r*.15,y-r*.2,r*.78,mix(SMOKEL,[214,214,232],k),.75*(1-f))});
 /* plume: particles leave the nozzle and stream away behind the rocket */
@@ -248,7 +249,7 @@ var TRJ=[],SURF=.77;[.6,.75,.88,1].forEach(function(v){var x=0,y=-1,vx=v,vy=0,pt
 var TST=[21.5,22.05,22.6,23.15],TDU=[.55,.55,.6,1.25];
 function orbit(t){vgrad(0,H,[0,INK,1,[14,20,46]]);stars(.9,t,720);
 var z=eio(seg(t,20.95,21.9)),Rg=lerp(1500,320,z),cy=lerp(2600,1080,z),cx=540,Ro=Rg*1.3;
-globe(cx,cy,Rg,t*.25,t);
+globe(cx,cy,Rg,3.6+t*.25,t);
 if(z>.98){for(var i=0;i<4;i++){var pts=TRJ[i];var pr=seg(t,TST[i],TST[i]+TDU[i]);if(pr<=0)continue;var n=Math.floor(pr*(pts.length-1));var done=pr>=1&&i<3;var fade=i<3?1-.55*seg(t,TST[i]+TDU[i]+.3,TST[i]+TDU[i]+.8):1;var col=i<3?[255,190,140]:ICE;
 for(var j=0;j<=n;j+=1){if(i<3||j%2==0)circ(cx+pts[j][0]*Ro,cy+pts[j][1]*Ro,i<3?3.2:4,col,.85*fade)}
 var hd=pts[n];if(!done&&i<3)circ(cx+hd[0]*Ro,cy+hd[1]*Ro,9,ORANGE,1);
