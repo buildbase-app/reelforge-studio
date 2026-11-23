@@ -1,7 +1,16 @@
 # Test Plan and Acceptance Criteria
 
-**Current status: NOT TESTED.** This document specifies tests to run; it
-is not evidence that tests have passed.
+**Status (2026-11-23): the test plan written before the build; not a test
+record.** Much of it is now covered by automated tests that run in CI (`pnpm
+typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test`: unit tests, repository
+contract tests on SQLite, PostgreSQL and MySQL, MCP and REST journeys against a
+real server with the real engines, the Docker end-to-end suite on the release
+image). The evidence lives with each feature, not here: test cases and results
+in docs/STATUS.md §3, the STATUS table of docs/AGENT_PLATFORM.md (§10),
+docs/providers/*.md, docs/tutorials/TEST_CASES.md and docs/PERFORMANCE.md. An
+item below with no test there is still untested. Parts of this plan describe
+things the product does not have (a built-in planner, a UI): the agent plans
+and there is no web UI in v0.1 (D-014).
 
 ## 1. Unit tests
 
