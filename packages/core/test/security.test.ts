@@ -305,7 +305,7 @@ describe('security: stored licence state integrity and clock (SEC-04)', () => {
       return this.answer(instance);
     }
   }
-  const manager = (repos: ReturnType<typeof createMemoryRepositories>, api: Api, clock: { t: number }, sealSecret?: string) => {
+  const manager = (repos: ReturnType<typeof createMemoryRepositories>, api: Api, clock: { t: number }, sealSecret: string) => {
     const logs: string[] = [];
     const m = new LicenceManager({
       repo: repos.licence,

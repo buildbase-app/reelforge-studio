@@ -17,6 +17,7 @@ resources:
   - worker.yaml
   - hpa.yaml
   - pdb.yaml
+  - networkpolicy.yaml # default deny + an allowlist you edit (#305, docs/DEPLOY.md "Network policy")
 images:
   - name: ghcr.io/buildbase-app/reelforge-studio
     newTag: "0.1.0" # pin the release you tested (or a digest)

@@ -54,6 +54,7 @@ import {
   formatIssue,
   migrateStorage,
   scrubSecretEnv,
+  secretKeyProblem,
   parseAuditQuery,
   type ConfigReport,
   type KeyOptions,
@@ -321,7 +322,7 @@ async function licence(cmd: string | undefined, argv: string[], config: ServerCo
     const repos = db.repositories();
     const settings = new RuntimeConfig(repos, config.sources);
     await settings.load();
-    const manager = createLicenceManager(settings, repos, { timers: false, log: json ? undefined : (_l, line) => console.error(line) });
+    const manager = createLicenceManager(settings, repos, { timers: false, dataDir: config.dataDir, log: json ? undefined : (_l, line) => console.error(line) });
     await manager.init();
     let r: LicenceReport;
     if (cmd === 'status') {
@@ -378,7 +379,9 @@ function configCheck(argv: string[]): void {
   const counts: Record<string, number> = {};
   for (const s of config.resolved.settings.values()) counts[s.source] = (counts[s.source] ?? 0) + 1;
   const warnings = [...config.resolved.warnings];
-  if (!config.resolved.config.security.secretKey) warnings.push('REELFORGE_SECRET_KEY is not set: provider keys and other secrets cannot be stored over the API');
+  const secretKey = secretKeyProblem(config.resolved);
+  if (secretKey.error) problems.push(`security.secretKey: ${secretKey.error}`);
+  if (secretKey.warning) warnings.push(secretKey.warning);
   if (!existsSync(config.dataDir)) warnings.push(`storage.dataDir ${config.dataDir} does not exist yet (the server creates it)`);
   if (problems.length) {
     console.error('configuration is INVALID:');

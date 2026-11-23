@@ -40,7 +40,7 @@ The ones most deployments set:
 | --- | --- | --- |
 | `REELFORGE_DATA_DIR` | `./data` (`/data` in Docker) | Asset and render files, caches, the URL signing key, and the SQLite database by default |
 | `DATABASE_URL` / `REELFORGE_DATABASE_URL` (`_FILE`) | `file:<data>/reelforge.db` (SQLite) | `postgresql://...` or `mysql://...` (MariaDB too). See [Database](#database) |
-| `REELFORGE_SECRET_KEY` (`_FILE`) | (none) | **Set it.** Encrypts provider keys and other secrets stored in the database (AES-256-GCM). `openssl rand -base64 32`. Without it the server refuses to store secrets over the API. Back it up: stored secrets cannot be read without it |
+| `REELFORGE_SECRET_KEY` (`_FILE`) | (none) | **Set it; the release image does not start without it** (#305). Encrypts provider keys and other secrets stored in the database (AES-256-GCM). `openssl rand -base64 32`. It also keys the seal of the stored licence state. Without it a dev build refuses to store secrets over the API. Back it up: stored secrets cannot be read without it |
 | `REELFORGE_BOOTSTRAP_KEY` (`_FILE`) | (none) | First admin API key (`rf_` + 20 or more URL-safe characters), stored hashed on first start if no key exists |
 | `REELFORGE_HOST`, `REELFORGE_PORT` | `127.0.0.1` (`0.0.0.0` in Docker), `4321` | Bind address and port |
 | `REELFORGE_PUBLIC_URL` | (none) | `https://studio.example.com`: output links; allowed as Host on `/mcp` |
@@ -184,14 +184,22 @@ docker run -d --name reelforge -p 127.0.0.1:4321:4321 --shm-size=1g \
   --read-only --tmpfs /tmp:size=1g --cap-drop ALL --security-opt no-new-privileges \
   --security-opt seccomp=deployment/seccomp/chrome.json \
   -v reelforge-data:/data \
+  -e REELFORGE_SECRET_KEY="$(cat secret_key)" \
   -e REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) \
   reelforge-studio
 docker exec reelforge reelforge keys create --name agent   # a non-admin key for the agent
 ```
 
+`secret_key` is a file you made once with `openssl rand -base64 32 > secret_key`
+and keep (prefer `-v $PWD/secret_key:/run/secrets/secret_key:ro -e
+REELFORGE_SECRET_KEY_FILE=/run/secrets/secret_key`, which keeps it out of
+`docker inspect`). Without it the release image stops at start with
+`REELFORGE_SECRET_KEY is not set: the release edition does not start without it`.
+
 The image (the Dockerfile's default `release` target, see "Release image and
 editions"): `node:22-bookworm-slim` pinned by digest, Debian bookworm's FFmpeg
-5.1 with security updates applied at build time, fonts (DejaVu, Liberation,
+5.1 and every other Debian package from one dated `snapshot.debian.org` archive
+(see "Reproducible image"), fonts (DejaVu, Liberation,
 Noto, Noto Color Emoji), Chrome Headless Shell from Remotion's
 `ensureBrowser()` at `/usr/local/bin/chrome-headless-shell`, production
 dependencies only, the Remotion and Motion Canvas bundles pre-built; runs as
@@ -199,7 +207,7 @@ UID:GID 10001:10001, data in the `/data` volume, `HEALTHCHECK` on `/healthz`,
 `tini` as PID 1. 1.85 GB (budget 2000 MB, D-042).
 
 Building needs network access to Docker Hub (or a mirror via `BASE_IMAGE`),
-`deb.debian.org`, `registry.npmjs.org` and `remotion.media` (Chrome download).
+`snapshot.debian.org` (or a mirror of it via `DEBIAN_SNAPSHOT_URL`), `registry.npmjs.org` and `remotion.media` (Chrome download).
 **Rendering needs none**: a dev-edition container with `--network none`
 rendered a four-engine project here. A release image needs outbound HTTPS to
 the licence server once to activate, then works offline for up to 14 days at a
@@ -218,6 +226,7 @@ docker build --network host \
 `docker compose`:
 
 ```bash
+export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)      # required; keep a copy (stored secrets need it)
 export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)   # optional, see "The first key"
 docker compose up -d --build
 docker compose ps                                          # reelforge ... (healthy)
@@ -345,6 +354,60 @@ on a kind cluster with the profile mounted on the node and Chromium's sandbox on
 (`e2e/k8s/keda.sh`, issue #153); see
 [providers/queue-and-scaling.md](providers/queue-and-scaling.md#example-kubernetes).
 
+### Network policy
+
+`deployment/kubernetes/base/networkpolicy.yaml` (in the base, so every overlay
+gets it) denies all ingress and egress for every pod in the `reelforge`
+namespace, then allows (#305, D-110):
+
+| Pods | Direction | Allowed | Edit |
+| --- | --- | --- | --- |
+| all ReelForge pods | egress | DNS to `kube-dns` in `kube-system` (UDP/TCP 53) | another resolver: change the selector |
+| all ReelForge pods | egress | the database (TCP 5432, 6432 for PgBouncer, 3306) on private ranges | narrow to your database's address, or a `namespaceSelector` for an in-cluster one |
+| all ReelForge pods | egress | Redis for `queue.dispatch: redis` (TCP 6379/6380) on private ranges | your broker's address; delete the rule if you do not use Redis. `notify` uses the database connection; SQS is HTTPS |
+| workers, worker-once jobs | egress | HTTPS (443) to public addresses: the storage endpoint | your S3/Blob/GCS endpoint's CIDRs, an S3 VPC endpoint, or a `namespaceSelector` for in-cluster MinIO (its port) |
+| api | egress | HTTPS (443) to public addresses: storage, the licence server `api.console.buildbase.app` (only api instances call it, D-098), SQS, and the providers, webhook, email and OTLP endpoints you configured (docs/PRIVACY.md) | the CIDRs of those services, or an egress proxy |
+| api | ingress | TCP 4321 from the `ingress-nginx` and `monitoring` namespaces | your ingress controller's / gateway's namespace |
+| workers | ingress | TCP 4321 from `monitoring` (Prometheus scrapes `/metrics`) | your Prometheus namespace |
+
+The "public addresses" rules exclude the private ranges, link-local
+(`169.254.0.0/16`, so the cloud metadata service), CGNAT and loopback. Treat
+the file as an allowlist you edit: it is written for a typical cluster, and
+anything it does not name is denied. Check it with `e2e/k8s/kubeconform.sh`;
+`e2e/k8s/settings/networkpolicy-e2e.yaml` shows the additions for in-cluster
+PostgreSQL, MinIO on port 9000 and a licence server in the namespace.
+
+**Residual risks.**
+
+- NetworkPolicy needs a CNI that enforces it (Calico, Cilium, the cloud
+  providers' policy engines; recent kindnet). Without one the objects are
+  accepted and change nothing.
+- Policies match addresses, not names. Until you narrow them, the HTTPS rules
+  reach any public address on 443, so a compromised worker could still send
+  data to an outside HTTPS server. Narrow them, or use FQDN policies of your
+  CNI (Cilium `toFQDNs`, Calico DNS policy) or an egress gateway.
+- Kubelet probes come from the node and most CNIs allow them whatever the
+  policy says; host-network pods are not covered.
+- Scene isolation inside the worker (no network for scenes, D-086) stays the
+  first line of defence; the policy limits what the worker process itself can reach.
+
+### Request limits before authentication
+
+Every request that needs an API key first passes two limits per client address
+(the TCP peer, or with `server.trustProxy` the address your proxy saw; IPv6 per
+/64), before the key is looked up, so a flood or a key-guessing run costs no
+database work (#305): `limits.preAuthPerMinute` (default 1 200) and
+`limits.authFailuresPerMinute` (default 20). The failure that uses up the second
+budget locks the address out for `limits.authLockoutSeconds` (60 s), doubling
+with each further lockout up to `limits.authLockoutMaxSeconds` (1 h). They are
+per instance and in memory: with N api instances an address gets N budgets, so
+cap request rates at the ingress or a WAF as well. Clients behind one NAT share
+a budget: set `server.trustProxy` behind a proxy, and raise the limits for a
+large office. Responses carry `RateLimit-Limit`, `RateLimit-Remaining`,
+`RateLimit-Reset` and `RateLimit-Policy`; a `429` adds `Retry-After` and says in
+`error.details.scope` which limit it was (`key`, `client_ip`, `auth_failures`),
+with a `hint`.
+
 ## Supply chain
 
 CI (`.github/workflows/ci.yml`, heavy tier) builds the release image natively
@@ -364,6 +427,29 @@ cosign verify ghcr.io/buildbase-app/reelforge-studio:<version> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 cosign verify-attestation --type cyclonedx ...same flags... ghcr.io/buildbase-app/reelforge-studio:<version>
 ```
+
+### Reproducible image
+
+Debian packages come from one dated snapshot of the Debian archive
+(`snapshot.debian.org`, build argument `DEBIAN_SNAPSHOT`, e.g.
+`20261116T000000Z`), not from the moving mirror: the same `BASE_DIGEST` and
+`DEBIAN_SNAPSHOT` install the same package versions (D-110). `apt-get upgrade`
+still runs, but only against that snapshot, so the security fixes it applies
+are the ones of that date. apt checks the archive signatures with the base
+image's Debian keyring; the snapshot's `Valid-Until` dates have passed by
+design, so that one check is off during the build. The image keeps the normal
+Debian sources afterwards.
+
+**Weekly rebuild.** Security fixes arrive by moving the date: once a week, set
+`DEBIAN_SNAPSHOT` in the Dockerfile to the current UTC date (`date -u
++%Y%m%dT000000Z`) in a pull request, and update `BASE_DIGEST` when the base
+image moves. The heavy CI tier then builds both architectures, runs Trivy
+(fixable HIGH/CRITICAL fail) and the Docker e2e, and the merge publishes the
+image. To build with a newer date without editing the file:
+`docker build --build-arg DEBIAN_SNAPSHOT=$(date -u +%Y%m%dT000000Z) .`.
+(TODO: a scheduled workflow that opens that pull request is a maintainer change
+in `.github/`.) `DEBIAN_SNAPSHOT_URL` points at a mirror of the snapshot
+service if `snapshot.debian.org` is slow or blocked.
 
 The amd64 and arm64 image jobs passed on GitHub (run 44921945693, 2026-11-21).
 (VERIFY: the publish job and cosign run only on `main` and `v*` tags and have

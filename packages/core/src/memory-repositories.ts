@@ -620,6 +620,12 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID, opt
         rateWindows.set(k, { windowStart, count: n });
         return n;
       },
+      async slide(key, windowStart, previousStart) {
+        const k = `${key}\n${windowStart}`;
+        const count = (rateWindows.get(k)?.count ?? 0) + 1;
+        rateWindows.set(k, { windowStart, count });
+        return { count, previous: rateWindows.get(`${key}\n${previousStart}`)?.count ?? 0 };
+      },
       async windows(key, since) {
         return [...rateWindows.entries()]
           .filter(([k, w]) => k === `${key}\n${w.windowStart}` && w.windowStart >= since)

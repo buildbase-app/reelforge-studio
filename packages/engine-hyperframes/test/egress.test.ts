@@ -93,7 +93,7 @@ describe('SECT-41 the HyperFrames CLI process cannot fetch fonts (or anything) f
   });
 });
 
-describe('SECT-43 the strace egress check (#318, D-110)', () => {
+describe('SECT-43 the strace egress check (#318, D-111)', () => {
   // The line CI saw on a runner with an IPv6 stack but no IPv6 route (job 137840212606), as `-yy` prints it.
   const probe = '14841 connect(24<UDPv6:[5531201]>, {sa_family=AF_INET6, sin6_port=htons(443), sin6_flowinfo=htonl(0), inet_pton(AF_INET6, "2001:4860:4860::8888", &sin6_addr), sin6_scope_id=0}, 28) = -1 ENETUNREACH (Network is unreachable)';
 

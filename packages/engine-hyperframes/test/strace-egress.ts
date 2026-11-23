@@ -1,7 +1,7 @@
 /**
  * Reads an `strace -f -yy -e trace=connect,sendto,sendmsg,sendmmsg` log and
  * returns every line that could put a packet on the network outside loopback
- * (#318, D-110). `-yy` labels each socket with its protocol, e.g.
+ * (#318, D-111). `-yy` labels each socket with its protocol, e.g.
  * `24<UDPv6:[123456]>` (not connected) or `24<UDP:[10.0.0.2:5353->8.8.8.8:53]>`.
  *
  * Counted, whatever the call's result (a host without a route only hides a

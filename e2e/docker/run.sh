@@ -79,13 +79,19 @@ case "$EDITION" in release|dev) ;; *) echo "EDITION must be release or dev"; exi
 WORK=$(mktemp -d); chmod 755 "$WORK"
 cleanup() {
   docker rm -f $NAME $LIC $OTEL $MINIO $P-nobucket $RX $MAILPIT >/dev/null 2>&1 || true
-  [ "$DB" = sqlite ] && { docker network rm $NET >/dev/null 2>&1 || true; } || docker compose -p $PROJECT --profile "$DB" down -v >/dev/null 2>&1 || true
+  [ "$DB" = sqlite ] && { docker network rm $NET >/dev/null 2>&1 || true; } || compose -p $PROJECT --profile "$DB" down -v >/dev/null 2>&1 || true
   docker volume rm $VOL >/dev/null 2>&1 || true; rm -rf "$WORK"
 }
 trap cleanup EXIT
 # `docker logs X | grep -q ...` is flaky under pipefail: grep -q exits at the first
 # match, docker logs then dies of SIGPIPE (exit 141) and the pipeline fails even
 # though the line is there (CI run 44916484714). Read the whole log, then grep.
+# docker compose interpolates the whole file, and the studio service requires
+# REELFORGE_SECRET_KEY (#305). This script only starts the database services
+# from it, so compose gets a throwaway value; the studio containers below get
+# their real key from $WORK/secret/secretkey.
+compose() { REELFORGE_SECRET_KEY="${REELFORGE_SECRET_KEY:-e2e-compose-interpolation-only}" docker compose "$@"; }
+
 logs_have() { local c=$1; shift; docker logs "$c" > "$WORK/container.log" 2>&1 || true; grep -q -- "$@" "$WORK/container.log"; }
 
 if [ "$EDITION" = release ]; then
@@ -173,7 +179,7 @@ if [ "$DB" = sqlite ]; then
 else
   echo "== $DB from the compose profile"
   POSTGRES_PASSWORD=$DBPASS MYSQL_PASSWORD=$DBPASS MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16) \
-    docker compose -p $PROJECT --profile "$DB" up -d --wait "$DB"
+    compose -p $PROJECT --profile "$DB" up -d --wait "$DB"
 fi
 docker volume create $VOL >/dev/null
 echo "== mock licence server (container \"licence\")"; licence_server
@@ -241,6 +247,9 @@ if [ "$EDITION" = release ]; then
   printf 'licence:\n  mode: "off"\n' > "$WORK/config/off.yaml"; chmod 644 "$WORK/config/off.yaml"
   out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -v "$WORK/config/off.yaml:/config/off.yaml:ro" -e REELFORGE_CONFIG=/config/off.yaml "$IMAGE" 2>&1) && { echo "✘ started with licence.mode off in the config file"; exit 1; }
   echo "$out" | grep '/config/off.yaml (licence.mode): "licence.mode" is fixed' >/dev/null && echo "✔ refuses to start with licence.mode: off in the config file" || { echo "✘ config file override"; echo "$out" | tail -5; exit 1; }
+  # #305: no REELFORGE_SECRET_KEY, no start (the licence-state seal has no fixed fallback).
+  out=$(timeout 120 docker run --rm --network none "${HARD[@]}" "$IMAGE" 2>&1) && { echo "✘ started without REELFORGE_SECRET_KEY"; exit 1; }
+  echo "$out" | grep -q 'REELFORGE_SECRET_KEY is not set: the release edition does not start without it' && echo "✔ refuses to start without REELFORGE_SECRET_KEY" || { echo "✘ unexpected output without REELFORGE_SECRET_KEY"; echo "$out" | tail -5; exit 1; }
 fi
 [ "$(api /v1/projects/legacy-v01/versions)" = '{"versions":[1,2]}' ] && echo "✔ v0.1 project imported with both versions; the imported key works" || { echo "✘ v0.1 import"; api /v1/projects/legacy-v01/versions; exit 1; }
 api /v1/projects/legacy-v01 | grep '"Made by v0.1, edited"' >/dev/null && echo "✔ current manifest is version 2" || { echo "✘ v0.1 manifest"; exit 1; }
@@ -365,25 +374,25 @@ echo "== licence after the restart"; PHASE=restart client licence.mjs
 [ "$(api "/v1/audit?targetId=$AUD_KEY&action=key.rotate&result=success" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["events"]))')" = 1 ] \
   && echo "✔ the audit trail survives the restart" || { echo "✘ audit trail lost after the restart"; exit 1; }
 case "$DB" in
-  postgres) n=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT count(*) FROM "Project"') ;;
-  mysql) n=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT count(*) FROM Project') ;;
+  postgres) n=$(compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT count(*) FROM "Project"') ;;
+  mysql) n=$(compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT count(*) FROM Project') ;;
   *) n=skip ;;
 esac
 [ "$n" = skip ] || { [ "$n" -ge 2 ] && echo "✔ $n projects are rows in $DB" || { echo "✘ expected projects in $DB, got $n"; exit 1; }; }
 case "$DB" in
-  postgres) aud=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc "SELECT (SELECT count(*) FROM \"AuditLog\" WHERE \"targetId\" = '$AUD_KEY'), (SELECT count(*) FROM \"IdempotencyKey\")" | tr '|' ' ') ;;
-  mysql) aud=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e "SELECT (SELECT count(*) FROM AuditLog WHERE targetId = '$AUD_KEY'), (SELECT count(*) FROM IdempotencyKey)" | tr '\t' ' ') ;;
+  postgres) aud=$(compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc "SELECT (SELECT count(*) FROM \"AuditLog\" WHERE \"targetId\" = '$AUD_KEY'), (SELECT count(*) FROM \"IdempotencyKey\")" | tr '|' ' ') ;;
+  mysql) aud=$(compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e "SELECT (SELECT count(*) FROM AuditLog WHERE targetId = '$AUD_KEY'), (SELECT count(*) FROM IdempotencyKey)" | tr '\t' ' ') ;;
   *) aud=skip ;;
 esac
 [ "$aud" = skip ] || { set -- $aud; [ "$1" -ge 4 ] && [ "$2" -ge 2 ] && echo "✔ audit entries ($1 for the rotated key) and idempotency keys ($2) are rows in $DB" || { echo "✘ unexpected AuditLog/IdempotencyKey rows in $DB: $aud"; exit 1; }; }
 case "$DB" in
-  postgres) rows=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT name, scheme, value FROM "ProviderSetting" UNION ALL SELECT key, scheme, value FROM "Setting"') ;;
-  mysql) rows=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT name, scheme, value FROM ProviderSetting UNION ALL SELECT `key`, scheme, value FROM Setting') ;;
+  postgres) rows=$(compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT name, scheme, value FROM "ProviderSetting" UNION ALL SELECT key, scheme, value FROM "Setting"') ;;
+  mysql) rows=$(compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT name, scheme, value FROM ProviderSetting UNION ALL SELECT `key`, scheme, value FROM Setting') ;;
   *) rows=skip ;;
 esac
 case "$DB" in
-  postgres) lic=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT * FROM "LicenceState"') ;;
-  mysql) lic=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT * FROM LicenceState') ;;
+  postgres) lic=$(compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT * FROM "LicenceState"') ;;
+  mysql) lic=$(compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT * FROM LicenceState') ;;
   *) lic=skip ;;
 esac
 if [ "$lic" != skip ]; then
@@ -426,6 +435,7 @@ if [ "$STORAGE" = s3 ]; then
   docker run -d --name $NAME --network $NET "${HARD[@]}" --tmpfs /data:rw,uid=10001,gid=10001 -e REELFORGE_STORAGE_DRIVER=s3 -e REELFORGE_S3_ENDPOINT=http://minio:9000 \
     -e REELFORGE_S3_BUCKET=$S3_BUCKET_OVERRIDE -e REELFORGE_S3_FORCE_PATH_STYLE=true -e REELFORGE_S3_ACCESS_KEY_ID_FILE=/run/secrets/s3id -e REELFORGE_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3secret \
     -v "$WORK/secret/s3id:/run/secrets/s3id:ro" -v "$WORK/secret/s3secret:/run/secrets/s3secret:ro" "${LIC_ENV[@]}" \
+    -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secretkey \
     -v "$WORK/secret/key:/run/secrets/key:ro" -e REELFORGE_BOOTSTRAP_KEY_FILE=/run/secrets/key "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && break; sleep 2; done
   ready=$(docker exec -e K="$KEY" $NAME node -e "fetch('http://127.0.0.1:4321/readyz',{headers:{authorization:'Bearer '+process.env.K}}).then(async r=>console.log(r.status, await r.text()))")
