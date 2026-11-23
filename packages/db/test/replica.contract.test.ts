@@ -256,7 +256,9 @@ describe.each(servers)('read replica on %s', (kind) => {
       );
     // Behind PgBouncer (TEST_POSTGRES_POOLER=pgbouncer) the server connections are PgBouncer's, not the pool's: only the sizes are checked.
     const behindPooler = kind === 'postgresql' && process.env.TEST_POSTGRES_POOLER === 'pgbouncer';
-    const sleepSql = kind === 'postgresql' ? 'SELECT pg_sleep(0.8)::text AS s' : 'SELECT SLEEP(0.8) AS s';
+    const sleepSql = kind === 'postgresql' ? 'SELECT pg_sleep(2)::text AS s' : 'SELECT SLEEP(2) AS s';
+    // Each query sleeps 2 s so the pool has time to open every connection it may: with shorter queries a slow CI runner
+    // reuses finished connections before new ones finish connecting, and the peak under-reads (seen in CI on main).
     // The most connections the database saw while 12 queries ran at once, above what was open before the pool existed
     // (MySQL counts every connection to the test database, including this suite's own idle pool).
     const peakOf = async (opts: { url: string; defaultConnectionLimit?: number }) => {
