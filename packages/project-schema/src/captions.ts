@@ -79,7 +79,16 @@ const NEVER_BREAK_AFTER = new Set(['a', 'an', 'the', 'this', 'that', 'these', 't
 /** Words a second line may well start with: conjunctions and prepositions. */
 const GOOD_BREAK_BEFORE = new Set(['and', 'but', 'or', 'so', 'because', 'which', 'who', 'that', 'when', 'while', 'if', 'to', 'of', 'in', 'on', 'at', 'for', 'with', 'from', 'by', 'about', 'into']);
 
-const bare = (w: string) => w.toLowerCase().replace(/^[("'“‘¿¡]+|[)"'”’]+$/g, '');
+const OPENING_PUNCT = new Set(['(', '"', "'", '“', '‘', '¿', '¡']);
+const CLOSING_PUNCT = new Set([')', '"', "'", '”', '’']);
+/** The word in lower case without wrapping quotes or brackets (a linear scan, no regex backtracking). */
+const bare = (w: string) => {
+  let start = 0;
+  let end = w.length;
+  while (start < end && OPENING_PUNCT.has(w[start]!)) start++;
+  while (end > start && CLOSING_PUNCT.has(w[end - 1]!)) end--;
+  return w.slice(start, end).toLowerCase();
+};
 
 export function normalizeCaptionText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
@@ -388,10 +397,18 @@ function parseTime(s: string, line: number): number {
   return Number(h ?? 0) * 3600 + Number(mm) * 60 + Number(ss) + Number(frac!.padEnd(3, '0')) / 1000;
 }
 
+/** Remove a pattern until none is left, so nested markup like `<scr<b>ipt>` cannot survive one pass. */
+const removeAll = (s: string, pattern: RegExp) => {
+  let prev: string;
+  do {
+    prev = s;
+    s = s.replace(pattern, '');
+  } while (s !== prev);
+  return s;
+};
+
 const stripTags = (s: string) =>
-  s
-    .replace(/<[^>]*>/g, '')
-    .replace(/\{\\[^}]*\}/g, '')
+  removeAll(removeAll(s, /<[^>]*>/g), /\{\\[^}]*\}/g)
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&nbsp;/g, ' ')

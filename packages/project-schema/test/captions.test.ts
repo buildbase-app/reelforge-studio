@@ -324,3 +324,20 @@ describe('captions in the manifest', () => {
     expect(parsed(n).warnings.find((x) => x.path === 'captions.mode')?.message).toMatch(/no cues/);
   });
 });
+
+describe('caption text hardening', () => {
+  it('strips nested markup that a single pass would leave behind', () => {
+    const srt = '1\n00:00:00,000 --> 00:00:02,000\n<scr<b>ipt>Hello</scr</b>ipt> {\\b1}world{\\b0}\n';
+    const [cue] = parseSrt(srt);
+    expect(cue!.text).not.toMatch(/<[a-z]/i);
+    expect(cue!.text).toContain('Hello');
+    expect(cue!.text).toContain('world');
+  });
+
+  it('breaks lines on words wrapped in many quotes in linear time', () => {
+    const word = '"'.repeat(50_000) + 'x';
+    const started = performance.now();
+    breakLines(`the ${word} and the rest of a long caption line here`, 42);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});
