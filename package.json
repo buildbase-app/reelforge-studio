@@ -60,6 +60,9 @@
       "@remotion/compositor-linux-x64-gnu",
       "better-sqlite3",
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "hyperid>uuid": "^11.1.1"
+    }
   }
 }
