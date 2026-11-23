@@ -13,6 +13,7 @@ the latest result. Nothing is called supported without a passing case.
 - [Autoscaling with KEDA](#autoscaling-with-keda) (scale to zero on the job queue)
 - [How the queue works](#how-the-queue-works)
 - [Queue dispatch: poll and notify (D-105)](#queue-dispatch-poll-and-notify-d-105)
+- [Queue dispatch: SQS and Redis Streams (D-105)](#queue-dispatch-sqs-and-redis-streams-d-105) (setup, semantics, KEDA on the broker)
 - [Render fan-out](#render-fan-out)
 - [Quotas and rate limits across instances](#quotas-and-rate-limits-across-instances)
 - [Licence across instances](#licence-across-instances)
@@ -47,7 +48,9 @@ ready. The `Job` table stays the queue of record with every driver.
 | --- | --- | --- | --- |
 | `poll` (default) | **tested** (every queue test; backoff DSP-10) | all | idle workers poll every `queue.pollIntervalMs`, backing off to `queue.pollMaxIntervalMs` on empty polls |
 | `notify` | **tested** on PostgreSQL 17 (DSP-01..09, DSP-11 contract, NTF-01..05, DSP-20..24 server) | PostgreSQL only; **refused at start** on MySQL and SQLite (DSP-20, NTF-05) | LISTEN on a direct session connection per worker; not through PgBouncer transaction mode (`database.directUrl`, NTF-04) |
-| `sqs`, `redis` (Streams + consumer group), `nats` (JetStream) | **not built** (follow-ups of #158) | all | will publish through the dispatch outbox (OUT-01..03) and pass the same contract suite |
+| `sqs` | **tested** on SQS in LocalStack 4.11.1 (DSP-01..09, DSP-11 contract and BRK-01..07 on memory repositories, PostgreSQL 17 and MySQL 8.4; DSP-25..29 server on PostgreSQL 17); untested against AWS itself | all | SQS **standard** queue; outbox + relay; one worker per message, deleted after the claim it woke; visibility timeout `queue.sqs.visibilityTimeoutSeconds` |
+| `redis` (Streams + consumer group) | **tested** on Redis 8.4 (the same cases; BRK-08 wrong password); Redis 6.2+ needed (XAUTOCLAIM), 7.x **untested** here | all | outbox + relay; XREADGROUP per worker, XACK after the claim, XAUTOCLAIM after `queue.redis.claimIdleSeconds`; TLS with `rediss://` (**untested** here) |
+| `nats` (JetStream) | **not built** (follow-up of #158) | all | will publish through the same outbox and pass the same contract suite |
 
 More than one instance needs **a shared database** (PostgreSQL or MySQL/MariaDB)
 and **shared storage** (`storage.driver` `s3`, `azure` or `gcs`, or one shared
@@ -85,8 +88,10 @@ All start-up only unless marked; environment names and defaults in
 | `queue.pollIntervalMs` | `REELFORGE_QUEUE_POLL_INTERVAL_MS` | `1000` | idle claim poll; also how often a long-poll re-reads a job running elsewhere; backs off to 30 s on database errors |
 | `queue.shutdownGraceSeconds` | `REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS` | `30` | on SIGTERM: wait this long for running renders, then hand them back to the queue |
 | `queue.pollMaxIntervalMs` | `REELFORGE_QUEUE_POLL_MAX_INTERVAL_MS` | `5000` | longest wait between empty polls (doubling from `queue.pollIntervalMs`); a claimed job resets it. Equal to `queue.pollIntervalMs`: no backoff |
-| `queue.dispatch` | `REELFORGE_QUEUE_DISPATCH` | `poll` | `poll` or `notify` (PostgreSQL LISTEN/NOTIFY); [below](#queue-dispatch-poll-and-notify-d-105). Same value on every instance |
-| `queue.dispatchFallbackSeconds` | `REELFORGE_QUEUE_DISPATCH_FALLBACK_SECONDS` | `30` | `notify`: idle workers still poll this often, so a lost message delays a job by at most this |
+| `queue.dispatch` | `REELFORGE_QUEUE_DISPATCH` | `poll` | `poll`, `notify` (PostgreSQL LISTEN/NOTIFY; [below](#queue-dispatch-poll-and-notify-d-105)), `sqs` or `redis` ([below](#queue-dispatch-sqs-and-redis-streams-d-105)). Same value on every instance |
+| `queue.dispatchFallbackSeconds` | `REELFORGE_QUEUE_DISPATCH_FALLBACK_SECONDS` | `30` | `notify`, `sqs`, `redis`: idle workers still poll this often, so a lost message delays a job by at most this; with `sqs`/`redis` also the outbox relay's sweep |
+| `queue.sqs.*` | `REELFORGE_QUEUE_SQS_*` | — | `queueUrl` (required with `sqs`), `region`, `endpoint`, `accessKeyId` / `secretAccessKey` / `sessionToken` (runtime secrets; unset: AWS default chain), `visibilityTimeoutSeconds` (30) |
+| `queue.redis.*` | `REELFORGE_QUEUE_REDIS_*` | — | `url` (required with `redis`, secret, `rediss://` for TLS), `password` (runtime secret), `tlsCaFile`, `stream` (`reelforge:jobs`), `group` (`reelforge-workers`), `claimIdleSeconds` (30), `maxLength` (100 000) |
 | `queue.notifyJitterMs` | `REELFORGE_QUEUE_NOTIFY_JITTER_MS` | `50` | `notify`: random delay before a woken worker claims; it skips the claim when others took the announced jobs meanwhile |
 | `database.directUrl` | `REELFORGE_DATABASE_DIRECT_URL` (`DATABASE_DIRECT_URL`, `_FILE`) | `database.url` | a direct session connection to PostgreSQL for the `notify` LISTEN connection; required when `database.url` is PgBouncer in transaction mode |
 | `storage.localShared` | `REELFORGE_STORAGE_LOCAL_SHARED` | `false` | the data directory is one shared volume (NFS, EFS, Azure Files, RWX PVC) mounted by every instance |
@@ -215,7 +220,7 @@ Metrics added by this work (labels bounded, never ids or worker names):
 | `reelforge_queue_dispatch_received_total` | counter | `reelforge_dispatch_driver`, `reelforge_dispatch_kind` (`ready`, `claimed`) | messages this worker received |
 | `reelforge_queue_dispatch_duplicates_total` | counter | `reelforge_dispatch_driver` | ready messages for a job this worker was already about to claim (no-ops) |
 | `reelforge_queue_dispatch_fallback_claims_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`fallback`, `degraded`) | jobs claimed by the poll instead of a message; steadily above 0 with `fallback` means messages are lost |
-| `reelforge_queue_dispatch_publish_failures_total` | counter | `reelforge_dispatch_driver` | outbox publishes to a broker that failed (external drivers; none built yet) |
+| `reelforge_queue_dispatch_publish_failures_total` | counter | `reelforge_dispatch_driver` | outbox publishes to a broker that failed and are retried (`sqs`, `redis`) |
 
 ## Autoscaling with KEDA
 
@@ -437,19 +442,160 @@ or unknown) cost at most one ordinary claim, which takes whatever the fair order
   per second at most, PERFORMANCE.md) that is not measurable, at thousands of commits per second
   it would be.
 
-**Outbox for external brokers (built, no driver yet).** `sqs`, `redis` and `nats` will publish to a
-broker outside the database, which cannot be part of the job's transaction. For them the job
-repository writes a `DispatchOutbox` row (migration `0011_dispatch_outbox`) in the job's
-transaction, and `OutboxRelay` (packages/core/src/dispatch.ts) claims due rows with a lease (each
-row by one relay; several instances may run one), publishes their job ids in one call, deletes them,
-and retries a failed publish with exponential backoff and full jitter (1 s .. 5 min), dropping a row
-after 10 attempts (its job stays queued; the fallback poll claims it). Tested with an in-memory
-publisher (OUT-01..03); the brokers' consumers will acknowledge a message after the claim it
-triggered, so broker lock limits never bound a render. `notify` deliberately does not use the
-outbox: its NOTIFY already commits or rolls back with the job, and a relay would have to poll the
-outbox table, which is the idle load `notify` removes.
+**Outbox for external brokers.** `sqs` and `redis` publish through the dispatch outbox: next section.
+`notify` deliberately does not use the outbox: its NOTIFY already commits or rolls back with the
+job, and a relay would have to poll the outbox table, which is the idle load `notify` removes.
 
 Numbers (idle database load and queue wait, poll versus notify): [PERFORMANCE.md](../PERFORMANCE.md#queue-dispatch-158-poll-backoff-and-notify).
+
+## Queue dispatch: SQS and Redis Streams (D-105)
+
+Issue #158, step 2. Same rule as `notify`: the `Job` table is the queue of record, and a message
+only decides **when** an idle worker runs the normal fair claim. What a broker adds: idle workers
+wait on the broker instead of the database (no claim transactions while idle, apart from the
+fallback poll and housekeeping), every database works (MySQL and SQLite included), and the broker's
+queue depth is a signal an autoscaler can read without database access.
+
+**Publishing (every instance).** A broker cannot take part in the job's transaction, so the
+transaction that makes a job claimable (enqueue, `retry_job`, fan-out units and join, a job queued
+again after a lost lease or handed back on shutdown) writes a `DispatchOutbox` row (migration
+`0011`). Each instance runs an `OutboxRelay`: right after its own commit it claims the due rows with
+a lease (each row by one relay), sends the job ids (SQS `SendMessageBatch`, 10 per call; Redis
+`XADD ... MAXLEN ~ queue.redis.maxLength`, pipelined) and deletes the rows. A failed publish keeps
+the rows and retries them with exponential backoff and full jitter (1 s doubling to 5 min) and drops
+a row after 10 attempts (its job stays queued; the fallback poll claims it). Rows an instance did not
+publish (it stopped between commit and publish) are swept by every relay every
+`queue.dispatchFallbackSeconds`. **A broker that is down never blocks an enqueue** (BRK-05,
+DSP-27): the start returns `202`, the row waits, the workers' poll claims the job, and the relay
+delivers the id once the broker answers (its claim is then a no-op).
+
+**Receiving (claiming instances).** Each message goes to **one** worker (SQS standard queue
+semantics; a Redis consumer group), so there is no herd and no jitter (`queue.notifyJitterMs` is
+not used). The semantics, the same for both brokers (`packages/core/src/dispatch-broker.ts`):
+
+- **A message wakes the ordinary claim; it never claims "that id".** Priority (D-103) and fairness
+  across keys (D-090) decide which job the claim takes (DSP-03, BRK-02).
+- **Acknowledged after the claim it woke**, whichever job that claim took: the message's own job,
+  another one the fair order put first, or nothing because the job was taken already. The claimed
+  job's own message is acknowledged if this worker holds it; otherwise the oldest message that
+  arrived before the claim (BRK-01, BRK-02). "Acknowledged" is SQS `DeleteMessage` and Redis
+  `XACK`. A claim that finds nothing acknowledges every message that arrived before it.
+- **Duplicate or stale ids are no-ops.** A second message for a job this worker is already about
+  to claim is acknowledged at once; a message for a finished or unknown job costs one claim that
+  takes whatever the fair order says, or nothing (DSP-04, DSP-05, BRK-03).
+- **Flow control.** A worker keeps at most as many messages unanswered as it has free slots
+  (`MaxNumberOfMessages` / `COUNT`). A worker with every slot busy stops receiving and gives back
+  what it holds (SQS `ChangeMessageVisibility 0`; Redis: the id added again and the old entry
+  acknowledged, in one `MULTI`), so a message never waits in a busy worker while another one is
+  idle, and the messages left in the broker are the jobs no worker has a slot for (DSP-11).
+- **A worker killed after its claim and before the acknowledgement**: SQS makes the message
+  visible again after `queue.sqs.visibilityTimeoutSeconds`; Redis leaves the entry pending and the
+  other workers take it over with `XAUTOCLAIM` once it has been idle for
+  `queue.redis.claimIdleSeconds` (checked every half of that). Either way another worker's claim is
+  then a no-op and it acknowledges the message (BRK-04). Exactly once is the database's job: the
+  fenced claim (BRK-07: 3 workers × 2 slots, 80 jobs, duplicate deliveries and a broker outage in
+  the middle; every job ran once with one attempt and both the outbox and the broker drained).
+- **Fallback poll and lost connections.** As with `notify`: an idle worker still claims every
+  `queue.dispatchFallbackSeconds` (30 s), so a lost message delays a job by at most that (DSP-06).
+  A broker error marks the listener disconnected; the worker polls (`queue.pollIntervalMs` with
+  backoff) and retries the broker with backoff (0.5 s doubling to 30 s), then claims once (DSP-07,
+  DSP-27). **A worker whose broker is unreachable at start still starts** and polls until it
+  connects (BRK-06): the database is the record, so the broker is reported, never required. A
+  wrong password shows up in `/readyz` and the log (`WRONGPASS ...`, never the password; BRK-08).
+- **`worker --once`** waits for a message (DSP-08).
+
+**`/readyz`** `dependencies.dispatch` (never required): on workers the broker connection
+(`connected`, `since`, `reconnects`, `detail` with the error) and the counters; on every instance
+`relay` (`failing`, `published`, `failed`, `dropped`, `lastError`). Status `error` when the listener
+is disconnected or the last publish failed.
+
+**Metrics** (driver label `sqs` or `redis`): `reelforge_queue_dispatch_published_total{reason="outbox"}`
+counts ids the relay sent (the transaction's outbox write is not counted again),
+`..._publish_failures_total`, `..._received_total{kind="ready"}`, `..._duplicates_total`,
+`..._fallback_claims_total`, and `reelforge_queue_claims_total{trigger="wake"}`.
+
+### Setup: SQS
+
+1. Create a **standard** queue (FIFO is not supported and not needed: ordering comes from the
+   database). Defaults are fine; message retention of 4 days or more. Do not attach a dead-letter
+   queue with a small `maxReceiveCount`: a message given back by a busy worker counts as a receive,
+   and a message in the DLQ is only a lost wake-up (the fallback poll covers it).
+2. Permissions. api instances: `sqs:SendMessage`. Workers: `sqs:SendMessage` (they re-queue jobs
+   after lost leases and on shutdown), `sqs:ReceiveMessage`, `sqs:DeleteMessage`,
+   `sqs:ChangeMessageVisibility`, `sqs:GetQueueAttributes` (the connect check). Prefer the ambient
+   identity (IRSA, an instance or task role); otherwise `queue.sqs.accessKeyId` /
+   `secretAccessKey` (secrets: `_FILE`, or set at runtime through `update_config`, stored encrypted
+   with `REELFORGE_SECRET_KEY`; a change applies to the next SQS call).
+3. On every instance:
+
+```yaml
+REELFORGE_QUEUE_DISPATCH: sqs
+REELFORGE_QUEUE_SQS_QUEUE_URL: https://sqs.eu-west-1.amazonaws.com/123456789012/reelforge-jobs
+# REELFORGE_QUEUE_SQS_REGION: eu-west-1               # default: the region in the URL
+# REELFORGE_QUEUE_SQS_ENDPOINT: https://vpce-...       # VPC endpoint (or LocalStack)
+# REELFORGE_QUEUE_SQS_VISIBILITY_TIMEOUT_SECONDS: "30"
+```
+
+Cost: idle workers long-poll (20 s), so about 3 requests per idle worker per minute, plus one send,
+one receive and one delete per job.
+
+### Setup: Redis Streams
+
+1. Redis 6.2 or later (`XAUTOCLAIM`), with persistence if you can (without it a restart loses
+   unread ids, which the fallback poll covers; the stream and group are created again on the next
+   publish or read). A user with access to the stream key, e.g.
+   `ACL SETUSER reelforge on >... ~reelforge:jobs +xadd +xreadgroup +xack +xautoclaim +xgroup +xinfo +multi +exec +ping +client|setname +hello +auth`.
+2. On every instance:
+
+```yaml
+REELFORGE_QUEUE_DISPATCH: redis
+REELFORGE_QUEUE_REDIS_URL_FILE: /run/secrets/redis-url     # rediss://reelforge@redis:6380/0
+REELFORGE_QUEUE_REDIS_PASSWORD_FILE: /run/secrets/redis-password
+# REELFORGE_QUEUE_REDIS_TLS_CA_FILE: /etc/ssl/private-ca.pem
+# REELFORGE_QUEUE_REDIS_STREAM: reelforge:jobs            # one key per deployment sharing a server
+# REELFORGE_QUEUE_REDIS_CLAIM_IDLE_SECONDS: "30"
+```
+
+The password can also be set at runtime (`update_config`, stored encrypted); a change reconnects.
+Each worker is a consumer named after its worker id; consumers idle for an hour with nothing pending
+are deleted from the group. Idle workers block in `XREADGROUP` 5 s at a time (12 commands per idle
+worker per minute).
+
+### Autoscaling on the broker (KEDA)
+
+The KEDA overlays in [`deployment/kubernetes/keda/`](../../deployment/kubernetes/keda/) (#176) scale
+on the `Job` table, which counts queued **and running** jobs, works with every dispatch driver and
+stays the recommended trigger. Where KEDA should not reach the database, scale on the broker
+instead. What the broker holds is exactly the backlog: workers with no free slot do not receive
+(and give back what they hold), so messages wait in the broker only while no worker has a slot.
+Running jobs are not in the broker, so keep `minReplicaCount` at the pool you need under load or add
+the database or Prometheus trigger as a second trigger (KEDA scales to the largest), and keep the
+slow scale-down of `keda/scaledobject.yaml`.
+
+```yaml
+  triggers:
+    - type: aws-sqs-queue                       # KEDA aws-sqs-queue scaler
+      metadata:
+        queueURL: https://sqs.eu-west-1.amazonaws.com/123456789012/reelforge-jobs
+        awsRegion: eu-west-1
+        queueLength: "1"                        # jobs per worker (REELFORGE_WORKER_CONCURRENCY)
+        activationQueueLength: "0"
+        scaleOnInFlight: "true"                 # count messages a worker holds until its claim acknowledges them
+      authenticationRef: { name: reelforge-sqs }   # TriggerAuthentication: pod identity (IRSA) or keys
+    # or:
+    - type: redis-streams                       # KEDA redis-streams scaler
+      metadata:
+        address: redis.internal:6379
+        stream: reelforge:jobs
+        consumerGroup: reelforge-workers
+        lagCount: "1"                           # entries not yet delivered to any worker (Redis 7+)
+        activationLagCount: "0"
+      authenticationRef: { name: reelforge-redis }
+```
+
+These two triggers are documented here, not shipped as overlays, and **untested** on a cluster
+(the KEDA e2e, `e2e/k8s/keda.sh`, runs the PostgreSQL scaler). The scaler field names are from the
+KEDA scaler docs (research/SOURCES.md); check them against the KEDA version you run.
 
 ## Priorities, fairness and admission (D-103)
 
@@ -1333,6 +1479,20 @@ cases: `apps/server/test/dispatch.test.ts`.
 | DSP-22 | `/readyz` `dependencies.dispatch` (worker: connected; api: publishes only), dispatch metrics with bounded labels | server, PostgreSQL 17 | pass 2026-11-22 |
 | DSP-23 | the worker's LISTEN connection killed: `/readyz` stays 200 (dispatch reported, not required), a render still runs, the listener reconnects | server, PostgreSQL 17 | pass 2026-11-22 |
 | DSP-24 | `worker --once` (server) with notify claims a render within 1 s of its enqueue | server, PostgreSQL 17 | pass 2026-11-22 |
+| DSP-01..09, 11 | the contract above through the outbox and relay: on the in-memory competing-consumer queue (memory repositories; in CI), on SQS (LocalStack 4.11.1) and Redis 8.4, each on memory repositories, PostgreSQL 17 and MySQL 8.4 (broker connection cut with a TCP proxy for DSP-07) | contract (`sqs`, `redis`) | pass 2026-11-23 (brokers local; CI runs the in-memory queue) |
+| BRK-01 | every message is acknowledged after the claim it woke, after its job ran; the broker drains; a job is claimed within 2 s | memory queue, SQS, Redis × memory, PostgreSQL 17, MySQL 8.4 | pass 2026-11-23 |
+| BRK-02 | behind a busy worker a batch then an interactive job are announced: interactive runs first; every announcing message is still acknowledged | same | pass 2026-11-23 |
+| BRK-03 | the same ids published twice more and every delivery handed over three times: one run per job, duplicates counted, broker drained, no queue error | same | pass 2026-11-23 |
+| BRK-04 | a worker claims and runs a job but its acknowledgement never reaches the broker, then dies (connection cut): another worker gets the message again (SQS visibility timeout; Redis `XAUTOCLAIM`), its claim is a no-op, it acknowledges; the job ran once | same | pass 2026-11-23 |
+| BRK-05 | broker down: the enqueue succeeds, the outbox keeps the row, the relay reports `failing`, the poll claims the job (counted as a fallback claim); broker back: the relay publishes, the outbox and broker drain, the job ran once | same | pass 2026-11-23 |
+| BRK-06 | broker unreachable when the worker starts: it starts, polls, reports the error, and switches to messages once the broker answers | same | pass 2026-11-23 |
+| BRK-07 | exactly once: 3 workers × 2 slots, 80 jobs in bursts, one worker sees every delivery twice, the broker is cut off for two bursts: every job ran once with one attempt; outbox and broker drained | same | pass 2026-11-23 |
+| BRK-08 | wrong Redis password: the worker starts and polls, `lastError` says `WRONGPASS` without the password; the corrected (runtime) password connects | Redis 8.4 | pass 2026-11-23 |
+| DSP-25 | api + worker (`sqs` / `redis`, poll interval 4 s, fallback 60 s): renders started on the api are claimed through the broker within 1 s, exactly once; start-up log names the broker | server, PostgreSQL 17 (SQS, Redis) | pass 2026-11-23 |
+| DSP-26 | `/readyz` `dependencies.dispatch` (worker: connected + relay; api: publishes only + relay), metrics: `published{reason="outbox"}` (no second `enqueue` count), `received`, `claims{trigger="wake"}`, bounded labels | server, PostgreSQL 17 | pass 2026-11-23 |
+| DSP-27 | the broker cut off for api and worker: the render start still returns 202 within 3 s, `/readyz` 200 with dispatch `error` on both, the poll runs the job; broker back: relay and listener recover, the outbox drains, the next render is woken within 1 s | server, PostgreSQL 17 | pass 2026-11-23 |
+| DSP-28 | `sqs` without `queue.sqs.queueUrl` and `redis` without `queue.redis.url` refused at start naming the setting; a non-Redis URL refused by the schema | server | pass 2026-11-23 |
+| DSP-29 | neither the SQS secret key nor the Redis password appears in any log line | server, PostgreSQL 17 | pass 2026-11-23 |
 
 CI: the contract, process and server cases run wherever `TEST_POSTGRES_URL` /
 `TEST_MYSQL_URL` / `REELFORGE_TEST_DB` are set (the HEAVY tier's database jobs);
@@ -1363,7 +1523,10 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 | `refusing to start ... queue.dispatch "notify": a test notification ... did not arrive on the LISTEN connection` | the worker's listen connection goes through a pooler that does not keep sessions (PgBouncer transaction mode): set `database.directUrl` to PostgreSQL itself |
 | `queue.dispatch "notify" needs PostgreSQL` | MySQL or SQLite: use `queue.dispatch: poll` |
 | `/readyz` `dispatch: error`, log `dispatch listener (notify) disconnected` | the LISTEN connection dropped; the worker polls until it reconnects (backoff to 30 s). Persistent: check that `database.directUrl` is reachable and that no idle-session timeout kills it |
-| `reelforge_queue_dispatch_fallback_claims_total{reelforge_reason="fallback"}` keeps growing | jobs are queued without a message: an instance (often the api) runs without `REELFORGE_QUEUE_DISPATCH=notify`, or connections drop often |
+| `reelforge_queue_dispatch_fallback_claims_total{reelforge_reason="fallback"}` keeps growing | jobs are queued without a message: an instance (often the api) runs without the same `REELFORGE_QUEUE_DISPATCH`, or connections drop often |
+| `/readyz` `dispatch.relay.failing: true`, log `dispatch outbox: publishing ... to sqs failed` | the broker refuses or cannot be reached (credentials, permissions, network). Jobs still run through the fallback poll; the outbox retries. Check `lastError` (`AccessDenied`, `NonExistentQueue`, `ECONNREFUSED`, `WRONGPASS`) |
+| log `dispatch: sqs not reachable (...)` / `redis not reachable (...)` on a worker | the worker polls the database until the broker answers; same checks as above |
+| SQS messages pile up in a dead-letter queue | a redrive policy with a small `maxReceiveCount`: given-back messages count as receives. Remove it or raise it; nothing is lost (the database is the record) |
 | `429 rate_limited` sooner than expected with several api instances | that is the shared limit working: each key gets `rateLimitPerMinute` per calendar minute across all instances |
 | `too many clients already` / `remaining connection slots are reserved` (PostgreSQL), `Too many connections` (MySQL) | the sum of the pools is above `max_connections`: apply the [sizing rule](#connection-pooling) (small worker pools, PgBouncer or RDS Proxy) |
 | a new project is missing from `list_projects` right after `create_project` | `database.readUrl` is set and the replica lags; `get_project` reads the primary. Check the replica's lag (`pg_stat_replication`, `SHOW REPLICA STATUS`) |
@@ -1396,8 +1559,10 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
   when the replica lags or is down after start: the six lists fail until it is back); `/readyz`
   does not probe the replica. Tested with a second database fed by the test, not a streaming
   replica container.
-- Queue dispatch: only `poll` and `notify` are built; `sqs`, `redis` and `nats` are follow-ups of
-  #158 (the outbox they publish through is built and tested). `notify` needs one direct session
+- Queue dispatch: `poll`, `notify`, `sqs` and `redis` are built; `nats` (JetStream) is a follow-up
+  of #158. `sqs` is tested on LocalStack, not on AWS (IAM, VPC endpoints and KMS-encrypted queues
+  untested); `redis` on Redis 8.4 without TLS (`rediss://` untested; Redis Cluster is not
+  supported: the client connects to one node, so use a standalone or primary endpoint). The KEDA triggers on SQS and Redis are documented, not tested. `notify` needs one direct session
   connection per worker (not through PgBouncer transaction mode), and every idle worker still runs
   its lease recovery and queue count every `queue.leaseSeconds / 4` (15 s), which now dominates
   the idle load of `notify` workers (PERFORMANCE.md); moving that recovery to fewer instances is a

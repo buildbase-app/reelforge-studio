@@ -516,6 +516,20 @@ before, 69 with backoff, 47 with notify; queue wait p95 with 2 mostly idle worke
 103 ms with notify ([PERFORMANCE.md](PERFORMANCE.md#queue-dispatch-158-poll-backoff-and-notify)).
 Not built: the external drivers, fewer instances running lease recovery (the rest of idle load).
 
+### Queue dispatch: SQS and Redis Streams (2026-11-23, issue #158, step 2)
+
+Built (D-105 amendment): `queue.dispatch` `sqs` (SQS standard queue, `@aws-sdk/client-sqs`) and
+`redis` (Redis Streams + one consumer group, `ioredis`), on every database, through the outbox and a
+relay on every instance. One worker per message; the message wakes the normal fair claim and is
+acknowledged after it (whichever job the claim took); a worker holds at most as many unanswered
+messages as it has free slots and gives back what it cannot answer; crashed consumers' messages come
+back through the SQS visibility timeout or Redis `XAUTOCLAIM`. A broker outage never blocks an
+enqueue or a worker start (the outbox retries, workers poll). `/readyz` reports the listener and the
+relay; secrets via `_FILE` or encrypted runtime settings. Tested on SQS in LocalStack 4.11.1 and
+Redis 8.4 with memory repositories, PostgreSQL 17 and MySQL 8.4 (contract DSP-01..11, BRK-01..08,
+server DSP-25..29; CI runs the same cases on an in-memory competing-consumer queue). Not built:
+NATS JetStream; untested: AWS itself, `rediss://`, the KEDA triggers on SQS / Redis (documented).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |

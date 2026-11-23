@@ -8,7 +8,7 @@ import { newId } from './fsutil';
 import type { PageRequest } from './paging';
 import { childJobs, describeUnit, isFannedOut, isTerminal, treeProgress, type ChildSpec } from './fanout';
 import { defaultPriority, effectiveRank, priorityRank, type JobPriority } from './priority';
-import type { DispatchListener, DispatchListenerStatus, DispatchMessage } from './dispatch';
+import type { DispatchListener, DispatchListenerStatus, DispatchMessage, OutboxRelayStatus } from './dispatch';
 import type { ChildSettlement, JobCaps, JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
 
 export type { JobProgress, JobRecord, JobStatus } from './repositories';
@@ -86,8 +86,10 @@ export interface DatabaseQueueOptions {
    * the normal fair claim after a random delay of up to `jitterMs` (default 50), skipped when other workers'
    * claims already took the announced jobs. While the listener is connected, idle claiming only runs every
    * `fallbackMs` (default 30 000) so a lost message never strands a job; while it is disconnected, the poll.
+   * Outbox drivers (`sqs`, `redis`): `onPublished` runs after this instance committed outbox rows (the relay
+   * publishes them now instead of at its next sweep), and `relay` reports the relay for status().
    */
-  dispatch?: { driver: string; listener?: DispatchListener; fallbackMs?: number; jitterMs?: number };
+  dispatch?: { driver: string; listener?: DispatchListener; fallbackMs?: number; jitterMs?: number; onPublished?: () => void; relay?: () => OutboxRelayStatus };
   /** Asked before each claim; `ok: false` pauses claiming (e.g. storage is down, so renders would only fail). */
   canClaim?: () => Promise<{ ok: boolean; reason?: string }>;
   /** `worker --once` (D-100): never claim on a timer; the only claim is the one runOnce() makes. */
@@ -163,6 +165,8 @@ export interface QueueStatus {
     received: number;
     duplicates: number;
     fallbackClaims: number;
+    /** Outbox drivers: this instance's relay (publishes the outbox to the broker). */
+    relay?: OutboxRelayStatus;
   };
 }
 
@@ -219,13 +223,13 @@ export class JobRunner {
   readonly runJobs: boolean;
   private readonly db: Required<Omit<DatabaseQueueOptions, 'canClaim' | 'workerId' | 'runJobs' | 'once' | 'dispatch'>> & Pick<DatabaseQueueOptions, 'canClaim'>;
   /** Queue dispatch (D-105): the driver, this worker's listener, fallback interval and wake jitter. */
-  private readonly dispatch: { driver: string; listener?: DispatchListener; fallbackMs: number; jitterMs: number };
+  private readonly dispatch: { driver: string; listener?: DispatchListener; fallbackMs: number; jitterMs: number; onPublished?: () => void; relay?: () => OutboxRelayStatus };
   /** The listener is connected: idle claiming waits for messages, with the fallback poll. */
   private listening = false;
   /** The next idle poll's delay: pollMs, doubled after each empty claim up to pollMaxMs. */
   private idleMs: number;
   /** Ready job ids announced and not yet seen claimed (by anyone), with the message order they arrived in. */
-  private pending = new Map<string, { seq: number; ack?: () => Promise<void> }>();
+  private pending = new Map<string, { seq: number; ack?: () => Promise<void>; release?: () => Promise<void> }>();
   private seq = 0;
   private wakeTimer: NodeJS.Timeout | null = null;
   /** runOnce() waiting for a message. */
@@ -292,6 +296,8 @@ export class JobRunner {
       ...(d.dispatch?.listener ? { listener: d.dispatch.listener } : {}),
       fallbackMs: Math.max(this.db.pollMs, d.dispatch?.fallbackMs ?? 30_000),
       jitterMs: Math.max(0, d.dispatch?.jitterMs ?? 50),
+      ...(d.dispatch?.onPublished ? { onPublished: d.dispatch.onPublished } : {}),
+      ...(d.dispatch?.relay ? { relay: d.dispatch.relay } : {}),
     };
     this.logger = opts.log ?? (() => undefined);
     this.maxRunningPerKey = () => {
@@ -332,13 +338,16 @@ export class JobRunner {
       // Nothing is failed here: jobs of a crashed worker come back through their expired lease.
       const listener = this.dispatch.listener;
       if (listener && this.runJobs) {
-        // Before claiming starts: a listener that cannot connect, or whose messages do not arrive, fails the start.
+        // Before claiming starts: a listener that cannot connect, or whose messages do not arrive, fails the start
+        // (notify). Broker listeners start disconnected when the broker is unreachable: this worker polls until
+        // they connect (the database is the queue of record) and `connected` switches it to messages.
         await listener.start({
           message: (m) => this.onDispatch(m),
           connected: () => this.onListenerConnected(),
           disconnected: (reason) => this.onListenerLost(reason),
+          capacity: () => this.freeSlots(),
         });
-        this.listening = true;
+        this.listening = listener.status().connected;
       }
       this.started = true;
       this.scheduleHeartbeat();
@@ -466,6 +475,7 @@ export class JobRunner {
               ...(this.dispatch.listener && this.runJobs ? { listening: this.listening, listener: this.dispatch.listener.status(), fallbackMs: this.dispatch.fallbackMs } : {}),
               pollMs: this.idleMs,
               ...this.counters,
+              ...(this.dispatch.relay ? { relay: this.dispatch.relay() } : {}),
             },
           }
         : {}),
@@ -786,7 +796,9 @@ export class JobRunner {
           });
           this.ok('claim');
           m.queueClaims.add(1, { 'reelforge.trigger': trigger, 'reelforge.result': job ? 'job' : 'empty' });
-          if (job) this.consumePending(job.id);
+          // A broker message (one consumer each, acknowledged) is answered by the claim it woke, whichever job the
+          // fair order gave: the claimed job's own message, else the oldest that arrived before this attempt.
+          if (job && !this.consumePending(job.id)) this.consumeOneAckable(seenSeq);
           empty = !job;
           if (empty) this.consumePendingUpTo(seenSeq);
           // Nothing claimed, or shutdown() started meanwhile and the job went straight back.
@@ -801,8 +813,11 @@ export class JobRunner {
         }
       } while (this.claimAgain && !this.stopping);
       this.backoffMs = 0;
-      // Every slot busy: stop receiving messages until one frees (the claim after a job ends subscribes again).
+      // Every slot busy: stop receiving messages until one frees (the claim after a job ends subscribes again),
+      // and give back broker messages this worker cannot answer now, so an idle worker gets them at once.
       void this.syncListen();
+      if (this.freeSlots() === 0) this.releasePending();
+      this.dispatch.listener?.capacityChanged?.();
       this.scheduleIdle(empty && !claimedAny);
     } catch (e) {
       this.failed('claim', e as Error);
@@ -842,7 +857,7 @@ export class JobRunner {
       const [oldest] = this.pending.keys();
       this.consumePending(oldest!);
     }
-    this.pending.set(msg.jobId, { seq: ++this.seq, ...(msg.ack ? { ack: msg.ack } : {}) });
+    this.pending.set(msg.jobId, { seq: ++this.seq, ...(msg.ack ? { ack: msg.ack } : {}), ...(msg.release ? { release: msg.release } : {}) });
     this.releaseWaiters();
     if (!this.started || this.stopping || this.once || !this.runJobs || this.running.size >= this.concurrency || this.wakeTimer) return;
     this.wakeTimer = setTimeout(() => {
@@ -875,12 +890,39 @@ export class JobRunner {
     this.schedulePoll(this.db.pollMs);
   }
 
-  /** An announced job was claimed (by anyone): forget it, acknowledging its message. */
-  private consumePending(id: string) {
+  /** An announced job was claimed (by anyone): forget it, acknowledging its message. False: it was not announced here. */
+  private consumePending(id: string): boolean {
     const p = this.pending.get(id);
-    if (!p) return;
+    if (!p) return false;
     this.pending.delete(id);
     void p.ack?.().catch(() => undefined);
+    return true;
+  }
+
+  /** A claim took a job no message here announced: acknowledge the oldest broker message that arrived before it. */
+  private consumeOneAckable(seq: number) {
+    for (const [id, p] of this.pending) {
+      if (p.seq > seq) return;
+      if (p.ack) {
+        this.consumePending(id);
+        return;
+      }
+    }
+  }
+
+  /** No free slot: hand broker messages back (visible again at once), so a worker with a free slot answers them. */
+  private releasePending() {
+    for (const [id, p] of this.pending) {
+      if (!p.release) continue;
+      this.pending.delete(id);
+      void p.release().catch(() => undefined);
+    }
+  }
+
+  /** Claims this worker could start now (broker listeners receive at most this many unanswered messages). */
+  private freeSlots(): number {
+    if (this.stopping || !this.runJobs) return 0;
+    return Math.max(0, (this.once ? 1 : this.concurrency) - this.running.size);
   }
 
   /** A claim found nothing: every job announced before it started is taken, or not claimable by this worker now. */
@@ -909,6 +951,11 @@ export class JobRunner {
   /** Dispatch metric: ready messages this instance's transactions published (the repository sends them; D-105). */
   private published(n: number, reason: 'enqueue' | 'requeue' | 'release' | 'fanout' | 'join') {
     if (this.dispatch.driver === 'poll' || n <= 0) return;
+    if (this.dispatch.onPublished) {
+      // Outbox drivers: the transaction wrote outbox rows; the relay publishes them now and counts what it sent.
+      this.dispatch.onPublished();
+      return;
+    }
     coreInstruments(this.telemetry.meter).dispatchPublished.add(n, { 'reelforge.dispatch.driver': this.dispatch.driver, 'reelforge.reason': reason });
   }
 
@@ -957,9 +1004,10 @@ export class JobRunner {
           this.ok('claim');
           coreInstruments(this.telemetry.meter).queueClaims.add(1, { 'reelforge.trigger': 'local', 'reelforge.result': job ? 'job' : 'empty' });
           if (job) {
-            this.consumePending(job.id);
-            // One job per process: nothing else to wake it for.
+            if (!this.consumePending(job.id)) this.consumeOneAckable(this.seq);
+            // One job per process: nothing else to wake it for; other broker messages go back to the broker.
             void this.syncListen(false);
+            this.releasePending();
           }
           if (!job && opts.jobId !== undefined) {
             // A launcher started this container for one job: when that job is gone or finished there is nothing to wait for.

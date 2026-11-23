@@ -412,3 +412,27 @@ implementation or licensing decisions.
     whatever the order (frames render in parallel tabs) is how `renderMedia` works with
     `concurrency`; ReelForge measures it for `kinetic-title` (ENG-REM-FR, FAN-32) instead of
     relying on it.
+45. **Queue dispatch: SQS, Redis Streams, KEDA scalers** (read 2026-11-23, issue #158 step 2,
+    D-105 amendment): Amazon SQS `ReceiveMessage`
+    (https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_ReceiveMessage.html):
+    `MaxNumberOfMessages` 1..10, `VisibilityTimeout` per receive (queue default 30 s), long poll with
+    `WaitTimeSeconds`; a message not deleted before its visibility timeout ends becomes visible to
+    other consumers and counts as a failed receive (dead-letter queues count those);
+    `ReceiveRequestAttemptId` applies to FIFO queues only (not used). Redis `XAUTOCLAIM`
+    (https://redis.io/docs/latest/commands/xautoclaim/): since 6.2.0; returns a cursor, the claimed
+    entries and (since 7.0) the ids of entries no longer in the stream, which it removes from the
+    PEL; claiming increments the delivery count. (`XNACK`, newer than 6.2, is not used: the
+    give-back is `XADD` + `XACK` in one `MULTI` so 6.2 works.) KEDA 2.21 scalers:
+    `aws-sqs-queue` (https://keda.sh/docs/2.21/scalers/aws-sqs/: `queueURL`, `queueLength` default
+    5, `activationQueueLength`, `awsRegion`, `scaleOnInFlight` default true =
+    `ApproximateNumberOfMessages` + `...NotVisible`, `scaleOnDelayed`, `awsEndpoint`) and
+    `redis-streams` (https://keda.sh/docs/2.21/scalers/redis-streams/: `address`, `stream`,
+    `consumerGroup`, `pendingEntriesCount`, `streamLength`, `lagCount` + `activationLagCount`, the
+    only mode that scales to zero, Redis 7+). Packages (npm registry, 2026-11-23):
+    `@aws-sdk/client-sqs` 3.1164.0 (Apache-2.0, the version of the S3 client already in the
+    lockfile), `ioredis` 6.0.0 (MIT; Node >= 20; Redis 6.2+; defaults to RESP3, so ReelForge sets
+    `protocol: 2`; a URL's own empty password wins over the `password` option, so ReelForge puts
+    `queue.redis.password` into the URL it connects with; both found by testing, not from docs).
+    Behaviour measured against LocalStack 4.11.1 (`mirror.gcr.io/localstack/localstack:4.11`,
+    digest `sha256:3071c9c7...`) and Redis 8.4 (`mirror.gcr.io/library/redis:8.4`, digest
+    `sha256:319f54e6...`), not against AWS.

@@ -167,13 +167,13 @@ export const ConfigSchema = z.object({
       description:
         'Database queue, `queue.dispatch` `poll` (D-105): after each poll that finds nothing, an idle worker waits twice as long as the last time, from `queue.pollIntervalMs` up to this; a poll that claims a job goes back to `queue.pollIntervalMs`, so a busy queue is polled as before. It bounds the extra queue wait after an idle period (a job enqueued then waits at most this long for a worker with a free slot) and cuts idle database load. Set it to `queue.pollIntervalMs` for no backoff. Also the poll while a `notify` listener is disconnected.',
     }),
-    dispatch: setting(z.enum(['poll', 'notify']), {
+    dispatch: setting(z.enum(['poll', 'notify', 'sqs', 'redis']), {
       kind: 'enum',
       scope: 'startup',
       env: 'REELFORGE_QUEUE_DISPATCH',
       default: 'poll',
       description:
-        'How workers of the database queue learn that a job is ready (D-105; the database stays the queue of record either way). `poll`: idle workers look every `queue.pollIntervalMs`, backing off to `queue.pollMaxIntervalMs`. `notify` (PostgreSQL only): the transaction that queues a job sends `NOTIFY` and workers `LISTEN` on one direct session connection each, so idle workers stop polling and are woken within milliseconds; a fallback poll every `queue.dispatchFallbackSeconds` claims anything a lost message did not announce. `LISTEN` does not work through PgBouncer in transaction or statement mode: set `database.directUrl` then (a worker checks delivery at start and refuses to start without it). Refused at start on MySQL and SQLite. Set the same value on every instance. SQS, Redis Streams and NATS JetStream are planned (docs/providers/queue-and-scaling.md).',
+        'How workers of the database queue learn that a job is ready (D-105; the database stays the queue of record either way). `poll`: idle workers look every `queue.pollIntervalMs`, backing off to `queue.pollMaxIntervalMs`. `notify` (PostgreSQL only): the transaction that queues a job sends `NOTIFY` and workers `LISTEN` on one direct session connection each, so idle workers stop polling and are woken within milliseconds; a fallback poll every `queue.dispatchFallbackSeconds` claims anything a lost message did not announce. `LISTEN` does not work through PgBouncer in transaction or statement mode: set `database.directUrl` then (a worker checks delivery at start and refuses to start without it). Refused at start on MySQL and SQLite. `sqs` (Amazon SQS standard queue, `queue.sqs.*`) and `redis` (Redis Streams with a consumer group, `queue.redis.*`), on every database: the transaction that queues a job writes an outbox row, each instance\'s relay publishes the job id, one worker receives it, wakes its normal fair claim and acknowledges the message after that claim; idle workers wait on the broker instead of the database, and the broker\'s queue depth can drive an autoscaler. A broker that is down never blocks an enqueue (the outbox keeps the row and retries) and workers poll until it answers. Set the same value on every instance. NATS JetStream is planned (docs/providers/queue-and-scaling.md).',
     }),
     dispatchFallbackSeconds: setting(z.number().int().min(1).max(3600), {
       kind: 'integer',
@@ -181,7 +181,99 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_QUEUE_DISPATCH_FALLBACK_SECONDS',
       default: 30,
       description:
-        '`queue.dispatch` `notify`: how often an idle worker still polls while its listener is connected, so a job whose message was lost (a dropped connection, a job queued by a process without the dispatch setting) waits at most this long. Lower values cost one claim transaction per idle worker per interval.',
+        '`queue.dispatch` `notify`, `sqs`, `redis`: how often an idle worker still polls while its listener is connected, so a job whose message was lost (a dropped connection, a job queued by a process without the dispatch setting) waits at most this long. Lower values cost one claim transaction per idle worker per interval. With `sqs` and `redis` also how often each instance\'s outbox relay looks for rows it did not publish at once (another instance stopped before publishing).',
+    }),
+    sqs: z.object({
+      queueUrl: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_SQS_QUEUE_URL',
+        example: 'https://sqs.eu-west-1.amazonaws.com/123456789012/reelforge-jobs',
+        description: '`queue.dispatch` `sqs`: the URL of an SQS **standard** queue (not FIFO) that only this deployment uses. Required with `sqs`. The api and workers need `sqs:SendMessage`; workers also `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:ChangeMessageVisibility` and `sqs:GetQueueAttributes`.',
+      }),
+      region: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_SQS_REGION',
+        defaultText: 'the region in `queue.sqs.queueUrl`, else the AWS default (`AWS_REGION`)',
+        example: 'eu-west-1',
+        description: '`queue.dispatch` `sqs`: AWS region of the queue.',
+      }),
+      endpoint: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_SQS_ENDPOINT',
+        description: '`queue.dispatch` `sqs`: SQS API endpoint override (a VPC endpoint, or LocalStack in tests). Empty: the regional AWS endpoint.',
+      }),
+      accessKeyId: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_QUEUE_SQS_ACCESS_KEY_ID',
+        secret: true,
+        description: '`queue.dispatch` `sqs`: access key id. Leave unset to use the ambient AWS identity (IAM role, IRSA / web identity, `AWS_*` variables). A change at runtime applies to the next SQS call.',
+      }),
+      secretAccessKey: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_QUEUE_SQS_SECRET_ACCESS_KEY', secret: true, description: '`queue.dispatch` `sqs`: secret access key (with `accessKeyId`).' }),
+      sessionToken: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_QUEUE_SQS_SESSION_TOKEN', secret: true, description: '`queue.dispatch` `sqs`: session token for temporary keys (optional).' }),
+      visibilityTimeoutSeconds: setting(z.number().int().min(5).max(43_200), {
+        kind: 'integer',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_SQS_VISIBILITY_TIMEOUT_SECONDS',
+        default: 30,
+        description:
+          '`queue.dispatch` `sqs`: visibility timeout set on every receive. A message received by a worker that stops before deleting it (deleted after the claim it woke) becomes visible to the other workers after this long; its claim is then a no-op. Shorter: a lost message wakes another worker sooner; it must stay longer than a claim takes (milliseconds) plus network hiccups.',
+      }),
+    }),
+    redis: z.object({
+      url: setting(nonEmpty().regex(/^rediss?:\/\//, 'must start with redis:// or rediss://').optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_URL',
+        secret: true,
+        example: 'rediss://reelforge@redis.internal:6380/0',
+        description: '`queue.dispatch` `redis`: the Redis server (6.2 or later; Streams, XAUTOCLAIM). `rediss://` connects with TLS. Required with `redis`. Secret because the URL may hold a password (prefer `queue.redis.password`).',
+      }),
+      password: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_QUEUE_REDIS_PASSWORD',
+        secret: true,
+        description: '`queue.dispatch` `redis`: password (Redis AUTH; the user name comes from the URL). Overrides a password in `queue.redis.url`. A change at runtime reconnects.',
+      }),
+      tlsCaFile: setting(nonEmpty().optional(), {
+        kind: 'path',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_TLS_CA_FILE',
+        description: '`queue.dispatch` `redis` with `rediss://`: a PEM file with the CA that signed the server certificate (private CAs). Unset: the system CAs.',
+      }),
+      stream: setting(nonEmpty().max(200), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_STREAM',
+        default: 'reelforge:jobs',
+        description: '`queue.dispatch` `redis`: stream key. Deployments sharing a Redis server need different keys.',
+      }),
+      group: setting(nonEmpty().max(200), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_GROUP',
+        default: 'reelforge-workers',
+        description: '`queue.dispatch` `redis`: consumer group the workers read through (created with the stream if missing).',
+      }),
+      claimIdleSeconds: setting(z.number().int().min(5).max(86_400), {
+        kind: 'integer',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_CLAIM_IDLE_SECONDS',
+        default: 30,
+        description:
+          '`queue.dispatch` `redis`: an entry delivered to a worker that stopped before acknowledging it (acknowledged after the claim it woke) is reclaimed by another worker with XAUTOCLAIM after it was pending this long; its claim is then a no-op.',
+      }),
+      maxLength: setting(z.number().int().min(1000).max(100_000_000), {
+        kind: 'integer',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_MAX_LENGTH',
+        default: 100_000,
+        description: '`queue.dispatch` `redis`: the stream is trimmed to about this many entries (XADD MAXLEN ~). Entries trimmed before a worker read them are covered by the fallback poll.',
+      }),
     }),
     notifyJitterMs: setting(z.number().int().min(0).max(5000), {
       kind: 'integer',

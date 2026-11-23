@@ -16,21 +16,27 @@ import type { DispatchOutboxRepository } from './repositories';
  *           rollback), workers LISTEN on a direct session connection; a
  *           fallback poll (queue.dispatchFallbackSeconds) catches lost messages
  *
- * External brokers (SQS, Redis Streams, NATS JetStream; follow-ups) publish
- * from the outbox (DispatchOutboxRepository + OutboxRelay): the enqueue
- * transaction writes an outbox row, a relay publishes the job ids with
- * retries. Messages carry job ids only, at least once.
+ *   sqs     Amazon SQS standard queue (dispatch-sqs.ts)
+ *   redis   Redis Streams with a consumer group (dispatch-redis.ts)
+ *
+ * External brokers publish from the outbox (DispatchOutboxRepository +
+ * OutboxRelay): the enqueue transaction writes an outbox row, a relay
+ * publishes the job ids with retries. Messages carry job ids only, at least
+ * once; each goes to one worker, which acknowledges it once the claim it woke
+ * has run (dispatch-broker.ts). NATS JetStream is a follow-up.
  */
-export type DispatchDriverId = 'poll' | 'notify';
+export type DispatchDriverId = 'poll' | 'notify' | 'sqs' | 'redis';
 
 /**
  * What a listener delivers. `ready`: the job became claimable (enqueued,
  * queued again after a lost lease, handed back, a fan-out unit or join).
  * `claimed`: a worker claimed it (lets idle workers skip a claim that would
  * find nothing). Both may be duplicated, late or lost; `ack` (brokers with
- * acknowledgements) is called once the claim it triggered has run.
+ * acknowledgements) is called once the claim it triggered has run, `release`
+ * when the worker cannot claim now (no free slot), so the broker gives the
+ * message to another worker at once. Both are idempotent.
  */
-export type DispatchMessage = { kind: 'ready'; jobId: string; ack?: () => Promise<void> } | { kind: 'claimed'; jobId: string };
+export type DispatchMessage = { kind: 'ready'; jobId: string; ack?: () => Promise<void>; release?: () => Promise<void> } | { kind: 'claimed'; jobId: string };
 
 export interface DispatchListenerStatus {
   driver: string;
@@ -50,6 +56,11 @@ export interface DispatchListenerHandlers {
   connected(): void;
   /** The connection was lost; the runner polls (with backoff) until `connected`. */
   disconnected(reason: string): void;
+  /**
+   * Claims the worker could start now (free slots). Broker listeners keep at most this many messages delivered and
+   * not yet acknowledged or released, so a message never waits in a busy worker while another one is idle.
+   */
+  capacity?(): number;
 }
 
 /** A worker's subscription to dispatch messages (one per worker process). */
@@ -65,12 +76,28 @@ export interface DispatchListener {
    * transaction), and resumes before its next claim. Resolves once the change took effect.
    */
   setActive?(active: boolean): Promise<void>;
+  /** The worker's free slots may have changed (a claim loop ended): broker listeners look at `capacity()` again. */
+  capacityChanged?(): void;
 }
 
-/** Publishes job ids to an external broker (outbox drivers; follow-ups). */
+/** Publishes job ids to an external broker (outbox drivers). */
 export interface DispatchPublisher {
   readonly driver: string;
   publish(jobIds: string[]): Promise<void>;
+  close?(): Promise<void>;
+}
+
+/** What /readyz shows about an instance's outbox relay (outbox drivers). */
+export interface OutboxRelayStatus {
+  driver: string;
+  /** The last publish failed (the rows are retried with backoff; the workers' fallback poll covers their jobs meanwhile). */
+  failing: boolean;
+  published: number;
+  failed: number;
+  dropped: number;
+  lastPublishedAt?: string;
+  lastError?: string;
+  lastErrorAt?: string;
 }
 
 /**
@@ -216,6 +243,9 @@ export class OutboxRelay {
   private stopped = true;
   private readonly o: Required<Omit<OutboxRelayOptions, 'log' | 'telemetry'>> & Pick<OutboxRelayOptions, 'log'>;
   private readonly telemetry: Telemetry;
+  /** The earliest retry this instance scheduled (a failed publish), so it does not wait for the next sweep. */
+  private retryAt: number | null = null;
+  private state: OutboxRelayStatus;
 
   constructor(opts: OutboxRelayOptions) {
     this.o = {
@@ -228,6 +258,11 @@ export class OutboxRelay {
       ...opts,
     };
     this.telemetry = opts.telemetry ?? NOOP_TELEMETRY;
+    this.state = { driver: opts.publisher.driver, failing: false, published: 0, failed: 0, dropped: 0 };
+  }
+
+  status(): OutboxRelayStatus {
+    return { ...this.state };
   }
 
   start(): void {
@@ -260,10 +295,12 @@ export class OutboxRelay {
   private schedule() {
     if (this.stopped) return;
     if (this.timer) clearTimeout(this.timer);
+    const retryIn = this.retryAt === null ? Infinity : Math.max(0, this.retryAt - this.o.now());
     this.timer = setTimeout(() => {
       this.timer = null;
+      this.retryAt = null;
       this.kick();
-    }, this.o.sweepMs);
+    }, Math.min(this.o.sweepMs, retryIn));
     this.timer.unref();
   }
 
@@ -284,6 +321,8 @@ export class OutboxRelay {
       await this.o.publisher.publish(rows.map((r) => r.jobId));
       await this.o.repo.remove(rows.map((r) => r.id));
       m.dispatchPublished.add(rows.length, { ...driver, 'reelforge.reason': 'outbox' });
+      if (this.state.failing) this.o.log?.('info', `dispatch outbox: publishing to ${this.o.publisher.driver} works again`);
+      this.state = { ...this.state, failing: false, published: this.state.published + rows.length, lastPublishedAt: new Date(this.o.now()).toISOString() };
       return { claimed: rows.length, published: rows.length, failed: 0, dropped: 0 };
     } catch (e) {
       const message = ((e as Error).message ?? String(e)).split('\n')[0]!.slice(0, 300);
@@ -294,10 +333,20 @@ export class OutboxRelay {
           dropped++;
           await this.o.repo.remove([r.id]);
         } else {
-          await this.o.repo.retry(r.id, attempts, new Date(this.o.now() + this.backoffMs(attempts)).toISOString(), message);
+          const at = this.o.now() + this.backoffMs(attempts);
+          this.retryAt = this.retryAt === null ? at : Math.min(this.retryAt, at);
+          await this.o.repo.retry(r.id, attempts, new Date(at).toISOString(), message);
         }
       }
       m.dispatchPublishFailures.add(rows.length, driver);
+      this.state = {
+        ...this.state,
+        failing: true,
+        failed: this.state.failed + rows.length - dropped,
+        dropped: this.state.dropped + dropped,
+        lastError: message,
+        lastErrorAt: new Date(this.o.now()).toISOString(),
+      };
       this.o.log?.(
         'warn',
         `dispatch outbox: publishing ${rows.length} job id(s) to ${this.o.publisher.driver} failed (${message}); ${dropped ? `${dropped} dropped after ${this.o.maxAttempts} attempts (their jobs stay queued and are claimed by the fallback poll), ` : ''}retrying with backoff`

@@ -48,5 +48,15 @@ export function scalingProblems(resolved: ResolvedConfig, databaseUrl: string): 
       warnings.push('queue.dispatch "notify" has no effect with the in-process queue (queue.driver resolves to "inprocess"); it applies to the database queue only');
     }
   }
+  // Broker dispatch (D-105): the broker must be named; any database works (the outbox is a table).
+  if (c.queue.dispatch === 'sqs' && !c.queue.sqs.queueUrl) {
+    errors.push('queue.dispatch "sqs" needs queue.sqs.queueUrl (REELFORGE_QUEUE_SQS_QUEUE_URL, an SQS standard queue): set it or use REELFORGE_QUEUE_DISPATCH=poll (docs/providers/queue-and-scaling.md)');
+  }
+  if (c.queue.dispatch === 'redis' && !c.queue.redis.url) {
+    errors.push('queue.dispatch "redis" needs queue.redis.url (REELFORGE_QUEUE_REDIS_URL or REELFORGE_QUEUE_REDIS_URL_FILE, redis:// or rediss://): set it or use REELFORGE_QUEUE_DISPATCH=poll (docs/providers/queue-and-scaling.md)');
+  }
+  if ((c.queue.dispatch === 'sqs' || c.queue.dispatch === 'redis') && mode !== 'database') {
+    warnings.push(`queue.dispatch "${c.queue.dispatch}" has no effect with the in-process queue (queue.driver resolves to "inprocess"); it applies to the database queue only`);
+  }
   return { errors, warnings };
 }
