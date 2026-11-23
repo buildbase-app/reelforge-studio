@@ -3,7 +3,7 @@ import { copyFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { PipelineError, normaliseClip, streamParams, toolVersion, type StreamParams, type Tools } from '@reelforge/media-pipeline';
-import { timeline, type Project, type ThemeTokens } from '@reelforge/project-schema';
+import { timeline, type CaptionMode, type Project, type ThemeTokens } from '@reelforge/project-schema';
 import { describeUnit, JOIN_JOB_TYPE, UNIT_JOB_TYPE, type ChildSpec } from './fanout';
 import type { JobContext } from './jobs';
 import type { ResolvedAsset } from './plugins';
@@ -54,6 +54,8 @@ export interface RenderJobParams {
   runId: string;
   sceneIds?: string[];
   scale?: number;
+  /** captions.mode override of this render (render_project's `captions`). */
+  captions?: CaptionMode;
   /** Render this output variant of the project (#287): its size and platform replace `output`'s. */
   variant?: string;
   /** Renders started by one render_project call over the project's variants share this id. */
@@ -345,6 +347,7 @@ export async function joinUnits(deps: FanOutDeps, ctx: JobContext): Promise<Join
         log: ctx.log,
         progress: ctx.progress,
         telemetry: deps.telemetry,
+        ...(p.captions ? { captionsMode: p.captions } : {}),
       },
       tmp,
       finalDir,

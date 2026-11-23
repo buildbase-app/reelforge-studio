@@ -107,6 +107,17 @@ describe('output variants (#287)', () => {
     }
   }, 60_000);
 
+  it('VAR-05 the captions override reaches every variant job and is checked before anything is queued', async () => {
+    const before = (await svc.listJobs({ projectId: 'multi' })).jobs.length;
+    await expect(svc.renderProject('multi', { captions: 'loud' })).rejects.toMatchObject({ status: 400 });
+    expect((await svc.listJobs({ projectId: 'multi' })).jobs.length).toBe(before);
+    const r = await svc.renderProject('multi', { captions: 'sidecar' });
+    expect(r.jobs!.map((j) => (j.params as { captions?: string }).captions)).toEqual(['sidecar', 'sidecar', 'sidecar']);
+    const one = await svc.renderProject('multi', { variant: 'square', captions: 'off' });
+    expect(one.job.params).toMatchObject({ variant: 'square', captions: 'off' });
+    for (const j of [...r.jobs!, one.job]) await svc.waitForJob(j.id, 60);
+  }, 120_000);
+
   it('VAR-04 fan-out units carry the variant, so every unit and the join render at its size', () => {
     const r = parseProject(manifest('fan', VARIANTS));
     if (!r.ok) throw new Error('invalid');

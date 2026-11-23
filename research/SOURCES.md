@@ -454,6 +454,21 @@ implementation or licensing decisions.
   thrown there is printed and hygen exits 1 before writing anything; an existing target file
   triggers an overwrite prompt unless `HYGEN_OVERWRITE` is set. Docs: https://www.hygen.io.
 
+- **Caption rules and libass (2026-11-23, issue #300).** Netflix Timed Text Style Guide, read
+  2026-11-23: *General Requirements*
+  (https://partnerhelp.netflixstudios.com/hc/en-us/articles/215758617): minimum duration 5/6 s
+  per event, maximum 7 s; *English (USA)*
+  (https://partnerhelp.netflixstudios.com/hc/en-us/articles/217350977): 42 characters per line,
+  at most two lines, adult reading speed up to 20 characters per second, line treatment (keep to
+  one line when it fits; break after punctuation, before conjunctions and prepositions; do not
+  separate a noun from its article or adjective; prefer a bottom-heavy pyramid; avoid one or two
+  words on the top line); *Subtitle Timing Guidelines*
+  (https://partnerhelp.netflixstudios.com/hc/en-us/articles/360051554394): at least 2 frames
+  between subtitles, close gaps under half a second to 2 frames ("chaining"). These are the
+  defaults of `packages/project-schema/src/captions.ts` (D-107). FFmpeg's `ass` filter (libass)
+  per https://ffmpeg.org/ffmpeg-filters.html#ass; checked locally with FFmpeg 6.1.1 (Ubuntu
+  `6.1.1-3ubuntu5`, `--enable-libass`) and by the render tests; the release image's Debian
+  `ffmpeg` package is built with libass too (the burn-in test runs in CI; VERIFY in the image e2e).
 - **Safe areas (2026-11-23, issue #287).** EBU R 95 "Safe areas for 16:9 television production", version 1.1,
   June 2017 (https://tech.ebu.ch/docs/r/r095.pdf, read 2026-11-23): "The action safe area is 3.5% and the graphics
   safe area is 5%, at the top, bottom and" sides, for every raster from 576i to 4320p (67 pixels of action margin

@@ -61,7 +61,8 @@ listed on the [REST API overview](/docs/api/rest-api#errors).
 | A job shows `failed` with `interrupted` after a restart | Jobs running when the server stopped are marked failed. `retry_job` |
 | `asset_not_imported` | An `https://` asset must be imported with `add_asset_from_url` first; renders never download |
 | A scene with your own HTML shows no images or fonts | Scenes render offline. Inline them as `data:` URLs |
-| Captions or music ducking do nothing | Both are stored but not rendered yet; validation warns about it |
+| Captions do not appear | `captions.mode` is `off` by default: set it to `burned`, `sidecar` or `both`, or pass `captions` to `render_project`. A burned render needs an FFmpeg with libass |
+| Music ducking does nothing | Stored but not applied yet; validation warns about it |
 
 ## Storage and disk
 
