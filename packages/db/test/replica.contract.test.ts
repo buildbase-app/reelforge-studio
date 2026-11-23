@@ -248,28 +248,38 @@ describe.each(servers)('read replica on %s', (kind) => {
     };
     const admin = await Database.open({ url: kind === 'postgresql' ? process.env.TEST_POSTGRES_URL! : process.env.TEST_MYSQL_URL! });
     const dbName = new URL(primary.url).pathname.slice(1);
-    const count = async () =>
-      Number(
-        kind === 'postgresql'
-          ? ((await admin.prisma.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = '${tag}'`)) as Array<{ n: number }>)[0]!.n
-          : ((await admin.prisma.$queryRawUnsafe(`SELECT count(*) AS n FROM information_schema.PROCESSLIST WHERE DB = '${dbName}'`)) as Array<{ n: bigint }>)[0]!.n
+    // The connections the database lists, by identity (PostgreSQL: pid and start time, as the OS reuses pids; MySQL: the
+    // thread id, never reused while the server runs).
+    const connections = async () =>
+      new Set(
+        (
+          (await admin.prisma.$queryRawUnsafe(
+            kind === 'postgresql'
+              ? `SELECT pid::text || ':' || backend_start::text AS id FROM pg_stat_activity WHERE application_name = '${tag}'`
+              : `SELECT ID AS id FROM information_schema.PROCESSLIST WHERE DB = '${dbName}'`
+          )) as Array<{ id: string | bigint }>
+        ).map((r) => String(r.id))
       );
     // Behind PgBouncer (TEST_POSTGRES_POOLER=pgbouncer) the server connections are PgBouncer's, not the pool's: only the sizes are checked.
     const behindPooler = kind === 'postgresql' && process.env.TEST_POSTGRES_POOLER === 'pgbouncer';
     const sleepSql = kind === 'postgresql' ? 'SELECT pg_sleep(2)::text AS s' : 'SELECT SLEEP(2) AS s';
     // Each query sleeps 2 s so the pool has time to open every connection it may: with shorter queries a slow CI runner
     // reuses finished connections before new ones finish connecting, and the peak under-reads (seen in CI on main).
-    // The most connections the database saw while 12 queries ran at once, above what was open before the pool existed
-    // (MySQL counts every connection to the test database, including this suite's own idle pool).
+    // The most connections the database saw at once while 12 queries ran, counting only connections that were not
+    // listed before the pool existed (MySQL lists every connection to the test database, including this suite's own
+    // idle pool). By identity, not `count() - before` (#264): a pool's close() resolves before the server drops its
+    // connections, so the previous pool's connections can still be listed in `before` and leave a moment later; the
+    // difference then under-reads by that many (CI on main: a 5-connection pool read 5 - 3 = 2, the 3-connection pool
+    // closed just before; measured locally under the parallel suite, closed connections stay listed for up to ~50 ms).
     const peakOf = async (opts: { url: string; defaultConnectionLimit?: number }) => {
-      const before = await count();
+      const before = await connections();
       const d = await Database.open(opts);
       try {
         let peak = 0;
         let done = false;
         const running = Promise.all(Array.from({ length: 12 }, () => d.prisma.$queryRawUnsafe(sleepSql))).finally(() => (done = true));
         while (!done) {
-          peak = Math.max(peak, (await count()) - before);
+          peak = Math.max(peak, [...(await connections())].filter((id) => !before.has(id)).length);
           await new Promise((r) => setTimeout(r, 50));
         }
         await running;
