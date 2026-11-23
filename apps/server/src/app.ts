@@ -416,6 +416,11 @@ export function createApp({ service, config, observability }: AppDeps) {
   v1.patch('/projects/:id/audio', need('write'), json, async (c) => {
     return c.json(project(await service.setAudio(c.req.param('id'), await body(c), expectedVersion(c))));
   });
+  v1.post('/projects/:id/captions/import', need('write'), json, async (c) => {
+    const b = await body(c);
+    const r = await service.importCaptions(c.req.param('id'), b, expectedVersion(c, b));
+    return c.json({ ...project(r), imported: r.imported });
+  });
 
   v1.post('/projects/:id/preview', need('render'), json, async (c) => {
     const b = await body(c);
@@ -426,7 +431,7 @@ export function createApp({ service, config, observability }: AppDeps) {
   v1.post('/projects/:id/renders', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.priority !== undefined ? { priority: b.priority } : {}) };
+    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}) };
     return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, async () => ({ job: await service.startRender(projectId, opts) })), 202);
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));

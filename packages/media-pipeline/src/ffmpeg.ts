@@ -56,10 +56,10 @@ export function run(
   bin: string,
   args: string[],
   stage: string,
-  opts: { signal?: AbortSignal } = {}
+  opts: { signal?: AbortSignal; cwd?: string } = {}
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], signal: opts.signal });
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], signal: opts.signal, ...(opts.cwd ? { cwd: opts.cwd } : {}) });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));

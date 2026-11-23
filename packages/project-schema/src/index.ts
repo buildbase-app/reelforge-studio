@@ -9,11 +9,21 @@ import {
   type Scene,
 } from './project';
 import { BUILTIN_CATALOG, type TemplateCatalog } from './templates';
+import {
+  CAPTION_RULES,
+  buildCuesFromText,
+  buildCuesFromWords,
+  checkCaptions,
+  type CaptionCue,
+  type CaptionMode,
+  type CaptionQa,
+} from './captions';
 
 export * from './common';
 export * from './project';
 export * from './templates';
 export * from './themes';
+export * from './captions';
 export * from './migrate';
 export { projectV01, V01_SCHEMA_VERSION, type ProjectV01, type ProjectV01Input } from './v01';
 
@@ -89,16 +99,8 @@ function collectWarnings(p: Project): ValidationWarning[] {
         });
       }
     }
-    if (s.captions) {
-      warnings.push({
-        path: `scenes.${i}.captions`,
-        message: 'captions are stored but not burned into the video by this server version',
-      });
-    }
   });
-  if (p.captions.enabled) {
-    warnings.push({ path: 'captions.enabled', message: 'captions are not rendered by this server version yet' });
-  }
+  warnings.push(...captionWarnings(p));
   if (p.audio.music?.ducking) {
     warnings.push({ path: 'audio.music.ducking', message: 'ducking is not applied by this server version yet' });
   }
@@ -118,6 +120,84 @@ function collectWarnings(p: Project): ValidationWarning[] {
     }
   }
   return warnings;
+}
+
+function captionWarnings(p: Project): ValidationWarning[] {
+  const warnings: ValidationWarning[] = [];
+  const c = resolveCaptions(p);
+  if (p.captions.enabled && !p.captions.mode) {
+    warnings.push({ path: 'captions.enabled', message: 'captions.enabled does nothing; set captions.mode to "burned", "sidecar" or "both" to render captions' });
+  }
+  if (c.mode === 'off') {
+    if (c.cues.length) {
+      warnings.push({ path: 'captions.mode', message: `${c.cues.length} caption cue(s) (from ${c.source}) are not rendered while captions.mode is "off"; set it to "burned", "sidecar" or "both" (or pass captions to render_project)` });
+    }
+    // Quality rules matter once captions are shown; for manual cues they are useful while editing too.
+    if (c.source !== 'cues') return warnings;
+  } else if (!c.cues.length) {
+    warnings.push({ path: 'captions.mode', message: `captions.mode is "${c.mode}" but there are no cues: add captions.cues (or import_captions), generate the voice with word timestamps, or give scenes captions.text` });
+  }
+  const base = c.source === 'cues' ? 'captions.cues' : 'captions';
+  for (const issue of c.qa.issues) {
+    warnings.push({
+      path: c.source === 'cues' ? `${base}.${issue.cue}` : base,
+      message: `caption ${issue.cue + 1}${c.source === 'cues' ? '' : ` (built from ${c.source})`} [${issue.rule}]: ${issue.message}`,
+    });
+  }
+  return warnings;
+}
+
+export interface ResolvedCaptions {
+  mode: CaptionMode;
+  /** Where the cues came from: the manifest's cues, the voice's word timestamps, scene caption text, or none. */
+  source: 'cues' | 'voice' | 'scenes' | 'none';
+  cues: CaptionCue[];
+  language?: string;
+  maxLineChars: number;
+  maxCharsPerCue: number;
+  highlight: 'none' | 'word';
+  qa: CaptionQa;
+}
+
+/**
+ * The captions a render shows, in video seconds: the manifest's cues when
+ * there are any, else cues built from the voice's word timestamps (shifted by
+ * the voice start), else from scene `captions.text` over each scene. `mode`
+ * overrides `captions.mode` (render_project's `captions` option).
+ */
+export function resolveCaptions(p: Project, opts: { mode?: CaptionMode } = {}): ResolvedCaptions {
+  const fps = p.output.fps;
+  const endSeconds = totalFrames(p) / fps;
+  const portrait = p.output.height > p.output.width;
+  const maxLineChars = p.captions.maxLineChars ?? (portrait ? 32 : CAPTION_RULES.maxLineChars);
+  const maxCharsPerCue = p.captions.maxCharsPerCue ?? maxLineChars * CAPTION_RULES.maxLines;
+  let source: ResolvedCaptions['source'] = 'none';
+  let cues: CaptionCue[] = [];
+  const voice = p.audio.voice;
+  if (p.captions.cues?.length) {
+    source = 'cues';
+    cues = p.captions.cues;
+  } else if (voice?.words?.length) {
+    source = 'voice';
+    cues = buildCuesFromWords(voice.words, { offsetSeconds: voice.startFrame / fps, maxCharsPerCue, fps, endSeconds });
+  } else {
+    for (const s of timeline(p)) {
+      if (!s.captions?.text || s.captions.source !== 'text') continue;
+      source = 'scenes';
+      cues.push(...buildCuesFromText(s.captions.text, s.startFrame / fps, s.endFrame / fps, { maxCharsPerCue, fps, endSeconds }));
+    }
+  }
+  const language = p.captions.language ?? p.brief?.language;
+  return {
+    mode: opts.mode ?? p.captions.mode ?? 'off',
+    source,
+    cues,
+    ...(language ? { language } : {}),
+    maxLineChars,
+    maxCharsPerCue,
+    highlight: p.captions.highlight ?? 'word',
+    qa: checkCaptions(cues, { fps, maxLineChars, endSeconds }),
+  };
 }
 
 export interface TimelineScene extends Scene {

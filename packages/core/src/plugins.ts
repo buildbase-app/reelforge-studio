@@ -1,6 +1,7 @@
 import type { Readable } from 'node:stream';
 import type { Tools } from '@reelforge/media-pipeline';
 import type {
+  CaptionMode,
   OutputSettings,
   Project,
   RenderScene,
@@ -178,6 +179,8 @@ export interface RenderRequest {
   sceneIds?: string[];
   /** Output scale for previews (0 < scale <= 1). */
   scale?: number;
+  /** Overrides the manifest's captions.mode for this render. */
+  captionsMode?: CaptionMode;
 }
 
 export interface RenderOutcome {
