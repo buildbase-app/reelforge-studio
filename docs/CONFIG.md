@@ -54,7 +54,7 @@ logging:
 
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
-| `dashboard.enabled` | `REELFORGE_DASHBOARD_ENABLED` | boolean | `false` | runtime |  | Serve the web dashboard at `/dashboard` (D-110; docs/public/install/dashboard.md): live jobs with cancel and retry, and the library of projects and renders. Off: `/dashboard` answers 404. It is a client of the public REST API: people sign in with an API key, and every call is checked against that key's scopes. Same Host check as `/mcp` (`server.publicUrl`, `server.allowedHosts`), a strict Content-Security-Policy, no cookies and no external hosts. Not served by `worker` instances. |
+| `dashboard.enabled` | `REELFORGE_DASHBOARD_ENABLED` | boolean | `false` | runtime |  | Serve the web dashboard at `/dashboard` (D-115; docs/public/install/dashboard.md): live jobs with cancel and retry, and the library of projects and renders. Off: `/dashboard` answers 404. It is a client of the public REST API: people sign in with an API key, and every call is checked against that key's scopes. Same Host check as `/mcp` (`server.publicUrl`, `server.allowedHosts`), a strict Content-Security-Policy, no cookies and no external hosts. Not served by `worker` instances. |
 
 ## queue
 
