@@ -34,7 +34,7 @@ import { JOB_CAP_RETRY_SECONDS, renderLimitViolations, usageDay, usageKeys, type
 
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
-import { KeyStore, quotaWindows, type KeyOptions, type PublicKey, type Scope } from './keys';
+import { KeyStore, quotaWindows, type AuthContext, type KeyOptions, type PublicKey, type Scope } from './keys';
 import type { AuditEntryInput, AuditFilter, JobCaps, QuotaWindow, Repositories } from './repositories';
 import {
   AuditLog,
@@ -225,6 +225,8 @@ export interface RenderSummary {
   downloadVia: 'bucket' | 'server';
   /** Present when the render had captions on (#300): whether they were burned in, the sidecar files and the quality check. */
   captions?: RenderCaptions;
+  /** Where the files are: the storage driver and the render's key prefix in it (bucket and root: get_storage, admin). */
+  storage: { driver: string; prefix: string };
 }
 
 export interface RenderCaptions {
@@ -1602,6 +1604,7 @@ export class ReelforgeService {
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
       ...(await this.downloadLink(projectId, runId)),
       ...(captions ? { captions } : {}),
+      storage: { driver: this.storage.driver.id, prefix: renderPrefix(projectId, runId) },
     };
   }
 
@@ -2137,6 +2140,15 @@ export class ReelforgeService {
 
   listKeys() {
     return this.keys.list();
+  }
+
+  /**
+   * The key making the call (get_me, GET /v1/me; any scope): id, name, scopes, limits and usage, never the
+   * secret. Clients such as the dashboard use it to check a key at sign-in and to offer only what its scopes allow.
+   */
+  async getMe(auth: AuthContext) {
+    const key = await this.getKey(auth.keyId);
+    return { ...key, ...(auth.previousSecret ? { usingPreviousSecret: true } : {}) };
   }
 
   /** A key with its render usage today and this month (UTC). */

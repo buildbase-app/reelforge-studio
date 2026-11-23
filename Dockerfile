@@ -55,6 +55,7 @@ RUN --mount=type=secret,id=extra_ca,required=false \
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/server/package.json apps/server/
+COPY apps/dashboard/package.json apps/dashboard/
 COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
 COPY packages/project-schema/package.json packages/project-schema/
@@ -92,12 +93,16 @@ COPY packages ./packages
 # Remotion (Webpack) and Motion Canvas (Vite) browser bundles, built once here so a
 # container never runs a bundler (apps/server/src/prebuild.ts).
 RUN pnpm prebuild:engines
+# The web dashboard (D-110): static files in apps/dashboard/dist, served at /dashboard
+# when dashboard.enabled is on. Only dist/ goes into the runtime tree.
+RUN pnpm --filter @reelforge/dashboard build
 # The runtime tree: package manifests, sources, the engines' scene sources (their
 # hash selects the pre-built bundle) and the bundles. No tests, Prisma tooling or docs.
 RUN mkdir /out \
  && tar -C /app -cf - \
       --exclude='node_modules' --exclude='*/test' --exclude='packages/db/prisma' --exclude='packages/db/scripts' \
       --exclude='packages/db/prisma.config.ts' --exclude='*.test.ts' \
+      --exclude='apps/dashboard/src' --exclude='apps/dashboard/scripts' --exclude='apps/dashboard/build.ts' \
       package.json pnpm-workspace.yaml tsconfig.base.json tsconfig.json apps packages \
     | tar -C /out -xf -
 

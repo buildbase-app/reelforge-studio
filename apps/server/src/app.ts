@@ -22,6 +22,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
 import type { ServerConfig } from './config';
 import { auditAction, auditTarget, matchRoute, restArgs, resultOf } from './audit';
+import { mountDashboard } from './dashboard';
 import { handleMcp, serverCard } from './mcp';
 import { httpTelemetry } from './observability/http';
 import { StructuredLogger } from './observability/logger';
@@ -347,6 +348,7 @@ export function createApp({ service, config, observability }: AppDeps) {
   v1.use('*', authenticate);
 
   v1.get('/capabilities', need('read'), (c) => c.json(service.capabilities()));
+  v1.get('/me', need('read'), async (c) => c.json(await service.getMe(c.get('auth'))));
   v1.get('/schema/project', need('read'), (c) => c.json(service.projectSchema()));
   v1.get('/templates', need('read'), (c) => c.json({ templates: service.listTemplates(c.req.query('engine')) }));
 
@@ -602,6 +604,7 @@ export function createApp({ service, config, observability }: AppDeps) {
   });
 
   app.route('/v1', v1);
+  mountDashboard(app, service, config); // GET /dashboard (dashboard.enabled, D-110)
   return app;
 }
 

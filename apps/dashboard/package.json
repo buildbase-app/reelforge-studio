@@ -1,0 +1,33 @@
+{
+  "name": "@reelforge/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "The self-hosted web dashboard of ReelForge Studio (#292, D-110): static files the server serves at /dashboard; a client of the public REST API only.",
+  "type": "module",
+  "exports": {
+    "./build": "./build.ts"
+  },
+  "scripts": {
+    "build": "tsx build.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "screenshots": "tsx scripts/screenshots.ts"
+  },
+  "devDependencies": {
+    "@hono/node-server": "2.1.11",
+    "@reelforge/core": "workspace:*",
+    "@reelforge/db": "workspace:*",
+    "@reelforge/engine-html": "workspace:*",
+    "@reelforge/media-pipeline": "workspace:*",
+    "@reelforge/project-schema": "workspace:*",
+    "@reelforge/server": "workspace:*",
+    "@types/node": "^22.10.0",
+    "axe-core": "4.14.0",
+    "esbuild": "0.25.12",
+    "playwright": "1.63.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.12"
+  }
+}

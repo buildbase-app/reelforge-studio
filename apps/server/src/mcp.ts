@@ -122,6 +122,16 @@ export const TOOLS: ToolDef[] = [
     run: async (_a, { service }) => service.capabilities(),
   },
   {
+    name: 'get_me',
+    title: 'Get the calling API key',
+    description:
+      'Returns the API key this call uses: id, name, scopes (read, write, render, admin), expiry, limits and its render usage today and this month. Never the secret. Use it to see what this key may do before calling a tool that needs another scope.',
+    scope: 'read',
+    input: {},
+    annotations: { readOnlyHint: true },
+    run: async (_a, { service, auth }) => service.getMe(auth),
+  },
+  {
     name: 'get_project_schema',
     title: 'Get the project manifest JSON Schema',
     description:

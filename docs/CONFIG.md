@@ -50,6 +50,12 @@ logging:
 | `server.workerConcurrency` | `REELFORGE_WORKER_CONCURRENCY` | integer | `limits.renderConcurrency` | startup |  | Jobs one `worker` (or `all`) instance claims and renders at the same time. Unset: `limits.renderConcurrency` (which can then be changed at runtime). Scale out with more worker instances rather than a high value here. |
 | `server.workerOnce` | `REELFORGE_WORKER_ONCE` | boolean | `false` | startup |  | Run as `reelforge worker --once` (D-100): claim at most one job, render it and exit (0 succeeded, cancelled or nothing queued; 1 failed; 75 handed back, lease lost, or the `--job` still queued; see docs/providers/backends.md). For job platforms that start one container per unit (KEDA ScaledJob, Azure Container Apps event jobs, AWS Batch, Cloud Run Jobs, ECS RunTask). Implies `server.role` `worker` (same database and storage rules); serves no HTTP. |
 
+## dashboard
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `dashboard.enabled` | `REELFORGE_DASHBOARD_ENABLED` | boolean | `false` | runtime |  | Serve the web dashboard at `/dashboard` (D-110; docs/public/install/dashboard.md): live jobs with cancel and retry, and the library of projects and renders. Off: `/dashboard` answers 404. It is a client of the public REST API: people sign in with an API key, and every call is checked against that key's scopes. Same Host check as `/mcp` (`server.publicUrl`, `server.allowedHosts`), a strict Content-Security-Policy, no cookies and no external hosts. Not served by `worker` instances. |
+
 ## queue
 
 | Key | Env | Type | Default | Scope | Secret | Description |

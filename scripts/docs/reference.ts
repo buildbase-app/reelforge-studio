@@ -28,7 +28,7 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   {
     title: 'Start here',
     intro: 'What this server can do, the manifest schema and the installed templates. Call these before anything else.',
-    tools: ['get_capabilities', 'get_project_schema', 'list_templates'],
+    tools: ['get_capabilities', 'get_me', 'get_project_schema', 'list_templates'],
   },
   {
     title: 'Projects',

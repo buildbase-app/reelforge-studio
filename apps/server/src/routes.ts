@@ -18,6 +18,7 @@ export interface RouteEntry {
 
 export const REST_ROUTES: RouteEntry[] = [
   { method: 'GET', path: '/v1/capabilities', scope: 'read', tool: 'get_capabilities' },
+  { method: 'GET', path: '/v1/me', scope: 'read', tool: 'get_me' },
   { method: 'GET', path: '/v1/schema/project', scope: 'read', tool: 'get_project_schema' },
   { method: 'GET', path: '/v1/templates', scope: 'read', tool: 'list_templates' },
   { method: 'GET', path: '/v1/themes', scope: 'read', tool: 'list_themes' },
@@ -100,7 +101,7 @@ export const REST_ROUTES: RouteEntry[] = [
 ];
 
 /** Routes outside /v1 that are infrastructure, not product capabilities. */
-export const INFRA_ROUTES = ['GET /healthz', 'GET /readyz', 'GET /metrics', 'GET /.well-known/mcp.json', 'ALL /mcp'];
+export const INFRA_ROUTES = ['GET /healthz', 'GET /readyz', 'GET /metrics', 'GET /.well-known/mcp.json', 'ALL /mcp', 'GET /dashboard'];
 
 /** MCP tools whose REST counterpart is a variant of a route above. */
 export const TOOL_ALIASES: Record<string, string> = {

@@ -31,7 +31,7 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->62<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->63<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -567,6 +567,20 @@ checked by pixel statistics in the caption band, highlight colour included (core
 sidecar download (server). A real four-engine render with burned captions was checked by eye. Not
 yet: speech-to-text for uploaded voice-overs, `get_captions` / `update_captions` approval, several
 languages, audio description; the ElevenLabs path is still tested with a mocked API only.
+
+### Self-hosted web dashboard, part 1 (2026-11-23, issue #292)
+
+Built (D-110; [public/install/dashboard.md](public/install/dashboard.md)): `apps/dashboard`, plain
+TypeScript bundled by esbuild into static files (JS + CSS 11.9 KB gzip, budget 150 KB) that the studio
+serves at `/dashboard` when `dashboard.enabled` is on (off by default; file, env or `PATCH /v1/config`).
+Sign-in with an API key held in memory (sessionStorage only when asked), every call to the public REST
+API with that key; strict CSP, same Host check as `/mcp`, no cookie, no external host. Live jobs
+(progress per scene and per fan-out unit over the job's SSE stream, cancel and retry for render keys)
+and the library (projects, renders, player, poster, format, quality checks, scenes, versions, storage
+driver and key prefix, signed download, manifest). New REST/MCP pair `GET /v1/me` / `get_me`;
+`RenderSummary.storage`. Tests: route and API (`apps/server/test/dashboard.test.ts`) and a Playwright
+journey with axe-core, 0 violations in light, dark and at 360 px (`apps/dashboard/test`). Not yet:
+analytics, settings and the audit log viewer (part 2 of #292).
 
 ## 4. Infrastructure inventory (no secrets)
 
