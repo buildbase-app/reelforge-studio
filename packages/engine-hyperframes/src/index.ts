@@ -26,7 +26,7 @@ import {
   type RenderScene,
   type ThemeTokens,
 } from '@reelforge/project-schema';
-import { REFUSED_LINE, startNetworkSink } from './network';
+import { EGRESS_REFUSED_LINE, FONT_REFUSED_LINE, REFUSED_LINE, nodeEgressEnv, startNetworkSink } from './network';
 import { killRenderNow, reapRender } from './processes';
 
 export { startNetworkSink } from './network';
@@ -205,6 +205,9 @@ export function hyperframesEnv(
     // error instead of HyperFrames' silent fallback to --no-sandbox.
     HYPERFRAMES_CHROME_SANDBOX: chromiumSandbox(base) ? '1' : '0',
     XDG_CACHE_HOME: join(cacheDir, 'hyperframes'),
+    // Its web-font cache too (HyperFrames otherwise uses ~/.cache, outside the data
+    // volume, where fonts downloaded by other tools would leak into renders, #318).
+    HYPERFRAMES_FONT_CACHE_DIR: join(cacheDir, 'hyperframes', 'fonts'),
     // Its temp files go to the cache directory (the data volume), not /tmp: in the
     // hardened container /tmp is a small tmpfs, and HyperFrames refuses to render
     // with less than 1 GB free in its temp directory.
@@ -215,6 +218,8 @@ export function hyperframesEnv(
     ...(egressProxy
       ? { PRODUCER_RESTRICT_PAGE_NETWORK: 'true', PRODUCER_NON_PUBLIC_CIDRS: '0.0.0.0/0,::/0', HYPERFRAMES_CAPTURE_PROXY: egressProxy }
       : {}),
+    // Its Node-side fetch (web fonts, #318) is refused before it leaves the machine.
+    ...nodeEgressEnv(env.NODE_OPTIONS, egressProxy),
   };
 }
 
@@ -271,10 +276,14 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
     detached: true, // own process group; the browser is found by its TMPDIR (processes.ts)
   });
   let output_ = '';
+  let remoteFonts = false;
   const collect = (d: Buffer) => {
     const text = d.toString();
     const refused = REFUSED_LINE.exec(text);
     if (refused) onNetwork(`a ${refused[1]} address`);
+    const egress = EGRESS_REFUSED_LINE.exec(text);
+    if (egress) onNetwork(egress[1]!);
+    if (FONT_REFUSED_LINE.test(text)) remoteFonts = true;
     output_ += text;
     if (output_.length > 200_000) output_ = output_.slice(-100_000);
   };
@@ -309,6 +318,9 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
     if (reason === 'cancelled' || opts.signal?.aborted) throw new PipelineError(stage, 'cancelled');
     if (code !== 0 || !existsSync(opts.out)) {
       throw new PipelineError(stage, `hyperframes render exited with code ${code}`, tail(output_));
+    }
+    if (remoteFonts) {
+      opts.log?.('hyperframes: a font the scene names is not installed and was not downloaded (renders have no network); the CSS fallback font was used. Put font files in the project\'s assets to use them.');
     }
     opts.log?.(`hyperframes ${hyperframesVersion()}: rendered ${scene.durationFrames} frames`);
     return { out: opts.out, millis: Date.now() - started };
