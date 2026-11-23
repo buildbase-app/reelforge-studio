@@ -2,7 +2,7 @@
 
 # Hygen templates (CLI or any agent) + Remotion
 
-> **Status: 📝 documented, not proven (not run yet).** Written from the documented interfaces; not run end to end yet.
+> **Status: ✅ proven 2026-11-23.** The steps below were run end to end; the [Proof](#proof) section has the result.
 
 Make a short vertical reel with the Remotion engine, driven by Hygen templates.
 Matrix and other combinations: [tutorials README](../README.md).
@@ -181,6 +181,8 @@ The proof runs the generator, then the REST script (no model involved):
 6. `GET /v1/jobs/:id?wait=50 (repeated)`
 7. `GET /v1/renders/:id/output`
 
+The proof run's actual calls are listed under [Proof](#proof).
+
 ## Expected output
 
 - A job that ends `succeeded`, and a render with `final.mp4`, `poster.png` and `render-manifest.json`.
@@ -208,12 +210,31 @@ Remotion (`kinetic-title`): 1.5 to 8 s per scene, headline up to 60 characters. 
 
 ## Proof
 
-**Not proven yet** (not run yet). Nothing on this page has been run for this
-cell; treat the steps as documented, not verified. To prove it once the
-blocker is gone:
+**Passed** (TUT-31 in [TEST_CASES.md](../TEST_CASES.md)).
 
-```bash
-pnpm tutorials:prove hygen remotion --record   # then: pnpm tutorials:docs
-```
+| | |
+| --- | --- |
+| Date | 2026-11-23 10:05:58 UTC |
+| Studio | ReelForge Studio 0.1.0, commit `9fcc722`, started from a checkout with `REELFORGE_LICENCE_MODE=off` (local development only) |
+| Reproduce | `pnpm tutorials:prove hygen remotion` |
+| Command the proof ran | `HYGEN_TMPLS=examples/hygen/_templates pnpm exec hygen reel kinetic-title --name tut-hygen-remotion --title 'Tutorial: Remotion engine' --headline 'Your first Remotion reel' --subline 'Springs in word by word' --cta 'Change a prop, render again' --cta-subline 'Same manifest, any agent' --out reel.json && examples/tutorials/rest.sh reel.json tut-hygen-remotion final.mp4` |
+| Project / job / render | `tut-hygen-remotion` / `job_mwt3os4ac58fc96209` / `run_mwt3os49acbd0f4cbe` |
+| Render time | 44.4 s (job start to finish, shared 4-core CPU, one render at a time) |
+| Scene engines | remotion, remotion |
+| ffprobe | 1080x1920, 30 fps, 240 frames (full decode), 8 s, h264 + aac, 1045 KB |
 
-Test case: TUT-31 in [TEST_CASES.md](../TEST_CASES.md).
+Tool calls, in order (7):
+
+1. `hygen reel kinetic-title()`
+2. `GET /v1/capabilities()`
+3. `POST /v1/projects()`
+4. `POST /v1/projects/tut-hygen-remotion/validate()`
+5. `POST /v1/projects/tut-hygen-remotion/renders()`
+6. `GET /v1/jobs/job_mwt3os4ac58fc96209?wait=50()`
+7. `GET /v1/renders/run_mwt3os49acbd0f4cbe/output()`
+
+Poster frame (40 % into the reel, 270 px wide):
+
+![Poster frame of the hygen remotion proof](../proofs/hygen-remotion.jpg)
+
+The full transcript, the MP4 and `proof.json` stay outside the repository (`$TUTORIAL_OUT/hygen/remotion/`); re-run the command to get your own.

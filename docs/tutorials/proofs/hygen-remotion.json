@@ -1,0 +1,40 @@
+{
+  "agent": "hygen",
+  "engine": "remotion",
+  "status": "passed",
+  "date": "2026-11-23T10:05:58.340Z",
+  "studioVersion": "0.1.0",
+  "commit": "9fcc722",
+  "licenceMode": "off (local development only)",
+  "command": "HYGEN_TMPLS=examples/hygen/_templates pnpm exec hygen reel kinetic-title --name tut-hygen-remotion --title 'Tutorial: Remotion engine' --headline 'Your first Remotion reel' --subline 'Springs in word by word' --cta 'Change a prop, render again' --cta-subline 'Same manifest, any agent' --out reel.json && examples/tutorials/rest.sh reel.json tut-hygen-remotion final.mp4",
+  "projectId": "tut-hygen-remotion",
+  "jobId": "job_mwt3os4ac58fc96209",
+  "renderId": "run_mwt3os49acbd0f4cbe",
+  "renderSeconds": 44.4,
+  "sceneEngines": [
+    "remotion",
+    "remotion"
+  ],
+  "toolCalls": [
+    "hygen reel kinetic-title()",
+    "GET /v1/capabilities()",
+    "POST /v1/projects()",
+    "POST /v1/projects/tut-hygen-remotion/validate()",
+    "POST /v1/projects/tut-hygen-remotion/renders()",
+    "GET /v1/jobs/job_mwt3os4ac58fc96209?wait=50()",
+    "GET /v1/renders/run_mwt3os49acbd0f4cbe/output()"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 1069858
+  },
+  "poster": "hygen-remotion.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/hygen/remotion"
+}

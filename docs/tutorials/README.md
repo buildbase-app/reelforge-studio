@@ -15,7 +15,7 @@ says why it is not proven.
 | **Any MCP client (SDK script)** | [✅ 2026-11-21](mcp-sdk/remotion.md) | [✅ 2026-11-21](mcp-sdk/motion-canvas.md) | [✅ 2026-11-21](mcp-sdk/html.md) | [✅ 2026-11-21](mcp-sdk/hyperframes.md) | [✅ 2026-11-21](mcp-sdk/multi-engine.md) |
 | **REST (curl / fetch)** | [✅ 2026-11-21](rest/remotion.md) | [✅ 2026-11-21](rest/motion-canvas.md) | [✅ 2026-11-21](rest/html.md) | [✅ 2026-11-21](rest/hyperframes.md) | [✅ 2026-11-21](rest/multi-engine.md) |
 | **Local AI (node-llama-cpp, MCP)** | [✅ 2026-11-22](local-ai/remotion.md) | [✅ 2026-11-22](local-ai/motion-canvas.md) | [✅ 2026-11-21](local-ai/html.md) | [✅ 2026-11-22](local-ai/hyperframes.md) | [✅ 2026-11-22](local-ai/multi-engine.md) |
-| **Hygen templates (+ any agent)** | [📝 not proven: not run yet](hygen/remotion.md) | [📝 not proven: not run yet](hygen/motion-canvas.md) | [📝 not proven: not run yet](hygen/html.md) | [📝 not proven: not run yet](hygen/hyperframes.md) | [📝 not proven: not run yet](hygen/multi-engine.md) |
+| **Hygen templates (+ any agent)** | [✅ 2026-11-23](hygen/remotion.md) | [✅ 2026-11-23](hygen/motion-canvas.md) | [✅ 2026-11-23](hygen/html.md) | [✅ 2026-11-23](hygen/hyperframes.md) | [✅ 2026-11-23](hygen/multi-engine.md) |
 
 ✅ proven on that date (a real run passed every check) · 📝 documented, not
 proven, with the reason · ❌ a proof run failed (the page has the cause).
@@ -29,7 +29,6 @@ joined to the frame. Reels are 8 to 9 s, 1080x1920, 30 fps.
 Why some cells are not proven:
 
 - **OpenAI Codex CLI (MCP)**: Remotion, Motion Canvas, HTML, HyperFrames, Multi-engine: needs an OpenAI API key, pending from the founder.
-- **Hygen templates (+ any agent)**: Remotion, Motion Canvas, HTML, HyperFrames, Multi-engine: not run yet.
 
 Other clients without their own row (Cursor, Windsurf, VS Code, Zed) use the
 same MCP endpoint: [mcp-sdk/other-clients.md](mcp-sdk/other-clients.md)

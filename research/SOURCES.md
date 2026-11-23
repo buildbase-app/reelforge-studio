@@ -444,3 +444,12 @@ implementation or licensing decisions.
   Stripe 1099 docs, IRS 1099-K FAQ, EU VAT Art. 9a Reg. 282/2011, DAC7, DSA Art. 29, EDPB
   Guidelines 2/2023, FTC Endorsement Guides, the DMCA agent FAQ, PolyForm Noncommercial 1.0.0,
   Gumroad, Paddle, Lemon Squeezy, FastSpring, Envato and third-party affiliate-tool price pages.
+
+- **Hygen 6.2.11 (2026-11-23, issue #280).** npm registry: `hygen` 6.2.11 (MIT, published
+  2022-09-07, still the latest release), pinned as a root devDependency for the tutorial
+  generators in `examples/hygen/`. Behaviour read from its source in `node_modules/hygen/dist`
+  and checked by running it: templates come from `HYGEN_TMPLS` (else `./_templates`); an
+  action's `index.js` hook is `require()`d (hence `examples/hygen/package.json` sets
+  `"type": "commonjs"`) and its `params({ args })` result becomes the template locals; an error
+  thrown there is printed and hygen exits 1 before writing anything; an existing target file
+  triggers an overwrite prompt unless `HYGEN_OVERWRITE` is set. Docs: https://www.hygen.io.

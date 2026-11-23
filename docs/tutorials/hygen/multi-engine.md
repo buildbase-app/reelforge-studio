@@ -2,7 +2,7 @@
 
 # Hygen templates (CLI or any agent) + Multi-engine
 
-> **Status: 📝 documented, not proven (not run yet).** Written from the documented interfaces; not run end to end yet.
+> **Status: ✅ proven 2026-11-23.** The steps below were run end to end; the [Proof](#proof) section has the result.
 
 Make a short vertical reel with scenes from all four engines, driven by Hygen templates.
 Matrix and other combinations: [tutorials README](../README.md).
@@ -209,6 +209,8 @@ The proof runs the generator, then the REST script (no model involved):
 6. `GET /v1/jobs/:id?wait=50 (repeated)`
 7. `GET /v1/renders/:id/output`
 
+The proof run's actual calls are listed under [Proof](#proof).
+
 ## Expected output
 
 - A job that ends `succeeded`, and a render with `final.mp4`, `poster.png` and `render-manifest.json`.
@@ -236,12 +238,31 @@ Multi-engine: every scene is rendered by its own engine at the same size and fra
 
 ## Proof
 
-**Not proven yet** (not run yet). Nothing on this page has been run for this
-cell; treat the steps as documented, not verified. To prove it once the
-blocker is gone:
+**Passed** (TUT-35 in [TEST_CASES.md](../TEST_CASES.md)).
 
-```bash
-pnpm tutorials:prove hygen multi-engine --record   # then: pnpm tutorials:docs
-```
+| | |
+| --- | --- |
+| Date | 2026-11-23 10:08:35 UTC |
+| Studio | ReelForge Studio 0.1.0, commit `9fcc722`, started from a checkout with `REELFORGE_LICENCE_MODE=off` (local development only) |
+| Reproduce | `pnpm tutorials:prove hygen multi-engine` |
+| Command the proof ran | `HYGEN_TMPLS=examples/hygen/_templates pnpm exec hygen reel multi-engine --name tut-hygen-multi-engine --title 'Tutorial: four engines, one reel' --headline 'Four engines, one reel' --steps-title 'How it works' --points 'Plan the scenes\|Pick an engine per scene' --kicker HTML --card 'Cut to an HTML card' --outro 'Ends on HyperFrames' --outro-subline 'Rendered and joined to the frame' --out reel.json && examples/tutorials/rest.sh reel.json tut-hygen-multi-engine final.mp4` |
+| Project / job / render | `tut-hygen-multi-engine` / `job_mwt3s5ne161bf246b1` / `run_mwt3s5neb0a837f88e` |
+| Render time | 37.5 s (job start to finish, shared 4-core CPU, one render at a time) |
+| Scene engines | remotion, motion-canvas, html, hyperframes |
+| ffprobe | 1080x1920, 30 fps, 270 frames (full decode), 9 s, h264 + aac, 485 KB |
 
-Test case: TUT-35 in [TEST_CASES.md](../TEST_CASES.md).
+Tool calls, in order (7):
+
+1. `hygen reel multi-engine()`
+2. `GET /v1/capabilities()`
+3. `POST /v1/projects()`
+4. `POST /v1/projects/tut-hygen-multi-engine/validate()`
+5. `POST /v1/projects/tut-hygen-multi-engine/renders()`
+6. `GET /v1/jobs/job_mwt3s5ne161bf246b1?wait=50()`
+7. `GET /v1/renders/run_mwt3s5neb0a837f88e/output()`
+
+Poster frame (40 % into the reel, 270 px wide):
+
+![Poster frame of the hygen multi-engine proof](../proofs/hygen-multi-engine.jpg)
+
+The full transcript, the MP4 and `proof.json` stay outside the repository (`$TUTORIAL_OUT/hygen/multi-engine/`); re-run the command to get your own.

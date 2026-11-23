@@ -2,7 +2,7 @@
 
 # Hygen templates (CLI or any agent) + HTML
 
-> **Status: 📝 documented, not proven (not run yet).** Written from the documented interfaces; not run end to end yet.
+> **Status: ✅ proven 2026-11-23.** The steps below were run end to end; the [Proof](#proof) section has the result.
 
 Make a short vertical reel with the HTML engine, driven by Hygen templates.
 Matrix and other combinations: [tutorials README](../README.md).
@@ -187,6 +187,8 @@ The proof runs the generator, then the REST script (no model involved):
 6. `GET /v1/jobs/:id?wait=50 (repeated)`
 7. `GET /v1/renders/:id/output`
 
+The proof run's actual calls are listed under [Proof](#proof).
+
 ## Expected output
 
 - A job that ends `succeeded`, and a render with `final.mp4`, `poster.png` and `render-manifest.json`.
@@ -214,12 +216,31 @@ HTML (`html-title`): 1 to 12 s, headline up to 80 characters, optional kicker an
 
 ## Proof
 
-**Not proven yet** (not run yet). Nothing on this page has been run for this
-cell; treat the steps as documented, not verified. To prove it once the
-blocker is gone:
+**Passed** (TUT-33 in [TEST_CASES.md](../TEST_CASES.md)).
 
-```bash
-pnpm tutorials:prove hygen html --record   # then: pnpm tutorials:docs
-```
+| | |
+| --- | --- |
+| Date | 2026-11-23 10:07:08 UTC |
+| Studio | ReelForge Studio 0.1.0, commit `9fcc722`, started from a checkout with `REELFORGE_LICENCE_MODE=off` (local development only) |
+| Reproduce | `pnpm tutorials:prove hygen html` |
+| Command the proof ran | `HYGEN_TMPLS=examples/hygen/_templates pnpm exec hygen reel html-title --name tut-hygen-html --title 'Tutorial: HTML engine' --kicker TUTORIAL --headline 'Your first reel with the HTML engine' --subline 'Plain HTML and CSS, rendered frame by frame' --cta-kicker NEXT --cta 'Swap the props, render again' --cta-subline 'Same manifest, any agent' --out reel.json && examples/tutorials/rest.sh reel.json tut-hygen-html final.mp4` |
+| Project / job / render | `tut-hygen-html` / `job_mwt3qahgf3f7c7e246` / `run_mwt3qahg3df8a9c399` |
+| Render time | 30.6 s (job start to finish, shared 4-core CPU, one render at a time) |
+| Scene engines | html, html |
+| ffprobe | 1080x1920, 30 fps, 240 frames (full decode), 8 s, h264 + aac, 333 KB |
 
-Test case: TUT-33 in [TEST_CASES.md](../TEST_CASES.md).
+Tool calls, in order (7):
+
+1. `hygen reel html-title()`
+2. `GET /v1/capabilities()`
+3. `POST /v1/projects()`
+4. `POST /v1/projects/tut-hygen-html/validate()`
+5. `POST /v1/projects/tut-hygen-html/renders()`
+6. `GET /v1/jobs/job_mwt3qahgf3f7c7e246?wait=50()`
+7. `GET /v1/renders/run_mwt3qahg3df8a9c399/output()`
+
+Poster frame (40 % into the reel, 270 px wide):
+
+![Poster frame of the hygen html proof](../proofs/hygen-html.jpg)
+
+The full transcript, the MP4 and `proof.json` stay outside the repository (`$TUTORIAL_OUT/hygen/html/`); re-run the command to get your own.

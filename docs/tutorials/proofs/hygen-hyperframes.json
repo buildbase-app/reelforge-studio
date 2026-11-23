@@ -1,0 +1,41 @@
+{
+  "agent": "hygen",
+  "engine": "hyperframes",
+  "status": "passed",
+  "date": "2026-11-23T10:07:42.266Z",
+  "studioVersion": "0.1.0",
+  "commit": "9fcc722",
+  "licenceMode": "off (local development only)",
+  "command": "HYGEN_TMPLS=examples/hygen/_templates pnpm exec hygen reel hyperframes-title --name tut-hygen-hyperframes --title 'Tutorial: HyperFrames engine' --headline 'Your first HyperFrames reel' --subline 'A GSAP timeline, rendered locally' --cta 'Swap the props, render again' --cta-subline 'Same manifest, any agent' --out reel.json && examples/tutorials/rest.sh reel.json tut-hygen-hyperframes final.mp4",
+  "projectId": "tut-hygen-hyperframes",
+  "jobId": "job_mwt3r0gkf099bf2c60",
+  "renderId": "run_mwt3r0gk44a8e6c872",
+  "renderSeconds": 50.9,
+  "sceneEngines": [
+    "hyperframes",
+    "hyperframes"
+  ],
+  "toolCalls": [
+    "hygen reel hyperframes-title()",
+    "GET /v1/capabilities()",
+    "POST /v1/projects()",
+    "POST /v1/projects/tut-hygen-hyperframes/validate()",
+    "POST /v1/projects/tut-hygen-hyperframes/renders()",
+    "GET /v1/jobs/job_mwt3r0gkf099bf2c60?wait=50()",
+    "GET /v1/jobs/job_mwt3r0gkf099bf2c60?wait=50()",
+    "GET /v1/renders/run_mwt3r0gk44a8e6c872/output()"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 244267
+  },
+  "poster": "hygen-hyperframes.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/hygen/hyperframes"
+}
