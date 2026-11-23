@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  SUPPORTED_FPS,
   parseProject,
   projectJsonSchema,
   timeline,
@@ -62,6 +63,15 @@ describe('parseProject', () => {
     const p = clone();
     p.output.fps = 29.97;
     expect(issuesOf(p).some((i) => i.path.startsWith('output.fps'))).toBe(true);
+  });
+
+  it('says which frame rates are supported when one is not (#322)', () => {
+    for (const [fps, got] of [[23.976, '23.976'], [50, '50'], [0, '0'], [120, '120'], ['30', '"30"']] as const) {
+      const p = clone();
+      (p.output as { fps: unknown }).fps = fps;
+      const issue = issuesOf(p).find((i) => i.path === 'output.fps');
+      expect(issue?.message, String(fps)).toBe(`fps must be one of ${SUPPORTED_FPS.join(', ')} (got ${got})`);
+    }
   });
 
   it('rejects odd or out-of-range dimensions', () => {
