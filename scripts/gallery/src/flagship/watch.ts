@@ -301,7 +301,7 @@ var CAP=[].slice.call(document.querySelectorAll('[data-in]'));
 function fmt(n){return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g,',')}
 function captions(t,st,tau){CAP.forEach(function(el){var a=+el.dataset.in,b=+el.dataset.out;var o=Math.min(seg(t,a,a+.45),1-seg(t,b-.35,b));el.style.opacity=o.toFixed(3);if(!el.classList.contains('lbl'))el.style.transform='translateY('+((1-eo(seg(t,a,a+.6)))*30).toFixed(1)+'px)'});
  var K=kAt(t),sp=document.getElementById('spd');if(sp)sp.textContent=K>=1.5?'Sped up '+Math.round(K)+'×':K<=.67?'Slowed down '+Math.round(1/K)+'×':'Real speed';
- var a=document.getElementById('n28');if(a)a.textContent=fmt(28800*eo(seg(t,26.4,28)));var b=document.getElementById('n69');if(b)b.textContent=fmt(691200*eo(seg(t,26.9,28.5)));
+ var a=document.getElementById('n28');if(a)a.textContent=fmt(28800*eo(seg(t,26.4,27.6)));var b=document.getElementById('n69');if(b)b.textContent=fmt(691200*eo(seg(t,26.8,28.0)));
  /* tick and tock: pops at each beat while the escapement is on screen */
  var tk=document.getElementById('tk');if(tk){var kc=Math.floor(st.ph/PI),dtau=tau-kc/(2*BF),dr=dtau/K;var win=seg(t,17.6,18)*(1-seg(t,21,21.3));var op=win*Math.exp(-dr*2.4);tk.style.opacity=op.toFixed(3);tk.textContent=kc%2?'Tock':'Tick';
   var s=scr(kc%2?E:P);tk.style.left=(kc%2?190:640)+'px';tk.style.top='1330px';tk.style.transform='scale('+(1+.25*Math.exp(-dr*6)).toFixed(3)+')'}}
@@ -346,14 +346,14 @@ const CSS = `
 
 const HTML = `
 <div class="cap top" data-in="0.3" data-out="4.5"><div class="k">A mechanical watch</div><h2>No battery. No chip.</h2><p data-in="1.9" data-out="4.6" style="margin-top:18px">So how does it <b>know the time?</b></p></div>
-<div class="cap top" data-in="5.7" data-out="7.7"><div class="k">Turn it over</div><p>Inside, a tiny machine<br>that runs on a <b>spring</b></p></div>
-<div class="cap top" data-in="7.9" data-out="9.9"><div class="k">1 of 4 · Mainspring</div><p>Winding coils a steel<br>spring <b>tight</b></p></div>
-<div class="cap top" data-in="9.9" data-out="11.6"><div class="k">1 of 4 · Mainspring</div><p>It lets go slowly,<br>over <b>a day or two</b></p></div>
-<div class="cap top" data-in="11.8" data-out="14.1"><div class="k">2 of 4 · Gear train</div><p>Each wheel spins <b>faster</b><br>than the one before</p></div>
-<div class="cap top" data-in="14.1" data-out="16.5"><div class="k">2 of 4 · Gear train</div><p>Left alone, it would race.<br>It needs a <b>brake</b></p></div>
-<div class="cap top" data-in="16.7" data-out="18.9"><div class="k">3 of 4 · Escapement</div><p>A fork locks the wheel,<br>then frees <b>one tooth</b></p></div>
-<div class="cap top" data-in="18.9" data-out="21.3"><div class="k">3 of 4 · Escapement</div><p>Lock, release, lock:<br>the <b>tick</b> and the <b>tock</b></p></div>
-<div class="cap top" data-in="21.5" data-out="23.5"><div class="k">4 of 4 · Balance wheel</div><p>A weighted wheel swings<br>on a <b>hairspring</b></p></div>
+<div class="cap top" data-in="5.7" data-out="8.3"><div class="k">Turn it over</div><p>Inside, a tiny machine<br>that runs on a <b>spring</b></p></div>
+<div class="cap top" data-in="7.9" data-out="10.3"><div class="k">1 of 4 · Mainspring</div><p>Winding coils a steel<br>spring <b>tight</b></p></div>
+<div class="cap top" data-in="9.9" data-out="12.2"><div class="k">1 of 4 · Mainspring</div><p>It lets go slowly,<br>over <b>a day or two</b></p></div>
+<div class="cap top" data-in="11.8" data-out="14.5"><div class="k">2 of 4 · Gear train</div><p>Each wheel spins <b>faster</b><br>than the one before</p></div>
+<div class="cap top" data-in="14.1" data-out="17.1"><div class="k">2 of 4 · Gear train</div><p>Left alone, it would race.<br>It needs a <b>brake</b></p></div>
+<div class="cap top" data-in="16.7" data-out="19.3"><div class="k">3 of 4 · Escapement</div><p>A fork locks the wheel,<br>then frees <b>one tooth</b></p></div>
+<div class="cap top" data-in="18.9" data-out="21.9"><div class="k">3 of 4 · Escapement</div><p>Lock, release, lock:<br>the <b>tick</b> and the <b>tock</b></p></div>
+<div class="cap top" data-in="21.5" data-out="23.9"><div class="k">4 of 4 · Balance wheel</div><p>A weighted wheel swings<br>on a <b>hairspring</b></p></div>
 <div class="cap top" data-in="23.5" data-out="25.7"><div class="k">4 of 4 · Balance wheel</div><p>Every swing frees a tooth:<br><b>8 ticks a second</b></p></div>
 <div class="lbl" data-in="8.4" data-out="11.5" data-w="-40,-160" data-dx="150" data-dy="-190">Mainspring</div>
 <div class="lbl" data-in="8.9" data-out="11.5" data-w="-140,-60" data-dx="80" data-dy="260">Barrel <span>· 80 teeth</span></div>

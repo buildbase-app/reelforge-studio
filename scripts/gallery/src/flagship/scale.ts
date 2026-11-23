@@ -153,7 +153,7 @@ if(r>20000){g.fillStyle='rgb(190,64,36)';g.beginPath();g.moveTo(-10,H+10);for(va
 var ha=g.createRadialGradient(cx,cy,r*.9,cx,cy,r*1.6);ha.addColorStop(0,'rgba(255,96,52,.3)');ha.addColorStop(.35,'rgba(220,70,40,.08)');ha.addColorStop(1,'rgba(200,60,40,0)');g.fillStyle=ha;g.beginPath();g.arc(cx,cy,r*1.6,0,TAU);g.fill();
 var bg=g.createRadialGradient(cx-r*.15,cy-r*.12,0,cx,cy,r);bg.addColorStop(0,'rgb(255,156,92)');bg.addColorStop(.6,'rgb(226,90,48)');bg.addColorStop(1,'rgb(132,34,24)');g.fillStyle=bg;g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();ELEMENTS+=2;
 g.save();g.beginPath();g.arc(cx,cy,r,0,TAU);g.clip();var cols=['rgba(255,190,120,.11)','rgba(110,24,16,.14)'];
-var CC=[[255,196,130,.16],[96,18,12,.2]];for(var i=0;i<BC.length;i++){var p=BC[i];var lm=p[2]+t*.01,cm=Math.cos(lm);if(cm<0)continue;var x=cx+r*p[0]*Math.sin(lm),y=cy-r*p[1],rd=r*p[3]*(.5+.5*cm);if(y+rd<0||y-rd>H)continue;var q=CC[p[4]];var cg=g.createRadialGradient(x,y,0,x,y,rd);cg.addColorStop(0,rgba(q,q[3]));cg.addColorStop(1,rgba(q,0));g.fillStyle=cg;g.fillRect(x-rd,y-rd,rd*2,rd*2);ELEMENTS++}
+var CC=[[255,196,130,.16],[96,18,12,.2]];for(var i=0;i<BC.length;i++){var p=BC[i];var lm=p[2]+t*.01,cm=Math.cos(lm);if(cm<0)continue;var x=cx+r*p[0]*Math.sin(lm),y=cy-r*p[1],rd=r*p[3]*(.5+.5*cm);if(y+rd<0||y-rd>H||x+rd<0||x-rd>W)continue;var q=CC[p[4]];var cg=g.createRadialGradient(x,y,0,x,y,rd);cg.addColorStop(0,rgba(q,q[3]));cg.addColorStop(1,rgba(q,0));g.fillStyle=cg;g.fillRect(x-rd,y-rd,rd*2,rd*2);ELEMENTS++}
 var gc=['rgba(255,214,160,.16)','rgba(90,20,12,.16)'];for(var c=0;c<2;c++){g.fillStyle=gc[c];g.beginPath();for(var i=0;i<BG.length;i++){var p=BG[i];if(p[3]!==c)continue;var lm=p[2]+t*.01,cm=Math.cos(lm);if(cm<.05)continue;var x=cx+r*p[0]*Math.sin(lm),y=cy-r*p[1];var rd=Math.max(.7,r*.004*(.4+.6*cm));g.moveTo(x+rd,y);g.arc(x,y,rd,0,TAU);ELEMENTS++}g.fill()}g.restore();g.globalAlpha=1}
 
 /* ---------- the solar neighbourhood: stars at log-spaced distances, streaming past in the warp ---------- */
@@ -215,7 +215,7 @@ var rE=RE*S,gm=rE>30000,pf=gm?cl((L+1.7)/1.5):0;
 if(gm)sky(Y(0),pf);
 var c0=cam(Math.max(0,t-.05));tunnel(t,-L,c0.L-L,gm?.85:1);
 field(t);milky(t);local(L,c0);
-betel(t,X(0),Y(BY),RB*S,seg(t,18.9,19.7));
+var rb=RB*S;betel(t,X(0),Y(BY),rb,seg(t,18.9,19.7)*cl((6000-rb)/3500));
 sun(t,X(0),Y(SY),RS*S,seg(t,13.9,14.6));ghost(t,seg(t,17,17.6)*(1-seg(t,19.3,19.8)));
 jupiter(t,X(0),Y(JY),RJ*S,seg(t,7.6,8.4));
 earthRow(t,Y(JY),11,8.9,.09,1-seg(t,10.8,11.3));earthRow(t,Y(SY),109,14.8,.011,1-seg(t,16.8,17.3));
