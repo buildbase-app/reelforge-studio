@@ -14,6 +14,7 @@ import {
   projectJsonSchema,
   sceneFrames,
   totalFrames,
+  withVariant,
   type Project,
   type ValidationIssue,
   type ValidationWarning,
@@ -189,6 +190,8 @@ export interface ValidationReport {
     height: number;
     fps: number;
     engines: string[];
+    /** Output variants (#287): one render each from render_project. */
+    variants?: Array<{ id: string; width: number; height: number }>;
   };
   /** What the render would take on the manifest's backend (BackendEstimate), when that backend is installed. */
   estimate?: BackendEstimate;
@@ -826,6 +829,11 @@ export class ReelforgeService {
     for (const v of renderLimitViolations(r.project, this.settings.current.config.limits)) {
       errors.push({ path: v.limit.endsWith('Dimension') || v.limit.endsWith('Fps') ? 'output' : 'scenes', message: RENDER_LIMIT_PREFIX + v.message });
     }
+    r.project.variants?.forEach((variant, i) => {
+      for (const v of renderLimitViolations(withVariant(r.project, variant.id), this.settings.current.config.limits)) {
+        if (v.limit.endsWith('Dimension')) errors.push({ path: `variants.${i}`, message: RENDER_LIMIT_PREFIX + v.message });
+      }
+    });
     const estimate = this.estimateOn(r.project.render.backend, { kind: 'render', project: r.project });
     return {
       ok: errors.length === 0,
@@ -840,6 +848,7 @@ export class ReelforgeService {
         height: r.project.output.height,
         fps: r.project.output.fps,
         engines: [...new Set(r.project.scenes.map((s) => s.engine))],
+        ...(r.project.variants ? { variants: r.project.variants.map((v) => ({ id: v.id, width: v.width, height: v.height })) } : {}),
       },
       ...(estimate ? { estimate } : {}),
     };
@@ -1038,8 +1047,49 @@ export class ReelforgeService {
 
   // ---- renders --------------------------------------------------------------
 
-  async startRender(id: string, opts: { backend?: string; priority?: unknown } = {}): Promise<JobRecord> {
-    return this.enqueueRender(id, 'render', opts.priority, opts.backend);
+  /** One render at `output`, or (with `variant`) at one of the project's output variants. */
+  async startRender(id: string, opts: { backend?: string; priority?: unknown; variant?: string } = {}): Promise<JobRecord> {
+    return this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, opts.variant);
+  }
+
+  /**
+   * render_project (#287): a project without `variants`, or a call naming one
+   * `variant`, starts one render (`{ job }`). A project with variants starts
+   * one render per variant, each its own job and run id, grouped by a batch id
+   * (`{ job, jobs, batchId }`, `job` being the first). Every variant is checked
+   * against the render limits before any job is queued; if the queue refuses
+   * one of them (quota, queue caps), the jobs already queued for the batch are
+   * cancelled and the refusal is returned.
+   */
+  async renderProject(id: string, opts: { backend?: string; priority?: unknown; variant?: unknown } = {}): Promise<{ job: JobRecord; jobs?: JobRecord[]; batchId?: string }> {
+    if (opts.variant !== undefined && typeof opts.variant !== 'string') throw badRequest('variant must be the id of one of the project\'s variants');
+    const { manifest } = await this.projects.get(id);
+    const variants = manifest.variants ?? [];
+    if (opts.variant !== undefined || variants.length === 0) {
+      return { job: await this.startRender(id, { backend: opts.backend, priority: opts.priority, ...(opts.variant ? { variant: opts.variant } : {}) }) };
+    }
+    // The same refusals as one render, before anything is queued: priority, licence, then every variant's limits.
+    this.resolvePriority('render', opts.priority);
+    await this.licence.assertRenderAllowed();
+    const violations = variants.flatMap((v) =>
+      renderLimitViolations(withVariant(manifest, v.id), this.settings.current.config.limits).map((x) => ({ ...x, message: `variant "${v.id}": ${x.message}` }))
+    );
+    if (violations.length) await this.refuseRenderLimits(violations, id);
+    const batchId = newId('bat');
+    const jobs: JobRecord[] = [];
+    try {
+      for (const v of variants) jobs.push(await this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, v.id, batchId));
+    } catch (e) {
+      for (const j of jobs) await this.jobs.cancel(j.id).catch(() => undefined);
+      throw e;
+    }
+    return { job: jobs[0]!, jobs, batchId };
+  }
+
+  /** A stored project version as a render sees it: at a variant's size when `variant` is set. */
+  private async projectAsRendered(projectId: string, version: number, variant?: string): Promise<Project> {
+    const project = await this.projects.getVersion(projectId, version);
+    return variant ? withVariant(project, variant) : project;
   }
 
   async preview(id: string, opts: { sceneId?: string; scale?: number; priority?: unknown } = {}): Promise<JobRecord> {
@@ -1073,10 +1123,14 @@ export class ReelforgeService {
     return requested;
   }
 
-  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number) {
+  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, variant?: string, batchId?: string) {
     const priority = this.resolvePriority(kind, requestedPriority);
     await this.licence.assertRenderAllowed();
-    const { manifest, meta } = await this.projects.get(id);
+    const { manifest: stored, meta } = await this.projects.get(id);
+    if (variant !== undefined && !stored.variants?.some((v) => v.id === variant)) {
+      throw notFound('variant', variant, { variants: (stored.variants ?? []).map((v) => v.id) });
+    }
+    const manifest = variant ? withVariant(stored, variant) : stored;
     if (sceneIds) {
       for (const s of sceneIds) {
         if (!manifest.scenes.some((x) => x.id === s)) throw notFound('scene', s, { scenes: manifest.scenes.map((x) => x.id) });
@@ -1099,7 +1153,7 @@ export class ReelforgeService {
     return this.withRenderQuota((apiKeyId, quota) =>
       this.jobs.submit(
         kind,
-        { projectId: id, version: meta.version, backend: backendId, runId, ...(sceneIds ? { sceneIds } : {}), ...(scale ? { scale } : {}) },
+        { projectId: id, version: meta.version, backend: backendId, runId, ...(sceneIds ? { sceneIds } : {}), ...(scale ? { scale } : {}), ...(variant ? { variant } : {}), ...(batchId ? { batchId } : {}) },
         { projectId: id, priority, ...(apiKeyId ? { apiKeyId } : {}) },
         quota
       ), priority
@@ -1227,7 +1281,7 @@ export class ReelforgeService {
       serverVersion: this.serverVersion,
       telemetry: this.telemetry,
       rendersDir: (pid) => this.projects.rendersDir(pid),
-      project: (pid, version) => this.projects.getVersion(pid, version),
+      project: (pid, version, variant) => this.projectAsRendered(pid, version, variant),
       theme: (project) => this.themes.resolve(project.theme),
       assets: (project, pid) => this.resolveAssets(project, pid),
     };
@@ -1272,7 +1326,7 @@ export class ReelforgeService {
       this.renderIndex.set(p.runId, p.projectId);
       return { ...(await this.getRender(p.runId)) };
     }
-    const project = await this.projects.getVersion(p.projectId, p.version);
+    const project = await this.projectAsRendered(p.projectId, p.version, p.variant);
     // Fan-out (D-097, render.fanOut): one unit per scene (scenes+chunks: per chunk of a long scene whose engine renders
     // frame ranges) on any worker, then one join. Database queue, local backend, full renders of two or more units
     // only; everything else renders on this worker as before.

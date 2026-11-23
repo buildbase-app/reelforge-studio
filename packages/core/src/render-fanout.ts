@@ -54,6 +54,10 @@ export interface RenderJobParams {
   runId: string;
   sceneIds?: string[];
   scale?: number;
+  /** Render this output variant of the project (#287): its size and platform replace `output`'s. */
+  variant?: string;
+  /** Renders started by one render_project call over the project's variants share this id. */
+  batchId?: string;
   /**
    * Set when the render fans out: the scenes split into chunks, by timeline
    * index, each with its chunks' frame ranges (first, last, inclusive). Scenes
@@ -112,7 +116,8 @@ export interface FanOutDeps {
   telemetry: Telemetry;
   /** Local storage: where a project's renders live. */
   rendersDir(projectId: string): string;
-  project(projectId: string, version: number): Promise<Project>;
+  /** The project version as rendered: with `variant`, at that variant's size (withVariant). */
+  project(projectId: string, version: number, variant?: string): Promise<Project>;
   theme(project: Project): Promise<ThemeTokens>;
   assets(project: Project, projectId: string): Promise<Map<string, ResolvedAsset>>;
 }
@@ -164,6 +169,7 @@ export function unitSpecs(p: RenderJobParams, project: Project, chunks: Record<s
         version: p.version,
         backend: p.backend,
         runId: p.runId,
+        ...(p.variant ? { variant: p.variant } : {}),
         index,
         count: scenes.length,
         sceneId: s.id,
@@ -196,7 +202,7 @@ const sameRange = (a?: readonly [number, number], b?: readonly [number, number])
 /** `render_unit`: render one scene (or one chunk of it) and upload its clip, then its manifest, to the run's temporary prefix. */
 export async function renderUnit(deps: FanOutDeps, ctx: JobContext): Promise<Record<string, unknown>> {
   const p = ctx.job.params as unknown as UnitJobParams;
-  const project = await deps.project(p.projectId, p.version);
+  const project = await deps.project(p.projectId, p.version, p.variant);
   const scene = timeline(project)[p.index];
   const matches =
     scene?.id === p.sceneId &&
@@ -282,7 +288,7 @@ export interface JoinResult extends RenderPipelineResult {
 export async function joinUnits(deps: FanOutDeps, ctx: JobContext): Promise<JoinResult> {
   const p = ctx.job.params as unknown as RenderJobParams;
   const pid = p.projectId;
-  const project = await deps.project(pid, p.version);
+  const project = await deps.project(pid, p.version, p.variant);
   const scenes = timeline(project);
   const output = project.output;
   const local = deps.storage.isLocal;

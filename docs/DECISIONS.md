@@ -2159,3 +2159,18 @@ square frames (every existing default), smaller on landscape frames, where the o
 template and no answer for odd sizes); CSS viewport units only (Remotion and Motion Canvas do not lay out with
 CSS, and the safe areas must be the same numbers in every engine). Proof: `apps/server/test/formats.test.ts`
 (an overflow check on rendered pixels and DOM measurements) and the contact sheets in `docs/proofs/formats/`.
+### D-108 --- Output variants: one render job per variant, grouped by a batch id
+
+**Status:** DECIDED (reversible).\
+One project renders several formats in one call (#287). The manifest gains optional `variants` (1 to 8 of
+`{ id, width, height, platform? }`, even sizes); fps and format stay those of `output`, so every variant has the
+same timeline and the templates lay out again for each size (reflow, not cropping). `render_project` on a manifest
+with variants starts one ordinary render job per variant (its own run id, so status, retry, cancel, outputs,
+quotas and fan-out work unchanged) with `variant` and a shared `batchId` in the job params, and answers
+`{ job, jobs, batchId }` (`job` = the first, so clients that read only `job` keep working); `variant` renders one.
+Jobs resolve the project with `withVariant()` when they run (the render job, its fan-out units and the join), so
+nothing else in the pipeline knows about variants. Every variant is checked against the render limits before any
+job is queued; when the queue refuses one (quota, caps), the batch's jobs already queued are cancelled and the
+refusal is returned. *Rejected:* one job rendering every variant (one failure would fail all formats, and it would
+not spread over workers); a parent batch job (a new job type for what the batch id already gives); cropping one
+render to other aspect ratios (text and safe areas would be wrong).
