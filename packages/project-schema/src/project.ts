@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import {
+  MAX_OUTPUT_VARIANTS,
   MAX_PROJECT_SECONDS,
   assetLicense,
   isSafeRelativePath,
   output,
+  outputVariant,
   slugId,
 } from './common';
 import {
@@ -209,6 +211,12 @@ const projectShape = z
     brief: brief.optional(),
     theme: projectTheme.default('default'),
     output,
+    /**
+     * Optional extra formats (#287): render_project renders one video per
+     * variant (each its own job and render, grouped by a batch id) instead of
+     * one at `output`. Variants share output.fps and format.
+     */
+    variants: z.array(outputVariant).min(1).max(MAX_OUTPUT_VARIANTS).optional(),
     render: renderSettings.default({ backend: 'local' }),
     audio: audio.default({ voice: null, music: null, sfx: [] }),
     captions: projectCaptions.default({ enabled: false }),
@@ -251,6 +259,12 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
   if (p.audio.voice && !p.audio.voice.asset && !(p.audio.voice.provider && p.audio.voice.text)) {
     add(['audio', 'voice'], 'a voice track needs an audio asset, or a provider and text to generate one');
   }
+
+  const variantIds = new Set<string>();
+  p.variants?.forEach((v, i) => {
+    if (variantIds.has(v.id)) add(['variants', i, 'id'], `duplicate variant id "${v.id}"`);
+    variantIds.add(v.id);
+  });
 
   const sceneIds = new Set<string>();
   let cursor = 0;
@@ -384,6 +398,21 @@ export type SceneInput = z.input<typeof scene>;
 export type Asset = z.infer<typeof asset>;
 export type AudioSettings = z.infer<typeof audio>;
 export type ProjectThemeRef = z.infer<typeof projectTheme>;
+
+/**
+ * The project as rendered for one of its variants: `output` takes the
+ * variant's size, and its platform (if any) replaces brief.platform. Throws
+ * for an unknown variant id.
+ */
+export function withVariant(p: Project, variantId: string): Project {
+  const v = p.variants?.find((x) => x.id === variantId);
+  if (!v) throw new Error(`unknown variant "${variantId}"; variants: ${(p.variants ?? []).map((x) => x.id).join(', ') || '(none)'}`);
+  return {
+    ...p,
+    output: { ...p.output, width: v.width, height: v.height },
+    ...(v.platform ? { brief: { ...(p.brief ?? {}), platform: v.platform } } : {}),
+  };
+}
 
 /**
  * What an engine needs to render one scene: the duration resolved to frames.

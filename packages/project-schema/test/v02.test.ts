@@ -9,6 +9,7 @@ import {
   migrate,
   parseProject,
   projectJsonSchema,
+  withVariant,
   theme,
   timeline,
   totalFrames,
@@ -229,5 +230,51 @@ describe('themes', () => {
     expect(merged.colors.accent).toBe('#123456');
     expect(merged.colors.background).toBe(base.colors.background);
     expect(merged.motionSpeed).toBe(2);
+  });
+});
+
+describe('output variants (#287)', () => {
+  const variants = [
+    { id: 'vertical', width: 1080, height: 1920, platform: 'tiktok' },
+    { id: 'wide', width: 1920, height: 1080 },
+  ];
+
+  it('are optional: a manifest without them is unchanged', () => {
+    const r = parseProject(v02());
+    expect(r.ok && r.project.variants).toBeUndefined();
+  });
+
+  it('accept sizes and a platform; withVariant renders the project at a variant', () => {
+    const r = parseProject({ ...v02(), variants });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.project.variants).toEqual(variants);
+    const wide = withVariant(r.project, 'wide');
+    expect(wide.output).toEqual({ ...r.project.output, width: 1920, height: 1080 });
+    expect(wide.brief).toEqual(r.project.brief);
+    expect(withVariant(r.project, 'vertical').brief?.platform).toBe('tiktok');
+    expect(() => withVariant(r.project, 'square')).toThrow(/unknown variant "square"; variants: vertical, wide/);
+  });
+
+  it('reject duplicate ids, odd or out-of-range sizes, fps and unknown fields, and more than 8', () => {
+    const issues = issuesOf({
+      ...v02(),
+      variants: [
+        { id: 'a', width: 1080, height: 1920 },
+        { id: 'a', width: 1081, height: 1920 },
+        { id: 'b', width: 8, height: 1920 },
+        { id: 'c', width: 1080, height: 1080, fps: 60 },
+      ],
+    });
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'variants.1.id', message: expect.stringContaining('duplicate variant id "a"') }),
+        expect.objectContaining({ path: 'variants.1', message: expect.stringContaining('even') }),
+        expect.objectContaining({ path: 'variants.2.width' }),
+        expect.objectContaining({ path: 'variants.3' }),
+      ])
+    );
+    const many = Array.from({ length: 9 }, (_, i) => ({ id: `v${i}`, width: 1080, height: 1080 }));
+    expect(issuesOf({ ...v02(), variants: many })).toEqual([expect.objectContaining({ path: 'variants' })]);
   });
 });

@@ -134,7 +134,7 @@ All JSON; `Authorization: Bearer rf_<key>`. Errors: `{ error: { code, message, d
 | `POST /v1/projects/:id/validate` | full validation report (errors and warnings) |
 | `POST /v1/projects/:id/scenes`, `PATCH/DELETE /v1/projects/:id/scenes/:sceneId`, `POST /v1/projects/:id/scenes:reorder` | scene editing |
 | `POST /v1/projects/:id/preview` | render one scene or a frame range quickly (low res) |
-| `POST /v1/projects/:id/renders` | start a render job (returns job id) |
+| `POST /v1/projects/:id/renders` | start a render job (returns the job); a manifest with `variants` starts one per variant (`{ job, jobs, batchId }`), `variant` renders one |
 | `GET /v1/jobs/:id`, `POST /v1/jobs/:id/cancel`, `GET /v1/jobs/:id/logs`, `GET /v1/jobs/:id/events` (SSE) | job status, cancel, logs, progress |
 | `GET /v1/projects/:id/renders` / `GET /v1/renders/:id/output` | outputs (MP4, frames, render manifest), signed URL when storage is remote |
 | `POST /v1/assets` (upload or `{url}`), `GET /v1/assets/:id` | assets with licence metadata and checksum |
