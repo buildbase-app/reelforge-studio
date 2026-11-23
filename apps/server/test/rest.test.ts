@@ -315,9 +315,10 @@ describe('REST v1', () => {
     expect((await req('POST', '/v1/projects/sample-reel/captions/transcribe', { body: {} })).status).toBe(404);
 
     const start = await req('POST', '/v1/projects/sample-reel/renders', { body: {} });
-    const done = await pollJob(((await start.json()) as any).job.id);
+    // Wait in-process: polling over REST would spend this key's per-minute rate limit that later tests share.
+    const done = await service.jobs.waitFor(((await start.json()) as any).job.id, 120_000);
     expect(done.status, JSON.stringify(done.error)).toBe('succeeded');
-    const rendered = (await (await req('GET', `/v1/renders/${done.result.renderId}/captions`, { key: reader })).json()) as any;
+    const rendered = (await (await req('GET', `/v1/renders/${done.result!.renderId}/captions`, { key: reader })).json()) as any;
     expect(rendered).toMatchObject({ mode: 'sidecar', burned: false, approved: true, languages: [{ language: 'en', cues: [{ text: 'Hello, reels' }], files: { vtt: 'captions.vtt' } }] });
     await service.updateProject('sample-reel', { captions: { cues: null, language: null, mode: null, approval: null } });
   }, 120_000);

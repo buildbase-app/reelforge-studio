@@ -144,6 +144,9 @@ export function renderCaptionsView(renderId: string, projectId: string, m: { cap
   return { renderId, projectId, mode: c.mode, burned: c.burned, burnLanguage: c.burnLanguage ?? (c.burned ? c.language : null), approved: c.approved ?? false, languages };
 }
 
+export type ProjectCaptionsView = ReturnType<typeof projectCaptionsView>;
+export type RenderCaptionsView = ReturnType<typeof renderCaptionsView>;
+
 const byStart = (a: CaptionCue, b: CaptionCue) => a.start - b.start;
 
 /**

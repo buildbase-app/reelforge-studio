@@ -32,7 +32,7 @@ import {
 } from '@reelforge/project-schema';
 import { AssetStore, stageStream } from './assets';
 import { CAPTION_FILE_PATTERN, captionFileNames, captionsEtag, type CaptionManifest } from './captions';
-import { applyCaptionUpdate, getCaptionsInput, parseInput, projectCaptionsView, renderCaptionsView, transcribeInput, updateCaptionsInput } from './captions-edit';
+import { applyCaptionUpdate, getCaptionsInput, parseInput, projectCaptionsView, renderCaptionsView, transcribeInput, updateCaptionsInput, type ProjectCaptionsView, type RenderCaptionsView } from './captions-edit';
 import { LocalBackend } from './backends/local';
 import { ApiError, badRequest, invalidManifest, notFound } from './errors';
 import { newId, readJson, writeJsonAtomic } from './fsutil';
@@ -1147,7 +1147,10 @@ export class ReelforgeService {
    * the etag update_captions needs and the approval state, for a project; for
    * a render (renderId), the cues as they were rendered.
    */
-  async getCaptions(input: unknown) {
+  async getCaptions(input: { projectId: string; language?: string }): Promise<ProjectCaptionsView>;
+  async getCaptions(input: { renderId: string; language?: string }): Promise<RenderCaptionsView>;
+  async getCaptions(input: unknown): Promise<ProjectCaptionsView | RenderCaptionsView>;
+  async getCaptions(input: unknown): Promise<ProjectCaptionsView | RenderCaptionsView> {
     const q = parseInput(getCaptionsInput, input, 'get_captions arguments');
     if (q.renderId) {
       const { projectId } = await this.findRender(q.renderId);
