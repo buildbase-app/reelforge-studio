@@ -33,6 +33,7 @@ export function motionCanvasEngine(opts: MotionCanvasEngineOptions = {}): Engine
         scene,
         output: ctx.output,
         theme: ctx.theme,
+        ...(ctx.platform ? { platform: ctx.platform } : {}),
         out: ctx.out,
         cacheDir: ctx.cacheDir,
         ffmpeg: ctx.tools.ffmpeg,

@@ -231,6 +231,7 @@ export async function renderUnit(deps: FanOutDeps, ctx: JobContext): Promise<Rec
       telemetry: deps.telemetry,
       scene,
       output: project.output,
+      ...(project.brief?.platform ? { platform: project.brief.platform } : {}),
       out: join(work, 'engine.mp4'),
       workDir: join(work, 'work'),
       progress: (n, total) => ctx.progress('render', (0.85 * Math.min(n, total)) / Math.max(1, total), `${n}/${total} frames`),

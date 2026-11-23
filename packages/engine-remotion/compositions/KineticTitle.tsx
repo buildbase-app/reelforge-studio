@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   AbsoluteFill,
   Easing,
@@ -8,6 +8,7 @@ import {
   useVideoConfig,
 } from 'remotion';
 import type { KineticTitleProps, ThemeTokens } from '@reelforge/project-schema';
+import { fitText, frameLayout } from '@reelforge/project-schema/layout';
 
 type ThemeLike = Pick<ThemeTokens, 'colors' | 'fontFamily' | 'headingWeight'>;
 
@@ -35,20 +36,48 @@ const FALLBACK: ThemeLike = {
  * already shows a faint headline and the accent bar, so
  * thumbnails are never blank.
  *
+ * Any size (#287): sizes are multiples of the layout unit (1 % of the shorter
+ * side), the text stays inside the content safe area of `frameLayout` (title
+ * safe, plus the social ui zone on tall frames), and the headline size is the
+ * largest that fits its box (`fitText`, measured with the browser's canvas
+ * text metrics in the theme font, 4.5 to 10.5 units). On landscape frames the
+ * line length is capped.
+ *
  * Uses system font stacks on purpose: no font files are bundled until their
  * licenses are recorded (research/LICENSING_AND_COSTS.md §4).
  */
-export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> = ({
+
+const LINE_HEIGHT = 1.05;
+const WORD_GAP_EM = 0.28;
+const LETTER_SPACING_EM = -0.02;
+/** The whole title pushes in to this scale; fit the text to the box divided by it. */
+const PUSH = 1.04;
+
+/** Text width at 1 px font size, from the browser's canvas text metrics. */
+function canvasMeasure(fontFamily: string, weight: number): (s: string) => number {
+  const ctx = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
+  if (!ctx) return (s) => s.length * 0.6;
+  ctx.font = `${weight} 100px ${fontFamily}`;
+  return (s) => (ctx.measureText(s).width + LETTER_SPACING_EM * 100 * s.length) / 100;
+}
+
+export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike; platform?: string }> = ({
   headline,
   subline,
   accent: accentProp,
   background: backgroundProp,
   theme = FALLBACK,
+  platform,
 }) => {
   const accent = accentProp ?? theme.colors.accent;
   const background = backgroundProp ?? theme.colors.background;
   const frame = useCurrentFrame();
-  const { fps, durationInFrames, width } = useVideoConfig();
+  const { fps, durationInFrames, width, height } = useVideoConfig();
+  const layout = frameLayout(width, height, platform);
+  const { unit: u, box } = layout;
+  const padX = Math.max(box.x, 9 * u);
+  const contentWidth = Math.min(width - 2 * padX, layout.direction === 'row' ? 150 * u : Infinity);
+  const sublineSize = Math.round(layout.type.caption);
   const words = headline.split(/\s+/).filter(Boolean);
   const stagger = Math.max(2, Math.round(fps * 0.08));
   const exitStart = Math.round(durationInFrames * 0.85);
@@ -67,15 +96,34 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> =
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
   );
 
-  const push = interpolate(frame, [0, durationInFrames], [1, 1.04]);
-  const fontSize = Math.round(width * 0.105);
+  const push = interpolate(frame, [0, durationInFrames], [1, PUSH]);
+  // Room the bar and the subline take below the headline (about 3 lines of subline).
+  const below = 5 * u + (subline ? 4 * u + sublineSize * 1.3 * 3 : 0);
+  const fit = useMemo(
+    () =>
+      fitText({
+        text: headline,
+        measure: canvasMeasure(theme.fontFamily, theme.headingWeight),
+        maxWidth: contentWidth / PUSH,
+        maxHeight: (box.height - below) / PUSH,
+        min: layout.type.displayMin,
+        max: layout.type.display,
+        lineHeight: LINE_HEIGHT,
+        wordGapEm: WORD_GAP_EM,
+      }),
+    [headline, theme.fontFamily, theme.headingWeight, contentWidth, box.height, below, layout.type.display, layout.type.displayMin]
+  );
+  const fontSize = fit.fontSize;
 
   return (
     <AbsoluteFill
       style={{
         backgroundColor: background,
         justifyContent: 'center',
-        padding: width * 0.09,
+        paddingTop: box.y,
+        paddingBottom: height - box.y - box.height,
+        paddingLeft: padX,
+        paddingRight: padX,
         fontFamily: theme.fontFamily,
         overflow: 'hidden',
       }}
@@ -83,9 +131,10 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> =
       <div
         style={{
           position: 'relative',
+          width: contentWidth,
           opacity: 1 - exit,
           // A slow push for the whole scene, so a held title never reads as a frozen frame.
-          transform: `translateY(${-exit * 80}px) scale(${push})`,
+          transform: `translateY(${-exit * 8 * u}px) scale(${push})`,
           transformOrigin: 'left center',
         }}
       >
@@ -94,12 +143,12 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> =
             margin: 0,
             color: theme.colors.text,
             fontSize,
-            lineHeight: 1.05,
+            lineHeight: LINE_HEIGHT,
             fontWeight: theme.headingWeight,
-            letterSpacing: -fontSize * 0.02,
+            letterSpacing: fontSize * LETTER_SPACING_EM,
             display: 'flex',
             flexWrap: 'wrap',
-            columnGap: fontSize * 0.28,
+            columnGap: fontSize * WORD_GAP_EM,
           }}
         >
           {words.map((word, i) => {
@@ -120,8 +169,8 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> =
         </h1>
         <div
           style={{
-            marginTop: fontSize * 0.35,
-            height: Math.round(fontSize * 0.14),
+            marginTop: 3.5 * u,
+            height: Math.round(1.4 * u),
             width: `${barIn * 45}%`,
             borderRadius: fontSize,
             backgroundColor: accent,
@@ -130,13 +179,13 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike }> =
         {subline ? (
           <p
             style={{
-              marginTop: fontSize * 0.4,
+              marginTop: 4 * u,
               marginBottom: 0,
               color: theme.colors.mutedText,
-              fontSize: Math.round(fontSize * 0.45),
+              fontSize: sublineSize,
               fontWeight: 500,
               opacity: sublineIn,
-              transform: `translateY(${(1 - sublineIn) * 24}px)`,
+              transform: `translateY(${(1 - sublineIn) * 2.4 * u}px)`,
             }}
           >
             {subline}
