@@ -5,6 +5,7 @@ import { browserVersion, chromiumSandbox as coreChromiumSandbox, packageVersion,
 import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
+  FIT_TEXT_SCRIPT,
   MAX_SOURCE_BYTES,
   TEMPLATES,
   htmlTitleProps,
@@ -19,6 +20,8 @@ export interface HtmlRenderOptions {
   scene: RenderScene;
   output: OutputSettings;
   theme?: ThemeTokens;
+  /** brief.platform (ui safe zone on tall frames). */
+  platform?: string;
   out: string;
   ffmpeg: string;
   browserExecutable?: string;
@@ -79,7 +82,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   }
   let doc: string;
   try {
-    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds });
+    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds, ...(opts.platform ? { platform: opts.platform } : {}) });
   } catch (e) {
     throw new PipelineError(stage, (e as Error).message);
   }
@@ -151,6 +154,8 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     page.on('framenavigated', onNavigated);
     if (page.url() !== home) onNavigated(page.mainFrame());
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    // Fit-to-box (#287): elements marked data-rf-fit shrink until they fit their box.
+    await page.evaluate(FIT_TEXT_SCRIPT);
 
     for (let f = 0; f < frames; f++) {
       if (signal.aborted) break;
@@ -219,6 +224,7 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         scene,
         output: ctx.output,
         theme: ctx.theme,
+        ...(ctx.platform ? { platform: ctx.platform } : {}),
         out: ctx.out,
         ffmpeg: ctx.tools.ffmpeg,
         browserExecutable: opts.browserExecutable,

@@ -18,7 +18,7 @@ import { captionsEtag, type CaptionManifest } from './captions';
 import { ApiError, badRequest, notFound } from './errors';
 
 /**
- * Caption approval (#300, D-110): what get_captions shows, and how
+ * Caption approval (#300, D-114): what get_captions shows, and how
  * update_captions edits cues with an etag check. Pure functions over a
  * manifest; the service does the storage, the audit entry and the response.
  */

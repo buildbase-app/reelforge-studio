@@ -1,7 +1,7 @@
 # Captions
 
 ReelForge burns captions into the video, writes them as sidecar files, or both
-(issue #300, decisions D-107 and D-110). Captions are **off by default**: a project
+(issue #300, decisions D-107 and D-114). Captions are **off by default**: a project
 renders exactly as before until you set `captions.mode`, pass `captions` to
 `render_project`, or the operator sets the server default `captions.defaultMode`.
 

@@ -469,8 +469,39 @@ implementation or licensing decisions.
   per https://ffmpeg.org/ffmpeg-filters.html#ass; checked locally with FFmpeg 6.1.1 (Ubuntu
   `6.1.1-3ubuntu5`, `--enable-libass`) and by the render tests; the release image's Debian
   `ffmpeg` package is built with libass too (the burn-in test runs in CI; VERIFY in the image e2e).
+- **Safe areas (2026-11-23, issue #287).** EBU R 95 "Safe areas for 16:9 television production", version 1.1,
+  June 2017 (https://tech.ebu.ch/docs/r/r095.pdf, read 2026-11-23): "The action safe area is 3.5% and the graphics
+  safe area is 5%, at the top, bottom and" sides, for every raster from 576i to 4320p (67 pixels of action margin
+  at 1920 wide). ITU-R BT.1848-1 (10/2015, https://www.itu.int/rec/R-REC-BT.1848): the same 3.5 % action-safe
+  and 5 % graphics-safe margins. These give the 93 % action-safe and 90 % title-safe areas in
+  `packages/project-schema/src/layout.ts`. The tall-video app overlay zone (14 % top, 35 % bottom, 6 % sides) is
+  NOT from a platform specification: it is a conservative margin chosen to clear the common social apps' UI;
+  platforms differ and change it (TODO/VERIFY against each platform's current guidance before quoting numbers per
+  platform).
 
-- **faster-whisper for local speech-to-text (2026-11-23, issue #300, D-110).** faster-whisper
+- 2026-11-23 (#305, D-110). **Debian snapshot archive** (https://snapshot.debian.org/): a URL
+  `http://snapshot.debian.org/archive/debian/<YYYYMMDDTHHMMSSZ>/` serves the archive as it was at
+  that time (the latest state at or before it); checked here by building the release image with
+  `DEBIAN_SNAPSHOT=20261116T000000Z` (apt signature checks on, `Acquire::Check-Valid-Until false`).
+  The base image `node:22-bookworm-slim` names its own snapshot (20261104T212339Z) in
+  `/etc/apt/sources.list.d/debian.sources`. **RateLimit header fields**: IETF HTTPAPI draft
+  *RateLimit header fields for HTTP* (draft-ietf-httpapi-ratelimit-headers,
+  https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/): ReelForge sends the
+  separate `RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset` fields and
+  `RateLimit-Policy: <limit>;w=<seconds>`, the form most client libraries parse; later draft
+  revisions combine them into `RateLimit` and `RateLimit-Policy` structured fields (VERIFY the
+  current revision; not fetched from this sandbox). `Retry-After`: RFC 9110 §10.2.3. **InnoDB
+  locking of `INSERT ... SELECT`**: MySQL 8.4 Reference Manual, *Locks Set by Different SQL
+  Statements in InnoDB* (https://dev.mysql.com/doc/refman/8.4/en/innodb-locks-set.html): under
+  repeatable read the rows read from the source table get shared next-key locks (a gap lock when the
+  row is missing); reproduced here on MySQL 8.4.13 as deadlocks of concurrent first requests (LIM-17).
+  **Sliding window counter**: Cloudflare, *How we built rate limiting capable of scaling to millions
+  of domains* (https://blog.cloudflare.com/counting-things-a-lot-of-different-things/, 2017).
+  **Kubernetes NetworkPolicy**: https://kubernetes.io/docs/concepts/services-networking/network-policies/
+  (default deny with an empty `podSelector`; policies match addresses, not DNS names); the manifests
+  pass kubeconform 0.7.0 -strict against the Kubernetes 1.31 schemas (`e2e/k8s/kubeconform.sh`).
+
+- **faster-whisper for local speech-to-text (2026-11-23, issue #300, D-114).** faster-whisper
   1.2.1 (PyPI, MIT, https://github.com/SYSTRAN/faster-whisper), read from the wheel's source on
   2026-11-23: `WhisperModel(model_size_or_path, device, compute_type, download_root,
   local_files_only)` (a name is resolved through `download_model`, a directory is loaded as is),

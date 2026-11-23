@@ -131,7 +131,9 @@ Renders and previews are jobs: `queued`, `running`, then `succeeded`, `failed` o
 Queued jobs start by priority, then fairly across keys, then oldest first: send
 `"priority": "interactive" | "standard" | "batch"` in the body of
 `POST /v1/projects/:id/renders` or `/preview` (previews default to `interactive`,
-renders to `standard`). A key may ask for its type's default or lower; a higher
+renders to `standard`). A project with output `variants` starts one render
+per variant and answers `{ job, jobs, batchId }`; `"variant": "<id>"` in the
+body renders one ([Output variants](/docs/manifest/v0-2#output-variants)). A key may ask for its type's default or lower; a higher
 class needs an admin to set the key's `maxPriority`, else `403
 priority_not_allowed`. When the server is busy, a start is refused with `429
 too_many_jobs` or `429 queue_full` and `Retry-After`; `details` says which limit

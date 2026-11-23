@@ -56,7 +56,7 @@ docker run -d --name reelforge -p 127.0.0.1:4321:4321 --shm-size=1g \
 docker exec reelforge reelforge keys create --name admin --scopes admin
 ```
 
-Keep the `REELFORGE_SECRET_KEY` value you pass: start the container with the
+The container does not start without `REELFORGE_SECRET_KEY`. Keep the value you pass: start the container with the
 same one every time. Secrets can also come from files: every secret setting has
 a `_FILE` variant (`REELFORGE_SECRET_KEY_FILE=/run/secrets/secret_key`); the file
 must be readable by UID 10001.

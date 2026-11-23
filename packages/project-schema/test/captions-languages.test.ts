@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { canonicalLanguage, formatVtt, isLanguageTag, migrate, parseProject, resolveCaptions, sameLanguage, splitCueKinds, type CaptionCue } from '../src/index';
 
-/** Captions PR 2 (#300, D-110): language tags, tracks per language, the burn language, description cues and the default mode. */
+/** Captions PR 2 (#300, D-114): language tags, tracks per language, the burn language, description cues and the default mode. */
 
 const migrated = migrate(JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8')));
 if (!migrated.ok) throw new Error('the sample must migrate');

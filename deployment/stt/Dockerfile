@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Optional speech-to-text layer for ReelForge Studio (issue #300, D-110,
+# Optional speech-to-text layer for ReelForge Studio (issue #300, D-114,
 # docs/CAPTIONS.md#speech-to-text). Not part of the release image: Python,
 # faster-whisper and a model add several hundred MB. Build it on top of the
 # image you run, from the repository root:

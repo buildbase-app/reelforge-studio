@@ -8,7 +8,9 @@
 #   docker run -p 127.0.0.1:4321:4321 -v reelforge-data:/data \
 #     --read-only --tmpfs /tmp:size=1g --shm-size=1g --cap-drop ALL --security-opt no-new-privileges \
 #     --security-opt seccomp=deployment/seccomp/chrome.json \
+#     -e REELFORGE_SECRET_KEY="$(openssl rand -base64 32)" \
 #     -e REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) reelforge-studio
+#   (the release image does not start without REELFORGE_SECRET_KEY or REELFORGE_SECRET_KEY_FILE; keep a copy)
 #
 # See docs/DEPLOY.md ("Release image" and "Hardening"), docs/security/HARDENING.md,
 # D-039..D-043 and D-085..D-089.
@@ -26,22 +28,42 @@
 # proxy args: they are not declared here, so they do not end up in `docker history`.
 ARG BASE_IMAGE=node:22-bookworm-slim
 ARG BASE_DIGEST=sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee
+# Debian packages come from one dated snapshot of the archive (snapshot.debian.org, #305), so the
+# same BASE_DIGEST and DEBIAN_SNAPSHOT always install the same package versions. Security fixes
+# arrive by moving the date: bump it weekly (docs/DEPLOY.md, "Reproducible image"). The archive
+# is signed: apt checks every index against the base image's Debian keyring, over plain HTTP too.
+ARG DEBIAN_SNAPSHOT=20261116T000000Z
+ARG DEBIAN_SNAPSHOT_URL=http://snapshot.debian.org/archive
 
 # ---- os: what the runtime needs from Debian ------------------------------------------
 FROM ${BASE_IMAGE}@${BASE_DIGEST} AS os
+ARG DEBIAN_SNAPSHOT
+ARG DEBIAN_SNAPSHOT_URL
 ENV DEBIAN_FRONTEND=noninteractive
 # FFmpeg (system build with libass for burned captions, D-011, D-107), fonts (Chrome and
 # libass render text with them; fc-match picks the caption font), tini, and the
 # system libraries Chrome Headless Shell needs (Playwright's list for this
-# distribution, playwright-core pinned to the version in pnpm-lock.yaml). Security
-# updates of the pinned base are applied (apt-get upgrade).
+# distribution, playwright-core pinned to the version in pnpm-lock.yaml). Every
+# package, and the security updates of the base's own packages, come from the
+# DEBIAN_SNAPSHOT archive alone (no moving `apt-get upgrade` against today's mirror).
+# Snapshot indexes are past their Valid-Until date by design; the signature check stays on.
+# The original sources come back afterwards, so the image itself points at the live mirror.
 RUN --mount=type=secret,id=extra_ca,required=false \
     if [ -f /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
+    set -e; \
+    case "$DEBIAN_SNAPSHOT" in [0-9][0-9][0-9][0-9][0-1][0-9][0-3][0-9]T[0-2][0-9][0-5][0-9][0-5][0-9]Z) ;; *) echo "DEBIAN_SNAPSHOT must look like 20261116T000000Z" >&2; exit 1 ;; esac; \
+    cp /etc/apt/sources.list.d/debian.sources /tmp/debian.sources.orig; \
+    sed -i -e "s|^URIs: http://deb.debian.org/debian-security\$|URIs: ${DEBIAN_SNAPSHOT_URL}/debian-security/${DEBIAN_SNAPSHOT}|" \
+           -e "s|^URIs: http://deb.debian.org/debian\$|URIs: ${DEBIAN_SNAPSHOT_URL}/debian/${DEBIAN_SNAPSHOT}|" /etc/apt/sources.list.d/debian.sources; \
+    test "$(grep -c "^URIs: ${DEBIAN_SNAPSHOT_URL}/" /etc/apt/sources.list.d/debian.sources)" = 2 || { echo "the base image's apt sources changed; update the snapshot rewrite" >&2; exit 1; }; \
+    echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99reelforge-snapshot; \
     apt-get update \
  && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends ffmpeg ca-certificates tini fontconfig \
       fonts-dejavu-core fonts-liberation2 fonts-noto-core fonts-noto-color-emoji \
  && npx -y playwright-core@1.65.1 install-deps chromium-headless-shell \
+ && mv /tmp/debian.sources.orig /etc/apt/sources.list.d/debian.sources \
+ && rm -f /etc/apt/apt.conf.d/99reelforge-snapshot \
  && rm -rf /var/lib/apt/lists/* /root/.npm /root/.cache /tmp/*
 
 # ---- deps: pnpm and every dependency (dev included, for the bundle builds) -------------
@@ -177,7 +199,8 @@ RUN set -e; \
         > /app/packages/core/src/config/image-edition.ts; \
     fi; \
     chmod -R a+rX,go-w /app; \
-    REELFORGE_DATA_DIR=/tmp/check reelforge config check >/dev/null; rm -rf /tmp/*
+    # The check needs a secret key in a release build (#305): a random one for this command only, never stored.
+    REELFORGE_SECRET_KEY="$(head -c 48 /dev/urandom | base64 | tr -d '\n')" REELFORGE_DATA_DIR=/tmp/check reelforge config check >/dev/null; rm -rf /tmp/*
 LABEL org.opencontainers.image.title="ReelForge Studio" \
       org.opencontainers.image.description="Self-hosted, AI-agent-driven short-form video studio (REST + MCP)" \
       org.opencontainers.image.source="https://github.com/buildbase-app/reelforge-studio" \

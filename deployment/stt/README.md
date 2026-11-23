@@ -1,7 +1,7 @@
 # Optional speech-to-text layer (faster-whisper)
 
 `transcribe_captions` turns an uploaded voice-over into word-timed captions with a
-local speech-to-text program (issue #300, D-110, [docs/CAPTIONS.md](../../docs/CAPTIONS.md#speech-to-text)).
+local speech-to-text program (issue #300, D-114, [docs/CAPTIONS.md](../../docs/CAPTIONS.md#speech-to-text)).
 The release image does not include it: Python, [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
 (MIT) and a Whisper model add about 800 MB with the `tiny` model and more with larger
 ones. Without it speech-to-text is simply off (`get_capabilities` → `captions.stt.available: false`).

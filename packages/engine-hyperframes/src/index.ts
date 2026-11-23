@@ -18,7 +18,10 @@ import {
 import { PipelineError } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
+  FIT_TEXT_SCRIPT,
   MAX_SOURCE_BYTES,
+  frameLayout,
+  layoutCssVars,
   TEMPLATES,
   hyperframesTitleProps,
   type HyperframesTitleProps,
@@ -75,33 +78,48 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
-function themeVars(theme: ThemeTokens): string {
+/** Theme and layout (#287) as CSS custom properties, the same names as the html engine. */
+function themeVars(theme: ThemeTokens, output: OutputSettings, platform?: string): string {
   const c = theme.colors;
-  return `:root{--rf-bg:${c.background};--rf-surface:${c.surface};--rf-text:${c.text};--rf-muted:${c.mutedText};--rf-accent:${c.accent};--rf-accent2:${c.accent2};--rf-font:${theme.fontFamily};--rf-heading-weight:${theme.headingWeight}}`;
+  return `:root{--rf-bg:${c.background};--rf-surface:${c.surface};--rf-text:${c.text};--rf-muted:${c.mutedText};--rf-accent:${c.accent};--rf-accent2:${c.accent2};--rf-font:${theme.fontFamily};--rf-heading-weight:${theme.headingWeight};${layoutCssVars(output.width, output.height, platform)}}`;
 }
 
-/** Built-in template "hyperframes-title": CSS keyframes seeked by the HyperFrames runtime (no GSAP, no CDN). */
-export function hyperframesTitle(props: HyperframesTitleProps, output: OutputSettings, seconds: number): string {
-  const u = output.width / 100;
+/**
+ * Built-in template "hyperframes-title": CSS keyframes seeked by the HyperFrames runtime (no GSAP, no CDN).
+ *
+ * Any size (#287): sizes are multiples of the layout unit (1 % of the shorter
+ * side), the text stays inside the content safe area (`frameLayout`), the
+ * headline shrinks to fit (an inline FIT_TEXT_SCRIPT, `data-rf-fit`), and on
+ * landscape frames the line length is capped.
+ */
+export function hyperframesTitle(props: HyperframesTitleProps, output: OutputSettings, seconds: number, platform?: string): string {
+  const l = frameLayout(output.width, output.height, platform);
+  const u = l.unit;
+  const c = l.safe.content;
+  const px = (n: number) => `${Math.round(n * 100) / 100}px`;
+  const side = (n: number) => px(Math.max(n, 9 * u));
   const accent = props.accent ? `--rf-accent:${props.accent};` : '';
   const bg = props.background ? `--rf-bg:${props.background};` : '';
   const exitAt = (seconds * 0.88).toFixed(3);
   const exitLen = Math.max(0.15, seconds * 0.12 - 0.02).toFixed(3);
+  const measure = l.direction === 'row' ? `max-width:${px(150 * u)};` : '';
   return `<style>
-#hf-wrap{${accent}${bg}position:absolute;inset:0;background:var(--rf-bg);display:flex;flex-direction:column;justify-content:center;padding:${9 * u}px;font-family:var(--rf-font)}
-#hf-head{color:var(--rf-text);font-size:${10.5 * u}px;font-weight:var(--rf-heading-weight);line-height:1.05;margin:0;animation:hf-in .8s cubic-bezier(.2,.8,.2,1) both, hf-out ${exitLen}s ease-in ${exitAt}s both}
-#hf-line{height:${1.4 * u}px;width:45%;background:var(--rf-accent);border-radius:999px;margin-top:${3.5 * u}px;transform-origin:left;animation:hf-grow .9s cubic-bezier(.3,.8,.2,1) .2s both, hf-out ${exitLen}s ease-in ${exitAt}s both}
-#hf-sub{color:var(--rf-muted);font-size:${4.8 * u}px;margin:${4 * u}px 0 0;animation:hf-fade .6s ease-out .45s both, hf-out ${exitLen}s ease-in ${exitAt}s both}
-@keyframes hf-in{from{opacity:.35;transform:translateX(${-6 * u}px)}to{opacity:1;transform:none}}
+#hf-wrap{${accent}${bg}position:absolute;inset:0;background:var(--rf-bg);display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding:${px(c.top)} ${side(c.right)} ${px(c.bottom)} ${side(c.left)};font-family:var(--rf-font)}
+#hf-wrap>*{flex-shrink:0;${measure}}
+#hf-head{flex-shrink:1;min-height:0;width:100%;color:var(--rf-text);font-size:${px(l.type.display)};font-weight:var(--rf-heading-weight);line-height:1.05;margin:0;animation:hf-in .8s cubic-bezier(.2,.8,.2,1) both, hf-out ${exitLen}s ease-in ${exitAt}s both}
+#hf-line{height:${px(1.4 * u)};width:45%;background:var(--rf-accent);border-radius:999px;margin-top:${px(3.5 * u)};transform-origin:left;animation:hf-grow .9s cubic-bezier(.3,.8,.2,1) .2s both, hf-out ${exitLen}s ease-in ${exitAt}s both}
+#hf-sub{color:var(--rf-muted);text-wrap:pretty;font-size:${px(l.type.caption)};margin:${px(4 * u)} 0 0;animation:hf-fade .6s ease-out .45s both, hf-out ${exitLen}s ease-in ${exitAt}s both}
+@keyframes hf-in{from{opacity:.35;transform:translateX(${px(-6 * u)})}to{opacity:1;transform:none}}
 @keyframes hf-grow{from{transform:scaleX(.15)}to{transform:scaleX(1)}}
 @keyframes hf-fade{from{opacity:0}to{opacity:1}}
 @keyframes hf-out{to{opacity:0}}
 </style>
 <div id="hf-wrap" class="clip" data-start="0" data-duration="${seconds}">
-<h1 id="hf-head">${escapeHtml(props.headline)}</h1>
+<h1 id="hf-head" data-rf-fit data-rf-fit-min="${Math.floor(l.type.displayMin)}">${escapeHtml(props.headline)}</h1>
 <div id="hf-line"></div>
 ${props.subline ? `<p id="hf-sub">${escapeHtml(props.subline)}</p>` : ''}
-</div>`;
+</div>
+<script>${FIT_TEXT_SCRIPT}</script>`;
 }
 
 /**
@@ -109,7 +127,7 @@ ${props.subline ? `<p id="hf-sub">${escapeHtml(props.subline)}</p>` : ''}
  * (wrapped in a root composition of the right size and duration) or a full
  * HyperFrames document (must declare data-composition-id with the output size).
  */
-export function buildComposition(scene: RenderScene, output: OutputSettings, theme: ThemeTokens): string {
+export function buildComposition(scene: RenderScene, output: OutputSettings, theme: ThemeTokens, platform?: string): string {
   const seconds = scene.durationFrames / output.fps;
   const stage = `render:${scene.id}`;
   let body: string;
@@ -120,7 +138,7 @@ export function buildComposition(scene: RenderScene, output: OutputSettings, the
     }
     if (scene.css && /<\/style/i.test(scene.css)) throw new PipelineError(stage, 'css must not contain "</style"');
   } else if (scene.template === 'hyperframes-title') {
-    body = hyperframesTitle(hyperframesTitleProps.parse(scene.props), output, seconds);
+    body = hyperframesTitle(hyperframesTitleProps.parse(scene.props), output, seconds, platform);
   } else {
     throw new PipelineError(stage, `unknown hyperframes template "${scene.template}"`);
   }
@@ -128,7 +146,7 @@ export function buildComposition(scene: RenderScene, output: OutputSettings, the
   const head =
     `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${HF_CSP}">` +
     `<script>${HF_PAGE_GUARD}</script>` +
-    `<style>${themeVars(theme)}html,body{margin:0;width:${output.width}px;height:${output.height}px;overflow:hidden;background:var(--rf-bg);color:var(--rf-text);font-family:var(--rf-font)}*{box-sizing:border-box}</style>` +
+    `<style>${themeVars(theme, output, platform)}html,body{margin:0;width:${output.width}px;height:${output.height}px;overflow:hidden;background:var(--rf-bg);color:var(--rf-text);font-family:var(--rf-font)}*{box-sizing:border-box}</style>` +
     (scene.css ? `<style>${scene.css}</style>` : '');
 
   // A full document (agent's own <html>) or a fragment wrapped in a sized root composition.
@@ -168,6 +186,8 @@ export interface HyperframesRenderOptions {
   scene: RenderScene;
   output: OutputSettings;
   theme?: ThemeTokens;
+  /** brief.platform (ui safe zone on tall frames). */
+  platform?: string;
   out: string;
   workDir: string;
   cacheDir: string;
@@ -225,7 +245,7 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   const browser = opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH;
   if (!browser || !existsSync(browser)) throw new PipelineError('setup', 'no browser for HyperFrames: set REELFORGE_CHROMIUM_PATH');
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
-  const doc = buildComposition(scene, output, theme);
+  const doc = buildComposition(scene, output, theme, opts.platform);
   const project = join(opts.workDir, 'hyperframes');
   await mkdir(project, { recursive: true });
   // One temp directory per render: the CLI and its browser inherit it, which is how
@@ -356,6 +376,7 @@ export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?
         scene,
         output: ctx.output,
         theme: ctx.theme,
+        ...(ctx.platform ? { platform: ctx.platform } : {}),
         out: ctx.out,
         workDir: ctx.workDir,
         cacheDir: ctx.cacheDir,

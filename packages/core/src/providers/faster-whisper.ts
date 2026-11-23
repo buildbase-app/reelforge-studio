@@ -8,7 +8,7 @@ import { ApiError } from '../errors';
 import type { Availability, Logger, SpeechToTextPlugin, SttRequest, SttResult, SttSettings } from '../plugins';
 
 /**
- * Local speech-to-text with faster-whisper (#300, D-110, docs/CAPTIONS.md#speech-to-text).
+ * Local speech-to-text with faster-whisper (#300, D-114, docs/CAPTIONS.md#speech-to-text).
  *
  * faster-whisper is a Python library, so it is not in the base image: the
  * optional image layer in deployment/stt installs it with a pre-downloaded

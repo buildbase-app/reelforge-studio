@@ -390,3 +390,41 @@ describe('REST v1', () => {
     expect((await req('GET', '/v1/projects/sample-reel')).status).toBe(404);
   });
 });
+
+describe('output variants over REST (#287)', () => {
+  it('VAR-10 POST /renders on a manifest with variants: one job per variant, one batch id; variant renders one', async () => {
+    const manifest = {
+      schemaVersion: '0.2',
+      projectId: 'rest-variants',
+      title: 'variants',
+      output: { width: 216, height: 384, fps: 30, format: 'mp4' },
+      variants: [
+        { id: 'vertical', width: 216, height: 384 },
+        { id: 'wide', width: 384, height: 216 },
+      ],
+      scenes: [{ id: 'hook', engine: 'remotion', template: 'kinetic-title', durationFrames: 45, props: { headline: 'Two formats' } }],
+    };
+    expect((await req('POST', '/v1/projects', { body: manifest })).status).toBe(201);
+    const start = await req('POST', '/v1/projects/rest-variants/renders', { body: {} });
+    expect(start.status).toBe(202);
+    const r = (await start.json()) as any;
+    expect(r.jobs).toHaveLength(2);
+    expect(r.job.id).toBe(r.jobs[0].id);
+    expect(r.jobs.map((j: any) => [j.params.variant, j.params.batchId])).toEqual([
+      ['vertical', r.batchId],
+      ['wide', r.batchId],
+    ]);
+    const done = await Promise.all(r.jobs.map((j: any) => pollJob(j.id)));
+    expect(done.map((d) => [d.status, d.result.width, d.result.height])).toEqual([
+      ['succeeded', 216, 384],
+      ['succeeded', 384, 216],
+    ]);
+    const one = (await (await req('POST', '/v1/projects/rest-variants/renders', { body: { variant: 'wide' } })).json()) as any;
+    expect(one.jobs).toBeUndefined();
+    expect(one.job.params.variant).toBe('wide');
+    const unknown = await req('POST', '/v1/projects/rest-variants/renders', { body: { variant: 'square' } });
+    expect(unknown.status).toBe(404);
+    expect(((await unknown.json()) as any).error.details.variants).toEqual(['vertical', 'wide']);
+    expect((await req('DELETE', '/v1/projects/rest-variants')).status).toBe(204);
+  }, 120_000);
+});

@@ -6,7 +6,7 @@ import { resolveTools } from '@reelforge/media-pipeline';
 import { FasterWhisperStt, cleanSttWords, resolveCommand, whisperLanguage, type SttSettings } from '../src/index';
 import { tempDir } from './helpers';
 
-/** The faster-whisper provider (#300, D-110): the spawn contract with fake programs, and the real program when installed. */
+/** The faster-whisper provider (#300, D-114): the spawn contract with fake programs, and the real program when installed. */
 
 const { dir, cleanup } = tempDir('reelforge-stt-');
 afterAll(cleanup);

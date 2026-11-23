@@ -87,6 +87,7 @@ function setup(opts: Partial<Omit<LicenceManagerOptions, 'key' | 'api'>> & { key
     now: () => clock.t,
     timers: false,
     log: (level, line) => logs.push(`${level}: ${line}`),
+    sealSecret: opts.sealSecret ?? 'licence-unit-seal-secret-0123456789abcdef',
   });
   return { m, api, repos, clock, keyRef, logs };
 }

@@ -15,7 +15,7 @@ import {
 import { fakeEngine, makeTone, tempDir } from './helpers';
 
 /**
- * Captions PR 2 (#300, D-110): speech-to-text with a fake provider, the
+ * Captions PR 2 (#300, D-114): speech-to-text with a fake provider, the
  * approval tools (get_captions / update_captions with an etag), several
  * languages per render, audio-description tracks and the server default mode.
  */
