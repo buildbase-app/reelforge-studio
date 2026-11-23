@@ -62,7 +62,8 @@ listed on the [REST API overview](/docs/api/rest-api#errors).
 | `asset_not_imported` | An `https://` asset must be imported with `add_asset_from_url` first; renders never download |
 | A scene with your own HTML shows no images or fonts | Scenes render offline. Inline them as `data:` URLs |
 | Captions do not appear | `captions.mode` is `off` by default: set it to `burned`, `sidecar` or `both`, or pass `captions` to `render_project`. A burned render needs an FFmpeg with libass |
-| Music ducking does nothing | Stored but not applied yet; validation warns about it |
+| Music ducking does nothing | It needs a voice track with an asset; a very quiet voice file may sit under `ducking.thresholdDb` (-40 dBFS): lower it. The detected windows are in the render manifest (`audio.ducking.windows`) |
+| The render is quieter or louder than expected | Renders are normalised to `audio.loudness` (default `social`, -14 LUFS); the measured values are in `get_render_output` (`audio`). Use `off` to keep your own master |
 
 ## Storage and disk
 

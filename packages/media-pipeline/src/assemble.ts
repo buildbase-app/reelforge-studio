@@ -1,4 +1,5 @@
 import { writeFile } from 'node:fs/promises';
+import { mixGraph } from './audio';
 import { H264_ARGS, PipelineError, run } from './ffmpeg';
 import { probe } from './probe';
 
@@ -23,6 +24,14 @@ export interface AssembleOptions {
   voice?: { file: string; volume: number; startSeconds?: number } | null;
   /** Optional sound effects, each starting at `atSeconds`. */
   sfx?: Array<{ file: string; volume: number; atSeconds: number }>;
+  /**
+   * A finished audio track (mixAudio + normaliseLoudness, the render
+   * pipeline's path) of the timeline's length: encoded as is, and music,
+   * voice and sfx are ignored. Unset: they are mixed here (mixGraph).
+   */
+  audioFile?: string | null;
+  /** No audio stream at all (a muted render with render.audio.mutedTrack "none"). */
+  noAudio?: boolean;
   signal?: AbortSignal;
 }
 
@@ -60,8 +69,7 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
   const args: string[] = ['-hide_banner', '-y'];
   for (const clip of clips) args.push('-i', clip.file);
 
-  const audioIndex = clips.length;
-  const audio = audioGraph(opts, audioIndex, totalSeconds);
+  const audio = audioInputs(opts, clips.length, totalSeconds);
   args.push(...audio.inputs);
 
   const filters: string[] = clips.map(
@@ -78,19 +86,13 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
     filters.join(';'),
     '-map',
     '[vout]',
-    '-map',
-    '[aout]',
+    ...audio.map,
     ...H264_ARGS,
     '-r',
     String(fps),
     '-frames:v',
     String(totalFrames),
-    '-c:a',
-    'aac',
-    '-b:a',
-    '192k',
-    '-ar',
-    '48000',
+    ...audio.codec,
     '-t',
     totalSeconds.toFixed(3),
     out
@@ -172,7 +174,7 @@ export async function concatClips(opts: ConcatOptions): Promise<AssembleResult> 
   const totalFrames = opts.clips.reduce((n, c) => n + c.frames, 0);
   const totalSeconds = totalFrames / opts.fps;
   await writeFile(opts.listFile, opts.clips.map((c) => `file '${c.file.replace(/'/g, "'\\''")}'\n`).join(''));
-  const audio = audioGraph(opts, 1, totalSeconds);
+  const audio = audioInputs(opts, 1, totalSeconds);
   const args = [
     '-hide_banner',
     '-y',
@@ -183,20 +185,13 @@ export async function concatClips(opts: ConcatOptions): Promise<AssembleResult> 
     '-i',
     opts.listFile,
     ...audio.inputs,
-    '-filter_complex',
-    audio.filters.join(';'),
+    ...(audio.filters.length ? ['-filter_complex', audio.filters.join(';')] : []),
     '-map',
     '0:v',
-    '-map',
-    '[aout]',
+    ...audio.map,
     '-c:v',
     'copy',
-    '-c:a',
-    'aac',
-    '-b:a',
-    '192k',
-    '-ar',
-    '48000',
+    ...audio.codec,
     '-t',
     totalSeconds.toFixed(3),
     '-movflags',
@@ -207,58 +202,20 @@ export async function concatClips(opts: ConcatOptions): Promise<AssembleResult> 
   return { out: opts.out, totalFrames, args };
 }
 
-type AudioOptions = Pick<AssembleOptions, 'music' | 'voice' | 'sfx'>;
+type AudioOptions = Pick<AssembleOptions, 'music' | 'voice' | 'sfx' | 'audioFile' | 'noAudio'>;
 
 /**
- * The audio inputs and filter graph of a render: the music (trimmed, padded
- * and faded to the timeline) or silence, with voice and sound effects mixed on
- * top, ending in `[aout]` of exactly `totalSeconds`. Inputs are numbered from
- * `audioIndex`. Shared by assemble() and the fan-out join (concatClips), so
- * both mix the same audio.
+ * The audio side of assemble() and the fan-out join (concatClips), inputs
+ * numbered from `audioIndex`: a finished track mapped as is, no audio, or the
+ * mix graph (music or silence, voice and sfx on top) ending in `[aout]` of
+ * exactly `totalSeconds`. Both paths encode the same AAC.
  */
-function audioGraph(opts: AudioOptions, audioIndex: number, totalSeconds: number): { inputs: string[]; filters: string[] } {
-  const inputs: string[] = [];
-  const filters: string[] = [];
-  if (opts.music) {
-    inputs.push('-i', opts.music.file);
-  } else {
-    inputs.push('-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000');
-  }
-  const overlays: Array<{ file: string; volume: number; at: number }> = [];
-  if (opts.voice) overlays.push({ file: opts.voice.file, volume: opts.voice.volume, at: opts.voice.startSeconds ?? 0 });
-  for (const s of opts.sfx ?? []) overlays.push({ file: s.file, volume: s.volume, at: s.atSeconds });
-  for (const o of overlays) inputs.push('-i', o.file);
-
-  const T = totalSeconds.toFixed(3);
-  const base = overlays.length ? 'abase' : 'aout';
-  if (opts.music) {
-    const fade = Math.min(opts.music.fadeOutSeconds ?? 1, totalSeconds);
-    const fadeStart = Math.max(totalSeconds - fade, 0).toFixed(3);
-    filters.push(
-      `[${audioIndex}:a]aformat=sample_rates=48000:channel_layouts=stereo,` +
-        `volume=${opts.music.volume},atrim=end=${T},asetpts=PTS-STARTPTS,` +
-        `apad=whole_dur=${T}` +
-        (fade > 0 ? `,afade=t=out:st=${fadeStart}:d=${fade.toFixed(3)}` : '') +
-        `[${base}]`
-    );
-  } else {
-    filters.push(`[${audioIndex}:a]atrim=end=${T},asetpts=PTS-STARTPTS[${base}]`);
-  }
-  if (overlays.length) {
-    overlays.forEach((o, k) => {
-      const delayMs = Math.max(0, Math.round(o.at * 1000));
-      filters.push(
-        `[${audioIndex + 1 + k}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${o.volume},` +
-          `asetpts=PTS-STARTPTS,adelay=${delayMs}|${delayMs}[o${k}]`
-      );
-    });
-    // duration=first: the (padded) base track sets the length; normalize=0 keeps levels as given.
-    filters.push(
-      `[abase]${overlays.map((_, k) => `[o${k}]`).join('')}amix=inputs=${overlays.length + 1}:duration=first:dropout_transition=0:normalize=0,` +
-        `atrim=end=${T},asetpts=PTS-STARTPTS[aout]`
-    );
-  }
-  return { inputs, filters };
+function audioInputs(opts: AudioOptions, audioIndex: number, totalSeconds: number): { inputs: string[]; filters: string[]; map: string[]; codec: string[] } {
+  const codec = ['-c:a', 'aac', '-b:a', '192k', '-ar', '48000'];
+  if (opts.noAudio) return { inputs: [], filters: [], map: [], codec: ['-an'] };
+  if (opts.audioFile) return { inputs: ['-i', opts.audioFile], filters: [], map: ['-map', `${audioIndex}:a:0`], codec };
+  const graph = mixGraph({ totalSeconds, music: opts.music ?? null, voice: opts.voice ?? null, sfx: opts.sfx ?? [] }, audioIndex);
+  return { ...graph, map: ['-map', '[aout]'], codec };
 }
 
 /**

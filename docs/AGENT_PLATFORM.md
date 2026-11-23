@@ -258,7 +258,7 @@ that was run; "partial" says what is missing.
 | §5 brief, theme (id or inline tokens), durationSeconds/Frames, assets with uri, render.backend | done | |
 | §5 transitionIn | partial | Only `cut` accepted (placeholder, D-009) |
 | §5 audio voice/music/sfx | done | Mixed by the media pipeline (test with music + delayed voice + sfx) |
-| §5 music ducking | missing | Stored; validation warns it is not applied |
+| §5 music ducking | done (#301) | Volume automation from the voice's speech segments (depth, attack, release, threshold); loudness presets (two-pass loudnorm, verified with ebur128 after the AAC encode), bus gains, music fades, edge fades, voice/music/sfx/mute toggles per project and per render, A/V sync check (docs/public/manifest/audio.md, D-1XX). Voice-without-asset validation and scene timing from the voice are not built |
 | §5 captions (per scene / from voice timestamps) | partial (#300 step 1) | `captions.mode` off/burned/sidecar/both (default off; `render_project` `captions` per render); cues manual, imported (`import_captions`, SRT/WebVTT) or built from TTS word timestamps or scene text; libass burn-in with theme caption tokens, safe area and word highlight; SRT/VTT/ASS sidecars in `get_render_output`; quality rules as warnings and in the render manifest (docs/CAPTIONS.md, D-107). STT and the approval tools are not built |
 | §5 licence metadata on assets | done | Missing licence = warning |
 | §6 REST table | done | Every route implemented (`apps/server/src/routes.ts`); REST tests + REST e2e against a real server process |

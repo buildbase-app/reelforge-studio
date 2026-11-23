@@ -568,6 +568,29 @@ sidecar download (server). A real four-engine render with burned captions was ch
 yet: speech-to-text for uploaded voice-overs, `get_captions` / `update_captions` approval, several
 languages, audio description; the ElevenLabs path is still tested with a mocked API only.
 
+### Audio: loudness, ducking, toggles (2026-11-23, issue #301, step 1)
+
+Built (D-1XX, [audio.md](public/manifest/audio.md)): the audio is mixed once over the whole timeline into
+48 kHz PCM (never per scene or fan-out chunk), then normalised with a two-pass FFmpeg `loudnorm`
+(`linear=true` where the true peak allows, else its dynamic mode, recorded) to a preset: `social`
+(default; -14 LUFS, -2 dBTP), `broadcast-ebu` (-23 LUFS, -1 dBTP), `broadcast-atsc` (-24 LKFS, -2 dBTP),
+`podcast` (-16 LUFS, -1 dBTP) or `off`; per render (`render_project` `audio.loudness`), per project
+(`audio.loudness`) or the server default (`render.audio.loudness`, runtime). The delivered file is measured
+again with `ebur128` after the AAC encode and caption burn-in (integrated, true peak, LRA in the render
+manifest and `get_render_output`); off target by more than 1 LU or over the ceiling is a QA warning, or a
+failure with `render.audio.loudnessQa: fail`. Ducking of music under the voice (volume automation from the
+voice's speech segments, depth 18 dB, attack 120 ms ending at the speech, release 400 ms), bus gains in dB,
+music fade-in/out, 5-10 ms edge fades on voice, sfx and the whole mix; voice/music/sfx/mute toggles per
+project (`audio.enabled`, `audio.mute`) and per render; a muted render carries a silent AAC track or none
+(`render.audio.mutedTrack`). Every render checks A/V sync (audio starts at 0, durations within one frame).
+Measured on a real render of the sample reel (Remotion + Motion Canvas, 7 s; loud synthetic music bed + voice + sfx,
+ebur128): before -9.1 LUFS, true peak +3.1 dBFS (clipping), LRA 0.8 LU; after -14.3 LUFS, -2.4 dBTP,
+LRA 3.5 LU. Tests: loudness within 1 LU and peak under the ceiling after the AAC encode for three presets,
+ducking depth in the speech windows, sample-step click checks at sfx/voice edges and scene joins (assemble
+and the fan-out concat), A/V sync and offsets, muted output (media-pipeline); service renders with presets,
+toggles, mute and the QA rule (core). Not yet (rest of #301): a voice with provider + text but no asset
+still renders silently (warning), scene timing from the voice, the per-render ducking amount of #298.
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |

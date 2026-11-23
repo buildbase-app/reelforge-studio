@@ -24,6 +24,7 @@ export * from './project';
 export * from './templates';
 export * from './themes';
 export * from './captions';
+export * from './audio';
 export * from './migrate';
 export * from './layout';
 export { projectV01, V01_SCHEMA_VERSION, type ProjectV01, type ProjectV01Input } from './v01';
@@ -102,8 +103,8 @@ function collectWarnings(p: Project): ValidationWarning[] {
     }
   });
   warnings.push(...captionWarnings(p));
-  if (p.audio.music?.ducking) {
-    warnings.push({ path: 'audio.music.ducking', message: 'ducking is not applied by this server version yet' });
+  if (p.audio.music?.ducking && !p.audio.voice) {
+    warnings.push({ path: 'audio.music.ducking', message: 'ducking lowers the music under the voice, but there is no voice track' });
   }
   if (p.audio.voice && !p.audio.voice.asset) {
     warnings.push({

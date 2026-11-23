@@ -4,7 +4,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { ApiError, PRIORITIES, ReelforgeService, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
 import { auditAction, auditTarget } from './audit';
-import { SCHEMA_VERSION } from '@reelforge/project-schema';
+import { SCHEMA_VERSION, renderAudioOptions } from '@reelforge/project-schema';
 import { z } from 'zod';
 import type { ServerConfig } from './config';
 
@@ -397,10 +397,15 @@ export const TOOLS: ToolDef[] = [
         .enum(['off', 'burned', 'sidecar', 'both'])
         .optional()
         .describe('Captions for this render, overriding the manifest\'s captions.mode: off, burned into the video, sidecar files (SRT, WebVTT, ASS) next to final.mp4, or both.'),
+      audio: renderAudioOptions
+        .optional()
+        .describe(
+          'Audio for this render, overriding the manifest: mute (silence everything), voice / music / sfx (false leaves that track out), loudness (social -14 LUFS, broadcast-ebu -23, broadcast-atsc -24, podcast -16, off). E.g. { music: false } for a voice-only cut, { mute: true } for a silent autoplay version.'
+        ),
       idempotencyKey,
     },
     run: async (a, { service }) => {
-      const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}) };
+      const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}), ...(a.audio ? { audio: a.audio } : {}) };
       return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, opts));
     },
   },
