@@ -162,6 +162,7 @@ What a buyer's security review asks, and where we stand.
 | --- | --- | --- |
 | Signed container image, multi-arch | Done | `ci.yml`: cosign keyless on `main` and `v*` |
 | SBOM | Done | CycloneDX per arch, attached as an attestation |
+| Open dependency alerts | **18 open on `main`** (2 high, 14 moderate, 2 low) | #277 |
 | Pinned CI actions, CodeQL, Dependabot, dependency review | Done | `.github/workflows/` |
 | Strict CSP with nonces, `frame-ancestors 'none'`, nosniff, referrer and permissions policy | Done, live | `src/lib/security/csp.ts` (store) |
 | HSTS | **Broken live** (`max-age=0`) | #272 |
