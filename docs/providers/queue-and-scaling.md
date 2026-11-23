@@ -185,8 +185,11 @@ follow).
 ## Autoscaling
 
 `reelforge_jobs_queued` is the **cluster-wide** number of queued jobs: every
-instance on the database queue reports the same value (read from the database
-on each heartbeat). Scale workers on it as an External metric (one more worker
+instance on the database queue reports the same value. Since #195 (D-106) one
+instance counts it every lease/4 (the housekeeping holder) and stores it in the
+`InstanceLease` row, where the others read it every lease/2, so it lags the
+holder's count by up to lease/2 on the other pods; `max` across pods picks the
+freshest high value. Scale workers on it as an External metric (one more worker
 per waiting job, up to `maxReplicas`); scale the api on CPU. With
 prometheus-adapter (rule for its `externalRules`):
 
@@ -214,7 +217,7 @@ Metrics added by this work (labels bounded, never ids or worker names):
 | `reelforge_jobs_running` | gauge | — | jobs this instance runs |
 | `reelforge_server_role` | gauge | `reelforge_role` (`all`/`api`/`worker`) | 1 for this instance's role |
 | `reelforge_jobs_requeued_total` | counter | `reelforge_reason` (`lease_expired`, `released`) | jobs handed back to the queue |
-| `reelforge_queue_errors_total` | counter | `reelforge_operation` (`claim`, `heartbeat`, `recover`) | failed queue operations (database trouble) |
+| `reelforge_queue_errors_total` | counter | `reelforge_operation` (`claim`, `heartbeat`, `recover`, `housekeeping`) | failed queue operations (database trouble; `housekeeping`: reading or taking the housekeeping lease) |
 | `reelforge_queue_claims_total` | counter | `reelforge_trigger` (`poll`, `fallback`, `wake`, `local`), `reelforge_result` (`job`, `empty`) | claim attempts: empty `poll` claims are idle polling, empty `wake` claims the cost of a message |
 | `reelforge_queue_dispatch_published_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`enqueue`, `requeue`, `release`, `fanout`, `join`, `outbox`) | ready messages this instance's transactions sent |
 | `reelforge_queue_dispatch_received_total` | counter | `reelforge_dispatch_driver`, `reelforge_dispatch_kind` (`ready`, `claimed`) | messages this worker received |
@@ -319,14 +322,26 @@ goes.
   and a status event. Workers never wait for each other. SQLite: one
   `UPDATE Job SET status = 'running', workerId = ? WHERE id = (SELECT ... LIMIT 1) AND status = 'queued' RETURNING id`
   under the database write lock (single instance only).
-- **Heartbeat** (every lease/4): renews the leases of the worker's jobs, sees
-  `cancelRequestedAt` set by another instance (and aborts that render), and
-  re-queues jobs whose lease ran out: `attempts < queue.maxAttempts` → queued
-  again with a log line naming the lost worker; otherwise `failed` with
-  `lease_expired` and what to check. Every instance (api included) runs this
-  recovery, so jobs of crashed workers come back even when no worker is
-  healthy; each expired job is handled by exactly one instance (compare-and-set
-  on the lease it read).
+- **Heartbeat** (every lease/4): renews the leases of the worker's jobs and sees
+  `cancelRequestedAt` set by another instance (and aborts that render).
+- **Housekeeping** (one instance per deployment, #195, D-106): the instance
+  holding the `queue-housekeeping` row of `InstanceLease` re-queues jobs whose
+  lease ran out (`attempts < queue.maxAttempts` → queued again with a log line
+  naming the lost worker; otherwise `failed` with `lease_expired` and what to
+  check), counts the queue and renews its lease (for lease/2) with that count,
+  every lease/4. Any long-running instance can hold it (`all`, `api` or
+  `worker`; `worker --once` never does), so jobs of crashed workers come back
+  even when no worker is healthy. The others read the row every lease/2 (one
+  primary-key read, which also carries the count) and the first to find it
+  expired takes it with a compare-and-set `UPDATE ... WHERE holder = me OR
+  expiresAt <= now`; a graceful shutdown expires it at once. **Bounds:** a new
+  holder within one lease period of the old one's death; an expired job lease
+  re-queued within lease/4 while the holder lives and within one lease period
+  of its expiry when the holder dies (SCL-21u, SCL-21). Each expired job is
+  still handled by exactly one instance (compare-and-set on the lease it read),
+  so two instances that both think they hold the housekeeping lease for a
+  moment are harmless. `/readyz` `dependencies.queue.housekeeping` shows
+  `leader` (this instance holds it) and `holder`.
 - **Fencing**: progress and final state are written only `WHERE workerId = me
   AND attempts = my claim AND status = 'running'`. A worker that lost its lease
   (frozen, partitioned) writes nothing and stops the render; a worker that
@@ -1328,6 +1343,7 @@ and a job that dies while its worker shuts down is handed back, never failed
 | QUE-10 | 10 concurrent quota-limited inserts with limit 3: exactly 3 | contract (4 targets) | pass 2026-11-21 |
 | QUE-11 | shared rate-limit counters: 15 concurrent increments end at 15; sweep | contract (4 targets) | pass 2026-11-21 |
 | QUE-13 | claim by id (`worker --once --job`, #150): only that job, only while queued; of ten concurrent claims for one id one wins | contract (4 targets) | pass 2026-11-22 |
+| QUE-16 | instance lease (`0012_instance_lease`, D-106): of 12 concurrent takers of a free lease, then of the expired one, exactly one wins; the holder renews it with a value the others read; a former holder cannot renew a lease someone else took; only the holder releases it, and then it is free at once | contract (4 targets) | pass 2026-11-23 |
 | FAN-01 | `fanOut` is fenced: children inserted (queue position after the parent), the parent stays `running` with `pendingChildren` and no worker or lease; recovery and the running cap ignore it; a cancel requested first wins (`cancelled`); wrong fence `lost` | contract (4 targets) | pass 2026-11-22 |
 | FAN-02 | join exactly once under concurrent unit completions: 12 units claimed by 12 workers finish at the same moment, 3 rounds: one join each time, `pendingChildren` takes every value 11..0 once, a stale repeat is refused by the fence; the join's success finishes the parent with its result | contract (4 targets) | pass 2026-11-22 |
 | FAN-03 | a unit failing while others succeed at the same moment: the parent fails once (`error.unit`), queued units cancelled, a running one gets a cancel request (seen by its heartbeat), its late success changes nothing; no join | contract (4 targets) | pass 2026-11-22 |
@@ -1352,6 +1368,7 @@ and a job that dies while its worker shuts down is handed back, never failed
 | QUE-14 | claims held open (each stops before its status event) after 60 finished jobs and fresh statistics; jobs of three keys, one row-locked by another transaction: every free job is held by exactly one claim, the extra claims find none, the locked job stays queued. Failed on MySQL before #168 (7 of 11: one claim locked every keyless job) | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
 | QUE-15 | as QUE-14 with 20 of a key's 24 jobs locked elsewhere (more than one page of MySQL claim candidates): the claims read on and take the free ones | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
 | SCL-01u..11u | runner: N×M exactly once; api never runs jobs; cross-instance events, long-poll, cancel; lost heartbeat → re-run elsewhere, no overwrite; max attempts; graceful shutdown (finish within grace, hand back the rest); database errors with backoff and a single warning; `canClaim` pause; in-process start leaves database jobs alone; a job that dies during shutdown is handed back; `onEvent` fires once per event, on the instance where it happened | runner | pass 2026-11-21 |
+| SCL-20u..22u | housekeeping (D-106): of an api and four runners only the lease holder recovers and counts, the others report its count (also after it changes); a graceful shutdown hands the lease on within lease/2; the holder "killed" mid-job (every call fails): another runner holds the lease within one lease period and re-queues the job within one lease period of its expiry, which another runner then finishes (attempt 2); `worker --once` never takes the lease (also not an expired one) and reads the stored count | runner | pass 2026-11-23 |
 | SCL-01 | 3 worker processes × 30 jobs: each job ran exactly once (append-only run log), on more than one worker | processes (3 DBs) | pass 2026-11-21 |
 | SCL-02 | worker killed with SIGKILL mid-job: re-queued after its lease, finished by another process (attempt 2) | processes (3 DBs) | pass 2026-11-21 |
 | SCL-03 | killed on every attempt: failed `lease_expired` after `maxAttempts` | processes (3 DBs) | pass 2026-11-21 |
@@ -1360,6 +1377,8 @@ and a job that dies while its worker shuts down is handed back, never failed
 | SCL-06 | two instances (separate connections): cancel and long-poll of a job running on the other one, < 5 s | processes (3 DBs) | pass 2026-11-21 |
 | SCL-07 | SIGTERM while a claim is in flight (held before its status event, as QUE-14): `shutdown()` waits for it and returns `released: 1`; the job is `queued` with attempts 0 at once (60 s lease), and does not run there. Failed before #172 (the job stayed `running`, attempt 1, until its lease ended) | runner on the database (3 DBs) | pass 2026-11-22 |
 | SCL-08 | as SCL-07 for `worker --once`: `runOnce()` returns `released` (exit 75) and `shutdown()` waits for the hand-back | runner on the database (3 DBs) | pass 2026-11-22 |
+| SCL-20 | 3 worker processes (2 s lease): exactly one holds the housekeeping lease; over 3 s only it runs the lease recovery and the queue count (traced), the others none; one takeover line | processes (3 DBs) | pass 2026-11-23 |
+| SCL-21 | the housekeeping holder SIGKILLed while it runs a job (2 s lease), two other workers: a new holder 1.0 / 1.7 / 1.0 s after the kill (SQLite / PostgreSQL / MySQL), the job re-queued 4 / 207 / 39 ms after its lease expired and finished by another worker (attempt 2), run exactly twice in total | processes (3 DBs) | pass 2026-11-23 |
 | SCA-01 | `worker`/`api` on SQLite refuse to start, naming PostgreSQL/MySQL | server | pass 2026-11-21 |
 | SCA-02 | local storage refused for `worker` unless `storage.localShared`; no password in the message | server | pass 2026-11-21 |
 | SCA-03 | `queue.driver: inprocess` refused for `api` | server | pass 2026-11-21 |
@@ -1563,10 +1582,14 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
   of #158. `sqs` is tested on LocalStack, not on AWS (IAM, VPC endpoints and KMS-encrypted queues
   untested); `redis` on Redis 8.4 without TLS (`rediss://` untested; Redis Cluster is not
   supported: the client connects to one node, so use a standalone or primary endpoint). The KEDA triggers on SQS and Redis are documented, not tested. `notify` needs one direct session
-  connection per worker (not through PgBouncer transaction mode), and every idle worker still runs
-  its lease recovery and queue count every `queue.leaseSeconds / 4` (15 s), which now dominates
-  the idle load of `notify` workers (PERFORMANCE.md); moving that recovery to fewer instances is a
-  follow-up.
+  connection per worker (not through PgBouncer transaction mode).
+- Queue housekeeping (D-106): the lease recovery and the queue count run on one instance, but every
+  other instance still reads the housekeeping lease every `queue.leaseSeconds / 2` (30 s), one
+  primary-key read each, so idle load still grows with the number of instances, by about a quarter
+  of what the recovery and count cost per instance before (PERFORMANCE.md: 200 idle workers 71 → 46 tx/s with `poll`, 42 → 25 with `notify`). A crashed worker's job
+  can take up to 2 lease periods (was 1.25) to come back when the housekeeping holder died with it.
+  The settings re-read (D-077, every 15 s) and the outbox relay sweep of `sqs`/`redis` still run on
+  every instance.
 - Measured throughput, connection counts, idle-polling cost and hot spots (load test, #151; so
   far a lower bound on a shared sandbox): [docs/PERFORMANCE.md](../PERFORMANCE.md).
 - Render fan-out (#156) splits long scenes into frame ranges only for

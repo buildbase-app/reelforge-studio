@@ -6,7 +6,7 @@
  * packages/db/test/queue.processes.test.ts. Ids: docs/providers/queue-and-scaling.md.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { JobRunner, createMemoryRepositories, type JobEvent, type JobHandler, type JobRepository } from '../src/index';
+import { HOUSEKEEPING_LEASE, JobRunner, createMemoryRepositories, type JobEvent, type JobHandler, type JobRepository } from '../src/index';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const runners: JobRunner[] = [];
@@ -137,7 +137,8 @@ describe('JobRunner, database queue', () => {
 
   it('SCL-05u after maxAttempts lost leases the job fails with lease_expired', async () => {
     const repo = createMemoryRepositories().jobs;
-    const dead: JobRepository = { ...repo, heartbeat: async () => Promise.reject(new Error('down')), recoverExpired: async () => ({ requeued: [], failed: [] }) };
+    // Its database is gone: no heartbeat, no recovery, and it cannot take the housekeeping lease either (D-106).
+    const dead: JobRepository = { ...repo, heartbeat: async () => Promise.reject(new Error('down')), recoverExpired: async () => ({ requeued: [], failed: [] }), takeLease: async () => Promise.reject(new Error('down')) };
     const w1 = make(dead, { render: (ctx) => new Promise((_, rej) => ctx.signal.addEventListener('abort', () => rej(new Error('stopped')))) }, { workerId: 'w1', leaseMs: 1000, maxAttempts: 1 });
     await w1.init();
     const job = await w1.submit('render', {});
@@ -239,6 +240,94 @@ describe('JobRunner, database queue', () => {
     expect(w.status().paused).toMatch(/storage \(s3\) is unavailable/);
     ok = true;
     expect((await w.waitFor(job.id, 5000)).status).toBe('succeeded');
+  });
+
+  it('SCL-20u housekeeping on one instance (D-106): of an api and four workers only the lease holder recovers and counts, the others report its count; on shutdown it hands the lease on', async () => {
+    const repo = createMemoryRepositories().jobs;
+    const calls = new Map<string, { recover: number; count: number }>();
+    const spied = (id: string): JobRepository => {
+      const c = { recover: 0, count: 0 };
+      calls.set(id, c);
+      return {
+        ...repo,
+        recoverExpired: (now, max) => (c.recover++, repo.recoverExpired(now, max)),
+        countQueued: (before) => (before ? repo.countQueued(before) : (c.count++, repo.countQueued())),
+      };
+    };
+    const ids = ['api', 'w1', 'w2', 'w3', 'w4'];
+    // Workers that cannot run `render`: the three jobs stay queued, so the count is known.
+    const runners = ids.map((id) => make(spied(id), id === 'api' ? { render: async () => ({}) } : { other: async () => ({}) }, { workerId: id, runJobs: id !== 'api' }));
+    for (const r of runners) await r.init();
+    for (let i = 0; i < 3; i++) await runners[0]!.submit('render', { i });
+    await until(() => runners.every((r) => r.status().queued === 3), 5000);
+    // Later changes reach the followers too: they read the lease every leaseMs / 2 (1 s here).
+    for (let i = 0; i < 2; i++) await runners[0]!.submit('render', { i });
+    await until(() => runners.every((r) => r.status().queued === 5), 5000);
+    const leaders = runners.filter((r) => r.status().housekeeping?.leader);
+    expect(leaders).toHaveLength(1);
+    const leader = leaders[0]!;
+    expect(runners.every((r) => r.status().housekeeping?.holder === leader.workerId)).toBe(true);
+    for (const id of ids) {
+      const c = calls.get(id)!;
+      if (id === leader.workerId) expect(c.recover).toBeGreaterThan(5);
+      else expect(c).toEqual({ recover: 0, count: 0 });
+    }
+    expect(await repo.readLease(HOUSEKEEPING_LEASE)).toMatchObject({ holder: leader.workerId, value: 5 });
+    // Graceful shutdown hands the lease on: another instance takes it at its next look (within leaseMs / 2).
+    const t0 = Date.now();
+    await leader.shutdown(0);
+    await until(() => runners.some((r) => r !== leader && r.status().housekeeping?.leader), 3000);
+    expect(Date.now() - t0).toBeLessThan(1500);
+    expect(runners.filter((r) => r.status().housekeeping?.leader)).toHaveLength(1);
+  });
+
+  it('SCL-21u the housekeeping holder dies (SIGKILL) mid-job: another instance takes the lease within one lease period and re-queues the job within one lease period of its expiry', async () => {
+    const repo = createMemoryRepositories().jobs;
+    let killed = false;
+    // After the "kill" nothing w1 does reaches the database any more.
+    const killable = new Proxy(repo, {
+      get: (target, key) => {
+        const v = (target as unknown as Record<string | symbol, unknown>)[key];
+        return typeof v === 'function' ? (...a: unknown[]) => (killed ? Promise.reject(new Error('killed')) : (v as (...x: unknown[]) => unknown).apply(target, a)) : v;
+      },
+    }) as JobRepository;
+    const leaseMs = 2000;
+    const w1 = make(killable, { render: (ctx) => new Promise((_, rej) => ctx.signal.addEventListener('abort', () => rej(new Error('stopped')))) }, { workerId: 'w1', leaseMs });
+    await w1.init();
+    await until(() => w1.status().housekeeping?.leader === true);
+    const job = await w1.submit('render', {});
+    await until(async () => (await repo.get(job.id))?.status === 'running');
+    const w2 = make(repo, { render: async () => ({ by: 'w2' }) }, { workerId: 'w2', leaseMs });
+    await w2.init();
+    await until(() => w2.status().housekeeping?.holder === 'w1');
+    killed = true;
+    const killedAt = Date.now();
+    const expiry = Date.parse((await repo.get(job.id))!.leaseExpiresAt!);
+    await until(() => w2.status().housekeeping?.leader === true, 5000);
+    // The dead holder's lease ends at most leaseMs / 2 after its last renewal; w2 looks at most leaseMs / 2 later.
+    expect(Date.now() - killedAt).toBeLessThanOrEqual(leaseMs + 300);
+    expect(await w2.waitFor(job.id, 8000)).toMatchObject({ status: 'succeeded', result: { by: 'w2' }, attempts: 2, workerId: 'w2' });
+    const line = (await repo.logs(job.id)).find((l) => l.includes('lease expired: worker w1'))!;
+    expect(line).toBeDefined();
+    expect(Date.parse(line.split(' ')[0]!) - expiry).toBeLessThanOrEqual(leaseMs + 500);
+  });
+
+  it('SCL-22u worker --once never takes the housekeeping lease, and reads the queue count the holder stored', async () => {
+    const repo = createMemoryRepositories().jobs;
+    const once = new JobRunner({ repo, handlers: { render: async () => ({}) }, mode: 'database', database: { workerId: 'once', once: true, leaseMs: 2000, heartbeatMs: 100, pollMs: 30 } });
+    runners.push(once);
+    await once.init();
+    await sleep(300);
+    expect(await repo.readLease(HOUSEKEEPING_LEASE)).toBeNull();
+    expect(once.status().housekeeping).toEqual({ leader: false });
+    await repo.takeLease(HOUSEKEEPING_LEASE, 'api-1', new Date().toISOString(), new Date(Date.now() + 60_000).toISOString(), 42);
+    await until(() => once.status().queued === 42, 3000);
+    expect(once.status().housekeeping).toEqual({ leader: false, holder: 'api-1' });
+    // Expired: still not taken by a --once process.
+    await repo.releaseLease(HOUSEKEEPING_LEASE, 'api-1', new Date().toISOString());
+    await sleep(1200);
+    expect((await repo.readLease(HOUSEKEEPING_LEASE))?.holder).toBe('api-1');
+    expect(once.status().housekeeping?.leader).toBe(false);
   });
 
   it('SCL-09u the in-process runner leaves database-queue jobs alone on start', async () => {

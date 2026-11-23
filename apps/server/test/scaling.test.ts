@@ -170,6 +170,10 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
     expect((await fetch(`${w.url}/mcp`, { method: 'POST' })).status).toBe(404);
     const apiReady = await (await fetch(`${api.url}/readyz`, { headers: { authorization: `Bearer ${admin}` } })).json();
     expect(apiReady.dependencies.queue).toMatchObject({ role: 'api', renders: false });
+    // Queue housekeeping (D-106): one instance holds the lease and runs the recovery and the count; every one knows which.
+    const hk = await Promise.all([api, ...workers].map(async (s) => (await (await fetch(`${s.url}/readyz`, { headers: { authorization: `Bearer ${admin}` } })).json()).dependencies.queue.housekeeping));
+    expect(hk.filter((h) => h.leader)).toHaveLength(1);
+    expect(new Set(hk.map((h) => h.holder)).size).toBe(1);
   });
 
   it('SCA-06 renders started on the api run on the workers, each exactly once; the api renders nothing', async () => {

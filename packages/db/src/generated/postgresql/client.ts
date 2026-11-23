@@ -167,3 +167,13 @@ export type WebhookAttempt = Prisma.WebhookAttemptModel
  * record: a row lost here only delays a job until the workers' fallback poll.
  */
 export type DispatchOutbox = Prisma.DispatchOutboxModel
+/**
+ * Model InstanceLease
+ * A named lease that one instance of the deployment holds at a time (#195,
+ * D-106). `queue-housekeeping`: its holder re-queues jobs whose lease expired
+ * and counts the queue for every instance, and stores that count in `value`
+ * where the others read it. Taken and renewed with one compare-and-set UPDATE
+ * (free, expired, or already the holder's), so a dead holder's lease is taken
+ * over once `expiresAt` passes.
+ */
+export type InstanceLease = Prisma.InstanceLeaseModel

@@ -265,6 +265,32 @@ describe.each(targets)('job queue contract: $name', ({ kind }) => {
     expect(await repos.jobs.get(plain.id)).toEqual({ ...plain, priority: 'standard' });
   });
 
+  it('QUE-16 instance lease (migration 0012_instance_lease, D-106): of concurrent takers of a free or expired lease one wins; the holder renews it with a value; release hands it on', async () => {
+    const name = `lease-${newId('t')}`;
+    expect(await repos.jobs.readLease(name)).toBeNull();
+    // 12 instances race for a lease no one has created yet, later for the expired one: one winner each time.
+    const race = (at: number) => Promise.all(Array.from({ length: 12 }, (_, i) => repos.jobs.takeLease(name, `i${i}`, iso(at), iso(at + 1000))));
+    const first = await race(now);
+    expect(first.filter(Boolean)).toHaveLength(1);
+    const holder = `i${first.indexOf(true)}`;
+    // Held: nobody else takes it; the holder renews it with a value the others read.
+    expect(await repos.jobs.takeLease(name, 'other', iso(now + 500), iso(now + 1500))).toBe(false);
+    expect(await repos.jobs.takeLease(name, holder, iso(now + 500), iso(now + 1500), 7)).toBe(true);
+    expect(await repos.jobs.readLease(name)).toEqual({ holder, expiresAt: iso(now + 1500), updatedAt: iso(now + 500), value: 7 });
+    // Expired (its holder died): exactly one racer takes it over; the value stays until the new holder stores one.
+    const second = await race(now + 1500);
+    expect(second.filter(Boolean)).toHaveLength(1);
+    const next = `i${second.indexOf(true)}`;
+    expect(await repos.jobs.readLease(name)).toMatchObject({ holder: next, expiresAt: iso(now + 2500), value: 7 });
+    // A former holder cannot renew a lease someone else took.
+    if (next !== holder) expect(await repos.jobs.takeLease(name, holder, iso(now + 1600), iso(now + 2600))).toBe(false);
+    // Release: only by the holder, and then it is free at once.
+    expect(await repos.jobs.releaseLease(name, 'nobody', iso(now + 1700))).toBe(false);
+    expect(await repos.jobs.releaseLease(name, next, iso(now + 1700))).toBe(true);
+    expect(await repos.jobs.takeLease(name, 'late', iso(now + 1700), iso(now + 2700))).toBe(true);
+    expect((await repos.jobs.readLease(name))?.holder).toBe('late');
+  });
+
   // ---- render fan-out (#156, D-097) -------------------------------------------------------------
 
   const UNIT = ['render_unit'];

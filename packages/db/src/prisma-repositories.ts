@@ -954,6 +954,29 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           return true;
         }, TX);
       },
+      async takeLease(name, holder, now, until, value) {
+        const data = { holder, expiresAt: new Date(until), updatedAt: new Date(now), ...(value !== undefined ? { value } : {}) };
+        // One UPDATE with the condition in its WHERE (as claimCheck): the row lock makes exactly one caller win a free lease.
+        const r = await prisma.instanceLease.updateMany({ where: { ...ws, name, OR: [{ holder }, { expiresAt: { lte: new Date(now) } }] }, data });
+        if (r.count) return true;
+        if (await prisma.instanceLease.findUnique({ where: { workspaceId_name: { workspaceId, name } }, select: { name: true } })) return false;
+        try {
+          await prisma.instanceLease.create({ data: { ...ws, name, ...data } });
+          return true;
+        } catch (e) {
+          // Another instance created it first.
+          if (isUniqueViolation(e)) return false;
+          throw e;
+        }
+      },
+      async readLease(name) {
+        const r = await prisma.instanceLease.findUnique({ where: { workspaceId_name: { workspaceId, name } } });
+        return r ? { holder: r.holder, expiresAt: iso(r.expiresAt), updatedAt: iso(r.updatedAt), ...(r.value !== null ? { value: r.value } : {}) } : null;
+      },
+      async releaseLease(name, holder, at) {
+        const r = await prisma.instanceLease.updateMany({ where: { ...ws, name, holder }, data: { expiresAt: new Date(at), updatedAt: new Date(at) } });
+        return r.count > 0;
+      },
       async cancelQueued(id, at, error) {
         const parentId = (await prisma.job.findFirst({ where: { ...ws, id }, select: { parentId: true } }))?.parentId ?? null;
         return prisma.$transaction(async (tx) => {

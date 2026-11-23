@@ -11,7 +11,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { JobRunner, newId, type JobRecord, type Repositories } from '@reelforge/core';
+import { HOUSEKEEPING_LEASE, JobRunner, newId, type JobRecord, type Repositories } from '@reelforge/core';
 import { Database, availableTestDatabases, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
 
 const repo = resolve(__dirname, '../../..');
@@ -125,6 +125,67 @@ describe.each(kinds)('database queue with worker processes: %s', (kind) => {
     expect(job).toMatchObject({ status: 'succeeded', attempts: 2, workerId: 'rescuer', result: { by: 'rescuer' } });
     expect((await repos.jobs.logs(id!)).join('\n')).toMatch(/lease expired: worker victim/);
     expect(readFileSync(out, 'utf8').trim().split('\n')).toEqual([`${id} victim`, `${id} rescuer`]);
+  }, 120_000);
+
+  it('SCL-20 housekeeping on one process (D-106): of three workers only the lease holder runs the lease recovery and the queue count', async () => {
+    const out = join(tmp, `scl20-${kind}.txt`);
+    writeFileSync(out, '');
+    const workers = ['k1', 'k2', 'k3'].map((w) => spawnWorker({ DB_URL: testDb.url, WORKER_ID: w, OUT: out, LEASE_MS: '2000', TRACE_HOUSEKEEPING: '1' }));
+    await Promise.all(workers.map(ready));
+    // A lease left by an earlier case (its process killed) ends within 1 s; then one of them takes it.
+    const holder = await until(async () => {
+      const l = await repos.jobs.readLease(HOUSEKEEPING_LEASE);
+      return l && ['k1', 'k2', 'k3'].includes(l.holder) ? l.holder : null;
+    }, 30_000, 'a housekeeping holder');
+    const mark = workers.map((w) => w.out().length);
+    // Three seconds: about twelve housekeeping runs of the holder (every 250 ms here), three lease reads by each of the others.
+    await sleep(3000);
+    const lines = workers.map((w, i) => w.out().slice(mark[i]));
+    for (const [i, w] of ['k1', 'k2', 'k3'].entries()) {
+      const recoveries = lines[i]!.split('\n').filter((l) => l === `housekeeping recover ${w}`).length;
+      const counts = lines[i]!.split('\n').filter((l) => l === `housekeeping count ${w}`).length;
+      if (w === holder) {
+        expect(recoveries).toBeGreaterThanOrEqual(4);
+        expect(counts).toBe(recoveries);
+      } else expect([recoveries, counts]).toEqual([0, 0]);
+    }
+    expect((await repos.jobs.readLease(HOUSEKEEPING_LEASE))?.holder).toBe(holder);
+    expect(workers.map((w) => w.out()).join('').match(/runs the queue housekeeping now/g)).toHaveLength(1);
+  }, 120_000);
+
+  it('SCL-21 the housekeeping holder killed mid-job (SIGKILL): another process takes the lease within one lease period and re-queues the job within one lease period of its expiry', async () => {
+    const out = join(tmp, `scl21-${kind}.txt`);
+    writeFileSync(out, '');
+    const leaseMs = 2000;
+    const holder = spawnWorker({ DB_URL: testDb.url, WORKER_ID: 'holder', OUT: out, JOB_MS: '60000', LEASE_MS: String(leaseMs) });
+    await ready(holder);
+    await until(async () => (await repos.jobs.readLease(HOUSEKEEPING_LEASE))?.holder === 'holder', 30_000, () => `holder takes the lease (${holder.out()})`);
+    const [id] = await enqueue(1);
+    await until(() => readFileSync(out, 'utf8').includes(`${id} holder`), 30_000, () => `the holder runs the job (${holder.out()})`);
+    // Two more workers (they take the job only once it is queued again).
+    const rest = ['r1', 'r2'].map((w) => spawnWorker({ DB_URL: testDb.url, WORKER_ID: w, OUT: out, JOB_MS: '20', LEASE_MS: String(leaseMs) }));
+    await Promise.all(rest.map(ready));
+    holder.child.kill('SIGKILL');
+    const killedAt = Date.now();
+    await holder.exited;
+    const expiry = Date.parse((await repos.jobs.get(id!))!.leaseExpiresAt!);
+    const next = await until(async () => {
+      const l = await repos.jobs.readLease(HOUSEKEEPING_LEASE);
+      return l && l.holder !== 'holder' ? l.holder : null;
+    }, 30_000, 'a new holder');
+    const tookOver = Date.now() - killedAt;
+    const [job] = await until(allDone([id!]), 30_000, () => `job finished (${rest.map((w) => w.out()).join(' | ')})`);
+    expect(['r1', 'r2']).toContain(next);
+    expect(job).toMatchObject({ status: 'succeeded', attempts: 2 });
+    expect(['r1', 'r2']).toContain(job!.workerId);
+    const line = (await repos.jobs.logs(id!)).find((l) => l.includes('lease expired: worker holder'));
+    expect(line).toBeDefined();
+    const recoveredAfter = Date.parse(line!.split(' ')[0]!) - expiry;
+    console.log(`SCL-21 ${kind}: new holder ${next} after ${tookOver} ms; job re-queued ${recoveredAfter} ms after its lease expired`);
+    // Bounds (D-106): a new holder within leaseMs of the kill, the job within leaseMs of its expiry; 1 s for a busy host.
+    expect(tookOver).toBeLessThanOrEqual(leaseMs + 1000);
+    expect(recoveredAfter).toBeLessThanOrEqual(leaseMs + 1000);
+    expect(readFileSync(out, 'utf8').trim().split('\n')).toEqual([`${id} holder`, `${id} ${job!.workerId}`]);
   }, 120_000);
 
   it('SCL-03 killed on every attempt: failed with lease_expired after queue.maxAttempts', async () => {

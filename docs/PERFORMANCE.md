@@ -244,7 +244,9 @@ listed, in its order; 7 to 10 are what the run found besides.
    on empty polls (#158) fix both. **Addressed by #158 (D-105):** idle load at 200 workers
    219 → 69 tx/s (poll with backoff, the new default) or 47 tx/s (`notify`), and queue wait with
    few idle workers p95 946 → 103 ms with `notify`; see
-   [before and after](#queue-dispatch-158-poll-backoff-and-notify).
+   [before and after](#queue-dispatch-158-poll-backoff-and-notify). Then #195 (D-106) moved the
+   lease recovery and queue count to one instance: 200 idle workers 71 → 46 tx/s (`poll`) and
+   42 → 25 tx/s (`notify`), [measured](#queue-housekeeping-195-one-instance-instead-of-every-one).
 5. **Progress writes:** throttled to 2/s per running job, as estimated. With ~25 renders running
    the `Job` table took **76 row writes/s** (progress, claims, finishes) and `JobEvent` 42/s:
    small next to CRUD here. At 1 000 concurrent renders that is ~2 000 writes/s
@@ -414,7 +416,7 @@ What is left with `notify` is the per-worker housekeeping, not claiming: every w
 lease recovery and queue count every `queue.leaseSeconds / 4` (15 s; 200 × 2 / 15 ≈ 27 tx/s), the
 fallback claim every 30 s (≈ 7 tx/s at 200) and a ping on its listen connection every 30 s (≈ 7 tx/s);
 that adds up to the 46.5 measured. Moving the recovery to fewer instances is the next step for idle
-load (follow-up). The DB CPU samples are `docker stats` once a second on a busy host; one sample of
+load: done in #195 (D-106), [below](#queue-housekeeping-195-one-instance-instead-of-every-one). The DB CPU samples are `docker stats` once a second on a busy host; one sample of
 136 % in the notify minute makes its mean unreliable, the statement count is the better measure. The
 drain rates vary with the host load (the poll runs and the notify run did not overlap in time).
 
@@ -453,6 +455,59 @@ shape of a small deployment or a fleet sized to its load, the poll wait is up to
 `notify` cuts p95 from 946 to 103 ms. Every run: every job exactly once (550 jobs in (b), 80 in the
 sparse runs, 0 lost, 0 duplicated). The NOTIFY side through PgBouncer and the dedicated run are not
 measured.
+
+## Queue housekeeping (#195): one instance instead of every one
+
+[^h]: **Conditions of every number in this section:** lower bound, shared sandbox (not dedicated).
+    The same container as above (4 vCPU Intel Xeon @ 2.10 GHz, 15.7 GiB, Linux 6.18, Node 22.23.5),
+    shared with other workloads, among them other agents' test runs: host load average 5.6 to 20.7
+    during the idle minutes (table). PostgreSQL 17.12 (`mirror.gcr.io/library/postgres:17`,
+    `max_connections=600`, `shared_buffers=512MB`), direct connections only, workers
+    `connection_limit=2` each plus, with `notify`, one listen connection each; 2026-11-23 05:38Z to
+    06:12Z. *before* = `main` at d83f1f6, *after* = branch `claude/idle-housekeeping-lease` (D-106) on
+    it; before and after ran back to back, alternating. Raw results:
+    `docs/performance/2026-11-23-shared-sandbox-195-c-*.json`.
+
+**Idle database load** [^h]: scenario (c) as in [#158](#queue-dispatch-158-poll-backoff-and-notify),
+2 000 jobs drained by N real `JobRunner`s (10 per process), then 60 s with
+nothing queued (`LOAD_SCENARIOS=c LOAD_CLAIM_WORKERS=50,200 LOAD_CLAIM_JOBS=2000
+LOAD_IDLE_SECONDS=60`), `queue.leaseSeconds` 60. `poll` after 15 s to settle
+(`LOAD_IDLE_SETTLE_SECONDS=15`, as #158); `notify` after **60 s** (see below why). Transactions per
+second are commits and rollbacks in the load database (`pg_stat_database`), statements are
+`pg_stat_statements` calls.
+
+| Idle workers | poll before | poll after | notify before | notify after |
+| --- | --- | --- | --- | --- |
+| 50: tx/s | 16.0 | **11.8** | 9.8 | **6.6** |
+| 50: statements/s | 56.7 | 52.2 | 16.7 | **11.9** |
+| 200: tx/s | 70.9 | **45.9** | 42.0 | **25.0** |
+| 200: statements/s | 226.7 | 206.8 | 66.7 | **46.9** |
+| 200: DB CPU % (mean) | 6.3 | 4.1 | 9.2 | 10.4 |
+| host load average in the idle minute (50 / 200) | 10.3 / 15.9 | 10.9 / 14.7 | 20.7 / 13.6 | 5.6 / 9.2 |
+| exactly once (every job one claim, one `running` event per attempt) | yes | yes | yes | yes |
+
+Where the difference comes from, from the statement counts of the idle minute at 200 workers: before,
+every instance ran `recoverExpired`'s read and the queue `COUNT` every 15 s (800 + 800 calls a minute);
+after, one runner does (4 to 5 of each a minute, plus as many lease renewals) and the other 199
+read the lease row every 30 s (398 calls a minute). That is 25 tx/s less at 200 idle
+workers with `poll` and 17 with `notify`, close to the 200 × 2 / 15 − 199 / 30 ≈ 20 tx/s expected
+(run-to-run noise on this host is a few tx/s). With `notify` the 25 tx/s left are the fallback claim every
+30 s (≈ 7 tx/s), the listen connection's ping every 30 s (≈ 7), the lease reads (≈ 7) and the holder;
+with `poll` the claims of the backed-off poll dominate (2 400 a minute). The lease reads still grow
+with the number of instances: 1 read per instance per `queue.leaseSeconds / 2`, a quarter of what the
+recovery and count cost each instance before. The DB CPU samples are `docker stats` once a second on a
+busy host; at these levels they are within the noise.
+
+**Why 60 s to settle for `notify`:** every `notify` worker runs a delivery check when it starts (a NOTIFY
+through the pool that must arrive on its listen connection, D-105), and PostgreSQL runs a short
+transaction in every listening backend for every delivered NOTIFY, so starting N listeners costs about
+N² transactions. With 15 s to settle that tail sometimes reaches the idle minute: the same comparison
+with 15 s measured 47.2 tx/s before and 144.5 after at 200 workers, but with fewer statements after
+(48.7/s against 66.7/s), i.e. transactions that run no statement, which is what a backend delivering
+notifications looks like (raw results `*-notify-settle15.json`). A separate check on this host (50
+`notify` runners in 5 processes, nothing queued, 45 s after start, 60 s measured): 12 tx/s on `main`,
+5.8 on the branch. The start-up tail is a cost of the delivery check, not of this change, and is noted
+for a follow-up.
 
 ## PgBouncer transaction mode (#152)
 

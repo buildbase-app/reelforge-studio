@@ -415,7 +415,8 @@ export const ModelName = {
   WebhookEndpoint: 'WebhookEndpoint',
   WebhookDelivery: 'WebhookDelivery',
   WebhookAttempt: 'WebhookAttempt',
-  DispatchOutbox: 'DispatchOutbox'
+  DispatchOutbox: 'DispatchOutbox',
+  InstanceLease: 'InstanceLease'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -431,7 +432,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "workspace" | "project" | "projectVersion" | "apiKey" | "job" | "jobEvent" | "theme" | "providerSetting" | "setting" | "asset" | "auditLog" | "idempotencyKey" | "rateLimitWindow" | "licenceState" | "systemState" | "webhookEndpoint" | "webhookDelivery" | "webhookAttempt" | "dispatchOutbox"
+    modelProps: "workspace" | "project" | "projectVersion" | "apiKey" | "job" | "jobEvent" | "theme" | "providerSetting" | "setting" | "asset" | "auditLog" | "idempotencyKey" | "rateLimitWindow" | "licenceState" | "systemState" | "webhookEndpoint" | "webhookDelivery" | "webhookAttempt" | "dispatchOutbox" | "instanceLease"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1689,6 +1690,72 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    InstanceLease: {
+      payload: Prisma.$InstanceLeasePayload<ExtArgs>
+      fields: Prisma.InstanceLeaseFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.InstanceLeaseFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceLeasePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.InstanceLeaseFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceLeasePayload>
+        }
+        findFirst: {
+          args: Prisma.InstanceLeaseFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceLeasePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.InstanceLeaseFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceLeasePayload>
+        }
+        findMany: {
+          args: Prisma.InstanceLeaseFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceLeasePayload>[]
+        }
+        create: {
+          args: Prisma.InstanceLeaseCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceLeasePayload>
+        }
+        createMany: {
+          args: Prisma.InstanceLeaseCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        delete: {
+          args: Prisma.InstanceLeaseDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceLeasePayload>
+        }
+        update: {
+          args: Prisma.InstanceLeaseUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceLeasePayload>
+        }
+        deleteMany: {
+          args: Prisma.InstanceLeaseDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.InstanceLeaseUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        upsert: {
+          args: Prisma.InstanceLeaseUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceLeasePayload>
+        }
+        aggregate: {
+          args: Prisma.InstanceLeaseAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateInstanceLease>
+        }
+        groupBy: {
+          args: Prisma.InstanceLeaseGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.InstanceLeaseGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.InstanceLeaseCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.InstanceLeaseCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -2035,6 +2102,18 @@ export const DispatchOutboxScalarFieldEnum = {
 export type DispatchOutboxScalarFieldEnum = (typeof DispatchOutboxScalarFieldEnum)[keyof typeof DispatchOutboxScalarFieldEnum]
 
 
+export const InstanceLeaseScalarFieldEnum = {
+  workspaceId: 'workspaceId',
+  name: 'name',
+  holder: 'holder',
+  expiresAt: 'expiresAt',
+  value: 'value',
+  updatedAt: 'updatedAt'
+} as const
+
+export type InstanceLeaseScalarFieldEnum = (typeof InstanceLeaseScalarFieldEnum)[keyof typeof InstanceLeaseScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -2292,6 +2371,15 @@ export const DispatchOutboxOrderByRelevanceFieldEnum = {
 export type DispatchOutboxOrderByRelevanceFieldEnum = (typeof DispatchOutboxOrderByRelevanceFieldEnum)[keyof typeof DispatchOutboxOrderByRelevanceFieldEnum]
 
 
+export const InstanceLeaseOrderByRelevanceFieldEnum = {
+  workspaceId: 'workspaceId',
+  name: 'name',
+  holder: 'holder'
+} as const
+
+export type InstanceLeaseOrderByRelevanceFieldEnum = (typeof InstanceLeaseOrderByRelevanceFieldEnum)[keyof typeof InstanceLeaseOrderByRelevanceFieldEnum]
+
+
 
 /**
  * Field references
@@ -2509,6 +2597,7 @@ export type GlobalOmitConfig = {
   webhookDelivery?: Prisma.WebhookDeliveryOmit
   webhookAttempt?: Prisma.WebhookAttemptOmit
   dispatchOutbox?: Prisma.DispatchOutboxOmit
+  instanceLease?: Prisma.InstanceLeaseOmit
 }
 
 /* Types for Logging */

@@ -514,7 +514,7 @@ Shared dispatch contract suite on the memory bus and PostgreSQL 17 (DSP-01..11, 
 OUT-01..12, DSP-20..24). Measured on the shared sandbox (lower bound): 200 idle workers 219 tx/s
 before, 69 with backoff, 47 with notify; queue wait p95 with 2 mostly idle workers 946 ms before,
 103 ms with notify ([PERFORMANCE.md](PERFORMANCE.md#queue-dispatch-158-poll-backoff-and-notify)).
-Not built: the external drivers, fewer instances running lease recovery (the rest of idle load).
+Not built then: the external drivers (step 2 below), fewer instances running lease recovery (#195, below).
 
 ### Queue dispatch: SQS and Redis Streams (2026-11-23, issue #158, step 2)
 
@@ -529,6 +529,18 @@ relay; secrets via `_FILE` or encrypted runtime settings. Tested on SQS in Local
 Redis 8.4 with memory repositories, PostgreSQL 17 and MySQL 8.4 (contract DSP-01..11, BRK-01..08,
 server DSP-25..29; CI runs the same cases on an in-memory competing-consumer queue). Not built:
 NATS JetStream; untested: AWS itself, `rediss://`, the KEDA triggers on SQS / Redis (documented).
+
+### Queue housekeeping on one instance (2026-11-23, issue #195)
+
+Built (D-106): the lease recovery and the queue count run on the instance holding the
+`queue-housekeeping` row of the new `InstanceLease` table (`0012_instance_lease`, a compare-and-set
+lease, no advisory lock, so it works through PgBouncer and on MySQL); the other instances read the row
+every `queue.leaseSeconds / 2`, which also gives them the queue count for `reelforge_jobs_queued`.
+A dead holder is replaced within one lease period; an expired job lease is re-queued within one lease
+period of its expiry even when the holder dies (SCL-20u..22u, QUE-16, SCL-20, SCL-21 on SQLite,
+PostgreSQL 17, MySQL 8.4). `worker --once` never takes the lease. Measured on the shared sandbox (lower
+bound): 200 idle workers 71 → 46 tx/s (`poll`), 42 → 25 tx/s (`notify`)
+([PERFORMANCE.md](PERFORMANCE.md#queue-housekeeping-195-one-instance-instead-of-every-one)).
 
 ## 4. Infrastructure inventory (no secrets)
 
