@@ -1,11 +1,14 @@
 # Outbound events: signed webhooks and notification providers
 
-Enterprise E3 (issue #66; decisions D-070..D-074). This page is the operator
+Enterprise E3 (issue #66; decisions D-070..D-074), webhooks for operations
+(issue #306, D-109: terminal render events, retry window, dedupe key, delivery
+log for read keys, resend, rotation with overlap). This page is the operator
 reference and the test record: every provider below names the test cases that
 back it, with the latest result. Nothing is called supported without a passing
 case.
 
 - [What is sent, when](#what-is-sent-when)
+- [Terminal render events](#terminal-render-events)
 - [Provider matrix](#provider-matrix)
 - [Example configuration](#example-configuration)
 - [Verifying signatures](#verifying-signatures)
@@ -26,20 +29,65 @@ wants; several endpoints of any type at once are the notification rules
 | --- | --- | --- |
 | `job.queued`, `job.started`, `job.succeeded`, `job.failed`, `job.cancelled` | a render or preview job changes state | `job`: id, type, status, projectId, times, progress, error (code, message), for succeeded the render summary |
 | `job.progress` | a running job passes another 10 % (at most 10 per job); only when named | `job` as above |
-| `render.ready` | a render or preview is stored | renderId, projectId, jobId, kind, duration, frames, size, fps, files, API URLs (`outputUrl`, `manifestUrl`: need a key) |
+| `render.ready` | a render or preview is stored | renderId, projectId, jobId, kind, duration, frames, size, fps, files, API URLs (`outputUrl`, `manifestUrl`: need a key), plus timing, costs, links (below) |
+| `render.failed`, `render.timeout`, `render.cancelled`, `render.qa_failed`, `render.blocked` | the other terminal outcomes of a render or preview: [Terminal render events](#terminal-render-events) | jobId, kind, projectId, status, error {code, message, stage}, logExcerpt, timing, costs, links |
 | `licence.state_changed` | the licence status or reason changed (checked every 30 s and after activate/deactivate) | status, reason, renderAllowed, message, fix, previous {status, reason} |
 | `key.created`, `key.revoked` | an API key was created / revoked (REST, MCP or CLI) | keyId, name, scopes, actor {type, id, name}; never the key |
 | `config.changed` | runtime settings changed | keys (names only, never values), actor |
 | `audit.entry` | every audit log entry, only with `webhooks` in `audit.sinks` and only when named | entry (as `list_audit_events` shows it) |
 | `webhook.test` | `test_webhook`, to that endpoint only | webhookId, name, message |
 
-Envelope (Standard Webhooks): `{"id":"evt_…","type":"render.ready","timestamp":"2026-11-21T19:20:03.120Z","data":{…}}`.
-Filters: exact types, a prefix such as `job.*`, or `*` (everything except
+Envelope (Standard Webhooks): `{"id":"evt_…","type":"render.ready","timestamp":"2026-11-21T19:20:03.120Z","data":{…},"dedupeKey":"render:job_…"}`
+(`dedupeKey` only on terminal render events).
+Filters: exact types, a prefix such as `job.*` or `render.*`, or `*` (everything except
 `job.progress` and `audit.entry`, which must be named). Payloads never contain
 API keys, provider keys, signing secrets, manifests, job parameters or signed
 download links (receivers call `get_render_output`).
 
-## Provider matrix
+## Terminal render events
+
+Every render or preview job ends with **exactly one** `render.*` event, whatever
+the outcome, so a receiver never has to poll to learn that something went wrong
+(#306; references: HeyGen and Remotion Lambda webhooks, read 2026-11-23, research/SOURCES.md).
+
+| Event | Outcome | `error.code` |
+| --- | --- | --- |
+| `render.ready` | stored; fetch it with `get_render_output` | — |
+| `render.failed` | the pipeline or an engine failed | `render_failed`, `job_failed`, `asset_missing`, … (the job's code) |
+| `render.timeout` | the job ran longer than `render.timeoutSeconds` (3600, runtime; `0` = no limit; units and the join of a fanned-out render each get the limit) and was stopped | `render_timeout` |
+| `render.cancelled` | `cancel_job`, or a shutdown that could not hand the job back | `cancelled` |
+| `render.qa_failed` | an output quality gate refused it; **reserved** for the QA gates of #294 (codes `qa_failed` or `qa_*`) | `qa_*` |
+| `render.blocked` | refused before it ran: the licence does not allow renders (moderation later). No job exists; `data` has projectId, kind, error and `licence.status` | `licence_required`, `licence_invalid` |
+
+`data` of a terminal event (render.ready keeps its earlier fields too):
+
+```json
+{
+  "jobId": "job_…", "kind": "render", "projectId": "launch", "renderId": "run_…", "status": "failed",
+  "error": { "code": "render_failed", "message": "[scene hook] fake engine failure", "stage": "scene" },
+  "logExcerpt": ["…the last 20 lines of the job log, each at most 300 characters…"],
+  "timing": { "queuedAt": "…", "startedAt": "…", "finishedAt": "…", "queueSeconds": 0.01, "renderSeconds": 2.15 },
+  "costs": { "cpuSeconds": 2.37, "outputBytes": 16442, "storageBytes": 32387 },
+  "links": { "job": "/v1/jobs/job_…", "logs": "/v1/jobs/job_…/logs", "output": "/v1/renders/run_…/output", "poster": "…", "manifest": "…" }
+}
+```
+
+- `costs.cpuSeconds`: CPU time of the server process plus the child processes
+  (FFmpeg, engines) that exited during the job, measured on the instance that
+  ran it, and only when no other job ran there at the same time; otherwise
+  `costs.cpuUnavailable` says why (another job ran beside it, or the render was
+  fanned out to several workers). A browser an engine keeps alive between
+  renders is not counted. `outputBytes` (final.mp4) and `storageBytes` (every
+  file of the render) for `render.ready`.
+- Links are API URLs (they need a key; absolute when `server.publicUrl` is set);
+  never signed download links.
+- **Dedupe key.** `dedupeKey` is `render:<jobId>`: one outcome per render job.
+  The `webhook-id` header is derived from the endpoint and the dedupe key (the
+  event id for other events), so retries, replays, resends and a second emit of
+  the same outcome reach an endpoint under **one `webhook-id`**: store the ids
+  you processed and drop repeats. A render that is retried (`retry_job`) is a
+  new job with its own key.
+
 
 Status words: **tested** (against the real service), **emulator-tested** (its
 official emulator or a real implementation of the protocol in Docker),
@@ -71,8 +119,9 @@ Start-up (config file or environment; docs/CONFIG.md has every setting):
 
 ```yaml
 webhooks:
-  timeoutSeconds: 15
-  maxAttempts: 15              # ~24 h with the default backoff
+  timeoutSeconds: 10
+  retryWindowHours: 24         # retried for up to 24 h after the event, then dead
+  maxAttempts: 20
   retryBaseSeconds: 30
   retryMaxDelaySeconds: 14400
   deliveryRetentionDays: 30
@@ -115,15 +164,19 @@ const payload = new Webhook(process.env.REELFORGE_WEBHOOK_SECRET).verify(rawBody
 
 or by hand: `base64(HMAC-SHA256(key = base64decode(secret without "whsec_"), "<id>.<timestamp>.<raw body>"))`
 compared in constant time with each `v1,` entry; refuse timestamps more than 5
-minutes away. Rotate with `update_webhook {rotateSecret: true, graceHours: 24}`:
-both secrets sign until `signing.previousSecretValidUntil`.
+minutes away. Rotate with `rotate_webhook_secret {overlapHours: 24}` (or
+`update_webhook {rotateSecret: true, graceHours: 24}`): during the overlap every
+message carries two `v1` signatures, one per secret, so the receiver accepts
+messages with either secret until `signing.previousSecretValidUntil`; bring your
+own new secret with `secret: "whsec_…"`; `endOverlap: true` stops the old one
+once the receiver has switched. Never more than two secrets are valid.
 
 ## Delivery, retries, dead letter
 
 | Answer | Outcome |
 | --- | --- |
 | `2xx` | delivered |
-| `408`, `425`, `429`, `5xx`, timeout (`webhooks.timeoutSeconds`), connection refused, DNS error | retried after 30 s, 60 s, 120 s, … (doubling, ±20 % jitter, at most 4 h, at least `Retry-After`), up to `webhooks.maxAttempts` (15 ≈ 24 h), then **dead** |
+| `408`, `425`, `429`, `5xx`, timeout (`webhooks.timeoutSeconds`, 10 s), connection refused, DNS error | retried after 30 s, 60 s, 120 s, … (doubling, ±20 % jitter, at most 4 h, at least `Retry-After`) for up to `webhooks.retryWindowHours` (24) after the event was queued (the last attempt lands on the end of the window) or `webhooks.maxAttempts` (20) attempts, then **dead** (failed for good; `lastError` says which limit ended it) |
 | other `4xx`, `3xx` (redirects are not followed), SSRF refusal, bad email credentials (`401`/`403`, SMTP `535`), SMTP `5xx` | **dead** at once (repeating would not help) |
 | `410 Gone` | dead, and the endpoint is disabled (`disabledReason`); `update_webhook {enabled: true}` turns it on again |
 
@@ -132,8 +185,16 @@ server processes share them (each delivery is claimed by one), and a crash
 mid-attempt is recovered when its lease expires (the receiver may then see the
 same `webhook-id` twice). On shutdown (SIGTERM) in-flight attempts get 5 s and
 the rest go back to pending. Emitting an event never blocks or fails the
-request or job that caused it. Dead deliveries are the dead letter queue:
-`list_webhook_deliveries {status: "dead"}`, then `replay_webhook_delivery`.
+request or job that caused it. Each attempt is recorded once: the write is
+fenced by the claim's lease, so a worker whose lease ran out (and whose row was
+claimed again) records nothing. Dead deliveries are the dead letter queue:
+`get_webhook_log {status: "dead"}`, then `resend_webhook` (or
+`replay_webhook_delivery`). `resend_webhook` takes one of `deliveryId`,
+`eventId` or `dedupeKey`: a delivery waiting for its next retry is sent now
+(`rescheduled`); a finished one is queued again with the same payload and
+`webhook-id` and a fresh retry window (`queued`); an event the endpoint never got
+(found at another endpoint, e.g. emitted before the endpoint existed) is queued
+for it.
 Finished deliveries and their attempt log are deleted after
 `webhooks.deliveryRetentionDays` (30) by the hourly sweep; nothing else changes
 or deletes an attempt.
@@ -150,10 +211,13 @@ or deletes an attempt.
 | send a test event (optionally wait ≤ 30 s for the result) | `POST /v1/webhooks/:id/test` | `test_webhook` | `webhooks test <id>` (queued; the server sends it) |
 | delivery log, dead letter queue | `GET /v1/webhooks/:id/deliveries?status=dead` | `list_webhook_deliveries` | `webhooks deliveries <id> --status dead` |
 | replay (same webhook-id) | `POST /v1/webhooks/:id/deliveries/:deliveryId/replay` | `replay_webhook_delivery` | `webhooks replay <id> <deliveryId>` |
+| resend by delivery, event or dedupe key | `POST /v1/webhooks/:id/resend` | `resend_webhook` | — |
+| rotate the secret with an overlap, or end the overlap | `POST /v1/webhooks/:id/rotate-secret` | `rotate_webhook_secret` | `webhooks update <id> --rotate-secret` |
+| delivery log without payloads or URL (**read** scope): status, attempts, latency, `giveUpAt`, summary (success rate, p50/p95 latency), retry policy | `GET /v1/webhooks/:id/log` | `get_webhook_log` | — |
 
-All need the admin scope and are audit-logged (`webhook.create`, `.update`,
-`.rotate_secret`, `.delete`, `.test`, `.delivery.replay`, `.disable`) without
-secrets. Metrics: `reelforge_webhook_deliveries_total{reelforge_channel,reelforge_outcome}`,
+All but `get_webhook_log` need the admin scope; changes are audit-logged
+(`webhook.create`, `.update`, `.rotate_secret`, `.delete`, `.test`,
+`.delivery.replay`, `.resend`, `.disable`) without secrets. Metrics: `reelforge_webhook_deliveries_total{reelforge_channel,reelforge_outcome}`,
 `reelforge_webhook_delivery_duration_seconds{reelforge_channel}`,
 `reelforge_webhook_events_total{reelforge_event_type}` (no ids in labels);
 traces: a `webhook.deliver <channel>` client span per attempt.
@@ -207,6 +271,15 @@ container over MCP; release image, hardened flags; receiver container
 | WHK-31 | no secret in the server log | server; Docker | pass 2026-11-21 |
 | WHK-32 | delete over MCP and REST; 404 after | server | pass 2026-11-21 |
 | WHK-33 | REST/MCP parity: the eight capabilities exist in both with the admin scope; create/update are not idempotency-keyed (they return a secret) | parity | pass 2026-11-21 |
+| WHK-40 | one terminal `render.*` event per outcome (status and error code), `render.*` filter | unit | pass 2026-11-23 |
+| WHK-41 | the same outcome emitted twice reaches an endpoint under one `webhook-id`; `dedupeKey` in the body; other events keyed by their id | unit | pass 2026-11-23 |
+| WHK-42 | retries end with the retry window: last attempt on its end, then dead with the reason; the log line names `resend_webhook` | unit (injected clock) | pass 2026-11-23 |
+| WHK-43 | resend: a waiting delivery rescheduled; a finished one queued with the same webhook-id; an event to an endpoint that never got it; 400/404/409 refusals; audited | unit | pass 2026-11-23 |
+| WHK-44 | `rotate_webhook_secret`: both secrets verify during the overlap; a receiver's own secret is not echoed; at most two secrets; `endOverlap` | unit | pass 2026-11-23 |
+| WHK-45 | the delivery log: per-delivery status, attempts, latency, `giveUpAt`, summary, retry policy; no payload or URL | unit | pass 2026-11-23 |
+| JOB-TMO-01..02 | `render.timeoutSeconds` stops a job with `render_timeout`; CPU seconds only for a job that ran alone | unit (`packages/core/test/jobs.test.ts`) | pass 2026-11-23 |
+| OPS-01..07 | over real HTTP with a verifying receiver: `render.blocked` (licence), `render.ready` after a 503 then a retry (attempt log over REST and MCP with a read key; timing, costs, links), `render.failed` with log excerpt, `render.timeout`, `render.cancelled`, resend over REST and MCP (same webhook-id), rotation over MCP (both secrets verify one message), scopes | server (`apps/server/test/webhooks-ops.test.ts`) | pass 2026-11-23 |
+| WHK-DB-06..07 | migration `0013_webhook_operations`; `dedupeKey` round trip, filters by eventId and dedupeKey, reschedule only a pending row; `recordAttempt` fenced by the lease: a stale worker records nothing, of two racing recorders one wins | contract (memory, SQLite, PostgreSQL 17, MySQL 8.4) | pass 2026-11-23 |
 | WHK-DB-01..05 | migration `0005_webhooks` applies; endpoint round-trip and null clears; payload byte-exact; newest-first lists, filters, cursor; claims exclusive under concurrency, lease expiry, release; attempt + delivery update atomic; the attempt log has no update/delete; abandon, retention, counts | contract (memory, SQLite, PostgreSQL 17, MySQL 8.4); Docker (SQLite) | pass 2026-11-21 |
 | NTF-01 | Slack: `{text, blocks}`, no signature headers; success/5xx retry/4xx failed/down retry; never throws; no credential in errors | provider contract; Docker | pass 2026-11-21 |
 | NTF-02 | Discord: `{content}` <= 2000 characters, mentions off; same contract | provider contract; Docker | pass 2026-11-21 |
@@ -235,7 +308,7 @@ Commands:
 ```bash
 pnpm --filter @reelforge/core exec vitest run test/webhooks.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://... pnpm --filter @reelforge/db exec vitest run test/webhooks-contract.test.ts
-pnpm --filter @reelforge/server exec vitest run test/webhooks.test.ts test/parity.test.ts
+pnpm --filter @reelforge/server exec vitest run test/webhooks.test.ts test/webhooks-ops.test.ts test/parity.test.ts
 REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @reelforge/server exec vitest run test/webhooks.test.ts
 e2e/docker/run.sh                       # MAILPIT_IMAGE selects a Mailpit mirror
 ```
@@ -249,7 +322,8 @@ e2e/docker/run.sh                       # MAILPIT_IMAGE selects a Mailpit mirror
 | `400 url_not_allowed: refusing 10.x.x.x …` or deliveries dead with `refusing to connect to non-public address` | the target is private/loopback/link-local (SSRF guard). For an internal receiver set `webhooks.allowPrivateNetworks: true` at start-up (it cannot be changed over the API) |
 | the receiver says the signature is invalid | verify the **raw** body (before JSON parsing), with the secret including or excluding `whsec_` as your library expects; check the receiver's clock (5 min tolerance); after a rotation use the new secret |
 | deliveries `pending` with `ECONNREFUSED` / `ENOTFOUND` / `timed out` | the receiver is down or slow; they are retried for ~24 h (`get_webhook` shows counts). Raise `webhooks.timeoutSeconds` for slow receivers (or make them answer 2xx first and work later) |
-| deliveries `dead` with `HTTP 4xx` | the receiver refused the request (wrong path, auth, payload). Fix it, then `replay_webhook_delivery` |
+| deliveries `dead` with `HTTP 4xx` | the receiver refused the request (wrong path, auth, payload). Fix it, then `resend_webhook {deliveryId}` |
+| a render failed and no event arrived | subscribe to `render.*` (or the outcome you need); `get_webhook_log {eventType: "render.failed"}` shows whether it was sent; `resend_webhook {dedupeKey: "render:<jobId>"}` sends it again |
 | an endpoint is disabled with `the receiver answered 410 Gone` | the receiver asked to stop; `update_webhook {enabled: true}` after fixing it |
 | `… is not configured: set notifications.email.from` in `lastError` | set the missing settings (`get_webhook` shows `provider.missing`); deliveries are retried and go out once set |
 | email `dead` with `check notifications.email.<provider>…` | the provider refused the credential (401/403, SMTP 535): set a valid key / password |
@@ -269,6 +343,14 @@ e2e/docker/run.sh                       # MAILPIT_IMAGE selects a Mailpit mirror
   arrives up to 30 s late.
 - Symmetric `v1` signatures only (no asymmetric `v2a` yet); one previous secret
   during a rotation.
+- `render.qa_failed` is reserved: nothing emits it until the QA gates (#294).
+  `render.blocked` covers the licence gate only (moderation later). A scene
+  timeout inside the html/hyperframes engines (`render.sceneTimeoutSeconds`) is
+  still `render.failed`; only the job-level `render.timeoutSeconds` is
+  `render.timeout`.
+- `costs.cpuSeconds` is a lower bound on Linux (a browser kept alive between
+  renders is not counted) and missing when jobs overlap on an instance or a
+  render was fanned out; there is no per-unit CPU sum yet.
 - Outbound webhook requests do not use `HTTPS_PROXY` (Node's `http` module);
   the email APIs use `fetch` (the proxy applies with `NODE_USE_ENV_PROXY=1`).
 - Email is plain text; no HTML templates, attachments or per-event templates.

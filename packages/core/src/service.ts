@@ -64,9 +64,9 @@ import { StorageManager, type CleanupReport, type RetentionPolicy } from './stor
 import { ThemeStore } from './themes';
 import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
 import { ClaimRate, DEFAULT_PRIORITY, PRIORITIES, defaultPriority, isPriority, lowerPriority, priorityRank, type JobPriority } from './priority';
-import { WebhookService, jobPayload, renderSummary, type NotificationProvider } from './webhooks/index';
+import { WebhookService, jobPayload, renderDedupeKey, renderOutcome, renderSummary, type NotificationProvider } from './webhooks/index';
 import type { AuditEntry } from './repositories';
-import type { JobEvent } from './jobs';
+import type { JobEvent, JobUsage } from './jobs';
 
 export interface ServiceConfig {
   /**
@@ -403,6 +403,7 @@ export class ReelforgeService {
       maxRunningPerKey: () => this.settings.current.config.limits.maxRunningJobsPerKey,
       priorityAgingSeconds: () => this.settings.current.config.queue.priorityAgingSeconds,
       onClaim: () => this.claimRate.record(),
+      timeoutSeconds: () => this.settings.current.config.render.timeoutSeconds,
     });
     if (!registry.listBackends().some((b) => b.id === 'local')) {
       registry.registerBackend(
@@ -560,8 +561,83 @@ export class ReelforgeService {
     if (!type) return;
     this.webhooks.emit(type, { job: jobPayload(job) });
     if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled') this.progressBuckets.delete(job.id);
-    if (job.status === 'succeeded' && (job.type === 'render' || job.type === 'preview') && job.result) {
-      this.webhooks.emit('render.ready', { ...renderSummary(job.result), jobId: job.id, kind: job.type });
+    // One terminal render.* event per render or preview job, whatever the outcome (#306).
+    const outcome = job.type === 'render' || job.type === 'preview' ? renderOutcome(job) : null;
+    if (outcome) this.webhooks.emit(outcome, () => this.terminalPayload(job, e.usage), { dedupeKey: renderDedupeKey(job.id) });
+  }
+
+  /**
+   * The payload of a terminal render event (#306): the render summary (ready) or the typed error and the last lines
+   * of the job log (failed, timeout, qa_failed, blocked), timing, costs and links. Built only when an endpoint
+   * listens; a read that fails leaves its field out rather than the event.
+   */
+  private async terminalPayload(job: JobRecord, usage?: JobUsage): Promise<Record<string, unknown>> {
+    const seconds = (a?: string, b?: string) => (a && b ? Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 10) / 100) : undefined);
+    const runId = (job.result?.renderId as string | undefined) ?? ((job.params as { runId?: unknown } | undefined)?.runId as string | undefined);
+    const costs: Record<string, unknown> = {};
+    if (usage?.cpuSeconds !== undefined) costs.cpuSeconds = usage.cpuSeconds;
+    else costs.cpuUnavailable = usage?.cpuUnavailable ?? (job.pendingChildren !== undefined ? 'the render was split into units that ran on several workers (render.fanOut)' : 'the job did not run on a worker');
+    if (job.status === 'succeeded' && job.projectId && runId) {
+      try {
+        const files = await this.storage.driver.list(renderPrefix(job.projectId, runId));
+        costs.storageBytes = files.reduce((n, f) => n + f.bytes, 0);
+        const out = files.find((f) => f.key.endsWith('/final.mp4'));
+        if (out) costs.outputBytes = out.bytes;
+      } catch (err) {
+        this.config.log?.('warn', `render event of job ${job.id}: could not read the output size (${(err as Error).message})`);
+      }
+    }
+    let logExcerpt: string[] | undefined;
+    if (job.status === 'failed') {
+      logExcerpt = await this.jobs
+        .logs(job.id, 20)
+        .then((lines) => lines.map((l) => (l.length > 300 ? `${l.slice(0, 297)}...` : l)))
+        .catch(() => undefined);
+    }
+    const links = {
+      job: this.url(`/v1/jobs/${job.id}`),
+      logs: this.url(`/v1/jobs/${job.id}/logs`),
+      ...(job.status === 'succeeded' && job.result ? { output: job.result.outputUrl, poster: job.result.posterUrl, manifest: job.result.manifestUrl } : {}),
+    };
+    return {
+      ...(job.status === 'succeeded' ? renderSummary(job.result) : {}),
+      jobId: job.id,
+      kind: job.type,
+      ...(job.projectId ? { projectId: job.projectId } : {}),
+      ...(runId ? { renderId: runId } : {}),
+      status: job.status,
+      ...(job.error ? { error: job.error } : {}),
+      ...(logExcerpt?.length ? { logExcerpt } : {}),
+      timing: {
+        queuedAt: job.createdAt,
+        ...(job.startedAt ? { startedAt: job.startedAt } : {}),
+        ...(job.finishedAt ? { finishedAt: job.finishedAt } : {}),
+        ...(seconds(job.createdAt, job.startedAt) !== undefined ? { queueSeconds: seconds(job.createdAt, job.startedAt) } : {}),
+        ...(seconds(job.startedAt, job.finishedAt) !== undefined ? { renderSeconds: seconds(job.startedAt, job.finishedAt) } : {}),
+      },
+      costs,
+      links,
+    };
+  }
+
+  /** render.blocked for a render refused before it was queued (licence; moderation later), then the refusal is thrown on (#306). */
+  private async renderGate(kind: string, projectId?: string, jobId?: string): Promise<void> {
+    try {
+      await this.licence.assertRenderAllowed();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const lic = (err.details as { licence?: { status?: string; reason?: string } } | undefined)?.licence;
+        this.webhooks.emit('render.blocked', {
+          kind,
+          ...(projectId ? { projectId } : {}),
+          ...(jobId ? { retryOf: jobId } : {}),
+          status: 'blocked',
+          error: { code: err.code, message: err.message },
+          ...(lic ? { licence: { status: lic.status, ...(lic.reason ? { reason: lic.reason } : {}) } } : {}),
+          links: { licence: this.url('/v1/licence') },
+        });
+      }
+      throw err;
     }
   }
 
@@ -1135,7 +1211,7 @@ export class ReelforgeService {
 
   private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, captions?: CaptionMode) {
     const priority = this.resolvePriority(kind, requestedPriority);
-    await this.licence.assertRenderAllowed();
+    await this.renderGate(kind, id);
     const { manifest, meta } = await this.projects.get(id);
     if (sceneIds) {
       for (const s of sceneIds) {
@@ -1472,7 +1548,7 @@ export class ReelforgeService {
   async retryJob(id: string) {
     const job = await this.getJob(id);
     if (job.type === 'render' || job.type === 'preview') {
-      await this.licence.assertRenderAllowed();
+      await this.renderGate(job.type, job.projectId, job.id);
       // The retry keeps the job's class, lowered to what the retrying key may use (D-103).
       const priority = lowerPriority(job.priority ?? defaultPriority(job.type), this.maxPriorityFor(job.type));
       return this.withRenderQuota((apiKeyId, quota) => this.jobs.retry(id, { priority, ...(apiKeyId ? { apiKeyId } : {}) }, quota), priority);
@@ -2020,6 +2096,18 @@ export class ReelforgeService {
   }
   replayWebhookDelivery(id: string, deliveryId: string, actor?: Actor) {
     return this.webhooks.replay(id, deliveryId, actor);
+  }
+  /** resend_webhook (#306): an event again, by deliveryId, eventId or dedupeKey. */
+  resendWebhook(id: string, input: unknown, actor?: Actor) {
+    return this.webhooks.resend(id, input, actor);
+  }
+  /** get_webhook_log (#306, read scope): status, latency and attempts per delivery, without payloads or targets. */
+  getWebhookLog(id: string, query: Record<string, unknown> = {}) {
+    return this.webhooks.log(id, query);
+  }
+  /** rotate_webhook_secret (#306): a new secret with an overlap window, or end the overlap. */
+  rotateWebhookSecret(id: string, input: unknown, actor?: Actor) {
+    return this.webhooks.rotateSecret(id, input, actor);
   }
 
   /** A page of audit entries, newest first, filtered (list_audit_events / GET /v1/audit). */

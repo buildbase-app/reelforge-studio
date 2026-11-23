@@ -51,6 +51,8 @@ describe('REST / MCP parity', () => {
       test_webhook: 'POST /v1/webhooks/:id/test',
       list_webhook_deliveries: 'GET /v1/webhooks/:id/deliveries',
       replay_webhook_delivery: 'POST /v1/webhooks/:id/deliveries/:deliveryId/replay',
+      resend_webhook: 'POST /v1/webhooks/:id/resend',
+      rotate_webhook_secret: 'POST /v1/webhooks/:id/rotate-secret',
     };
     for (const [tool, route] of Object.entries(expected)) {
       expect(tools.get(tool)?.scope, tool).toBe('admin');
@@ -58,7 +60,11 @@ describe('REST / MCP parity', () => {
       expect(registered).toContain(route);
     }
     // Their results contain a signing secret: never stored as an idempotent result.
-    for (const t of ['create_webhook', 'update_webhook']) expect(Object.keys(tools.get(t)!.input)).not.toContain('idempotencyKey');
+    for (const t of ['create_webhook', 'update_webhook', 'rotate_webhook_secret']) expect(Object.keys(tools.get(t)!.input)).not.toContain('idempotencyKey');
+    // The delivery log without payloads or targets is readable with the read scope (#306).
+    expect(tools.get('get_webhook_log')?.scope).toBe('read');
+    expect(REST_ROUTES.find((r) => `${r.method} ${r.path}` === 'GET /v1/webhooks/:id/log')).toMatchObject({ tool: 'get_webhook_log', scope: 'read' });
+    expect(registered).toContain('GET /v1/webhooks/:id/log');
   });
 
   it('create and render calls take an idempotency key in MCP (the REST routes read the Idempotency-Key header)', () => {

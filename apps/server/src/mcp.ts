@@ -804,7 +804,7 @@ export const TOOLS: ToolDef[] = [
     name: 'create_webhook',
     title: 'Create a webhook or notification channel (admin)',
     description:
-      'Sends server events to an endpoint so automations (n8n, Zapier, Make, your backend) or people react without polling. type "webhook" (default): an HTTPS POST of {id, type, timestamp, data} signed per Standard Webhooks (webhook-id, webhook-timestamp, webhook-signature "v1,<base64 HMAC-SHA256>"); the signing secret (whsec_...) is returned ONCE: give it to the user to verify signatures. type "slack" / "discord" / "teams": the channel\'s incoming webhook URL. type "email": email { provider: smtp|resend|postmark|ses|sendgrid, to: [addresses] } (the provider is set up with update_config, notifications.email.*). events: event types or patterns: job.queued, job.started, job.progress, job.succeeded, job.failed, job.cancelled, render.ready, licence.state_changed, key.created, key.revoked, config.changed, audit.entry, "job.*", or "*" (all but job.progress and audit.entry). Deliveries are retried with backoff for about 24 h. Private and http:// URLs are refused unless the operator allowed them at start-up. Needs the admin scope.',
+      'Sends server events to an endpoint so automations (n8n, Zapier, Make, your backend) or people react without polling. type "webhook" (default): an HTTPS POST of {id, type, timestamp, data} signed per Standard Webhooks (webhook-id, webhook-timestamp, webhook-signature "v1,<base64 HMAC-SHA256>"); the signing secret (whsec_...) is returned ONCE: give it to the user to verify signatures. type "slack" / "discord" / "teams": the channel\'s incoming webhook URL. type "email": email { provider: smtp|resend|postmark|ses|sendgrid, to: [addresses] } (the provider is set up with update_config, notifications.email.*). events: event types or patterns: job.queued, job.started, job.progress, job.succeeded, job.failed, job.cancelled, render.ready, render.failed, render.cancelled, render.timeout, render.qa_failed, render.blocked (one terminal render.* event per render job), licence.state_changed, key.created, key.revoked, config.changed, audit.entry, "job.*", "render.*", or "*" (all but job.progress and audit.entry). Deliveries are retried with exponential backoff for up to 24 h (10 s timeout per attempt), then marked dead. Private and http:// URLs are refused unless the operator allowed them at start-up. Needs the admin scope.',
     scope: 'admin',
     input: {
       name: z.string().describe('A label, e.g. "n8n render pipeline".'),
@@ -882,6 +882,51 @@ export const TOOLS: ToolDef[] = [
     input: { webhookId: z.string(), deliveryId: z.string() },
     annotations: { openWorldHint: true },
     run: async (a, { service, auth }) => service.replayWebhookDelivery(a.webhookId, a.deliveryId, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'resend_webhook',
+    title: 'Send an event to a webhook again (admin)',
+    description:
+      'Sends one event to an endpoint again, named by exactly one of: deliveryId (from get_webhook_log), eventId, or dedupeKey ("render:<jobId>": the terminal outcome of a render job). A delivery still waiting for its next retry is sent now ("rescheduled"); a finished one (succeeded or dead) is queued again with the same payload and webhook-id ("queued", with a fresh 24 h retry window); an event the endpoint never got (found at another endpoint) is queued for it. Receivers deduplicate on webhook-id. Needs the admin scope.',
+    scope: 'admin',
+    input: {
+      webhookId: z.string(),
+      deliveryId: z.string().optional(),
+      eventId: z.string().optional(),
+      dedupeKey: z.string().optional().describe('e.g. "render:job_..." for the render.* outcome of that job.'),
+    },
+    annotations: { openWorldHint: true },
+    run: async ({ webhookId, ...a }, { service, auth }) => service.resendWebhook(webhookId, a, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'rotate_webhook_secret',
+    title: 'Rotate a webhook signing secret (admin)',
+    description:
+      'Gives a webhook a new signing secret (returned once; or bring your own with secret: "whsec_..."). For overlapHours (default webhooks.secretRotationGraceHours, 24) every message is signed with the new and the previous secret (two v1 signatures in webhook-signature), so the receiver accepts both while it switches. endOverlap: true stops signing with the previous secret at once. Needs the admin scope.',
+    scope: 'admin',
+    input: {
+      webhookId: z.string(),
+      overlapHours: z.number().min(0).max(720).optional().describe('Hours both secrets sign (0: only the new one at once).'),
+      secret: z.string().optional().describe('Your own new secret: whsec_ + base64 of 24 to 64 bytes. Omit to get a generated one.'),
+      endOverlap: z.boolean().optional().describe('End the current overlap now (the receiver has switched).'),
+    },
+    run: async ({ webhookId, ...a }, { service, auth }) => service.rotateWebhookSecret(webhookId, a, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'get_webhook_log',
+    title: 'Read a webhook delivery log',
+    description:
+      'The delivery log of one endpoint, newest first, without payloads or the target URL: per delivery its event type, webhook-id, dedupeKey, status (pending, delivering, succeeded, dead = failed for good), attempts, latency (latencyMs of the last attempt, durationMs of each), last HTTP status and error, and giveUpAt while it is retried; a summary (success rate, p50/p95 latency) and the retry policy. Filter by status or eventType; page with cursor. Needs the read scope.',
+    scope: 'read',
+    input: {
+      webhookId: z.string(),
+      status: z.enum(['pending', 'delivering', 'succeeded', 'dead']).optional(),
+      eventType: z.string().optional(),
+      limit: z.number().int().min(1).max(500).optional().describe('Default 50.'),
+      cursor: z.string().optional().describe('nextCursor of the previous page.'),
+    },
+    annotations: { readOnlyHint: true },
+    run: async ({ webhookId, ...q }, { service }) => service.getWebhookLog(webhookId, q),
   },
 ];
 

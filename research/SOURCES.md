@@ -478,3 +478,12 @@ implementation or licensing decisions.
   NOT from a platform specification: it is a conservative margin chosen to clear the common social apps' UI;
   platforms differ and change it (TODO/VERIFY against each platform's current guidance before quoting numbers per
   platform).
+
+- **Webhook operations references (2026-11-23, issue #306).** HeyGen webhooks
+  (https://developers.heygen.com/docs/webhooks.md, read 2026-11-23): HMAC-SHA256 of the raw body, retries with
+  exponential backoff for up to 24 h, receivers must answer 2xx within 10 s, a rotate-secret endpoint that invalidates
+  the old secret at once, receivers deduplicate on a stable field. Remotion Lambda webhooks
+  (https://www.remotion.dev/docs/lambda/webhooks, read 2026-11-23): one of `success`, `error` (with `errors`) or
+  `timeout` per render, `costs` and `timeToFinish` on success, HMAC-SHA512 signature. ReelForge keeps Standard Webhooks
+  signatures (D-072) and takes from these the 24 h window, the 10 s timeout, a terminal timeout event and costs; its
+  rotation keeps an overlap instead of invalidating at once (D-109).

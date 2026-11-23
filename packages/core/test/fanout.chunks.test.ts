@@ -161,9 +161,10 @@ beforeAll(async () => {
     const s = await instance(w, true);
     s.jobs.onEvent((e) => events.push({ worker: w, e }));
     const emit = s.webhooks.emit.bind(s.webhooks);
-    s.webhooks.emit = (type, data) => {
-      webhooks.push({ worker: w, type, data });
-      emit(type, data);
+    s.webhooks.emit = (type, data, opts) => {
+      // Terminal render events build their payload lazily (#306); only job.progress payloads are checked here.
+      webhooks.push({ worker: w, type, data: typeof data === 'function' ? {} : data });
+      emit(type, data, opts);
     };
     workers.push(s);
   }
