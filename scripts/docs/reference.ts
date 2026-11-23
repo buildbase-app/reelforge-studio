@@ -5,6 +5,8 @@
  *   docs/public/mcp/tools.md          from TOOLS (apps/server/src/mcp.ts)
  *   docs/public/api/endpoints.md      from REST_ROUTES (apps/server/src/routes.ts)
  *   docs/public/manifest/templates.md from TEMPLATES (packages/project-schema)
+ *   README.md, docs/STATUS.md, docs/AGENT_PLATFORM.md: only the MCP tool count
+ *     between `<!-- mcp-tool-count -->` and `<!-- /mcp-tool-count -->`
  *
  *   pnpm docs:reference           write the files
  *   pnpm docs:reference --check   fail if a file is out of date
@@ -242,6 +244,11 @@ export function renderEndpointsDoc(): string {
     `${REST_ROUTES.length} routes, generated from the server's route table. All take and return JSON unless noted, and need`,
     '`Authorization: Bearer rf_...` with the scope shown (`admin` implies every scope).',
     '',
+    'Lists are pages (D-102): `GET /v1/projects`, `GET /v1/jobs` and `GET /v1/assets` take `?limit=` (1 to 200,',
+    'default 50) and `?cursor=` and answer the newest page plus `nextCursor` (null on the last page); see',
+    '[REST API: lists and pages](/docs/api/rest-api#lists-and-pages). `GET /v1/audit` and the delivery log page the same way',
+    'with their own sizes.',
+    '',
     '| Method | Path | Scope | MCP tool | Notes |',
     '| --- | --- | --- | --- | --- |',
     ...REST_ROUTES.map(
@@ -293,10 +300,28 @@ export function renderTemplatesDoc(): string {
   ].join('\n');
 }
 
+/** Inline marker around the MCP tool count in hand-written docs. */
+export const TOOL_COUNT_MARKER = /<!-- mcp-tool-count -->[^<]*<!-- \/mcp-tool-count -->/g;
+
+/** Hand-written docs that state the tool count; each must hold at least one marker. */
+export const TOOL_COUNT_FILES = ['README.md', 'docs/STATUS.md', 'docs/AGENT_PLATFORM.md'];
+
+/** `text` with every tool-count marker set to the number of registered tools. */
+export function withToolCount(text: string, path = 'the file'): string {
+  if (!text.match(TOOL_COUNT_MARKER)) {
+    throw new Error(`${path} has no <!-- mcp-tool-count --> marker; the tool count there would not be generated`);
+  }
+  return text.replace(TOOL_COUNT_MARKER, `<!-- mcp-tool-count -->${TOOLS.length}<!-- /mcp-tool-count -->`);
+}
+
 export const OUTPUTS: Array<{ path: string; render: () => string }> = [
   { path: 'docs/public/mcp/tools.md', render: renderToolsDoc },
   { path: 'docs/public/api/endpoints.md', render: renderEndpointsDoc },
   { path: 'docs/public/manifest/templates.md', render: renderTemplatesDoc },
+  ...TOOL_COUNT_FILES.map((path) => ({
+    path,
+    render: () => withToolCount(readFileSync(join(root, path), 'utf8'), path),
+  })),
 ];
 
 /** Files whose content differs from what the code generates. */

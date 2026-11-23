@@ -51,12 +51,12 @@ Manifest problems are reported all at once, each with its path in the manifest.
 | 400 | `bad_request`, `unknown_engine`, `unknown_backend`, `url_not_allowed`, `licence_key_missing` |
 | 401 | `unauthorized`, `key_expired`, `key_revoked` |
 | 402 | `cost_acknowledgement_required` (a paid provider call without `acknowledgeCost: true`) |
-| 403 | `forbidden` (missing scope), `forbidden_host`, `ip_not_allowed`, `licence_required`, `licence_invalid` |
+| 403 | `forbidden` (missing scope), `forbidden_host`, `ip_not_allowed`, `licence_required`, `licence_invalid`, `priority_not_allowed` |
 | 404 | `not_found`, `unknown_provider` |
 | 409 | `conflict`, `version_conflict`, `idempotency_in_progress`, `job_not_finished`, `builtin_theme`, `provider_not_configured`, `backend_not_configured`, `secret_key_required`, `key_revoked`, `build_locked_setting` |
 | 413 | `too_large` |
 | 422 | `invalid_manifest`, `validation_failed`, `invalid_params`, `idempotency_conflict`, `asset_missing`, `asset_not_imported` |
-| 429 | `rate_limited` (with `Retry-After`), `quota_exceeded` |
+| 429 | `rate_limited` (with `Retry-After`), `quota_exceeded`, `too_many_jobs`, `queue_full` (with `Retry-After`) |
 | 501 | `not_implemented` |
 | 502, 504 | `fetch_failed`, `provider_failed` |
 
@@ -89,6 +89,34 @@ read, send the version you read as `If-Match: "<version>"` (or
 `expectedVersion`): a change in between answers `409 version_conflict`. Fetch
 the project again and reapply your change.
 
+## Lists and pages
+
+`GET /v1/projects`, `GET /v1/jobs` and `GET /v1/assets` return one page, newest
+first, and a `nextCursor` (D-102). A call without parameters returns the newest
+50; `?limit=` takes 1 to 200 (anything else answers `400 bad_request`). While
+`nextCursor` is not null there is more: send it back as `?cursor=`, with the same
+filters (`projectId`, and `parentId` for jobs), unchanged. A walk from the first page to `nextCursor: null`
+returns every item that existed when it started exactly once, even while others
+are created; items created meanwhile show up on the next walk. A cursor of
+another list or filter, or an edited one, answers `400 bad_request`.
+
+```bash
+CURSOR=
+while :; do
+  PAGE=$(curl -s -H "Authorization: Bearer $KEY" "$RF/v1/projects?limit=200${CURSOR:+&cursor=$CURSOR}")
+  echo "$PAGE" | jq -r '.projects[] | "\(.id)\t\(.title)"'
+  CURSOR=$(echo "$PAGE" | jq -r '.nextCursor // empty')
+  [ -z "$CURSOR" ] && break
+done
+```
+
+`GET /v1/jobs?parentId=<render job id>` lists the units and the join of a
+fanned-out render (`render.fanOut`), paged the same way; `projectId` and
+`parentId` can be combined.
+
+Projects come as summaries (`id`, `title`, `version`, `scenes`, `durationSeconds`,
+`createdAt`, `updatedAt`); `GET /v1/projects/:id` has the manifest.
+
 ## Rate limits
 
 Each key has a token-bucket rate limit (`limits.rateLimitPerMinute`, or the
@@ -99,6 +127,15 @@ seconds. Render quotas answer `429 quota_exceeded` with `details.resetsAt`.
 
 Renders and previews are jobs: `queued`, `running`, then `succeeded`, `failed` or
 `cancelled`.
+
+Queued jobs start by priority, then fairly across keys, then oldest first: send
+`"priority": "interactive" | "standard" | "batch"` in the body of
+`POST /v1/projects/:id/renders` or `/preview` (previews default to `interactive`,
+renders to `standard`). A key may ask for its type's default or lower; a higher
+class needs an admin to set the key's `maxPriority`, else `403
+priority_not_allowed`. When the server is busy, a start is refused with `429
+too_many_jobs` or `429 queue_full` and `Retry-After`; `details` says which limit
+and, for `limits.maxEstimatedWaitSeconds`, the estimated wait and the jobs ahead.
 
 ```bash
 JOB=$(curl -s -X POST -H "Authorization: Bearer $KEY" -H 'content-type: application/json' -d '{}' \

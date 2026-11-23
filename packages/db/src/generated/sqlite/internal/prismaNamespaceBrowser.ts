@@ -68,7 +68,8 @@ export const ModelName = {
   SystemState: 'SystemState',
   WebhookEndpoint: 'WebhookEndpoint',
   WebhookDelivery: 'WebhookDelivery',
-  WebhookAttempt: 'WebhookAttempt'
+  WebhookAttempt: 'WebhookAttempt',
+  DispatchOutbox: 'DispatchOutbox'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -98,6 +99,8 @@ export const ProjectScalarFieldEnum = {
   id: 'id',
   version: 'version',
   title: 'title',
+  sceneCount: 'sceneCount',
+  durationSeconds: 'durationSeconds',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -136,7 +139,8 @@ export const ApiKeyScalarFieldEnum = {
   rateLimitPerMinute: 'rateLimitPerMinute',
   rendersPerDay: 'rendersPerDay',
   rendersPerMonth: 'rendersPerMonth',
-  ipAllowlist: 'ipAllowlist'
+  ipAllowlist: 'ipAllowlist',
+  maxPriority: 'maxPriority'
 } as const
 
 export type ApiKeyScalarFieldEnum = (typeof ApiKeyScalarFieldEnum)[keyof typeof ApiKeyScalarFieldEnum]
@@ -161,7 +165,11 @@ export const JobScalarFieldEnum = {
   attempts: 'attempts',
   workerId: 'workerId',
   leaseExpiresAt: 'leaseExpiresAt',
-  cancelRequestedAt: 'cancelRequestedAt'
+  cancelRequestedAt: 'cancelRequestedAt',
+  parentId: 'parentId',
+  pendingChildren: 'pendingChildren',
+  runId: 'runId',
+  priority: 'priority'
 } as const
 
 export type JobScalarFieldEnum = (typeof JobScalarFieldEnum)[keyof typeof JobScalarFieldEnum]
@@ -368,6 +376,20 @@ export const WebhookAttemptScalarFieldEnum = {
 } as const
 
 export type WebhookAttemptScalarFieldEnum = (typeof WebhookAttemptScalarFieldEnum)[keyof typeof WebhookAttemptScalarFieldEnum]
+
+
+export const DispatchOutboxScalarFieldEnum = {
+  id: 'id',
+  workspaceId: 'workspaceId',
+  jobId: 'jobId',
+  attempts: 'attempts',
+  nextAttemptAt: 'nextAttemptAt',
+  lockedUntil: 'lockedUntil',
+  lastError: 'lastError',
+  createdAt: 'createdAt'
+} as const
+
+export type DispatchOutboxScalarFieldEnum = (typeof DispatchOutboxScalarFieldEnum)[keyof typeof DispatchOutboxScalarFieldEnum]
 
 
 export const SortOrder = {

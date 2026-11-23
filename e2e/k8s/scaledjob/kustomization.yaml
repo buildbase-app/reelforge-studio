@@ -1,0 +1,13 @@
+# e2e: deployment/kubernetes/keda/scaledjob/ (one Job per queued render,
+# `worker --once`) with test settings: poll every 5 s, at most 4 Jobs at once.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../deployment/kubernetes/keda/scaledjob
+components:
+  - ../settings
+patches:
+  - target: { group: keda.sh, kind: ScaledJob, name: reelforge-worker-once }
+    patch: |-
+      - { op: replace, path: /spec/maxReplicaCount, value: 4 }
+      - { op: replace, path: /spec/pollingInterval, value: 5 }

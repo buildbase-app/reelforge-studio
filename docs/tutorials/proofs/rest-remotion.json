@@ -1,0 +1,40 @@
+{
+  "agent": "rest",
+  "engine": "remotion",
+  "status": "passed",
+  "date": "2026-11-21T19:34:43.334Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "examples/tutorials/rest.sh examples/tutorials/remotion.json tut-rest-remotion final.mp4",
+  "projectId": "tut-rest-remotion",
+  "jobId": "job_mwqt4hk5a719943bb2",
+  "renderId": "run_mwqt4hk462c7017e86",
+  "renderSeconds": 96,
+  "sceneEngines": [
+    "remotion",
+    "remotion"
+  ],
+  "toolCalls": [
+    "GET /v1/capabilities()",
+    "POST /v1/projects()",
+    "POST /v1/projects/tut-rest-remotion/validate()",
+    "POST /v1/projects/tut-rest-remotion/renders()",
+    "GET /v1/jobs/job_mwqt4hk5a719943bb2?wait=50()",
+    "GET /v1/jobs/job_mwqt4hk5a719943bb2?wait=50()",
+    "GET /v1/renders/run_mwqt4hk462c7017e86/output()"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 639540
+  },
+  "poster": "rest-remotion.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/rest/remotion"
+}

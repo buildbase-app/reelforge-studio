@@ -57,6 +57,26 @@ export interface EngineRenderContext {
   signal: AbortSignal;
   progress(framesDone: number, framesTotal: number): void;
   log: Logger;
+  /**
+   * Render only these frames of the scene, first and last inclusive (render
+   * fan-out chunks, D-097). Set only for engines whose capabilities() declare
+   * `frameRanges`. The clip then holds exactly `last - first + 1` frames, and
+   * its frame k is the scene's frame `first + k`, the same pixels the full
+   * render has at that frame (the scene still lasts `durationFrames`).
+   * Progress counts the range's frames.
+   */
+  frameRange?: readonly [number, number];
+}
+
+/** What an engine can do beyond rendering a whole scene. */
+export interface EngineCapabilities {
+  /**
+   * The engine honours `EngineRenderContext.frameRange` and its frames are
+   * frame-pure: frame n renders the same whether the render starts at 0 or at
+   * n (no state accumulated from frame 0), so a long scene can be split into
+   * chunks rendered by different workers.
+   */
+  frameRanges: boolean;
 }
 
 export interface ClipResult {
@@ -85,6 +105,8 @@ export interface EnginePlugin {
   availability(): Availability;
   /** Whether this engine's Chromium runs with its own sandbox (omit for engines without a browser). */
   browserSandbox?(): boolean;
+  /** What it can do beyond whole scenes; omitted: no frame ranges. */
+  capabilities?(): EngineCapabilities;
   render(scene: RenderScene, ctx: EngineRenderContext): Promise<ClipResult>;
 }
 
@@ -171,15 +193,64 @@ export interface BackendContext {
   progress(stage: string, fraction: number, detail?: string): void;
 }
 
+/**
+ * How a backend gets compute (D-095, D-100; docs/providers/backends.md):
+ * - `pool`: workers that are already running claim jobs from the queue (this
+ *   server, N `worker` containers, or `worker --once` containers a job platform starts);
+ * - `launcher`: calls a platform API ("run task", "execute job") per queued unit; the
+ *   started container runs `reelforge worker --once --job <id>`;
+ * - `managed`: a renderer someone else operates for one engine (Remotion Lambda),
+ *   called by the worker that claimed the job.
+ */
+export type RenderBackendKind = 'pool' | 'launcher' | 'managed';
+export const RENDER_BACKEND_KINDS: readonly RenderBackendKind[] = ['pool', 'launcher', 'managed'];
+
+/** What a backend can render (reported by get_capabilities; checked by validate_project). */
+export interface BackendCapabilities {
+  /** Engine ids it can render. */
+  engines: string[];
+  /** Longest render unit (one scene, or one frame range) it accepts, in seconds; null: no limit of its own. */
+  maxUnitSeconds: number | null;
+  /**
+   * Whether it can render part of a scene (a frame range), so a long scene can be split
+   * (`render.fanOut: scenes+chunks`). Only scenes of engines whose own capabilities
+   * declare `frameRanges` are split.
+   */
+  frameRanges: boolean;
+  /** Whether it starts and stops compute per render by itself (nothing runs, nothing is billed, while idle). */
+  scaleToZero: boolean;
+}
+
+/** What a render would take on a backend, shown before the job starts. */
+export interface BackendEstimate {
+  backend: string;
+  /** Seconds of finished video. */
+  videoSeconds: number;
+  /** Render units (scenes) the job has. */
+  units: number;
+  /** Wall-clock estimate in seconds; null while it is not measured (#125). Never a guess. */
+  seconds: number | null;
+  /** Extra charge in USD by a third party (cloud, licence fee) for this render; 0 for own hardware; null when unknown. */
+  costUsd: number | null;
+  /** One or two sentences an agent can show the user. */
+  note: string;
+}
+
+/** What estimate() is asked about: a render or preview before it is queued. */
+export type EstimateRequest = Pick<RenderRequest, 'kind' | 'project' | 'sceneIds' | 'scale'>;
+
 /** Where engine renders and assembly run. */
 export interface RenderBackend {
   id: string;
   displayName: string;
+  kind: RenderBackendKind;
   /** Configured by the operator (credentials, region, ...). */
   configured(): boolean;
   /** False for skeletons that exist so capabilities can report them honestly. */
   implemented: boolean;
   env: string[];
+  capabilities(): BackendCapabilities;
+  estimate(req: EstimateRequest): BackendEstimate;
   submit(req: RenderRequest, ctx: BackendContext): Promise<RenderOutcome>;
   cancel(jobId: string): Promise<void>;
 }

@@ -13,6 +13,8 @@ export interface ServerConfig {
   dataDir: string;
   /** database.url: REELFORGE_DATABASE_URL / DATABASE_URL (or _FILE); default file:<dataDir>/reelforge.db (SQLite). */
   databaseUrl: string;
+  /** database.readUrl: REELFORGE_DATABASE_READ_URL / DATABASE_READ_URL (or _FILE); a replica for lag-tolerant lists (D-104). */
+  databaseReadUrl?: string;
   /** Apply pending migrations on start (REELFORGE_MIGRATE_ON_START, default on). */
   migrateOnStart: boolean;
   /** How long to keep retrying the first database connection (REELFORGE_DB_CONNECT_TIMEOUT_SECONDS, default 30). */
@@ -57,6 +59,7 @@ export function serverConfigFrom(resolved: ResolvedConfig, sources: ConfigSource
   return {
     dataDir: resolve(c.storage.dataDir),
     databaseUrl: c.database.url,
+    databaseReadUrl: c.database.readUrl,
     migrateOnStart: c.database.migrateOnStart,
     dbConnectTimeoutSeconds: c.database.connectTimeoutSeconds,
     cacheDir: cacheSource === 'default' ? undefined : resolve(c.storage.cacheDir),

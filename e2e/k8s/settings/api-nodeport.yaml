@@ -1,0 +1,11 @@
+# The api on the kind node's port 30480 (mapped to 127.0.0.1:4340 on the host by keda.sh's kind config).
+apiVersion: v1
+kind: Service
+metadata:
+  name: reelforge-api-e2e
+  namespace: reelforge
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: reelforge, app.kubernetes.io/component: api }
+  ports:
+    - { name: http, port: 80, targetPort: http, nodePort: 30480, protocol: TCP }

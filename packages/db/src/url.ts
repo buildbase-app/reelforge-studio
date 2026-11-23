@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
+import { PG_SCHEMA_PATTERN } from './sql';
 
 export type DatabaseKind = 'sqlite' | 'postgresql' | 'mysql';
 
@@ -9,7 +10,7 @@ export interface ParsedDatabaseUrl {
   file?: string;
   /** PostgreSQL / MySQL: the URL to hand to the driver (our own parameters removed). */
   driverUrl?: string;
-  /** PostgreSQL `?schema=`: tables live in this schema (default: the user's search_path, normally public). */
+  /** PostgreSQL `?schema=`: tables live in this schema (default: `public`, as Prisma's model queries; every raw statement names it, #191). */
   schema?: string;
   /** `?connection_limit=`: pool size (PostgreSQL / MySQL). */
   connectionLimit?: number;
@@ -55,7 +56,9 @@ export function redactDatabaseUrl(url: string): string {
 /** Picks the database from the URL scheme. */
 export function parseDatabaseUrl(url: string): ParsedDatabaseUrl {
   if (url.startsWith('file:')) {
-    let path = url.slice('file:'.length).replace(/\?.*$/, '');
+    let path = url.slice('file:'.length);
+    const query = path.indexOf('?');
+    if (query >= 0) path = path.slice(0, query); // indexOf, not a regex: linear on any input
     if (path.startsWith('//')) path = decodeURIComponent(new URL(url).pathname); // file:///abs/path
     if (!path) throw new Error('DATABASE_URL file: needs a path, e.g. file:/data/reelforge.db');
     return { kind: 'sqlite', file: isAbsolute(path) ? path : resolve(path) };
@@ -84,7 +87,7 @@ export function parseDatabaseUrl(url: string): ParsedDatabaseUrl {
   }
   if (scheme === 'postgres' || scheme === 'postgresql') {
     const schema = take('schema');
-    if (schema !== undefined && !/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(schema)) throw new Error('DATABASE_URL schema must be a plain identifier');
+    if (schema !== undefined && !PG_SCHEMA_PATTERN.test(schema)) throw new Error('DATABASE_URL schema must be a plain identifier');
     return { kind: 'postgresql', driverUrl: u.toString(), schema, connectionLimit };
   }
   if (scheme === 'mysql' || scheme === 'mariadb') {
@@ -92,4 +95,27 @@ export function parseDatabaseUrl(url: string): ParsedDatabaseUrl {
     return { kind: 'mysql', driverUrl: u.toString(), connectionLimit };
   }
   throw new Error(`DATABASE_URL scheme "${scheme}:" is not supported; use file: (SQLite), postgresql:// or mysql:// (MariaDB too)`);
+}
+
+/**
+ * database.readUrl (D-104): a replica for the reads that tolerate lag. Same
+ * database kind as the primary, and never SQLite (one local file has no
+ * replica). Throws with the URL redacted.
+ */
+export function parseReadUrl(readUrl: string, primary: ParsedDatabaseUrl): ParsedDatabaseUrl {
+  if (primary.kind === 'sqlite') {
+    throw new Error(
+      'DATABASE_READ_URL (database.readUrl) needs PostgreSQL or MySQL: SQLite is one local file and has no read replica. Unset it, or move to PostgreSQL/MySQL (docs/DEPLOY.md#database)'
+    );
+  }
+  let parsed: ParsedDatabaseUrl;
+  try {
+    parsed = parseDatabaseUrl(readUrl);
+  } catch (e) {
+    throw new Error(`DATABASE_READ_URL: ${(e as Error).message.replace(/^DATABASE_URL /, '')}`);
+  }
+  if (parsed.kind !== primary.kind) {
+    throw new Error(`DATABASE_READ_URL is ${parsed.kind} but DATABASE_URL is ${primary.kind}: the read replica must be a replica of the primary database (${redactDatabaseUrl(readUrl)})`);
+  }
+  return parsed;
 }

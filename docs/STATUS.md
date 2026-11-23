@@ -1,9 +1,10 @@
 # ReelForge: status record
 
-**Updated:** 2026-11-21 (agent platform v0.1). This is the single place to start. It covers both
+**Updated:** 2026-11-23 (agent platform v0.1). This is the single place to start. It covers both
 repositories, the infrastructure, decisions, the end-to-end goal and the
 backlog. Backlog items are GitHub issues in this repo (store issues live here
-too, because issues are disabled on the store repo).
+too, because issues are disabled on the store repo); how to pick one up: the
+handoff index, #142.
 
 ## 1. The product in one paragraph
 
@@ -17,17 +18,21 @@ HTML, HyperFrames) and providers (TTS such as ElevenLabs, ...). The
 
 ## 2. Repositories
 
-| Repo | Visibility | Role | Branch with current work |
+| Repo | Visibility | Role | Where work lands |
 | --- | --- | --- | --- |
-| `buildbase-app/reelforge-studio` | private | The product (this repo) + the backlog | `claude/eloquent-wright-tm3cs7` |
-| `buildbase-app/reelforge-selling-public-site` | public (fork, issues off) | The store at reelforge.buildbase.app | `claude/eloquent-wright-tm3cs7` |
+| `buildbase-app/reelforge-studio` | public, source-available (LICENSING.md) | The product (this repo) + the backlog (issues) | `main`, through draft pull requests from `claude/...` (or another agent prefix) branches |
+| `buildbase-app/reelforge-selling-public-site` | public (fork, issues off) | The store at reelforge.buildbase.app | `main`, through pull requests |
 | `buildbase-app/ReelForge` | — | Old name of the store repo (redirects) | — |
+
+In both repositories changes reach `main` only through pull requests that a
+human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
+`pr-policy` check).
 
 ## 3. What exists (verified)
 
-**Studio** (agent platform v0.1, #9, branch `claude/eloquent-wright-tm3cs7`):
-REST `/v1` + MCP `/mcp` server (61 MCP tools since #66, every REST route has one,
-checked by a parity test), API keys with scopes, manifest v0.2 with automatic
+**Studio** (agent platform v0.1, #9, on `main`):
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->61<!-- /mcp-tool-count --> MCP tools, generated list in
+[public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
 decode checks, signed download links, provider configuration over the API,
@@ -46,7 +51,7 @@ start-up-only keys refused with where to set them, runtime changes applied
 live; secrets in the database AES-256-GCM with `REELFORGE_SECRET_KEY` (refused
 without it; plaintext rows encrypted once); `reelforge config check` / `show`.
 **Licence activation (#25, D-028, D-035..D-038):** BuildBase licence API
-(activate on first start / key change, validate at start and daily, only the
+(activate on first start / key change, validate daily, only the
 key and a random instance id sent), state in a `LicenceState` table on all
 three databases, 14-day offline grace from the last success, backoff on
 429/5xx, clock checks; `render_project` / `preview_scene` / `retry_job`
@@ -60,13 +65,28 @@ Live check against the dev environment with a test-purchase key passed
 MCP and REST journeys against a real server process. GitHub CI green on 9f62297 (run 44901451314: tests with
 `REELFORGE_REQUIRE_BROWSER=1` incl. MCP/REST e2e, spike, Docker build + smoke).
 Per-item status: `docs/AGENT_PLATFORM.md` §10.
+**Licence at scale (#154, D-098, 2026-11-22):** one deployment (one shared
+database) = one activation for any number of api and worker instances; only
+`api`/`all` instances call the licence server, single flight per deployment
+(compare-and-set lease on `LicenceState.nextCheckAt`: about one call a day
+however many api replicas); workers never call it, read and verify the sealed
+state every 60 s and claim no render job while it disallows renders (reason in
+the log, `/readyz` admin view and metrics). Measured on the mock licence
+server: 2 api + 3 worker licence managers on SQLite, PostgreSQL 17 and MySQL
+8.4, and 2 api + 3 worker server instances on PostgreSQL 17 and MySQL 8.4 = 1
+activate, 1 validate per day, 0 worker calls (`apps/server/test/licence-scale.test.ts`).
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,
 signed webhooks stored in D1, hackathon tracker connected. Live:
 https://reelforge.buildbase.app. Test copy: https://reelforge-dev.buildbase.app
 (the ReelForge org's `development` environment `fsyqdskf` since 2026-11-21,
-Stripe test keys; D-030). No buy flow yet (#2).
+Stripe test keys; D-030). Buy flow (#2, done): pricing from the published
+items, Stripe Checkout, `/order` with the licence key, Dashboard > Licences and
+the free Personal claim, verified on the test site (2026-11-21; walkthrough
+videos 2026-11-22: [public/walkthroughs.md](public/walkthroughs.md)). Launch
+work left: refund test (#126), production items (#127), real prices (#91),
+live selling (#90), receipt email (#92), image download (#39).
 
 ### Docker E2E acceptance (2026-11-21, issue #16)
 
@@ -173,7 +193,8 @@ readable (source-available, LICENSING.md); nothing is minified.
 | CycloneDX SBOM | 591 components (CycloneDX 1.7) |
 | Docker e2e, release edition, hardened flags (`--read-only`, tmpfs `/tmp`, `--cap-drop ALL`, no-new-privileges, seccomp `deployment/seccomp/chrome.json`) | **ALL DOCKER E2E CHECKS PASSED** on SQLite (103 checks), PostgreSQL (105) and MySQL 8.4 (102): everything above (#16, #23, #24, #25) plus: no capabilities, NoNewPrivs, read-only root, Chromium's sandbox active for html/hyperframes/motion-canvas (renderers in a nested PID namespace; Remotion forces `--no-sandbox`), the image refuses to start with `licence.mode: off`, another server URL or org id (env or config file), `update_config` answers `build_locked_setting`, the published image shows the production settings with source `build` and shares 14 of 15 layers with the tested one |
 | Headless Claude Code against the release image, MCP only, `--max-turns 40` | pass: 13 turns, 138 s, ≈ $0.35; an 18.0 s reel (Remotion hook + html tips, Midnight theme with its own accent), ffprobe: H.264 1080×1920, 30 fps, 540 frames + AAC, duration 18.000 s |
-| amd64 / arm64 | amd64 built and tested here; both on GitHub (manual run 44921945693, native `ubuntu-24.04-arm` runner for arm64): build, contents, secrets, Trivy 0 fixable HIGH/CRITICAL, SBOM, hardened Docker e2e (amd64: SQLite, PostgreSQL, MySQL; arm64: SQLite, Chromium sandbox included). The first arm64 run found Remotion's arm64 binary is named `headless_shell` (fixed in c27d69e). Publish/cosign run only on `main`/tags: not run yet |
+| amd64 / arm64 | amd64 built and tested here; both on GitHub (manual run 44921945693, native `ubuntu-24.04-arm` runner for arm64): build, contents, secrets, Trivy 0 fixable HIGH/CRITICAL, SBOM, hardened Docker e2e (amd64: SQLite, PostgreSQL, MySQL; arm64: SQLite, Chromium sandbox included). The first arm64 run found Remotion's arm64 binary is named `headless_shell` (fixed in c27d69e). Both architectures now run in CI's heavy tier (pull requests to `main`, pushes to `main`, nightly) |
+| Publish (multi-arch image on ghcr.io, cosign keyless signature, SBOM attestation) | runs on every push to `main` (green on 94905a5, 2026-11-23). Not done yet (#117): a `v*` tag and release, `cosign verify` / `verify-attestation` from a clean machine, the verify commands in docs/DEPLOY.md |
 
 Found and fixed: HyperFrames refuses to render with less than 1 GB free in its
 temp directory, which a 1 GB tmpfs `/tmp` is not (its temp files now go to
@@ -280,13 +301,15 @@ container.
 
 ### Public docs published to BuildBase Docs (2026-11-21, issue #47)
 
-Built (D-080..D-082; how to run: docs/DOCS_PUBLISHING.md): 19 public-safe pages
-in 9 folders (`start`, `install`, `api`, `mcp`, `providers`, `manifest`,
-`cookbook`, `privacy`, `troubleshooting`) from `docs/public/**` plus
-`docs/CONFIG.md`, `docs/PRIVACY.md` and `docs/providers/*.md`, listed in
-`docs/public/manifest.json`. The MCP tool list (every registered tool, grouped; 61 after webhooks), the REST
-route table and the template catalog are generated from the code
-(`pnpm docs:reference`, drift test in the server suite).
+Built (D-080..D-082; how to run: docs/DOCS_PUBLISHING.md): public-safe pages
+from `docs/public/**` plus `docs/CONFIG.md`, `docs/PRIVACY.md` and
+`docs/providers/*.md`, listed in `docs/public/manifest.json` (19 pages in 9
+folders at first; 23 in 10 folders since the screenshots and walkthroughs).
+The MCP tool list (every registered tool, grouped), the REST route table and
+the template catalog are generated from the code (`pnpm docs:reference`, drift
+test in the server suite); so is the tool count in README.md, this file and
+docs/AGENT_PLATFORM.md (`<!-- mcp-tool-count -->` markers, checked by the same
+test and by `pnpm test:docs`).
 `scripts/docs/sync-buildbase.mjs` publishes them: idempotent, matched by path,
 owned by the `source-repo` tag, archive instead of delete. Published to the
 development environment `fsyqdskf` only; a re-run there was a no-op. No CI job
@@ -308,8 +331,11 @@ status only; `/mcp` Origin compares scheme, host and port; sealed licence
 state and licence-server time; release images refuse to start without release
 build information; stronger bootstrap keys; IPv6 transition ranges in the URL
 import and webhook guard; credential-free asset sources; presigned URL
-parameters redacted. Deferred: SEC-07 (queue and per-key resource limits,
-after the job queue work); signed licence answers (needs BuildBase).
+parameters redacted. SEC-07 (queue and per-key resource limits) was built
+after the job queue work as default resource limits (#161, D-090..D-092:
+job caps per key and in total, render size, streamed uploads, provider
+budgets; settings under `limits.*`, docs/security/HARDENING.md). Deferred:
+signed licence answers (needs BuildBase).
 
 | Check | Result |
 | --- | --- |
@@ -342,7 +368,7 @@ restricted pod security) and a compose file for an api with N workers.
 | Worker processes on SQLite, PostgreSQL 17, MySQL 8.4 (SCL-01..06: N×M exactly once, SIGKILL mid-job, max attempts, SIGTERM hand-back, quota race of two processes, cross-instance cancel/long-poll) | 18 passed |
 | Runner (SCL-01u..11u) | 11 passed |
 | Server: guard (SCA-01..04), an api + two workers on one database (SCA-05..12), webhooks exactly once across instances (SCA-13) | 13 passed on PostgreSQL 17, 13 on MySQL 8.4 |
-| Kubernetes manifests | kubeconform 0.7.0 strict (1.31): 12 valid; `kubectl kustomize` output: 11 valid; not applied to a cluster |
+| Kubernetes manifests | kubeconform 0.7.0 strict (1.31): 12 valid; `kubectl kustomize` output: 11 valid; applied to a kind cluster since #153 (below) |
 | Docker scale e2e (`SCALE=1 e2e/docker/run.sh`), release image, hardened flags: api + 2 workers, PostgreSQL 17, MinIO | **ALL SCALE E2E CHECKS PASSED** (47 checks): role guard refusals, worker-only routes, 6 renders spread over both workers once each (one `running` event per job in PostgreSQL, none on the api), `docker kill` mid-render → re-queued and finished elsewhere (attempt 2), cancel across instances, `docker stop` hands the job back, MinIO down → workers pause and `/readyz` 503, PostgreSQL down → `/readyz` 503 without restarts and back to work, bounded metrics, no secret in any log |
 
 Found and fixed: Playwright closed Chrome on SIGTERM, so a draining worker
@@ -352,9 +378,157 @@ could hang on an unreachable database (probes capped at 5 s, PostgreSQL
 connect timeout 10 s).
 
 Not done: Redis/BullMQ (not built, D-075), MariaDB and Azure/GCS with several
-instances, the MySQL Docker scale run, a real cluster and the HPA External
-metric path, a Helm chart; CI does not run the scale e2e yet (a `.github/`
+instances, the MySQL Docker scale run, the HPA External metric path, a Helm
+chart; CI does not run the scale e2e yet (a `.github/`
 change for a maintainer).
+
+### Render backends v2 and `worker --once` (2026-11-22, issue #150)
+
+Built (D-100, from D-095; matrix, interface, exit statuses and test record:
+[providers/backends.md](providers/backends.md)): `RenderBackend` gains `kind`
+(`pool` / `launcher` / `managed`), `capabilities()` and `estimate()`;
+`get_capabilities` reports them, `validate_project` returns the estimate and
+checks engines and unit length against the backend; `remotion-lambda` stays
+`implemented: false`. A contract suite every backend runs. `reelforge worker
+--once [--job <id>] [--wait-ms N]` and `REELFORGE_WORKER_ONCE=1`: claim at most
+one job (exactly that id with `--job`, fenced, per-key cap applied), render
+it, exit 0 / 1 / 75; SIGTERM hands the job back; an empty queue exits 0 within
+`queue.onceWaitMs` (3 × `queue.pollIntervalMs`). Settings `server.workerOnce`,
+`queue.onceWaitMs`.
+
+Not done: launcher backends (#28), Remotion Lambda (#157), recipes for ACA
+event jobs / Batch / Cloud Run Jobs and runs on those platforms (the KEDA
+ScaledJob recipe is #153, below); `estimate()` has no time until #125 measures render speed.
+
+### Kubernetes + KEDA autoscaling (2026-11-22, issue #153)
+
+Built (D-101; recipe and test record:
+[providers/queue-and-scaling.md](providers/queue-and-scaling.md#autoscaling-with-keda)):
+`deployment/kubernetes/keda/` (ScaledObject, KEDA PostgreSQL scaler on the
+`Job` table, scale to zero), `keda/mysql/`, `keda/scaledjob/` (one Kubernetes
+Job per render running `worker --once`), the Prometheus scaler documented; the
+base moved to `deployment/kubernetes/base/` (`kubectl apply -k
+deployment/kubernetes/` unchanged). `e2e/k8s/keda.sh` (kind, release image,
+PostgreSQL, MinIO, mock licence) and `e2e/k8s/kubeconform.sh`.
+
+| Check | Result |
+| --- | --- |
+| `e2e/k8s/kubeconform.sh` (kubeconform 0.7.0 strict; KEDA 2.21.1 CRD schemas) | raw 16, base 11, keda 12, keda/mysql 12, keda/scaledjob 9: all valid |
+| `KEDA_IMAGES=none e2e/k8s/keda.sh` on kind v0.33.0 / Kubernetes 1.37.0, KEDA CRDs only | 20 renders once each on 4 worker pods, a pod deleted mid-render → re-queued and finished on attempt 2, the ScaledJob's Job template runs `worker --once` (4 Jobs Complete), overlays accepted by the API server, no secret in pod logs |
+| KEDA operator (scale 0 → N → 0, timings, KEDA creating Jobs) | **not run**: KEDA's images are on ghcr.io, not reachable from this sandbox; needs the nightly/manual run |
+
+Found and fixed: worker pods ran under `RuntimeDefault`, where Chromium's
+sandbox (on in the image, D-086) cannot start, so every html render failed on
+Kubernetes; workers now use the Localhost profile `reelforge-chrome.json`.
+
+### Render fan-out across workers (2026-11-22/23, issue #156: PRs #174, #175, #194)
+
+Built (D-097; how it works, limits and test record:
+[providers/queue-and-scaling.md](providers/queue-and-scaling.md#render-fan-out)):
+`render.fanOut` (runtime setting, database queue) `off` (default: one worker
+renders everything, as before), `scenes` (one `render_unit` job per scene) or
+`scenes+chunks` (also splits scenes of at least `render.chunkMinSceneSeconds`
+into `render.chunkSeconds` frame ranges, for engines that declare frame ranges:
+Remotion only today). Units normalise their clip to the final encoding; exactly
+one `render_join` (row lock on the parent) joins them with the concat demuxer
+and stream copy, mixes the audio once and validates like a single-worker
+render. Fail, cancel and `retry_job` cascade (a retry reuses committed units);
+progress and webhooks are the parent's only; `list_jobs` with `parentId`
+lists the units and the join. Test cases FAN-01..48 (contract tests on memory,
+SQLite, PostgreSQL 17 and MySQL 8.4, runner, service, media pipeline); real-engine e2e on PostgreSQL 17 + MinIO with an
+api and 3 workers: the fanned-out reel equals the single-worker one in ffprobe
+metadata, timestamps and per-frame luma (FAN-30, 4 engines) and, chunked, has
+a key frame at every chunk start with 47 dB or more PSNR at every seam
+(FAN-32). Wall times on a shared 4-core machine are measurements, not a
+benchmark. Not done: frame ranges for html, Motion Canvas and HyperFrames
+(each such scene stays one unit), fan-out on backends other than `local`.
+
+### Paged lists (2026-11-22, issue #179)
+
+Built (D-102): `list_projects`, `list_jobs` and `list_assets` (REST and MCP) return a keyset page,
+newest first by (createdAt, id), with `limit` (default 50, max 200), an opaque `cursor` and
+`nextCursor`; a call without them gets the newest 50 (a deliberate behaviour change; the tool
+descriptions tell agents how to page). Project summaries come from columns written with each
+version, not from manifests. Migration `0008_list_paging` (columns and keyset indexes, all three
+databases). Contract tests on memory, SQLite, PostgreSQL and MySQL walk every row exactly once while
+rows are inserted. Load test, lower bound, shared sandbox (not dedicated): full CRUD mix 313 → 741
+req/s on the same box ([PERFORMANCE.md](PERFORMANCE.md#list_projects-paging-179-before-and-after)).
+
+### Render lookup by id and `list_jobs` by `parentId` (2026-11-22, issue #184)
+
+Built: `get_render` (and the manifest, output and download routes) after a restart, or on another
+api instance, no longer reads every project to find a render. The render or preview job that made
+it names its project: a `runId` column on Job with index `(workspaceId, runId)`, read once in the
+caller's workspace, then storage is asked about that one render. Migration `0009_job_run_id` adds
+the column and index and backfills existing render and preview jobs from `params.runId`. A server
+test on SQLite, PostgreSQL and MySQL counts the calls after a restart: no project read, no storage
+listing, keys of the owning render only. `list_jobs` now really takes `parentId` (the units and the
+join of a fanned-out render), keyset-paged with the filter bound into the cursor (D-102); no new
+index, because a render has at most 51 children (50 scenes and a join) and `parentId` is indexed.
+
+### Overload protection: priorities, admission, queue-wait SLO (2026-11-22, issue #155)
+
+Built (D-103) on top of the fair claim and caps of #161/#171/#183: three classes (`interactive`
+previews > `standard` renders > `batch`), `priority` on `render_project` / `preview_scene`, a
+per-key `maxPriority` only an admin can raise (`403 priority_not_allowed` otherwise); the claim
+orders by class, then fairness across keys, then age on memory, SQLite, PostgreSQL and MySQL
+(MySQL keeps its one-row locking), units inherit their render's class, and `batch` ages into
+`standard` after `queue.priorityAgingSeconds` (600). Admission by estimated wait
+(`limits.maxEstimatedWaitSeconds`, off by default): `429 queue_full` with `Retry-After` and
+`details` when min(oldest job ahead's wait, jobs ahead ÷ measured claim rate) exceeds it, counted
+in the existing one cap statement; the claim rate is shared through a per-minute counter in the
+database. Histogram `reelforge_job_queue_wait_seconds` (type and priority labels only), SLO p95 <
+60 s previews / < 5 min renders, Grafana panel and promtool-tested alert rules in
+`deployment/observability/`. Migration `0010_job_priority`. Test cases PRI-01..09 (4 targets),
+PRIS-01..05, PRS-01..03 (SQLite, PostgreSQL 17, MySQL 8.4):
+[queue-and-scaling.md](providers/queue-and-scaling.md#priorities-fairness-and-admission-d-103).
+Not measured: the SLO itself on a real fleet at maximum replicas.
+
+### Database pooling and read replicas (2026-11-22, issue #152)
+
+Built (D-104): `worker` processes default to a pool of 3 when their URL has no
+`connection_limit` (`database.workerConnectionLimit`); the PgBouncer 1.26.1 transaction-mode
+recipe as a compose overlay (`deployment/compose/docker-compose.pgbouncer.yml` + `pgbouncer.env`,
+migrations once on the direct port) that the Docker scale e2e runs with `POOLER=pgbouncer`;
+`database.readUrl` (`DATABASE_READ_URL`) sends six list reads to a replica and everything else to
+the primary (SQLite refuses it). Sizing rule, `connection_limit` per role, RDS Proxy and Cloud SQL
+notes with sources:
+[queue-and-scaling.md](providers/queue-and-scaling.md#connection-pooling). Test cases REP-01..08
+(SQLite, PostgreSQL 17, MySQL 8.4) and SCL-19. Not tested: RDS Proxy, Cloud SQL, a streaming
+replica container (a second database fed by the test stands in). Since #191 every raw PostgreSQL
+statement names its schema, so `?schema=` behind PgBouncer transaction mode is supported (two
+schemas through one pool, exactly once each: PGB-04..08, SQL-01..03; run locally, CI has no
+PgBouncer).
+
+### Queue dispatch: poll backoff and LISTEN/NOTIFY (2026-11-22, issue #158, step 1)
+
+Built (D-105): `queue.dispatch` `poll` (default; empty polls now back off from
+`queue.pollIntervalMs` to `queue.pollMaxIntervalMs`, 5 s, everywhere) and `notify` (PostgreSQL only:
+NOTIFY inside every transaction that makes a job claimable, LISTEN on one direct session connection
+per worker, `database.directUrl` for PgBouncer transaction mode, a delivery check that refuses a
+listen connection that does not receive, a fallback poll every 30 s, `/readyz` `dispatch` and
+dispatch metrics). A message only wakes the normal fair claim, so priorities and fairness are
+unchanged; busy workers stop listening. The generic dispatch outbox (`0011_dispatch_outbox`) and
+relay for SQS / Redis Streams / NATS are built and tested with a fake broker; those drivers are not.
+Shared dispatch contract suite on the memory bus and PostgreSQL 17 (DSP-01..11, NTF-01..05,
+OUT-01..12, DSP-20..24). Measured on the shared sandbox (lower bound): 200 idle workers 219 tx/s
+before, 69 with backoff, 47 with notify; queue wait p95 with 2 mostly idle workers 946 ms before,
+103 ms with notify ([PERFORMANCE.md](PERFORMANCE.md#queue-dispatch-158-poll-backoff-and-notify)).
+Not built: the external drivers, fewer instances running lease recovery (the rest of idle load).
+
+### Queue dispatch: SQS and Redis Streams (2026-11-23, issue #158, step 2)
+
+Built (D-105 amendment): `queue.dispatch` `sqs` (SQS standard queue, `@aws-sdk/client-sqs`) and
+`redis` (Redis Streams + one consumer group, `ioredis`), on every database, through the outbox and a
+relay on every instance. One worker per message; the message wakes the normal fair claim and is
+acknowledged after it (whichever job the claim took); a worker holds at most as many unanswered
+messages as it has free slots and gives back what it cannot answer; crashed consumers' messages come
+back through the SQS visibility timeout or Redis `XAUTOCLAIM`. A broker outage never blocks an
+enqueue or a worker start (the outbox retries, workers poll). `/readyz` reports the listener and the
+relay; secrets via `_FILE` or encrypted runtime settings. Tested on SQS in LocalStack 4.11.1 and
+Redis 8.4 with memory repositories, PostgreSQL 17 and MySQL 8.4 (contract DSP-01..11, BRK-01..08,
+server DSP-25..29; CI runs the same cases on an in-memory competing-consumer queue). Not built:
+NATS JetStream; untested: AWS itself, `rediss://`, the KEDA triggers on SQS / Redis (documented).
 
 ## 4. Infrastructure inventory (no secrets)
 
@@ -374,7 +548,7 @@ must be rotated before launch (#8).
 
 ## 5. Decisions
 
-Decided: see `docs/DECISIONS.md` (D-001..D-014). Key ones: both Remotion and
+Decided: see `docs/DECISIONS.md` (D-001..D-105). Key ones: both Remotion and
 Motion Canvas (D-002, D-008); self-hosted one-time sale (D-003, D-004); no
 mandatory seller-paid AI (D-005); **REST + MCP agent platform with plugins**
 (D-014, `docs/AGENT_PLATFORM.md`); HyperFrames is a self-hosted engine plugin
@@ -412,39 +586,24 @@ used for tests.
 | Step | Status | Issue |
 | --- | --- | --- |
 | A1 one-command server + keys | done (`pnpm dev` / `docker compose up`; bootstrap key env/_FILE or CLI) | #9 |
-| A2 MCP: create/edit/theme/render/output | **done and accepted in Docker (2026-11-21, #16)**: SDK-client journey from a separate container, and headless **Claude Code** made an 18 s, 4-engine reel over MCP only (12 turns, 2 `get_job` long-polls, 112 s, ≈ $0.32). Codex/Cursor untested (#33) | #9, #16 |
+| A2 MCP: create/edit/theme/render/output | **done and accepted in Docker (2026-11-21, #16)**: SDK-client journey from a separate container, and headless **Claude Code** made an 18 s, 4-engine reel over MCP only (12 turns, 2 `get_job` long-polls, 112 s, ≈ $0.32). Tutorial matrix ([tutorials/README.md](tutorials/README.md)): Claude Code, an MCP SDK script, REST and a local model proven on every engine; Codex documented, not proven (OpenAI key pending); Cursor and other clients untested (#33) | #9, #16, #165 |
 | A3 engines: Remotion, Motion Canvas, HTML, HyperFrames | done (4 of 4, one MP4 in the e2e test) | #9 |
-| A4 Docker image + deploy docs | done for Docker/compose: hardened release image (#26), e2e on it; Kubernetes `securityContext` documented, untested; cloud recipes untested | #9, #26 |
-| B1 selling configured in the dev environment (`fsyqdskf`) | Stripe test keys saved in the dev environment (store 62e9ff3); own-store selling setup still to do (was blocked on Stripe Connect in the test org) | #8 |
-| B2 buy flow, order page, licences page | code done and deployed; purchase untested (after B1) | #2 |
+| A4 Docker image + deploy docs | done for Docker/compose: hardened release image (#26), e2e on it; Kubernetes manifests and the KEDA recipe applied to a kind cluster (#153; KEDA's own scaling not run yet); cloud recipes untested | #9, #26, #153 |
+| B1 selling configured in the dev environment (`fsyqdskf`) | done in the dev environment: Stripe test keys (store 62e9ff3), published items; production selling is launch work (#90, #91, #127; #8 closed) | #8 |
+| B2 buy flow, order page, licences page | done and verified on the test site (store PR #2) | #2 |
 | B3 legal/trust pages | drafts live with placeholders; must move to the locked-image model (D-015) | #3 |
 | B4 demo leftovers removed | done | #1 |
-| B5 test purchase verified end to end | after B1–B2 | #2 |
+| B5 test purchase verified end to end | done on the test site (Stripe test card → `/order` with the key → Dashboard > Licences; store `npm run e2e:buyer`, walkthrough 2026-11-22); a refund test is #126 | #2 |
 
 ## 7. Backlog
 
-| # | Area | Title |
-| --- | --- | --- |
-| 1 | store | Remove remaining BuildBase demo content (blocker) |
-| 2 | store | Buy flow: item pricing, BuyButton, /order, My licences, install service (blocker) |
-| 3 | store | Legal and trust pages: EULA, refund, privacy, contact, imprint, Remotion notice (blocker) |
-| 4 | store | Security: org-token routes only check sign-in |
-| 5 | store | Dashboard: replace demo pages with buyer pages |
-| 6 | store | CI and deploy fixes, deploy ordering, docs, old copy cleanup |
-| 7 | store | SEO, layout, accessibility, performance, tests |
-| 8 | ops | Selling setup and accounts: Stripe Connect, own store, email sender, secret rotation |
-| 9 | studio | Agent platform v0.1: REST + MCP server (tracking) |
-| 10 | studio | Go/no-go: written Remotion licence answer |
-| 11 | studio | Release packaging and buyer delivery |
-| 12 | studio | Templates and visual quality |
-| 13 | studio | Audio and captions |
-| 14 | studio | Install, platforms and hardening |
-| 15 | studio | Optional web UI |
-| 22 | studio | Product packaging v1: locked image, licence, config, pluggable database (tracking) |
-| 23 | studio | Database layer: repository interfaces + Prisma (done on the branch; see §3) |
-| 24 | studio | Configuration system: defaults < file < env < API/MCP runtime settings (done on the branch; see §3) |
-| 25 | studio | Licence activation: BuildBase licence API, daily validate, 14-day offline grace (done on the branch; see §3; follow-ups in D-038) |
-| 26 | studio | Release image, hardening, supply chain, e2e on the final image (done on the branch except the registry/distribution plan; see §3, D-039..D-043) |
+The backlog is the GitHub issues of this repository, not a copy here (a copied
+list went stale). Start with the handoff index, **#142** ("Start here: how to
+pick up work on ReelForge"); then filter the issues by label: `area:studio`,
+`area:store`, `area:ops`, `area:docs`, `priority:P0`..`P3` and
+`status:ready` / `in-progress` / `blocked`. Store work is tracked here too
+(issues are off on the store repo). Epics: #17 (studio enterprise readiness),
+#21 (ops and founder actions).
 
 Upstream issues filed for BuildBase gaps met along the way: saas-os/os#2737–#2742,
 saas-os/sdk#389, comment on saas-os/os#2735, buildbase-app/nextjs-starter#18.

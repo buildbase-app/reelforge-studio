@@ -66,9 +66,12 @@ A project is one manifest (v0.2). Every change is stored as a new version.
 
 **List projects**. Scope: `read`, read-only. REST: `GET /v1/projects`.
 
-Lists projects on this server with title, version, scene count and duration.
+Lists projects on this server with title, version, scene count and duration (no manifests; get_project has the manifest). Returns one page, newest first: at most `limit` items (default 50, max 200) and `nextCursor`. When nextCursor is not null there are more: call again with the same arguments plus `cursor: nextCursor` until it is null. Without a cursor you get the first (newest) page only, not everything.
 
-No arguments.
+| Argument | Type | Required | Description |
+| --- | --- | --- | --- |
+| `limit` | integer | no | Page size: 1 to 200, default 50. |
+| `cursor` | string | no | nextCursor from the previous page of this list (same filters), unchanged. Omit for the first page. |
 
 ### `create_project`
 
@@ -297,11 +300,13 @@ Uploads a small file you already have (image, audio, video, font) as base64, for
 
 **List assets**. Scope: `read`, read-only. REST: `GET /v1/assets`.
 
-Lists assets: those of a project (manifest entries) with projectId, otherwise everything in the server asset store.
+Lists assets: with projectId, all of that project's manifest entries (one page, nextCursor null); otherwise the server asset store. Returns one page, newest first: at most `limit` items (default 50, max 200) and `nextCursor`. When nextCursor is not null there are more: call again with the same arguments plus `cursor: nextCursor` until it is null. Without a cursor you get the first (newest) page only, not everything.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `projectId` | string | no | Project id (the manifest's projectId). |
+| `limit` | integer | no | Page size: 1 to 200, default 50. |
+| `cursor` | string | no | nextCursor from the previous page of this list (same filters), unchanged. Omit for the first page. |
 
 ### `get_asset`
 
@@ -388,25 +393,27 @@ Renders run as jobs: queued, running, then succeeded, failed or cancelled.
 
 **Render a quick preview**. Scope: `render`. REST: `POST /v1/projects/:id/preview`.
 
-Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image).
+Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted. Previews are queued at priority "interactive" (ahead of renders) by default. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image). When the server is busy it refuses with 429: too_many_jobs (your key has too many unfinished jobs), queue_full (the queue is full, or a new job would wait longer than limits.maxEstimatedWaitSeconds; details has the estimate and queued counts) or quota_exceeded. Wait details.retryAfterSeconds, then call again with the same idempotencyKey.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `projectId` | string | yes | Project id (the manifest's projectId). |
 | `sceneId` | string | no |  |
 | `scale` | number | no |  |
+| `priority` | "interactive" \| "standard" \| "batch" | no | Queue priority: jobs are started interactive first, then standard, then batch (fairly across API keys within a class). Default "interactive" for a preview. Use "batch" for work that can wait. A higher class than your key allows (get_capabilities limits.priority.maxForThisKey) is refused with priority_not_allowed. |
 | `idempotencyKey` | string | no | Optional idempotency key (e.g. a UUID you generate once per intended action): retrying the call with the same key and arguments returns the first result instead of doing it twice; the same key with different arguments fails with idempotency_conflict. Kept 24 h. |
 
 ### `render_project`
 
 **Render the project**. Scope: `render`. REST: `POST /v1/projects/:id/renders`.
 
-Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Then call get_job with waitSeconds: 45 (repeat while it is still running) until status is succeeded or failed, then call get_render_output.
+Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Renders are queued at priority "standard" by default. Then call get_job with waitSeconds: 45 (repeat while it is still running) until status is succeeded or failed, then call get_render_output. When the server is busy it refuses with 429: too_many_jobs (your key has too many unfinished jobs), queue_full (the queue is full, or a new job would wait longer than limits.maxEstimatedWaitSeconds; details has the estimate and queued counts) or quota_exceeded. Wait details.retryAfterSeconds, then call again with the same idempotencyKey.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `projectId` | string | yes | Project id (the manifest's projectId). |
 | `backend` | string | no | Render backend id; default from the manifest ("local"). |
+| `priority` | "interactive" \| "standard" \| "batch" | no | Queue priority: jobs are started interactive first, then standard, then batch (fairly across API keys within a class). Default "standard" for a render. Use "batch" for work that can wait. A higher class than your key allows (get_capabilities limits.priority.maxForThisKey) is refused with priority_not_allowed. |
 | `idempotencyKey` | string | no | Optional idempotency key (e.g. a UUID you generate once per intended action): retrying the call with the same key and arguments returns the first result instead of doing it twice; the same key with different arguments fails with idempotency_conflict. Kept 24 h. |
 
 ### `get_job`
@@ -424,11 +431,14 @@ Status of a render/preview job: queued, running (with progress stage and fractio
 
 **List jobs**. Scope: `read`, read-only. REST: `GET /v1/jobs`.
 
-Lists render and preview jobs (newest first), optionally only those of one project.
+Lists render and preview jobs, optionally only those of one project (projectId) and/or the units and the join of one fanned-out render (parentId: the render job's id; each unit renders one scene). To follow one job, call get_job with its id instead: a render's progress already covers its units. Returns one page, newest first: at most `limit` items (default 50, max 200) and `nextCursor`. When nextCursor is not null there are more: call again with the same arguments plus `cursor: nextCursor` until it is null. Without a cursor you get the first (newest) page only, not everything.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `projectId` | string | no | Project id (the manifest's projectId). |
+| `parentId` | string | no | Only the children of this job: the render_unit jobs and the render_join job of a fanned-out render (render.fanOut), given the render job's id. |
+| `limit` | integer | no | Page size: 1 to 200, default 50. |
+| `cursor` | string | no | nextCursor from the previous page of this list (same filters), unchanged. Omit for the first page. |
 
 ### `get_job_logs`
 
@@ -592,6 +602,7 @@ Creates an API key with the given scopes (read, write, render, admin) and option
 | `rendersPerDay` | integer \| null | no | Render and preview jobs per UTC day (null: unlimited). |
 | `rendersPerMonth` | integer \| null | no | Render and preview jobs per calendar month, UTC (null: unlimited). |
 | `ipAllowlist` | string[] \| null | no | CIDR blocks the key may be used from, e.g. ["203.0.113.0/24"]; null or []: anywhere. |
+| `maxPriority` | "interactive" \| "standard" \| "batch" \| null | no | Highest job priority the key may ask for: "interactive" lets it start renders ahead of other renders; "batch" keeps all its jobs behind everyone else's. null: each job type's default (previews interactive, renders standard), so the key can lower a job's priority but not raise it. |
 
 ### `update_key`
 
@@ -609,6 +620,7 @@ Changes a key's name, expiry, rate limit, render quotas or IP allowlist (null cl
 | `rendersPerDay` | integer \| null | no | Render and preview jobs per UTC day (null: unlimited). |
 | `rendersPerMonth` | integer \| null | no | Render and preview jobs per calendar month, UTC (null: unlimited). |
 | `ipAllowlist` | string[] \| null | no | CIDR blocks the key may be used from, e.g. ["203.0.113.0/24"]; null or []: anywhere. |
+| `maxPriority` | "interactive" \| "standard" \| "batch" \| null | no | Highest job priority the key may ask for: "interactive" lets it start renders ahead of other renders; "batch" keeps all its jobs behind everyone else's. null: each job type's default (previews interactive, renders standard), so the key can lower a job's priority but not raise it. |
 
 ### `rotate_key`
 

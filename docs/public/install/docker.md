@@ -15,12 +15,16 @@ their versions, keys, jobs, themes, provider settings, the audit log) lives in a
 database: **SQLite on the data volume by default**, or your own PostgreSQL or
 MySQL/MariaDB. Asset and render files stay on the data volume, or in an S3,
 Azure Blob or Google Cloud Storage bucket ([Storage](/docs/providers/storage)).
-Run **one instance per data directory**.
+Run **one instance per data directory**. To spread renders over several
+machines, run the same image as one or more `api` instances and `worker`
+instances on PostgreSQL or MySQL with bucket storage: see the repository's
+[queue and scaling guide](../../providers/queue-and-scaling.md).
 
 **Tested:** the image built and run on Linux x64, `docker compose up`, a
 four-engine 1080x1920 render through REST and MCP, and the Docker end-to-end
-suite on SQLite, PostgreSQL and MySQL. **Not tested:** macOS, Windows, ARM hosts
-and the cloud recipes in the repository's deploy guide.
+suite on SQLite, PostgreSQL and MySQL; the release image is also built and run
+through the Docker end-to-end suite on Linux arm64 (SQLite) in CI. **Not
+tested:** macOS, Windows and the cloud recipes in the repository's deploy guide.
 
 ## docker compose (recommended)
 

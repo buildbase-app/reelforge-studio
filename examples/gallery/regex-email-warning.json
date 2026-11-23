@@ -1,0 +1,83 @@
+{
+  "gallery": {
+    "slug": "regex-email-warning",
+    "title": "Don't validate email with regex",
+    "description": "A spicy coding tip: stop trying to validate email addresses with a giant regex.",
+    "category": "Coding tip",
+    "tags": [
+      "coding",
+      "regex",
+      "opinion"
+    ],
+    "prompt": "A spicy coding tip: stop trying to validate email addresses with a giant regex. Show the regex, a \"do this instead\" checklist, and a punchline. Sunset palette, 14 seconds.",
+    "palette": "sunset",
+    "theme": "default + inline tokens (Clay)",
+    "engines": [
+      "html",
+      "remotion"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 14
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "regex-email-warning",
+    "title": "Don't validate email with regex",
+    "brief": {
+      "title": "Don't validate email with regex",
+      "goal": "A spicy coding tip: stop trying to validate email addresses with a giant regex. Show the regex, a \"do this instead\" checklist, and a punchline. Sunset palette, 14 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 14
+    },
+    "theme": {
+      "base": "default",
+      "tokens": {
+        "colors": {
+          "background": "#171211",
+          "surface": "#231c1a",
+          "text": "#f7efeb",
+          "mutedText": "#b9aaa4",
+          "accent": "#f2765a",
+          "accent2": "#8f817b"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-code",
+        "engine": "html",
+        "durationSeconds": 5,
+        "html": "<div class=\"bd\"><div class=\"bd-grid\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"cd-hd\"><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.1s\">Please</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.16s\">don&#39;t</span></span></span></div><div class=\"ed\"><div class=\"ed-bar\"><i></i><i></i><i></i><span>validate.js</span></div><div class=\"ed-code\"><div class=\"ln\"><span class=\"no\">1</span><span class=\"ty\" style=\"--ch:40;animation-delay:0.6s;animation-duration:0.378s;animation-timing-function:steps(40,end)\"><i class=\"k\">const</i> re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;</span></div><div class=\"ln\"><span class=\"no\">2</span><span class=\"ty\" style=\"--ch:27;animation-delay:1.02s;animation-duration:0.378s;animation-timing-function:steps(27,end)\"><i class=\"c\">// and 400 more characters…</i></span></div></div></div></div></div><div class=\"tx tx-out\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#5b4e49;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;}.cam{position:absolute;inset:0;animation:st-cam 5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-grid{position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px),linear-gradient(90deg,color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px);background-size:108px 108px;background-position:-2px -2px}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-out{transform:translateY(101%);animation:tx-out 0.5s cubic-bezier(.76,0,.24,1) 4.5s both}@keyframes tx-out{to{transform:translateY(0)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.cd-hd{position:absolute;left:90px;right:90px;top:280px;font-size:88px;font-weight:var(--rf-heading-weight);letter-spacing:-.04em;line-height:1}\n.ed{position:absolute;left:60px;right:60px;top:600px;border-radius:32px;background:color-mix(in srgb,var(--rf-bg) 70%,#000);box-shadow:0 0 0 2px color-mix(in srgb,var(--rf-text) 10%,transparent);overflow:hidden;animation:k-rise .9s cubic-bezier(.16,1,.3,1) 0s both}\n.ed-bar{height:70px;display:flex;align-items:center;gap:12px;padding:0 28px;background:color-mix(in srgb,var(--rf-text) 6%,transparent)}\n.ed-bar i{width:20px;height:20px;border-radius:50%;background:#ff5f57}.ed-bar i:nth-child(2){background:#febc2e}.ed-bar i:nth-child(3){background:#28c840}\n.ed-bar span{margin-left:20px;font:500 26px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}\n.ed-code{padding:34px 34px 40px;font:500 33px/1.65 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-text)}\n.ln{display:flex;white-space:pre}\n.no{width:56px;flex:none;color:color-mix(in srgb,var(--rf-text) 30%,transparent)}\n.ty{display:inline-block;overflow:hidden;width:calc(var(--ch) * 1ch + 2px);animation-name:ty;animation-fill-mode:both}\n@keyframes ty{from{width:0}}\n.k{font-style:normal;color:var(--rf-accent)}.c{font-style:normal;color:color-mix(in srgb,var(--rf-text) 42%,transparent)}.st{font-style:normal;color:color-mix(in srgb,var(--rf-accent) 55%,var(--rf-text))}\n.term{display:flex;align-items:center;gap:16px;margin:0 34px 34px;padding:26px 30px;border-radius:20px;background:color-mix(in srgb,var(--rf-text) 6%,transparent);font:600 30px/1.3 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-text)}\n.pr{color:var(--rf-muted)}.ok{margin-left:auto;color:var(--rf-accent);display:flex}",
+        "notes": "agent-written html scene (code)"
+      },
+      {
+        "id": "s2-checklist",
+        "engine": "html",
+        "durationSeconds": 5.5,
+        "html": "<div class=\"bd\"><div class=\"bd-grid\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><h2><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.45s\">Do</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.5s\">this</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.55s\">instead</span></span></span></h2><ul><li class=\"slide-l\" style=\"animation-delay:1.05s\"><span class=\"mk2\"><svg viewBox=\"0 0 32 32\"><path d=\"M7 17l6 6L25 10\" pathLength=\"1\" style=\"animation-delay:1.3s\"/></svg></span><span>Check for an <em class=\"acc\">@</em></span></li><li class=\"slide-l\" style=\"animation-delay:1.6s\"><span class=\"mk2\"><svg viewBox=\"0 0 32 32\"><path d=\"M7 17l6 6L25 10\" pathLength=\"1\" style=\"animation-delay:1.85s\"/></svg></span><span>Send a confirmation link</span></li><li class=\"slide-l\" style=\"animation-delay:2.15s\"><span class=\"mk2\"><svg viewBox=\"0 0 32 32\"><path d=\"M7 17l6 6L25 10\" pathLength=\"1\" style=\"animation-delay:2.4s\"/></svg></span><span>Let the inbox decide</span></li></ul></div></div></div><div class=\"tx tx-in\"></div>",
+        "css": "#rf-root,.hf-root{--x3:#5b4e49;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-rise 0.8s cubic-bezier(.16,1,.3,1) both,st-fadeout 0.5s ease-in 5s both;}.cam{position:absolute;inset:0;animation:st-cam 5.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-grid{position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px),linear-gradient(90deg,color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px);background-size:108px 108px;background-position:-2px -2px}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}.tx-in{transform:translateY(0);animation:tx-in 0.55s cubic-bezier(.76,0,.24,1) both}@keyframes tx-in{to{transform:translateY(-101%)}}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.eb{display:inline-block;font:500 32px/1.2 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}.acc{color:var(--rf-accent);font-style:normal}.wrap>div:first-child{margin-bottom:40px}\nh2{margin:0 0 64px;font-size:96px;line-height:1;letter-spacing:-.04em;font-weight:var(--rf-heading-weight)}\nul{list-style:none;margin:0;padding:0}\nli{display:flex;align-items:center;gap:36px;font-size:52px;line-height:1.15;font-weight:500;padding:32px 36px;margin-bottom:24px;border-radius:28px;background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 8%,transparent)}\n.mk2{flex:0 0 88px;height:88px;border-radius:20px;background:color-mix(in srgb,var(--rf-text) 8%,transparent);display:flex;align-items:center;justify-content:center;color:var(--rf-accent)}\n.mk2.x{color:var(--rf-muted)}\n.mk2 b{font:600 40px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace}\n.mk2 svg{width:58px;height:58px;fill:none;stroke:currentColor;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}\n.mk2 path{stroke-dasharray:1;stroke-dashoffset:1;animation:ck .45s cubic-bezier(.16,1,.3,1) both}\n@keyframes ck{to{stroke-dashoffset:0}}",
+        "notes": "agent-written html scene (checklist)"
+      },
+      {
+        "id": "s3-kinetic",
+        "engine": "remotion",
+        "durationSeconds": 3.5,
+        "template": "kinetic-title",
+        "props": {
+          "headline": "The inbox is the validator"
+        }
+      }
+    ]
+  }
+}

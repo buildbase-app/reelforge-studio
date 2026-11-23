@@ -16,6 +16,7 @@ import {
   type RequestContext,
   type Scope,
 } from '@reelforge/core';
+import busboy from 'busboy';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
@@ -119,7 +120,12 @@ export function createApp({ service, config, observability }: AppDeps) {
       : new RateLimiter(() => config.rateLimitPerMinute);
 
   app.onError((err, c) => {
-    if (err instanceof ApiError) return c.json(errorBody(err.code, err.message, err.details), err.status as 400);
+    if (err instanceof ApiError) {
+      // Limits that clear by themselves (job caps, quotas, provider caps) say when to come back.
+      const retry = (err.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds;
+      if (err.status === 429 && typeof retry === 'number' && retry > 0) c.header('Retry-After', String(Math.ceil(retry)));
+      return c.json(errorBody(err.code, err.message, err.details), err.status as 400);
+    }
     const status = (err as { status?: number }).status;
     if (status === 413) return c.json(errorBody('too_large', 'request body is too large'), 413);
     obs.logger.log('error', `unhandled error on ${c.req.method} ${c.req.path}`, { error: err, request_id: c.get('requestId') });
@@ -223,8 +229,19 @@ export function createApp({ service, config, observability }: AppDeps) {
 
   const json: MiddlewareHandler<Env> = (c, next) =>
     bodyLimit({ maxSize: config.maxJsonBytes, onError: (c) => c.json(errorBody('too_large', `JSON body larger than ${config.maxJsonBytes} bytes`), 413) })(c, next);
-  const upload: MiddlewareHandler<Env> = (c, next) =>
-    bodyLimit({ maxSize: config.maxUploadBytes + 64 * 1024, onError: (c) => c.json(errorBody('too_large', `upload larger than ${config.maxUploadBytes} bytes`), 413) })(c, next);
+  // Multipart uploads are never buffered (hono's bodyLimit would hold a chunked body in memory): a declared
+  // Content-Length above the limit is refused at once, and the file part is streamed to a temporary file
+  // that stops at limits.maxUploadBytes (D-090). Anything else (JSON {url}) gets the JSON limit.
+  const upload: MiddlewareHandler<Env> = async (c, next) => {
+    if (!(c.req.header('content-type') ?? '').startsWith('multipart/form-data')) return json(c, next);
+    const declared = Number(c.req.header('content-length') ?? 0);
+    const max = service.assets.limits.maxBytes;
+    if (declared > max + 64 * 1024) {
+      await service.recordLimitRejection('upload_too_large', { limit: 'limits.maxUploadBytes', max });
+      return c.json(errorBody('too_large', `upload larger than ${max} bytes (limits.maxUploadBytes)`, { limit: 'limits.maxUploadBytes', max }), 413);
+    }
+    await next();
+  };
   const actor = (c: Context<Env>) => ({ actorType: 'api_key' as const, actorId: c.get('auth').keyId });
   /** The Idempotency-Key header (create and render calls, D-057). */
   const idemKey = (c: Context) => c.req.header('idempotency-key') || undefined;
@@ -345,7 +362,9 @@ export function createApp({ service, config, observability }: AppDeps) {
     return c.body(null, 204);
   });
 
-  v1.get('/projects', need('read'), async (c) => c.json({ projects: await service.listProjects() }));
+  // Lists are pages (D-102): ?limit= (default 50, max 200) and ?cursor= (nextCursor of the previous page).
+  const page = (c: { req: { query(k: string): string | undefined } }) => ({ limit: c.req.query('limit'), cursor: c.req.query('cursor') });
+  v1.get('/projects', need('read'), async (c) => c.json(await service.listProjects(page(c))));
   v1.post('/projects', need('write'), json, async (c) => {
     const b = await body(c);
     const manifest = 'manifest' in b && typeof b.manifest === 'object' ? b.manifest : b;
@@ -401,18 +420,18 @@ export function createApp({ service, config, observability }: AppDeps) {
   v1.post('/projects/:id/preview', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const opts = { sceneId: typeof b.sceneId === 'string' ? b.sceneId : undefined, scale: typeof b.scale === 'number' ? b.scale : undefined };
+    const opts = { sceneId: typeof b.sceneId === 'string' ? b.sceneId : undefined, scale: typeof b.scale === 'number' ? b.scale : undefined, ...(b.priority !== undefined ? { priority: b.priority } : {}) };
     return c.json(await service.idempotent(idemKey(c), 'preview_scene', { projectId, ...opts }, async () => ({ job: await service.preview(projectId, opts) })), 202);
   });
   v1.post('/projects/:id/renders', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const backend = typeof b.backend === 'string' ? b.backend : undefined;
-    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, backend }, async () => ({ job: await service.startRender(projectId, { backend }) })), 202);
+    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.priority !== undefined ? { priority: b.priority } : {}) };
+    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, async () => ({ job: await service.startRender(projectId, opts) })), 202);
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
 
-  v1.get('/jobs', need('read'), async (c) => c.json({ jobs: await service.listJobs({ projectId: c.req.query('projectId') }) }));
+  v1.get('/jobs', need('read'), async (c) => c.json(await service.listJobs({ projectId: c.req.query('projectId'), parentId: c.req.query('parentId') }, page(c))));
   v1.get('/jobs/:id', need('read'), async (c) => {
     // ?wait=N long-polls up to N seconds (max 50) for the job to finish.
     const wait = Number(c.req.query('wait') ?? 0);
@@ -458,7 +477,7 @@ export function createApp({ service, config, observability }: AppDeps) {
     return sendStored(c, service, o, file.split('/').pop()!);
   });
 
-  v1.get('/assets', need('read'), async (c) => c.json({ assets: await service.listAssets({ projectId: c.req.query('projectId') }) }));
+  v1.get('/assets', need('read'), async (c) => c.json(await service.listAssets({ projectId: c.req.query('projectId') }, page(c))));
   v1.get('/assets/:id', need('read'), async (c) => c.json(await service.getAsset(c.req.param('id'))));
   v1.post(
     '/assets',
@@ -466,20 +485,7 @@ export function createApp({ service, config, observability }: AppDeps) {
     upload,
     async (c) => {
       const type = c.req.header('content-type') ?? '';
-      if (type.startsWith('multipart/form-data')) {
-        const form = await c.req.parseBody();
-        const file = form.file;
-        if (!(file instanceof File)) throw new ApiError('bad_request', 400, 'multipart upload needs a "file" field');
-        const license = typeof form.license === 'string' && form.license ? parseLicense(form.license) : undefined;
-        const r = await service.uploadAsset(Buffer.from(await file.arrayBuffer()), {
-          filename: file.name,
-          contentType: file.type,
-          projectId: typeof form.projectId === 'string' && form.projectId ? form.projectId : undefined,
-          assetId: typeof form.assetId === 'string' && form.assetId ? form.assetId : undefined,
-          license,
-        });
-        return c.json(r, 201);
-      }
+      if (type.startsWith('multipart/form-data')) return c.json(await multipartUpload(c, service), 201);
       const b = await body(c);
       if (typeof b.url !== 'string') throw new ApiError('bad_request', 400, 'send multipart/form-data with a "file" field, or JSON {"url": "https://..."}');
       const url = b.url;
@@ -597,7 +603,7 @@ export function createApp({ service, config, observability }: AppDeps) {
 /** Key lifecycle options from a JSON body (create_key / update_key). expiresInDays is a shortcut for expiresAt. */
 function keyOptions(b: Record<string, unknown>): KeyOptions {
   const o: KeyOptions = {};
-  for (const k of ['expiresAt', 'rateLimitPerMinute', 'rendersPerDay', 'rendersPerMonth', 'ipAllowlist'] as const) {
+  for (const k of ['expiresAt', 'rateLimitPerMinute', 'rendersPerDay', 'rendersPerMonth', 'ipAllowlist', 'maxPriority'] as const) {
     if (k in b) (o as Record<string, unknown>)[k] = b[k];
   }
   if (b.expiresInDays !== undefined) {
@@ -606,6 +612,63 @@ function keyOptions(b: Record<string, unknown>): KeyOptions {
     o.expiresAt = new Date(Date.now() + d * 86_400_000).toISOString();
   }
   return o;
+}
+
+/**
+ * A multipart upload, streamed (D-090): the "file" part goes to a temporary
+ * file as it arrives (stopped at limits.maxUploadBytes), the other fields
+ * (projectId, assetId, license) are read as they come, before or after it.
+ */
+async function multipartUpload(c: Context, service: ReelforgeService) {
+  const body = c.req.raw.body;
+  if (!body) throw new ApiError('bad_request', 400, 'multipart upload needs a "file" field');
+  let bb: busboy.Busboy;
+  try {
+    bb = busboy({ headers: { 'content-type': c.req.header('content-type') ?? '' }, limits: { files: 1, fields: 20, fieldSize: 64 * 1024, parts: 30 } });
+  } catch (e) {
+    throw new ApiError('bad_request', 400, `invalid multipart request: ${(e as Error).message}`);
+  }
+  const fields: Record<string, string> = {};
+  const src = Readable.fromWeb(body as import('node:stream/web').ReadableStream<Uint8Array>);
+  let upload: ReturnType<ReelforgeService['uploadAssetStream']> | undefined;
+  let fail!: (e: unknown) => void;
+  const failed = new Promise<never>((_, reject) => (fail = reject));
+  failed.catch(() => undefined);
+  const closed = new Promise<void>((resolve, reject) => {
+    bb.on('close', resolve);
+    bb.on('error', (e: Error) => reject(new ApiError('bad_request', 400, `invalid multipart body: ${e.message}`)));
+  });
+  closed.catch(() => undefined);
+  bb.on('field', (name: string, value: string) => {
+    fields[name] = value;
+  });
+  bb.on('file', (name: string, stream: Readable, info: busboy.FileInfo) => {
+    if (name !== 'file' || upload) {
+      stream.resume();
+      return;
+    }
+    upload = service.uploadAssetStream(stream, async () => {
+      await closed; // every field has arrived
+      return {
+        filename: info.filename,
+        contentType: info.mimeType,
+        projectId: fields.projectId || undefined,
+        assetId: fields.assetId || undefined,
+        license: fields.license ? parseLicense(fields.license) : undefined,
+      };
+    });
+    upload.catch((e) => {
+      // Stop reading the request at once (too large, unsupported type, ...).
+      src.unpipe(bb);
+      src.destroy();
+      fail(e);
+    });
+  });
+  src.on('error', (e) => bb.destroy(e));
+  src.pipe(bb);
+  await Promise.race([closed, failed]);
+  if (!upload) throw new ApiError('bad_request', 400, 'multipart upload needs a "file" field');
+  return upload;
 }
 
 function parseLicense(s: string) {

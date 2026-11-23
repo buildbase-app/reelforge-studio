@@ -119,6 +119,14 @@ the limit; the key is shown as its first group only.
   check and hourly while running), and a clock more than 10 minutes behind
   that gets no grace (`clock_skew`) until it is correct or a check succeeds.
   It cannot see time that passes while the server is stopped.
+- **Several instances (api + workers).** One deployment = one shared database
+  = **one activation**, however many `api` and `worker` instances run or
+  autoscale. Only `api`/`all` instances call the licence server, and between
+  them about once a day (single flight on the shared state); workers never
+  call it and claim no render job while the stored state disallows renders.
+  Give every instance the same `REELFORGE_SECRET_KEY`. Separate databases
+  (other regions, staging) are separate deployments and take separate
+  activations. Details: docs/providers/queue-and-scaling.md#licence-across-instances.
 - **Moving to another server.** The activation belongs to the database (the
   instance id is stored there), so moving the data volume / database moves the
   activation. For a new installation, free the old one first:
@@ -331,10 +339,11 @@ spec:
     - { name: shm, emptyDir: { medium: Memory, sizeLimit: 1Gi } }
 ```
 
-(VERIFY: the Kubernetes spec is not tested on a cluster here; the same flags are
-tested with Docker. Full manifests for an api and workers, schema-validated with
-kubeconform: `deployment/kubernetes/`, see
-[providers/queue-and-scaling.md](providers/queue-and-scaling.md#example-kubernetes).)
+Full manifests for an api and workers: `deployment/kubernetes/` (the workers use
+this Localhost profile, the api, which never renders, `RuntimeDefault`). They run
+on a kind cluster with the profile mounted on the node and Chromium's sandbox on
+(`e2e/k8s/keda.sh`, issue #153); see
+[providers/queue-and-scaling.md](providers/queue-and-scaling.md#example-kubernetes).
 
 ## Supply chain
 
@@ -485,10 +494,18 @@ database, so they hold across instances.
 docker compose -f deployment/compose/docker-compose.scale.yml up -d --scale worker=3
 # Kubernetes: api + worker Deployments, HPAs (CPU; workers also on reelforge_jobs_queued), PDBs
 kubectl apply -k deployment/kubernetes/
+# or workers that scale to zero on the job queue with KEDA (ScaledObject; keda/scaledjob/ for worker --once)
+kubectl apply -k deployment/kubernetes/keda/
 ```
 
-Matrix, settings, autoscaling on the queue depth, test cases and
-troubleshooting: [providers/queue-and-scaling.md](providers/queue-and-scaling.md).
+With many workers, keep their pools small (the `worker` role defaults to 3
+connections) and put PgBouncer in transaction mode in front of PostgreSQL
+(`-f deployment/compose/docker-compose.pgbouncer.yml`; see
+[Database](#database)).
+
+Matrix, settings, autoscaling on the queue depth, connection pooling, read
+replicas, test cases and troubleshooting:
+[providers/queue-and-scaling.md](providers/queue-and-scaling.md).
 
 ## Database
 
@@ -530,13 +547,41 @@ for the default.
   JSON files are left in place as a backup; delete them once you have checked
   the import. `reelforge import-v01 [--data-dir DIR]` runs it again on demand
   (rows that exist are kept, never overwritten).
-- **Pool size:** each instance opens up to 10 connections (PostgreSQL, MySQL);
-  set `?connection_limit=N` in the URL to change it. Behind PgBouncer use
-  session pooling, or transaction pooling with a pool large enough for the
-  instance (interactive transactions hold one connection for their duration;
-  the migrator's advisory lock needs session or transaction mode, not
-  statement mode). With managed databases that limit connections, budget
-  `connection_limit` x instances (including `reelforge` CLI runs).
+- **Pool size:** each process opens up to 10 connections (PostgreSQL, MySQL;
+  the drivers' default); set `?connection_limit=N` in the URL to change it. A
+  `worker` role process uses **3** when its URL has none
+  (`REELFORGE_DB_WORKER_CONNECTION_LIMIT`, `0` for the driver default). Budget
+  the connections with the sizing rule
+  `api instances × connection_limit + workers × 3 (+ CLI runs, headroom) ≤ pooler pool`
+  (or ≤ `max_connections` without a pooler). Recommended: workers 2-3, api 10.
+  Details: [providers/queue-and-scaling.md](providers/queue-and-scaling.md#connection-pooling).
+- **PgBouncer** (tested: 1.26.1, transaction mode): `pool_mode = transaction`,
+  `max_prepared_statements = 200` (0 also works). `?schema=` works behind it
+  since #191 (every statement names its schema, as the per-client
+  `search_path` is not kept under concurrency); upgrade every instance before
+  they share the pool. Do not rely on `ALTER ROLE ... SET search_path`
+  without `?schema=`: ReelForge uses `public` then. Run migrations on
+  the **direct** port (`--migrate-only` with a URL to the database itself,
+  then `REELFORGE_MIGRATE_ON_START=0` on every instance). Compose overlay:
+  `docker compose -f deployment/compose/docker-compose.scale.yml -f deployment/compose/docker-compose.pgbouncer.yml up -d`.
+  Statement pooling is not supported (the queue and quotas use transactions).
+- **RDS Proxy / Cloud SQL** (untested, from their documentation, read
+  2026-11-22): RDS Proxy attaches to the writer only (Aurora proxies have
+  reader endpoints), and a statement over 16 KB pins the session (project
+  manifests can be larger), as do MySQL prepared statements and `GET_LOCK`
+  (migrations: direct endpoint). Cloud SQL for PostgreSQL's Managed Connection
+  Pooling (Enterprise Plus) listens on 6432/3307, transaction mode by default,
+  `max_prepared_statements` 0; for MySQL it is a thread pool that does not
+  reduce connections. Notes and sources:
+  [providers/queue-and-scaling.md](providers/queue-and-scaling.md#rds-proxy-aws).
+- **Read replica** (optional): `REELFORGE_DATABASE_READ_URL` /
+  `DATABASE_READ_URL` (or `_FILE`) sends six lag-tolerant list reads
+  (`list_projects`, `list_project_versions`, `list_jobs`, `list_assets`,
+  `list_themes`, `list_audit_events`) to a replica of the same kind; job
+  state, claims, quotas, rate limits, keys, licence, idempotency and every
+  read-then-write stay on `DATABASE_URL`. Unset: everything on the primary.
+  SQLite refuses it. The replica is never migrated or written. Which reads go
+  where: [providers/queue-and-scaling.md](providers/queue-and-scaling.md#read-replica).
 - **SQLite** uses WAL mode (the server and the CLI can use the file at the
   same time), the file is mode 0600, and it must be on a local disk or block
   volume, not NFS/SMB/object-storage FUSE (file locking). One server per file.

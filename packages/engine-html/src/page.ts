@@ -60,7 +60,6 @@ export function htmlTitle(props: HtmlTitleProps, durationSeconds: number): { htm
   const background = props.background ? `--rf-bg:${props.background};` : '';
   const html =
     `<div class="rf-t" style="${accent}${background}">` +
-    '<div class="rf-blob rf-b1"></div><div class="rf-blob rf-b2"></div>' +
     `<div class="rf-card">` +
     (props.kicker ? `<div class="rf-kicker">${escapeHtml(props.kicker)}</div>` : '') +
     `<h1>${words.map((w, i) => `<span style="animation-delay:calc(${(i * 0.08).toFixed(2)}s / var(--rf-speed))">${escapeHtml(w)}</span>`).join(' ')}</h1>` +
@@ -69,19 +68,15 @@ export function htmlTitle(props: HtmlTitleProps, durationSeconds: number): { htm
     '</div></div>';
   const css = `
 .rf-t{position:absolute;inset:0;background:var(--rf-bg);display:flex;align-items:center;padding:calc(var(--rf-unit)*9 * var(--rf-spacing));overflow:hidden}
-.rf-blob{position:absolute;border-radius:50%;filter:blur(calc(var(--rf-unit)*6));opacity:.55}
-.rf-b1{width:calc(var(--rf-unit)*80);height:calc(var(--rf-unit)*80);background:var(--rf-accent);top:-20%;right:-30%;animation:rf-drift calc(var(--rf-duration)) linear both}
-.rf-b2{width:calc(var(--rf-unit)*60);height:calc(var(--rf-unit)*60);background:var(--rf-accent2);bottom:-15%;left:-25%;opacity:.35;animation:rf-drift calc(var(--rf-duration)) linear reverse both}
 .rf-card{position:relative;width:100%;animation:rf-exit ${exitLen}s ease-in ${exitAt}s both}
 .rf-kicker{display:inline-block;font-size:calc(var(--rf-unit)*4);font-weight:700;letter-spacing:.12em;color:var(--rf-bg);background:var(--rf-accent);padding:.35em .7em;border-radius:calc(var(--rf-radius)*.4em);margin-bottom:calc(var(--rf-unit)*4);animation:rf-fade calc(.5s / var(--rf-speed)) ease-out both}
 h1{margin:0;font-size:calc(var(--rf-unit)*10.5);line-height:1.05;font-weight:var(--rf-heading-weight);letter-spacing:-.02em;color:var(--rf-text)}
-h1 span{display:inline-block;animation:rf-rise calc(.7s / var(--rf-speed)) cubic-bezier(.2,.9,.3,1.2) both}
+h1 span{display:inline-block;animation:rf-rise calc(.7s / var(--rf-speed)) cubic-bezier(.16,1,.3,1) both}
 .rf-bar{height:calc(var(--rf-unit)*1.4);background:var(--rf-accent);border-radius:999px;margin-top:calc(var(--rf-unit)*3.5);transform-origin:left center;animation:rf-bar calc(.8s / var(--rf-speed)) cubic-bezier(.3,.8,.2,1) calc(.25s / var(--rf-speed)) both;width:45%}
 p{margin:calc(var(--rf-unit)*4) 0 0;font-size:calc(var(--rf-unit)*4.8);font-weight:500;color:var(--rf-muted);animation:rf-fade calc(.6s / var(--rf-speed)) ease-out calc(.5s / var(--rf-speed)) both}
 @keyframes rf-rise{from{opacity:.3;transform:translateY(.45em) scale(.94)}to{opacity:1;transform:none}}
 @keyframes rf-fade{from{opacity:0;transform:translateY(.6em)}to{opacity:1;transform:none}}
 @keyframes rf-bar{from{transform:scaleX(.15)}to{transform:scaleX(1)}}
-@keyframes rf-drift{from{transform:translate(0,0) scale(1)}to{transform:translate(-8%,6%) scale(1.15)}}
 @keyframes rf-exit{from{opacity:1;transform:none}to{opacity:0;transform:translateY(calc(var(--rf-unit)*-6))}}
 `;
   return { html, css };

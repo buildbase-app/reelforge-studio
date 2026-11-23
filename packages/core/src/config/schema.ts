@@ -118,6 +118,14 @@ export const ConfigSchema = z.object({
       description:
         'Jobs one `worker` (or `all`) instance claims and renders at the same time. Unset: `limits.renderConcurrency` (which can then be changed at runtime). Scale out with more worker instances rather than a high value here.',
     }),
+    workerOnce: setting(z.boolean(), {
+      kind: 'boolean',
+      scope: 'startup',
+      env: 'REELFORGE_WORKER_ONCE',
+      default: false,
+      description:
+        'Run as `reelforge worker --once` (D-100): claim at most one job, render it and exit (0 succeeded, cancelled or nothing queued; 1 failed; 75 handed back, lease lost, or the `--job` still queued; see docs/providers/backends.md). For job platforms that start one container per unit (KEDA ScaledJob, Azure Container Apps event jobs, AWS Batch, Cloud Run Jobs, ECS RunTask). Implies `server.role` `worker` (same database and storage rules); serves no HTTP.',
+    }),
   }),
   queue: z.object({
     driver: setting(z.enum(['auto', 'inprocess', 'database']), {
@@ -149,7 +157,131 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_QUEUE_POLL_INTERVAL_MS',
       default: 1000,
       description:
-        'Database queue: how often an idle worker looks for queued jobs, and how often `get_job waitSeconds` re-reads a job running on another instance. On database errors the interval backs off exponentially up to 30 s.',
+        'Database queue: how often an idle worker looks for queued jobs, and how often `get_job waitSeconds` re-reads a job running on another instance. Empty polls back off up to `queue.pollMaxIntervalMs`; on database errors the interval backs off exponentially up to 30 s.',
+    }),
+    pollMaxIntervalMs: setting(z.number().int().min(50).max(300_000), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_QUEUE_POLL_MAX_INTERVAL_MS',
+      default: 5000,
+      description:
+        'Database queue, `queue.dispatch` `poll` (D-105): after each poll that finds nothing, an idle worker waits twice as long as the last time, from `queue.pollIntervalMs` up to this; a poll that claims a job goes back to `queue.pollIntervalMs`, so a busy queue is polled as before. It bounds the extra queue wait after an idle period (a job enqueued then waits at most this long for a worker with a free slot) and cuts idle database load. Set it to `queue.pollIntervalMs` for no backoff. Also the poll while a `notify` listener is disconnected.',
+    }),
+    dispatch: setting(z.enum(['poll', 'notify', 'sqs', 'redis']), {
+      kind: 'enum',
+      scope: 'startup',
+      env: 'REELFORGE_QUEUE_DISPATCH',
+      default: 'poll',
+      description:
+        'How workers of the database queue learn that a job is ready (D-105; the database stays the queue of record either way). `poll`: idle workers look every `queue.pollIntervalMs`, backing off to `queue.pollMaxIntervalMs`. `notify` (PostgreSQL only): the transaction that queues a job sends `NOTIFY` and workers `LISTEN` on one direct session connection each, so idle workers stop polling and are woken within milliseconds; a fallback poll every `queue.dispatchFallbackSeconds` claims anything a lost message did not announce. `LISTEN` does not work through PgBouncer in transaction or statement mode: set `database.directUrl` then (a worker checks delivery at start and refuses to start without it). Refused at start on MySQL and SQLite. `sqs` (Amazon SQS standard queue, `queue.sqs.*`) and `redis` (Redis Streams with a consumer group, `queue.redis.*`), on every database: the transaction that queues a job writes an outbox row, each instance\'s relay publishes the job id, one worker receives it, wakes its normal fair claim and acknowledges the message after that claim; idle workers wait on the broker instead of the database, and the broker\'s queue depth can drive an autoscaler. A broker that is down never blocks an enqueue (the outbox keeps the row and retries) and workers poll until it answers. Set the same value on every instance. NATS JetStream is planned (docs/providers/queue-and-scaling.md).',
+    }),
+    dispatchFallbackSeconds: setting(z.number().int().min(1).max(3600), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_QUEUE_DISPATCH_FALLBACK_SECONDS',
+      default: 30,
+      description:
+        '`queue.dispatch` `notify`, `sqs`, `redis`: how often an idle worker still polls while its listener is connected, so a job whose message was lost (a dropped connection, a job queued by a process without the dispatch setting) waits at most this long. Lower values cost one claim transaction per idle worker per interval. With `sqs` and `redis` also how often each instance\'s outbox relay looks for rows it did not publish at once (another instance stopped before publishing).',
+    }),
+    sqs: z.object({
+      queueUrl: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_SQS_QUEUE_URL',
+        example: 'https://sqs.eu-west-1.amazonaws.com/123456789012/reelforge-jobs',
+        description: '`queue.dispatch` `sqs`: the URL of an SQS **standard** queue (not FIFO) that only this deployment uses. Required with `sqs`. The api and workers need `sqs:SendMessage`; workers also `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:ChangeMessageVisibility` and `sqs:GetQueueAttributes`.',
+      }),
+      region: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_SQS_REGION',
+        defaultText: 'the region in `queue.sqs.queueUrl`, else the AWS default (`AWS_REGION`)',
+        example: 'eu-west-1',
+        description: '`queue.dispatch` `sqs`: AWS region of the queue.',
+      }),
+      endpoint: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_SQS_ENDPOINT',
+        description: '`queue.dispatch` `sqs`: SQS API endpoint override (a VPC endpoint, or LocalStack in tests). Empty: the regional AWS endpoint.',
+      }),
+      accessKeyId: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_QUEUE_SQS_ACCESS_KEY_ID',
+        secret: true,
+        description: '`queue.dispatch` `sqs`: access key id. Leave unset to use the ambient AWS identity (IAM role, IRSA / web identity, `AWS_*` variables). A change at runtime applies to the next SQS call.',
+      }),
+      secretAccessKey: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_QUEUE_SQS_SECRET_ACCESS_KEY', secret: true, description: '`queue.dispatch` `sqs`: secret access key (with `accessKeyId`).' }),
+      sessionToken: setting(nonEmpty().optional(), { kind: 'string', scope: 'runtime', env: 'REELFORGE_QUEUE_SQS_SESSION_TOKEN', secret: true, description: '`queue.dispatch` `sqs`: session token for temporary keys (optional).' }),
+      visibilityTimeoutSeconds: setting(z.number().int().min(5).max(43_200), {
+        kind: 'integer',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_SQS_VISIBILITY_TIMEOUT_SECONDS',
+        default: 30,
+        description:
+          '`queue.dispatch` `sqs`: visibility timeout set on every receive. A message received by a worker that stops before deleting it (deleted after the claim it woke) becomes visible to the other workers after this long; its claim is then a no-op. Shorter: a lost message wakes another worker sooner; it must stay longer than a claim takes (milliseconds) plus network hiccups.',
+      }),
+    }),
+    redis: z.object({
+      url: setting(nonEmpty().regex(/^rediss?:\/\//, 'must start with redis:// or rediss://').optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_URL',
+        secret: true,
+        example: 'rediss://reelforge@redis.internal:6380/0',
+        description: '`queue.dispatch` `redis`: the Redis server (6.2 or later; Streams, XAUTOCLAIM). `rediss://` connects with TLS. Required with `redis`. Secret because the URL may hold a password (prefer `queue.redis.password`).',
+      }),
+      password: setting(nonEmpty().optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_QUEUE_REDIS_PASSWORD',
+        secret: true,
+        description: '`queue.dispatch` `redis`: password (Redis AUTH; the user name comes from the URL). Overrides a password in `queue.redis.url`. A change at runtime reconnects.',
+      }),
+      tlsCaFile: setting(nonEmpty().optional(), {
+        kind: 'path',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_TLS_CA_FILE',
+        description: '`queue.dispatch` `redis` with `rediss://`: a PEM file with the CA that signed the server certificate (private CAs). Unset: the system CAs.',
+      }),
+      stream: setting(nonEmpty().max(200), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_STREAM',
+        default: 'reelforge:jobs',
+        description: '`queue.dispatch` `redis`: stream key. Deployments sharing a Redis server need different keys.',
+      }),
+      group: setting(nonEmpty().max(200), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_GROUP',
+        default: 'reelforge-workers',
+        description: '`queue.dispatch` `redis`: consumer group the workers read through (created with the stream if missing).',
+      }),
+      claimIdleSeconds: setting(z.number().int().min(5).max(86_400), {
+        kind: 'integer',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_CLAIM_IDLE_SECONDS',
+        default: 30,
+        description:
+          '`queue.dispatch` `redis`: an entry delivered to a worker that stopped before acknowledging it (acknowledged after the claim it woke) is reclaimed by another worker with XAUTOCLAIM after it was pending this long; its claim is then a no-op.',
+      }),
+      maxLength: setting(z.number().int().min(1000).max(100_000_000), {
+        kind: 'integer',
+        scope: 'startup',
+        env: 'REELFORGE_QUEUE_REDIS_MAX_LENGTH',
+        default: 100_000,
+        description: '`queue.dispatch` `redis`: the stream is trimmed to about this many entries (XADD MAXLEN ~). Entries trimmed before a worker read them are covered by the fallback poll.',
+      }),
+    }),
+    notifyJitterMs: setting(z.number().int().min(0).max(5000), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_QUEUE_NOTIFY_JITTER_MS',
+      default: 50,
+      description:
+        '`queue.dispatch` `notify`: a message wakes every idle worker, so each waits a random delay of up to this long before it claims, and skips the claim when other workers already claimed the announced jobs meanwhile (each claim is announced too). Larger: fewer empty claims per job when many workers are idle; smaller: less added queue wait (on average this divided by the number of idle workers, plus one).',
     }),
     shutdownGraceSeconds: setting(z.number().int().min(0).max(3600), {
       kind: 'integer',
@@ -158,6 +290,22 @@ export const ConfigSchema = z.object({
       default: 30,
       description:
         'On SIGTERM a worker stops claiming and waits this long for its running jobs; jobs still running then are stopped and handed back to the queue (database queue), so another worker takes them at once. Keep the orchestrator\'s grace period (Kubernetes `terminationGracePeriodSeconds`) longer.',
+    }),
+    onceWaitMs: setting(z.number().int().min(0).max(600_000).optional(), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_QUEUE_ONCE_WAIT_MS',
+      defaultText: '3 × `queue.pollIntervalMs`',
+      description:
+        '`worker --once`: how long to wait for a queued job before exiting 0 with nothing done, so a job platform does not pay for an idle container. `reelforge worker --once --wait-ms N` overrides it.',
+    }),
+    priorityAgingSeconds: setting(z.number().int().min(0).max(86_400), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_QUEUE_PRIORITY_AGING_SECONDS',
+      default: 600,
+      description:
+        'Job priorities (D-103): jobs are claimed `interactive` (previews) first, then `standard` (renders), then `batch`. A `batch` job that has waited this long is claimed as `standard` (never as `interactive`), so a steady stream of renders cannot starve batch work. `0`: strict classes (batch waits while any higher job can be claimed).',
     }),
   }),
   limits: z.object({
@@ -181,7 +329,7 @@ export const ConfigSchema = z.object({
       scope: 'runtime',
       env: 'REELFORGE_MAX_UPLOAD_BYTES',
       default: 200 * 1024 * 1024,
-      description: 'Largest asset upload or URL import, in bytes.',
+      description: 'Largest asset upload or URL import, in bytes. Uploads and imports are streamed to a temporary file and stopped as soon as they pass it (`413 too_large`); they are never held in memory whole.',
     }),
     maxJsonBytes: setting(z.number().int().min(1024), {
       kind: 'integer',
@@ -196,6 +344,96 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_RENDER_CONCURRENCY',
       default: 1,
       description: 'Renders at the same time. Each uses several CPU cores and 1-2 GB RAM. A lower value lets running renders finish.',
+    }),
+    // Resource limits (D-090, D-091; docs/security/HARDENING.md). `0` turns a job or provider cap off.
+    maxQueuedJobsPerKey: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_QUEUED_JOBS_PER_KEY',
+      default: 100,
+      description:
+        'Unfinished render and preview jobs (queued or running) one API key may have. Another start is refused with `429 too_many_jobs` and `Retry-After` until one finishes. Counted in the database, so it holds across instances. Raise it (or `0`) for one organisation key that feeds a large worker fleet. `0`: no limit.',
+    }),
+    maxQueuedJobs: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_QUEUED_JOBS',
+      // Scale-aware (D-090): a single box keeps its queue bounded; the database queue scales with the database and the worker fleet.
+      default: (get: Getter) => {
+        const driver = get('queue.driver');
+        const database = driver === 'database' || (driver === 'auto' && get('server.role') !== 'all');
+        return database ? 0 : 1000;
+      },
+      defaultText: '`1000` with the in-process queue, `0` (no limit) with the database queue',
+      description:
+        'Render and preview jobs that may wait in the queue in total (every key, every instance). A start beyond it is refused with `429 queue_full` and `Retry-After`. The default follows the effective queue (`queue.driver`, `server.role`): a single instance keeps its queue bounded, the database queue is unbounded because the database and autoscaled workers absorb the load. `0`: no limit. With the database queue, a value here makes every start in the deployment wait for one shared row lock (held for two database round trips per start), which caps the total start rate; prefer `maxQueuedJobsPerKey` there unless the queue itself must be bounded.',
+    }),
+    maxRunningJobsPerKey: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_RUNNING_JOBS_PER_KEY',
+      default: 0,
+      description:
+        "Jobs of one API key that run at the same time; that key's other jobs wait while other keys' jobs run. Off by default: jobs are always claimed fairly across keys (the key with the fewest running jobs first), so one key cannot starve others, and a single organisation key can still use every worker. Set it to reserve capacity. With several workers claiming at the same moment a key may briefly get one more. `0`: no limit.",
+    }),
+    maxEstimatedWaitSeconds: setting(z.number().int().min(0).max(86_400), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_ESTIMATED_WAIT_SECONDS',
+      default: 0,
+      description:
+        'Admission control (D-103): refuse a new render or preview with `429 queue_full`, `Retry-After` and `details` (queued jobs ahead, estimated wait) when its estimated queue wait is longer than this. The estimate is measured, not configured: the smaller of how long the oldest queued job of the same or a higher priority has waited and the jobs ahead divided by the claim throughput of the last minutes (shared by every instance through the database). Checked in the same statement as the job caps. `0`: off.',
+    }),
+    maxRenderSeconds: setting(z.number().int().min(1).max(180), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_RENDER_SECONDS',
+      default: 180,
+      description: 'Longest render or preview, in seconds (the project schema allows at most 180). Longer projects are refused with `422 render_limit_exceeded`.',
+    }),
+    maxRenderFrames: setting(z.number().int().min(1).max(10_800), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_RENDER_FRAMES',
+      default: 5400,
+      description: 'Most frames in one render or preview (duration × fps; 5400 is 180 s at 30 fps or 90 s at 60 fps). Refused with `422 render_limit_exceeded`.',
+    }),
+    maxScenes: setting(z.number().int().min(1).max(50), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_SCENES',
+      default: 50,
+      description: 'Most scenes in one render (the project schema allows at most 50). Refused with `422 render_limit_exceeded`.',
+    }),
+    maxRenderDimension: setting(z.number().int().min(16).max(4096), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_RENDER_DIMENSION',
+      default: 3840,
+      description: 'Largest output width or height in pixels (3840 allows 4K in either orientation; the schema allows 4096). Refused with `422 render_limit_exceeded`.',
+    }),
+    maxRenderFps: setting(z.number().int().min(24).max(60), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_MAX_RENDER_FPS',
+      default: 60,
+      description: 'Highest output frame rate (supported: 24, 25, 30, 60). Refused with `422 render_limit_exceeded`.',
+    }),
+    providerRunsPerKeyPerDay: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_PROVIDER_RUNS_PER_KEY_PER_DAY',
+      default: 500,
+      description:
+        'Provider calls (`run_provider`, `generate_voice`) one API key may make per UTC day; cached results do not count, failed calls do. Refused with `429 provider_limit_exceeded` until midnight UTC. Counted in the database across instances. `0`: no limit.',
+    }),
+    providerRunsPerDay: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_PROVIDER_RUNS_PER_DAY',
+      default: 0,
+      description:
+        "Provider calls per UTC day for the whole server (every key and instance): a budget for the operator's own paid provider accounts. Off by default; set it from your provider plan (docs/security/HARDENING.md recommends one). Refused with `429 provider_budget_exhausted` until midnight UTC. `0`: no limit.",
     }),
   }),
   storage: z.object({
@@ -425,6 +663,35 @@ export const ConfigSchema = z.object({
       example: 'postgresql://reelforge:<password>@db:5432/reelforge',
       description: 'Database: `file:` (SQLite), `postgresql://...`, `mysql://...` or `mariadb://...`. Secret because the URL usually holds a password.',
     }),
+    readUrl: setting(nonEmpty().optional(), {
+      kind: 'string',
+      scope: 'startup',
+      env: 'REELFORGE_DATABASE_READ_URL',
+      aliases: ['DATABASE_READ_URL'],
+      secret: true,
+      example: 'postgresql://reelforge:<password>@db-replica:5432/reelforge',
+      description:
+        'A read replica of `database.url` (PostgreSQL or MySQL; refused with SQLite) for the list reads that tolerate lag: list_projects, list_project_versions, list_jobs, list_assets, list_themes, list_audit_events and audit exports. Job state, claims, quotas, rate limits, keys, licence, idempotency and every read-then-write stay on `database.url`. Unset: everything uses `database.url`. Never migrated. See docs/providers/queue-and-scaling.md#read-replica.',
+    }),
+    workerConnectionLimit: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'startup',
+      env: 'REELFORGE_DB_WORKER_CONNECTION_LIMIT',
+      default: 3,
+      description:
+        'Pool size of a `worker` role process when its database URL has no `?connection_limit=` (claims, heartbeats and progress need few connections; hundreds of workers at the drivers\' default of 10 each would exhaust the database). `0`: the driver default (10). Other roles keep the driver default. Sizing: docs/providers/queue-and-scaling.md#connection-pooling.',
+    }),
+    directUrl: setting(nonEmpty().optional(), {
+      kind: 'string',
+      scope: 'startup',
+      env: 'REELFORGE_DATABASE_DIRECT_URL',
+      aliases: ['DATABASE_DIRECT_URL'],
+      secret: true,
+      defaultText: '`database.url`',
+      example: 'postgresql://reelforge:<password>@db:5432/reelforge',
+      description:
+        'A direct session connection to the PostgreSQL server, for what a transaction-mode pooler cannot carry. Today: the `LISTEN` connection of `queue.dispatch` `notify` (one per worker). Required when `database.url` goes through PgBouncer in transaction or statement mode (or a similar pooler); the queries keep using `database.url`. Unset: `database.url`. Secret because the URL usually holds a password.',
+    }),
     migrateOnStart: setting(z.boolean(), {
       kind: 'boolean',
       scope: 'startup',
@@ -646,6 +913,30 @@ export const ConfigSchema = z.object({
       default: 900,
       description:
         'Hard limit for rendering one html or hyperframes scene, whatever its length (engines use their per-frame estimate when it is shorter). 30 to 3600 seconds.',
+    }),
+    fanOut: setting(z.enum(['off', 'scenes', 'scenes+chunks']), {
+      kind: 'enum',
+      scope: 'runtime',
+      env: 'REELFORGE_RENDER_FAN_OUT',
+      default: 'off',
+      description:
+        'Split one render across workers (D-097, docs/providers/queue-and-scaling.md#render-fan-out). `off`: one worker renders every scene and assembles the video (the default; unchanged behaviour). `scenes`: with the database queue, a `render` of the `local` backend with two or more scenes becomes one `render_unit` job per scene, claimed by any worker, and one `render_join` job that assembles and commits the video; previews and the in-process queue always use one worker. `scenes+chunks`: as `scenes`, and a scene of at least `render.chunkMinSceneSeconds` whose engine renders frame ranges (Remotion; not html, Motion Canvas or HyperFrames) is split into chunks of `render.chunkSeconds`, one unit each, so one long scene no longer bounds the render\'s latency.',
+    }),
+    chunkSeconds: setting(z.number().min(1).max(600), {
+      kind: 'number',
+      scope: 'runtime',
+      env: 'REELFORGE_RENDER_CHUNK_SECONDS',
+      default: 4,
+      description:
+        'With `render.fanOut: scenes+chunks`: length of one chunk of a split scene, in seconds of video (1 to 600). The last chunk takes the rest: it is shorter, or up to half a chunk longer when the rest would be under half a chunk. Shorter chunks spread a scene over more workers; each chunk pays a browser start and an encode of its own.',
+    }),
+    chunkMinSceneSeconds: setting(z.number().min(2).max(3600), {
+      kind: 'number',
+      scope: 'runtime',
+      env: 'REELFORGE_RENDER_CHUNK_MIN_SCENE_SECONDS',
+      default: 8,
+      description:
+        'With `render.fanOut: scenes+chunks`: scenes shorter than this (seconds, 2 to 3600) are never split and render as one unit.',
     }),
     ffmpegPath: setting(nonEmpty(), {
       kind: 'path',

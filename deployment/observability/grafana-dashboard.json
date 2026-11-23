@@ -7,7 +7,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -436,6 +436,70 @@
           ]
         }
       }
+    },
+    {
+      "id": 12,
+      "title": "Queue wait p95 by type and priority (SLO: previews 60 s, renders 300 s)",
+      "description": "reelforge_job_queue_wait_seconds: enqueue to first claim of render and preview jobs, summed over every instance that claims (D-103). Dashed lines: the SLO thresholds; alert rules in deployment/observability/alerts.yml.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, reelforge_job_type, reelforge_job_priority) (rate(reelforge_job_queue_wait_seconds_bucket{job=~\"$job\"}[15m])))",
+          "legendFormat": "p95 {{reelforge_job_type}} ({{reelforge_job_priority}})"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le, reelforge_job_type, reelforge_job_priority) (rate(reelforge_job_queue_wait_seconds_bucket{job=~\"$job\"}[15m])))",
+          "legendFormat": "p50 {{reelforge_job_type}} ({{reelforge_job_priority}})"
+        }
+      ]
     }
   ]
 }

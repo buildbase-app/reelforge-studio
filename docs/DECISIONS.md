@@ -1312,8 +1312,8 @@ version the server already uses.
 ## Q. Security hardening (2026-11-21, private security review SEC-01..SEC-20)
 
 Public-safe summary; findings and reproductions stay private. Defaults and
-settings: docs/security/HARDENING.md. Deferred: SEC-07 (queue and resource
-limits per key) follows the database job queue work.
+settings: docs/security/HARDENING.md. SEC-07 (queue and resource limits per
+key) followed the database job queue work: section S.
 
 ### D-085 --- Agent scene markup is parsed, and scenes have no network outside the page either
 
@@ -1376,8 +1376,7 @@ renderer for hours. Every HyperFrames render gets its own TMPDIR, inherited by
 the CLI, its browser and any helper; when the render ends (success, failure,
 timeout, cancel) the CLI's process group and every process carrying that
 TMPDIR are killed and awaited, because the browser runs in a process group of
-its own and outlives a group kill. Queue and per-key limits (SEC-07) are
-deferred to the job queue work.
+its own and outlives a group kill. Queue and per-key limits (SEC-07): D-090.
 
 ### D-088 --- Operational endpoints: /metrics needs its token, /readyz detail needs an admin key, /mcp Origin compares origins
 
@@ -1491,10 +1490,13 @@ settings are re-read from the database every 15 s and applied like a local
 reaches all. **Graceful shutdown** (SIGTERM, database queue): stop claiming,
 `/readyz` 503, wait `queue.shutdownGraceSeconds` (30) for running jobs, abort
 the rest and **release** them (back to `queued`, the attempt not counted) so
-another worker starts at once; leases end either way. The in-process queue
-keeps its old shutdown (unfinished jobs become `interrupted` on the next start).
-A retried render whose earlier attempt already committed its output finishes
-with that render instead of failing on "render exists".
+another worker starts at once; leases end either way. A claim in flight when
+shutdown starts is waited for (bounded, 15 s) and its job released the same
+way instead of started (#172), so no job stays `running` until its lease
+ends. The in-process queue keeps its old shutdown (unfinished jobs become
+`interrupted` on the next start). A retried render whose earlier attempt
+already committed its output finishes with that render instead of failing on
+"render exists".
 
 ### D-078 --- Render quotas and rate limits counted in the database
 
@@ -1531,3 +1533,548 @@ operators patch with overlays; a chart can follow if buyers ask. Validated with
 kubeconform 0.7.0 (strict, 1.31 schemas) on the files and on `kubectl
 kustomize` output. A compose file for an api with N workers is in
 `deployment/compose/docker-compose.scale.yml`.
+
+## S. Resource limits (2026-11-22, issue #107, private security review SEC-07)
+
+Public-safe summary; the finding stays private. Defaults, errors and tests:
+docs/security/HARDENING.md#resource-limits; how each counter behaves with
+several instances: docs/providers/queue-and-scaling.md.
+
+### D-090 --- Safe default limits on jobs and render size, counted in the database
+
+**Status:** DECIDED (reversible).\
+Limits are runtime settings under `limits.*` (config file, environment,
+`update_config`), reported in `get_capabilities`. **Scale-aware defaults**
+(founder direction: one organisation licence must scale without a ceiling):
+deployment-wide caps follow the deployment and per-key caps must not stop one
+big key from using a large worker fleet. **Jobs:** `maxQueuedJobsPerKey` 100
+(unfinished render/preview jobs of one key); `maxQueuedJobs` defaults to 1000
+with the in-process queue (one box: protects its memory) and to 0 (off) with
+the database queue (the database and autoscaled workers absorb the load), the
+default being computed from the effective `queue.driver`/`server.role`;
+`maxRunningJobsPerKey` 0 (off). Claiming is **fair across keys** whatever the
+caps: the in-process pump and the database claim take the job of the key with
+the fewest running jobs, oldest first among equals (PostgreSQL/MySQL: plain
+reads decide the key order, then `FOR UPDATE SKIP LOCKED` locks a single job:
+on PostgreSQL the ordered `LIMIT 1` query, on MySQL the candidates one at a
+time by primary key, because a MySQL locking read locks every matching row its
+plan reads, so with a sort it locked all queued jobs of the key (#168); a key
+whose jobs are all held falls through to the next; SQLite: one conditional
+`UPDATE`). One key
+alone still gets every slot; two keys share them evenly. The first two caps
+are checked inside the job insert transaction that already serves the render
+quota (D-078): under the key's row lock, or one shared lock row when the
+total cap is on, so they are exact across instances; jobs without a key count
+only against the total. **Short lock (#180):** the transaction writes the job
+and its status event first (invisible to others until commit), then takes the
+lock, then runs **one** statement with every count (quota windows, unfinished
+jobs of the key, queued jobs in total; the new job excluded), then commits or
+rolls back. One statement runs between the lock and commit instead of one per
+count and insert (three to six before), so the lock is held for two round trips
+from the api process (the lock's and the count's) instead of four to seven, and
+its hold time no longer multiplies with api event-loop lag. The total cap's lock row is
+`RateLimitWindow` key `lock:job-queue` (created on first use, never swept),
+not the `Workspace` row, because every insert holds a foreign-key lock on the
+`Workspace` row and on MySQL taking it after the insert is a lock upgrade that
+deadlocks concurrent starts (and the old order blocked every insert that
+references the workspace, such as `create_project`, while the lock was held).
+*Rejected:* one conditional `INSERT ... SELECT ... WHERE (SELECT COUNT ...) <
+cap` statement, because a statement reads from a snapshot taken when it starts:
+24 concurrent ones against a cap of 5 on PostgreSQL 17 inserted all 24, also
+with `pg_advisory_xact_lock` inside the statement (2026-11-22); a counter row
+(`UPDATE ... SET n = n + 1 WHERE n < cap`, as D-091) would save one
+more round trip but must be decremented on every way a job leaves the
+counted set (finish, fail, cancel, fan-out tree cancel, claim and lease-loss
+re-queue for the queue cap, hand-back on shutdown), and one missed path drifts
+a key into permanent refusals, while the counts heal themselves (D-091's
+counters are only ever incremented); a server-side function would hold the
+lock for no round trip but needs a stored routine per database and privileges
+some managed databases withhold. Refused starts cost an insert that is rolled
+back. Refusals are `429 too_many_jobs` / `queue_full` with
+`Retry-After: 30`. The running cap is applied where jobs start: the in-process
+pump skips a key at its cap (keeping its place), and the database claim query
+skips such keys when ordering them; exact on one worker, with possible
+overshoot of one per worker that claims at the same instant (accepted: a
+stricter scheme needs a global lock on every claim). **Render size:**
+`maxRenderSeconds` 180, `maxRenderFrames` 5400, `maxScenes` 50,
+`maxRenderDimension` 3840, `maxRenderFps` 60, checked from the manifest before
+any job exists (`422 render_limit_exceeded`, every exceeded limit named) and
+reported by `validate_project`; settings can only tighten the schema's maxima.
+The per-scene time limit of D-087 stays. `0` turns a job cap off; render limits
+have no off value because the schema bounds them anyway. Rejected: per-key
+overrides of every limit (the key-level render quotas of D-056 remain);
+admin-key exemptions (a leaked admin key is the worst case).
+
+### D-091 --- Provider calls: a daily cap per key and a server-wide daily budget, as shared usage counters
+
+**Status:** DECIDED (reversible).\
+`limits.providerRunsPerKeyPerDay` 500 and `limits.providerRunsPerDay` 0 (off by
+default: providers run on the buyer's own accounts; HARDENING.md recommends
+setting it from the provider plan) count
+real provider calls (cache hits are free, failed calls count) per UTC day, after
+`acknowledgeCost` and before the call. They reuse the `RateLimitWindow` table
+(keys `usage:provider-runs:key:<id>` and `usage:provider-runs:all`, the window is
+the UTC day), so no migration: every counter row is created first, then one
+transaction does a conditional `count = count + 1 WHERE count < limit` per
+counter, all or nothing; the row locks make it exact across instances. The
+hourly sweep deletes request windows after an hour and usage counters after two
+days. Refusals: `429 provider_limit_exceeded` / `provider_budget_exhausted`
+with `Retry-After` until midnight UTC; `get_key` shows `providerRunsToday`. The
+cap counts calls, not money: providers have no machine-readable price (only a
+`costNote`), so a per-provider cost unit is a possible follow-up.
+
+### D-092 --- Uploads and URL imports are streamed to a temporary file with a hard byte cap
+
+**Status:** DECIDED (reversible).\
+REST multipart uploads are parsed with busboy 1.6.0 (MIT) as a stream; the file
+part and URL import bodies go through `stageStream`: written to
+`<cacheDir>/upload-staging/` while hashing, stopped (source destroyed, partial
+file deleted, `413 too_large`) as soon as `limits.maxUploadBytes` is passed;
+then the storage driver's `putFile` stores the file. A declared
+`Content-Length` above the limit is refused before reading; Hono's `bodyLimit`
+is no longer used for uploads because it buffers chunked bodies. Form fields
+may come before or after the file. Every limit refusal (D-090..D-092) is counted
+in `reelforge.limits.rejections` with a fixed `reason` label and audited as
+`limit.rejected` (result `denied`).
+
+## T. Render at any scale: backends, fan-out, pluggable queues, licence (2026-11-22, research)
+
+Founder request (2026-11-22): rendering and the CRUD path must scale on the buyer's own
+infrastructure without limit (like Remotion Lambda / Cloud Run, or anything self-hosted),
+one organisation licence must cover any number of workers, and nothing may pause or
+overload when many videos render at once. Research, sources, provider matrix, capacity
+math and spike results: [docs/research/RENDER_SCALE.md](research/RENDER_SCALE.md). These
+are proposals for the work in the "Render at any scale" epic #149; each becomes DECIDED when its
+issue lands with tests.
+
+### D-095 --- Render backends: worker pools first, `worker --once` for job platforms, launchers and managed renderers as plugins
+
+**Status:** PROPOSED (2026-11-22); the interface (`kind`, `capabilities()`, `estimate()`) and
+`worker --once` are built and tested in D-100 (#150); launchers (#28) and Remotion Lambda (#157) are not.\
+Three kinds of backend behind one plugin interface (extends `RenderBackend`,
+`packages/core/src/plugins.ts`): (1) **worker pool**: N `worker` containers on any
+orchestrator claim from the queue (local, compose, VPS, Nomad, Kubernetes Deployment + KEDA,
+ECS service, Azure Container Apps); no new code, only recipes; (2) **one unit per container**:
+`reelforge worker --once [--job <id>]` claims one unit (optionally exactly that job id,
+fenced), runs it and exits, so platform job schedulers scale it (KEDA ScaledJob, ACA event
+jobs, AWS Batch, Cloud Run Jobs, ECS RunTask, Fly Machines) and scale-in never kills a running
+render; a **launcher** plugin calls the platform API ("run task", "execute job") where no
+queue-driven scaler exists; (3) **managed renderer** for one engine (Remotion Lambda), called by
+the worker that claimed a Remotion unit. The interface adds `capabilities()` (engines, maximum
+unit duration, frame-range support, scale-to-zero), `estimate()` (cost/time before the job,
+#28) and keeps `implemented: false` honesty. Every backend is "tested" only with an e2e against
+the real service or its emulator (#17 rule). **Why not one launcher per render as the default:**
+the worker pool needs no cloud credentials in the api, no per-render API calls and no
+cold start; launchers are for platforms and buyers who want scale-to-zero per render. **Why
+not Remotion Cloud Run:** Alpha and "not actively being developed" (Remotion docs, 2026-11-22).
+
+### D-096 --- The database stays the queue of record; dispatch is pluggable
+
+**Status:** PROPOSED (2026-11-22). Extends D-075. **Step 1 built (#158, D-105):** `poll` with backoff on
+empty polls, `notify` (PostgreSQL LISTEN/NOTIFY), the generic dispatch outbox and relay, and the shared
+dispatch contract suite. **Step 2 (#158, D-105 amendment):** SQS and Redis Streams through the outbox; NATS
+JetStream is not built yet.\
+Job state, leases, fencing, attempts, quotas and history stay in the `Job` table (D-075). A
+`queue.dispatch` driver only tells workers that work is ready: `poll` (default, today's
+behaviour, with backoff on empty polls), `notify` (PostgreSQL LISTEN/NOTIFY on a direct session
+connection; not through PgBouncer transaction mode), and external drivers carrying job ids only,
+at-least-once: SQS, Redis Streams, NATS JetStream, Azure Service Bus, Google Pub/Sub. Enqueue
+writes the job and an outbox row in one transaction; a relay publishes (the webhook outbox
+pattern, D-071). A worker that receives an id claims that id with the fenced compare-and-set;
+duplicates and stale messages are no-ops; the message is acknowledged after the claim, so broker
+lock limits (Service Bus 5 min) do not bound render length. **When:** the database queue's claim
+cost is far below render rates (100 000 renders/day ≈ 3.5 claims/s at peak); external dispatch is
+for idle-poll load (≈ one transaction per idle worker per second) above a few hundred workers
+and for cloud-native scalers (SQS/Service Bus). **Rejected:** moving job state into Redis/SQS
+(two sources of truth, loses quotas-in-one-transaction and fencing); BullMQ Pro groups as the
+fairness mechanism (paid add-on).
+
+### D-097 --- One render fans out per scene (and per frame range where the engine supports it), joined by stream copy
+
+**Status:** PROPOSED (2026-11-22). Extends D-018 (independent scene renders) and D-067. **Step 1 built (#156):**
+the queue side (parent → one `render_unit` per scene → exactly one `render_join`; parent row locked first;
+`pendingChildren` decremented in the unit's fenced final transaction; failure and cancel cascades; retry
+reuses committed units; progress from the children; `render.fanOut` `off`/`scenes`, `scenes+chunks` refused),
+tested with fake engines and on SQLite, PostgreSQL 17 and MySQL 8.4 (FAN-*, docs/providers/queue-and-scaling.md).
+Units do not count against `limits.maxQueuedJobsPerKey`/`maxQueuedJobs` or render quotas (the render counts
+once); they do count against `maxRunningJobsPerKey` (worker slots), the fanned-out parent does not. **Step 2
+built (#156):** units normalise to the final encoding (`normaliseClip`) and the join concatenates them with the
+concat demuxer and `-c:v copy`, mixes the audio once, checks timestamps and A/V durations, and falls back to the
+filter-graph assembly when the units' stream parameters or FFmpeg builds differ; e2e with real engines on
+PostgreSQL 17, MinIO and three worker processes (FAN-30/31). **Step 3 built (#156):** `render.fanOut:
+scenes+chunks` splits a scene of at least `render.chunkMinSceneSeconds` (default 8 s) into chunks of
+`render.chunkSeconds` (default 4 s) when its engine declares frame ranges (`EngineCapabilities.frameRanges`)
+and the backend allows them; the plan is stored on the render job with its units and copied to the join;
+chunk units are keyed by range, so retry reuses committed chunks; a fanned-out render sends one
+`job.progress` per 10 % of committed frames. Only Remotion declares frame ranges (`renderMedia`
+`frameRange`, self-hosted; frame-pure compositions, measured); html is not declared because Chromium's
+raster-scale caching makes a mid-scene start differ in pixels (measured), Motion Canvas accumulates generator
+state from frame 0, HyperFrames' CLI has no frame-range start. Tested with fake engines (FAN-40..48), the
+Remotion engine (ENG-REM-FR) and e2e on PostgreSQL 17, MinIO and three workers (FAN-32).\
+A render becomes a parent job with one `render_unit` child per scene (per chunk for engines that
+declare frame ranges; Remotion first), all ordinary rows in the queue (same leases, attempts,
+fencing). Each unit renders and normalises its clip to the final encoding (`H264_ARGS`, same
+size/fps/pixel format/time base, IDR at frame 0, video only) and uploads it to the run's temp
+prefix with a manifest. The unit's fenced success decrements `pendingChildren` on the parent in
+the same transaction; the transaction that reaches 0 inserts the single `render_join`. The join
+concatenates with the concat demuxer and stream copy, mixes audio once on the full timeline,
+validates (frames, boundaries, A/V duration) and commits as today. A unit that fails after
+`maxAttempts` fails the parent and cancels its siblings; cancel cascades; retry reuses committed
+units of the same project version. Fan-out is opt-in per deployment (`render.fanOut`) and only
+used when there are idle workers or a time-capped backend; the single-worker filter-graph assembly
+stays the default path. **Why:** throughput already scales with workers; fan-out cuts the latency of
+long renders and lets renders fit time-capped platforms (Lambda: 15 min per Remotion's page,
+30 min per AWS's). Must pass a frame-exact equality test against the single-worker render.
+
+### D-098 --- Licence at scale: one activation per deployment (the shared database); only the api tier checks, once a day
+
+**Status:** DECIDED (2026-11-22, issue #154; the founder asked for one organisation licence to
+scale without limit, which is the maintainer go-ahead for the licence code). Refines D-036/D-037.\
+Measured (RENDER_SCALE.md §12): 1 api + 3/19/49 workers on one database take exactly one
+BuildBase activation (one instance id per database); a second database is a second activation
+(`limit_reached` at limit 1); but every process calls the licence server at start and daily (50
+processes = 50 calls), which grows with autoscaling churn. **Model:** a deployment = the set of
+instances sharing one database = one activation; unlimited api/worker processes, autoscaling and
+regions on one database are covered. Separate databases (other regions, staging) are separate
+activations; the store's tiers set `activationLimit` per number of deployments (founder, #91).
+**Change:** only `api`/`all` instances run licence checks, single-flight per deployment through a
+compare-and-set on the stored state (one check per day per deployment); `worker` instances never
+call the licence server, read the sealed shared state (D-089) and stop claiming render units when
+it disallows renders (the enqueue gate stays). **Rejected:** a configurable cluster id (copyable
+across companies); per-worker activations (punishes scaling); usage reporting (contradicts "no
+telemetry by default"; only as an explicit founder-approved opt-in, not designed).\
+**Built (#154):** `LicenceRepository.claimCheck` is one atomic `UPDATE ... WHERE nextCheckAt IS
+NULL OR nextCheckAt <= now` that sets a 2-minute lease (no schema change; `nextCheckAt` is outside
+the seal); the start, daily and key-change checks of `api`/`all` instances go through it, the winner
+calls BuildBase and stores the sealed answer with `checkedBy`, the others re-read the state every
+60 s (a restart with a fresh state makes no call). Explicit checks (`activate_licence`,
+`POST /v1/licence`, `reelforge licence ...`) still call at once. Backoff doubles across instances
+(from the stored plan); the hourly clock marker writes only with a compare-and-set on `updatedAt`, so
+it never overwrites a newer check. `worker` instances get a read-only manager: seal verified, grace
+and clock checks applied with their own clock, no writes, `waiting_for_api` until a check is stored,
+and the job runner's `canClaim` refuses render/preview claims while renders are not allowed (reason
+in the log, `/readyz` admin `licence` block and queue `paused`, `reelforge_licence_state`). Instances
+configured with different keys do not take turns activating them (logged as a conflict). Measured on
+the mock licence server (`apps/server/test/licence-scale.test.ts`): 2 api + 3 worker licence managers on
+SQLite, PostgreSQL 17 and MySQL 8.4, and 2 api + 3 worker server instances on PostgreSQL 17 and
+MySQL 8.4 = 1 activate, 1 validate per day window, 0 worker calls.
+
+### D-099 --- Defaults: local pool for one machine; api + worker pool with KEDA or ACA for scale; Remotion Lambda opt-in after #10
+
+**Status:** PROPOSED (2026-11-22).\
+Recommended and tested-first, in order: (1) `all` role with the local pool (today); (2) `api` +
+`worker` pool on compose/VPS (today, tested); (3) Kubernetes + KEDA (PostgreSQL/MySQL scaler on
+the `Job` table, or the existing Prometheus metric), scale to zero, ScaledJob with `worker --once`
+for bursts: the reference "infinite" recipe, e2e on kind/k3d; (4) Azure Container Apps (KEDA scale
+rules natively); (5) ECS/Fargate service with target tracking on a published queue metric; AWS Batch,
+Cloud Run Jobs, ACA event jobs via `worker --once`; (6) Remotion Lambda for Remotion scenes only,
+blocked until Remotion answers #10 in writing. Pooling recipe (small `connection_limit` on workers,
+PgBouncer transaction mode or RDS Proxy) is part of every multi-instance recipe. Each recipe ships
+with its test-case table (docs/providers/backends.md) and a recorded run before the store may claim
+it.
+
+## U. Render backends v2 and `worker --once` (2026-11-22, issue #150)
+
+Built from D-095. Matrix, interface, exit statuses and test record:
+[docs/providers/backends.md](providers/backends.md).
+
+### D-100 --- `RenderBackend` v2 and `worker --once`: one claim per process, exit statuses a job platform can act on
+
+**Status:** DECIDED (reversible).\
+**Interface:** `RenderBackend` gains `kind` (`pool` | `launcher` | `managed`),
+`capabilities()` (`engines`, `maxUnitSeconds` or `null`, `frameRanges`, `scaleToZero`) and
+`estimate(req)` (`videoSeconds`, `units`, `seconds`, `costUsd`, `note`). `get_capabilities` reports
+`kind` and `capabilities`; `validate_project` returns the manifest backend's estimate and, for an
+implemented and configured backend, flags engines it cannot render and scenes longer than its unit
+limit when it cannot split them. Estimates never invent numbers: `seconds` is `null` until render
+speed is measured (#125), `costUsd` is `0` on own hardware and `null` when unknown; a skeleton
+(`implemented: false`) answers `null` for both. Capabilities of a skeleton describe its design and
+are reported next to `implemented: false`. Every backend runs one contract suite
+(`packages/core/test/backend-contract.ts`). **`worker --once`** (`reelforge worker --once [--job
+<id>] [--wait-ms N]`, or `REELFORGE_WORKER_ONCE=1` with the image's default command): role
+`worker` (same guard as D-076), no HTTP listener, no webhook delivery worker or maintenance timers;
+the job runner gets `once: true`, so nothing claims on a timer and `JobRunner.runOnce()` makes the
+only claim. `--job` claims that one row with its own small query, kept apart from the fair claim of
+D-090 but with the same guarantees (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL/MySQL, one
+atomic `UPDATE ... RETURNING` on SQLite, then the same lease and attempt bookkeeping), so concurrent
+containers for one id cannot both run it. It waits up to
+`queue.onceWaitMs` (default 3 × `queue.pollIntervalMs`) for a job; a missing or finished `--job`
+ends at once; the per-key running cap (D-090) applies to `--job` as to any claim. **Exit
+statuses:** `0` succeeded, cancelled or nothing to do; `1` the job failed (final in the database)
+or start-up failed; `75` (EX_TEMPFAIL) the job was handed back on SIGTERM (D-077), its lease was
+lost, or the `--job` was still queued when the wait ended (claiming paused, key at its cap), so it
+still needs a run. **Why these codes:** job platforms (Kubernetes Job
+`backoffLimit`, AWS Batch retry strategies, Cloud Run Jobs task retries) retry non-zero exits; a
+retry is needed exactly when the unit is queued again (with `--job`, nobody else may pick it up),
+harmless after a failure (the retried container claims the next job or nothing), and pointless
+after a cancel, which is a user's decision rather than a failure. **Why no HTTP in `--once`:** job
+platforms watch the process, a short-lived container's `/metrics` would rarely be scraped, and one
+port fewer to open; the job's state and logs are in the database. **Why not a separate entry
+point without the service:** the claim, fencing, leases, storage readiness and render path are the
+pool worker's own code, so one process type is tested, not two.
+
+## V. Kubernetes + KEDA autoscaling (2026-11-22, issue #153)
+
+Recipe, test cases and the recorded run:
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#autoscaling-with-keda).
+
+### D-101 --- KEDA on the Job table: scale workers to zero, ScaledObject for a warm pool, ScaledJob with `worker --once`
+
+**Status:** DECIDED (reversible).\
+`deployment/kubernetes/keda/` scales the worker Deployment with a KEDA **ScaledObject** and the
+**PostgreSQL scaler**: `SELECT COUNT(*)::float / <concurrency> FROM "Job" WHERE queue = 'database'
+AND status IN ('queued', 'running')`, `targetQueryValue: "1"`, `activationTargetQueryValue: "0"`,
+`minReplicaCount: 0`, credentials from the existing `reelforge` secret (`database-url`) through a
+`TriggerAuthentication`. `keda/mysql/` is the same with the MySQL scaler (it needs a Go-driver DSN, so a
+second secret key); `keda/scaledjob/` runs a **ScaledJob** (one Kubernetes Job per queued render, pod
+runs `worker --once`, `podFailurePolicy` turns exit 1 into a failed Job and leaves exit 75 to the
+retry, `rollout.strategy: gradual`). **Why the database and not the Prometheus metric:** no
+Prometheus or adapter is needed and a scaled-to-zero pool has no pod left to report
+`reelforge_jobs_queued`, so the metric path cannot wake it; the Prometheus scaler stays documented for
+clusters that already scrape the api. **Why count running jobs:** the HPA then never sizes the pool
+below the renders in flight, and the ScaledJob "default" strategy (`min(query, max) - running Jobs`)
+expects the queue length to include what the Jobs hold. **Why the base moved to
+`deployment/kubernetes/base/`:** Kustomize refuses an overlay that refers to a directory containing
+it; `kubectl apply -k deployment/kubernetes/` still applies the same objects. **Why both variants:** the
+ScaledObject keeps warm workers (no container start per render; scale-in hands a busy worker's job
+back, D-077), the ScaledJob never interrupts a running render on scale-in (a pod ends when its job
+ends) at the cost of a container start per render. **Worker pods use the Localhost seccomp
+profile** `reelforge-chrome.json` (the api keeps `RuntimeDefault`): the e2e found every html render
+failing under `RuntimeDefault`, because the image keeps Chromium's sandbox on (D-086). `e2e/k8s/keda.sh`
+runs the overlay on kind; KEDA's own scaling has not run yet (its images could not be fetched in the
+sandbox that built this), so D-079's "VERIFY" now covers only that part and the HPA External metric.
+
+### D-102 --- Lists are keyset pages by default: `limit` 50 (max 200), opaque `cursor`, `nextCursor`; project summaries without manifests
+
+**Status:** DECIDED (reversible).\
+`list_projects`, `list_jobs` and `list_assets` (REST `GET /v1/projects`, `/v1/jobs`, `/v1/assets`)
+return **one page**, newest first, and `nextCursor` (null on the last page); `limit` takes 1 to 200,
+default 50; `cursor` is the previous page's `nextCursor`. **This is a behaviour change, made on
+purpose:** a call without the new arguments used to return every row and now returns the newest 50.
+The load test (#151, PERFORMANCE.md finding 1) showed the unbounded list was the first CRUD ceiling:
+its cost grew with every project, and since each api instance is one event loop, every other call
+slowed with it. Keeping "everything" as the default would leave that ceiling in place for every agent
+that never learns the new arguments, so the bound has to be the default. **Compatibility:** the
+answer keeps its shape (`{ projects: [...] }`, `{ jobs: [...] }`, `{ assets: [...] }` with the same
+item fields) and only gains `nextCursor`, so existing clients still parse it; a client with at most
+50 rows sees no difference; a client that needs everything follows `nextCursor`. The MCP tool
+descriptions say so in words agents read ("Without a cursor you get the first (newest) page only, not
+everything") and give the exact loop; the REST reference has a "Lists and pages" section. MCP
+`resources/list` shows the newest 200 projects (the SDK passes that callback no cursor).
+`list_assets` with `projectId` returns the project's manifest entries, bounded by the manifest, as one
+page (`nextCursor: null`). **Order: (createdAt, id) descending, for all three.** `list_projects` used
+to be "most recently updated first"; it is now "most recently created first", because `createdAt`
+never changes: a walk from the first page to `nextCursor: null` returns every row that existed when it
+started exactly once, whatever is created, updated or deleted meanwhile. Rejected: keyset on
+`updatedAt`, which kept the old order but skips a project that is updated while a walk has not reached
+it yet (it jumps to the front, behind the cursor); offset paging, which skips and repeats rows under
+inserts and costs O(offset) per page. **Keyset query:** `createdAt <= t AND (createdAt < t OR id <
+i)` with `ORDER BY createdAt DESC, id DESC LIMIT n + 1` (the extra row says whether there is a next
+page, so `nextCursor` is exactly null at the end), on new indexes `(workspaceId, createdAt, id)` for
+Project, Job and Asset and `(workspaceId, projectId, createdAt, id)` for Job (migration
+`0008_list_paging`). **Cursor:** base64url JSON of the list, the filter (`projectId`), and the last
+row's `createdAt` and `id`. Not signed: it holds only a position in a list the caller may read anyway,
+every page query is still scoped to the caller's workspace and the request's filters, and positions
+are bound parameters, never SQL. It is validated strictly (exact keys, ISO time with milliseconds, id
+of `[A-Za-z0-9_.:-]`), and a cursor of another list or filter is refused (`400 bad_request`, "cursor
+is invalid") instead of silently starting somewhere else. **Summaries without manifests:** Project
+gains `sceneCount` and `durationSeconds`, written with `title` in the same statement as each version;
+`list_projects` reads only those columns. Rows saved before 0008 have them null and are summarised
+from their manifest on read (at most one page of manifests, until the project is saved again), so the
+migration needs no data step. **Not paged** (bounded or not database lists): `list_keys` (admin, a
+handful of rows), `list_webhooks` (endpoints), `list_themes`, `list_templates`, `list_providers`,
+`list_project_versions` (version numbers of one project), `list_renders` (a storage listing of one
+project's renders); `list_audit_events` and `list_webhook_deliveries` were already cursor-paged.
+**Addendum (#184):** `list_jobs` also filters by `parentId` (a fanned-out render's units and join).
+The cursor's filter is then `<projectId>|parent:<parentId>` (`|` cannot occur in a project id), and
+the projectId-only filter string is unchanged, so earlier cursors stay valid and a cursor of one
+filter is refused by another. No index for it: the existing `parentId` index finds at most 51 rows
+(50 scenes and the join), which are sorted in memory by the database.
+
+## W. Overload protection: priorities, admission, queue-wait SLO (2026-11-22, issue #155)
+
+Builds on the fair claim and caps of D-090 (#161, #171, #183). Settings, claim SQL, test cases and results:
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#priorities-fairness-and-admission-d-103);
+SLO and alerts: [docs/providers/observability.md](providers/observability.md#queue-wait-slo).
+
+### D-103 --- Three priority classes before fairness; batch ages into standard; admission by a measured wait estimate; a queue-wait histogram with two labels
+
+**Status:** DECIDED (reversible).\
+**Classes:** `interactive` > `standard` > `batch`, stored as `Job.priority` 0/1/2 (migration `0010_job_priority` on
+all three databases, previews backfilled to 0, index `(workspaceId, queue, status, priority, createdAt)`). Previews
+default to `interactive`, renders to `standard`; `render_project` / `preview_scene` take `priority`. **Who may raise a
+class:** a key's `maxPriority` (new `ApiKey` column; set by an admin through `create_key` / `update_key` or the CLI)
+is the highest class it may ask for; unset, the job type's default. So a normal key can lower its jobs but never raise
+them (`403 priority_not_allowed`, before any job exists), and an admin can let one key render at `interactive`. No
+admin exemption (D-090's reasoning). Retries keep the class, lowered to the retrier's maximum; fan-out units and the
+join inherit their render's class (D-097), so a render in progress is not overtaken at a lower class. **Claim order:**
+class, then fairness across keys (D-090), then age, on every queue: SQLite in its one conditional `UPDATE`; PostgreSQL
+and MySQL group the queued jobs by `(apiKeyId, priority)` in the unlocked read that already chose the key, then lock
+one job of the best group exactly as before (MySQL one candidate at a time, #171). **Starvation:** strict classes
+would let a steady stream of renders starve `batch` forever, so a `batch` job that has waited
+`queue.priorityAgingSeconds` (600, runtime) counts as `standard`; it is never promoted to `interactive`, because
+aging renders into the preview class would put every old render ahead of new previews exactly when the render
+backlog is long, which defeats the preview SLO. Documented, not prevented: `interactive` traffic that alone saturates
+the workers delays everything else. *Rejected:* a weighted share per class (every Nth claim ignores the class):
+per-worker counters do not compose into a deployment-wide share and make the order untestable; aging computed in SQL
+from timestamps (dialect-specific date arithmetic) instead of one bound cut-off parameter.\
+**Admission:** `limits.maxEstimatedWaitSeconds` (0 = off). Estimated wait = min(age of the oldest queued job of the
+same or a higher class, jobs ahead ÷ measured claims per second). Both inputs are measured; neither alone is used
+because the throughput is demand-limited after idle periods (overestimates) and one job held back by a per-key cap
+makes the head look old (overestimates); only a queue that is both old and slow to drain is refused. The count and the
+oldest timestamp are two more subqueries in the **one statement** `insertWithQuota` already runs under its lock
+(#180), so the lock is not held longer by another round trip; without a key or `maxQueuedJobs` no lock is taken,
+because an estimate needs no exactness. The throughput is shared through the database: claiming instances add their
+claims to a per-minute counter row (`RateLimitWindow` key `stats:claims`, at most one write per 5 s per instance,
+swept with request windows after an hour) and readers take an exponentially decayed average of the last 10 minutes
+(half-life 2 min). `Retry-After` is the estimate's excess over the limit (30 s .. 1 h). The estimate is
+deployment-wide, not per key (a flooding key raises it for everyone; `maxQueuedJobsPerKey` bounds that). *Rejected:*
+a decayed average of observed waits as the estimate (stale exactly when workers stop claiming: no new observations);
+a configured "seconds per job" (invented numbers); a count cap derived from the estimate under a global lock (would
+serialise every start of the deployment like `maxQueuedJobs`).\
+**Metric:** `reelforge_job_queue_wait_seconds` (OTel `reelforge.job.queue_wait`), labels job type and priority only,
+recorded by the instance that claims at a render's or preview's first claim; units and joins are not measured
+(their `createdAt` is their render's, by design of D-097's ordering, so their wait would include the render's run).
+Buckets 0.1 s .. 1 h with 60 and 300 as boundaries, so the SLO quantiles (p95 < 60 s previews, < 300 s renders at
+maximum replicas) are exact at the threshold. Grafana panel and Prometheus alert rules in
+`deployment/observability/`, unit-tested with `promtool test rules`.
+
+## X. Database pooling and read replicas (2026-11-22, issue #152)
+
+Builds on D-099 (pooling is part of every multi-instance recipe) and the #151 load test (PgBouncer
+1.26.1 in transaction mode: claims exactly once, migrations and `?schema=` through it, 401 → ≤ 22
+server connections at 200 workers; docs/PERFORMANCE.md). Recipe, sizing, sources and test cases:
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#connection-pooling).
+
+### D-104 --- Small worker pools by default; PgBouncer transaction mode with migrations on the direct port; a read replica for six list reads only
+
+**Status:** DECIDED (reversible).\
+**Pools:** a `worker` process whose database URL has no `?connection_limit=` uses
+`database.workerConnectionLimit` (3; `0` = the drivers' default of 10); the URL always wins and the
+`api`/`all` roles keep 10. A worker needs a claim loop, a heartbeat and throttled progress writes; 2
+per worker carried #151's 200-worker drain. Sizing rule: `api × connection_limit + workers × N
+(+ CLI, headroom) ≤ pooler client limit`, and the pooler's server pool ≤ the database's
+`max_connections`. *Rejected:* a smaller default for every role (the api is CPU-bound at 10, #151);
+computing the pool from `server.workerConcurrency` (opaque; the operator can set the URL).\
+**Pooler:** PgBouncer in transaction mode is the tested recipe (pinned `edoburu/pgbouncer` 1.26.1
+image, compose overlay `deployment/compose/docker-compose.pgbouncer.yml` with its settings in
+`pgbouncer.env`, shared with the Docker scale e2e). Migrations run once on the direct port
+(`--migrate-only`, then `REELFORGE_MIGRATE_ON_START=0`), although they also worked through PgBouncer:
+it keeps DDL off the app's pool and works with RDS Proxy on MySQL, where `GET_LOCK` pins.
+`?schema=` behind PgBouncer on PostgreSQL ≤ 17: measured here, the per-client `search_path` (sent
+as startup `options`) is not kept under concurrency, and the raw SQL named tables without a schema
+(#151's probe had used schema-qualified model queries only). **Amended by #191 (2026-11-22):** every
+raw PostgreSQL statement now names its schema (`packages/db/src/sql.ts`, the schema from the URL,
+default `public`, validated as a plain identifier and quoted), the migration scripts run under
+`SET LOCAL search_path` inside their transaction, and a source scan (SQL-01) fails on a new unqualified
+table; so `?schema=` behind a transaction-mode pooler is supported (two schemas through one PgBouncer
+pool: exactly once per schema, PGB-04/05). A server with a non-default schema that finds itself
+behind a transaction-mode pooler at start logs a warning for older processes that may share the
+pool. The earlier advice of a role-level `search_path` without `?schema=` is withdrawn: Prisma's
+model queries use `public` without `?schema=`, so it never worked. *Rejected:* refusing `?schema=`
+behind a pooler (not reliably detectable, and qualifying the SQL removes the cause); `SET LOCAL
+search_path` in every transaction instead of qualifying (statements outside a transaction would
+still depend on the connection). MySQL and SQLite are unchanged: on MySQL the database in the URL is
+the namespace of the connection, no search_path. The db contract and server suites pass through
+PgBouncer with the default schema (a database per run, `TEST_POSTGRES_ISOLATION=database`) and, since
+#191, with a schema per run. RDS Proxy (writer
+only on RDS; statements over 16 KB pin the session, and manifests can be larger; MySQL prepared
+statements pin) and Cloud SQL managed pooling are documented from their documentation and untested.
+A direct, non-pooled URL for LISTEN/NOTIFY belongs to the dispatch work (#158), not here.\
+**Read replica:** `database.readUrl` (`DATABASE_READ_URL`) routes exactly six repository reads
+(`READ_REPLICA_READS`: `projects.page`, `projects.listVersions`, `jobs.page`, `assets.page`,
+`themes.list`, `audit.list`), the lists behind `list_projects`, `list_project_versions`,
+`list_jobs`, `list_assets`, `list_themes` and `list_audit_events`, to a second Prisma client in
+`createPrismaRepositories`. Everything else, including every read a decision or a write depends on
+(job state, claims, quotas, caps, rate limits, keys, licence, idempotency, settings, webhooks,
+single-row gets, the unpaged job list the retention sweep uses), stays on the primary. Unset:
+everything on the primary. SQLite and a replica of another kind are refused at start. The replica is
+connected to, never migrated or written. Tests point it at a database without tables (every write
+path still works; exactly the six reads fail) and at a migrated database with other rows.
+*Rejected:* Prisma's read-replicas extension (unverified with driver adapters, and it routes every
+read outside a transaction, including reads that precede writes); routing per service method (the
+repository is where the query is, and the list of reads is checkable there); a fallback to the
+primary when the replica fails (hides a broken replica; the six lists fail loudly instead).
+
+## Y. Queue dispatch: poll backoff and LISTEN/NOTIFY (2026-11-22, issue #158)
+
+Step 1 of D-096. Settings, how it works, test cases and results:
+[docs/providers/queue-and-scaling.md](providers/queue-and-scaling.md#queue-dispatch-poll-and-notify-d-105);
+measured idle load and queue wait: [docs/PERFORMANCE.md](PERFORMANCE.md#queue-dispatch-158-poll-backoff-and-notify).
+
+### D-105 --- Dispatch wakes the normal claim; `poll` backs off; `notify` sends NOTIFY inside the job's transaction; external brokers publish through an outbox
+
+**Status:** DECIDED (reversible) for `poll` and `notify`; amended 2026-11-23 for `sqs` and `redis` (step 2 of
+#158, below); NATS JetStream is a follow-up.\
+`queue.dispatch` `poll` (default) or `notify`. **A message never chooses the job.** A worker that receives
+"job X is ready" runs the ordinary claim (class, then fairness across keys, then age; D-090, D-103), which may
+take X, another job, or nothing. *Rejected:* claiming the received id with the claim-by-id query of D-100: it
+would let the order of messages decide the order of work, so a render announced before a preview would run
+first and a key that floods the queue would get its jobs announced, and claimed, first; preserving D-090 and
+D-103 under it would need the fair query anyway. The cost of the wake model is that every idle worker receives
+every message (NOTIFY is a broadcast), so one job would cost one claim per idle worker. Workers therefore wait a
+random 0..`queue.notifyJitterMs` (50) before claiming, and the claim of a job queued less than 2 s ago
+(`max(2 s, 4 × jitter)`) announces `c:<id>` in its transaction; a worker
+whose announced jobs were all claimed meanwhile skips its claim (DSP-09). A worker without a free slot ignores
+messages and claims when its job ends. Duplicate and stale ids cost at most one ordinary claim (no-ops for the
+job). **Busy workers do not listen:** a worker with no free slot `UNLISTEN`s and `LISTEN`s again before its next
+claim, because PostgreSQL runs a short transaction in every listening backend per delivered message; the first
+measurement without this (200 busy workers draining 2 000 jobs, each claim announced to all) cost ~10 000
+transactions/s. **`poll`:** after an empty claim the next poll waits twice as long, from `queue.pollIntervalMs` to
+`queue.pollMaxIntervalMs` (5 s, 10 % spread); a claim that gets a job resets it, so a busy queue polls as before;
+it also applies everywhere (MySQL, SQLite) and while a `notify` listener is down. **`notify` without an outbox:**
+NOTIFY is transactional (queued with the transaction, delivered on commit, dropped on rollback), which is the
+guarantee the outbox exists to give; an outbox relay for `notify` would itself have to poll the outbox (the load
+`notify` removes) or be woken by NOTIFY, and it would not help the one real loss case, a listener that was
+disconnected when the message went out, which the fallback poll (`queue.dispatchFallbackSeconds`, 30) and the
+claim after every reconnect cover. Every path that makes a job claimable sends it (enqueue and retry, fan-out
+units, the join, lease-expiry re-queue, shutdown hand-back), in one statement per transaction. **Listen
+connection:** one node-postgres session per claiming process, outside the Prisma pool, on `database.directUrl`
+(next to `database.readUrl` and `database.workerConnectionLimit` of #152, D-104) or `database.url`; reconnect with backoff, a ping every
+fallback interval, and an end-to-end delivery check (a NOTIFY sent through the Prisma pool must arrive) after
+every connect; the first failing check refuses the start. This is what catches PgBouncer transaction mode, where
+`LISTEN` succeeds but notifications never reach the client (measured, NTF-04); no URL or port heuristics.
+`/readyz` reports the listener but never requires it (a disconnected worker still claims, by polling). `notify`
+is refused at start on MySQL and SQLite (no equivalent; MySQL has none, SQLite is one process). Channels are per
+database, so a `?schema=` deployment gets `reelforge_jobs_<hash of schema>`. **Outbox (generic):** for brokers
+outside the database the job transaction writes a `DispatchOutbox` row (`0011_dispatch_outbox`), `OutboxRelay`
+claims due rows with a lease (optimistic compare-and-set like the webhook outbox, D-071), publishes the ids in
+one call, deletes them, and retries with exponential backoff and full jitter (1 s .. 5 min), dropping a row after
+10 attempts because the job itself stays claimable through the fallback poll. Broker consumers will acknowledge
+after the claim a message triggered. **Metrics** (bounded labels: driver, reason, kind, trigger, result):
+`reelforge_queue_claims_total`, `reelforge_queue_dispatch_{published,received,duplicates,fallback_claims,publish_failures}_total`.
+**Known cost:** PostgreSQL serialises the commits of NOTIFY-sending transactions on one lock; immaterial at this
+queue's rates (hundreds of claims per second at most), relevant at thousands. *Rejected:* a NOTIFY payload with
+more than the id (priority, key) so workers could pre-filter: it duplicates the record and goes stale; a
+listener per process shared by its runners (fewer connections, but one worker container is one process in
+every recipe here).
+
+**Amendment 2026-11-23: `sqs` and `redis` (step 2 of #158).** `queue.dispatch` `sqs` (an SQS standard queue,
+AWS SDK v3 `@aws-sdk/client-sqs` 3.1164.0) and `redis` (a Redis Stream read through one consumer group, `ioredis`
+6.0.0) publish through the outbox above; every instance runs an `OutboxRelay`, kicked right after its own commit
+and sweeping every `queue.dispatchFallbackSeconds` for rows another instance left behind (a failed publish is
+retried at its backoff time, not at the next sweep). The rule stays: **a message wakes the ordinary claim and
+never claims "that id"**. What a broker changes: each message goes to one consumer and stays until it is
+acknowledged, so (1) no jitter and no claim announcements are needed; (2) **a message is acknowledged after the
+claim it woke, whichever job that claim took** (its own job's message if this worker holds it, else the oldest
+message that arrived before the claim; a claim that finds nothing answers every earlier message), so "one message,
+one claim" holds and nothing is left in the broker for a job that is running; *rejected:* acknowledging only the
+message whose id was claimed, which leaves a message held by a worker whose claim took a higher-priority job until
+the broker's lease ends and wakes nobody meanwhile; (3) **flow control**: a worker holds at most as many unanswered
+messages as it has free slots, and a worker with no free slot stops receiving and gives back what it holds (SQS
+visibility 0; Redis: XADD the id again and XACK the old entry in one MULTI), so messages wait in the broker, where
+an autoscaler sees them, never in a busy worker. A worker that dies after its claim and before its ack: SQS
+redelivers after `queue.sqs.visibilityTimeoutSeconds` (30), Redis consumers `XAUTOCLAIM` entries idle longer than
+`queue.redis.claimIdleSeconds` (30); the late claim is a no-op. Broker errors never fail an enqueue or a worker's
+start: the outbox keeps the rows, the worker polls (`poll` with backoff) and reconnects with backoff (0.5 s to
+30 s); `/readyz` reports the listener and the relay, never requires them. *Rejected:* refusing to start a worker
+whose broker is unreachable (as `notify` does on a failed delivery check): a broker outage would then take every
+new worker down although the database, the record, works; for `notify` the failing check is almost always a
+configuration error (a pooler), for a broker it is as often an outage. Credentials: SQS keys and the Redis password
+are runtime secrets (`_FILE`, or encrypted runtime settings) read on every call or connect, so a rotation applies
+without a restart; unset SQS keys use the AWS default chain; the Redis URL is a start-up secret (`rediss://` for
+TLS, `queue.redis.tlsCaFile`). The client speaks RESP2 (ioredis 6 defaults to RESP3) so reply shapes are the
+same on every server from 6.2. Metric labels stay bounded: driver `sqs`/`redis`; the relay counts
+`published{reason="outbox"}` and the transaction's outbox write is not counted a second time. Tested against SQS on
+LocalStack and Redis 8.4 (contract DSP-01..09, 11, BRK-01..08, server DSP-25..29); CI runs the same cases on an
+in-memory competing-consumer queue.

@@ -38,5 +38,25 @@ export function scalingProblems(resolved: ResolvedConfig, databaseUrl: string): 
   } else if (mode === 'database' && kind === 'sqlite') {
     warnings.push('queue.driver "database" on SQLite: claims are atomic, but SQLite supports one instance only (use PostgreSQL or MySQL to run several)');
   }
+  // Queue dispatch (D-105): LISTEN/NOTIFY exists only on PostgreSQL.
+  if (c.queue.dispatch === 'notify') {
+    if (kind !== 'postgresql') {
+      errors.push(
+        `queue.dispatch "notify" needs PostgreSQL (LISTEN/NOTIFY), but the database is ${kind === 'mysql' ? 'MySQL/MariaDB' : 'SQLite'}: set REELFORGE_QUEUE_DISPATCH=poll (idle polls back off up to queue.pollMaxIntervalMs) or move to PostgreSQL (docs/providers/queue-and-scaling.md)`
+      );
+    } else if (mode !== 'database') {
+      warnings.push('queue.dispatch "notify" has no effect with the in-process queue (queue.driver resolves to "inprocess"); it applies to the database queue only');
+    }
+  }
+  // Broker dispatch (D-105): the broker must be named; any database works (the outbox is a table).
+  if (c.queue.dispatch === 'sqs' && !c.queue.sqs.queueUrl) {
+    errors.push('queue.dispatch "sqs" needs queue.sqs.queueUrl (REELFORGE_QUEUE_SQS_QUEUE_URL, an SQS standard queue): set it or use REELFORGE_QUEUE_DISPATCH=poll (docs/providers/queue-and-scaling.md)');
+  }
+  if (c.queue.dispatch === 'redis' && !c.queue.redis.url) {
+    errors.push('queue.dispatch "redis" needs queue.redis.url (REELFORGE_QUEUE_REDIS_URL or REELFORGE_QUEUE_REDIS_URL_FILE, redis:// or rediss://): set it or use REELFORGE_QUEUE_DISPATCH=poll (docs/providers/queue-and-scaling.md)');
+  }
+  if ((c.queue.dispatch === 'sqs' || c.queue.dispatch === 'redis') && mode !== 'database') {
+    warnings.push(`queue.dispatch "${c.queue.dispatch}" has no effect with the in-process queue (queue.driver resolves to "inprocess"); it applies to the database queue only`);
+  }
   return { errors, warnings };
 }

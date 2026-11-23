@@ -1,0 +1,79 @@
+# PgBouncer in transaction mode in front of PostgreSQL (issue #152, D-104,
+# docs/providers/queue-and-scaling.md#connection-pooling). An overlay for
+# docker-compose.scale.yml:
+#
+#   docker compose -f deployment/compose/docker-compose.scale.yml \
+#                  -f deployment/compose/docker-compose.pgbouncer.yml up -d --scale worker=10
+#
+# - api and workers connect to pgbouncer:6432; PostgreSQL sees at most
+#   DEFAULT_POOL_SIZE server connections (pgbouncer.env), however many workers run.
+# - migrations run once, on the direct port (postgres:5432), in the `migrate`
+#   service; api and workers start after it with REELFORGE_MIGRATE_ON_START=0.
+# - workers keep the worker role's small pool (database.workerConnectionLimit, 3);
+#   the api sets ?connection_limit=10.
+# Sizing: api instances x 10 + workers x 3 <= MAX_CLIENT_CONN (pgbouncer.env).
+# The Docker scale e2e runs the same image and pgbouncer.env: POOLER=pgbouncer e2e/docker/scale.sh.
+services:
+  pgbouncer:
+    # PgBouncer 1.26.1 (edoburu/pgbouncer, pinned by digest; the version measured in #151).
+    image: ${PGBOUNCER_IMAGE:-mirror.gcr.io/edoburu/pgbouncer@sha256:8638aa563607256d3c7440437534195f1066a92b68015d89ae9d6b935b444a6d}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /etc/pgbouncer:uid=70,gid=70,mode=0700   # the entrypoint writes pgbouncer.ini and userlist.txt here
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    env_file: [pgbouncer.env]
+    environment:
+      DB_HOST: postgres
+      DB_USER: reelforge
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Migrations on the direct port: PgBouncer is for the app's traffic.
+  migrate:
+    image: ${REELFORGE_IMAGE:-ghcr.io/buildbase-app/reelforge-studio:latest}
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /data:uid=10001,gid=10001
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    command: ["apps/server/node_modules/.bin/tsx", "apps/server/src/main.ts", "--migrate-only"]
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://reelforge:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/reelforge
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    environment:
+      DATABASE_URL: postgresql://reelforge:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@pgbouncer:6432/reelforge?connection_limit=10
+      REELFORGE_MIGRATE_ON_START: "0"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    environment:
+      DATABASE_URL: postgresql://reelforge:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@pgbouncer:6432/reelforge
+      REELFORGE_MIGRATE_ON_START: "0"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully

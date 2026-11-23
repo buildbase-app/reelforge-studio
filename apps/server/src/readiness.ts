@@ -22,6 +22,22 @@ export interface Readiness {
   engines: Array<{ id: string; ok: boolean; reason?: string }>;
   /** Chromium sandbox per engine and what is weaker than the defaults (admin detail only). */
   security?: { chromiumSandbox: Record<string, boolean>; warnings: string[] };
+  /**
+   * The licence as this instance applies it (admin detail only, D-098): a worker reads the
+   * state the api instances stored and claims no render job while it disallows renders.
+   * Never fails readiness: everything except rendering keeps working.
+   */
+  licence?: {
+    status: string;
+    renderAllowed: boolean;
+    reason: string | null;
+    checksLicenceServer: boolean;
+    instanceId: string;
+    checkedBy: string | null;
+    lastCheckedAt: string | null;
+    nextCheckAt: string | null;
+    detail?: string;
+  };
 }
 
 /** What anonymous callers of /readyz see: overall status and each dependency's status, nothing else (D-088). */
@@ -140,6 +156,51 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
     ...(q.lastError ? { detail: `queue ${q.lastError.operation} failing since ${q.lastError.at}: ${q.lastError.message}` } : q.paused ? { detail: q.paused } : {}),
   };
 
+  // Queue dispatch (D-105): the LISTEN connection of a `notify` worker, the broker connection of an `sqs` / `redis`
+  // worker, and the outbox relay of every `sqs` / `redis` instance. Reported, never required: while the listener is down
+  // the worker polls (queue.pollIntervalMs with backoff), so it keeps claiming; while the broker refuses publishes the
+  // outbox keeps the rows and retries, and the fallback poll claims their jobs. Only the wake-up latency is lost.
+  const d = q.dispatch;
+  const relay = d?.relay
+    ? {
+        relay: {
+          failing: d.relay.failing,
+          published: d.relay.published,
+          failed: d.relay.failed,
+          dropped: d.relay.dropped,
+          ...(d.relay.lastPublishedAt ? { lastPublishedAt: d.relay.lastPublishedAt } : {}),
+          ...(d.relay.lastError ? { lastError: d.relay.lastError, lastErrorAt: d.relay.lastErrorAt } : {}),
+        },
+      }
+    : {};
+  const relayDetail = d?.relay?.failing ? `publishing to ${d.driver} fails (${d.relay.lastError}); the outbox keeps the job ids and retries with backoff` : undefined;
+  if (d && d.listener) {
+    const l = d.listener;
+    const detail = [d.listening ? undefined : `the ${d.driver} listener is disconnected${l.lastError ? ` (${l.lastError})` : ''}; polling every ${q.dispatch!.pollMs} ms until it reconnects`, relayDetail].filter(Boolean).join('; ');
+    dependencies.dispatch = {
+      status: d.listening && !d.relay?.failing ? 'ok' : 'error',
+      required: false,
+      driver: d.driver,
+      connected: l.connected,
+      ...(l.since ? { since: l.since } : {}),
+      reconnects: l.reconnects,
+      fallbackSeconds: (d.fallbackMs ?? 0) / 1000,
+      received: d.received,
+      duplicates: d.duplicates,
+      fallbackClaims: d.fallbackClaims,
+      ...relay,
+      ...(detail ? { detail } : {}),
+    };
+  } else if (d) {
+    dependencies.dispatch = {
+      status: d.relay?.failing ? 'error' : 'ok',
+      required: false,
+      driver: d.driver,
+      ...relay,
+      ...(d.driver === 'poll' ? { pollMs: d.pollMs } : { detail: relayDetail ? `publishes only; ${relayDetail}` : 'publishes only (this instance does not claim jobs)' }),
+    };
+  }
+
   if (obs) {
     // OTLP exporters: reported, never required (a telemetry backend being down must not take the studio out of rotation).
     const signals = obs.exportHealth();
@@ -172,5 +233,17 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
     );
   }
   if (sandbox.remotion === false) warnings.push('Remotion always starts Chromium without its sandbox; it renders only built-in templates');
-  return { ok, checks, dependencies, engines, security: { chromiumSandbox: sandbox, warnings } };
+  const lic = service.getLicence();
+  const licence: Readiness['licence'] = {
+    status: lic.status,
+    renderAllowed: lic.renderAllowed,
+    reason: lic.reason,
+    checksLicenceServer: lic.checksLicenceServer,
+    instanceId: lic.instanceId,
+    checkedBy: lic.checkedBy,
+    lastCheckedAt: lic.lastCheckedAt,
+    nextCheckAt: lic.nextCheckAt,
+    ...(lic.renderAllowed ? {} : { detail: `${lic.message}${role === 'worker' ? ' This worker claims no render jobs until the licence allows renders.' : ''}${lic.fix ? ` Fix: ${lic.fix}` : ''}` }),
+  };
+  return { ok, checks, dependencies, engines, security: { chromiumSandbox: sandbox, warnings }, licence };
 }

@@ -1,15 +1,42 @@
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DEFAULT_WORKSPACE_ID, hasFilesystemData, importFilesystemV01, type ImportReport, type Repositories } from '@reelforge/core';
+import { DEFAULT_WORKSPACE_ID, hasFilesystemData, importFilesystemV01, type ImportReport, type ReadySignal, type Repositories } from '@reelforge/core';
 import { MIGRATIONS } from './generated/migrations';
 import { applyMigrations, migrationStatus, type MigrationStatus, type RawClient } from './migrate';
 import { createPrismaRepositories, isUniqueViolation, type AnyPrismaClient } from './prisma-repositories';
-import { parseDatabaseUrl, redactDatabaseUrl, type DatabaseKind, type ParsedDatabaseUrl } from './url';
+import { DEFAULT_PG_SCHEMA, pgIdent } from './sql';
+import { parseDatabaseUrl, parseReadUrl, redactDatabaseUrl, type DatabaseKind, type ParsedDatabaseUrl } from './url';
 
 export interface OpenDatabaseOptions {
   /** file:..., postgresql://..., mysql://... (see resolveDatabaseUrl). */
   url: string;
+  /** Queue dispatch (D-105): what the job repository's transactions signal (PrismaRepositoryOptions.readySignal). */
+  readySignal?: ReadySignal;
+  /**
+   * database.readUrl (D-104): a read replica of `url` for the list reads that
+   * tolerate lag (READ_REPLICA_READS). Unset: every query goes to `url`.
+   * PostgreSQL and MySQL only.
+   */
+  readUrl?: string;
+  /**
+   * Pool size for a URL without `?connection_limit=` (the worker role's small
+   * default, database.workerConnectionLimit). Unset: the driver's default (10).
+   */
+  defaultConnectionLimit?: number;
 }
+
+/** node-postgres `max` and the mariadb connector's `connectionLimit` both default to 10. */
+export const DRIVER_DEFAULT_POOL = 10;
+
+/**
+ * The repository reads that go to database.readUrl when it is set (D-104):
+ * lists an agent or an admin pages through, where a row written a moment ago
+ * on the primary may be missing for the replica's lag. Everything else (job
+ * state, claims, quotas, rate limits, keys, licence, idempotency, settings,
+ * webhooks, single-row gets and every read-then-write) stays on the primary.
+ * docs/providers/queue-and-scaling.md#read-replica lists the same.
+ */
+export const READ_REPLICA_READS = ['projects.page', 'projects.listVersions', 'jobs.page', 'assets.page', 'themes.list', 'audit.list'] as const;
 
 /** Marker in SystemState once the v0.1 filesystem data was imported. */
 export const FS_IMPORT_STATE = 'import.fs-v0.1';
@@ -25,13 +52,31 @@ export class Database {
   private constructor(
     readonly kind: DatabaseKind,
     readonly url: string,
-    readonly prisma: AnyPrismaClient
+    readonly prisma: AnyPrismaClient,
+    /** The replica's client (database.readUrl), or null: everything on the primary. */
+    readonly readPrisma: AnyPrismaClient | null,
+    readonly readUrl: string | null,
+    /** Connections the primary's pool may open (PostgreSQL / MySQL; 1 file handle for SQLite). */
+    readonly poolSize: number,
+    /** Connections the replica's pool may open, or null without a replica. */
+    readonly readPoolSize: number | null,
+    private readonly readySignal?: ReadySignal
   ) {}
+
+  /**
+   * PostgreSQL: the schema the tables are in, which every raw statement names (#191): the URL's `?schema=`, else
+   * `public` (Prisma's default for its model queries too). null on SQLite and MySQL, where the database in the URL is
+   * the namespace.
+   */
+  get schema(): string | null {
+    return this.kind === 'postgresql' ? (parseDatabaseUrl(this.url).schema ?? DEFAULT_PG_SCHEMA) : null;
+  }
 
   static async open(opts: OpenDatabaseOptions): Promise<Database> {
     const parsed = parseDatabaseUrl(opts.url);
-    const prisma = await createClient(parsed);
-    const db = new Database(parsed.kind, opts.url, prisma);
+    const readParsed = opts.readUrl ? parseReadUrl(opts.readUrl, parsed) : null;
+    const sized = (p: ParsedDatabaseUrl): ParsedDatabaseUrl => ({ ...p, connectionLimit: p.connectionLimit ?? opts.defaultConnectionLimit });
+    const prisma = await createClient(sized(parsed));
     try {
       if (parsed.kind === 'sqlite') {
         // WAL: the server and the CLI can use the file at the same time.
@@ -39,7 +84,7 @@ export class Database {
         await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON');
         await prisma.$executeRawUnsafe('PRAGMA synchronous = NORMAL');
       } else if (parsed.kind === 'postgresql' && parsed.schema) {
-        const create = () => prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${parsed.schema}"`);
+        const create = () => prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS ${pgIdent(parsed.schema!)}`);
         // Two processes creating the schema at the same moment: one gets a duplicate-key error.
         await create().catch((e) => (/23505|already exists/.test(String((e as Error).message)) ? create() : Promise.reject(e)));
       } else {
@@ -53,7 +98,19 @@ export class Database {
           : '';
       throw new Error(`cannot connect to the database (${redactDatabaseUrl(opts.url)}): ${(e as Error).message.trim()}${hint}`);
     }
-    return db;
+    let readPrisma: AnyPrismaClient | null = null;
+    if (readParsed) {
+      // Only a connection check: a replica is read-only, so no schema is created and no migration runs on it.
+      readPrisma = await createClient(sized(readParsed));
+      try {
+        await readPrisma.$queryRawUnsafe('SELECT 1');
+      } catch (e) {
+        await Promise.all([readPrisma.$disconnect(), prisma.$disconnect()].map((p) => p.catch(() => undefined)));
+        throw new Error(`cannot connect to the read replica (${redactDatabaseUrl(opts.readUrl!)}): ${(e as Error).message.trim()}`);
+      }
+    }
+    const pool = (p: ParsedDatabaseUrl) => (p.kind === 'sqlite' ? 1 : (sized(p).connectionLimit ?? DRIVER_DEFAULT_POOL));
+    return new Database(parsed.kind, opts.url, prisma, readPrisma, opts.readUrl ?? null, pool(parsed), readParsed ? pool(readParsed) : null, opts.readySignal);
   }
 
   /** The URL without its password. */
@@ -61,17 +118,22 @@ export class Database {
     return redactDatabaseUrl(this.url);
   }
 
+  /** The replica URL without its password, or null. */
+  get readDisplayUrl(): string | null {
+    return this.readUrl === null ? null : redactDatabaseUrl(this.readUrl);
+  }
+
   private get raw(): RawClient {
     return this.prisma as unknown as RawClient;
   }
 
   status(): Promise<MigrationStatus> {
-    return migrationStatus(this.raw, this.kind, MIGRATIONS[this.kind] ?? []);
+    return migrationStatus(this.raw, this.kind, MIGRATIONS[this.kind] ?? [], this.schema ?? undefined);
   }
 
   /** Apply pending migrations; returns the ids applied. */
   async migrate(log?: (line: string) => void): Promise<string[]> {
-    const ran = await applyMigrations(this.raw, this.kind, MIGRATIONS[this.kind] ?? [], log);
+    const ran = await applyMigrations(this.raw, this.kind, MIGRATIONS[this.kind] ?? [], log, this.schema ?? undefined);
     await this.ensureWorkspace(DEFAULT_WORKSPACE_ID, 'Default');
     return ran;
   }
@@ -96,7 +158,11 @@ export class Database {
   repositories(workspaceId = DEFAULT_WORKSPACE_ID): Repositories {
     let r = this.repos.get(workspaceId);
     if (!r) {
-      r = createPrismaRepositories(this.prisma, workspaceId, this.kind);
+      r = createPrismaRepositories(this.prisma, workspaceId, this.kind, {
+        schema: this.schema,
+        ...(this.readPrisma ? { read: this.readPrisma } : {}),
+        ...(this.readySignal ? { readySignal: this.readySignal } : {}),
+      });
       this.repos.set(workspaceId, r);
     }
     return r;
@@ -140,7 +206,7 @@ export class Database {
   }
 
   async close(): Promise<void> {
-    await this.prisma.$disconnect();
+    await Promise.all([this.prisma.$disconnect(), this.readPrisma?.$disconnect()]);
   }
 }
 
@@ -182,6 +248,10 @@ async function createClient(p: ParsedDatabaseUrl): Promise<AnyPrismaClient> {
 
 export interface PrepareOptions {
   url: string;
+  /** database.readUrl (D-104); never migrated, only connected to. */
+  readUrl?: string;
+  /** Pool size for URLs without ?connection_limit= (OpenDatabaseOptions). */
+  defaultConnectionLimit?: number;
   /** v0.1 data directory to import once (the server's REELFORGE_DATA_DIR). */
   dataDir: string;
   /** Apply pending migrations (default true); otherwise refuse to start on an old schema. */
@@ -189,18 +259,23 @@ export interface PrepareOptions {
   /** Keep retrying the first connection this long (a database container may still be starting). Default 30. */
   connectTimeoutSeconds?: number;
   log?: (line: string) => void;
+  /** Queue dispatch (D-105): see OpenDatabaseOptions.readySignal. */
+  readySignal?: ReadySignal;
 }
 
 /** Database.open, retried with backoff until `timeoutMs` (configuration errors fail at once). */
-export async function openWithRetry(url: string, timeoutMs: number, log?: (line: string) => void): Promise<Database> {
-  parseDatabaseUrl(url); // bad URLs are not worth waiting for
+export async function openWithRetry(target: string | OpenDatabaseOptions, timeoutMs: number, log?: (line: string) => void): Promise<Database> {
+  const opts = typeof target === 'string' ? { url: target } : target;
+  // Bad URLs are not worth waiting for.
+  const parsed = parseDatabaseUrl(opts.url);
+  if (opts.readUrl) parseReadUrl(opts.readUrl, parsed);
   const deadline = Date.now() + timeoutMs;
   for (let delay = 500; ; delay = Math.min(delay * 2, 5000)) {
     try {
-      return await Database.open({ url });
+      return await Database.open(opts);
     } catch (e) {
       if (Date.now() + delay > deadline) throw e;
-      log?.(`waiting for the database (${redactDatabaseUrl(url)}): ${(e as Error).message.split('\n').pop()}`);
+      log?.(`waiting for the database (${redactDatabaseUrl(opts.url)}${opts.readUrl ? ` and the read replica ${redactDatabaseUrl(opts.readUrl)}` : ''}): ${(e as Error).message.split('\n').pop()}`);
       await new Promise((r) => setTimeout(r, delay));
     }
   }
@@ -208,7 +283,7 @@ export async function openWithRetry(url: string, timeoutMs: number, log?: (line:
 
 /** What the server and the CLI do on start: connect, migrate, import v0.1 data once. */
 export async function prepareDatabase(opts: PrepareOptions): Promise<{ db: Database; migrated: string[]; imported: ImportReport | null }> {
-  const db = await openWithRetry(opts.url, (opts.connectTimeoutSeconds ?? 30) * 1000, opts.log);
+  const db = await openWithRetry({ url: opts.url, readUrl: opts.readUrl, defaultConnectionLimit: opts.defaultConnectionLimit, ...(opts.readySignal ? { readySignal: opts.readySignal } : {}) }, (opts.connectTimeoutSeconds ?? 30) * 1000, opts.log);
   try {
     let migrated: string[] = [];
     if (opts.migrate ?? true) migrated = await db.migrate(opts.log);

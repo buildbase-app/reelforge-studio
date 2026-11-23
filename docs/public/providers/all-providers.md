@@ -18,7 +18,7 @@ server, so an agent never has to guess.
 | Render engines | `remotion`, `motion-canvas`, `html`, `hyperframes` | Tested, with real renders in CI and the Docker end-to-end suite |
 | Media provider: text-to-speech | ElevenLabs (`elevenlabs`), with word timestamps and a content-hash cache | Tested against a mocked API only; the live API is untested |
 | Media providers: avatars, stock, music | Interfaces exist | Not implemented |
-| Render backend: local | Renders in the server process | Tested |
+| Render backend: local | Renders on the worker that claimed the job (this server, `worker` instances, or `reelforge worker --once` containers started by a job platform) | Tested |
 | Render backend: Remotion Lambda | Checks its configuration only and refuses to render (`not_implemented`) | Skeleton |
 | Storage | Local disk, S3 and S3-compatible, Azure Blob, Google Cloud Storage | See [Storage providers](/docs/providers/storage) |
 | Observability | Structured logs, Prometheus metrics, OpenTelemetry traces, logs and metrics | See [Observability providers](/docs/providers/observability) |

@@ -1,0 +1,42 @@
+{
+  "agent": "mcp-sdk",
+  "engine": "html",
+  "status": "passed",
+  "date": "2026-11-21T19:30:54.800Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "node examples/tutorials/mcp-client.mjs examples/tutorials/html.json tut-mcp-sdk-html",
+  "projectId": "tut-mcp-sdk-html",
+  "jobId": "job_mwqszlcj00cf734af9",
+  "renderId": "run_mwqszlcja082245a30",
+  "renderSeconds": 86.7,
+  "sceneEngines": [
+    "html",
+    "html"
+  ],
+  "toolCalls": [
+    "get_capabilities()",
+    "list_templates(engine)",
+    "list_projects()",
+    "create_project(manifest)",
+    "validate_project(projectId)",
+    "render_project(projectId)",
+    "get_job(jobId, waitSeconds)",
+    "get_job(jobId, waitSeconds)",
+    "get_render_output(jobId)"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 647517
+  },
+  "poster": "mcp-sdk-html.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/mcp-sdk/html"
+}

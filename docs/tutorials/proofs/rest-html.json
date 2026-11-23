@@ -1,0 +1,40 @@
+{
+  "agent": "rest",
+  "engine": "html",
+  "status": "passed",
+  "date": "2026-11-21T19:29:36.314Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "examples/tutorials/rest.sh examples/tutorials/html.json tut-rest-html final.mp4",
+  "projectId": "tut-rest-html",
+  "jobId": "job_mwqsxwkh301e9ed7c1",
+  "renderId": "run_mwqsxwkhfc56596879",
+  "renderSeconds": 58.1,
+  "sceneEngines": [
+    "html",
+    "html"
+  ],
+  "toolCalls": [
+    "GET /v1/capabilities()",
+    "POST /v1/projects()",
+    "POST /v1/projects/tut-rest-html/validate()",
+    "POST /v1/projects/tut-rest-html/renders()",
+    "GET /v1/jobs/job_mwqsxwkh301e9ed7c1?wait=50()",
+    "GET /v1/jobs/job_mwqsxwkh301e9ed7c1?wait=50()",
+    "GET /v1/renders/run_mwqsxwkhfc56596879/output()"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 647497
+  },
+  "poster": "rest-html.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/rest/html"
+}

@@ -1,0 +1,19 @@
+# e2e: deployment/kubernetes/keda/ (ScaledObject) with test settings and a fast
+# scaler: poll every 5 s, at most 4 workers, back to 0 after 30 s idle.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../deployment/kubernetes/keda
+components:
+  - ../settings
+patches:
+  - target: { group: keda.sh, kind: ScaledObject, name: reelforge-worker }
+    patch: |-
+      - { op: replace, path: /spec/maxReplicaCount, value: 4 }
+      - { op: replace, path: /spec/pollingInterval, value: 5 }
+      - { op: replace, path: /spec/cooldownPeriod, value: 30 }
+      - op: replace
+        path: /spec/advanced/horizontalPodAutoscalerConfig/behavior
+        value:
+          scaleUp: { policies: [{ type: Pods, value: 4, periodSeconds: 15 }] }
+          scaleDown: { stabilizationWindowSeconds: 15, policies: [{ type: Pods, value: 4, periodSeconds: 15 }] }

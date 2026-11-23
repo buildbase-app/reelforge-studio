@@ -5,7 +5,11 @@ import { SpanStatusCode, context, trace, type Context, type Span } from '@opente
 import { ApiError, notFound } from './errors';
 import { NOOP_TELEMETRY, coreInstruments, type Telemetry } from './telemetry';
 import { newId } from './fsutil';
-import type { JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
+import type { PageRequest } from './paging';
+import { childJobs, describeUnit, isFannedOut, isTerminal, treeProgress, type ChildSpec } from './fanout';
+import { defaultPriority, effectiveRank, priorityRank, type JobPriority } from './priority';
+import type { DispatchListener, DispatchListenerStatus, DispatchMessage, OutboxRelayStatus } from './dispatch';
+import type { ChildSettlement, JobCaps, JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
 
 export type { JobProgress, JobRecord, JobStatus } from './repositories';
 export const TERMINAL: readonly JobStatus[] = ['succeeded', 'failed', 'cancelled'];
@@ -14,6 +18,17 @@ export const TERMINAL: readonly JobStatus[] = ['succeeded', 'failed', 'cancelled
 const MAX_LOG_LINE = 64 * 1024;
 /** Longest wait between claim attempts while the database fails. */
 const MAX_BACKOFF_MS = 30_000;
+/** How long shutdown() waits, after the grace period, for aborted jobs and claims in flight to hand their jobs back. */
+const SETTLE_MS = 15_000;
+/** Ready ids remembered per worker while they wait to be claimed (dispatch, D-105); more are dropped (the fallback poll covers them). */
+const MAX_PENDING = 10_000;
+
+/** What started a claim loop: the idle poll, the dispatch fallback poll, a dispatch message, or something on this instance. */
+type ClaimTrigger = 'poll' | 'fallback' | 'wake' | 'local';
+
+type ClaimInput = Parameters<JobRepository['claim']>[0];
+/** What claimJob() did: nothing claimed, started (`run`), or handed straight back on shutdown (`handedBack`). */
+type Claimed = { job: JobRecord | null; run?: Promise<void>; handedBack?: boolean };
 
 export interface JobEvent {
   jobId: string;
@@ -29,6 +44,16 @@ export interface JobContext {
   signal: AbortSignal;
   log(line: string): void;
   progress(stage: string, fraction: number, detail?: string): void;
+  /**
+   * Database queue only (D-097): fan this job out into `children` (queued rows
+   * with `parentId`, fenced by this claim) and hand it off: once this resolves
+   * the job stays `running` without a worker, its handler should return, and
+   * its children's outcomes finish it (the last unit inserts the join, whose
+   * result becomes this job's). Throws when the claim was lost or a cancel was
+   * requested meanwhile. `params` are merged into this job's parameters in the
+   * same write (the join gets a copy of them: the render's unit plan).
+   */
+  fanOut?(children: ChildSpec[], params?: Record<string, unknown>): Promise<JobRecord[]>;
 }
 
 export type JobHandler = (ctx: JobContext) => Promise<Record<string, unknown>>;
@@ -49,8 +74,50 @@ export interface DatabaseQueueOptions {
   maxAttempts?: number;
   /** Idle poll interval, and how often a job on another instance is re-read (queue.pollIntervalMs). Default 1000. */
   pollMs?: number;
+  /**
+   * Longest wait between empty polls (queue.pollMaxIntervalMs, D-105): after an empty claim the next poll waits
+   * twice as long as the last, from pollMs up to this; a claim that gets a job goes back to pollMs. Default 5000
+   * (never below pollMs; equal to pollMs: no backoff).
+   */
+  pollMaxMs?: number;
+  /**
+   * Queue dispatch (D-105). `driver`: what the repository's transactions signal (`poll`: nothing; `notify`:
+   * PostgreSQL NOTIFY), for metrics. `listener`: this worker's subscription (claiming roles only); a message wakes
+   * the normal fair claim after a random delay of up to `jitterMs` (default 50), skipped when other workers'
+   * claims already took the announced jobs. While the listener is connected, idle claiming only runs every
+   * `fallbackMs` (default 30 000) so a lost message never strands a job; while it is disconnected, the poll.
+   * Outbox drivers (`sqs`, `redis`): `onPublished` runs after this instance committed outbox rows (the relay
+   * publishes them now instead of at its next sweep), and `relay` reports the relay for status().
+   */
+  dispatch?: { driver: string; listener?: DispatchListener; fallbackMs?: number; jitterMs?: number; onPublished?: () => void; relay?: () => OutboxRelayStatus };
   /** Asked before each claim; `ok: false` pauses claiming (e.g. storage is down, so renders would only fail). */
   canClaim?: () => Promise<{ ok: boolean; reason?: string }>;
+  /** `worker --once` (D-100): never claim on a timer; the only claim is the one runOnce() makes. */
+  once?: boolean;
+}
+
+/** How runOnce() ended (`reelforge worker --once` turns it into the exit status, D-100). */
+export type OnceOutcome =
+  /** Nothing to claim within the wait (or the given job is missing, finished or running elsewhere). */
+  | 'none'
+  /** `--job`: the job is still queued when the wait ends (claiming paused, or its key at the running cap); run again later. */
+  | 'deferred'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  /** Stopped by SIGTERM and handed back to the queue (D-077). */
+  | 'released'
+  /** The lease was lost (database unreachable for a lease period, or another worker took it). */
+  | 'lost'
+  /** A render fanned out into units and a join (D-097): its work is on the queue for any worker. */
+  | 'fanned_out';
+
+export interface OnceResult {
+  outcome: OnceOutcome;
+  /** The claimed job as this worker last saw it. */
+  job?: JobRecord;
+  /** Why nothing was claimed (outcome `none`). */
+  reason?: string;
 }
 
 export interface JobRunnerOptions {
@@ -64,6 +131,12 @@ export interface JobRunnerOptions {
   mode?: QueueMode;
   database?: DatabaseQueueOptions;
   log?: (level: 'info' | 'warn' | 'error', line: string) => void;
+  /** Jobs of one API key that may run at the same time (limits.maxRunningJobsPerKey, read before each start; 0 or unset: no limit). */
+  maxRunningPerKey?: () => number | undefined;
+  /** queue.priorityAgingSeconds, read before each claim (D-103): a `batch` job queued this long counts as `standard`. 0 or unset: strict. */
+  priorityAgingSeconds?: () => number | undefined;
+  /** Called for every job this instance claims (or starts, in-process): the shared claim throughput (ClaimRate, D-103). */
+  onClaim?: (job: JobRecord) => void;
 }
 
 /** What the database queue looks like from this instance (/readyz, metrics). */
@@ -80,6 +153,21 @@ export interface QueueStatus {
   /** The last failed queue operation, cleared by the next success. */
   lastError?: { operation: string; message: string; at: string };
   lastHeartbeatAt?: string;
+  /** Queue dispatch (D-105): the driver, and this worker's listener when it has one. */
+  dispatch?: {
+    driver: string;
+    /** The listener is connected (messages arrive); false: this worker polls until it reconnects. */
+    listening?: boolean;
+    listener?: DispatchListenerStatus;
+    fallbackMs?: number;
+    /** The current idle poll interval (backoff on empty polls). */
+    pollMs: number;
+    received: number;
+    duplicates: number;
+    fallbackClaims: number;
+    /** Outbox drivers: this instance's relay (publishes the outbox to the broker). */
+    relay?: OutboxRelayStatus;
+  };
 }
 
 type AbortReason = 'cancel' | 'lost' | 'release';
@@ -133,8 +221,27 @@ export class JobRunner {
   readonly mode: QueueMode;
   readonly workerId: string;
   readonly runJobs: boolean;
-  private readonly db: Required<Omit<DatabaseQueueOptions, 'canClaim' | 'workerId' | 'runJobs'>> & Pick<DatabaseQueueOptions, 'canClaim'>;
+  private readonly db: Required<Omit<DatabaseQueueOptions, 'canClaim' | 'workerId' | 'runJobs' | 'once' | 'dispatch'>> & Pick<DatabaseQueueOptions, 'canClaim'>;
+  /** Queue dispatch (D-105): the driver, this worker's listener, fallback interval and wake jitter. */
+  private readonly dispatch: { driver: string; listener?: DispatchListener; fallbackMs: number; jitterMs: number; onPublished?: () => void; relay?: () => OutboxRelayStatus };
+  /** The listener is connected: idle claiming waits for messages, with the fallback poll. */
+  private listening = false;
+  /** The next idle poll's delay: pollMs, doubled after each empty claim up to pollMaxMs. */
+  private idleMs: number;
+  /** Ready job ids announced and not yet seen claimed (by anyone), with the message order they arrived in. */
+  private pending = new Map<string, { seq: number; ack?: () => Promise<void>; release?: () => Promise<void> }>();
+  private seq = 0;
+  private wakeTimer: NodeJS.Timeout | null = null;
+  /** runOnce() waiting for a message. */
+  private wakeWaiters: Array<() => void> = [];
+  private counters = { received: 0, duplicates: 0, fallbackClaims: 0 };
+  /** The listener is subscribed (paused while every slot is busy, so a busy worker is not sent every message). */
+  private listenActive = true;
+  readonly once: boolean;
   private readonly logger: NonNullable<JobRunnerOptions['log']>;
+  private readonly maxRunningPerKey: () => number | undefined;
+  private readonly agingSeconds: () => number | undefined;
+  private readonly onClaim: (job: JobRecord) => void;
   /** Database queue: the claim (fence) of each job this process runs. */
   private fences = new Map<string, JobLeaseFence>();
   private abortReasons = new Map<string, AbortReason>();
@@ -151,8 +258,14 @@ export class JobRunner {
   private lastHeartbeatOk = Date.now();
   private lastHeartbeatAt: string | undefined;
   private queuedCount = 0;
-  /** Jobs handed back to the queue since shutdown() started. */
+  /** Running jobs handed back to the queue since shutdown() started. */
   private released = 0;
+  /** Jobs claimed while shutdown() started, handed straight back since then (#172). */
+  private releasedClaims = 0;
+  /** Claims in flight (claimJob): shutdown() waits for them, so a job they take is handed back, not left `running`. */
+  private claims = new Set<Promise<unknown>>();
+  /** Jobs whose handler fanned them out (D-097): when the handler returns, they are handed off, not finished. */
+  private detached = new Set<string>();
   /** Jobs running on other instances that someone here is waiting for (polled from the database). */
   private watchers = new Map<string, { timer: NodeJS.Timeout; refs: number; last: string }>();
 
@@ -165,6 +278,7 @@ export class JobRunner {
     this.mode = opts.mode ?? 'inprocess';
     const d = opts.database ?? {};
     this.runJobs = d.runJobs ?? true;
+    this.once = d.once ?? false;
     this.workerId = d.workerId ?? defaultWorkerId();
     const leaseMs = Math.max(1000, d.leaseMs ?? 60_000);
     this.db = {
@@ -172,9 +286,36 @@ export class JobRunner {
       heartbeatMs: Math.max(100, d.heartbeatMs ?? Math.floor(leaseMs / 4)),
       maxAttempts: Math.max(1, d.maxAttempts ?? 3),
       pollMs: Math.max(20, d.pollMs ?? 1000),
+      pollMaxMs: 0,
       canClaim: d.canClaim,
     };
+    this.db.pollMaxMs = Math.max(this.db.pollMs, d.pollMaxMs ?? 5000);
+    this.idleMs = this.db.pollMs;
+    this.dispatch = {
+      driver: d.dispatch?.driver ?? 'poll',
+      ...(d.dispatch?.listener ? { listener: d.dispatch.listener } : {}),
+      fallbackMs: Math.max(this.db.pollMs, d.dispatch?.fallbackMs ?? 30_000),
+      jitterMs: Math.max(0, d.dispatch?.jitterMs ?? 50),
+      ...(d.dispatch?.onPublished ? { onPublished: d.dispatch.onPublished } : {}),
+      ...(d.dispatch?.relay ? { relay: d.dispatch.relay } : {}),
+    };
     this.logger = opts.log ?? (() => undefined);
+    this.maxRunningPerKey = () => {
+      const n = opts.maxRunningPerKey?.();
+      return n && n > 0 ? n : undefined;
+    };
+    this.agingSeconds = () => {
+      const n = opts.priorityAgingSeconds?.();
+      return n && n > 0 ? n : undefined;
+    };
+    this.onClaim = opts.onClaim ?? (() => undefined);
+  }
+
+  /** The claim's options besides worker, types and times: the per-key running cap and priority aging, read now. */
+  private claimLimits(): Pick<ClaimInput, 'maxRunningPerKey' | 'priorityAgingSeconds'> {
+    const cap = this.maxRunningPerKey();
+    const aging = this.agingSeconds();
+    return { ...(cap !== undefined ? { maxRunningPerKey: cap } : {}), ...(aging !== undefined ? { priorityAgingSeconds: aging } : {}) };
   }
 
   get concurrency(): number {
@@ -187,12 +328,30 @@ export class JobRunner {
     queueMicrotask(() => this.pump());
   }
 
+  /** Look at the queue again (a limit read by the pump changed at runtime). */
+  wake(): void {
+    queueMicrotask(() => this.pump());
+  }
+
   async init(): Promise<void> {
     if (this.mode === 'database') {
       // Nothing is failed here: jobs of a crashed worker come back through their expired lease.
+      const listener = this.dispatch.listener;
+      if (listener && this.runJobs) {
+        // Before claiming starts: a listener that cannot connect, or whose messages do not arrive, fails the start
+        // (notify). Broker listeners start disconnected when the broker is unreachable: this worker polls until
+        // they connect (the database is the queue of record) and `connected` switches it to messages.
+        await listener.start({
+          message: (m) => this.onDispatch(m),
+          connected: () => this.onListenerConnected(),
+          disconnected: (reason) => this.onListenerLost(reason),
+          capacity: () => this.freeSlots(),
+        });
+        this.listening = listener.status().connected;
+      }
       this.started = true;
       this.scheduleHeartbeat();
-      this.schedulePoll(0);
+      this.schedulePoll(0, 'local');
       return;
     }
     for (const job of await this.repo.listUnfinished()) {
@@ -209,14 +368,15 @@ export class JobRunner {
 
   /**
    * Create a job. With `quota`, the job is only inserted while the API key's
-   * render quota has room; the check and the insert are atomic across
-   * processes (JobRepository.insertWithQuota). Returns the refused window.
+   * render quota and the job caps (JobCaps) have room; the check and the insert
+   * are atomic across processes (JobRepository.insertWithQuota). Throws
+   * QuotaExceeded or JobCapReached when refused.
    */
   async submit(
     type: string,
     params: Record<string, unknown>,
-    meta: { projectId?: string; retryOf?: string; apiKeyId?: string } = {},
-    quota?: { types: string[]; windows: QuotaWindow[] }
+    meta: { projectId?: string; retryOf?: string; apiKeyId?: string; priority?: JobPriority } = {},
+    quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps
   ): Promise<JobRecord> {
     if (!this.handlers[type]) throw new ApiError('bad_request', 400, `unknown job type "${type}"`);
     if (this.stopping && this.mode === 'inprocess') throw new ApiError('shutting_down', 503, 'the server is shutting down; retry on another instance or after the restart');
@@ -231,16 +391,23 @@ export class JobRunner {
       ...(meta.retryOf ? { retryOf: meta.retryOf } : {}),
       ...(meta.apiKeyId ? { apiKeyId: meta.apiKeyId } : {}),
       ...(this.mode === 'database' ? { queue: 'database' as const, attempts: 0 } : {}),
+      priority: meta.priority ?? defaultPriority(type),
     };
     // Durable before anyone sees the id.
-    if (quota && meta.apiKeyId) {
-      const r = await this.repo.insertWithQuota(structuredClone(job), job.createdAt, { apiKeyId: meta.apiKeyId, ...quota });
-      if (!r.ok) throw new QuotaExceeded(r.window, r.used);
+    const limited =
+      quota && ((meta.apiKeyId && (quota.windows.length || quota.maxActivePerKey !== undefined)) || quota.maxQueuedTotal !== undefined || quota.maxEstimatedWait !== undefined);
+    if (quota && limited) {
+      const r = await this.repo.insertWithQuota(structuredClone(job), job.createdAt, { ...quota, ...(meta.apiKeyId ? { apiKeyId: meta.apiKeyId } : {}) });
+      if (!r.ok) {
+        if (!('cap' in r)) throw new QuotaExceeded(r.window, r.used);
+        throw new JobCapReached(r.cap, r.used, r.cap === 'estimated_wait' ? { oldestQueuedAt: r.oldestQueuedAt, estimatedWaitSeconds: r.estimatedWaitSeconds } : undefined);
+      }
     } else {
       await this.repo.insert(structuredClone(job), job.createdAt);
     }
     if (this.mode === 'database') {
       this.queuedCount++;
+      this.published(1, 'enqueue');
       this.emit({ jobId: job.id, type: 'status', job });
       if (this.runJobs) queueMicrotask(() => this.pump());
       return structuredClone(job);
@@ -258,11 +425,27 @@ export class JobRunner {
     if (a) return structuredClone(a);
     const j = await this.repo.get(id);
     if (!j) throw notFound('job', id);
-    return j;
+    return this.withTreeProgress(j);
+  }
+
+  /** A fanned-out parent's progress is its children's (D-097): frames done / total frames, then the join. */
+  private async withTreeProgress(j: JobRecord): Promise<JobRecord> {
+    if (!isFannedOut(j)) return j;
+    const children = await this.repo.list({ parentId: j.id });
+    return { ...j, progress: treeProgress(j, children) };
   }
 
   async list(filter: JobFilter = {}): Promise<JobRecord[]> {
-    const rows = await this.repo.list(filter);
+    return this.withActive(await this.repo.list(filter));
+  }
+
+  /** One keyset page, newest first (list_jobs, D-102). */
+  async page(filter: JobFilter, req: PageRequest): Promise<JobRecord[]> {
+    return this.withActive(await this.repo.page(filter, req));
+  }
+
+  /** Jobs running in this process: their live state instead of the last one written. */
+  private withActive(rows: JobRecord[]): JobRecord[] {
     return rows.map((j) => {
       const a = this.active.get(j.id);
       return a ? structuredClone(a) : j;
@@ -285,23 +468,44 @@ export class JobRunner {
       ...(this.stopping ? { paused: 'shutting down' } : this.pausedReason ? { paused: this.pausedReason } : {}),
       ...(this.lastError ? { lastError: this.lastError } : {}),
       ...(this.lastHeartbeatAt ? { lastHeartbeatAt: this.lastHeartbeatAt } : {}),
+      ...(this.mode === 'database'
+        ? {
+            dispatch: {
+              driver: this.dispatch.driver,
+              ...(this.dispatch.listener && this.runJobs ? { listening: this.listening, listener: this.dispatch.listener.status(), fallbackMs: this.dispatch.fallbackMs } : {}),
+              pollMs: this.idleMs,
+              ...this.counters,
+              ...(this.dispatch.relay ? { relay: this.dispatch.relay() } : {}),
+            },
+          }
+        : {}),
     };
   }
 
-  /** Position in this instance's in-process queue (0 = next), or null if not queued here. */
+  /** Position in this instance's in-process queue (0 = next: higher classes first, then queue order), or null if not queued here. */
   queuePosition(id: string): number | null {
     const i = this.queue.indexOf(id);
-    return i < 0 ? null : i;
+    if (i < 0) return null;
+    const rank = priorityRank(this.active.get(id)?.priority);
+    return this.queue.filter((q, k) => {
+      const r = priorityRank(this.active.get(q)?.priority);
+      return r < rank || (r === rank && k < i);
+    }).length;
   }
 
   /** Position of a queued job (0 = next): in-process or, for the database queue, among all instances. */
   async positionOf(job: JobRecord): Promise<number | null> {
     if (job.status !== 'queued') return null;
     if (job.queue !== 'database') return this.queuePosition(job.id);
-    return this.repo.countQueued({ createdAt: job.createdAt, id: job.id });
+    return this.repo.countQueued({ createdAt: job.createdAt, id: job.id, ...(job.priority ? { priority: job.priority } : {}) });
   }
 
   async cancel(id: string): Promise<JobRecord> {
+    // Fan-out (D-097): cancelling a unit or the join cancels its render, and a render cascades to its children.
+    const parentId = (this.active.get(id) ?? (await this.repo.get(id)))?.parentId;
+    if (parentId) return this.cancel(parentId);
+    const tree = await this.cancelTree(id);
+    if (tree) return tree;
     const job = this.active.get(id);
     if (job) {
       if (job.status === 'queued') {
@@ -330,15 +534,40 @@ export class JobRunner {
     if (await this.repo.requestCancel(id, at)) {
       await this.repo.appendLog(id, at, `cancel requested (by ${this.workerId}); the worker stops it within ${Math.ceil(this.db.heartbeatMs / 1000)} s`);
     }
+    // It may have fanned out meanwhile (its fan-out wins over the request only if it was stored first): cascade then.
+    return (await this.cancelTree(id)) ?? this.get(id);
+  }
+
+  /** Cancel a fanned-out render and its children (D-097); null when the job is not one. */
+  private async cancelTree(id: string): Promise<JobRecord | null> {
+    if (this.mode !== 'database') return null;
+    const stored = await this.repo.get(id);
+    if (!stored || !isFannedOut(stored)) return null;
+    const at = new Date().toISOString();
+    const changed = await this.repo.cancelTree(id, at);
+    if (!changed) return null;
+    await this.repo.appendLog(id, at, `finished: cancelled (with its ${changed.length - 1} queued unit(s); running units stop at their next heartbeat; by ${this.workerId})`);
+    this.emitSettled(changed);
     return this.get(id);
   }
 
+  /** Status events and metrics for jobs a fan-out transaction finished or cancelled (they ran on no worker here). */
+  private emitSettled(jobs: JobRecord[]) {
+    const m = coreInstruments(this.telemetry.meter);
+    for (const j of jobs) {
+      if (isTerminal(j.status)) m.jobsFinished.add(1, { 'reelforge.job.type': j.type, 'reelforge.job.status': j.status });
+      if (j.status === 'cancelled' && j.parentId) this.queuedCount = Math.max(0, this.queuedCount - 1);
+      this.emit({ jobId: j.id, type: 'status', job: j });
+    }
+  }
+
   /** Start a new job with the same type and parameters. The old job and its output are untouched. */
-  async retry(id: string, meta: { apiKeyId?: string } = {}, quota?: { types: string[]; windows: QuotaWindow[] }): Promise<JobRecord> {
+  async retry(id: string, meta: { apiKeyId?: string; priority?: JobPriority } = {}, quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps): Promise<JobRecord> {
     const job = await this.get(id);
     if (!TERMINAL.includes(job.status) || job.status === 'succeeded') {
       throw new ApiError('conflict', 409, `only failed or cancelled jobs can be retried (job is ${job.status})`);
     }
+    if (job.parentId) throw new ApiError('conflict', 409, `job ${id} is part of render job ${job.parentId}; retry that job (its committed units are reused)`);
     return this.submit(job.type, job.params, { projectId: job.projectId, retryOf: job.id, ...meta }, quota);
   }
 
@@ -410,7 +639,10 @@ export class JobRunner {
   /**
    * Graceful shutdown: stop claiming, wait up to `graceMs` for running jobs,
    * then stop the rest and (database queue) hand them back to the queue so
-   * another worker takes them at once. Leases are released either way.
+   * another worker takes them at once. Leases are released either way. A
+   * claim still in flight hands its job straight back too (#172); the wait for
+   * aborted jobs and claims is bounded (15 s), after which a job left behind
+   * waits for its lease to end.
    */
   async shutdown(graceMs: number): Promise<{ finished: number; released: number }> {
     this.stopping = true;
@@ -418,6 +650,7 @@ export class JobRunner {
     this.pollTimer = null;
     const runningAtStart = this.running.size;
     this.released = 0;
+    this.releasedClaims = 0;
     if (runningAtStart) this.log('info', `shutting down: waiting up to ${Math.round(graceMs / 1000)} s for ${runningAtStart} running job(s)`);
     const deadline = Date.now() + graceMs;
     while (this.running.size && Date.now() < deadline) await sleep(Math.min(200, deadline - Date.now()));
@@ -426,15 +659,24 @@ export class JobRunner {
       this.abortReasons.set(id, this.mode === 'database' ? 'release' : 'cancel');
       this.running.get(id)?.abort();
     }
-    // Aborted handlers settle quickly; the release (or final state) is written in start().
-    const settle = Date.now() + 15_000;
-    while (this.running.size && Date.now() < settle) await sleep(50);
+    // Aborted handlers settle quickly; the release (or final state) is written in start(). A claim in flight
+    // hands its job back in claimJob().
+    const settle = Date.now() + SETTLE_MS;
+    while ((this.running.size || this.claims.size) && Date.now() < settle) await sleep(50);
+    if (this.claims.size) this.log('warn', `shutting down: a job claim is still in flight after ${SETTLE_MS / 1000} s; a job it takes waits for its lease to end`);
+    if (this.wakeTimer) clearTimeout(this.wakeTimer);
+    this.wakeTimer = null;
+    this.releaseWaiters();
+    if (this.dispatch.listener && this.runJobs) {
+      this.listening = false;
+      await this.dispatch.listener.stop().catch((e: Error) => this.log('warn', `queue: could not stop the dispatch listener: ${e.message}`));
+    }
     if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer);
     this.heartbeatTimer = null;
     for (const w of this.watchers.values()) clearInterval(w.timer);
     this.watchers.clear();
     await this.flush();
-    return { finished: runningAtStart - this.released, released: this.released };
+    return { finished: runningAtStart - this.released, released: this.released + this.releasedClaims };
   }
 
   private emit(e: JobEvent) {
@@ -443,16 +685,45 @@ export class JobRunner {
 
   private pump() {
     if (this.mode === 'database') {
-      void this.claimLoop();
+      void this.claimLoop('local');
       return;
     }
+    const cap = this.maxRunningPerKey();
+    const aging = this.agingSeconds();
+    // Priority first (D-103; batch aged into standard), then fair across keys (D-090): start the queued job whose
+    // key runs the fewest jobs, oldest first among equals; jobs of a key at its cap (limits.maxRunningJobsPerKey)
+    // wait and keep their place.
+    this.queue = this.queue.filter((id) => this.active.get(id)?.status === 'queued');
     while (this.running.size < this.concurrency && this.queue.length > 0) {
-      const id = this.queue.shift()!;
-      const job = this.active.get(id);
-      if (!job || job.status !== 'queued') continue;
-      void this.start(job);
+      let best = -1;
+      let bestRank = Infinity;
+      let bestRunning = Infinity;
+      const now = Date.now();
+      for (const [i, id] of this.queue.entries()) {
+        const job = this.active.get(id)!;
+        const key = job.apiKeyId;
+        const n = key ? this.runningFor(key) : 0;
+        if (cap !== undefined && key && n >= cap) continue;
+        const r = effectiveRank(priorityRank(job.priority), Date.parse(job.createdAt), now, aging);
+        if (r < bestRank || (r === bestRank && n < bestRunning)) {
+          best = i;
+          bestRank = r;
+          bestRunning = n;
+          if (n === 0 && r === 0) break;
+        }
+      }
+      if (best < 0) break;
+      const [id] = this.queue.splice(best, 1);
+      void this.start(this.active.get(id!)!);
     }
     this.notifyIdle();
+  }
+
+  /** Jobs of this API key running in this process. */
+  private runningFor(apiKeyId: string): number {
+    let n = 0;
+    for (const id of this.running.keys()) if (this.active.get(id)?.apiKeyId === apiKeyId) n++;
+    return n;
   }
 
   private notifyIdle() {
@@ -464,53 +735,90 @@ export class JobRunner {
 
   // ---- database queue -------------------------------------------------------
 
-  private schedulePoll(ms: number) {
-    if (!this.started || this.stopping || !this.runJobs) return;
+  private schedulePoll(ms: number, trigger: ClaimTrigger = 'poll') {
+    if (!this.started || this.stopping || !this.runJobs || this.once) return;
     if (this.pollTimer) clearTimeout(this.pollTimer);
     this.pollTimer = setTimeout(() => {
       this.pollTimer = null;
-      void this.claimLoop();
+      void this.claimLoop(trigger);
     }, ms);
     this.pollTimer.unref();
   }
 
+  /**
+   * The next idle claim (D-105). Listening for dispatch messages: only the fallback poll. Polling: pollMs while
+   * claims get jobs (as before), otherwise twice the last wait after each empty claim, up to pollMaxMs, with up to
+   * 10 % random spread so idle workers do not poll in step.
+   */
+  private scheduleIdle(empty: boolean) {
+    if (this.listening) {
+      this.schedulePoll(this.dispatch.fallbackMs, 'fallback');
+      return;
+    }
+    if (!empty) {
+      this.idleMs = this.db.pollMs;
+      this.schedulePoll(this.db.pollMs);
+      return;
+    }
+    const wait = this.idleMs;
+    this.idleMs = Math.min(this.db.pollMaxMs, this.idleMs * 2);
+    this.schedulePoll(wait > this.db.pollMs ? wait + Math.floor(Math.random() * wait * 0.1) : wait);
+  }
+
   /** Claim queued jobs while there are free slots. One loop at a time; a request during a loop runs it again. */
-  private async claimLoop(): Promise<void> {
-    if (!this.started || this.stopping || !this.runJobs) return;
+  private async claimLoop(trigger: ClaimTrigger = 'local'): Promise<void> {
+    if (!this.started || this.stopping || !this.runJobs || this.once) return;
     if (this.claiming) {
       this.claimAgain = true;
       return;
     }
     this.claiming = true;
+    // Whether the last claim attempt found nothing (the queue holds nothing this worker may take now).
+    let empty = false;
+    let claimedAny = false;
+    const m = coreInstruments(this.telemetry.meter);
     try {
       do {
         this.claimAgain = false;
         while (!this.stopping && this.running.size < this.concurrency) {
-          if (this.db.canClaim) {
-            const can = await this.db.canClaim().catch((e: Error) => ({ ok: false, reason: e.message }));
-            if (!can.ok) {
-              if (this.pausedReason !== can.reason) this.log('warn', `queue: not claiming jobs: ${can.reason}`);
-              this.pausedReason = can.reason ?? 'not ready';
-              break;
-            }
-            if (this.pausedReason) this.log('info', 'queue: claiming jobs again');
-            this.pausedReason = undefined;
-          }
+          if (!(await this.checkClaimable())) break;
+          // Subscribed again before the claim, so a job committed after the claim's snapshot is still announced.
+          await this.syncListen();
           const now = Date.now();
-          const job = await this.repo.claim({
+          // Ready messages that arrived before this attempt are answered by it (a later one may announce a job it missed).
+          const seenSeq = this.seq;
+          const { job, run } = await this.claimJob({
             workerId: this.workerId,
             types: Object.keys(this.handlers),
             now: new Date(now).toISOString(),
             leaseUntil: new Date(now + this.db.leaseMs).toISOString(),
+            ...this.claimLimits(),
           });
           this.ok('claim');
-          if (!job) break;
+          m.queueClaims.add(1, { 'reelforge.trigger': trigger, 'reelforge.result': job ? 'job' : 'empty' });
+          // A broker message (one consumer each, acknowledged) is answered by the claim it woke, whichever job the
+          // fair order gave: the claimed job's own message, else the oldest that arrived before this attempt.
+          if (job && !this.consumePending(job.id)) this.consumeOneAckable(seenSeq);
+          empty = !job;
+          if (empty) this.consumePendingUpTo(seenSeq);
+          // Nothing claimed, or shutdown() started meanwhile and the job went straight back.
+          if (!run) break;
+          claimedAny = true;
           this.queuedCount = Math.max(0, this.queuedCount - 1);
-          void this.start(job);
+          if (this.dispatch.driver !== 'poll' && (trigger === 'fallback' || (trigger === 'poll' && this.dispatch.listener && !this.listening))) {
+            // A message should have announced this job (fallback), or the listener is down (degraded).
+            this.counters.fallbackClaims++;
+            m.dispatchFallbackClaims.add(1, { 'reelforge.dispatch.driver': this.dispatch.driver, 'reelforge.reason': trigger === 'fallback' ? 'fallback' : 'degraded' });
+          }
         }
       } while (this.claimAgain && !this.stopping);
       this.backoffMs = 0;
-      this.schedulePoll(this.db.pollMs);
+      // Every slot busy: stop receiving messages until one frees (the claim after a job ends subscribes again),
+      // and give back broker messages this worker cannot answer now, so an idle worker gets them at once.
+      void this.syncListen();
+      if (this.freeSlots() === 0) this.releasePending();
+      this.dispatch.listener?.capacityChanged?.();
+      this.scheduleIdle(empty && !claimedAny);
     } catch (e) {
       this.failed('claim', e as Error);
       this.backoffMs = Math.min(MAX_BACKOFF_MS, this.backoffMs ? this.backoffMs * 2 : this.db.pollMs * 2);
@@ -518,6 +826,254 @@ export class JobRunner {
     } finally {
       this.claiming = false;
     }
+  }
+
+  // ---- queue dispatch (D-105) -----------------------------------------------------
+
+  /**
+   * A dispatch message. It never picks the job: `ready` schedules the normal claim (priority, then fairness across
+   * keys, then age; D-090, D-103) after a random delay of up to jitterMs, `claimed` forgets an announced job. When
+   * the delay ends and every announced job was claimed by another worker meanwhile, no claim runs, so one job does
+   * not cost one claim per idle worker. A worker without a free slot claims when its job ends (as always).
+   * Duplicate or stale ids are no-ops: at most one claim, which takes whatever the fair order says or nothing.
+   */
+  private onDispatch(msg: DispatchMessage) {
+    const m = coreInstruments(this.telemetry.meter);
+    const driver = { 'reelforge.dispatch.driver': this.dispatch.driver };
+    m.dispatchReceived.add(1, { ...driver, 'reelforge.dispatch.kind': msg.kind });
+    if (msg.kind === 'claimed') {
+      this.consumePending(msg.jobId);
+      return;
+    }
+    this.counters.received++;
+    if (this.pending.has(msg.jobId)) {
+      this.counters.duplicates++;
+      m.dispatchDuplicates.add(1, driver);
+      void msg.ack?.().catch(() => undefined);
+      return;
+    }
+    if (this.pending.size >= MAX_PENDING) {
+      // Far more announced than claimed: forget the oldest (the fallback poll claims whatever they announced).
+      const [oldest] = this.pending.keys();
+      this.consumePending(oldest!);
+    }
+    this.pending.set(msg.jobId, { seq: ++this.seq, ...(msg.ack ? { ack: msg.ack } : {}), ...(msg.release ? { release: msg.release } : {}) });
+    this.releaseWaiters();
+    if (!this.started || this.stopping || this.once || !this.runJobs || this.running.size >= this.concurrency || this.wakeTimer) return;
+    this.wakeTimer = setTimeout(() => {
+      this.wakeTimer = null;
+      if (this.pending.size && this.running.size < this.concurrency) void this.claimLoop('wake');
+    }, Math.floor(Math.random() * this.dispatch.jitterMs));
+    this.wakeTimer.unref();
+  }
+
+  /** Subscribe while a slot is free, unsubscribe while none is (drivers with setActive). */
+  private async syncListen(want = this.running.size < this.concurrency && !this.stopping): Promise<void> {
+    const l = this.dispatch.listener;
+    if (!l?.setActive || !this.listening || want === this.listenActive) return;
+    this.listenActive = want;
+    await l.setActive(want).catch((e: Error) => this.log('warn', `queue: could not ${want ? 'resume' : 'pause'} the dispatch listener: ${e.message}`));
+  }
+
+  private onListenerConnected() {
+    this.listening = true;
+    this.idleMs = this.db.pollMs;
+    this.log('info', `queue: dispatch listener (${this.dispatch.driver}) connected again; claiming once for messages missed meanwhile`);
+    void this.claimLoop('wake');
+  }
+
+  private onListenerLost(reason: string) {
+    if (this.stopping) return;
+    this.listening = false;
+    this.idleMs = this.db.pollMs;
+    this.log('warn', `queue: dispatch listener (${this.dispatch.driver}) disconnected (${reason}); polling every ${this.db.pollMs} ms (backing off to ${this.db.pollMaxMs} ms) until it reconnects`);
+    this.schedulePoll(this.db.pollMs);
+  }
+
+  /** An announced job was claimed (by anyone): forget it, acknowledging its message. False: it was not announced here. */
+  private consumePending(id: string): boolean {
+    const p = this.pending.get(id);
+    if (!p) return false;
+    this.pending.delete(id);
+    void p.ack?.().catch(() => undefined);
+    return true;
+  }
+
+  /** A claim took a job no message here announced: acknowledge the oldest broker message that arrived before it. */
+  private consumeOneAckable(seq: number) {
+    for (const [id, p] of this.pending) {
+      if (p.seq > seq) return;
+      if (p.ack) {
+        this.consumePending(id);
+        return;
+      }
+    }
+  }
+
+  /** No free slot: hand broker messages back (visible again at once), so a worker with a free slot answers them. */
+  private releasePending() {
+    for (const [id, p] of this.pending) {
+      if (!p.release) continue;
+      this.pending.delete(id);
+      void p.release().catch(() => undefined);
+    }
+  }
+
+  /** Claims this worker could start now (broker listeners receive at most this many unanswered messages). */
+  private freeSlots(): number {
+    if (this.stopping || !this.runJobs) return 0;
+    return Math.max(0, (this.once ? 1 : this.concurrency) - this.running.size);
+  }
+
+  /** A claim found nothing: every job announced before it started is taken, or not claimable by this worker now. */
+  private consumePendingUpTo(seq: number) {
+    for (const [id, p] of this.pending) if (p.seq <= seq) this.consumePending(id);
+  }
+
+  private releaseWaiters() {
+    for (const w of this.wakeWaiters.splice(0)) w();
+  }
+
+  /** Sleep up to `ms`, or less when a ready message arrives (runOnce). */
+  private waitForWake(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        this.wakeWaiters = this.wakeWaiters.filter((w) => w !== done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      timer.unref();
+      this.wakeWaiters.push(done);
+    });
+  }
+
+  /** Dispatch metric: ready messages this instance's transactions published (the repository sends them; D-105). */
+  private published(n: number, reason: 'enqueue' | 'requeue' | 'release' | 'fanout' | 'join') {
+    if (this.dispatch.driver === 'poll' || n <= 0) return;
+    if (this.dispatch.onPublished) {
+      // Outbox drivers: the transaction wrote outbox rows; the relay publishes them now and counts what it sent.
+      this.dispatch.onPublished();
+      return;
+    }
+    coreInstruments(this.telemetry.meter).dispatchPublished.add(n, { 'reelforge.dispatch.driver': this.dispatch.driver, 'reelforge.reason': reason });
+  }
+
+  /**
+   * `worker --once` (D-100): claim at most one job (exactly `jobId` when given,
+   * with the same fenced claim as every worker), run it and report how it
+   * ended. Waits up to `waitMs` for a job to be queued, polling every
+   * `queue.pollIntervalMs`; returns `none` sooner when the given job is
+   * missing or finished, or when shutdown() starts (`deferred` instead when
+   * the given job is still queued then, or when the wait ends). Needs the database
+   * queue with `once: true` and init() called; never claims a second job.
+   */
+  async runOnce(opts: { jobId?: string; waitMs: number }): Promise<OnceResult> {
+    if (this.mode !== 'database' || !this.once || !this.runJobs) throw new Error('runOnce needs the database queue with once: true');
+    if (!this.started) throw new Error('call init() before runOnce()');
+    const deadline = Date.now() + Math.max(0, opts.waitMs);
+    let reason = `nothing was queued within ${opts.waitMs} ms`;
+    // --job: the job was still queued when the wait ended (paused claiming, per-key cap), so it still needs a run.
+    let stillQueued = false;
+    for (;;) {
+      if (this.stopping) {
+        const queued = opts.jobId !== undefined && (await this.repo.get(opts.jobId).catch(() => null))?.status === 'queued';
+        return { outcome: queued ? 'deferred' : 'none', reason: 'shutting down before a job was claimed' };
+      }
+      let job: JobRecord | null = null;
+      let claimed: Claimed | undefined;
+      try {
+        const can = this.db.canClaim ? await this.db.canClaim().catch((e: Error) => ({ ok: false, reason: e.message })) : { ok: true };
+        if (!can.ok) {
+          reason = `not claiming jobs: ${can.reason ?? 'not ready'}`;
+          if (opts.jobId !== undefined) stillQueued = (await this.repo.get(opts.jobId))?.status === 'queued';
+          if (this.pausedReason !== reason) this.log('warn', `queue: ${reason}`);
+          this.pausedReason = reason;
+        } else {
+          this.pausedReason = undefined;
+          const now = Date.now();
+          claimed = await this.claimJob({
+            workerId: this.workerId,
+            types: Object.keys(this.handlers),
+            now: new Date(now).toISOString(),
+            leaseUntil: new Date(now + this.db.leaseMs).toISOString(),
+            ...this.claimLimits(),
+            ...(opts.jobId !== undefined ? { id: opts.jobId } : {}),
+          });
+          job = claimed.job;
+          this.ok('claim');
+          coreInstruments(this.telemetry.meter).queueClaims.add(1, { 'reelforge.trigger': 'local', 'reelforge.result': job ? 'job' : 'empty' });
+          if (job) {
+            if (!this.consumePending(job.id)) this.consumeOneAckable(this.seq);
+            // One job per process: nothing else to wake it for; other broker messages go back to the broker.
+            void this.syncListen(false);
+            this.releasePending();
+          }
+          if (!job && opts.jobId !== undefined) {
+            // A launcher started this container for one job: when that job is gone or finished there is nothing to wait for.
+            const stored = await this.repo.get(opts.jobId);
+            if (!stored) return { outcome: 'none', reason: `job ${opts.jobId} does not exist` };
+            if (TERMINAL.includes(stored.status)) return { outcome: 'none', reason: `job ${opts.jobId} is already ${stored.status}`, job: stored };
+            reason =
+              stored.status === 'queued'
+                ? `job ${opts.jobId} is still queued (its API key is at limits.maxRunningJobsPerKey, or another worker is claiming it)`
+                : `job ${opts.jobId} is ${stored.status}${stored.workerId ? ` on worker ${stored.workerId}` : ''}, not queued`;
+            stillQueued = stored.status === 'queued';
+          }
+        }
+      } catch (e) {
+        this.failed('claim', e as Error);
+        reason = `the queue could not be read: ${(e as Error).message.split('\n').filter(Boolean).pop() ?? 'unknown error'}`;
+      }
+      if (job) {
+        // SIGTERM arrived while the claim was in flight: claimJob() handed it straight back.
+        if (!claimed?.run) return { outcome: claimed?.handedBack ? 'released' : 'lost', job };
+        await claimed.run;
+        await this.flush();
+        const outcome: OnceOutcome = TERMINAL.includes(job.status) ? (job.status as OnceOutcome) : job.status === 'queued' ? 'released' : isFannedOut(job) ? 'fanned_out' : 'lost';
+        return { outcome, job: structuredClone(job) };
+      }
+      const left = deadline - Date.now();
+      if (left <= 0) return { outcome: stillQueued ? 'deferred' : 'none', reason };
+      // Listening (D-105): a ready message ends the wait at once; the poll stays as the fallback.
+      if (this.listening) {
+        const announced = this.seq;
+        await this.waitForWake(Math.min(this.dispatch.fallbackMs, left));
+        if (this.seq !== announced) await sleep(Math.floor(Math.random() * this.dispatch.jitterMs));
+      } else await sleep(Math.min(this.db.pollMs, left));
+    }
+  }
+
+  /**
+   * One claim, tracked in `claims` until the job it took is either started
+   * (`run`, registered in `running` before the claim stops counting, so
+   * shutdown() always sees one or the other) or, when shutdown() started while
+   * the claim was in flight, handed straight back like a running job
+   * (`queued`, attempt not counted, D-077; `handedBack` false: the release
+   * failed and the lease ends on its own). Claims nothing once shutdown() has
+   * started.
+   */
+  private claimJob(input: ClaimInput): Promise<Claimed> {
+    const claim = (async (): Promise<Claimed> => {
+      if (this.stopping) return { job: null };
+      const job = await this.repo.claim(input);
+      if (!job) return { job };
+      if (!this.stopping) return { job, run: this.start(job) };
+      const handedBack = await this.repo.release(job.id, { workerId: this.workerId, attempts: job.attempts ?? 1 }, new Date().toISOString()).catch((e: Error) => {
+        this.log('warn', `queue: could not hand back job ${job.id}, claimed as shutdown began (its lease expires on its own): ${e.message}`);
+        return false;
+      });
+      if (!handedBack) return { job, handedBack };
+      coreInstruments(this.telemetry.meter).jobsRequeued.add(1, { 'reelforge.reason': 'released' });
+      this.published(1, 'release');
+      this.releasedClaims++;
+      this.log('info', `queue: job ${job.id} was claimed as shutdown began; handed back to the queue`);
+      return { job: { ...job, status: 'queued' }, handedBack };
+    })();
+    this.claims.add(claim);
+    const done = () => void this.claims.delete(claim);
+    claim.then(done, done);
+    return claim;
   }
 
   private scheduleHeartbeat() {
@@ -530,9 +1086,28 @@ export class JobRunner {
     this.heartbeatTimer.unref();
   }
 
+  /** Ask `canClaim` (storage, licence) and record the pause reason; true when claiming may go on. */
+  private async checkClaimable(): Promise<boolean> {
+    if (!this.db.canClaim) return true;
+    const can = await this.db.canClaim().catch((e: Error) => ({ ok: false, reason: e.message }));
+    if (!can.ok) {
+      if (this.pausedReason !== can.reason) this.log('warn', `queue: not claiming jobs: ${can.reason}`);
+      this.pausedReason = can.reason ?? 'not ready';
+      return false;
+    }
+    if (this.pausedReason) this.log('info', 'queue: claiming jobs again');
+    this.pausedReason = undefined;
+    return true;
+  }
+
   /** Renew leases, see cancellations from other instances, re-queue jobs of crashed workers, count the queue. */
   async heartbeat(): Promise<void> {
     const now = Date.now();
+    // The pause reason stays current between (backed-off) polls, and a worker that may claim again does so at once.
+    if (this.runJobs && !this.once && this.started && !this.stopping && this.db.canClaim) {
+      const wasPaused = this.pausedReason !== undefined;
+      if ((await this.checkClaimable()) && wasPaused) void this.claimLoop('local');
+    }
     const ids = [...this.running.keys()].filter((id) => this.fences.has(id));
     if (ids.length) {
       try {
@@ -556,7 +1131,7 @@ export class JobRunner {
     }
     this.lastHeartbeatAt = new Date(now).toISOString();
     try {
-      const { requeued, failed } = await this.repo.recoverExpired(new Date(now).toISOString(), this.db.maxAttempts);
+      const { requeued, failed, settled } = await this.repo.recoverExpired(new Date(now).toISOString(), this.db.maxAttempts);
       const m = coreInstruments(this.telemetry.meter);
       for (const j of requeued) {
         m.jobsRequeued.add(1, { 'reelforge.reason': 'lease_expired' });
@@ -568,9 +1143,11 @@ export class JobRunner {
         this.log('error', `queue: job ${j.id} failed: ${j.error?.message ?? 'lease expired'}`);
         this.emit({ jobId: j.id, type: 'status', job: j });
       }
+      if (settled?.length) this.emitSettled(settled);
       this.queuedCount = await this.repo.countQueued();
       this.ok('recover');
-      if (requeued.length && this.runJobs) void this.claimLoop();
+      this.published(requeued.length, 'requeue');
+      if (requeued.length && this.runJobs) void this.claimLoop('local');
     } catch (e) {
       this.failed('recover', e as Error);
     }
@@ -628,7 +1205,8 @@ export class JobRunner {
   private async poll(id: string) {
     const w = this.watchers.get(id);
     if (!w || this.active.has(id)) return; // running here: events come from start()
-    const job = await this.repo.get(id).catch(() => null);
+    const stored = await this.repo.get(id).catch(() => null);
+    const job = stored && (await this.withTreeProgress(stored).catch(() => stored));
     if (!job || !this.watchers.has(id)) return;
     const sig = JSON.stringify([job.status, job.progress]);
     if (sig === w.last) return;
@@ -653,6 +1231,7 @@ export class JobRunner {
       job.startedAt = new Date().toISOString();
       job.progress = { stage: 'starting', fraction: 0 };
     }
+    this.recordClaim(job);
     const parent = this.origins.get(job.id) ?? context.active();
     this.origins.delete(job.id);
     const span = this.telemetry.tracer.startSpan(
@@ -681,9 +1260,16 @@ export class JobRunner {
         this.persistProgress(job);
         this.emit({ jobId: job.id, type: 'progress', job });
       },
+      ...(fence ? { fanOut: (children: ChildSpec[], params?: Record<string, unknown>) => this.fanOut(job, fence, controller, children, params) } : {}),
     };
     try {
       const result = await context.with(trace.setSpan(parent, span), () => this.handlers[job.type]!(ctx));
+      if (this.detached.delete(job.id)) {
+        // Fanned out: no worker holds it now; its children finish it (D-097).
+        this.emit({ jobId: job.id, type: 'status', job });
+        this.drop(job, 'fanned out');
+        return;
+      }
       if (controller.signal.aborted) throw new Error('cancelled');
       this.finish(job, 'succeeded', { result });
     } catch (e) {
@@ -702,6 +1288,7 @@ export class JobRunner {
         });
         if (released) {
           coreInstruments(this.telemetry.meter).jobsRequeued.add(1, { 'reelforge.reason': 'released' });
+          this.published(1, 'release');
           this.queuedCount++;
           this.released++;
           job.status = 'queued';
@@ -717,11 +1304,74 @@ export class JobRunner {
         this.finish(job, 'failed', { error: { code, message: err.message, ...(err.stage ? { stage: err.stage } : {}) } });
       }
     } finally {
+      this.detached.delete(job.id);
       this.running.delete(job.id);
       this.abortReasons.delete(job.id);
       this.pump();
       if (this.mode === 'database') this.notifyIdle();
     }
+  }
+
+  /**
+   * A claim (or an in-process start): the claim throughput hook, and the queue-wait histogram (D-103) for a render or
+   * preview's first claim, labelled with its type and priority only. Units and joins are not measured: their queue
+   * position (createdAt) is their render's, not when they were queued. A job handed back on shutdown counts again
+   * from its enqueue at its next first claim (its attempt is not counted, D-077).
+   */
+  private recordClaim(job: JobRecord) {
+    try {
+      this.onClaim(job);
+    } catch {
+      // statistics never stop a job
+    }
+    if (job.parentId || (job.attempts ?? 1) > 1 || !job.startedAt) return;
+    const wait = Math.max(0, (Date.parse(job.startedAt) - Date.parse(job.createdAt)) / 1000);
+    coreInstruments(this.telemetry.meter).queueWait.record(wait, { 'reelforge.job.type': job.type, 'reelforge.job.priority': job.priority ?? 'standard' });
+  }
+
+  /** JobContext.fanOut (D-097): store the children and hand the parent off, in order with the job's other writes. */
+  private async fanOut(job: JobRecord, fence: JobLeaseFence, controller: AbortController, specs: ChildSpec[], params?: Record<string, unknown>): Promise<JobRecord[]> {
+    if (!specs.length) throw new Error('fanOut needs at least one child');
+    if (controller.signal.aborted) throw new Error('cancelled');
+    const at = new Date().toISOString();
+    const children = childJobs(job, specs);
+    const snapshot: JobRecord = {
+      ...structuredClone(job),
+      ...(params ? { params: { ...structuredClone(job.params), ...structuredClone(params) } } : {}),
+      pendingChildren: children.length,
+      progress: { stage: 'render', fraction: 0, detail: `${children.length} units queued` },
+    };
+    let outcome: Awaited<ReturnType<JobRepository['fanOut']>> | undefined;
+    let error: unknown;
+    await this.chain(job.id, async () => {
+      try {
+        outcome = await this.repo.fanOut(snapshot, children, at, fence);
+      } catch (e) {
+        error = e;
+      }
+    });
+    if (error) throw error;
+    if (outcome === 'lost') {
+      this.abort(job.id, 'lost', 'its fan-out could not be stored: another worker holds it now');
+      throw new Error('the job was lost before its fan-out was stored');
+    }
+    if (outcome === 'cancelled') {
+      this.abortReasons.set(job.id, 'cancel');
+      controller.abort();
+      throw new Error('cancelled');
+    }
+    // No heartbeat for it any more: the row has no worker and no lease.
+    this.fences.delete(job.id);
+    this.detached.add(job.id);
+    Object.assign(job, { params: snapshot.params, pendingChildren: children.length, progress: snapshot.progress });
+    delete job.workerId;
+    delete job.leaseExpiresAt;
+    this.queuedCount += children.length;
+    this.published(children.length, 'fanout');
+    this.log(job, `fanned out into ${children.length} units on the queue; no worker holds this job until its join finishes it`);
+    for (const c of children) this.emit({ jobId: c.id, type: 'status', job: c });
+    if (this.runJobs) queueMicrotask(() => this.pump());
+    return children.map((c) => structuredClone(c));
   }
 
   /** Forget a job this worker no longer holds. */
@@ -789,10 +1439,41 @@ export class JobRunner {
     const snapshot = structuredClone(job);
     const at = job.finishedAt ?? job.startedAt ?? job.createdAt;
     const fence = this.fences.get(job.id);
+    if (job.parentId && isTerminal(job.status) && this.mode === 'database') {
+      return this.chain(job.id, async () => {
+        const settled = await this.repo.finishChild(snapshot, at, fence);
+        if (!settled) {
+          if (fence) this.abort(job.id, 'lost', 'its state could not be written: another worker holds it now');
+          return;
+        }
+        await this.afterChild(job, settled, at);
+      });
+    }
     return this.chain(job.id, async () => {
       const ok = await this.repo.transition(snapshot, at, fence);
       if (!ok && fence) this.abort(job.id, 'lost', 'its state could not be written: another worker holds it now');
     });
+  }
+
+  /** What a child's final state did to its render (D-097): events, the parent's log, and claim the join at once. */
+  private async afterChild(child: JobRecord, s: ChildSettlement, at: string) {
+    if (!s.parent) return;
+    const what = child.type.endsWith('_join') ? 'join' : describeUnit(child.params, '?');
+    const line = s.parentFinished
+      ? `finished: ${s.parent.status}${s.parent.error ? ` (${s.parent.error.message})` : ''}${s.cancelled.length ? `; ${s.cancelled.length} queued unit(s) cancelled` : ''}`
+      : `${what} ${child.status} on worker ${this.workerId} (job ${child.id}); ${s.parent.pendingChildren ?? 0} unit(s) left${s.join ? `; join queued as job ${s.join.id}` : ''}`;
+    await this.repo.appendLog(s.parent.id, at, line);
+    if (s.parentFinished) this.emitSettled([s.parent]);
+    // Another 10 % of the render's frames committed (exactly one settlement per step): a progress event of the render, so
+    // outbound events and `job.progress` webhooks follow a fanned-out render as they follow one worker's.
+    else if (s.progressed) this.emit({ jobId: s.parent.id, type: 'progress', job: s.parent });
+    if (s.cancelled.length) this.emitSettled(s.cancelled);
+    if (s.join) {
+      this.queuedCount++;
+      this.published(1, 'join');
+      this.emit({ jobId: s.join.id, type: 'status', job: s.join });
+      if (this.runJobs) queueMicrotask(() => this.pump());
+    }
   }
 
   /** Progress updates are throttled to one write per 500 ms. */
@@ -832,6 +1513,18 @@ export class QuotaExceeded extends Error {
     readonly used: number
   ) {
     super('render quota exceeded');
+  }
+}
+
+/** insertWithQuota refused the job: a job cap (D-090) is reached, with the current count. */
+export class JobCapReached extends Error {
+  constructor(
+    readonly cap: 'active_per_key' | 'queued_total' | 'estimated_wait',
+    readonly used: number,
+    /** `estimated_wait`: the oldest queued job ahead and the estimate (D-103). */
+    readonly wait?: { oldestQueuedAt: string; estimatedWaitSeconds: number }
+  ) {
+    super(`job cap reached (${cap})`);
   }
 }
 

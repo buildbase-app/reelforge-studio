@@ -1,0 +1,50 @@
+{
+  "agent": "claude-code",
+  "engine": "remotion",
+  "status": "passed",
+  "date": "2026-11-21T19:46:31.847Z",
+  "studioVersion": "0.1.0",
+  "commit": "85d3333",
+  "licenceMode": "off (local development only)",
+  "command": "claude -p \"<prompt>\" --model sonnet --mcp-config mcp.json --strict-mcp-config --tools \"\" --allowedTools mcp__reelforge --max-turns 25 --output-format stream-json --verbose",
+  "projectId": "tut-claude-code-remotion",
+  "jobId": "job_mwqtjuo4240209bb2d",
+  "renderId": "run_mwqtjuo4a78dcef860",
+  "renderSeconds": 62.8,
+  "sceneEngines": [
+    "remotion",
+    "remotion"
+  ],
+  "toolCalls": [
+    "list_templates(engine)",
+    "create_project(manifest)",
+    "validate_project(projectId)",
+    "render_project(projectId)",
+    "get_job(jobId, waitSeconds)",
+    "get_job(jobId, waitSeconds)",
+    "get_render_output(jobId)"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 595233
+  },
+  "poster": "claude-code-remotion.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/claude-code/remotion",
+  "prompt": "You are connected to a ReelForge video studio through the \"reelforge\" MCP server. Make a vertical reel (1080x1920, 30 fps) about why short product videos beat long ones: an 8-second reel made of two 4-second scenes, both using only the remotion engine (template kinetic-title). Use the project id \"tut-claude-code-remotion\". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.",
+  "llm": {
+    "model": "claude-sonnet-5-5",
+    "turns": 8,
+    "durationMs": 76235,
+    "costUsd": 0.050188800000000006,
+    "isError": false,
+    "reply": "The reel rendered, and the metadata, decode and duration checks all passed.\n\n- **Project id:** `tut-claude-code-remotion`\n- **Job id:** `job_mwqtjuo4240209bb2d`\n- **Render id:** `run_mwqtjuo4a78dcef860`\n- **Duration:** 8 seconds\n- **Frame count:** 240 frames (1080x1920, 30 fps, h264 with an AAC audio track)\n\nBoth scenes use the remotion engine with the `kinetic-title` template, 4 seconds each:\n1. \"Short videos win\", with the subline \"Attention is gone in 3 seconds\".\n2. \"Show it fast, sell it faster\", with the subline \"One idea. One clip. One click.\"\n\nThe download link expires at 2026-11-21T20:47:43Z. If it has expired, call `get_render_output` again for a fresh one.",
+    "exitCode": 0
+  }
+}

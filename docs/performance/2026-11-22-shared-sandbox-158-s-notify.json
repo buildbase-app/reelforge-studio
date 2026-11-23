@@ -1,0 +1,495 @@
+{
+  "caveat": "lower bound, shared sandbox (not dedicated) unless LOAD_HARDWARE_NOTE says otherwise",
+  "hardwareNote": "shared container, other workloads running (not dedicated)",
+  "host": {
+    "date": "2026-11-22T21:06:18.091Z",
+    "vcpu": 4,
+    "cpuModel": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "ramGiB": 15.7,
+    "kernel": "6.18.44-fc-v726",
+    "node": "v22.23.5",
+    "disk": "252G total, 28G free",
+    "loadAvgAtStart": [
+      5.61,
+      8.72,
+      12.88
+    ],
+    "loadAvgAtEnd": [
+      6.19,
+      7.79,
+      12.04
+    ]
+  },
+  "postgres": {
+    "version": "PostgreSQL 17.12 (Debian 17.12-1.pgdg13+1)",
+    "settings": {
+      "checkpoint_timeout": "300 s",
+      "effective_cache_size": "524288 8kB",
+      "fsync": "on",
+      "max_connections": "1000",
+      "max_wal_size": "1024 MB",
+      "shared_buffers": "65536 8kB",
+      "synchronous_commit": "on",
+      "wal_level": "replica",
+      "work_mem": "4096 kB"
+    },
+    "image": "mirror.gcr.io/library/postgres:17",
+    "args": "-c max_connections=1000 -c shared_buffers=512MB",
+    "pgbouncer": null
+  },
+  "config": {
+    "profile": "full",
+    "scenarios": [
+      "b"
+    ],
+    "poolers": [
+      "direct"
+    ],
+    "seconds": 60,
+    "connections": 64,
+    "apiInstances": 2,
+    "apiPool": 10,
+    "workerPool": 2,
+    "keys": 200,
+    "manyKeysLimitPerMinute": 6000,
+    "projects": 100,
+    "seedJobs": 50,
+    "renders": 30,
+    "fakeWorkers": 2,
+    "fakeWorkMs": 1000,
+    "realReel": false,
+    "claimWorkers": [
+      10,
+      50,
+      200
+    ],
+    "claimJobs": 5000,
+    "idleSeconds": 10,
+    "idleSettleSeconds": 0,
+    "dispatch": "notify",
+    "pollMaxMs": 5000,
+    "warmupSeconds": 15,
+    "out": "/home/user/wt/dispatch/out/load-158/s-notify",
+    "prefix": "rf158-load",
+    "pgImage": "mirror.gcr.io/library/postgres:17",
+    "pgArgs": "-c max_connections=1000 -c shared_buffers=512MB",
+    "bouncerImage": "mirror.gcr.io/edoburu/pgbouncer@sha256:8638aa563607256d3c7440437534195f1066a92b68015d89ae9d6b935b444a6d",
+    "bouncerPoolSize": 20,
+    "pgPort": 55591,
+    "bouncerPort": 55592,
+    "apiPortBase": 55600,
+    "keep": false,
+    "renderKey": "many"
+  },
+  "pgbouncerProbes": null,
+  "results": {
+    "direct": {
+      "b:fake-engine": {
+        "result": {
+          "crud": {
+            "seconds": 60,
+            "connections": 64,
+            "apiInstances": 2,
+            "keys": 200,
+            "total": {
+              "requests": 45528,
+              "perSecond": 758.8,
+              "ok": 45528,
+              "okPerSecond": 758.8,
+              "rateLimited": 0,
+              "errors": 0,
+              "errorRate": 0,
+              "latencyMs": {
+                "n": 45528,
+                "p50": 78.9,
+                "p95": 139.9,
+                "p99": 177,
+                "max": 389.1
+              }
+            },
+            "ops": {
+              "get_project": {
+                "requests": 11480,
+                "perSecond": 191.3,
+                "ok": 11480,
+                "rateLimited": 0,
+                "errors": 0,
+                "statuses": {
+                  "200": 11480
+                },
+                "latencyMs": {
+                  "n": 11480,
+                  "p50": 81,
+                  "p95": 119.2,
+                  "p99": 144.5,
+                  "max": 296.8
+                },
+                "rateLimitedLatencyMs": {
+                  "n": 0,
+                  "p50": 0,
+                  "p95": 0,
+                  "p99": 0,
+                  "max": 0
+                }
+              },
+              "list_projects": {
+                "requests": 5251,
+                "perSecond": 87.5,
+                "ok": 5251,
+                "rateLimited": 0,
+                "errors": 0,
+                "statuses": {
+                  "200": 5251
+                },
+                "latencyMs": {
+                  "n": 5251,
+                  "p50": 66.2,
+                  "p95": 99.8,
+                  "p99": 123.9,
+                  "max": 251.3
+                },
+                "rateLimitedLatencyMs": {
+                  "n": 0,
+                  "p50": 0,
+                  "p95": 0,
+                  "p99": 0,
+                  "max": 0
+                }
+              },
+              "update_project": {
+                "requests": 4413,
+                "perSecond": 73.6,
+                "ok": 4413,
+                "rateLimited": 0,
+                "errors": 0,
+                "statuses": {
+                  "200": 4413
+                },
+                "latencyMs": {
+                  "n": 4413,
+                  "p50": 131.7,
+                  "p95": 192.9,
+                  "p99": 250,
+                  "max": 389.1
+                },
+                "rateLimitedLatencyMs": {
+                  "n": 0,
+                  "p50": 0,
+                  "p95": 0,
+                  "p99": 0,
+                  "max": 0
+                }
+              },
+              "create_project": {
+                "requests": 3636,
+                "perSecond": 60.6,
+                "ok": 3636,
+                "rateLimited": 0,
+                "errors": 0,
+                "statuses": {
+                  "201": 3636
+                },
+                "latencyMs": {
+                  "n": 3636,
+                  "p50": 96.3,
+                  "p95": 139,
+                  "p99": 164.9,
+                  "max": 367.9
+                },
+                "rateLimitedLatencyMs": {
+                  "n": 0,
+                  "p50": 0,
+                  "p95": 0,
+                  "p99": 0,
+                  "max": 0
+                }
+              },
+              "get_job": {
+                "requests": 13993,
+                "perSecond": 233.2,
+                "ok": 13993,
+                "rateLimited": 0,
+                "errors": 0,
+                "statuses": {
+                  "200": 13993
+                },
+                "latencyMs": {
+                  "n": 13993,
+                  "p50": 66.5,
+                  "p95": 99.3,
+                  "p99": 120.5,
+                  "max": 279.9
+                },
+                "rateLimitedLatencyMs": {
+                  "n": 0,
+                  "p50": 0,
+                  "p95": 0,
+                  "p99": 0,
+                  "max": 0
+                }
+              },
+              "list_renders": {
+                "requests": 6755,
+                "perSecond": 112.6,
+                "ok": 6755,
+                "rateLimited": 0,
+                "errors": 0,
+                "statuses": {
+                  "200": 6755
+                },
+                "latencyMs": {
+                  "n": 6755,
+                  "p50": 86.6,
+                  "p95": 126.2,
+                  "p99": 151.8,
+                  "max": 210.1
+                },
+                "rateLimitedLatencyMs": {
+                  "n": 0,
+                  "p50": 0,
+                  "p95": 0,
+                  "p99": 0,
+                  "max": 0
+                }
+              }
+            }
+          },
+          "enqueue": {
+            "retries": 0,
+            "refused": 0,
+            "accepted": 30,
+            "latencyMs": {
+              "p50": 228,
+              "p95": 305,
+              "p99": 353
+            }
+          }
+        },
+        "db": {
+          "seconds": 60.1,
+          "txPerSecond": 3523.7,
+          "statementsPerSecond": 4136.9,
+          "connections": {
+            "mean": 26.1,
+            "max": 27
+          },
+          "activeConnections": {
+            "mean": 2.3,
+            "max": 9
+          },
+          "lockWaits": {
+            "mean": 0,
+            "max": 1,
+            "bySql": [
+              {
+                "sql": "UPDATE \"public\".\"RateLimitWindow\" SET \"count\" = (\"public\".\"RateLimitWindow\".\"count\" + ?) WHERE (\"public\".\"RateLimitWind",
+                "samples": 1
+              },
+              {
+                "sql": "UPDATE \"public\".\"Project\" SET \"version\" = ?, \"title\" = ?, \"sceneCount\" = ?, \"durationSeconds\" = ?, \"updatedAt\" = ? ",
+                "samples": 1
+              }
+            ]
+          },
+          "rowsWrittenPerSecond": {
+            "RateLimitWindow": 751.6,
+            "AuditLog": 133,
+            "Project": 132.8,
+            "ProjectVersion": 132.8,
+            "ApiKey": 7.1,
+            "Job": 2.5,
+            "JobEvent": 2.5,
+            "IdempotencyKey": 1
+          },
+          "tables": [
+            {
+              "table": "RateLimitWindow",
+              "inserts": 427,
+              "updates": 44776,
+              "deletes": 0
+            },
+            {
+              "table": "AuditLog",
+              "inserts": 7999,
+              "updates": 0,
+              "deletes": 0
+            },
+            {
+              "table": "Project",
+              "inserts": 3609,
+              "updates": 4376,
+              "deletes": 0
+            },
+            {
+              "table": "ProjectVersion",
+              "inserts": 7985,
+              "updates": 0,
+              "deletes": 0
+            },
+            {
+              "table": "ApiKey",
+              "inserts": 0,
+              "updates": 430,
+              "deletes": 0
+            },
+            {
+              "table": "Job",
+              "inserts": 30,
+              "updates": 122,
+              "deletes": 0
+            },
+            {
+              "table": "JobEvent",
+              "inserts": 149,
+              "updates": 0,
+              "deletes": 0
+            },
+            {
+              "table": "IdempotencyKey",
+              "inserts": 30,
+              "updates": 30,
+              "deletes": 0
+            }
+          ],
+          "topStatements": [
+            {
+              "query": "UPDATE \"public\".\"RateLimitWindow\" SET \"count\" = (\"public\".\"RateLimitWindow\".\"count\" + $1) WHERE (\"public\".\"RateLimitWindow\".\"workspaceId\" = $2 AND \"public\".\"Rat",
+              "calls": 45649,
+              "totalMs": "6239.2",
+              "meanMs": "0.137",
+              "rows": 45222
+            },
+            {
+              "query": "SELECT \"public\".\"RateLimitWindow\".\"workspaceId\", \"public\".\"RateLimitWindow\".\"key\", \"public\".\"RateLimitWindow\".\"windowStart\", \"public\".\"RateLimitWindow\".\"count\" ",
+              "calls": 45222,
+              "totalMs": "2822.7",
+              "meanMs": "0.062",
+              "rows": 45222
+            },
+            {
+              "query": "SELECT \"public\".\"ApiKey\".\"id\", \"public\".\"ApiKey\".\"workspaceId\", \"public\".\"ApiKey\".\"name\", \"public\".\"ApiKey\".\"scopes\", \"public\".\"ApiKey\".\"prefix\", \"public\".\"ApiK",
+              "calls": 45622,
+              "totalMs": "1269.7",
+              "meanMs": "0.028",
+              "rows": 45622
+            },
+            {
+              "query": "INSERT INTO \"public\".\"AuditLog\" (\"id\",\"workspaceId\",\"at\",\"actorType\",\"actorId\",\"actorName\",\"action\",\"targetType\",\"targetId\",\"result\",\"ip\",\"userAgent\",\"requestId",
+              "calls": 8095,
+              "totalMs": "1134.8",
+              "meanMs": "0.14",
+              "rows": 8095
+            },
+            {
+              "query": "INSERT INTO \"public\".\"ProjectVersion\" (\"workspaceId\",\"projectId\",\"version\",\"manifest\",\"createdAt\") VALUES ($1,$2,$3,$4,$5) RETURNING \"public\".\"ProjectVersion\".\"",
+              "calls": 8065,
+              "totalMs": "857.9",
+              "meanMs": "0.106",
+              "rows": 8065
+            },
+            {
+              "query": "SELECT \"public\".\"Project\".\"workspaceId\", \"public\".\"Project\".\"id\", \"public\".\"Project\".\"version\", \"public\".\"Project\".\"title\", \"public\".\"Project\".\"sceneCount\", \"pu",
+              "calls": 27351,
+              "totalMs": "772.1",
+              "meanMs": "0.028",
+              "rows": 27351
+            },
+            {
+              "query": "UPDATE \"public\".\"Project\" SET \"version\" = $1, \"title\" = $2, \"sceneCount\" = $3, \"durationSeconds\" = $4, \"updatedAt\" = $5 WHERE (\"public\".\"Project\".\"workspaceId\" ",
+              "calls": 4515,
+              "totalMs": "748",
+              "meanMs": "0.166",
+              "rows": 4423
+            },
+            {
+              "query": "SELECT \"public\".\"ProjectVersion\".\"workspaceId\", \"public\".\"ProjectVersion\".\"projectId\", \"public\".\"ProjectVersion\".\"version\", \"public\".\"ProjectVersion\".\"manifest\"",
+              "calls": 22928,
+              "totalMs": "726.9",
+              "meanMs": "0.032",
+              "rows": 22928
+            },
+            {
+              "query": "SELECT \"public\".\"Project\".\"workspaceId\", \"public\".\"Project\".\"id\", \"public\".\"Project\".\"version\", \"public\".\"Project\".\"title\", \"public\".\"Project\".\"sceneCount\", \"pu",
+              "calls": 5257,
+              "totalMs": "581.3",
+              "meanMs": "0.111",
+              "rows": 268107
+            },
+            {
+              "query": "INSERT INTO \"public\".\"Project\" (\"workspaceId\",\"id\",\"version\",\"title\",\"sceneCount\",\"durationSeconds\",\"createdAt\",\"updatedAt\") VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RE",
+              "calls": 3642,
+              "totalMs": "460.8",
+              "meanMs": "0.127",
+              "rows": 3642
+            },
+            {
+              "query": "SELECT \"public\".\"Job\".\"id\", \"public\".\"Job\".\"workspaceId\", \"public\".\"Job\".\"type\", \"public\".\"Job\".\"status\", \"public\".\"Job\".\"projectId\", \"public\".\"Job\".\"params\", \"",
+              "calls": 14009,
+              "totalMs": "366.3",
+              "meanMs": "0.026",
+              "rows": 14009
+            },
+            {
+              "query": "INSERT INTO \"public\".\"RateLimitWindow\" (\"workspaceId\",\"key\",\"windowStart\",\"count\") VALUES ($1,$2,$3,$4) RETURNING \"public\".\"RateLimitWindow\".\"workspaceId\", \"pub",
+              "calls": 400,
+              "totalMs": "58.3",
+              "meanMs": "0.146",
+              "rows": 400
+            }
+          ],
+          "capLockStatements": [
+            {
+              "query": "UPDATE \"ApiKey\" SET \"id\" = \"id\" WHERE \"id\" = $1",
+              "calls": 30,
+              "totalMs": "2.1",
+              "meanMs": "0.07"
+            }
+          ]
+        },
+        "dbCpu": {
+          "meanPct": 105.4,
+          "maxPct": 118.8,
+          "samples": 31
+        },
+        "hostLoadAvg": {
+          "min": 4.09,
+          "max": 7.02,
+          "mean": 5.66
+        },
+        "apiCpuPct": [
+          85.8,
+          90.2
+        ],
+        "clientCpuPct": 12.5,
+        "drain": {
+          "drained": true,
+          "left": 0,
+          "lastFinishedAt": 1795381689459
+        },
+        "exactlyOnce": {
+          "jobs": 80,
+          "byStatus": {
+            "succeeded": 80
+          },
+          "expected": 80,
+          "lost": 0,
+          "unexpected": 0,
+          "duplicated": 0,
+          "runningEventsNotEqualAttempts": 0,
+          "reclaimed": 0,
+          "queueWaitMs": {
+            "p50": 67,
+            "p95": 102.8,
+            "p99": 120.7,
+            "max": 125
+          },
+          "ok": true,
+          "examples": []
+        },
+        "workers": [
+          "{\"name\":\"fw0\",\"finishedOnShutdown\":0,\"released\":0,\"warnings\":0}"
+        ]
+      }
+    }
+  }
+}

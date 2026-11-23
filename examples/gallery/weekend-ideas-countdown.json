@@ -1,0 +1,81 @@
+{
+  "gallery": {
+    "slug": "weekend-ideas-countdown",
+    "title": "4 cheap weekend ideas",
+    "description": "A fun listicle: four cheap weekend ideas, as a notification-style stack and a feature grid, then a manifesto sign-off.",
+    "category": "Listicle",
+    "tags": [
+      "listicle",
+      "lifestyle",
+      "weekend"
+    ],
+    "prompt": "A fun listicle: four cheap weekend ideas, as a notification-style stack and a feature grid, then a manifesto sign-off. Sunset palette, 14 seconds.",
+    "palette": "sunset",
+    "theme": "default + inline tokens (Clay)",
+    "engines": [
+      "html"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 14
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "weekend-ideas-countdown",
+    "title": "4 cheap weekend ideas",
+    "brief": {
+      "title": "4 cheap weekend ideas",
+      "goal": "A fun listicle: four cheap weekend ideas, as a notification-style stack and a feature grid, then a manifesto sign-off. Sunset palette, 14 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 14
+    },
+    "theme": {
+      "base": "default",
+      "tokens": {
+        "colors": {
+          "background": "#171211",
+          "surface": "#231c1a",
+          "text": "#f7efeb",
+          "mutedText": "#b9aaa4",
+          "accent": "#f2765a",
+          "accent2": "#8f817b"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-feature-grid",
+        "engine": "html",
+        "durationSeconds": 5.5,
+        "html": "<div class=\"bd\"><div class=\"bd-grid\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><h2><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.1s\">Cheap</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.16s\">weekend</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.22s\">ideas</span></span></span></h2><div class=\"fg\"><div class=\"tile\" style=\"animation-delay:0.7s\"><span class=\"ti\"><svg class=\"ic\" width=\"64\" height=\"64\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"16\" cy=\"16\" r=\"6\"/><path d=\"M16 2v4M16 26v4M2 16h4M26 16h4M6 6l3 3M23 23l3 3M26 6l-3 3M9 23l-3 3\"/></svg></span><b>Sunrise hike</b><small>free</small></div><div class=\"tile\" style=\"animation-delay:0.88s\"><span class=\"ti\"><svg class=\"ic\" width=\"64\" height=\"64\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 6c4-2 8-2 12 1 4-3 8-3 12-1v20c-4-2-8-2-12 1-4-3-8-3-12-1zM16 7v20\"/></svg></span><b>Library day</b><small>free</small></div><div class=\"tile\" style=\"animation-delay:1.06s\"><span class=\"ti\"><svg class=\"ic\" width=\"64\" height=\"64\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 11h16v9a7 7 0 01-7 7h-2a7 7 0 01-7-7zM22 13h3a3 3 0 010 6h-3M10 3v4M14 3v4M18 3v4\"/></svg></span><b>Picnic</b><small>about $15</small></div><div class=\"tile\" style=\"animation-delay:1.24s\"><span class=\"ti\"><svg class=\"ic\" width=\"64\" height=\"64\" viewBox=\"0 0 32 32\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 24V6l16-3v18\"/><circle cx=\"8\" cy=\"24\" r=\"4\"/><circle cx=\"24\" cy=\"21\" r=\"4\"/></svg></span><b>Open mic</b><small>about $5</small></div></div></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#5b4e49;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-pushout 0.5s cubic-bezier(.76,0,.24,1) 5s both;}.cam{position:absolute;inset:0;animation:st-cam 5.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-grid{position:absolute;inset:0;background-image:linear-gradient(color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px),linear-gradient(90deg,color-mix(in srgb,var(--rf-text) 6%,transparent) 2px,transparent 2px);background-size:108px 108px;background-position:-2px -2px}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}h2{margin:0 0 70px;font-size:104px;line-height:.95;letter-spacing:-.045em;font-weight:var(--rf-heading-weight)}\n.fg{display:grid;grid-template-columns:1fr 1fr;gap:28px}\n.tile{display:flex;flex-direction:column;gap:22px;padding:44px 40px;min-height:380px;border-radius:40px;background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 8%,transparent);animation:tl .9s cubic-bezier(.16,1,.3,1) both}\n.tile:nth-child(2){background:var(--rf-accent);color:var(--rf-bg)}.tile:nth-child(2) .ti{background:var(--rf-bg);color:var(--rf-accent)}.tile:nth-child(2) small{color:color-mix(in srgb,var(--rf-bg) 75%,transparent)}\n@keyframes tl{from{transform:translateY(60px);opacity:0}}\n.ti{width:110px;height:110px;border-radius:24px;background:color-mix(in srgb,var(--rf-text) 8%,transparent);color:var(--rf-text);display:flex;align-items:center;justify-content:center}\n.tile b{font-size:50px;font-weight:600;letter-spacing:-.02em;line-height:1.05;margin-top:auto}\n.tile small{font-size:32px;font-weight:500;line-height:1.3;color:var(--rf-muted)}",
+        "notes": "agent-written html scene (featureGrid)"
+      },
+      {
+        "id": "s2-notifications",
+        "engine": "html",
+        "durationSeconds": 5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"nt-hd\"><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.35s\">Group</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.41s\">chat</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.47s\">says</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.53s\">yes</span></span></span></div><div class=\"nts\"><div class=\"nt\" style=\"animation-delay:0.95s\"><svg class=\"bm\" width=\"84\" height=\"84\" viewBox=\"0 0 64 64\"><circle cx=\"24\" cy=\"32\" r=\"16\" fill=\"var(--rf-accent)\"/><circle cx=\"42\" cy=\"32\" r=\"13\" fill=\"none\" stroke=\"var(--rf-accent)\" stroke-width=\"6\"/></svg><div><div class=\"nt-a\">Friends<span>now</span></div><div class=\"nt-t\">Picnic Saturday?</div></div></div><div class=\"nt\" style=\"animation-delay:1.55s\"><svg class=\"bm\" width=\"84\" height=\"84\" viewBox=\"0 0 64 64\"><circle cx=\"24\" cy=\"32\" r=\"16\" fill=\"var(--rf-accent)\"/><circle cx=\"42\" cy=\"32\" r=\"13\" fill=\"none\" stroke=\"var(--rf-accent)\" stroke-width=\"6\"/></svg><div><div class=\"nt-a\">Friends<span>now</span></div><div class=\"nt-t\">I will bring lemonade</div></div></div><div class=\"nt\" style=\"animation-delay:2.15s\"><svg class=\"bm\" width=\"84\" height=\"84\" viewBox=\"0 0 64 64\"><circle cx=\"24\" cy=\"32\" r=\"16\" fill=\"var(--rf-accent)\"/><circle cx=\"42\" cy=\"32\" r=\"13\" fill=\"none\" stroke=\"var(--rf-accent)\" stroke-width=\"6\"/></svg><div><div class=\"nt-a\">Friends<span>now</span></div><div class=\"nt-t\">Count me in</div></div></div></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#5b4e49;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-pushin 0.55s cubic-bezier(.76,0,.24,1) both,st-pushout 0.5s cubic-bezier(.76,0,.24,1) 4.5s both;}.cam{position:absolute;inset:0;animation:st-cam 5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.nt-hd{position:absolute;left:90px;right:90px;top:250px;font-size:100px;font-weight:var(--rf-heading-weight);letter-spacing:-.045em;line-height:.95}\n.nts{position:absolute;left:70px;right:70px;top:640px;display:flex;flex-direction:column;gap:26px}\n.nt{display:flex;gap:28px;align-items:center;padding:32px;border-radius:40px;background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 8%,transparent);animation:nt-in .8s cubic-bezier(.16,1,.3,1) both}\n@keyframes nt-in{from{transform:translateY(-60px);opacity:0}}\n.nt .bm{flex:none;border-radius:22px}\n.nt>div{flex:1}\n.nt-a{display:flex;justify-content:space-between;font-size:30px;font-weight:600;color:var(--rf-muted);letter-spacing:.06em}.nt-a span{text-transform:none;letter-spacing:0;font-weight:500}\n.nt-t{margin-top:8px;font-size:40px;font-weight:600;line-height:1.2}",
+        "notes": "agent-written html scene (notifications)"
+      },
+      {
+        "id": "s3-manifesto",
+        "engine": "html",
+        "durationSeconds": 3.5,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"mbs\"><div class=\"mb b1\" style=\"animation-delay:0.25s;z-index:1\"><span style=\"animation-delay:0.37s\">Go</span></div><div class=\"mb b2\" style=\"animation-delay:1.725s;z-index:2\"><span style=\"animation-delay:1.845s\">outside</span></div></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#5b4e49;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-pushin 0.55s cubic-bezier(.76,0,.24,1) both;}.cam{position:absolute;inset:0;animation:st-cam 3.5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.mbs{position:absolute;inset:0}\n.mb{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:0 70px;text-align:center;clip-path:inset(100% 0 0 0);animation:mb-in .5s cubic-bezier(.76,0,.24,1) both}\n.mb:first-child{clip-path:none;animation:none}\n@keyframes mb-in{to{clip-path:inset(0 0 0 0)}}\n.mb span{font-size:200px;font-weight:600;letter-spacing:-.055em;line-height:.9;animation:mb-t .8s cubic-bezier(.16,1,.3,1) both}\n@keyframes mb-t{from{transform:translateY(60px);opacity:0}}\n.b1{background:var(--rf-bg);color:var(--rf-text)}.b2{background:var(--rf-surface);color:var(--rf-text)}.b3{background:var(--rf-text);color:var(--rf-bg)}.b4{background:var(--rf-accent);color:var(--rf-bg)}\n.mf{position:absolute;left:0;right:0;bottom:380px;z-index:99;text-align:center;font:500 30px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;mix-blend-mode:difference;color:#fff}",
+        "notes": "agent-written html scene (manifesto)"
+      }
+    ]
+  }
+}

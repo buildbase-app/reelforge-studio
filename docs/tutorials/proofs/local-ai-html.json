@@ -1,0 +1,48 @@
+{
+  "agent": "local-ai",
+  "engine": "html",
+  "status": "passed",
+  "date": "2026-11-21T22:06:44.740Z",
+  "studioVersion": "0.1.0",
+  "commit": "02817d3",
+  "licenceMode": "off (local development only)",
+  "command": "node scripts/tutorials/local-agent.mjs \"<prompt>\"",
+  "projectId": "tut-local-ai-html",
+  "jobId": "job_mwqymx219090535172",
+  "renderId": "run_mwqymx20f509391ed9",
+  "renderSeconds": 57.5,
+  "sceneEngines": [
+    "html",
+    "html"
+  ],
+  "toolCalls": [
+    "list_templates(engine)",
+    "create_project(manifest)",
+    "validate_project(projectId)",
+    "render_project(projectId)",
+    "get_job(jobId, waitSeconds)",
+    "get_render_output(jobId, includePoster)"
+  ],
+  "probe": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "frames": 240,
+    "durationSeconds": 8,
+    "videoCodec": "h264",
+    "audioCodec": "aac",
+    "sizeBytes": 650224
+  },
+  "poster": "local-ai-html.jpg",
+  "problems": [],
+  "artefacts": "$TUTORIAL_OUT/local-ai/html",
+  "prompt": "You are connected to a ReelForge video studio through the \"reelforge\" MCP server. Make a vertical reel (1080x1920, 30 fps) about a launch announcement for a note-taking app: an 8-second reel made of two 4-second scenes, both using only the html engine (template html-title). Use the project id \"tut-local-ai-html\". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.",
+  "llm": {
+    "model": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "turns": 7,
+    "durationMs": 252712,
+    "costUsd": 0,
+    "isError": false,
+    "reply": "<tool_call>\n{\n  \"name\": \"get_render_output\",\n  \"arguments\": {\n    \"jobId\": \"job_mwqymx219090535172\"\n  }\n}\n</tool_call>"
+  }
+}

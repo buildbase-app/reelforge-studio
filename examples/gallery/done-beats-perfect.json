@@ -1,0 +1,82 @@
+{
+  "gallery": {
+    "slug": "done-beats-perfect",
+    "title": "Done beats perfect",
+    "description": "A punchy kinetic-type reel: \"Done beats perfect\".",
+    "category": "Motivation",
+    "tags": [
+      "motivation",
+      "kinetic-type"
+    ],
+    "prompt": "A punchy kinetic-type reel: \"Done beats perfect\". Lyric-style word cuts on a beat, then a quote card with a fictional maker. Volt palette, 12 seconds.",
+    "palette": "volt",
+    "theme": "default + inline tokens (Volt)",
+    "engines": [
+      "html",
+      "remotion"
+    ],
+    "featured": false,
+    "music": null,
+    "durationSeconds": 12
+  },
+  "manifest": {
+    "schemaVersion": "0.2",
+    "projectId": "done-beats-perfect",
+    "title": "Done beats perfect",
+    "brief": {
+      "title": "Done beats perfect",
+      "goal": "A punchy kinetic-type reel: \"Done beats perfect\". Lyric-style word cuts on a beat, then a quote card with a fictional maker. Volt palette, 12 seconds.",
+      "platform": "instagram-reels",
+      "language": "en",
+      "targetSeconds": 12
+    },
+    "theme": {
+      "base": "default",
+      "tokens": {
+        "colors": {
+          "background": "#111310",
+          "surface": "#1b1e19",
+          "text": "#f3f6ee",
+          "mutedText": "#a9b0a1",
+          "accent": "#c8f03c",
+          "accent2": "#858c7e"
+        },
+        "fontFamily": "\"Inter Display\", Inter, \"Noto Sans\", \"DejaVu Sans\", Arial, sans-serif",
+        "headingWeight": 600
+      }
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "format": "mp4"
+    },
+    "scenes": [
+      {
+        "id": "s1-lyric",
+        "engine": "html",
+        "durationSeconds": 4,
+        "html": "<div class=\"bd\"></div><div class=\"stage\"><div class=\"cam\"><div class=\"ly\"><div class=\"lw a\" style=\"animation-delay:0.05s;animation-duration:1.117s\"><span class=\"lt\" style=\"animation-delay:0s\">D</span><span class=\"lt\" style=\"animation-delay:0s\">o</span><span class=\"lt\" style=\"animation-delay:0s\">n</span><span class=\"lt\" style=\"animation-delay:0s\">e</span></div><div class=\"lw b\" style=\"animation-delay:1.167s;animation-duration:1.117s\"><span class=\"lt\" style=\"animation-delay:0s\">b</span><span class=\"lt\" style=\"animation-delay:0s\">e</span><span class=\"lt\" style=\"animation-delay:0s\">a</span><span class=\"lt\" style=\"animation-delay:0s\">t</span><span class=\"lt\" style=\"animation-delay:0s\">s</span></div><div class=\"lw c last\" style=\"animation-delay:2.283s;animation-duration:1.717s\"><span class=\"lt\" style=\"animation-delay:0s\">p</span><span class=\"lt\" style=\"animation-delay:0s\">e</span><span class=\"lt\" style=\"animation-delay:0s\">r</span><span class=\"lt\" style=\"animation-delay:0s\">f</span><span class=\"lt\" style=\"animation-delay:0s\">e</span><span class=\"lt\" style=\"animation-delay:0s\">c</span><span class=\"lt\" style=\"animation-delay:0s\">t</span></div></div><div class=\"eq\"><i style=\"animation-delay:-0.00s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.14s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.27s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.41s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.55s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.69s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.82s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.96s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.10s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.23s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.37s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.51s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.64s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.78s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.92s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.06s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.19s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.33s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.47s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.60s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.74s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.88s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.01s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.15s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.29s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.43s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.56s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.70s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.84s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.97s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.11s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.25s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.38s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.52s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.66s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.79s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.93s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.07s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.21s;animation-duration:2.233s\"></i><i style=\"animation-delay:-0.34s;animation-duration:2.233s\"></i></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#4d5347;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-pushout 0.5s cubic-bezier(.76,0,.24,1) 3.5s both;}.cam{position:absolute;inset:0;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.lt{display:inline-block;animation:lt-pop 0.6s cubic-bezier(.16,1,.3,1) both}\n@keyframes lt-pop{from{opacity:0;transform:translateY(.35em)}to{opacity:1;transform:none}}.ly{position:absolute;inset:0}\n.lw{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 60px;font-size:230px;font-weight:600;letter-spacing:-.05em;line-height:.9;opacity:0;animation-name:lw;animation-fill-mode:both;animation-timing-function:linear}\n.lw .lt{animation:none}\n.lw.a{color:var(--rf-text)}.lw.b{color:var(--rf-text)}.lw.c{color:var(--rf-muted)}.lw.d{color:var(--rf-accent)}\n@keyframes lw{0%{opacity:0;transform:translateY(80px)}14%{opacity:1;transform:none}86%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-50px)}}\n.lw.last{animation-name:lwl}@keyframes lwl{0%{opacity:0;transform:translateY(80px)}14%{opacity:1;transform:none}100%{opacity:1;transform:scale(1.04)}}\n.eq{position:absolute;left:90px;right:90px;bottom:330px;height:140px;display:flex;align-items:flex-end;gap:8px}\n.eq i{flex:1;height:100%;border-radius:4px;background:color-mix(in srgb,var(--rf-text) 28%,transparent);transform-origin:bottom;animation:eq ease-in-out infinite alternate both}\n@keyframes eq{from{transform:scaleY(.12)}to{transform:scaleY(1)}}\n.ft{position:absolute;left:0;right:0;top:260px;display:flex;justify-content:center;align-items:center;gap:14px;font:600 32px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted)}",
+        "notes": "agent-written html scene (lyric)"
+      },
+      {
+        "id": "s2-quote",
+        "engine": "html",
+        "durationSeconds": 5,
+        "html": "<div class=\"bd\"><div class=\"bd-split\"></div></div><div class=\"stage\"><div class=\"cam\"><div class=\"wrap\"><div class=\"qm pop\" style=\"animation-delay:0.35s\">“</div><blockquote><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.6s\">Version</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.66s\">one</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.72s\">is</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.78s\">a</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.84s\">conversation,</span></span></span><span class=\"mk-l\"><span class=\"mk-w\"><span style=\"animation-delay:0.9s\">not</span></span> <span class=\"mk-w\"><span style=\"animation-delay:0.96s\">a</span></span> <span class=\"mk-w\"><span style=\"animation-delay:1.02s\">verdict</span></span></span></blockquote><div class=\"who rise\" style=\"animation-delay:1.33s\"><span class=\"av\">AE</span><span><b>Avery Example</b><br>Maker (fictional)</span></div><div class=\"lab fade\" style=\"animation-delay:1.73s\">Illustrative quote · fictional person</div></div></div></div>",
+        "css": "#rf-root,.hf-root{--x3:#4d5347;font-family:var(--rf-font);color:var(--rf-text)}.stage{position:absolute;inset:0;animation:st-pushin 0.55s cubic-bezier(.76,0,.24,1) both,st-fadeout 0.5s ease-in 4.5s both;}.cam{position:absolute;inset:0;animation:st-cam 5s linear both;}@keyframes st-cam{from{transform:scale(1)}to{transform:scale(1.02)}}.bd{position:absolute;inset:0;overflow:hidden;background:var(--rf-bg)}.bd-split{position:absolute;left:0;right:0;bottom:0;height:44%;background:var(--rf-surface)}.tx{position:absolute;inset:0;background:var(--rf-surface);z-index:50}@keyframes st-rise{from{transform:translateY(120px)}to{transform:none}}\n@keyframes st-pushin{from{transform:translateX(100%)}to{transform:none}}\n@keyframes st-pushout{to{transform:translateX(-100%)}}\n@keyframes st-zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}\n@keyframes st-zoomout{to{transform:scale(1.08);opacity:0}}\n@keyframes st-fadein{from{opacity:0}to{opacity:1}}\n@keyframes st-fadeout{to{opacity:0}}.rise{animation:k-rise .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}\n.pop{animation:k-pop .7s cubic-bezier(.16,1,.3,1) both}@keyframes k-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}\n.slide-l{animation:k-sl .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sl{from{opacity:0;transform:translateX(-80px)}to{opacity:1;transform:none}}\n.slide-r{animation:k-sr .8s cubic-bezier(.16,1,.3,1) both}@keyframes k-sr{from{opacity:0;transform:translateX(80px)}to{opacity:1;transform:none}}\n.fade{animation:k-fade .8s ease-out both}@keyframes k-fade{from{opacity:0}to{opacity:1}}.wrap{position:absolute;left:90px;right:90px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center}.mk-l{display:block}.mk-w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .08em;margin-bottom:-.08em}\n.mk-w>span{display:inline-block;animation:mk-up 0.9s cubic-bezier(.16,1,.3,1) both}\n@keyframes mk-up{from{transform:translateY(105%)}to{transform:none}}.acc{color:var(--rf-accent);font-style:normal}.qm{font-size:360px;line-height:.9;font-weight:600;color:var(--rf-accent);height:220px;margin-bottom:20px;transform-origin:left bottom}\nblockquote{margin:0;font-size:84px;line-height:1.08;font-weight:700;letter-spacing:-.025em;}\n.who{display:flex;align-items:center;gap:30px;margin-top:80px;font-size:38px;line-height:1.3;color:var(--rf-muted)}\n.who b{color:var(--rf-text);font-size:42px}\n.av{width:120px;height:120px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:44px;color:var(--rf-text);background:var(--rf-surface);border:2px solid color-mix(in srgb,var(--rf-text) 10%,transparent)}\n.lab{margin-top:56px;font:500 26px/1 \"JetBrains Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", monospace;color:var(--rf-muted);opacity:.7}",
+        "notes": "agent-written html scene (quote)"
+      },
+      {
+        "id": "s3-kinetic",
+        "engine": "remotion",
+        "durationSeconds": 3,
+        "template": "kinetic-title",
+        "props": {
+          "headline": "Ship it today"
+        }
+      }
+    ]
+  }
+}

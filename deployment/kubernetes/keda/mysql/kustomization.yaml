@@ -1,0 +1,25 @@
+# MySQL variant of the KEDA overlay: KEDA's MySQL scaler on the same Job query.
+# KEDA's MySQL scaler takes a Go driver DSN (user:pass@tcp(host:3306)/db), not
+# the mysql:// URL the studio reads, so add a key "keda-mysql-dsn" to the
+# "reelforge" secret (a read-only user with SELECT on Job is enough):
+#
+#   kubectl -n reelforge patch secret reelforge --type merge \
+#     -p '{"stringData":{"keda-mysql-dsn":"keda:<password>@tcp(mysql.db.svc:3306)/reelforge"}}'
+#   kubectl apply -k deployment/kubernetes/keda/mysql/
+#
+# Schema-checked (kubeconform; server-side dry run against KEDA 2.21.1's CRDs);
+# the e2e (e2e/k8s/keda.sh) runs the PostgreSQL variant.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - scaledobject.yaml
+components:
+  - ../common
+patches:
+  - target: { group: keda.sh, kind: TriggerAuthentication, name: reelforge-database }
+    patch: |-
+      - op: replace
+        path: /spec/secretTargetRef
+        value:
+          - { parameter: connectionString, name: reelforge, key: keda-mysql-dsn }

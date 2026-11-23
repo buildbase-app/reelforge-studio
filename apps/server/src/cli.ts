@@ -12,7 +12,8 @@
  *   reelforge keys revoke <keyId>
  *   reelforge keys delete <keyId>
  *     limits: --expires-in 30d|12h | --expires-at ISO | --rate-limit N | --renders-per-day N
- *             --renders-per-month N | --ip-allow CIDR,CIDR   ("none" clears one in update)
+ *             --renders-per-month N | --ip-allow CIDR,CIDR | --max-priority interactive|standard|batch
+ *             ("none" clears one in update)
  *   reelforge audit list [--from ISO] [--to ISO] [--actor KEYID] [--action key.*] [--target ID] [--result R] [--limit N] [--json]
  *   reelforge audit export [--format jsonl|csv] [--out FILE] [same filters]   (streamed)
  *   reelforge audit sweep              delete entries past audit.retentionDays and expired idempotency keys
@@ -30,6 +31,7 @@
  *   reelforge webhooks test <id>          queue a webhook.test event (the running server delivers it)
  *   reelforge webhooks deliveries <id> [--status dead] [--limit N] [--json]
  *   reelforge webhooks replay <id> <deliveryId>
+ *   reelforge worker --once [--job <id>] [--wait-ms N]   claim at most one job, render it, exit (D-100)
  *
  * Uses DATABASE_URL (default: SQLite in REELFORGE_DATA_DIR, ./data) like the
  * server. The key is printed once.
@@ -51,6 +53,7 @@ import {
   createStorageDriver,
   formatIssue,
   migrateStorage,
+  scrubSecretEnv,
   parseAuditQuery,
   type ConfigReport,
   type KeyOptions,
@@ -60,9 +63,10 @@ import {
   type Scope,
   type StorageDriverId,
 } from '@reelforge/core';
-import { Database, parseDatabaseUrl, prepareDatabase } from '@reelforge/db';
+import { Database, parseDatabaseUrl, parseReadUrl, prepareDatabase } from '@reelforge/db';
 import { resolve } from 'node:path';
 import { loadConfig, type ServerConfig } from './config';
+import { onceArgs, runWorkerOnce } from './worker';
 
 function arg(name: string, args: string[]): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -82,7 +86,7 @@ const USAGE = `usage:
   reelforge keys rotate <keyId> [--grace-hours N]
   reelforge keys revoke <keyId>
   reelforge keys delete <keyId>
-    LIMITS: --expires-in 30d|12h  --expires-at ISO  --rate-limit N  --renders-per-day N  --renders-per-month N  --ip-allow CIDR,CIDR
+    LIMITS: --expires-in 30d|12h  --expires-at ISO  --rate-limit N  --renders-per-day N  --renders-per-month N  --ip-allow CIDR,CIDR  --max-priority interactive|standard|batch
   reelforge audit list [--from ISO] [--to ISO] [--actor KEYID] [--action ACTION|prefix.*] [--target-type T] [--target ID] [--result success|failure|denied] [--limit N] [--json]
   reelforge audit export [--format jsonl|csv] [--out FILE] [same filters]
   reelforge audit sweep
@@ -99,7 +103,8 @@ const USAGE = `usage:
   reelforge webhooks update <id> [--name N] [--url URL] [--to ...] [--events ...] [--enable|--disable] [--rotate-secret [--grace-hours N]]
   reelforge webhooks test <id>
   reelforge webhooks deliveries <id> [--status pending|delivering|succeeded|dead] [--limit N] [--json]
-  reelforge webhooks replay <id> <deliveryId>`;
+  reelforge webhooks replay <id> <deliveryId>
+  reelforge worker --once [--job <id>] [--wait-ms N]   (exit 0 succeeded/cancelled/nothing queued, 1 failed, 75 handed back or still queued)`;
 
 /**
  * \`reelforge storage ...\` (D-069): works on the configuration (file, env and
@@ -360,7 +365,12 @@ function configCheck(argv: string[]): void {
   }
   const problems: string[] = [];
   try {
-    parseDatabaseUrl(config.databaseUrl);
+    const primary = parseDatabaseUrl(config.databaseUrl);
+    try {
+      if (config.databaseReadUrl) parseReadUrl(config.databaseReadUrl, primary);
+    } catch (e) {
+      problems.push(`database.readUrl: ${(e as Error).message}`);
+    }
   } catch (e) {
     // parseDatabaseUrl messages redact the URL.
     problems.push(`database.url: ${(e as Error).message}`);
@@ -425,8 +435,22 @@ async function configShow(argv: string[], config: ServerConfig): Promise<void> {
   }
 }
 
+/** `reelforge worker --once`: one job per process, for job platforms (D-100). */
+async function worker(args: string[]): Promise<void> {
+  if (!args.includes('--once')) {
+    console.error('usage: reelforge worker --once [--job <id>] [--wait-ms N]\nA long-running worker is the server with REELFORGE_ROLE=worker (docs/providers/queue-and-scaling.md).');
+    process.exit(1);
+  }
+  const opts = onceArgs(args);
+  // As in main.ts: the configuration reads a copy; render child processes never inherit ReelForge secrets (D-086).
+  const env = { ...process.env };
+  scrubSecretEnv(process.env);
+  process.exit(await runWorkerOnce(env, opts));
+}
+
 async function main(argv: string[]) {
   const [group, cmd, ...rest] = argv;
+  if (group === 'worker') return worker(argv.slice(1));
   if (group === 'config' && cmd === 'check') return configCheck(rest);
   const config = loadConfig();
   if (group === 'config' && cmd === 'show') return configShow(rest, config);
@@ -528,6 +552,8 @@ function keyLimits(args: string[]): KeyOptions {
   if (mo !== undefined) o.rendersPerMonth = mo;
   const ip = arg('ip-allow', args);
   if (ip !== undefined) o.ipAllowlist = ip === 'none' ? null : ip.split(',').map((s) => s.trim()).filter(Boolean);
+  const mp = arg('max-priority', args);
+  if (mp !== undefined) o.maxPriority = mp === 'none' ? null : (mp as KeyOptions['maxPriority']);
   return o;
 }
 
@@ -538,6 +564,7 @@ function describeKey(k: PublicKey): string {
     k.rendersPerDay !== undefined ? `${k.rendersPerDay} renders/day` : '',
     k.rendersPerMonth !== undefined ? `${k.rendersPerMonth} renders/month` : '',
     k.ipAllowlist?.length ? `from ${k.ipAllowlist.join(',')}` : '',
+    k.maxPriority ? `priority up to ${k.maxPriority}` : '',
     k.previousSecretExpiresAt ? `old secret valid until ${k.previousSecretExpiresAt}` : '',
   ].filter(Boolean);
   return `${k.id}  ${k.prefix}…  ${k.name.padEnd(20)} ${k.status.padEnd(8)} ${k.scopes.join(',').padEnd(24)} created ${k.createdAt}${k.lastUsedAt ? `, last used ${k.lastUsedAt}` : ''}${limits.length ? `  [${limits.join('; ')}]` : ''}`;

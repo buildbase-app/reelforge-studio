@@ -233,6 +233,7 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
       params: { projectId: 'p1', version: 2, nested: { b: 1, a: [1, 2] } },
       createdAt: now(),
       progress: { stage: 'queued', fraction: 0 },
+      priority: 'standard',
       ...extra,
     });
 
@@ -405,6 +406,30 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
       const t3 = later(20);
       await repos.licence.save({ instanceId: 'rf-other', lastCheckedAt: t3, updatedAt: t3 });
       expect(await repos.licence.get()).toEqual({ instanceId: 'rf-instance-a', lastCheckedAt: t3, updatedAt: t3 });
+    });
+
+    it('single flight per deployment (D-098): claimCheck lets exactly one of many concurrent callers take a due check; save with ifUpdatedAt is a compare-and-set', async () => {
+      const t = Date.parse(later(30));
+      const iso = (ms: number) => new Date(ms).toISOString();
+      const lease = 120_000;
+      const claim = (at: number, unusable = false) => repos.licence.claimCheck({ now: iso(at), leaseUntil: iso(at + lease), ...(unusable ? { orLaterThan: iso(at + 2 * lease) } : {}) });
+      // nextCheckAt is unset after the save above: due. Ten instances at once, one wins.
+      const won = await Promise.all(Array.from({ length: 10 }, () => claim(t)));
+      expect(won.filter(Boolean)).toHaveLength(1);
+      expect((await repos.licence.get())!).toMatchObject({ nextCheckAt: iso(t + lease), updatedAt: iso(t) });
+      // Within the lease: nobody else; after it: one again.
+      expect(await claim(t + 60_000)).toBe(false);
+      expect((await Promise.all(Array.from({ length: 5 }, () => claim(t + lease + 1)))).filter(Boolean)).toHaveLength(1);
+      // The winner stores its answer with the next check a day later: not due, not taken.
+      const s = (await repos.licence.get())!;
+      await repos.licence.save({ ...s, nextCheckAt: iso(t + 86_400_000), updatedAt: iso(t + lease + 2) });
+      expect(await claim(t + 3_600_000)).toBe(false);
+      // orLaterThan: a check planned further away than that may be taken (nothing usable stored for a changed key), once.
+      expect((await Promise.all(Array.from({ length: 5 }, () => claim(t + 3_600_000, true)))).filter(Boolean)).toHaveLength(1);
+      const cur = (await repos.licence.get())!;
+      expect(await repos.licence.save({ ...cur, highWaterAt: iso(t + 5) }, { ifUpdatedAt: iso(t) })).toBe(false);
+      expect(await repos.licence.save({ ...cur, highWaterAt: iso(t + 5), updatedAt: iso(t + lease + 9) }, { ifUpdatedAt: cur.updatedAt })).toBe(true);
+      expect((await repos.licence.get())!).toMatchObject({ highWaterAt: iso(t + 5), updatedAt: iso(t + lease + 9) });
     });
   });
 
@@ -590,7 +615,7 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
           // other's event loop, so SQLite migrates one after the other here (separate
           // processes, like the server and the CLI, wait on SQLite's lock instead).
           const ran = kind === 'sqlite' ? [await a.migrate(), await b.migrate()] : await Promise.all([a.migrate(), b.migrate()]);
-          expect(ran.flat()).toEqual(['0001_init', '0002_runtime_settings', '0003_licence_state', '0004_audit_keys_idempotency', '0005_webhooks', '0006_job_queue']);
+          expect(ran.flat()).toEqual(['0001_init', '0002_runtime_settings', '0003_licence_state', '0004_audit_keys_idempotency', '0005_webhooks', '0006_job_queue', '0007_render_fan_out', '0008_list_paging', '0009_job_run_id', '0010_job_priority', '0011_dispatch_outbox']);
           const first = await a.importFilesystemOnce(legacy);
           expect(first?.projects).toBe(1);
           expect(await b.importFilesystemOnce(legacy)).toBeNull();

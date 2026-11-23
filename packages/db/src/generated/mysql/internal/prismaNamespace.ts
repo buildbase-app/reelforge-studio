@@ -414,7 +414,8 @@ export const ModelName = {
   SystemState: 'SystemState',
   WebhookEndpoint: 'WebhookEndpoint',
   WebhookDelivery: 'WebhookDelivery',
-  WebhookAttempt: 'WebhookAttempt'
+  WebhookAttempt: 'WebhookAttempt',
+  DispatchOutbox: 'DispatchOutbox'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -430,7 +431,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "workspace" | "project" | "projectVersion" | "apiKey" | "job" | "jobEvent" | "theme" | "providerSetting" | "setting" | "asset" | "auditLog" | "idempotencyKey" | "rateLimitWindow" | "licenceState" | "systemState" | "webhookEndpoint" | "webhookDelivery" | "webhookAttempt"
+    modelProps: "workspace" | "project" | "projectVersion" | "apiKey" | "job" | "jobEvent" | "theme" | "providerSetting" | "setting" | "asset" | "auditLog" | "idempotencyKey" | "rateLimitWindow" | "licenceState" | "systemState" | "webhookEndpoint" | "webhookDelivery" | "webhookAttempt" | "dispatchOutbox"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1622,6 +1623,72 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    DispatchOutbox: {
+      payload: Prisma.$DispatchOutboxPayload<ExtArgs>
+      fields: Prisma.DispatchOutboxFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.DispatchOutboxFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.DispatchOutboxFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        findFirst: {
+          args: Prisma.DispatchOutboxFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.DispatchOutboxFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        findMany: {
+          args: Prisma.DispatchOutboxFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>[]
+        }
+        create: {
+          args: Prisma.DispatchOutboxCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        createMany: {
+          args: Prisma.DispatchOutboxCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        delete: {
+          args: Prisma.DispatchOutboxDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        update: {
+          args: Prisma.DispatchOutboxUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        deleteMany: {
+          args: Prisma.DispatchOutboxDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.DispatchOutboxUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        upsert: {
+          args: Prisma.DispatchOutboxUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DispatchOutboxPayload>
+        }
+        aggregate: {
+          args: Prisma.DispatchOutboxAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateDispatchOutbox>
+        }
+        groupBy: {
+          args: Prisma.DispatchOutboxGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.DispatchOutboxGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.DispatchOutboxCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.DispatchOutboxCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1675,6 +1742,8 @@ export const ProjectScalarFieldEnum = {
   id: 'id',
   version: 'version',
   title: 'title',
+  sceneCount: 'sceneCount',
+  durationSeconds: 'durationSeconds',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -1713,7 +1782,8 @@ export const ApiKeyScalarFieldEnum = {
   rateLimitPerMinute: 'rateLimitPerMinute',
   rendersPerDay: 'rendersPerDay',
   rendersPerMonth: 'rendersPerMonth',
-  ipAllowlist: 'ipAllowlist'
+  ipAllowlist: 'ipAllowlist',
+  maxPriority: 'maxPriority'
 } as const
 
 export type ApiKeyScalarFieldEnum = (typeof ApiKeyScalarFieldEnum)[keyof typeof ApiKeyScalarFieldEnum]
@@ -1738,7 +1808,11 @@ export const JobScalarFieldEnum = {
   attempts: 'attempts',
   workerId: 'workerId',
   leaseExpiresAt: 'leaseExpiresAt',
-  cancelRequestedAt: 'cancelRequestedAt'
+  cancelRequestedAt: 'cancelRequestedAt',
+  parentId: 'parentId',
+  pendingChildren: 'pendingChildren',
+  runId: 'runId',
+  priority: 'priority'
 } as const
 
 export type JobScalarFieldEnum = (typeof JobScalarFieldEnum)[keyof typeof JobScalarFieldEnum]
@@ -1947,6 +2021,20 @@ export const WebhookAttemptScalarFieldEnum = {
 export type WebhookAttemptScalarFieldEnum = (typeof WebhookAttemptScalarFieldEnum)[keyof typeof WebhookAttemptScalarFieldEnum]
 
 
+export const DispatchOutboxScalarFieldEnum = {
+  id: 'id',
+  workspaceId: 'workspaceId',
+  jobId: 'jobId',
+  attempts: 'attempts',
+  nextAttemptAt: 'nextAttemptAt',
+  lockedUntil: 'lockedUntil',
+  lastError: 'lastError',
+  createdAt: 'createdAt'
+} as const
+
+export type DispatchOutboxScalarFieldEnum = (typeof DispatchOutboxScalarFieldEnum)[keyof typeof DispatchOutboxScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1961,6 +2049,14 @@ export const WorkspaceOrderByRelevanceFieldEnum = {
 } as const
 
 export type WorkspaceOrderByRelevanceFieldEnum = (typeof WorkspaceOrderByRelevanceFieldEnum)[keyof typeof WorkspaceOrderByRelevanceFieldEnum]
+
+
+export const NullsOrder = {
+  first: 'first',
+  last: 'last'
+} as const
+
+export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
 
 
 export const ProjectOrderByRelevanceFieldEnum = {
@@ -1981,14 +2077,6 @@ export const ProjectVersionOrderByRelevanceFieldEnum = {
 export type ProjectVersionOrderByRelevanceFieldEnum = (typeof ProjectVersionOrderByRelevanceFieldEnum)[keyof typeof ProjectVersionOrderByRelevanceFieldEnum]
 
 
-export const NullsOrder = {
-  first: 'first',
-  last: 'last'
-} as const
-
-export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
-
-
 export const ApiKeyOrderByRelevanceFieldEnum = {
   id: 'id',
   workspaceId: 'workspaceId',
@@ -2000,7 +2088,8 @@ export const ApiKeyOrderByRelevanceFieldEnum = {
   prevPrefix: 'prevPrefix',
   prevSalt: 'prevSalt',
   prevHash: 'prevHash',
-  ipAllowlist: 'ipAllowlist'
+  ipAllowlist: 'ipAllowlist',
+  maxPriority: 'maxPriority'
 } as const
 
 export type ApiKeyOrderByRelevanceFieldEnum = (typeof ApiKeyOrderByRelevanceFieldEnum)[keyof typeof ApiKeyOrderByRelevanceFieldEnum]
@@ -2019,7 +2108,9 @@ export const JobOrderByRelevanceFieldEnum = {
   retryOf: 'retryOf',
   apiKeyId: 'apiKeyId',
   queue: 'queue',
-  workerId: 'workerId'
+  workerId: 'workerId',
+  parentId: 'parentId',
+  runId: 'runId'
 } as const
 
 export type JobOrderByRelevanceFieldEnum = (typeof JobOrderByRelevanceFieldEnum)[keyof typeof JobOrderByRelevanceFieldEnum]
@@ -2191,6 +2282,16 @@ export const WebhookAttemptOrderByRelevanceFieldEnum = {
 export type WebhookAttemptOrderByRelevanceFieldEnum = (typeof WebhookAttemptOrderByRelevanceFieldEnum)[keyof typeof WebhookAttemptOrderByRelevanceFieldEnum]
 
 
+export const DispatchOutboxOrderByRelevanceFieldEnum = {
+  id: 'id',
+  workspaceId: 'workspaceId',
+  jobId: 'jobId',
+  lastError: 'lastError'
+} as const
+
+export type DispatchOutboxOrderByRelevanceFieldEnum = (typeof DispatchOutboxOrderByRelevanceFieldEnum)[keyof typeof DispatchOutboxOrderByRelevanceFieldEnum]
+
+
 
 /**
  * Field references
@@ -2219,16 +2320,16 @@ export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'In
 
 
 /**
- * Reference to a field of type 'BigInt'
+ * Reference to a field of type 'Float'
  */
-export type BigIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'BigInt'>
+export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
     
 
 
 /**
- * Reference to a field of type 'Float'
+ * Reference to a field of type 'BigInt'
  */
-export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
+export type BigIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'BigInt'>
     
 
 
@@ -2407,6 +2508,7 @@ export type GlobalOmitConfig = {
   webhookEndpoint?: Prisma.WebhookEndpointOmit
   webhookDelivery?: Prisma.WebhookDeliveryOmit
   webhookAttempt?: Prisma.WebhookAttemptOmit
+  dispatchOutbox?: Prisma.DispatchOutboxOmit
 }
 
 /* Types for Logging */

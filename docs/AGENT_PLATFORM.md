@@ -78,7 +78,8 @@ or on a backend plugin.
 interface EnginePlugin {          // turns one scene into a video clip
   id: string;                     // 'remotion' | 'motion-canvas' | 'html' | ...
   templates(): TemplateInfo[];    // id, description, props JSON Schema, durations, themeable tokens
-  render(scene, ctx): Promise<ClipResult>;   // ctx: output settings, theme, assets, signal, progress, logger
+  capabilities?(): { frameRanges }; // frameRanges: honours ctx.frameRange, frame-pure (render fan-out chunks, D-097)
+  render(scene, ctx): Promise<ClipResult>;   // ctx: output settings, theme, assets, signal, progress, logger, frameRange?
 }
 interface ProviderPlugin {        // produces an asset (audio, video, image) from parameters
   id: string; kind: 'tts' | 'avatar' | 'music' | 'stock' | 'image';
@@ -86,8 +87,12 @@ interface ProviderPlugin {        // produces an asset (audio, video, image) fro
   costNote: string;               // shown to agents before they call it
   run(params, ctx): Promise<AssetResult>;    // e.g. TTS returns audio + word timestamps
 }
-interface RenderBackend {         // where engine renders and assembly run
+interface RenderBackend {         // where engine renders and assembly run (docs/providers/backends.md)
   id: 'local' | 'remotion-lambda' | string;
+  kind: 'pool' | 'launcher' | 'managed';
+  configured(): boolean; implemented: boolean;
+  capabilities(): { engines; maxUnitSeconds; frameRanges; scaleToZero };
+  estimate(req): { videoSeconds; units; seconds; costUsd; note };   // before a job; null = unknown
   submit(job): Promise<void>; cancel(jobId): Promise<void>;
 }
 interface StorageDriver { put/get/list/delete/signedUrl }   // local fs, S3-compatible
@@ -139,13 +144,26 @@ All JSON; `Authorization: Bearer rf_<key>`. Errors: `{ error: { code, message, d
 | `GET /v1/audit` (`?format=jsonl|csv` streams an export) | audit log (admin scope, #65, D-055) |
 | `GET /healthz`, `GET /readyz` | health |
 
+Lists (`GET /v1/projects`, `GET /v1/jobs`, `GET /v1/assets` and their MCP tools) are
+keyset pages: `limit` (default 50, max 200), `cursor`, and `nextCursor` in the answer,
+null on the last page (#179, D-102).
+
+Render and preview starts take `priority` (`interactive` > `standard` > `batch`; previews
+default to interactive, renders to standard; up to the key's `maxPriority`), and the queue
+claims by class, then fairly across keys, then by age; with `limits.maxEstimatedWaitSeconds`
+a start whose estimated queue wait is too long is refused with `429 queue_full` and
+`Retry-After` (#155, D-103).
+
 Implemented extras (v0.1): `GET /v1/templates`, `GET /v1/projects/:id/versions`,
 `PUT /v1/projects/:id/theme`, `PATCH /v1/projects/:id/audio`, `GET /v1/jobs`,
 `POST /v1/jobs/:id/retry`, `GET /v1/renders/:id`, `GET /v1/assets`,
 `GET /v1/providers`, `PUT /v1/providers/:id/config` (admin), `GET /v1/config` and
 `PATCH /v1/config` (admin; configuration, see docs/CONFIG.md), `GET /v1/licence`
-(read) and `POST`/`DELETE /v1/licence` (admin; licence, see docs/DEPLOY.md). The machine-readable table with the matching MCP tool and
-scope of every route is `apps/server/src/routes.ts`; `test/parity.test.ts`
+(read) and `POST`/`DELETE /v1/licence` (admin; licence, see docs/DEPLOY.md),
+`GET /v1/storage` and `POST /v1/storage/cleanup` (admin, #27), `/v1/webhooks`
+with test, delivery log and replay (admin, #66). The machine-readable table with the matching MCP tool and
+scope of every route is `apps/server/src/routes.ts` (generated reference:
+[public/api/endpoints.md](public/api/endpoints.md)); `test/parity.test.ts`
 fails if REST and MCP drift apart.
 
 ## 7. MCP server
@@ -161,11 +179,13 @@ REST handlers, with descriptions written for agents:
 `add_asset_from_url`, `list_assets`, `preview_scene`, `render_project`,
 `get_job`, `cancel_job`, `get_job_logs`, `get_render_output`.
 
-Implemented extras (v0.1), so every REST route has a tool: `list_projects`,
-`delete_project`, `list_project_versions`, `get_theme`, `update_theme`,
-`delete_theme`, `list_renders`, `list_jobs`, `retry_job`, `upload_asset`,
-`get_asset`, `list_providers`, `configure_provider`, `run_provider`,
-`list_keys`, `create_key`, `delete_key`, `get_config`, `update_config`, `get_licence`, `activate_licence`, `deactivate_licence`; key lifecycle and audit (#65): `get_key`, `update_key`, `rotate_key`, `revoke_key`, `list_audit_events` (51 tools in total). Create and render tools take an optional `idempotencyKey` (D-057). Resource
+Implemented extras (v0.1), so every REST route has a tool: projects and versions,
+themes, renders and jobs (`list_jobs`, `retry_job`, `list_renders`), assets,
+providers, keys and their lifecycle, the audit log (#65), configuration, licence,
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->61<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+tool's scope, arguments and REST equivalent is generated from the server's
+registry: [public/mcp/tools.md](public/mcp/tools.md) (`pnpm docs:reference`).
+Create and render tools take an optional `idempotencyKey` (D-057). Resource
 `reelforge://guide/workflow` and prompt `make_reel` explain the workflow to an
 agent with no other docs.
 
@@ -206,7 +226,7 @@ Multi-tenant SaaS, billing inside the studio, a built-in LLM, a template
 marketplace, collaborative editing. The server is single-tenant (one operator,
 many keys).
 
-## 10. STATUS (2026-11-21)
+## 10. STATUS (2026-11-21, rows for later work added through 2026-11-23)
 
 Evidence: `pnpm typecheck` and `REELFORGE_REQUIRE_BROWSER=1 pnpm test` on Linux
 x64 with Chrome Headless Shell 157 and FFmpeg 6.1; Docker image built and run
@@ -226,8 +246,9 @@ that was run; "partial" says what is missing.
 | §3 Engine: hyperframes | done (v0.1 scope) | `hyperframes-title` + agent compositions via the local `hyperframes render` (0.9.77); CSP sandbox; no progress reporting during a scene; external scripts (e.g. GSAP CDN) rejected, GSAP not bundled |
 | §3 Provider: tts/elevenlabs | partial | Implemented with word timestamps, cost acknowledgement, cache; tested with a mocked API only. **Live API untested** |
 | §3 Providers: avatar (HeyGen), stock, music | missing | Interfaces exist |
-| §3 Backend: local | done | in-process, job runner concurrency 1 by default |
+| §3 Backend: local | done | renders on the instance that claimed the job: the in-process queue on one instance (concurrency 1 by default), or `worker` instances of the database queue (below) |
 | §3 Backend: remotion-lambda | partial (skeleton) | Configuration check only; submitting returns `not_implemented` (501). Nothing faked |
+| §3 Backend interface v2 + `worker --once` (#150) | done | `kind`, `capabilities()`, `estimate()` in `get_capabilities` and `validate_project`; contract suite for every backend; `reelforge worker --once [--job <id>]` / `REELFORGE_WORKER_ONCE=1` tested with processes on PostgreSQL and MySQL (D-100, docs/providers/backends.md) |
 | §3 Storage: local fs | done | `LocalStorageDriver` for asset and render files |
 | Database (#23, D-022) | done | Repository interfaces in core; Prisma 7: SQLite (default), PostgreSQL, MySQL by `DATABASE_URL`; migrations on start / `reelforge migrate`; one-time v0.1 import; contract tests on all three; Docker e2e on all three. MongoDB: not yet (Prisma 7) |
 | §3 Storage: S3-compatible, Azure Blob, GCS, signed URLs (#27, D-065..D-069) | done (MinIO tested; Azure/GCS on emulators) | `storage.driver` local / s3 / azure / gcs; bucket-signed `downloadUrl`; atomic render commit; retention (`get_storage`, `run_storage_cleanup`); `reelforge storage migrate`. Provider matrix and test cases: docs/providers/storage.md. AWS S3, R2, B2, Wasabi, Spaces untested |
@@ -250,7 +271,7 @@ that was run; "partial" says what is missing.
 | Licence activation (#25, D-028, D-035..D-038) | done | BuildBase licence API (key + instance id only), `LicenceState` table on all three databases, daily validate, 14-day offline grace, backoff, clock checks; renders/previews refused with `licence_required` / `licence_invalid` + fix; `get_licence` / `activate_licence` / `deactivate_licence`, `/v1/licence`, `reelforge licence`; unit tests (mock LicensesApi), server tests (mock licence server, injected clock), Docker e2e on SQLite and PostgreSQL, one live check against the dev environment. `licence.mode: trial` reserved |
 | Workflow guide for agents without docs | done | MCP resource `reelforge://guide/workflow` and prompt `make_reel`; the guide's manifest is validated by a test |
 | §6 Assets: upload or URL, licence, checksum | done | Content-addressed store, byte sniffing, https only, SSRF guard at connect time, size limit |
-| §7 MCP tools (24 in the spec) | done | All 24 + 22 extras; official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->61<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 Resources and prompts `plan_reel`, `review_reel` | done | MCP tests |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |
@@ -258,9 +279,19 @@ that was run; "partial" says what is missing.
 | Enterprise E2 (#65, D-055..D-059): audit log, key lifecycle, idempotency keys | done | Append-only audit log for every admin and write call (REST, MCP, CLI) with key id/name, target, result, IP, user agent, request id; `GET /v1/audit` / `list_audit_events` with filters and JSONL/CSV export; sinks database + stdout + OTLP (+ plugins); retention sweep. Keys: expiry, rotation grace, revoke, per-key rate limit, render quotas, IP allowlist (REST, MCP, CLI). `Idempotency-Key` / `idempotencyKey` on create and render calls. Test cases: docs/providers/audit-and-keys.md |
 | Enterprise E3 (#66, D-070..D-074): outbound events, signed webhooks, notification providers | done (webhook and SMTP emulator-tested; chat and email APIs stub-tested) | Events (job.*, render.ready, licence.state_changed, key.created/revoked, config.changed, audit.entry) to signed Standard Webhooks endpoints, Slack, Discord, Teams and email (SMTP, Resend, Postmark, SES, SendGrid), several at once; database outbox with backoff, dead letter, replay, restart-safe; SSRF guard; secrets encrypted, rotation with overlap; REST, MCP (`create_webhook` ... `replay_webhook_delivery`) and CLI. Test cases: docs/providers/webhooks-and-notifications.md |
 | §8 Bind 127.0.0.1 by default; Host/Origin checks on /mcp | done | REST tests |
-| §8 Rate limits per key | done (basic) | In-memory token bucket, single instance; the limit is a runtime setting (`limits.rateLimitPerMinute`) |
+| §8 Rate limits per key | done | `limits.rateLimitStore`: a token bucket per instance (`memory`) or one counter per key and minute in the database shared by every instance (`database`, the default with the database queue; D-078); the limit is a runtime setting (`limits.rateLimitPerMinute`); per-key overrides (#65). A fixed minute window (bursts at a boundary) |
 | §8 Provider keys only in env; never in logs/manifests | done | HyperFrames child gets a filtered env (tested) |
 | §8 Chromium sandbox on outside containers | partial | on by default for html, hyperframes and motion-canvas, also in the release image with `deployment/seccomp/chrome.json` (D-086); `REELFORGE_CHROMIUM_NO_SANDBOX=1` is a logged opt-out; Remotion hard-codes `--no-sandbox` (built-in templates only); render processes get no server secrets; agent scenes have no network (D-085) |
 | §9 Single tenant | done | |
 | Web UI | missing (optional by design) | |
-| Audit log, metrics, multi-instance | metrics, structured logs, tracing: built (#64, docs/providers/observability.md); audit log, multi-instance: missing | "Enterprise hardening" pass (#17) |
+| Audit log, metrics, multi-instance | done | metrics, structured logs, tracing (#64, docs/providers/observability.md); audit log (#65, row above); multi-instance (#36, row below) |
+| Job queue, `api` / `worker` roles (#36, D-075..D-079) | done | Database queue with row-locked claims, leases, re-queue after a crash, fenced writes, cross-instance cancel and long-poll, graceful drain; roles of one image; tested on SQLite (single instance), PostgreSQL 17 and MySQL 8.4 and a Docker scale e2e (docs/providers/queue-and-scaling.md). MariaDB with several instances untested |
+| Resource limits (#161, D-090..D-092) | done | Job caps per key and in total, render size, streamed uploads, provider budgets; fair claims across keys; all `limits.*` runtime settings (docs/security/HARDENING.md) |
+| Priorities and admission (#155, D-103) | done | `priority` on `render_project` / `preview_scene` (`interactive` > `standard` > `batch`, per-key `maxPriority`), batch ageing, `429 queue_full` by estimated wait, queue-wait histogram and alert rules. The SLO itself not measured on a real fleet |
+| Queue dispatch (#158, D-105) | partial | `queue.dispatch` `poll` (with backoff) and `notify` (PostgreSQL LISTEN/NOTIFY) built and tested; the dispatch outbox is built, the SQS, Redis Streams and NATS drivers are not |
+| Render fan-out (#156, D-097) | done (`local` backend) | `render.fanOut` `off` (default) / `scenes` / `scenes+chunks` (frame ranges for Remotion only): units on several workers, one stream-copy join, cascade on fail/cancel, retry reuses units; e2e with real engines equals the single-worker render (docs/providers/queue-and-scaling.md#render-fan-out) |
+| Paged lists (#179, D-102) | done | `list_projects`, `list_jobs` (also by `parentId`), `list_assets`: keyset pages, `limit`/`cursor`/`nextCursor`; contract tests on four targets |
+| Pooling and read replica (#152, #191, D-104) | done (PgBouncer); partial (managed poolers) | Worker pool default, PgBouncer transaction-mode recipe (schema-qualified SQL, so `?schema=` is safe), `database.readUrl` for six list reads. RDS Proxy and Cloud SQL documented, untested |
+| Kubernetes + KEDA (#153, D-101) | partial | Kustomize base and KEDA ScaledObject / ScaledJob recipes applied to a kind cluster with renders; KEDA's own scaling not run yet |
+| Licence at scale (#154, D-098) | done | One activation per deployment; only api instances call the licence server, workers never do |
+| Load test (#151) | partial | `pnpm load`: CRUD, renders and claims with an exactly-once check; results so far are lower bounds on a shared machine, the dedicated run is not measured (docs/PERFORMANCE.md) |

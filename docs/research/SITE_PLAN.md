@@ -127,7 +127,7 @@ The order adapts BRIEF §3. Each row gives layout / motion / media / copy direct
 | 5 | **Connect your agent** | Dark window frame with tabs: Claude Code · Codex · Any MCP client · REST | Tab change = 200ms fade; copy button with "Copied" state | Code blocks from BRIEF §3.2 (placeholders only) | "Paste one line. Ask for a reel." Mention scoped keys (`read`, `write`, `render`, `admin`), stored hashed. Cursor tab only after a recorded test |
 | 6 | **Four engines** | 2×2 tiles (1 column on mobile), each with a 3 s loop and an "Included" badge | Tiles reveal with a 12px rise as they enter (scroll-driven) | Same manifest rendered by each engine's template | Remotion (React), Motion Canvas (generator scenes, our headless harness, D-008), HTML/CSS (agent-written, sandboxed), HyperFrames (local renderer, telemetry off). Footnote: Remotion licence for teams over 3 |
 | 7 | **Gallery** | Grid of 9:16 cards, 2 col mobile / 4 desktop, filter chips | Hover/tap plays; card → `/gallery/[slug]` (View Transition morph, §B.6) | From BB Collection `gallery` + R2 | "Every clip here was rendered by ReelForge from the manifest shown." Buttons: Copy prompt · Copy manifest |
-| 8 | **Numbers band** | 3–4 huge numerals with one-line labels | Count-up **off** (Apple doesn't need it; it hurts INP and honesty). Plain fade-in | — | Only measurable, footnoted facts: "4 engines", "41 MCP tools · every REST route has one⁴", "1080×1920 · 30 fps · H.264 + AAC", "{N} s for a {M} s reel on {hardware}²" |
+| 8 | **Numbers band** | 3–4 huge numerals with one-line labels | Count-up **off** (Apple doesn't need it; it hurts INP and honesty). Plain fade-in | — | Only measurable, footnoted facts: "4 engines", "{N} MCP tools · every REST route has one⁴" ({N} read from the generated docs/public/mcp/tools.md, never typed), "1080×1920 · 30 fps · H.264 + AAC", "{N} s for a {M} s reel on {hardware}²" |
 | 9 | **Privacy and control** | Two columns: "Stays on your machine" / "Leaves only if you set it up" | — | Simple line icons (lucide) | Name every egress (BRIEF §3 row 12). No compliance badges |
 | 10 | **Which ReelForge is right for you?** | 3 tier columns (Apple "compare models" pattern): name, price (from BB), seats, client brands, updates, support; "Compare all ›" → `/compare` | — | — | Same code in every tier; tiers differ by seats/brands/updates/support (BRIEF §4). Price inside the CTA |
 | 11 | **FAQ** | Accordion, 8–10 Qs | `<details>` native, no JS | — | From BB FAQs `home-faq`; the same text goes into `llms-full.txt` |
@@ -154,7 +154,7 @@ The order follows BRIEF §4. Layout specifics:
 | Output | 1080×1920, 30 fps, H.264 yuv420p, AAC 48 kHz stereo (always an audio track, D-012); exact frame counts (D-009); ffprobe + full decode check on every render |
 | Engines | Remotion · Motion Canvas 3.17.2 with headless harness · HTML/CSS (sandboxed, no network) · HyperFrames (local renderer) |
 | Templates and themes | 4 templates, 2 themes today (list them); agent-written HTML/HyperFrames scenes accepted; transitions: cut only |
-| Agent interfaces | REST `/v1` · MCP over Streamable HTTP (stateless) · 41 tools · SSE job events · MCP guide resource and `make_reel` prompt |
+| Agent interfaces | REST `/v1` · MCP over Streamable HTTP (stateless) · {N} tools (generated count, docs/public/mcp/tools.md) · SSE job events · MCP guide resource and `make_reel` prompt |
 | Security | Operator-created API keys, scopes `read/write/render/admin`, stored hashed; Host/Origin checks; signed 1-hour download links |
 | Audio | Music, voice, SFX mixing. Ducking: **Planned**. Captions: **Planned** (stored, not rendered) |
 | Providers | ElevenLabs TTS: **Bring your key**. Footnote: verified against a mock; live test pending. Avatars, stock, image generation: **Planned** |
@@ -490,7 +490,7 @@ The order follows BRIEF §4. Layout specifics:
 ### E.3 Metrics to show (only real ones, with dates)
 - **Revenue:** TrustMRR provisional revenue (link to the listing; anonymous mode is allowed).
 - **Traffic:** BuildBase Analytics visitors, top sources and revenue by source (Analytics → Overview); waitlist size (Beta users).
-- **Product facts:** reels rendered for the site (count of `gallery` records); median render time on named hardware; tests passing (184 with browser, per STATUS); MCP tools (41); release cadence (changelog entries).
+- **Product facts:** reels rendered for the site (count of `gallery` records); median render time on named hardware; tests passing (184 with browser, per STATUS); MCP tools (the generated count in docs/public/mcp/tools.md); release cadence (changelog entries).
 - **Don't show:** projected MRR, "users", or anything from test mode presented as real.
 
 ### E.4 Risks and contingencies
@@ -610,7 +610,7 @@ The order follows BRIEF §4. Layout specifics:
 #### 7. Docs site on BuildBase Docs. **Order 7 · L · deps: 6**
 **Body:**
 - [ ] `/docs/[...path]` with `content.docs.tree()` and `content.docs.byPath()`; sidebar from the tree; prev/next; "Edit date".
-- [ ] Folders: `start` (quick start: `docker compose up` → `reelforge keys create` → connect agent), `install`, `api` (REST `/v1`), `mcp` (41 tools, grouped), `manifest` (v0.2), `cookbook` (prompts → tools called), `privacy` (egress), `troubleshooting`. Content ported from `reelforge-studio/docs` (public-safe parts only).
+- [ ] Folders: `start` (quick start: `docker compose up` → `reelforge keys create` → connect agent), `install`, `api` (REST `/v1`), `mcp` (every tool, grouped, generated by `pnpm docs:reference`), `manifest` (v0.2), `cookbook` (prompts → tools called), `privacy` (egress), `troubleshooting`. Content ported from `reelforge-studio/docs` (public-safe parts only).
 - [ ] Code blocks highlighted server-side (`rehype-pretty-code`, already a dependency); copy buttons.
 - [ ] Markdown twins (`/docs/x.md`) and `TechArticle` + `BreadcrumbList`.
 - [ ] Docs in `llms-full.txt` and the sitemap.

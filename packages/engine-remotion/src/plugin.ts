@@ -24,6 +24,9 @@ export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
         .map(([id, t]) => ({ ...t, id })),
     // Remotion always launches Chrome with --no-sandbox (and --single-process) on Linux.
     browserSandbox: () => false,
+    // renderMedia takes a frameRange, and Remotion compositions are frame-pure by design (frames render in parallel tabs,
+    // in any order, from useCurrentFrame()): a chunk's frames are the whole render's (ENG-REM-FR, FAN-32).
+    capabilities: () => ({ frameRanges: true }),
     availability() {
       const b = browser();
       if (b && existsSync(b)) return { ok: true };
@@ -44,6 +47,7 @@ export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
         concurrency: opts.concurrency,
         signal: ctx.signal,
         onProgress: ctx.progress,
+        ...(ctx.frameRange ? { frameRange: ctx.frameRange } : {}),
       });
       return { file: res.out, frames: res.frames, engineVersion: res.engineVersion, browserVersion: browserVersion(browser()), millis: res.millis };
     },

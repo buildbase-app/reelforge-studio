@@ -344,3 +344,95 @@ implementation or licensing decisions.
     schema location for Kubernetes 1.31.0, and kubectl 1.31.4 (Kustomize
     5.4.2, https://dl.k8s.io) for `kubectl kustomize`; both used as
     developer tools only, nothing added to the image.
+40. **Render at any scale research** (read 2026-11-22, for the "Render at any scale" (#149)
+    epic, D-095..D-099): Remotion Lambda (docs/lambda, how-lambda-works, concurrency,
+    limits, cost-example), `@remotion/cloudrun` (docs/cloudrun, limits: Alpha, "not actively
+    being developed"), Remotion licence (docs/license/pricing, faq.md, terms.md v5.0,
+    LICENSE.md); AWS Lambda quotas and pricing, Fargate pricing and task sizes, AWS Batch;
+    Cloud Run task timeout and quotas (pricing page not readable); Azure Container Apps jobs;
+    KEDA 2.21 PostgreSQL scaler, ScaledObject spec, ScaledJob; Fly.io, Modal and Hetzner
+    pricing; PgBouncer features, Prisma 7 connection pool, node-postgres pool, RDS Proxy; SQS
+    quotas, BullMQ, NATS JetStream, Azure Service Bus locks; gocardless/queue-shootout;
+    FFmpeg concat demuxer; BuildBase rate limits and licence keys. Full list with URLs and
+    what each was used for: docs/research/RENDER_SCALE.md §13.
+41. **Kubernetes + KEDA recipe and kind e2e** (read 2026-11-22, issue #153, D-101): KEDA 2.21
+    docs from the keda-docs repository (keda.sh itself was not reachable from the sandbox):
+    PostgreSQL scaler (`query`, `targetQueryValue`, `activationTargetQueryValue`, auth parameter
+    `connection`; https://github.com/kedacore/keda-docs/blob/main/content/docs/2.21/scalers/postgresql.md),
+    MySQL scaler (`queryValue`, `activationQueryValue`, `connectionString` as a Go-driver DSN;
+    .../2.21/scalers/mysql.md), ScaledJob spec (scaling strategies `default` = `min(maxReplicaCount,
+    ceil(queueLength / target)) - runningJobCount`, `rollout.strategy` `default` deletes running Jobs
+    on update, history limits default 100; .../2.21/reference/scaledjob-spec.md). KEDA release
+    v2.21.1 manifest (https://github.com/kedacore/keda/releases/download/v2.21.1/keda-2.21.1.yaml;
+    images ghcr.io/kedacore/keda, keda-metrics-apiserver, keda-admission-webhooks 2.21.1; the CRDs are
+    the schema source for kubeconform). kind v0.33.0 (release binary; default node image
+    `kindest/node:v1.37.0@sha256:a1ed56cf...` from pkg/apis/config/defaults/image.go at the tag),
+    kubectl 1.37.0 (dl.k8s.io), kubeconform 0.7.0. Kubernetes kubelet `failCgroupV1` (refuses
+    cgroup v1 by default since 1.35) and containerd's CRI `restrict_oom_score_adj` (as rootless kind
+    sets it), both needed only in the cgroup v1 sandbox. Developer and CI tools only; nothing added
+    to the image.
+42. **Database pooling and read replicas** (read 2026-11-22, issue #152, D-104): PgBouncer
+    configuration reference (https://www.pgbouncer.org/config.html: `max_prepared_statements`
+    default 200, `default_pool_size` default 20 per database/user pair, `max_client_conn` default
+    100, `pool_mode` default session, `ignore_startup_parameters` may list `options` to ignore
+    unknown parameters inside it, no per-database `search_path` in `[databases]`, `search_path`
+    tracked). Amazon RDS Proxy (https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html:
+    writer only for RDS instances in replication configurations; statements over 16 KB pin),
+    pinning conditions (https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-pinning.html:
+    PostgreSQL `SET`, `PREPARE`, `LISTEN`, session advisory locks, `nextval`; not
+    `pg_advisory_xact_lock`; MySQL prepared statements in text or binary protocol, `GET_LOCK`),
+    Aurora proxy reader endpoints (https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/rds-proxy-endpoints.html).
+    Cloud SQL Managed Connection Pooling for PostgreSQL
+    (https://docs.cloud.google.com/sql/docs/postgres/managed-connection-pooling: Enterprise Plus,
+    ports 6432/3307/5432, transaction mode default, `max_prepared_statements` default 0) and MySQL
+    (https://docs.cloud.google.com/sql/docs/mysql/managed-connection-pooling: a thread pool that
+    does not reduce connections). The `edoburu/pgbouncer` image (PgBouncer 1.26.1, pinned by
+    digest `sha256:8638aa56...` from mirror.gcr.io, the one #151 measured; its entrypoint writes
+    `pgbouncer.ini` from environment variables). Deployment image only; nothing added to the
+    ReelForge image.
+43. **Queue dispatch: LISTEN/NOTIFY** (read 2026-11-22, issue #158, D-105): PostgreSQL 17 `NOTIFY`
+    (https://www.postgresql.org/docs/17/sql-notify.html): notifications of a transaction are
+    delivered only if it commits; transactions' notifications arrive in commit order; a listening
+    session gets its own notifications; payloads under 8000 bytes; a full notification queue (8 GB)
+    makes NOTIFY transactions fail at commit; a NOTIFY transaction cannot be prepared for two-phase
+    commit. PgBouncer feature map (https://www.pgbouncer.org/features.html): `LISTEN` session
+    pooling only ("Never" in transaction mode), `NOTIFY` in both. Measured here instead of assumed:
+    `LISTEN` through PgBouncer 1.26.1 in transaction mode is accepted but its notifications never
+    arrive (NTF-04). node-postgres `pg` 8.23.1 (npm registry, MIT; already in the lockfile through
+    @prisma/adapter-pg) for the dedicated listen connection. That PostgreSQL serialises the commits of
+    NOTIFY-sending transactions on one lock is from its source (src/backend/commands/async.c), not the
+    docs page (VERIFY at thousands of commits per second).
+44. **Remotion frame ranges for render fan-out chunks** (read 2026-11-22, issue #156 step 3,
+    D-097): `renderMedia()` (https://www.remotion.dev/docs/renderer/render-media): `frameRange`
+    takes a single frame or an inclusive `[first, last]` tuple (open-ended `[n, null]` from
+    v4.0.421, several ranges from v4.0.502); `null` renders every frame. Checked against the
+    installed `@remotion/renderer` 4.0.545 typings (`dist/frame-range.d.ts`). Self-hosted
+    `renderMedia` only; no Remotion Lambda or other component that needs a company licence is
+    used (the licence question stays with #10). That a composition must render the same frame
+    whatever the order (frames render in parallel tabs) is how `renderMedia` works with
+    `concurrency`; ReelForge measures it for `kinetic-title` (ENG-REM-FR, FAN-32) instead of
+    relying on it.
+45. **Queue dispatch: SQS, Redis Streams, KEDA scalers** (read 2026-11-23, issue #158 step 2,
+    D-105 amendment): Amazon SQS `ReceiveMessage`
+    (https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_ReceiveMessage.html):
+    `MaxNumberOfMessages` 1..10, `VisibilityTimeout` per receive (queue default 30 s), long poll with
+    `WaitTimeSeconds`; a message not deleted before its visibility timeout ends becomes visible to
+    other consumers and counts as a failed receive (dead-letter queues count those);
+    `ReceiveRequestAttemptId` applies to FIFO queues only (not used). Redis `XAUTOCLAIM`
+    (https://redis.io/docs/latest/commands/xautoclaim/): since 6.2.0; returns a cursor, the claimed
+    entries and (since 7.0) the ids of entries no longer in the stream, which it removes from the
+    PEL; claiming increments the delivery count. (`XNACK`, newer than 6.2, is not used: the
+    give-back is `XADD` + `XACK` in one `MULTI` so 6.2 works.) KEDA 2.21 scalers:
+    `aws-sqs-queue` (https://keda.sh/docs/2.21/scalers/aws-sqs/: `queueURL`, `queueLength` default
+    5, `activationQueueLength`, `awsRegion`, `scaleOnInFlight` default true =
+    `ApproximateNumberOfMessages` + `...NotVisible`, `scaleOnDelayed`, `awsEndpoint`) and
+    `redis-streams` (https://keda.sh/docs/2.21/scalers/redis-streams/: `address`, `stream`,
+    `consumerGroup`, `pendingEntriesCount`, `streamLength`, `lagCount` + `activationLagCount`, the
+    only mode that scales to zero, Redis 7+). Packages (npm registry, 2026-11-23):
+    `@aws-sdk/client-sqs` 3.1164.0 (Apache-2.0, the version of the S3 client already in the
+    lockfile), `ioredis` 6.0.0 (MIT; Node >= 20; Redis 6.2+; defaults to RESP3, so ReelForge sets
+    `protocol: 2`; a URL's own empty password wins over the `password` option, so ReelForge puts
+    `queue.redis.password` into the URL it connects with; both found by testing, not from docs).
+    Behaviour measured against LocalStack 4.11.1 (`mirror.gcr.io/localstack/localstack:4.11`,
+    digest `sha256:3071c9c7...`) and Redis 8.4 (`mirror.gcr.io/library/redis:8.4`, digest
+    `sha256:319f54e6...`), not against AWS.

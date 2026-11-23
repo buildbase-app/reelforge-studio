@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "reelforge": {
+      "type": "http",
+      "url": "http://127.0.0.1:4321/mcp",
+      "headers": { "Authorization": "Bearer rf_REPLACE_WITH_YOUR_KEY" }
+    }
+  }
+}

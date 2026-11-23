@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { resolveTools, toolVersion, type Tools } from '@reelforge/media-pipeline';
 import {
@@ -18,16 +18,17 @@ import {
   type ValidationIssue,
   type ValidationWarning,
 } from '@reelforge/project-schema';
-import { AssetStore } from './assets';
+import { AssetStore, stageStream } from './assets';
 import { LocalBackend } from './backends/local';
 import { ApiError, badRequest, invalidManifest, notFound } from './errors';
 import { newId, readJson, writeJsonAtomic } from './fsutil';
-import { JobRunner, QuotaExceeded, type DatabaseQueueOptions, type JobContext, type JobRecord, type QueueMode } from './jobs';
+import { JobCapReached, JobRunner, QuotaExceeded, defaultWorkerId, type DatabaseQueueOptions, type JobContext, type JobRecord, type QueueMode } from './jobs';
+import { JOB_CAP_RETRY_SECONDS, renderLimitViolations, usageDay, usageKeys, type LimitReason, type RenderLimitViolation } from './limits';
 
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
 import { KeyStore, quotaWindows, type KeyOptions, type PublicKey, type Scope } from './keys';
-import type { AuditEntryInput, AuditFilter, QuotaWindow, Repositories } from './repositories';
+import type { AuditEntryInput, AuditFilter, JobCaps, QuotaWindow, Repositories } from './repositories';
 import {
   AuditLog,
   MAX_AUDIT_EXPORT,
@@ -41,19 +42,22 @@ import {
 } from './audit';
 import { withIdempotency, type IdempotentOperation } from './idempotency';
 import { applyMergePatch, isPlainObject } from './mergePatch';
-import type { BackendContext, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
+import type { BackendContext, BackendEstimate, EstimateRequest, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
 import { PluginRegistry } from './registry';
 import { runRenderPipeline } from './render';
+import { JOIN_JOB_TYPE, UNIT_JOB_TYPE, joinUnits, planChunks, renderUnit, unitSpecs, type ChunkPolicy, type FanOutDeps, type RenderJobParams } from './render-fanout';
 import { UrlSigner } from './secrets';
 import { RuntimeConfig, type ConfigSources } from './config/runtime';
 import { createLicenceManager, type LicenceApi, type LicenceManager } from './licence';
 import type { ResolvedConfig } from './config/load';
-import { ProjectStore } from './store';
+import { ProjectStore, isProjectId } from './store';
+import { isRowId, parsePageQuery, readPage } from './paging';
 import { createStorageDriver, type StorageFactory } from './storage/factory';
 import { contentTypeFor, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix } from './storage/keys';
 import { StorageManager, type CleanupReport, type RetentionPolicy } from './storage/manager';
 import { ThemeStore } from './themes';
 import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
+import { ClaimRate, DEFAULT_PRIORITY, PRIORITIES, defaultPriority, isPriority, lowerPriority, priorityRank, type JobPriority } from './priority';
 import { WebhookService, jobPayload, renderSummary, type NotificationProvider } from './webhooks/index';
 import type { AuditEntry } from './repositories';
 import type { JobEvent } from './jobs';
@@ -105,6 +109,8 @@ export interface ServiceConfig {
     fetch?: typeof fetch;
     now?: () => number;
     checkIntervalMs?: number;
+    /** How often the stored licence state is re-read (default 60 s; tests shorten it). */
+    refreshMs?: number;
     /** Run the first check and the daily schedule (default true). */
     start?: boolean;
   };
@@ -150,6 +156,8 @@ export const MAX_MCP_EXPORT = 10_000;
 
 /** Render and preview jobs count towards a key's render quota. */
 const QUOTA_JOB_TYPES = ['render', 'preview'];
+/** Validation errors for exceeded render limits start with this (a preview of some scenes is checked on its own). */
+const RENDER_LIMIT_PREFIX = 'render limit: ';
 const SWEEP_INTERVAL_MS = 3_600_000;
 const SETTINGS_REFRESH_MS = 15_000;
 
@@ -182,6 +190,8 @@ export interface ValidationReport {
     fps: number;
     engines: string[];
   };
+  /** What the render would take on the manifest's backend (BackendEstimate), when that backend is installed. */
+  estimate?: BackendEstimate;
 }
 
 export interface RenderSummary {
@@ -208,6 +218,15 @@ export interface RenderSummary {
 
 const DEFAULT_MAX_UPLOAD = 200 * 1024 * 1024;
 
+/** Where an uploaded file goes (upload_asset, REST POST /v1/assets). */
+export interface UploadOptions {
+  filename?: string;
+  contentType?: string;
+  projectId?: string;
+  assetId?: string;
+  license?: StoredAsset['license'];
+}
+
 /**
  * Every capability of the product as plain async methods. REST routes and
  * MCP tools are thin wrappers over this class, so both always behave the same.
@@ -220,6 +239,8 @@ export class ReelforgeService {
   readonly assets: AssetStore;
   readonly keys: KeyStore;
   readonly jobs: JobRunner;
+  /** Claims per second across the deployment, shared through the database (admission by estimated wait, D-103). */
+  readonly claimRate: ClaimRate;
   readonly serverVersion: string;
   readonly publicUrl: string;
   /** Effective configuration: defaults < file < env < runtime settings in the database. */
@@ -278,6 +299,7 @@ export class ReelforgeService {
       timeoutMs: config.fetchTimeoutMs ?? 30_000,
       maxRedirects: 3,
       allowInsecureForTests: config.allowInsecureFetchForTests,
+      stagingDir: join(this.cacheDir, 'upload-staging'),
     });
     this.now = config.now ?? Date.now;
     this.auditLog = new AuditLog(this.repos.audit, { log: config.log });
@@ -305,17 +327,29 @@ export class ReelforgeService {
     const queueMode = config.queue?.mode ?? effectiveQueueMode(cfg.server.role, cfg.queue.driver);
     // Several instances must verify each other's signed links: derive the key from REELFORGE_SECRET_KEY when it is set.
     this.signer = new UrlSigner(this.dataDir, queueMode === 'database' ? cfg.security.secretKey : undefined);
+    const workerId = config.queue?.workerId ?? defaultWorkerId();
     this.licence = createLicenceManager(this.settings, this.repos, {
       api: config.licence?.api,
       fetch: config.licence?.fetch,
       now: config.licence?.now,
       checkIntervalMs: config.licence?.checkIntervalMs,
+      refreshMs: config.licence?.refreshMs,
       log: config.log,
+      // D-098: only api/all instances call the licence server (single flight per deployment); a worker reads the stored state.
+      readOnly: cfg.server.role === 'worker',
+      instanceName: workerId,
     });
+    this.claimRate = new ClaimRate(this.repos.rateLimits, { now: this.now, log: (line) => config.log?.('warn', line) });
     this.jobs = new JobRunner({
       repo: this.repos.jobs,
       concurrency: cfg.server.workerConcurrency ?? config.renderConcurrency ?? 1,
-      handlers: { render: (ctx) => this.runRenderJob(ctx), preview: (ctx) => this.runRenderJob(ctx) },
+      handlers: {
+        render: (ctx) => this.runRenderJob(ctx),
+        preview: (ctx) => this.runRenderJob(ctx),
+        // Render fan-out (D-097): only ever queued by a fanned-out render on the database queue.
+        [UNIT_JOB_TYPE]: (ctx) => renderUnit(this.fanOutDeps(), ctx),
+        [JOIN_JOB_TYPE]: (ctx) => this.runRenderJoin(ctx),
+      },
       telemetry: this.telemetry,
       mode: queueMode,
       database: {
@@ -323,14 +357,38 @@ export class ReelforgeService {
         leaseMs: cfg.queue.leaseSeconds * 1000,
         maxAttempts: cfg.queue.maxAttempts,
         pollMs: cfg.queue.pollIntervalMs,
+        pollMaxMs: cfg.queue.pollMaxIntervalMs,
         // Renders would only fail while the bucket is down: wait instead of burning attempts.
-        canClaim: () => this.storageReady(),
+        // A worker also claims nothing while the stored licence state disallows renders (D-098; the enqueue gate stays).
+        canClaim: async () => {
+          const lic = this.licence.report();
+          if (!lic.renderAllowed) return { ok: false, reason: `the licence does not allow renders (${lic.status}${lic.reason ? `, ${lic.reason}` : ''}): ${lic.message}` };
+          return this.storageReady();
+        },
         ...config.queue,
+        // Queue dispatch (D-105): the listener (claiming roles with `notify`) comes from the server, which owns the database.
+        dispatch: {
+          driver: cfg.queue.dispatch,
+          fallbackMs: cfg.queue.dispatchFallbackSeconds * 1000,
+          // A broker message goes to one worker: no herd to spread, so no wait before its claim.
+          jitterMs: cfg.queue.dispatch === 'notify' ? cfg.queue.notifyJitterMs : 0,
+          ...config.queue?.dispatch,
+        },
+        workerId,
       },
       log: (level, line) => config.log?.(level, line),
+      maxRunningPerKey: () => this.settings.current.config.limits.maxRunningJobsPerKey,
+      priorityAgingSeconds: () => this.settings.current.config.queue.priorityAgingSeconds,
+      onClaim: () => this.claimRate.record(),
     });
     if (!registry.listBackends().some((b) => b.id === 'local')) {
-      registry.registerBackend(new LocalBackend((req, ctx) => this.renderLocally(req, ctx)));
+      registry.registerBackend(
+        new LocalBackend(
+          (req, ctx) => this.renderLocally(req, ctx),
+          () => registry.listEngines().map((e) => e.id),
+          () => registry.listEngines().filter((e) => e.capabilities?.().frameRanges).map((e) => e.id)
+        )
+      );
     }
   }
 
@@ -432,6 +490,13 @@ export class ReelforgeService {
     const auditDeleted = await this.auditLog.sweep(this.settings.current.config.audit.retentionDays, now);
     const idempotencyDeleted = await this.repos.idempotency.deleteExpired(new Date(now).toISOString());
     await this.repos.rateLimits.deleteOlderThan(new Date(now - 3_600_000).toISOString());
+    await this.repos.rateLimits.deleteOlderThan(new Date(now - 2 * 86_400_000).toISOString(), { usage: true });
+    // Uploads left half-written by a crash (normally each is deleted when its request ends).
+    for (const f of await readdir(this.assets.stagingDir).catch(() => [] as string[])) {
+      const p = join(this.assets.stagingDir, f);
+      const st = await stat(p).catch(() => null);
+      if (st && st.mtimeMs < now - 86_400_000) await rm(p, { force: true });
+    }
     const webhookDeliveriesDeleted = await this.webhooks.sweep(now);
     if (auditDeleted) {
       await this.audit({ actorType: 'system', action: 'audit.sweep', data: { deleted: auditDeleted, retentionDays: this.settings.current.config.audit.retentionDays } });
@@ -451,6 +516,7 @@ export class ReelforgeService {
     this.storage.stopSweeper();
     // In-flight deliveries get a few seconds; the rest stay pending for the next start (#66).
     await this.webhooks.stop();
+    await this.claimRate.flush();
     await this.auditLog.close();
   }
 
@@ -458,6 +524,8 @@ export class ReelforgeService {
   private onJobEvent(e: JobEvent) {
     if (e.type === 'log') return;
     const job = e.job;
+    // Fan-out units and joins are internal steps: subscribers hear about the render job (D-097).
+    if (job.parentId) return;
     if (e.type === 'progress') {
       const bucket = Math.floor(job.progress.fraction * 10);
       if (bucket >= 10 || bucket <= (this.progressBuckets.get(job.id) ?? 0)) return;
@@ -511,6 +579,7 @@ export class ReelforgeService {
     const use = (key: string) => (keys === null ? resolved.settings.get(key)?.source === 'runtime' : keys.includes(key));
     if (use('limits.renderConcurrency') && resolved.config.server.workerConcurrency === undefined) this.jobs.setConcurrency(resolved.config.limits.renderConcurrency);
     if (use('limits.maxUploadBytes')) this.assets.limits.maxBytes = resolved.config.limits.maxUploadBytes;
+    if (keys?.includes('limits.maxRunningJobsPerKey')) this.jobs.wake();
     for (const [name, v] of Object.entries(this.settings.providerEnvOverlay())) {
       if (v !== undefined) this.providerEnv[name] = v;
       else if (this.baseEnv[name] !== undefined) this.providerEnv[name] = this.baseEnv[name];
@@ -551,6 +620,8 @@ export class ReelforgeService {
           ...(a.reason ? { reason: a.reason } : {}),
           ...(e.browserSandbox ? { browserSandbox: e.browserSandbox() } : {}),
           acceptsSource: e.acceptsSource,
+          // Whether a long scene of this engine can be split into frame ranges (render.fanOut: scenes+chunks).
+          frameRanges: e.capabilities?.().frameRanges ?? false,
           templates: e.templates().map((t) => t.id),
         };
       }),
@@ -559,21 +630,15 @@ export class ReelforgeService {
       backends: this.registry.listBackends().map((b) => ({
         id: b.id,
         displayName: b.displayName,
+        kind: b.kind,
         configured: b.configured(),
         implemented: b.implemented,
         default: b.id === 'local',
         env: b.env,
+        capabilities: b.capabilities(),
       })),
       storage: [{ id: this.storage.driver.id, active: true, downloads: this.storage.downloads }],
-      limits: {
-        maxProjectSeconds: MAX_PROJECT_SECONDS,
-        maxScenes: 50,
-        supportedFps: SUPPORTED_FPS,
-        defaultOutput: DEFAULT_OUTPUT,
-        maxUploadBytes: this.assets.limits.maxBytes,
-        maxHtmlBytes: MAX_SOURCE_BYTES,
-        renderConcurrency: this.jobs.concurrency,
-      },
+      limits: this.limitsSummary(),
       licence: this.licence.summary(),
       security: {
         chromiumSandbox: Object.fromEntries(engines.filter((e) => e.browserSandbox).map((e) => [e.id, e.browserSandbox!()])),
@@ -601,6 +666,62 @@ export class ReelforgeService {
         'renders need a valid licence: if licence.renderAllowed is false, get_licence says what the user must do',
       ],
     };
+  }
+
+  /** Every limit an agent may run into, with the effective values (get_capabilities; D-090, D-091). */
+  limitsSummary() {
+    const l = this.settings.current.config.limits;
+    const off = (n: number) => (n > 0 ? n : null);
+    return {
+      maxProjectSeconds: Math.min(MAX_PROJECT_SECONDS, l.maxRenderSeconds),
+      maxScenes: l.maxScenes,
+      maxRenderFrames: l.maxRenderFrames,
+      maxRenderDimension: l.maxRenderDimension,
+      maxRenderFps: l.maxRenderFps,
+      supportedFps: SUPPORTED_FPS.filter((f) => f <= l.maxRenderFps),
+      defaultOutput: DEFAULT_OUTPUT,
+      maxUploadBytes: this.assets.limits.maxBytes,
+      maxHtmlBytes: MAX_SOURCE_BYTES,
+      renderConcurrency: this.jobs.concurrency,
+      sceneTimeoutSeconds: this.settings.current.config.render.sceneTimeoutSeconds,
+      /** null: no limit. */
+      jobs: {
+        maxQueuedJobsPerKey: off(l.maxQueuedJobsPerKey),
+        maxQueuedJobs: off(l.maxQueuedJobs),
+        maxRunningJobsPerKey: off(l.maxRunningJobsPerKey),
+        /** Admission control (D-103): starts are refused with 429 queue_full when the estimated queue wait is longer. */
+        maxEstimatedWaitSeconds: off(l.maxEstimatedWaitSeconds),
+      },
+      /** Job priorities (D-103): claimed in this order; `priority` on render_project / preview_scene, up to the key's maximum. */
+      priority: {
+        classes: [...PRIORITIES],
+        defaults: { ...DEFAULT_PRIORITY },
+        maxForThisKey: { render: this.maxPriorityFor('render'), preview: this.maxPriorityFor('preview') },
+        batchAgingSeconds: off(this.settings.current.config.queue.priorityAgingSeconds),
+      },
+      providers: { runsPerKeyPerDay: off(l.providerRunsPerKeyPerDay), runsPerDay: off(l.providerRunsPerDay) },
+      rateLimitPerMinute: off(l.rateLimitPerMinute),
+    };
+  }
+
+  /**
+   * A request refused by a resource limit: count it (bounded `reason` label)
+   * and write one audit entry for the call (result "denied"). Never throws.
+   */
+  async recordLimitRejection(reason: LimitReason, data: Record<string, unknown> = {}) {
+    coreInstruments(this.telemetry.meter).limitRejections.add(1, { 'reelforge.limit.reason': reason });
+    const auth = currentRequest()?.auth;
+    try {
+      await this.audit({
+        actorType: auth ? 'api_key' : 'system',
+        ...(auth ? { actorId: auth.keyId } : {}),
+        action: 'limit.rejected',
+        result: 'denied',
+        data: { reason, ...data },
+      });
+    } catch (e) {
+      this.config.log?.('warn', `audit write for a limit rejection failed: ${(e as Error).message}`);
+    }
   }
 
   projectSchema() {
@@ -638,13 +759,15 @@ export class ReelforgeService {
     return r;
   }
 
-  async listProjects() {
-    return (await this.projects.listWithManifests()).map(({ meta, manifest }) => ({
-      ...meta,
-      title: manifest.title,
-      scenes: manifest.scenes.length,
-      durationSeconds: totalFrames(manifest) / manifest.output.fps,
-    }));
+  /**
+   * One page of project summaries, newest created first (D-102): `limit`
+   * (default 50, max 200) and `cursor` (nextCursor of the previous page).
+   * nextCursor is null on the last page.
+   */
+  async listProjects(q: { limit?: unknown; cursor?: unknown } = {}) {
+    const req = parsePageQuery('projects', '', q);
+    const { items, nextCursor } = await readPage('projects', '', req, (r) => this.projects.page(r));
+    return { projects: items, nextCursor };
   }
 
   async createProject(input: unknown) {
@@ -700,6 +823,10 @@ export class ReelforgeService {
     if (!r.ok) return { ok: false, errors: r.issues, warnings: [], migratedFrom: null };
     const deep = await this.deepChecks(r.project, projectId);
     const errors = deep.errors;
+    for (const v of renderLimitViolations(r.project, this.settings.current.config.limits)) {
+      errors.push({ path: v.limit.endsWith('Dimension') || v.limit.endsWith('Fps') ? 'output' : 'scenes', message: RENDER_LIMIT_PREFIX + v.message });
+    }
+    const estimate = this.estimateOn(r.project.render.backend, { kind: 'render', project: r.project });
     return {
       ok: errors.length === 0,
       errors,
@@ -714,7 +841,17 @@ export class ReelforgeService {
         fps: r.project.output.fps,
         engines: [...new Set(r.project.scenes.map((s) => s.engine))],
       },
+      ...(estimate ? { estimate } : {}),
     };
+  }
+
+  /** The backend's estimate for a render, or undefined for an unknown backend (reported by validation) or a failing plugin. */
+  private estimateOn(backendId: string, req: EstimateRequest): BackendEstimate | undefined {
+    try {
+      return this.registry.backend(backendId).estimate(req);
+    } catch {
+      return undefined;
+    }
   }
 
   async validateProject(id: string): Promise<ValidationReport> {
@@ -729,12 +866,25 @@ export class ReelforgeService {
     try {
       await this.themes.resolve(p.theme);
     } catch (e) {
-      errors.push({ path: 'theme', message: (e as Error).message + `; available: ${(await this.themes.list()).map((t) => t.id).join(', ')}` });
+      // The list is only a hint (it may come from a lagging or unreachable read replica, D-104): never let it replace the real error.
+      const available = await this.themes.list().then((l) => l.map((t) => t.id).join(', '), () => 'unknown (list_themes failed)');
+      errors.push({ path: 'theme', message: (e as Error).message + `; available: ${available}` });
     }
     try {
       const b = this.registry.backend(p.render.backend);
       if (!b.configured()) errors.push({ path: 'render.backend', message: `backend "${b.id}" is not configured on this server (set ${b.env.join(', ')})` });
       else if (!b.implemented) errors.push({ path: 'render.backend', message: `backend "${b.id}" is not implemented in this version; use "local"` });
+      else {
+        // What the backend can render (D-100): its engines, and its longest unit when it cannot split a scene.
+        const cap = b.capabilities();
+        p.scenes.forEach((s, i) => {
+          if (!cap.engines.includes(s.engine)) errors.push({ path: `scenes.${i}.engine`, message: `backend "${b.id}" cannot render engine "${s.engine}" (it renders: ${cap.engines.join(', ') || 'none'})` });
+          const seconds = sceneFrames(s, p.output.fps) / p.output.fps;
+          if (cap.maxUnitSeconds !== null && !cap.frameRanges && seconds > cap.maxUnitSeconds) {
+            errors.push({ path: `scenes.${i}`, message: `scene "${s.id}" is ${seconds} s; backend "${b.id}" renders at most ${cap.maxUnitSeconds} s per scene` });
+          }
+        });
+      }
     } catch (e) {
       errors.push({ path: 'render.backend', message: (e as Error).message });
     }
@@ -888,17 +1038,43 @@ export class ReelforgeService {
 
   // ---- renders --------------------------------------------------------------
 
-  async startRender(id: string, opts: { backend?: string } = {}): Promise<JobRecord> {
-    return this.enqueueRender(id, 'render', opts.backend);
+  async startRender(id: string, opts: { backend?: string; priority?: unknown } = {}): Promise<JobRecord> {
+    return this.enqueueRender(id, 'render', opts.priority, opts.backend);
   }
 
-  async preview(id: string, opts: { sceneId?: string; scale?: number } = {}): Promise<JobRecord> {
+  async preview(id: string, opts: { sceneId?: string; scale?: number; priority?: unknown } = {}): Promise<JobRecord> {
     const scale = opts.scale ?? 1 / 3;
     if (!(scale > 0 && scale <= 1)) throw badRequest('scale must be > 0 and <= 1');
-    return this.enqueueRender(id, 'preview', undefined, opts.sceneId ? [opts.sceneId] : undefined, scale);
+    return this.enqueueRender(id, 'preview', opts.priority, undefined, opts.sceneId ? [opts.sceneId] : undefined, scale);
   }
 
-  private async enqueueRender(id: string, kind: 'render' | 'preview', backendOverride?: string, sceneIds?: string[], scale?: number) {
+  /** The highest class the calling key may use for a job type: its maxPriority, else the type's default (D-103). */
+  private maxPriorityFor(type: string): JobPriority {
+    const auth = currentRequest()?.auth;
+    return auth?.maxPriority ?? defaultPriority(type);
+  }
+
+  /**
+   * The class of a new render or preview (D-103): the requested one, which may not be higher than the key allows
+   * (`403 priority_not_allowed`), or the type's default lowered to the key's maximum. Checked before any job exists.
+   */
+  private resolvePriority(type: string, requested: unknown): JobPriority {
+    const max = this.maxPriorityFor(type);
+    if (requested === undefined || requested === null) return lowerPriority(defaultPriority(type), max);
+    if (!isPriority(requested)) throw badRequest(`priority must be one of ${PRIORITIES.join(', ')}`);
+    if (priorityRank(requested) < priorityRank(max)) {
+      throw new ApiError(
+        'priority_not_allowed',
+        403,
+        `this API key may start ${type} jobs at priority "${max}" or lower, not "${requested}". Omit priority (the default is "${lowerPriority(defaultPriority(type), max)}"), or ask an admin to raise the key's maxPriority (update_key).`,
+        { requested, maxPriority: max, setting: 'key.maxPriority' }
+      );
+    }
+    return requested;
+  }
+
+  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number) {
+    const priority = this.resolvePriority(kind, requestedPriority);
     await this.licence.assertRenderAllowed();
     const { manifest, meta } = await this.projects.get(id);
     if (sceneIds) {
@@ -906,6 +1082,8 @@ export class ReelforgeService {
         if (!manifest.scenes.some((x) => x.id === s)) throw notFound('scene', s, { scenes: manifest.scenes.map((x) => x.id) });
       }
     }
+    const violations = renderLimitViolations(manifest, this.settings.current.config.limits, { sceneIds, scale });
+    if (violations.length) await this.refuseRenderLimits(violations, id);
     const report = await this.validateProject(id);
     const backendId = backendOverride ?? manifest.render.backend;
     const backend = this.registry.backend(backendId);
@@ -915,16 +1093,16 @@ export class ReelforgeService {
     if (!backend.implemented) {
       throw new ApiError('not_implemented', 501, `render backend "${backendId}" is not implemented in v0.1; use backend "local"`);
     }
-    const blocking = report.errors.filter((e) => !(backendOverride && e.path === 'render.backend'));
+    const blocking = report.errors.filter((e) => !(backendOverride && e.path === 'render.backend') && !e.message.startsWith(RENDER_LIMIT_PREFIX));
     if (blocking.length) throw new ApiError('validation_failed', 422, 'fix these problems before rendering (see details.errors)', { errors: blocking, warnings: report.warnings });
     const runId = newId(kind === 'preview' ? 'prv' : 'run');
     return this.withRenderQuota((apiKeyId, quota) =>
       this.jobs.submit(
         kind,
         { projectId: id, version: meta.version, backend: backendId, runId, ...(sceneIds ? { sceneIds } : {}), ...(scale ? { scale } : {}) },
-        { projectId: id, ...(apiKeyId ? { apiKeyId } : {}) },
+        { projectId: id, priority, ...(apiKeyId ? { apiKeyId } : {}) },
         quota
-      )
+      ), priority
     );
   }
 
@@ -934,10 +1112,68 @@ export class ReelforgeService {
    * database transaction that locks the key's row, so parallel calls on any
    * number of instances cannot overshoot (D-078).
    */
-  private async withRenderQuota(submit: (apiKeyId?: string, quota?: { types: string[]; windows: QuotaWindow[] }) => Promise<JobRecord>): Promise<JobRecord> {
+  private async withRenderQuota(
+    submit: (apiKeyId?: string, quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps) => Promise<JobRecord>,
+    priority: JobPriority
+  ): Promise<JobRecord> {
     const auth = currentRequest()?.auth;
-    if (!auth || auth.keyId === 'signed-url') return submit();
-    if (auth.rendersPerDay === undefined && auth.rendersPerMonth === undefined) return submit(auth.keyId);
+    const l = this.settings.current.config.limits;
+    // Admission by estimated wait (D-103): the measured claim throughput is read before the transaction (a cached
+    // read of the shared counter); the queue ahead is counted in the cap statement itself.
+    const maxWait = l.maxEstimatedWaitSeconds > 0 ? { seconds: l.maxEstimatedWaitSeconds, claimsPerSecond: await this.claimRate.perSecond(), now: new Date(this.now()).toISOString() } : undefined;
+    const caps: JobCaps = {
+      ...(l.maxQueuedJobsPerKey > 0 ? { maxActivePerKey: l.maxQueuedJobsPerKey } : {}),
+      ...(l.maxQueuedJobs > 0 ? { maxQueuedTotal: l.maxQueuedJobs } : {}),
+    };
+    const keyId = auth && auth.keyId !== 'signed-url' ? auth.keyId : undefined;
+    const capped = async (windows: QuotaWindow[]) => {
+      try {
+        const keyCaps = keyId ? caps : { ...(caps.maxQueuedTotal ? { maxQueuedTotal: caps.maxQueuedTotal } : {}) };
+        return await submit(keyId, { types: QUOTA_JOB_TYPES, windows, ...keyCaps, ...(maxWait ? { maxEstimatedWait: maxWait } : {}) });
+      } catch (e) {
+        if (!(e instanceof JobCapReached)) throw e;
+        if (e.cap === 'estimated_wait' && maxWait && e.wait) {
+          const est = Math.ceil(e.wait.estimatedWaitSeconds);
+          const oldest = Math.max(0, Math.round((Date.parse(maxWait.now) - Date.parse(e.wait.oldestQueuedAt)) / 1000));
+          const claimsPerMinute = Math.round(maxWait.claimsPerSecond * 60 * 100) / 100;
+          // Wait about as long as the estimate exceeds the limit: by then the jobs ahead that cause the excess have drained.
+          const retryAfterSeconds = Math.min(3600, Math.max(JOB_CAP_RETRY_SECONDS, est - l.maxEstimatedWaitSeconds));
+          await this.recordLimitRejection('queue_wait', { limit: 'limits.maxEstimatedWaitSeconds', max: l.maxEstimatedWaitSeconds, estimatedWaitSeconds: est, queuedAhead: e.used, priority });
+          throw new ApiError(
+            'queue_full',
+            429,
+            `the render queue is too long: a new ${priority} job would wait about ${est} s (limits.maxEstimatedWaitSeconds is ${l.maxEstimatedWaitSeconds}); ${e.used} job(s) of this priority or higher are waiting. Try again in ${retryAfterSeconds} s${priority === 'interactive' ? '' : ', or use a quick preview_scene meanwhile'}.`,
+            {
+              limit: 'limits.maxEstimatedWaitSeconds',
+              max: l.maxEstimatedWaitSeconds,
+              estimatedWaitSeconds: est,
+              priority,
+              queued: { ahead: e.used, oldestWaitingSeconds: oldest },
+              claimsPerMinute,
+              retryAfterSeconds,
+            }
+          );
+        }
+        if (e.cap === 'queued_total') {
+          await this.recordLimitRejection('queue_full', { limit: 'limits.maxQueuedJobs', max: l.maxQueuedJobs, used: e.used });
+          throw new ApiError('queue_full', 429, `the render queue is full: ${e.used} jobs are waiting (limits.maxQueuedJobs is ${l.maxQueuedJobs}). Try again in a minute.`, {
+            limit: 'limits.maxQueuedJobs',
+            max: l.maxQueuedJobs,
+            used: e.used,
+            retryAfterSeconds: JOB_CAP_RETRY_SECONDS,
+          });
+        }
+        await this.recordLimitRejection('jobs_per_key', { limit: 'limits.maxQueuedJobsPerKey', max: l.maxQueuedJobsPerKey, used: e.used });
+        throw new ApiError(
+          'too_many_jobs',
+          429,
+          `this API key already has ${e.used} unfinished render or preview jobs (limits.maxQueuedJobsPerKey is ${l.maxQueuedJobsPerKey}). Wait for one to finish (get_job with waitSeconds) or cancel one, then start again.`,
+          { limit: 'limits.maxQueuedJobsPerKey', max: l.maxQueuedJobsPerKey, used: e.used, retryAfterSeconds: JOB_CAP_RETRY_SECONDS }
+        );
+      }
+    };
+    if (!auth || !keyId) return capped([]);
+    if (auth.rendersPerDay === undefined && auth.rendersPerMonth === undefined) return capped([]);
     const w = quotaWindows(this.now());
     const windows = (
       [
@@ -946,18 +1182,28 @@ export class ReelforgeService {
       ] as const
     ).filter((x): x is readonly ['day' | 'month', number, string, string] => x[1] !== undefined);
     try {
-      return await submit(auth.keyId, { types: QUOTA_JOB_TYPES, windows: windows.map(([, limit, since]) => ({ since, limit })) });
+      return await capped(windows.map(([, limit, since]) => ({ since, limit })));
     } catch (e) {
       if (!(e instanceof QuotaExceeded)) throw e;
       const [period, limit, , resetsAt] = windows[e.window]!;
       const used = e.used;
+      await this.recordLimitRejection('render_quota', { period, max: limit, used });
       throw new ApiError('quota_exceeded', 429, `this API key may start ${limit} render${limit === 1 ? '' : 's'} per ${period} (renders and previews, UTC); ${used} used. The quota resets at ${resetsAt}.`, {
         period,
         limit,
         used,
         resetsAt,
+        retryAfterSeconds: Math.max(1, Math.ceil((Date.parse(resetsAt) - this.now()) / 1000)),
       });
     }
+  }
+
+  /** Refuse a render or preview that exceeds render limits (422, every exceeded limit named). */
+  private async refuseRenderLimits(violations: RenderLimitViolation[], projectId: string): Promise<never> {
+    await this.recordLimitRejection('render_limit', { projectId, limits: violations.map((v) => ({ limit: v.limit, max: v.max, actual: v.actual })) });
+    throw new ApiError('render_limit_exceeded', 422, `this render exceeds the server's limits: ${violations.map((v) => v.message).join('; ')}. Shorten the project, use fewer scenes or a smaller output, or ask the operator to raise the limit.`, {
+      limits: violations.map(({ limit, max, actual }) => ({ limit, max, actual })),
+    });
   }
 
   /** Whether renders can be stored now (remote storage health, cached 10 s); a worker does not claim jobs while not. */
@@ -971,8 +1217,55 @@ export class ReelforgeService {
     return value;
   }
 
+  /** What the fan-out unit and join steps need from the service (D-097). */
+  private fanOutDeps(): FanOutDeps {
+    return {
+      storage: this.storage,
+      registry: this.registry,
+      tools: () => this.tools(),
+      cacheDir: this.cacheDir,
+      serverVersion: this.serverVersion,
+      telemetry: this.telemetry,
+      rendersDir: (pid) => this.projects.rendersDir(pid),
+      project: (pid, version) => this.projects.getVersion(pid, version),
+      theme: (project) => this.themes.resolve(project.theme),
+      assets: (project, pid) => this.resolveAssets(project, pid),
+    };
+  }
+
+  /** How scenes+chunks splits long scenes on a backend: render.chunk* settings, frame-range engines only. */
+  private chunkPolicy(backendId: string, fps: number): ChunkPolicy | null {
+    const backend = this.registry.backend(backendId);
+    if (!backend.capabilities().frameRanges) return null;
+    const r = this.settings.current.config.render;
+    return {
+      chunkFrames: Math.max(1, Math.round(r.chunkSeconds * fps)),
+      minSceneFrames: Math.max(2, Math.round(r.chunkMinSceneSeconds * fps)),
+      canSplit: (scene) => {
+        try {
+          return this.registry.engine(scene.engine).capabilities?.().frameRanges === true;
+        } catch {
+          return false;
+        }
+      },
+    };
+  }
+
+  /** `render_join`: stitch the units and commit the render; its result becomes the parent render job's. */
+  private async runRenderJoin(ctx: JobContext): Promise<Record<string, unknown>> {
+    const p = ctx.job.params as unknown as RenderJobParams;
+    if (await this.storage.renders.exists(p.projectId, p.runId).catch(() => false)) {
+      // Committed by an earlier attempt of this join (its worker died before recording it): finish with it.
+      ctx.log(`render ${p.runId} was already committed by an earlier attempt; using it`);
+    } else {
+      await joinUnits(this.fanOutDeps(), ctx);
+    }
+    this.renderIndex.set(p.runId, p.projectId);
+    return { ...(await this.getRender(p.runId)) };
+  }
+
   private async runRenderJob(ctx: JobContext): Promise<Record<string, unknown>> {
-    const p = ctx.job.params as { projectId: string; version: number; backend: string; runId: string; sceneIds?: string[]; scale?: number };
+    const p = ctx.job.params as unknown as RenderJobParams;
     if ((ctx.job.attempts ?? 1) > 1 && (await this.storage.renders.exists(p.projectId, p.runId).catch(() => false))) {
       // An earlier attempt committed the render, then its worker died before recording it: finish with that render.
       ctx.log(`render ${p.runId} was already committed by an earlier attempt; using it`);
@@ -980,6 +1273,23 @@ export class ReelforgeService {
       return { ...(await this.getRender(p.runId)) };
     }
     const project = await this.projects.getVersion(p.projectId, p.version);
+    // Fan-out (D-097, render.fanOut): one unit per scene (scenes+chunks: per chunk of a long scene whose engine renders
+    // frame ranges) on any worker, then one join. Database queue, local backend, full renders of two or more units
+    // only; everything else renders on this worker as before.
+    const fanOut = this.settings.current.config.render.fanOut;
+    if (ctx.fanOut && ctx.job.type === 'render' && p.backend === 'local' && !p.sceneIds?.length && fanOut !== 'off') {
+      const chunks = planChunks(project, fanOut === 'scenes+chunks' ? this.chunkPolicy(p.backend, project.output.fps) : null);
+      const specs = unitSpecs(p, project, chunks);
+      if (specs.length > 1) {
+        // The plan goes onto the render job (and so to its join) in the same write as the units.
+        const units = await ctx.fanOut(specs, { chunks });
+        const split = Object.keys(chunks).length;
+        ctx.log(
+          `render.fanOut = ${fanOut}: ${units.length} units queued (${split ? `${split} long scene(s) split into chunks of up to ${this.settings.current.config.render.chunkSeconds} s, the other scenes whole` : 'one per scene'}, longest first); the last one to finish queues the join`
+        );
+        return {};
+      }
+    }
     const backend = this.registry.backend(p.backend);
     const outcome = await backend.submit(
       {
@@ -1077,8 +1387,22 @@ export class ReelforgeService {
     if (secs > 0) await this.jobs.waitFor(id, secs * 1000).catch(() => undefined);
     return this.getJob(id);
   }
-  async listJobs(filter: { projectId?: string } = {}) {
-    return this.jobs.list(filter);
+  /**
+   * One page of jobs, newest first (D-102; paged like listProjects), optionally of one project and/or the children
+   * of one job (`parentId`: the units and the join of a fanned-out render, D-097). The cursor carries both filters.
+   */
+  async listJobs(filter: { projectId?: string; parentId?: string } = {}, q: { limit?: unknown; cursor?: unknown } = {}) {
+    const projectId = filter.projectId || undefined;
+    const parentId = filter.parentId || undefined;
+    // The cursor's filter: the projectId alone as before (cursors of #182 stay valid); with parentId, both
+    // ("|" cannot occur in a project id, so two filters never share a string).
+    const key = parentId === undefined ? (projectId ?? '') : `${projectId ?? ''}|parent:${parentId}`;
+    const req = parsePageQuery('jobs', key, q);
+    // No job can have an impossible id: answered without a query.
+    if ((projectId !== undefined && !isProjectId(projectId)) || (parentId !== undefined && !isRowId(parentId))) return { jobs: [], nextCursor: null };
+    const where = { ...(projectId ? { projectId } : {}), ...(parentId ? { parentId } : {}) };
+    const { items, nextCursor } = await readPage('jobs', key, req, (r) => this.jobs.page(where, r));
+    return { jobs: items, nextCursor };
   }
   cancelJob(id: string) {
     return this.jobs.cancel(id);
@@ -1087,7 +1411,9 @@ export class ReelforgeService {
     const job = await this.getJob(id);
     if (job.type === 'render' || job.type === 'preview') {
       await this.licence.assertRenderAllowed();
-      return this.withRenderQuota((apiKeyId, quota) => this.jobs.retry(id, apiKeyId ? { apiKeyId } : {}, quota));
+      // The retry keeps the job's class, lowered to what the retrying key may use (D-103).
+      const priority = lowerPriority(job.priority ?? defaultPriority(job.type), this.maxPriorityFor(job.type));
+      return this.withRenderQuota((apiKeyId, quota) => this.jobs.retry(id, { priority, ...(apiKeyId ? { apiKeyId } : {}) }, quota), priority);
     }
     const apiKeyId = currentRequest()?.auth?.keyId;
     return this.jobs.retry(id, apiKeyId ? { apiKeyId } : {});
@@ -1100,15 +1426,18 @@ export class ReelforgeService {
     return `${this.publicUrl}${path}`;
   }
 
+  /**
+   * The project of a render. The in-process index answers renders this instance has seen; otherwise (after a
+   * restart, or a render made on another instance) the job that produced it names its project, read by run id from
+   * this workspace's jobs (one indexed read, #184), and storage confirms the render is there. Never a scan of the
+   * projects or of storage.
+   */
   private async findRender(runId: string): Promise<{ projectId: string }> {
     if (!/^(run|prv)_[a-z0-9]+$/.test(runId)) throw notFound('render', runId);
-    const known = this.renderIndex.get(runId);
-    const candidates = known ? [known] : (await this.projects.list()).map((m) => m.id);
-    for (const pid of candidates) {
-      if (await this.storage.renders.exists(pid, runId)) {
-        this.renderIndex.set(runId, pid);
-        return { projectId: pid };
-      }
+    const pid = this.renderIndex.get(runId) ?? (await this.repos.jobs.projectOfRun(runId));
+    if (pid && (await this.storage.renders.exists(pid, runId))) {
+      this.renderIndex.set(runId, pid);
+      return { projectId: pid };
     }
     throw notFound('render', runId);
   }
@@ -1269,15 +1598,46 @@ export class ReelforgeService {
 
   async uploadAsset(data: Buffer, opts: { filename?: string; contentType?: string; projectId?: string; assetId?: string; license?: StoredAsset['license'] } = {}) {
     if (opts.projectId) await this.projects.get(opts.projectId);
-    const asset = await this.assets.put({ data, source: 'upload', originalName: opts.filename, declaredContentType: opts.contentType, license: opts.license });
+    const asset = await this.limitedUpload(() => this.assets.put({ data, source: 'upload', originalName: opts.filename, declaredContentType: opts.contentType, license: opts.license }));
     const projectAssetId = opts.projectId ? await this.attachToProject(opts.projectId, asset, opts.assetId, opts.license) : undefined;
     return { asset, uri: `asset://${asset.id}`, projectAssetId };
+  }
+
+  /**
+   * Upload from a stream (REST multipart): written to a temporary file while it
+   * arrives and stopped as soon as it passes limits.maxUploadBytes (D-090).
+   * `opts` may be a function, for form fields that arrive with the stream.
+   */
+  async uploadAssetStream(
+    source: AsyncIterable<Uint8Array> | NodeJS.ReadableStream,
+    opts: UploadOptions | (() => UploadOptions | Promise<UploadOptions>) = {}
+  ) {
+    const staged = await this.limitedUpload(() => stageStream(source as AsyncIterable<Uint8Array>, this.assets.stagingDir, this.assets.limits.maxBytes, 'the upload'));
+    try {
+      const o = typeof opts === 'function' ? await opts() : opts;
+      if (o.projectId) await this.projects.get(o.projectId);
+      const asset = await this.assets.putStaged(staged, { source: 'upload', originalName: o.filename, declaredContentType: o.contentType, license: o.license });
+      const projectAssetId = o.projectId ? await this.attachToProject(o.projectId, asset, o.assetId, o.license) : undefined;
+      return { asset, uri: `asset://${asset.id}`, projectAssetId };
+    } finally {
+      await rm(staged.path, { force: true });
+    }
+  }
+
+  /** Count and audit an upload or import refused for its size. */
+  private async limitedUpload<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'too_large') await this.recordLimitRejection('upload_too_large', { limit: 'limits.maxUploadBytes', max: this.assets.limits.maxBytes });
+      throw e;
+    }
   }
 
   async addAssetFromUrl(url: string, opts: { projectId?: string; assetId?: string; license?: StoredAsset['license'] } = {}) {
     if (typeof url !== 'string' || !url) throw badRequest('url is required');
     if (opts.projectId) await this.projects.get(opts.projectId);
-    const asset = await this.assets.fromUrl(url, { license: opts.license });
+    const asset = await this.limitedUpload(() => this.assets.fromUrl(url, { license: opts.license }));
     const projectAssetId = opts.projectId ? await this.attachToProject(opts.projectId, asset, opts.assetId, opts.license) : undefined;
     return { asset, uri: `asset://${asset.id}`, projectAssetId };
   }
@@ -1286,10 +1646,19 @@ export class ReelforgeService {
     return this.assets.get(id);
   }
 
-  async listAssets(opts: { projectId?: string } = {}) {
-    if (!opts.projectId) return this.assets.list();
-    const { manifest } = await this.projects.get(opts.projectId);
-    return manifest.assets;
+  /**
+   * With projectId: the project's manifest entries (bounded by the manifest,
+   * one page, nextCursor null). Otherwise one page of the server asset store,
+   * newest first (D-102; paged like listProjects).
+   */
+  async listAssets(opts: { projectId?: string } = {}, q: { limit?: unknown; cursor?: unknown } = {}) {
+    if (opts.projectId) {
+      const { manifest } = await this.projects.get(opts.projectId);
+      return { assets: manifest.assets as unknown[], nextCursor: null };
+    }
+    const req = parsePageQuery('assets', '', q);
+    const { items, nextCursor } = await readPage('assets', '', req, (r) => this.assets.page(r));
+    return { assets: items as unknown[], nextCursor };
   }
 
   // ---- providers ------------------------------------------------------------
@@ -1327,6 +1696,7 @@ export class ReelforgeService {
           costNote: provider.costNote,
         });
       }
+      await this.reserveProviderRun(providerId);
       const controller = new AbortController();
       const calls = coreInstruments(this.telemetry.meter).providerCalls;
       const attrs = { 'reelforge.provider': providerId, 'reelforge.provider.kind': provider.kind };
@@ -1377,6 +1747,31 @@ export class ReelforgeService {
       costNote: provider.costNote,
       ...(projectAssetId ? { projectAssetId } : {}),
     };
+  }
+
+  /**
+   * Count one provider call against the calling key's daily cap and the
+   * server's daily budget (limits.providerRunsPerKeyPerDay / providerRunsPerDay,
+   * UTC days), atomically across instances (D-091). Refuses with 429 when one is used up.
+   */
+  private async reserveProviderRun(providerId: string) {
+    const l = this.settings.current.config.limits;
+    const auth = currentRequest()?.auth;
+    const keyId = auth && auth.keyId !== 'signed-url' ? auth.keyId : undefined;
+    const day = usageDay(this.now());
+    const counters: Array<{ key: string; windowStart: string; limit: number; which: 'key' | 'all' }> = [];
+    if (keyId && l.providerRunsPerKeyPerDay > 0) counters.push({ key: usageKeys.providerRunsOfKey(keyId), windowStart: day.start, limit: l.providerRunsPerKeyPerDay, which: 'key' });
+    if (l.providerRunsPerDay > 0) counters.push({ key: usageKeys.providerRunsTotal, windowStart: day.start, limit: l.providerRunsPerDay, which: 'all' });
+    if (!counters.length) return;
+    const r = await this.repos.rateLimits.reserve(counters.map(({ which: _w, ...c }) => c));
+    if (r.ok) return;
+    const c = counters[r.index]!;
+    const details = { limit: c.which === 'key' ? 'limits.providerRunsPerKeyPerDay' : 'limits.providerRunsPerDay', max: c.limit, used: r.used, resetsAt: day.resetsAt, retryAfterSeconds: day.retryAfterSeconds };
+    await this.recordLimitRejection(c.which === 'key' ? 'provider_runs_per_key' : 'provider_budget', { provider: providerId, ...details });
+    if (c.which === 'key') {
+      throw new ApiError('provider_limit_exceeded', 429, `this API key may make ${c.limit} provider calls per UTC day (limits.providerRunsPerKeyPerDay); ${r.used} used. It resets at ${day.resetsAt}. Cached results (the same parameters again) do not count.`, details);
+    }
+    throw new ApiError('provider_budget_exhausted', 429, `the server's daily budget of ${c.limit} provider calls is used up (limits.providerRunsPerDay). It resets at ${day.resetsAt}; the operator can raise it.`, details);
   }
 
   /** Providers, whether they are configured, and which settings are set (never their values). */
@@ -1607,14 +2002,15 @@ export class ReelforgeService {
   }
 
   /** A key with its render usage today and this month (UTC). */
-  async getKey(id: string): Promise<PublicKey & { usage: { rendersToday: number; rendersThisMonth: number } }> {
+  async getKey(id: string): Promise<PublicKey & { usage: { rendersToday: number; rendersThisMonth: number; providerRunsToday: number } }> {
     const k = await this.keys.get(id);
     const w = quotaWindows(this.now());
-    const [rendersToday, rendersThisMonth] = await Promise.all([
+    const [rendersToday, rendersThisMonth, providerRunsToday] = await Promise.all([
       this.repos.jobs.countByApiKey(id, w.dayStart, QUOTA_JOB_TYPES),
       this.repos.jobs.countByApiKey(id, w.monthStart, QUOTA_JOB_TYPES),
+      this.repos.rateLimits.usage(usageKeys.providerRunsOfKey(id), usageDay(this.now()).start),
     ]);
-    return { ...k, usage: { rendersToday, rendersThisMonth } };
+    return { ...k, usage: { rendersToday, rendersThisMonth, providerRunsToday } };
   }
   createKey(name: string, scopes: Scope[], opts: KeyOptions = {}, actor?: Actor) {
     return this.keys.create(name, scopes, opts, actor);

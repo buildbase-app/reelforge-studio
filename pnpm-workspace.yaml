@@ -1,6 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "scripts/gallery"
 
 # Optional native packages (Remotion compositor, rspack, sharp) for glibc only:
 # the Docker image is Debian, and musl builds doubled their size in node_modules.

@@ -1,0 +1,115 @@
+# Test-only dependencies of the KEDA e2e (e2e/k8s/keda.sh): PostgreSQL 17 (db),
+# MinIO (minio) and the mock licence server (reelforge namespace, Service
+# "licence:8080", the URL baked into the e2e build of the release image).
+# __POSTGRES_IMAGE__, __MINIO_IMAGE__ and __NODE_IMAGE__ are filled in by keda.sh
+# (the mock runs on the node of the image under test: one image fewer to load).
+# Never use these in production: no persistence, no TLS, throwaway credentials.
+apiVersion: v1
+kind: Namespace
+metadata: { name: db }
+---
+apiVersion: v1
+kind: Namespace
+metadata: { name: minio }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: postgres, namespace: db }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: postgres } }
+  template:
+    metadata: { labels: { app: postgres } }
+    spec:
+      containers:
+        - name: postgres
+          image: __POSTGRES_IMAGE__
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: POSTGRES_USER, value: reelforge }
+            - { name: POSTGRES_DB, value: reelforge }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: e2e, key: db-password } }
+          ports: [{ containerPort: 5432 }]
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "reelforge", "-d", "reelforge"] }
+            periodSeconds: 2
+          resources: { requests: { cpu: 100m, memory: 128Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: postgres, namespace: db }
+spec:
+  selector: { app: postgres }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: minio, namespace: minio }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: minio } }
+  template:
+    metadata: { labels: { app: minio } }
+    spec:
+      containers:
+        - name: minio
+          image: __MINIO_IMAGE__
+          imagePullPolicy: IfNotPresent
+          args: ["server", "/data"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: e2e, key: s3-access-key-id } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: e2e, key: s3-secret-access-key } }
+          ports: [{ containerPort: 9000 }]
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: 9000 }
+            periodSeconds: 2
+          resources: { requests: { cpu: 100m, memory: 128Mi } }
+          volumeMounts: [{ name: data, mountPath: /data }]
+      volumes: [{ name: data, emptyDir: {} }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: minio, namespace: minio }
+spec:
+  selector: { app: minio }
+  ports: [{ port: 9000, targetPort: 9000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: licence, namespace: reelforge }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: licence } }
+  template:
+    metadata: { labels: { app: licence } }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: licence
+          image: __NODE_IMAGE__
+          imagePullPolicy: IfNotPresent
+          # The ConfigMap file is a symlink: keep its path so the mock sees itself as the main module.
+          command: ["node", "--preserve-symlinks-main", "/mock/server.mjs"]
+          env:
+            - { name: ORG_ID, value: 6b01478bb42d2c444e99fcd8-mocklice }
+            - name: SEED_KEYS
+              valueFrom: { secretKeyRef: { name: e2e-licence, key: seed-keys } }
+          ports: [{ containerPort: 8080 }]
+          readinessProbe:
+            tcpSocket: { port: 8080 }
+            periodSeconds: 2
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: 50m, memory: 64Mi } }
+          volumeMounts: [{ name: mock, mountPath: /mock, readOnly: true }]
+      volumes: [{ name: mock, configMap: { name: e2e-mock-licence } }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: licence, namespace: reelforge }
+spec:
+  selector: { app: licence }
+  ports: [{ port: 8080, targetPort: 8080 }]
