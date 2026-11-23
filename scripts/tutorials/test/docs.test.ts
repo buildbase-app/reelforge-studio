@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -34,15 +34,19 @@ describe('link checker', () => {
 
 describe('generated pages', () => {
   it('are up to date with cells.ts and the recorded proofs (pnpm tutorials:docs)', async () => {
-    const { readFileSync, existsSync } = await import('node:fs');
+    const { existsSync } = await import('node:fs');
     const stale = [...allPages()].filter(([f, body]) => !existsSync(f) || readFileSync(f, 'utf8') !== body).map(([f]) => f);
     expect(stale).toEqual([]);
   });
-  it('number the cells TUT-01..25 in matrix order', () => {
+  it('number the cells in matrix order, skipping the extra cases TUT-26..30', () => {
     expect(caseId('claude-code', 'remotion')).toBe('TUT-01');
     expect(caseId('local-ai', 'multi-engine')).toBe('TUT-25');
+    expect(caseId('hygen', 'remotion')).toBe('TUT-31');
+    expect(caseId('hygen', 'multi-engine')).toBe('TUT-35');
     const ids = AGENTS.flatMap((a) => CELL_ENGINES.map((e) => caseId(a, e)));
-    expect(new Set(ids).size).toBe(25);
+    expect(new Set(ids).size).toBe(30);
+    const extra = JSON.parse(readFileSync(join(REPO, 'docs/tutorials/proofs/extra.json'), 'utf8')).map((x: { id: string }) => x.id);
+    expect(ids.filter((id) => extra.includes(id))).toEqual([]);
   });
   it('never call a cell proven without a passed proof', () => {
     const failed = { status: 'failed', date: '2026-11-21T00:00:00Z', problems: ['x'], toolCalls: [], sceneEngines: [] } as unknown as Proof;
