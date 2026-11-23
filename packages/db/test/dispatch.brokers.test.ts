@@ -10,7 +10,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll } from 'vitest';
+import { afterAll, describe, it } from 'vitest';
 import { dispatchContract } from '../../core/test/dispatch-contract';
 import { brokerCases } from '../../core/test/dispatch-broker-cases';
 import { brokerTargets, type OutboxRepos } from '../../core/test/broker-fixtures';
@@ -19,7 +19,13 @@ import { availableTestDatabases, createTestDatabase, prepareDatabase } from '../
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-brokers-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
-for (const kind of availableTestDatabases().filter((k) => k !== 'sqlite')) {
+const kinds = availableTestDatabases().filter((k) => k !== 'sqlite');
+// SQLite (always available) runs the same cases in core on memory repositories; here only shared databases.
+describe.skipIf(kinds.length > 0)('broker dispatch on a shared database', () => {
+  it.skip('needs TEST_POSTGRES_URL or TEST_MYSQL_URL', () => undefined);
+});
+
+for (const kind of kinds) {
   const repos = async (): Promise<OutboxRepos> => {
     const t = await createTestDatabase(kind, tmp);
     const { db } = await prepareDatabase({ url: t.url, dataDir: join(tmp, 'none'), readySignal: { kind: 'outbox' } });
