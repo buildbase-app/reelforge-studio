@@ -436,3 +436,11 @@ implementation or licensing decisions.
     Behaviour measured against LocalStack 4.11.1 (`mirror.gcr.io/localstack/localstack:4.11`,
     digest `sha256:3071c9c7...`) and Redis 8.4 (`mirror.gcr.io/library/redis:8.4`, digest
     `sha256:319f54e6...`), not against AWS.
+
+- **Affiliate and creator selling research (2026-11-23, epic #216).** Sources, each with the
+  date read, are listed in `docs/research/AFFILIATE_AND_SELLING.md` §12: BuildBase docs
+  (affiliates, selling, storefront guide, orders, items, item types, coupons, consent,
+  blueprints), Stripe Connect pricing and controller properties, Stripe Tax and Billing pricing,
+  Stripe 1099 docs, IRS 1099-K FAQ, EU VAT Art. 9a Reg. 282/2011, DAC7, DSA Art. 29, EDPB
+  Guidelines 2/2023, FTC Endorsement Guides, the DMCA agent FAQ, PolyForm Noncommercial 1.0.0,
+  Gumroad, Paddle, Lemon Squeezy, FastSpring, Envato and third-party affiliate-tool price pages.
