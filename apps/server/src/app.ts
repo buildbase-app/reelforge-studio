@@ -27,7 +27,8 @@ import { handleMcp, serverCard } from './mcp';
 import { httpTelemetry } from './observability/http';
 import { StructuredLogger } from './observability/logger';
 import { Observability, observabilitySettings } from './observability/telemetry';
-import { DatabaseRateLimiter, RateLimiter } from './rateLimit';
+import { PreAuthGuard } from './authGuard';
+import { DatabaseRateLimiter, RateLimiter, rateLimitHeaders, type RateDecision } from './rateLimit';
 import { publicReadiness, readiness } from './readiness';
 
 export type Env = { Variables: { auth: AuthContext; requestId: string } };
@@ -114,11 +115,17 @@ export function createApp({ service, config, observability }: AppDeps) {
   const limiter =
     store === 'database' || (store === 'auto' && service.jobs?.mode === 'database')
       ? new DatabaseRateLimiter(
-          (key, windowStart) => service.repos.rateLimits.hit(key, windowStart),
+          (key, windowStart, previousStart) => service.repos.rateLimits.slide(key, windowStart, previousStart),
           () => config.rateLimitPerMinute,
           (line) => obs.logger.log('warn', line)
         )
       : new RateLimiter(() => config.rateLimitPerMinute);
+  // Before the key lookup (#305): per client address, and a lockout after repeated failed authentications.
+  const limitSettings = () => service.settings?.current.config.limits ?? config.resolved.config.limits;
+  const guard = new PreAuthGuard(() => {
+    const l = limitSettings();
+    return { perMinute: l.preAuthPerMinute, failuresPerMinute: l.authFailuresPerMinute, lockoutSeconds: l.authLockoutSeconds, lockoutMaxSeconds: l.authLockoutMaxSeconds };
+  });
 
   app.onError((err, c) => {
     if (err instanceof ApiError) {
@@ -149,12 +156,32 @@ export function createApp({ service, config, observability }: AppDeps) {
     c.header('Referrer-Policy', 'no-referrer');
   });
 
-  /** Check the bearer key (expiry, revocation, IP allowlist) and the per-key rate limit. */
+  /** A 429 with the RateLimit-* and Retry-After fields, and a body that says which limit and what to do (#305). */
+  const limited = (c: Context, scope: 'key' | 'client_ip' | 'auth_failures', d: RateDecision): Response => {
+    for (const [k, v] of Object.entries(rateLimitHeaders(d))) c.header(k, v);
+    const retry = Math.max(1, Math.ceil(d.retryAfterSeconds));
+    const text = {
+      key: { message: `too many requests for this key; retry in ${retry}s`, hint: 'Slow down to the limit in RateLimit-Limit (per 60 s, sliding) and retry after Retry-After seconds; an admin can raise this key\'s rateLimitPerMinute or limits.rateLimitPerMinute.' },
+      client_ip: { message: `too many requests from this address; retry in ${retry}s`, hint: 'Every request from one address counts before the key is checked (limits.preAuthPerMinute). Retry after Retry-After seconds; behind a proxy, set server.trustProxy so each client is counted on its own.' },
+      auth_failures: { message: `too many failed authentications from this address; retry in ${retry}s`, hint: 'Check the API key (Authorization: Bearer rf_...). Each further run of failures doubles the lockout (limits.authFailuresPerMinute, limits.authLockoutSeconds).' },
+    }[scope];
+    return c.json(errorBody('rate_limited', text.message, { scope, hint: text.hint, limit: d.limit, retryAfterSeconds: retry }), 429);
+  };
+
+  /** Check the client address budget, then the bearer key (expiry, revocation, IP allowlist), then the per-key rate limit. */
   const authorize = async (c: Context): Promise<{ auth: AuthContext } | { response: Response }> => {
-    const token = bearer(c);
     const ctx = currentRequest();
+    // Before any database work: a flood or a key-guessing run from one address stops here (#305).
+    const pre = guard.check(ctx?.ip);
+    if (!pre.allowed) return { response: limited(c, pre.scope, pre.decision) };
+    const token = bearer(c);
     const r = token ? await service.keys.authenticate(token, { ip: ctx?.ip }) : null;
     if (!r || !r.ok) {
+      // ip_not_allowed is a real key used from the wrong place, not a guess: it does not count towards the lockout.
+      if (r?.reason !== 'ip_not_allowed') {
+        const lockout = guard.failure(ctx?.ip);
+        if (lockout) obs.logger.log('warn', `auth: ${ctx?.ip} locked out for ${lockout}s after repeated failed authentications`, { request_id: ctx?.requestId });
+      }
       if (r && r.key && r.reason !== 'unknown') {
         // A real key that may not be used (revoked, expired, wrong address): worth an audit entry.
         await service.audit({ actorType: 'api_key', actorId: r.key.id, actorName: r.key.name, action: 'auth.denied', targetType: 'key', targetId: r.key.id, result: 'denied', data: { reason: r.reason } });
@@ -164,11 +191,10 @@ export function createApp({ service, config, observability }: AppDeps) {
       const message = r && r.reason !== 'unknown' ? `${r.message}; ask an admin for a new key` : 'missing or invalid API key: send "Authorization: Bearer rf_..."';
       return { response: c.json(errorBody(r?.reason === 'expired' ? 'key_expired' : r?.reason === 'revoked' ? 'key_revoked' : 'unauthorized', message), 401) };
     }
-    const wait = await limiter.take(r.auth.keyId, r.auth.rateLimitPerMinute);
-    if (wait > 0) {
-      c.header('Retry-After', String(wait));
-      return { response: c.json(errorBody('rate_limited', `too many requests for this key; retry in ${wait}s`), 429) };
-    }
+    const d = await limiter.take(r.auth.keyId, r.auth.rateLimitPerMinute);
+    if (!d.allowed) return { response: limited(c, 'key', d) };
+    // Every limited response carries the key's budget (draft-ietf-httpapi-ratelimit-headers).
+    for (const [k, v] of Object.entries(rateLimitHeaders(d))) c.header(k, v);
     if (ctx) ctx.auth = r.auth;
     return { auth: r.auth };
   };
@@ -178,6 +204,8 @@ export function createApp({ service, config, observability }: AppDeps) {
     // for exactly one file of one render, until they expire.
     const signed = /^\/v1\/renders\/([^/]+)\/output$/.exec(c.req.path);
     if (signed && c.req.method === 'GET' && c.req.query('sig')) {
+      const pre = guard.check(currentRequest()?.ip);
+      if (!pre.allowed) return limited(c, pre.scope, pre.decision);
       const ok = service.verifySignedDownload(signed[1]!, c.req.query('file') ?? 'final.mp4', Number(c.req.query('expires')), c.req.query('sig')!);
       if (!ok) return c.json(errorBody('unauthorized', 'the download link is invalid or has expired; get a new one with get_render_output'), 401);
       c.set('auth', { keyId: 'signed-url', name: 'signed download link', scopes: ['read'] });
@@ -283,9 +311,11 @@ export function createApp({ service, config, observability }: AppDeps) {
     const r = await readiness(service, obs, storageHealth);
     let admin = false;
     const token = bearer(c);
-    if (token?.startsWith('rf_')) {
+    // A probe that sends a key is answered anonymously while its address is over the pre-auth limits (no key lookup).
+    if (token?.startsWith('rf_') && guard.check(currentRequest()?.ip).allowed) {
       const a = await service.keys.authenticate(token, { ip: currentRequest()?.ip }).catch(() => null);
       admin = Boolean(a?.ok && hasScope(a.auth, 'admin'));
+      if (!a?.ok && a?.reason !== 'ip_not_allowed') guard.failure(currentRequest()?.ip); // a guess here counts like one on /v1
     }
     c.header('Cache-Control', 'no-store');
     return c.json(admin ? r : publicReadiness(r), r.ok ? 200 : 503);
@@ -604,7 +634,7 @@ export function createApp({ service, config, observability }: AppDeps) {
   });
 
   app.route('/v1', v1);
-  mountDashboard(app, service, config); // GET /dashboard (dashboard.enabled, D-110)
+  mountDashboard(app, service, config); // GET /dashboard (dashboard.enabled, D-115)
   return app;
 }
 

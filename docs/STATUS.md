@@ -568,9 +568,22 @@ sidecar download (server). A real four-engine render with burned captions was ch
 yet: speech-to-text for uploaded voice-overs, `get_captions` / `update_captions` approval, several
 languages, audio description; the ElevenLabs path is still tested with a mocked API only.
 
+### Auth hardening (2026-11-23, issue #305, step 1)
+
+Built (D-110): per-address limits before the key lookup (`limits.preAuthPerMinute`, and
+`limits.authFailuresPerMinute` with a lockout that doubles up to `limits.authLockoutMaxSeconds`), so a
+bad-key flood does no database work (AUTH-01 counts the lookups); the shared per-key limit is a
+sliding 60-second window, still one statement per check on PostgreSQL, MySQL and SQLite (LIM-15..19,
+run on all three); `RateLimit-*` fields on every keyed response, `Retry-After` and
+`error.details.scope`/`hint` on a 429; the release edition does not start without
+`REELFORGE_SECRET_KEY`, and the licence-state seal has no fixed key; Debian packages from a dated
+`snapshot.debian.org` archive (release image built and checked here: contents, size, secrets, start);
+a default-deny `NetworkPolicy` with an allowlist (kubeconform). Not yet: MCP OAuth 2.1 (step 2), a
+scheduled workflow for the weekly snapshot bump (maintainer, `.github/`), the kind e2e and the
+Docker e2e with these changes (heavy tier).
 ### Self-hosted web dashboard, part 1 (2026-11-23, issue #292)
 
-Built (D-110; [public/install/dashboard.md](public/install/dashboard.md)): `apps/dashboard`, plain
+Built (D-115; [public/install/dashboard.md](public/install/dashboard.md)): `apps/dashboard`, plain
 TypeScript bundled by esbuild into static files (JS + CSS 11.9 KB gzip, budget 150 KB) that the studio
 serves at `/dashboard` when `dashboard.enabled` is on (off by default; file, env or `PATCH /v1/config`).
 Sign-in with an API key held in memory (sessionStorage only when asked), every call to the public REST

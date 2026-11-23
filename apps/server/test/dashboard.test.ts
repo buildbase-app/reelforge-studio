@@ -7,7 +7,7 @@ import { DASHBOARD_CSP, TOOLS, createApp, loadConfig, type ServerConfig } from '
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 
 /**
- * The dashboard route (#292, D-110): off by default, on by file/env or at
+ * The dashboard route (#292, D-115): off by default, on by file/env or at
  * runtime, strict headers, the same Host check as /mcp; and the API it uses:
  * no data without a key, a read key cannot cancel or retry, GET /v1/me.
  */

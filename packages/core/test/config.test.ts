@@ -61,6 +61,11 @@ describe('config schema', () => {
     expect(r.config.limits).toEqual({
       rateLimitPerMinute: 300,
       rateLimitStore: 'auto',
+      // Before the key lookup, per client address (#305)
+      preAuthPerMinute: 1200,
+      authFailuresPerMinute: 20,
+      authLockoutSeconds: 60,
+      authLockoutMaxSeconds: 3600,
       maxUploadBytes: 209715200,
       maxJsonBytes: 2097152,
       renderConcurrency: 1,
@@ -475,7 +480,7 @@ describe('ReelforgeService configuration', () => {
     // A new service on the same database starts with the runtime values.
     const again = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), { repositories: repos, dataDir: join(dir, 'svc'), configSources: { env: {} } });
     expect(again.jobs.concurrency).toBe(3);
-    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', 'runtime', 'default', 'runtime', ...Array(11).fill('default')]);
+    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', ...Array(4).fill('default'), 'runtime', 'default', 'runtime', ...Array(11).fill('default')]);
   });
 
   it('configure_provider stores encrypted values that providers see, and get_config shows the same key as runtime', async () => {

@@ -7,7 +7,7 @@ import { errorBody, hostName, type Env } from './app';
 import type { ServerConfig } from './config';
 
 /**
- * The web dashboard (#292, D-110): static files built by apps/dashboard, served
+ * The web dashboard (#292, D-115): static files built by apps/dashboard, served
  * same-origin under /dashboard when `dashboard.enabled` is on. The page is a
  * client of the public REST API: it holds no server-side session, sets no
  * cookie, and every data call carries the API key the person signed in with,

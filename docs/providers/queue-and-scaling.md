@@ -909,16 +909,20 @@ SCL-05, SCA-10).
 **Per-key rate limit** (`limits.rateLimitPerMinute` or the key's
 `rateLimitPerMinute`): with `limits.rateLimitStore: database` (the default with
 the database queue) every request increments one `RateLimitWindow` row per key
-and calendar minute (atomic `count = count + 1`, created on first use); a count
-above the limit answers `429 rate_limited` with `Retry-After` until the minute
-ends. Windows older than an hour are swept hourly. If the database cannot be
-reached the request is not limited (it fails on its own database work) and a
-warning is logged once a minute. Semantics differ slightly from the in-memory
-token bucket: a fixed minute window, so a burst at a minute boundary can see up
-to twice the limit within 60 s (QUE-11, SCA-10).
+and calendar minute (created on first use) and reads the previous minute's
+count in the same statement. Since #305 the limit is a **sliding window** over
+the last 60 s: `previous × (1 − elapsed/60 s) + current` must stay within the
+limit, so a burst at a minute boundary no longer gets twice the limit (LIM-16;
+D-110). Over the limit: `429 rate_limited` with `Retry-After` (when one more
+request fits again) and the `RateLimit-*` fields. Refused requests count too, so
+a client that retries before `Retry-After` stays limited. Windows older than an
+hour are swept hourly. If the database cannot be reached the request is not
+limited (it fails on its own database work) and a warning is logged once a
+minute. The in-memory store is a token bucket per instance (QUE-11, SCA-10).
 
-The count is **one statement per request** (#196), which creates the window or
-adds to it and returns the new count in the same round trip:
+The count was **one statement per request** before (#196), which creates the
+window or adds to it and returns the new count in the same round trip (still
+how the claim counter and `hit()` work):
 
 | Database | Statement | How the count comes back |
 | --- | --- | --- |
@@ -926,8 +930,20 @@ adds to it and returns the new count in the same round trip:
 | SQLite (3.53.2 bundled with better-sqlite3; `RETURNING` needs 3.35) | the same upsert | `RETURNING` |
 | MySQL | ``INSERT INTO `RateLimitWindow` ... VALUES (?, ?, ?, LAST_INSERT_ID(?)) ON DUPLICATE KEY UPDATE `count` = LAST_INSERT_ID(`count` + ?)`` | `LAST_INSERT_ID(expr)` puts the new count in the statement's OK packet (its insert id). The statement goes through the driver adapter Prisma connected (same pool, same argument mapping), because Prisma's raw API returns only rows or the affected-row count |
 
+The sliding window keeps one statement (#305, `RateLimitRepository.slide`):
+PostgreSQL and SQLite add a subquery for the previous row to `RETURNING`; MySQL
+runs ``INSERT ... SELECT ?, ?, ?, LAST_INSERT_ID(1 + 4294967296 * d.prev) & 4294967295
+FROM (SELECT COALESCE(SUM(count), 0) AS prev ...) AS d ON DUPLICATE KEY UPDATE
+`count` = LAST_INSERT_ID(`count` + 1 + 4294967296 * d.prev) & 4294967295``, so the
+insert id carries the new count in its low 32 bits and the previous count above
+them (the stored count is the low part). On MySQL that `SELECT` share-locks what
+it reads; for a key without a previous row that is a gap lock, and concurrent
+first requests of the key can deadlock: InnoDB rolls the victim back whole and
+the repository retries it (up to 5 times), so only then is a check more than one
+statement (LIM-17 fails without the retry about two runs in three).
+
 The row lock of the upsert hands every concurrent request its own count, so N
-concurrent requests against a limit L give exactly L passes (LIM-12, LIM-15).
+concurrent requests against a limit L give exactly L passes (LIM-12, LIM-15, LIM-17).
 Before #196 the limiter ran `UPDATE ... count + 1`, then a `SELECT` of the
 count: a request could read the increments of requests that came after it, so
 under concurrency fewer than L passed (never more). MySQL alternatives
@@ -1467,8 +1483,11 @@ and a job that dies while its worker shuts down is handed back, never failed
 | LIM-12 | rate-limit counter: 40 concurrent hits from two pools (SQLite: one) on a new and on an existing window return each count 1..40 exactly once, so exactly L pass a limit L; `by` adds a batch; MySQL also without the insert-id hook (transaction fallback) (#196) | contract (4 targets) | pass 2026-11-23; fails on the code before #196 on all three databases (duplicate counts) |
 | LIM-13 | rate-limit counter: a new minute starts at 1, a late hit of the old minute still counts there, the raw statement and Prisma see one row per window (same stored `DATETIME`), the sweep removes old windows | contract (4 targets) | pass 2026-11-23 |
 | LIM-14 | rate-limit counter: one statement per check and no transaction, for a new window and an existing one (recording proxy over the Prisma client and the MySQL insert-id hook) | contract (3 databases) | pass 2026-11-23; fails on the code before #196 (2 statements) |
-| LIM-15 | `DatabaseRateLimiter` on a real database: 30 concurrent requests, limit 12: exactly 12 pass, the others get `Retry-After` 45 at 44.6 s before the minute ends; a key's own limit uses the same counter (`apps/server/test/rate-limit-store.test.ts`, `REELFORGE_TEST_DB`) | server (3 databases) | pass 2026-11-23 |
-| LIM-16 | `DatabaseRateLimiter`: the next minute starts over; `Retry-After` is the rest of the minute, at least 1 s | server (3 databases) | pass 2026-11-23 |
+| LIM-15 | `DatabaseRateLimiter` on a real database: 30 concurrent requests, limit 12: exactly 12 pass with `RateLimit-Remaining` 11..0; the others wait past the minute (the 13th: `Retry-After` 54 at 44.6 s before the minute ends); a key's own limit uses the same counter (`apps/server/test/rate-limit-store.test.ts`, `REELFORGE_TEST_DB`) | server (3 databases) | pass 2026-11-23 (#305) |
+| LIM-16 | `DatabaseRateLimiter` sliding window (#305): 10 requests in the last second of a minute pass, 10 right after the boundary are all refused (the fixed window let all 20 through); the latest refusal's `Retry-After` admits the next request; a client that waits never gets more than the limit + 1 in any 60 s | server (3 databases) | pass 2026-11-23 |
+| LIM-17 | `slide()`: counts the window and reads the previous one; 30 concurrent slides from two pools (SQLite: one) on a new window and on a fresh key (no previous row; MySQL gap-lock deadlocks retried) return each count once and the right previous count; rows are ordinary windows (`hit()` adds, the sweep deletes) | contract (4 targets) | pass 2026-11-23 |
+| LIM-18 | `slide()`: 3 000 000 and 2 500 001 come back exactly (MySQL packs both into one insert id), also without the insert-id hook | contract (4 targets) | pass 2026-11-23 |
+| LIM-19 | `slide()`: one statement per check, no transaction (recording proxy and the MySQL insert-id hook) | contract (3 databases) | pass 2026-11-23 |
 | PRI-01 | 1,000 queued jobs of key A, then 1 of key B: B is among the first 4 claims of 4 workers (in fact the second) | contract (4 targets) | pass 2026-11-22 |
 | PRI-02 | the claim takes interactive, then standard, then batch; within a class the key with fewer running jobs, then the oldest | contract (4 targets) | pass 2026-11-22 |
 | PRI-03 | a higher class wins over fairness: a key with a running job gets its interactive job before an idle key's standard job | contract (4 targets) | pass 2026-11-22 |

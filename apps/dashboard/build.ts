@@ -1,5 +1,5 @@
 /**
- * Builds the dashboard into static files (D-110):
+ * Builds the dashboard into static files (D-115):
  *
  *   dist/index.html
  *   dist/assets/app-<hash>.js, app-<hash>.css, mark-<hash>.svg

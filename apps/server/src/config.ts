@@ -41,7 +41,7 @@ export interface ServerConfig {
   sources: ConfigSources;
   /** The resolved configuration (file + env) this ServerConfig was made from. */
   resolved: ResolvedConfig;
-  /** The built dashboard (default apps/dashboard/dist, D-110); tests point it at their own build. Not a setting. */
+  /** The built dashboard (default apps/dashboard/dist, D-115); tests point it at their own build. Not a setting. */
   dashboardAssetsDir?: string;
 }
 
