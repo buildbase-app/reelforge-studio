@@ -26,7 +26,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { loadavg, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DEFAULT_WORKSPACE_ID, newId, type JobRecord } from '@reelforge/core';
-import { Database, prepareDatabase } from '@reelforge/db';
+import { Database, prepareDatabase, sqlNames } from '@reelforge/db';
 import { env, envNum, hostFingerprint, LoadAvgSampler, num, round, sh, sleep, summary } from './lib';
 
 const repo = resolve(import.meta.dirname, '../..');
@@ -166,8 +166,10 @@ async function seed(db: Database, depth: number) {
     ...Array.from({ length: depth }, (_, i) => jobRow(i, 'queued', new Date(now - 600_000 + Math.floor((i * 600_000) / depth)))),
   ];
   for (let i = 0; i < rows.length; i += 1000) await db.prisma.job.createMany({ data: rows.slice(i, i + 1000) });
-  if (db.kind === 'postgresql') await db.prisma.$executeRawUnsafe(`ANALYZE "Job"`);
-  else await db.prisma.$queryRawUnsafe('ANALYZE TABLE `Job`');
+  // Table names through the schema-qualifying helper, as in the app's raw SQL (#191).
+  const { tbl } = sqlNames(db.kind, db.schema ?? undefined);
+  if (db.kind === 'postgresql') await db.prisma.$executeRawUnsafe(`ANALYZE ${tbl('Job')}`);
+  else await db.prisma.$queryRawUnsafe(`ANALYZE TABLE ${tbl('Job')}`);
 }
 
 /** PostgreSQL: the plans of the claim's statements, EXPLAIN (ANALYZE, BUFFERS) through auto_explain on a dedicated session. */
@@ -350,12 +352,12 @@ async function exactlyOnce(kind: string, name: string) {
   const d = await Database.open({ url: dbUrl(kind, name, 2) });
   try {
     const p = d.prisma;
-    const t = kind === 'mysql' ? '`' : '"';
-    const q = (s: string) => s.replace(/"/g, t);
-    const [a] = (await p.$queryRawUnsafe(q(`SELECT COUNT(*) AS n FROM "Job" WHERE "attempts" > 1`))) as Array<{ n: unknown }>;
-    const [b] = (await p.$queryRawUnsafe(q(`SELECT COUNT(*) AS n FROM (SELECT "jobId" FROM "JobEvent" WHERE "type" = 'status' AND "message" = 'running' GROUP BY "jobId" HAVING COUNT(*) > 1) x`))) as Array<{ n: unknown }>;
-    const [c] = (await p.$queryRawUnsafe(q(`SELECT COUNT(*) AS n FROM (SELECT "jobId" FROM "JobEvent" WHERE "type" = 'status' AND "message" = 'succeeded' GROUP BY "jobId" HAVING COUNT(*) > 1) x`))) as Array<{ n: unknown }>;
-    const [r] = (await p.$queryRawUnsafe(q(`SELECT COUNT(*) AS n FROM "Job" WHERE "status" = 'running'`))) as Array<{ n: unknown }>;
+    const { qi, tbl } = sqlNames(d.kind, d.schema ?? undefined);
+    const twice = (message: string) => `SELECT COUNT(*) AS n FROM (SELECT ${qi('jobId')} FROM ${tbl('JobEvent')} WHERE ${qi('type')} = 'status' AND ${qi('message')} = '${message}' GROUP BY ${qi('jobId')} HAVING COUNT(*) > 1) x`;
+    const [a] = (await p.$queryRawUnsafe(`SELECT COUNT(*) AS n FROM ${tbl('Job')} WHERE ${qi('attempts')} > 1`)) as Array<{ n: unknown }>;
+    const [b] = (await p.$queryRawUnsafe(twice('running'))) as Array<{ n: unknown }>;
+    const [c] = (await p.$queryRawUnsafe(twice('succeeded'))) as Array<{ n: unknown }>;
+    const [r] = (await p.$queryRawUnsafe(`SELECT COUNT(*) AS n FROM ${tbl('Job')} WHERE ${qi('status')} = 'running'`)) as Array<{ n: unknown }>;
     const res = { reclaimed: num(a!.n), claimedTwice: num(b!.n), finishedTwice: num(c!.n), leftRunning: num(r!.n) };
     return { ...res, ok: res.reclaimed === 0 && res.claimedTwice === 0 && res.finishedTwice === 0 && res.leftRunning === 0 };
   } finally {

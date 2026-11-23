@@ -423,12 +423,13 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           : `${c('j', 'apiKeyId')} IS NULL` + (prev ? ` AND ${c('j', 'priority')} > ${c(prev, 'p')}` : '')) +
         // apiKeyId leads the order also when it is NULL, so the keyless walk reads the claim index too.
         ` ORDER BY ${c('j', 'apiKeyId')}, ${c('j', 'priority')}, ${c('j', 'createdAt')} LIMIT 1`;
-      const walk = (name: string, keyed: boolean) =>
-        `${qi(name)} (${qi('k')}, ${qi('p')}, ${qi('t')}) AS ((${step('', keyed)}) UNION ALL SELECT ${cols('x')} FROM ${qi(name)}, LATERAL (${step(name, keyed)}) ${qi('x')})`;
+      // PostgreSQL only, so the CTE names ("g", "h", "r": no tables) are written as plain quoted identifiers.
+      const walk = (name: 'g' | 'h', keyed: boolean) =>
+        `"${name}" ("k", "p", "t") AS ((${step('', keyed)}) UNION ALL SELECT ${cols('x')} FROM "${name}", LATERAL (${step(name, keyed)}) "x")`;
       sql =
-        `WITH RECURSIVE ${walk('g', true)}, ${walk('h', false)}, ${qi('r')} AS (${running})` +
-        ` SELECT ${qi('q')}.*, COALESCE(${c('r', 'n')}, 0) AS ${qi('n')} FROM (SELECT * FROM ${qi('g')} UNION ALL SELECT * FROM ${qi('h')}) ${qi('q')}` +
-        ` LEFT JOIN ${qi('r')} ON ${c('r', 'k')} = ${c('q', 'k')}`;
+        `WITH RECURSIVE ${walk('g', true)}, ${walk('h', false)}, "r" AS (${running})` +
+        ` SELECT "q".*, COALESCE("r"."n", 0) AS "n" FROM (SELECT * FROM "g" UNION ALL SELECT * FROM "h") "q"` +
+        ` LEFT JOIN "r" ON "r"."k" = "q"."k"`;
     } else {
       // PostgreSQL filters the types here (exact `t`) and counts the jobs (the choice above); MySQL groups the
       // covering index without `type` (no table reads; `t` a lower bound).
