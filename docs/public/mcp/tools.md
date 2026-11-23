@@ -77,7 +77,7 @@ Lists projects on this server with title, version, scene count and duration (no 
 
 **Create a project**. Scope: `write`. REST: `POST /v1/projects`.
 
-Creates a project from a manifest. Minimal manifest: { schemaVersion: "0.2", projectId, title, output: { width: 1080, height: 1920, fps: 30, format: "mp4" }, scenes: [{ id, engine, template, durationSeconds, props }] }. Optional: brief, theme, audio, assets, captions. The manifest is validated against installed engines and templates; on failure you get every problem with its path. v0.1 manifests are migrated automatically.
+Creates a project from a manifest. Minimal manifest: { schemaVersion: "0.2", projectId, title, output: { width: 1080, height: 1920, fps: 30, format: "mp4" }, scenes: [{ id, engine, template, durationSeconds, props }] }. output can be any even size from 16 to 4096 px, e.g. 1920x1080 (16:9), 1080x1080 (1:1), 1080x1350 (4:5), 1080x1920 (9:16, the usual default) or 3840x2160 (4K); built-in templates lay themselves out for the aspect ratio and keep text inside the safe area. Optional: brief (brief.platform sets the safe area for app overlays), theme, audio, assets, captions. The manifest is validated against installed engines and templates; on failure you get every problem with its path. v0.1 manifests are migrated automatically.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |

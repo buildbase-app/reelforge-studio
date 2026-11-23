@@ -32,7 +32,8 @@
     "test:capture": "node --test scripts/capture/*.test.mjs",
     "load": "node --import tsx scripts/load/run.ts",
     "load:smoke": "LOAD_PROFILE=smoke node --import tsx scripts/load/run.ts",
-    "test:load": "vitest run --dir scripts/load"
+    "test:load": "vitest run --dir scripts/load",
+    "formats:prove": "tsx scripts/formats/prove.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

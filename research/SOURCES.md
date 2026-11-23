@@ -453,3 +453,13 @@ implementation or licensing decisions.
   `"type": "commonjs"`) and its `params({ args })` result becomes the template locals; an error
   thrown there is printed and hygen exits 1 before writing anything; an existing target file
   triggers an overwrite prompt unless `HYGEN_OVERWRITE` is set. Docs: https://www.hygen.io.
+
+- **Safe areas (2026-11-23, issue #287).** EBU R 95 "Safe areas for 16:9 television production", version 1.1,
+  June 2017 (https://tech.ebu.ch/docs/r/r095.pdf, read 2026-11-23): "The action safe area is 3.5% and the graphics
+  safe area is 5%, at the top, bottom and" sides, for every raster from 576i to 4320p (67 pixels of action margin
+  at 1920 wide). ITU-R BT.1848-1 (10/2015, https://www.itu.int/rec/R-REC-BT.1848): the same 3.5 % action-safe
+  and 5 % graphics-safe margins. These give the 93 % action-safe and 90 % title-safe areas in
+  `packages/project-schema/src/layout.ts`. The tall-video app overlay zone (14 % top, 35 % bottom, 6 % sides) is
+  NOT from a platform specification: it is a conservative margin chosen to clear the common social apps' UI;
+  platforms differ and change it (TODO/VERIFY against each platform's current guidance before quoting numbers per
+  platform).

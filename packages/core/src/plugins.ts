@@ -45,6 +45,13 @@ export interface ResolvedAsset {
 export interface EngineRenderContext {
   output: OutputSettings;
   theme: ThemeTokens;
+  /**
+   * The manifest's brief.platform, if any. Templates read safe areas from
+   * `frameLayout(width, height, platform)` (@reelforge/project-schema): tall
+   * frames keep text out of the social-app ui zone unless the platform is one
+   * without app ui ("none", "broadcast", ...).
+   */
+  platform?: string;
   /** Where to write the clip: H.264 MP4, no audio, exactly scene.durationFrames frames. */
   out: string;
   /** Scratch directory for this scene. */

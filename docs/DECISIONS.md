@@ -2138,3 +2138,24 @@ count like the others. Its jobs are recovered by the long-running instances (the
 between instances shifts the bounds by the skew. **Measured** (lower bound, shared sandbox, PERFORMANCE.md): 200 idle
 workers 71 → 46 tx/s with `poll` and 42 → 25 tx/s with `notify`; 50 idle workers 16 → 12 and 10 → 7. What still grows
 with the number of instances is one lease read per instance per `leaseSeconds / 2`.
+
+### D-107 --- Templates lay out from one unit (1 % of the shorter side) inside shared safe areas; headlines fit their box
+
+**Status:** DECIDED (reversible).\
+Built-in templates scaled from the width only, so a 16:9 headline was about 200 px tall at 1920x1080 and ran off
+the frame (#287). Now `@reelforge/project-schema/layout` (no dependencies, imported by the Remotion and Motion
+Canvas browser bundles and hashed into their cache keys) gives every engine the same `frameLayout(width, height,
+platform)`: the unit is `min(width, height) / 100`; orientation `portrait`/`square`/`landscape`; direction `row`
+from 4:3 and wider, `column` below; a type scale in units; and `safeAreaInsets()`: action safe 3.5 % and title
+(graphics) safe 5 % per side (EBU R 95 v1.1, ITU-R BT.1848-1), and on tall frames (height / width >= 1.6) a
+conservative social-app overlay zone of 14 % top, 35 % bottom and 6 % sides, labelled as such because platforms
+differ. Templates keep text inside the per-side maximum of the two. `brief.platform` reaches engines as
+`EngineRenderContext.platform`; `none`, `broadcast`, `web` and `presentation` drop the overlay zone. Headlines fit
+their box: `fitText()` (canvas text metrics) in Remotion, `FIT_TEXT_SCRIPT` (`data-rf-fit`, DOM measurement with
+animations off) in the html and hyperframes engines, a scale-to-fit of the laid-out block in Motion Canvas.
+`--rf-unit` in html scenes changes from 1 % of the width to 1 % of the shorter side: identical for portrait and
+square frames (every existing default), smaller on landscape frames, where the old value overflowed;
+`--rf-unit-w`/`--rf-unit-h` keep the old meanings. *Rejected:* per-format template variants (more code per
+template and no answer for odd sizes); CSS viewport units only (Remotion and Motion Canvas do not lay out with
+CSS, and the safe areas must be the same numbers in every engine). Proof: `apps/server/test/formats.test.ts`
+(an overflow check on rendered pixels and DOM measurements) and the contact sheets in `docs/proofs/formats/`.

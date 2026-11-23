@@ -1,0 +1,492 @@
+{
+  "generatedAt": "2026-11-23T14:05:52.315Z",
+  "command": "pnpm formats:prove",
+  "templates": [
+    "kinetic-title",
+    "animated-explainer",
+    "html-title",
+    "hyperframes-title"
+  ],
+  "results": [
+    {
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "template": "kinetic-title",
+      "engine": "remotion",
+      "seconds": 3,
+      "renderMillis": 11162,
+      "ok": true,
+      "frame": 68,
+      "ink": {
+        "x0": 97,
+        "y0": 350,
+        "x1": 1761,
+        "y1": 741
+      },
+      "allowed": {
+        "x0": 79,
+        "y0": 37,
+        "x1": 1841,
+        "y1": 1043
+      },
+      "problems": []
+    },
+    {
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "template": "animated-explainer",
+      "engine": "motion-canvas",
+      "seconds": 4,
+      "renderMillis": 7673,
+      "ok": true,
+      "frame": 114,
+      "ink": {
+        "x0": 96,
+        "y0": 214,
+        "x1": 1783,
+        "y1": 854
+      },
+      "allowed": {
+        "x0": 79,
+        "y0": 37,
+        "x1": 1841,
+        "y1": 1043
+      },
+      "problems": []
+    },
+    {
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "template": "html-title",
+      "engine": "html",
+      "seconds": 3,
+      "renderMillis": 17162,
+      "ok": true,
+      "frame": 72,
+      "ink": {
+        "x0": 97,
+        "y0": 188,
+        "x1": 1657,
+        "y1": 879
+      },
+      "allowed": {
+        "x0": 79,
+        "y0": 37,
+        "x1": 1841,
+        "y1": 1043
+      },
+      "problems": []
+    },
+    {
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "template": "hyperframes-title",
+      "engine": "hyperframes",
+      "seconds": 3,
+      "renderMillis": 27184,
+      "ok": true,
+      "frame": 72,
+      "ink": {
+        "x0": 97,
+        "y0": 263,
+        "x1": 1589,
+        "y1": 817
+      },
+      "allowed": {
+        "x0": 79,
+        "y0": 37,
+        "x1": 1841,
+        "y1": 1043
+      },
+      "problems": []
+    },
+    {
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "template": "kinetic-title",
+      "engine": "remotion",
+      "seconds": 3,
+      "renderMillis": 8929,
+      "ok": true,
+      "frame": 68,
+      "ink": {
+        "x0": 97,
+        "y0": 199,
+        "x1": 991,
+        "y1": 886
+      },
+      "allowed": {
+        "x0": 37,
+        "y0": 37,
+        "x1": 1043,
+        "y1": 1043
+      },
+      "problems": []
+    },
+    {
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "template": "animated-explainer",
+      "engine": "motion-canvas",
+      "seconds": 4,
+      "renderMillis": 7541,
+      "ok": true,
+      "frame": 114,
+      "ink": {
+        "x0": 86,
+        "y0": 68,
+        "x1": 989,
+        "y1": 1022
+      },
+      "allowed": {
+        "x0": 37,
+        "y0": 37,
+        "x1": 1043,
+        "y1": 1043
+      },
+      "problems": []
+    },
+    {
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "template": "html-title",
+      "engine": "html",
+      "seconds": 3,
+      "renderMillis": 10652,
+      "ok": true,
+      "frame": 72,
+      "ink": {
+        "x0": 97,
+        "y0": 86,
+        "x1": 980,
+        "y1": 990
+      },
+      "allowed": {
+        "x0": 37,
+        "y0": 37,
+        "x1": 1043,
+        "y1": 1043
+      },
+      "problems": []
+    },
+    {
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "template": "hyperframes-title",
+      "engine": "hyperframes",
+      "seconds": 3,
+      "renderMillis": 22573,
+      "ok": true,
+      "frame": 72,
+      "ink": {
+        "x0": 97,
+        "y0": 95,
+        "x1": 980,
+        "y1": 992
+      },
+      "allowed": {
+        "x0": 37,
+        "y0": 37,
+        "x1": 1043,
+        "y1": 1043
+      },
+      "problems": []
+    },
+    {
+      "format": "4x5",
+      "width": 1080,
+      "height": 1350,
+      "template": "kinetic-title",
+      "engine": "remotion",
+      "seconds": 3,
+      "renderMillis": 8730,
+      "ok": true,
+      "frame": 68,
+      "ink": {
+        "x0": 97,
+        "y0": 334,
+        "x1": 991,
+        "y1": 1021
+      },
+      "allowed": {
+        "x0": 37,
+        "y0": 51,
+        "x1": 1043,
+        "y1": 1299
+      },
+      "problems": []
+    },
+    {
+      "format": "4x5",
+      "width": 1080,
+      "height": 1350,
+      "template": "animated-explainer",
+      "engine": "motion-canvas",
+      "seconds": 4,
+      "renderMillis": 5987,
+      "ok": true,
+      "frame": 114,
+      "ink": {
+        "x0": 86,
+        "y0": 203,
+        "x1": 989,
+        "y1": 1157
+      },
+      "allowed": {
+        "x0": 37,
+        "y0": 51,
+        "x1": 1043,
+        "y1": 1299
+      },
+      "problems": []
+    },
+    {
+      "format": "4x5",
+      "width": 1080,
+      "height": 1350,
+      "template": "html-title",
+      "engine": "html",
+      "seconds": 3,
+      "renderMillis": 12189,
+      "ok": true,
+      "frame": 72,
+      "ink": {
+        "x0": 97,
+        "y0": 144,
+        "x1": 968,
+        "y1": 1202
+      },
+      "allowed": {
+        "x0": 37,
+        "y0": 51,
+        "x1": 1043,
+        "y1": 1299
+      },
+      "problems": []
+    },
+    {
+      "format": "4x5",
+      "width": 1080,
+      "height": 1350,
+      "template": "hyperframes-title",
+      "engine": "hyperframes",
+      "seconds": 3,
+      "renderMillis": 25925,
+      "ok": true,
+      "frame": 72,
+      "ink": {
+        "x0": 97,
+        "y0": 160,
+        "x1": 916,
+        "y1": 1198
+      },
+      "allowed": {
+        "x0": 37,
+        "y0": 51,
+        "x1": 1043,
+        "y1": 1299
+      },
+      "problems": []
+    },
+    {
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "template": "kinetic-title",
+      "engine": "remotion",
+      "seconds": 3,
+      "renderMillis": 11236,
+      "ok": true,
+      "frame": 68,
+      "ink": {
+        "x0": 96,
+        "y0": 417,
+        "x1": 991,
+        "y1": 1104
+      },
+      "allowed": {
+        "x0": 48,
+        "y0": 252,
+        "x1": 1032,
+        "y1": 1265
+      },
+      "problems": []
+    },
+    {
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "template": "animated-explainer",
+      "engine": "motion-canvas",
+      "seconds": 4,
+      "renderMillis": 7616,
+      "ok": true,
+      "frame": 114,
+      "ink": {
+        "x0": 86,
+        "y0": 286,
+        "x1": 989,
+        "y1": 1241
+      },
+      "allowed": {
+        "x0": 48,
+        "y0": 252,
+        "x1": 1032,
+        "y1": 1265
+      },
+      "problems": []
+    },
+    {
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "template": "html-title",
+      "engine": "html",
+      "seconds": 3,
+      "renderMillis": 12392,
+      "ok": true,
+      "frame": 72,
+      "ink": {
+        "x0": 97,
+        "y0": 305,
+        "x1": 980,
+        "y1": 1208
+      },
+      "allowed": {
+        "x0": 48,
+        "y0": 252,
+        "x1": 1032,
+        "y1": 1265
+      },
+      "problems": []
+    },
+    {
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "template": "hyperframes-title",
+      "engine": "hyperframes",
+      "seconds": 3,
+      "renderMillis": 23457,
+      "ok": true,
+      "frame": 72,
+      "ink": {
+        "x0": 97,
+        "y0": 313,
+        "x1": 980,
+        "y1": 1211
+      },
+      "allowed": {
+        "x0": 48,
+        "y0": 252,
+        "x1": 1032,
+        "y1": 1265
+      },
+      "problems": []
+    },
+    {
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "template": "kinetic-title",
+      "engine": "remotion",
+      "seconds": 2,
+      "renderMillis": 14822,
+      "ok": true,
+      "frame": 45,
+      "ink": {
+        "x0": 194,
+        "y0": 700,
+        "x1": 3522,
+        "y1": 1485
+      },
+      "allowed": {
+        "x0": 159,
+        "y0": 75,
+        "x1": 3681,
+        "y1": 2085
+      },
+      "problems": []
+    },
+    {
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "template": "animated-explainer",
+      "engine": "motion-canvas",
+      "seconds": 2,
+      "renderMillis": 11280,
+      "ok": true,
+      "frame": 57,
+      "ink": {
+        "x0": 192,
+        "y0": 428,
+        "x1": 3567,
+        "y1": 1710
+      },
+      "allowed": {
+        "x0": 159,
+        "y0": 75,
+        "x1": 3681,
+        "y1": 2085
+      },
+      "problems": []
+    },
+    {
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "template": "html-title",
+      "engine": "html",
+      "seconds": 2,
+      "renderMillis": 25912,
+      "ok": true,
+      "frame": 48,
+      "ink": {
+        "x0": 194,
+        "y0": 376,
+        "x1": 3316,
+        "y1": 1759
+      },
+      "allowed": {
+        "x0": 159,
+        "y0": 75,
+        "x1": 3681,
+        "y1": 2085
+      },
+      "problems": []
+    },
+    {
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "template": "hyperframes-title",
+      "engine": "hyperframes",
+      "seconds": 2,
+      "renderMillis": 46472,
+      "ok": true,
+      "frame": 48,
+      "ink": {
+        "x0": 194,
+        "y0": 529,
+        "x1": 3219,
+        "y1": 1633
+      },
+      "allowed": {
+        "x0": 159,
+        "y0": 75,
+        "x1": 3681,
+        "y1": 2085
+      },
+      "problems": []
+    }
+  ]
+}

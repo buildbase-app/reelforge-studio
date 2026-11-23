@@ -15,6 +15,7 @@ export * from './project';
 export * from './templates';
 export * from './themes';
 export * from './migrate';
+export * from './layout';
 export { projectV01, V01_SCHEMA_VERSION, type ProjectV01, type ProjectV01Input } from './v01';
 
 export interface ValidationIssue {

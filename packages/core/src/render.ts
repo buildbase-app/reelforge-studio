@@ -87,6 +87,8 @@ export interface SceneRenderInput extends Pick<RenderPipelineInput, 'runId' | 't
   progress(done: number, total: number): void;
   /** Only these frames of the scene, inclusive (a fan-out chunk; the engine must declare frame ranges). */
   frameRange?: readonly [number, number];
+  /** brief.platform (safe areas, #287). */
+  platform?: string;
 }
 
 /**
@@ -129,6 +131,7 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
       engine.render(toRenderScene(scene), {
         output,
         theme: input.theme,
+        ...(input.platform ? { platform: input.platform } : {}),
         out,
         workDir,
         cacheDir: input.cacheDir,
@@ -216,6 +219,7 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
           ...input,
           scene,
           output,
+          ...(project.brief?.platform ? { platform: project.brief.platform } : {}),
           out,
           workDir: join(tmp, 'work', scene.id),
           progress: (done, total) =>

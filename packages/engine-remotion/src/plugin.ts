@@ -41,6 +41,7 @@ export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
         scene,
         output: ctx.output,
         theme: ctx.theme,
+        ...(ctx.platform ? { platform: ctx.platform } : {}),
         out: ctx.out,
         cacheDir: ctx.cacheDir,
         browserExecutable: browser(),
