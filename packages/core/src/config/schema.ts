@@ -322,7 +322,37 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_RATE_LIMIT_STORE',
       default: 'auto',
       description:
-        'Where per-key request counts live (D-078). `memory`: a token bucket per instance (with several API instances each allows the full limit). `database`: one counter per key and minute in the database, shared by every instance. `auto`: `database` when the job queue is `database`, else `memory`.',
+        'Where per-key request counts live (D-078). `memory`: a token bucket per instance (with several API instances each allows the full limit). `database`: a sliding 60-second window from one counter per key and minute in the database, shared by every instance. `auto`: `database` when the job queue is `database`, else `memory`.',
+    }),
+    preAuthPerMinute: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_PRE_AUTH_RATE_LIMIT_PER_MINUTE',
+      default: 1200,
+      description:
+        'Requests per minute per client address (`server.trustProxy` decides which one; IPv6 per /64), checked before the API key is looked up, so a flood costs no database work. Per instance, in memory. Several keys behind one address share it, so keep it above `limits.rateLimitPerMinute`. `0` disables it.',
+    }),
+    authFailuresPerMinute: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_AUTH_FAILURES_PER_MINUTE',
+      default: 20,
+      description:
+        'Failed authentications (missing, unknown, revoked or expired key) per minute per client address; the one that uses them up locks the address out (`limits.authLockoutSeconds`). While locked out, its requests get `429` without a key lookup. Per instance, in memory. `0` disables the lockout.',
+    }),
+    authLockoutSeconds: setting(positive(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_AUTH_LOCKOUT_SECONDS',
+      default: 60,
+      description: 'The first lockout after too many failed authentications; each further lockout of the same address doubles, up to `limits.authLockoutMaxSeconds`.',
+    }),
+    authLockoutMaxSeconds: setting(positive(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_AUTH_LOCKOUT_MAX_SECONDS',
+      default: 3600,
+      description: 'The longest lockout. An address with no failed authentication for this long starts over at `limits.authLockoutSeconds`.',
     }),
     maxUploadBytes: setting(positive(), {
       kind: 'integer',
@@ -714,7 +744,7 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_SECRET_KEY',
       secret: true,
       description:
-        'Encrypts secrets stored in the database (provider keys, licence key) with AES-256-GCM. At least 32 characters: `openssl rand -base64 32`. Without it the server refuses to store secrets. Keep it safe: losing it makes stored secrets unreadable.',
+        'Encrypts secrets stored in the database (provider keys, licence key) with AES-256-GCM and keys the integrity seal of the stored licence state. At least 32 characters: `openssl rand -base64 32`. **Required by the release edition**: it does not start without it (#305). A dev build without it refuses to store secrets and seals the licence state with a random key in `<dataDir>/licence-seal.key` (instances sharing a database then need the same secret key). Keep it safe: losing it makes stored secrets unreadable.',
     }),
     bootstrapKey: setting(
       z
@@ -734,7 +764,7 @@ export const ConfigSchema = z.object({
           'First admin API key: `rf_` + at least 32 random URL-safe characters (`rf_$(openssl rand -hex 24)`); low-entropy values are refused. Stored hashed as key "bootstrap" on start if no key exists.',
       }
     ),
-    // MCP authorization (#305, D-111): OAuth 2.1 access tokens on /mcp next to API keys.
+    // MCP authorization (#305, D-112): OAuth 2.1 access tokens on /mcp next to API keys.
     oauth: z.object({
       issuer: setting(z.string().regex(/^https?:\/\/[^\s/]+(\/[^\s]*)?$/, 'must start with https:// (http:// only for a local test issuer)').optional(), {
         kind: 'url',

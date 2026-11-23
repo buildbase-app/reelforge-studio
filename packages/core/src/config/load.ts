@@ -3,6 +3,7 @@ import { extname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { z } from 'zod';
 import { buildOrigin, currentBuild, type BuildInfo } from './build';
+import { SECRET_KEY_HELP } from './crypto';
 import { ConfigSchema, FileConfigSchema, SETTINGS, SETTINGS_BY_KEY, envNames, getPath, setPath, type Config, type SettingDef } from './schema';
 
 /** `build`: fixed by a release image (D-039); nothing else can change it. */
@@ -308,7 +309,7 @@ function storageIssues(settings: Map<string, ResolvedSetting>): ConfigIssue[] {
   if (Boolean(v('storage.s3.accessKeyId')) !== Boolean(v('storage.s3.secretAccessKey'))) {
     issue(v('storage.s3.accessKeyId') ? 'storage.s3.secretAccessKey' : 'storage.s3.accessKeyId', 'set both storage.s3.accessKeyId and storage.s3.secretAccessKey, or neither (ambient identity)');
   }
-  // MCP OAuth (D-111): a token must name this server, so an issuer needs an audience (or the public URL it defaults from).
+  // MCP OAuth (D-112): a token must name this server, so an issuer needs an audience (or the public URL it defaults from).
   if (v('security.oauth.issuer') && !v('security.oauth.audience') && !v('server.publicUrl')) {
     issue('security.oauth.audience', 'security.oauth.issuer is set: set security.oauth.audience (REELFORGE_MCP_OAUTH_AUDIENCE) to this server\'s MCP URL, or server.publicUrl');
   }
@@ -343,4 +344,21 @@ function isInternalHost(host: string): boolean {
   if (/^(127\.|10\.|192\.168\.|169\.254\.)/.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
   if (h === '::1' || /^f[cd][0-9a-f]{2}:/.test(h)) return true;
   return false;
+}
+
+/**
+ * REELFORGE_SECRET_KEY at start-up (#305). The release edition refuses to start
+ * without it: it seals the stored licence state (D-089) and encrypts stored
+ * secrets, and a fixed fallback would protect nothing. A dev build only warns:
+ * its licence-state seal then uses a random key in the data directory.
+ */
+export function secretKeyProblem(resolved: Pick<ResolvedConfig, 'config' | 'build'>): { error?: string; warning?: string } {
+  if (resolved.config.security.secretKey) return {};
+  if (resolved.build.edition === 'release') {
+    return { error: `REELFORGE_SECRET_KEY is not set: the release edition does not start without it (it seals the stored licence state and encrypts stored secrets). ${SECRET_KEY_HELP}` };
+  }
+  return {
+    warning:
+      'REELFORGE_SECRET_KEY is not set: provider keys and other secrets cannot be stored through the API, and the licence state is sealed with a random key in <dataDir>/licence-seal.key (instances that share a database need the same REELFORGE_SECRET_KEY). A release build refuses to start without it.',
+  };
 }

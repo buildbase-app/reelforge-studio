@@ -1,5 +1,5 @@
 /**
- * MCP authorization (#305, D-111): /mcp as an OAuth 2.1 resource server next
+ * MCP authorization (#305, D-112): /mcp as an OAuth 2.1 resource server next
  * to API keys, against a local mock authorization server (RFC 8414 metadata
  * and a JWKS served by an injected fetch; tokens signed here). Test ids
  * OAUTH-nn (docs/security/HARDENING.md).

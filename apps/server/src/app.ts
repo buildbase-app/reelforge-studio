@@ -27,7 +27,8 @@ import { httpTelemetry } from './observability/http';
 import { StructuredLogger } from './observability/logger';
 import { Observability, observabilitySettings } from './observability/telemetry';
 import { OAuthVerifier, looksLikeJwt, protectedResourceMetadata, resourceMetadataUrl } from './oauth';
-import { DatabaseRateLimiter, RateLimiter } from './rateLimit';
+import { PreAuthGuard } from './authGuard';
+import { DatabaseRateLimiter, RateLimiter, rateLimitHeaders, type RateDecision } from './rateLimit';
 import { publicReadiness, readiness } from './readiness';
 
 export type Env = { Variables: { auth: AuthContext; requestId: string } };
@@ -117,13 +118,19 @@ export function createApp(deps: AppDeps) {
   const limiter =
     store === 'database' || (store === 'auto' && service.jobs?.mode === 'database')
       ? new DatabaseRateLimiter(
-          (key, windowStart) => service.repos.rateLimits.hit(key, windowStart),
+          (key, windowStart, previousStart) => service.repos.rateLimits.slide(key, windowStart, previousStart),
           () => config.rateLimitPerMinute,
           (line) => obs.logger.log('warn', line)
         )
       : new RateLimiter(() => config.rateLimitPerMinute);
+  // Before the key lookup (#305): per client address, and a lockout after repeated failed authentications.
+  const limitSettings = () => service.settings?.current.config.limits ?? config.resolved.config.limits;
+  const guard = new PreAuthGuard(() => {
+    const l = limitSettings();
+    return { perMinute: l.preAuthPerMinute, failuresPerMinute: l.authFailuresPerMinute, lockoutSeconds: l.authLockoutSeconds, lockoutMaxSeconds: l.authLockoutMaxSeconds };
+  });
 
-  // MCP OAuth (D-111): JWT access tokens of the configured issuer on /mcp, next to API keys.
+  // MCP OAuth (D-112): JWT access tokens of the configured issuer on /mcp, next to API keys.
   const oauthCfg = config.resolved.config.security.oauth;
   const oauth = oauthCfg.issuer
     ? new OAuthVerifier({ issuer: oauthCfg.issuer, audience: oauthCfg.audience ?? `${config.publicUrl}/mcp`, ...(oauthCfg.jwksUrl ? { jwksUrl: oauthCfg.jwksUrl } : {}) }, deps.fetch)
@@ -166,13 +173,36 @@ export function createApp(deps: AppDeps) {
     c.header('Referrer-Policy', 'no-referrer');
   });
 
-  /** Check the bearer key (expiry, revocation, IP allowlist) or, on /mcp with OAuth on, the access token; then the per-key rate limit. */
+  /** A 429 with the RateLimit-* and Retry-After fields, and a body that says which limit and what to do (#305). */
+  const limited = (c: Context, scope: 'key' | 'client_ip' | 'auth_failures', d: RateDecision): Response => {
+    for (const [k, v] of Object.entries(rateLimitHeaders(d))) c.header(k, v);
+    const retry = Math.max(1, Math.ceil(d.retryAfterSeconds));
+    const text = {
+      key: { message: `too many requests for this key; retry in ${retry}s`, hint: 'Slow down to the limit in RateLimit-Limit (per 60 s, sliding) and retry after Retry-After seconds; an admin can raise this key\'s rateLimitPerMinute or limits.rateLimitPerMinute.' },
+      client_ip: { message: `too many requests from this address; retry in ${retry}s`, hint: 'Every request from one address counts before the key is checked (limits.preAuthPerMinute). Retry after Retry-After seconds; behind a proxy, set server.trustProxy so each client is counted on its own.' },
+      auth_failures: { message: `too many failed authentications from this address; retry in ${retry}s`, hint: 'Check the API key (Authorization: Bearer rf_...). Each further run of failures doubles the lockout (limits.authFailuresPerMinute, limits.authLockoutSeconds).' },
+    }[scope];
+    return c.json(errorBody('rate_limited', text.message, { scope, hint: text.hint, limit: d.limit, retryAfterSeconds: retry }), 429);
+  };
+
+  /**
+   * Check the client address budget, then the bearer key (expiry, revocation, IP allowlist) or, on /mcp with
+   * OAuth on, the access token; then the per-key (or per OAuth subject) rate limit.
+   */
   const authorize = async (c: Context, opts: { oauth?: boolean } = {}): Promise<{ auth: AuthContext } | { response: Response }> => {
-    const token = bearer(c);
     const ctx = currentRequest();
+    // Before any database work: a flood or a key-guessing run from one address stops here (#305).
+    const pre = guard.check(ctx?.ip);
+    if (!pre.allowed) return { response: limited(c, pre.scope, pre.decision) };
+    const token = bearer(c);
     if (opts.oauth && oauth && token && !token.startsWith('rf_') && looksLikeJwt(token)) {
       const v = await oauth.verify(token);
       if (!v.ok) {
+        // A refused token counts towards the address lockout like a wrong API key (#305).
+        if (v.error !== 'insufficient_scope') {
+          const lockout = guard.failure(ctx?.ip);
+          if (lockout) obs.logger.log('warn', `auth: ${ctx?.ip} locked out for ${lockout}s after repeated failed authentications`, { request_id: ctx?.requestId });
+        }
         challenge(c, true, { error: v.error, description: v.description, ...(v.error === 'insufficient_scope' ? { scope: 'reelforge:read' } : {}) });
         return { response: c.json(errorBody(v.error, `access token refused: ${v.description}`), v.error === 'insufficient_scope' ? 403 : 401) };
       }
@@ -180,6 +210,11 @@ export function createApp(deps: AppDeps) {
     }
     const r = token ? await service.keys.authenticate(token, { ip: ctx?.ip }) : null;
     if (!r || !r.ok) {
+      // ip_not_allowed is a real key used from the wrong place, not a guess: it does not count towards the lockout.
+      if (r?.reason !== 'ip_not_allowed') {
+        const lockout = guard.failure(ctx?.ip);
+        if (lockout) obs.logger.log('warn', `auth: ${ctx?.ip} locked out for ${lockout}s after repeated failed authentications`, { request_id: ctx?.requestId });
+      }
       if (r && r.key && r.reason !== 'unknown') {
         // A real key that may not be used (revoked, expired, wrong address): worth an audit entry.
         await service.audit({ actorType: 'api_key', actorId: r.key.id, actorName: r.key.name, action: 'auth.denied', targetType: 'key', targetId: r.key.id, result: 'denied', data: { reason: r.reason } });
@@ -192,13 +227,11 @@ export function createApp(deps: AppDeps) {
     return limit(c, r.auth);
   };
 
-  /** The per-key (or per OAuth subject) rate limit. */
+  /** The per-key (or per OAuth subject) rate limit; every limited response carries the budget (draft-ietf-httpapi-ratelimit-headers). */
   const limit = async (c: Context, auth: AuthContext): Promise<{ auth: AuthContext } | { response: Response }> => {
-    const wait = await limiter.take(auth.keyId, auth.rateLimitPerMinute);
-    if (wait > 0) {
-      c.header('Retry-After', String(wait));
-      return { response: c.json(errorBody('rate_limited', `too many requests for this key; retry in ${wait}s`), 429) };
-    }
+    const d = await limiter.take(auth.keyId, auth.rateLimitPerMinute);
+    if (!d.allowed) return { response: limited(c, 'key', d) };
+    for (const [k, v] of Object.entries(rateLimitHeaders(d))) c.header(k, v);
     const ctx = currentRequest();
     if (ctx) ctx.auth = auth;
     return { auth };
@@ -209,6 +242,8 @@ export function createApp(deps: AppDeps) {
     // for exactly one file of one render, until they expire.
     const signed = /^\/v1\/renders\/([^/]+)\/output$/.exec(c.req.path);
     if (signed && c.req.method === 'GET' && c.req.query('sig')) {
+      const pre = guard.check(currentRequest()?.ip);
+      if (!pre.allowed) return limited(c, pre.scope, pre.decision);
       const ok = service.verifySignedDownload(signed[1]!, c.req.query('file') ?? 'final.mp4', Number(c.req.query('expires')), c.req.query('sig')!);
       if (!ok) return c.json(errorBody('unauthorized', 'the download link is invalid or has expired; get a new one with get_render_output'), 401);
       c.set('auth', { keyId: 'signed-url', name: 'signed download link', scopes: ['read'] });
@@ -314,9 +349,11 @@ export function createApp(deps: AppDeps) {
     const r = await readiness(service, obs, storageHealth);
     let admin = false;
     const token = bearer(c);
-    if (token?.startsWith('rf_')) {
+    // A probe that sends a key is answered anonymously while its address is over the pre-auth limits (no key lookup).
+    if (token?.startsWith('rf_') && guard.check(currentRequest()?.ip).allowed) {
       const a = await service.keys.authenticate(token, { ip: currentRequest()?.ip }).catch(() => null);
       admin = Boolean(a?.ok && hasScope(a.auth, 'admin'));
+      if (!a?.ok && a?.reason !== 'ip_not_allowed') guard.failure(currentRequest()?.ip); // a guess here counts like one on /v1
     }
     c.header('Cache-Control', 'no-store');
     return c.json(admin ? r : publicReadiness(r), r.ok ? 200 : 503);
@@ -355,7 +392,7 @@ export function createApp(deps: AppDeps) {
     return app;
   }
   app.get('/.well-known/mcp.json', (c) => c.json(serverCard(service, config)));
-  // RFC 9728 protected-resource metadata for /mcp (D-111): only with OAuth on. The path form names the resource.
+  // RFC 9728 protected-resource metadata for /mcp (D-112): only with OAuth on. The path form names the resource.
   const metadata = (c: Context) => (oauth ? c.json(protectedResourceMetadata(oauth.settings)) : c.json(errorBody('not_found', 'OAuth is not configured for /mcp (security.oauth.issuer); use an API key'), 404));
   app.get('/.well-known/oauth-protected-resource', metadata);
   app.get('/.well-known/oauth-protected-resource/mcp', metadata);
@@ -467,8 +504,8 @@ export function createApp(deps: AppDeps) {
   v1.post('/projects/:id/renders', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}) };
-    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, async () => ({ job: await service.startRender(projectId, opts) })), 202);
+    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.variant !== undefined ? { variant: b.variant } : {}), ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}) };
+    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, () => service.renderProject(projectId, opts)), 202);
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
 

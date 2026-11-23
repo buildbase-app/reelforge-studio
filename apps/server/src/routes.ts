@@ -101,7 +101,7 @@ export const REST_ROUTES: RouteEntry[] = [
 
 /** Routes outside /v1 that are infrastructure, not product capabilities. */
 export const INFRA_ROUTES = ['GET /healthz', 'GET /readyz', 'GET /metrics', 'GET /.well-known/mcp.json', 'ALL /mcp',
-  // OAuth protected-resource metadata for /mcp (RFC 9728, D-111): discovery, not a product capability.
+  // OAuth protected-resource metadata for /mcp (RFC 9728, D-112): discovery, not a product capability.
   'GET /.well-known/oauth-protected-resource', 'GET /.well-known/oauth-protected-resource/mcp'];
 
 /** MCP tools whose REST counterpart is a variant of a route above. */

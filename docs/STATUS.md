@@ -79,7 +79,10 @@ activate, 1 validate per day, 0 worker calls (`apps/server/test/licence-scale.te
 shorter side) inside shared safe areas (EBU R 95 / ITU-R BT.1848 title and action safe, plus a conservative
 app-overlay zone on tall frames), with fit-to-box headlines and a row layout on wide frames; checked by an overflow
 test on rendered pixels at 16:9, 1:1, 4:5, 9:16 and 4K and by contact sheets in `docs/proofs/formats/`
-([Formats and layouts](public/manifest/formats.md)). Multi-format variants from one render call: next PR on #287.
+([Formats and layouts](public/manifest/formats.md)).
+**Output variants (#287, D-109, 2026-11-23):** a manifest may list `variants` (extra sizes); one `render_project`
+call (REST or MCP) starts one render per variant, each its own job and run id, grouped by a `batchId`
+([manifest](public/manifest/v0-2.md#output-variants)).
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,
@@ -564,6 +567,20 @@ checked by pixel statistics in the caption band, highlight colour included (core
 sidecar download (server). A real four-engine render with burned captions was checked by eye. Not
 yet: speech-to-text for uploaded voice-overs, `get_captions` / `update_captions` approval, several
 languages, audio description; the ElevenLabs path is still tested with a mocked API only.
+
+### Auth hardening (2026-11-23, issue #305, step 1)
+
+Built (D-110): per-address limits before the key lookup (`limits.preAuthPerMinute`, and
+`limits.authFailuresPerMinute` with a lockout that doubles up to `limits.authLockoutMaxSeconds`), so a
+bad-key flood does no database work (AUTH-01 counts the lookups); the shared per-key limit is a
+sliding 60-second window, still one statement per check on PostgreSQL, MySQL and SQLite (LIM-15..19,
+run on all three); `RateLimit-*` fields on every keyed response, `Retry-After` and
+`error.details.scope`/`hint` on a 429; the release edition does not start without
+`REELFORGE_SECRET_KEY`, and the licence-state seal has no fixed key; Debian packages from a dated
+`snapshot.debian.org` archive (release image built and checked here: contents, size, secrets, start);
+a default-deny `NetworkPolicy` with an allowlist (kubeconform). Not yet: MCP OAuth 2.1 (step 2), a
+scheduled workflow for the weekly snapshot bump (maintainer, `.github/`), the kind e2e and the
+Docker e2e with these changes (heavy tier).
 
 ## 4. Infrastructure inventory (no secrets)
 

@@ -2,7 +2,7 @@ import { createPublicKey, verify as verifySignature, type JsonWebKey, type KeyOb
 import type { AuthContext, Scope } from '@reelforge/core';
 
 /**
- * MCP authorization (#305, D-111): ReelForge as an OAuth 2.1 resource server
+ * MCP authorization (#305, D-112): ReelForge as an OAuth 2.1 resource server
  * per the MCP authorization specification. An authorization server you run
  * (Keycloak, Auth0, Entra ID, Okta, ...) issues JWT access tokens; /mcp
  * accepts them next to API keys. ReelForge never issues tokens, never sees

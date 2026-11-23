@@ -175,6 +175,7 @@ scrape_configs:
 | --- | --- |
 | `REELFORGE_BOOTSTRAP_KEY` | at least 32 random URL-safe characters after `rf_` (`rf_$(openssl rand -hex 24)`). Values that are short, repetitive or low in entropy stop the server at start with an error naming the setting. API keys made by the server are 32 random bytes |
 | URL imports (`import_asset`) and webhook targets | HTTPS only (webhooks: unless `webhooks.allowHttp`). The address that is connected to is checked: private, loopback, link-local, CGNAT, multicast and documentation ranges, and the IPv6 transition ranges (IPv4-compatible `::/96`, IPv4-mapped, SIIT, NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`, 6to4 `2002::/16`, Teredo and other `2001::/23` assignments, site-local `fec0::/10`) are refused, also after each redirect. Webhook deliveries use the same guard (unless `webhooks.allowPrivateNetworks`) |
+| Requests before the key lookup | per client address (IPv6 per /64): `limits.preAuthPerMinute` (1 200), and `limits.authFailuresPerMinute` (20) failed authentications, the last of which starts a lockout of `limits.authLockoutSeconds` (60 s) doubling up to `limits.authLockoutMaxSeconds` (1 h). Refused requests do no database work. Per instance, in memory (docs/DEPLOY.md, "Request limits before authentication"; D-110) |
 | Stored asset `source` | scheme, host and path of the import URL only. User names, passwords, the query string (where presigned URLs carry signatures) and the fragment are dropped |
 | Logs | besides secret settings and API keys, signature parameters are redacted: `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`, `X-Goog-Signature`, `X-Goog-Credential`, Azure SAS `sig`, `se`, `sv`, `sp`, `st`, and any parameter whose name contains `signature`, `sig`, `token`, `key`, `credential`, `password` or `secret` |
 
@@ -209,11 +210,13 @@ licence terms), not a database edit or a configuration line.
   never falls back to the dev edition.
 - **The stored licence state is sealed.** The last licence answer, its times
   and the instance id are stored with an HMAC. Its key is derived from
-  `REELFORGE_SECRET_KEY` and the instance id (a fixed label when no secret key
-  is set). A state changed outside ReelForge is not trusted: renders need a
-  successful online check again (`reason: state_untrusted`). This also happens
-  once after upgrading to this version, and after `REELFORGE_SECRET_KEY`
-  changes.
+  `REELFORGE_SECRET_KEY` and the instance id. There is no fixed fallback
+  (#305, D-110): the release image does not start without the secret key, and a
+  dev build without it uses a random key in `<dataDir>/licence-seal.key`. A
+  state changed outside ReelForge is not trusted: renders need a successful
+  online check again (`reason: state_untrusted`). This also happens once after
+  upgrading to this version (a dev build without the secret key: once after
+  #305), and after `REELFORGE_SECRET_KEY` changes.
 - **Clock rollback.** The highest clock time seen is recorded, and the licence
   server's own time (its HTTP `Date` header) is stored with each answer. A
   system clock more than 10 minutes behind either gets no offline grace
@@ -248,7 +251,9 @@ Unit and integration tests are named `SECT-xx` (`security` in the test name):
 | SECT-11 | same | release image without, or with a dev, `build-info.json` refuses to start |
 | SECT-16 | same | webhook targets refused on the same IPv6 ranges |
 | SECT-12..15 | same | sealed licence state (edited row rejected, other secret key rejected), licence server time and clock rollback, Date header recorded |
-| OAUTH-01..08 | `apps/server/test/mcp-oauth.test.ts` | MCP OAuth (#305, D-111) against a local mock issuer: protected-resource metadata; `resource_metadata` in `/mcp` challenges only; RS256 and ES256 tokens accepted and scoped, API keys unchanged; wrong audience, wrong issuer, expired, foreign signature, `alg: none`, HS256 and missing ReelForge scope refused (`invalid_token` / `insufficient_scope`); key rotation refetches the JWKS at most every 30 s; without an issuer nothing changes and nothing is fetched |
+| SECT-26..29 | `packages/core/test/secret-key.test.ts` | the release edition refuses to start without `REELFORGE_SECRET_KEY` (a dev build warns); the licence-state seal has no fixed key: the secret key, else (dev) a random key in `<dataDir>/licence-seal.key` (0600, kept across restarts); a state forged with the old public constant is not trusted (#305) |
+| AUTH-01..10 | `apps/server/test/auth-limits.test.ts` | limits before the key lookup (#305): an invalid-key flood is cut off after the failure budget with no further key lookups (counted on the repository); missing keys count, `ip_not_allowed` does not; IPv6 per /64; `/readyz` answers a locked-out address anonymously without a lookup; the per-address budget refuses before the lookup and is a runtime setting; `RateLimit-*` on every keyed response, `Retry-After` and `error.details.scope`/`hint` on a 429; lockouts double up to the maximum and start over after a quiet period; bounded memory; a release build without the secret key does not start, a dev build warns and seals with a local key |
+| OAUTH-01..08 | `apps/server/test/mcp-oauth.test.ts` | MCP OAuth (#305, D-112) against a local mock issuer: protected-resource metadata; `resource_metadata` in `/mcp` challenges only; RS256 and ES256 tokens accepted and scoped, API keys unchanged; wrong audience, wrong issuer, expired, foreign signature, `alg: none`, HS256 and missing ReelForge scope refused (`invalid_token` / `insufficient_scope`); key rotation refetches the JWKS at most every 30 s; without an issuer nothing changes and nothing is fetched |
 | SECT-20..25 | `apps/server/test/security.test.ts` | `/metrics` needs a token; minimal anonymous `/readyz`, full for admins; `/mcp` Origin with scheme and port; presigned URL redaction |
 | SECT-30..38 | `packages/engine-hyperframes/test/hyperframes.test.ts` | CSP placement and refusals; CLI environment; deny-all sink; with a browser: no request or UDP packet reaches a local canary from a document, navigation, WebRTC or a remote asset; navigation fails fast; no process of a render remains after success, cancel or timeout |
 | SECT-40 | `packages/engine-html/test/html.test.ts` | html scenes: policy elements refused, CSP first in `<head>` |

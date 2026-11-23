@@ -2201,8 +2201,67 @@ square frames (every existing default), smaller on landscape frames, where the o
 template and no answer for odd sizes); CSS viewport units only (Remotion and Motion Canvas do not lay out with
 CSS, and the safe areas must be the same numbers in every engine). Proof: `apps/server/test/formats.test.ts`
 (an overflow check on rendered pixels and DOM measurements) and the contact sheets in `docs/proofs/formats/`.
+### D-109 --- Output variants: one render job per variant, grouped by a batch id
 
-### D-111 --- MCP accepts OAuth 2.1 access tokens as a resource server; JWT and JWKS only; API keys stay
+**Status:** DECIDED (reversible).\
+One project renders several formats in one call (#287). The manifest gains optional `variants` (1 to 8 of
+`{ id, width, height, platform? }`, even sizes); fps and format stay those of `output`, so every variant has the
+same timeline and the templates lay out again for each size (reflow, not cropping). `render_project` on a manifest
+with variants starts one ordinary render job per variant (its own run id, so status, retry, cancel, outputs,
+quotas and fan-out work unchanged) with `variant` and a shared `batchId` in the job params, and answers
+`{ job, jobs, batchId }` (`job` = the first, so clients that read only `job` keep working); `variant` renders one.
+Jobs resolve the project with `withVariant()` when they run (the render job, its fan-out units and the join), so
+nothing else in the pipeline knows about variants. Every variant is checked against the render limits before any
+job is queued; when the queue refuses one (quota, caps), the batch's jobs already queued are cancelled and the
+refusal is returned. *Rejected:* one job rendering every variant (one failure would fail all formats, and it would
+not spread over workers); a parent batch job (a new job type for what the batch id already gives); cropping one
+render to other aspect ratios (text and safe areas would be wrong).
+
+
+### D-110 --- Limits before the key lookup; a sliding window for the shared per-key limit; no fixed seal key; a dated Debian snapshot; a default-deny NetworkPolicy; MCP OAuth as a resource server later
+
+**Status:** DECIDED (reversible), issue #305 (audit 2, track A).\
+**Pre-auth limits:** two per-client-address limits now run before `keys.authenticate`, so a refused request costs
+no database work: a request budget (`limits.preAuthPerMinute`, default 1 200) and a failed-authentication budget
+(`limits.authFailuresPerMinute`, default 20). A missing, unknown, revoked or expired key counts as a failure;
+`ip_not_allowed` (a real key in the wrong place) does not. The failure that uses up the budget starts a lockout
+(`limits.authLockoutSeconds`, 60 s, doubling per lockout up to `limits.authLockoutMaxSeconds`, 1 h; an address quiet
+for that long starts over). The address is the one `server.trustProxy` gives; IPv6 counts per /64. `/readyz` with a
+key from a refused address answers anonymously and also counts failures, because its answer reveals whether a key is
+an admin key. *Why in memory, per instance:* a shared store would put a database write back in front of every
+unauthenticated request, which is the cost we are removing; an attacker spread over N instances gets N budgets, which
+the ingress or a WAF should cap. State is bounded (100 000 addresses, pruned to 90 %). *Rejected:* counting failures
+per key prefix (an attacker picks a new prefix per guess); lockout per key (lets anyone lock a known key out).
+**Sliding window:** the `database` store keeps one row per key and minute (no schema change) and estimates the last
+60 s as `previous × (1 − elapsed/60 s) + current` (the Cloudflare "sliding window counter"). One statement per
+check, as in #255: PostgreSQL and SQLite read the previous row in a `RETURNING` subquery; MySQL uses
+`INSERT ... SELECT` from a one-row derived table and returns both counts in `LAST_INSERT_ID` (low 32 bits current,
+high bits previous). On MySQL that statement share-locks what it reads; for a key with no previous row it is a gap
+lock, so a burst of first requests can deadlock; InnoDB rolls the victim back whole and it is retried (up to 5
+times), measured in LIM-17. Refused requests count too (one statement, no second write), so a client that ignores
+`Retry-After` stays limited. *Rejected:* GCRA / token bucket in the row (needs a timestamp column: a schema change on
+three databases for the same guarantee); decrementing on refusal (a second write per refused request). The memory
+store stays a token bucket. **Headers:** every response that passed a key limit carries `RateLimit-Limit`,
+`RateLimit-Remaining`, `RateLimit-Reset` and `RateLimit-Policy: <n>;w=60` (draft-ietf-httpapi-ratelimit-headers,
+separate fields as most clients parse them today); a 429 adds `Retry-After` and `error.details`
+`{scope: "key" | "client_ip" | "auth_failures", hint, limit, retryAfterSeconds}`.
+**Secret key:** the release edition does not start without `REELFORGE_SECRET_KEY` (or `_FILE`); `reelforge config
+check` reports it as a problem. The licence-state seal (D-089) has no fixed fallback any more: a seal keyed by a
+constant in the source protected nothing. A dev build without the key warns and seals with a random key in
+`<dataDir>/licence-seal.key` (0600); instances that share a database then need the same secret key, as for signed
+links (D-077).
+**Image:** Debian packages come from `snapshot.debian.org` at `DEBIAN_SNAPSHOT` (a build argument), so a base digest
+and a date fix every package version; `apt-get upgrade` now reads only that snapshot. Security fixes come by moving
+the date weekly (docs/DEPLOY.md). The original sources are restored in the image.
+**Kubernetes:** `deployment/kubernetes/base/networkpolicy.yaml` denies all ingress and egress in the namespace, then
+allows DNS, the database and Redis on private ranges, HTTPS to public addresses (storage; for the api also the
+licence server, providers, webhooks, OTLP) and ingress from the ingress controller and Prometheus namespaces. It is
+an allowlist operators narrow (NetworkPolicy has no host names).
+**MCP OAuth 2.1** (the issue's first item) is a separate change on #305: ReelForge becomes an OAuth resource server
+per the MCP authorization spec (protected-resource metadata, JWT access tokens checked against the issuer's JWKS,
+audience = the server's MCP URL, scopes mapped to `read`/`write`/`admin`), with API keys unchanged.
+
+### D-112 --- MCP accepts OAuth 2.1 access tokens as a resource server; JWT and JWKS only; API keys stay
 
 **Status:** DECIDED (reversible), issue #305 (step 2; step 1 is D-110).\
 **What:** with `security.oauth.issuer` set, `/mcp` follows the MCP authorization specification for a resource

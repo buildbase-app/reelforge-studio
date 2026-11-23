@@ -41,7 +41,8 @@ echo "REELFORGE_SECRET_KEY=$(openssl rand -base64 32)" >> .env
 ```
 
 `docker compose` reads `.env` from this folder. `REELFORGE_SECRET_KEY` encrypts
-the secrets the server stores in its database (your licence key, provider keys).
+the secrets the server stores in its database (your licence key, provider keys);
+the server does not start without it.
 Keep a copy somewhere safe: stored secrets cannot be read without it. `.env` is
 ignored by git.
 

@@ -385,12 +385,14 @@ export const TOOLS: ToolDef[] = [
     name: 'render_project',
     title: 'Render the project',
     description:
-      'Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Renders are queued at priority "standard" by default. Then call get_job with waitSeconds: 45 (repeat while it is still running) until status is succeeded or failed, then call get_render_output.' +
+      'Validates the project and starts the final render (every scene with its engine, assembled with audio, checked with ffprobe and a full decode). Returns a job immediately; renders take seconds to minutes. Renders are queued at priority "standard" by default. Then call get_job with waitSeconds: 45 (repeat while it is still running) until status is succeeded or failed, then call get_render_output. ' +
+      'Several formats from one project: give the manifest variants, e.g. [{ id: "vertical", width: 1080, height: 1920 }, { id: "wide", width: 1920, height: 1080 }, { id: "square", width: 1080, height: 1080 }]; this call then starts one render per variant (each its own job and render id, the templates laid out again for each size) and answers { job, jobs, batchId }: wait for every job in jobs. Pass variant to render only one of them.' +
       QUEUE_REFUSALS,
     scope: 'render',
     input: {
       projectId,
       backend: z.string().optional().describe('Render backend id; default from the manifest ("local").'),
+      variant: z.string().optional().describe('Render only this output variant (an id from the manifest\'s variants). Omit to render every variant, or output when the manifest has none.'),
       priority: priorityArg('render', 'standard'),
       captions: z
         .enum(['off', 'burned', 'sidecar', 'both'])
@@ -399,8 +401,8 @@ export const TOOLS: ToolDef[] = [
       idempotencyKey,
     },
     run: async (a, { service }) => {
-      const opts = { backend: a.backend, ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}) };
-      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, async () => ({ job: await service.startRender(a.projectId, opts) }));
+      const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}) };
+      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, opts));
     },
   },
   {
@@ -1186,7 +1188,7 @@ export function serverCard(service: ReelforgeService, config: ServerConfig) {
       header: 'Authorization',
       format: 'Bearer rf_<key>',
       howToGetAKey: 'the operator runs `pnpm keys:create` or POST /v1/keys',
-      // MCP OAuth (D-111): an access token of this issuer works too; discovery via the protected-resource metadata.
+      // MCP OAuth (D-112): an access token of this issuer works too; discovery via the protected-resource metadata.
       ...(config.resolved.config.security.oauth.issuer
         ? { oauth: { issuer: config.resolved.config.security.oauth.issuer, resourceMetadata: resourceMetadataUrl(config.resolved.config.security.oauth.audience ?? `${base}/mcp`) } }
         : {}),
