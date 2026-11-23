@@ -25,6 +25,10 @@ the same scenes work at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K.
 Width and height must be even (H.264 with yuv420p needs it), and a server can
 set lower limits (`limits.maxRenderDimension`, see `get_capabilities`).
 
+To render several of these sizes from one project in one call, list them as
+`variants` in the manifest: `render_project` then starts one render per
+variant, laid out again for each size ([Output variants](/docs/manifest/v0-2#output-variants)).
+
 ## The layout unit
 
 Templates size everything in **units of 1 % of the shorter side**

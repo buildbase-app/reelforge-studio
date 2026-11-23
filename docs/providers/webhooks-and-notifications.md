@@ -1,7 +1,7 @@
 # Outbound events: signed webhooks and notification providers
 
 Enterprise E3 (issue #66; decisions D-070..D-074), webhooks for operations
-(issue #306, D-109: terminal render events, retry window, dedupe key, delivery
+(issue #306, D-110: terminal render events, retry window, dedupe key, delivery
 log for read keys, resend, rotation with overlap). This page is the operator
 reference and the test record: every provider below names the test cases that
 back it, with the latest result. Nothing is called supported without a passing

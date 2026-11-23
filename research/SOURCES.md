@@ -486,4 +486,4 @@ implementation or licensing decisions.
   (https://www.remotion.dev/docs/lambda/webhooks, read 2026-11-23): one of `success`, `error` (with `errors`) or
   `timeout` per render, `costs` and `timeToFinish` on success, HMAC-SHA512 signature. ReelForge keeps Standard Webhooks
   signatures (D-072) and takes from these the 24 h window, the 10 s timeout, a terminal timeout event and costs; its
-  rotation keeps an overlap instead of invalidating at once (D-109).
+  rotation keeps an overlap instead of invalidating at once (D-110).
