@@ -902,6 +902,38 @@ warning is logged once a minute. Semantics differ slightly from the in-memory
 token bucket: a fixed minute window, so a burst at a minute boundary can see up
 to twice the limit within 60 s (QUE-11, SCA-10).
 
+The count is **one statement per request** (#196), which creates the window or
+adds to it and returns the new count in the same round trip:
+
+| Database | Statement | How the count comes back |
+| --- | --- | --- |
+| PostgreSQL | `INSERT INTO "<schema>"."RateLimitWindow" ... ON CONFLICT ("workspaceId", "key", "windowStart") DO UPDATE SET "count" = "RateLimitWindow"."count" + excluded."count" RETURNING "count"` | `RETURNING` |
+| SQLite (3.53.2 bundled with better-sqlite3; `RETURNING` needs 3.35) | the same upsert | `RETURNING` |
+| MySQL | ``INSERT INTO `RateLimitWindow` ... VALUES (?, ?, ?, LAST_INSERT_ID(?)) ON DUPLICATE KEY UPDATE `count` = LAST_INSERT_ID(`count` + ?)`` | `LAST_INSERT_ID(expr)` puts the new count in the statement's OK packet (its insert id). The statement goes through the driver adapter Prisma connected (same pool, same argument mapping), because Prisma's raw API returns only rows or the affected-row count |
+
+The row lock of the upsert hands every concurrent request its own count, so N
+concurrent requests against a limit L give exactly L passes (LIM-12, LIM-15).
+Before #196 the limiter ran `UPDATE ... count + 1`, then a `SELECT` of the
+count: a request could read the increments of requests that came after it, so
+under concurrency fewer than L passed (never more). MySQL alternatives
+measured (micro-benchmark, lower bound, shared sandbox (not dedicated): MySQL
+8.4.13 in Docker on the same 4 vCPU as the client, 10 connections, 2 000
+sequential hits and 32 callers × 100 hits on one key, 4 runs, 2026-11-23):
+
+| MySQL variant | Round trips | Exact under concurrency | Sequential mean ms | One hot key, hits/s |
+| --- | --- | --- | --- | --- |
+| before: `UPDATE`, then `SELECT` | 2 | no (1 668 to 1 952 distinct counts of 3 200) | 2.6 to 3.9 (one run 22.8) | 315 to 805 |
+| the upsert, then `SELECT LAST_INSERT_ID()` in one transaction (needs the same connection) | 4 (with `BEGIN` and `COMMIT`) | yes | 2.7 to 3.8 | 363 to 537 |
+| **chosen:** the upsert, count from the OK packet | **1** | yes | **1.3 to 2.2** | **570 to 978** |
+
+The transaction variant is the fallback when repositories are built on a bare
+Prisma client without `Database` (scripts, some tests). On PostgreSQL an
+`UPDATE ... RETURNING` with an insert fallback measured the same as the upsert
+(0.81 to 0.85 vs 0.80 to 0.83 ms sequential, 2 759 to 2 761 vs 2 485 to 2 887
+hot-key hits/s), but needs two or three statements for the first request of
+each minute; the upsert is one statement always. A stored function was not
+considered (rejected in D-090: privileges some managed databases withhold).
+
 ## Licence across instances
 
 Issue #154, D-098. **One deployment = one shared database = one licence
@@ -1413,6 +1445,11 @@ and a job that dies while its worker shuts down is handed back, never failed
 | LIM-09 | the caps free up on fail, cancel, success and cancel of a fan-out tree; a retry counts like a start; a running job counts per key but not in the queue, and counts again when a lost lease queues it again; fan-out units count neither per key nor in the queue; every refusal reports the real count | contract (4 targets) | pass 2026-11-22 |
 | LIM-10 | render quota windows count only jobs started inside the window | contract (4 targets) | pass 2026-11-22 |
 | LIM-11 | an enqueue (accepted or refused, per-key or total cap) runs exactly one statement between the cap lock and commit (#180) | contract (3 databases) | pass 2026-11-22 |
+| LIM-12 | rate-limit counter: 40 concurrent hits from two pools (SQLite: one) on a new and on an existing window return each count 1..40 exactly once, so exactly L pass a limit L; `by` adds a batch; MySQL also without the insert-id hook (transaction fallback) (#196) | contract (4 targets) | pass 2026-11-23; fails on the code before #196 on all three databases (duplicate counts) |
+| LIM-13 | rate-limit counter: a new minute starts at 1, a late hit of the old minute still counts there, the raw statement and Prisma see one row per window (same stored `DATETIME`), the sweep removes old windows | contract (4 targets) | pass 2026-11-23 |
+| LIM-14 | rate-limit counter: one statement per check and no transaction, for a new window and an existing one (recording proxy over the Prisma client and the MySQL insert-id hook) | contract (3 databases) | pass 2026-11-23; fails on the code before #196 (2 statements) |
+| LIM-15 | `DatabaseRateLimiter` on a real database: 30 concurrent requests, limit 12: exactly 12 pass, the others get `Retry-After` 45 at 44.6 s before the minute ends; a key's own limit uses the same counter (`apps/server/test/rate-limit-store.test.ts`, `REELFORGE_TEST_DB`) | server (3 databases) | pass 2026-11-23 |
+| LIM-16 | `DatabaseRateLimiter`: the next minute starts over; `Retry-After` is the rest of the minute, at least 1 s | server (3 databases) | pass 2026-11-23 |
 | PRI-01 | 1,000 queued jobs of key A, then 1 of key B: B is among the first 4 claims of 4 workers (in fact the second) | contract (4 targets) | pass 2026-11-22 |
 | PRI-02 | the claim takes interactive, then standard, then batch; within a class the key with fewer running jobs, then the oldest | contract (4 targets) | pass 2026-11-22 |
 | PRI-03 | a higher class wins over fairness: a key with a running job gets its interactive job before an idle key's standard job | contract (4 targets) | pass 2026-11-22 |
