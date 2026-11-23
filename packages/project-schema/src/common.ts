@@ -44,16 +44,24 @@ export const assetLicense = z
   })
   .strict();
 
+function fpsShown(input: unknown): string {
+  if (input === undefined) return 'nothing';
+  try {
+    return String(JSON.stringify(input)).slice(0, 40);
+  } catch {
+    return typeof input;
+  }
+}
+
 export const output = z
   .object({
     width: z.number().int().min(16).max(4096),
     height: z.number().int().min(16).max(4096),
-    fps: z.union(SUPPORTED_FPS.map((f) => z.literal(f)) as [
-      z.ZodLiteral<24>,
-      z.ZodLiteral<25>,
-      z.ZodLiteral<30>,
-      z.ZodLiteral<60>,
-    ]),
+    fps: z.union(
+      SUPPORTED_FPS.map((f) => z.literal(f)) as [z.ZodLiteral<24>, z.ZodLiteral<25>, z.ZodLiteral<30>, z.ZodLiteral<60>],
+      // Say what is allowed, so a client (or agent) can correct itself (#322).
+      { error: (issue) => `fps must be one of ${SUPPORTED_FPS.join(', ')} (got ${fpsShown(issue.input)})` }
+    ),
     format: z.literal('mp4'),
   })
   .strict()

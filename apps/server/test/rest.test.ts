@@ -160,6 +160,8 @@ describe('REST v1', () => {
     const err = ((await bad.json()) as any).error;
     expect(err.code).toBe('invalid_manifest');
     expect(err.details.issues.some((i: any) => i.path.startsWith('output.fps'))).toBe(true);
+    // The message lists the supported frame rates (#322).
+    expect(err.details.issues.find((i: any) => i.path === 'output.fps')?.message).toBe('fps must be one of 24, 25, 30, 60 (got 29)');
     expect((await req('POST', '/v1/projects', { body: 'not json' })).status).toBe(400);
   });
 
