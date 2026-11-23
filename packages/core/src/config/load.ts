@@ -308,6 +308,10 @@ function storageIssues(settings: Map<string, ResolvedSetting>): ConfigIssue[] {
   if (Boolean(v('storage.s3.accessKeyId')) !== Boolean(v('storage.s3.secretAccessKey'))) {
     issue(v('storage.s3.accessKeyId') ? 'storage.s3.secretAccessKey' : 'storage.s3.accessKeyId', 'set both storage.s3.accessKeyId and storage.s3.secretAccessKey, or neither (ambient identity)');
   }
+  // MCP OAuth (D-111): a token must name this server, so an issuer needs an audience (or the public URL it defaults from).
+  if (v('security.oauth.issuer') && !v('security.oauth.audience') && !v('server.publicUrl')) {
+    issue('security.oauth.audience', 'security.oauth.issuer is set: set security.oauth.audience (REELFORGE_MCP_OAUTH_AUDIENCE) to this server\'s MCP URL, or server.publicUrl');
+  }
   return out;
 }
 

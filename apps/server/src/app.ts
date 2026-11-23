@@ -26,6 +26,7 @@ import { handleMcp, serverCard } from './mcp';
 import { httpTelemetry } from './observability/http';
 import { StructuredLogger } from './observability/logger';
 import { Observability, observabilitySettings } from './observability/telemetry';
+import { OAuthVerifier, looksLikeJwt, protectedResourceMetadata, resourceMetadataUrl } from './oauth';
 import { DatabaseRateLimiter, RateLimiter } from './rateLimit';
 import { publicReadiness, readiness } from './readiness';
 
@@ -36,6 +37,8 @@ export interface AppDeps {
   config: ServerConfig;
   /** Logs, metrics and traces (startServer makes one from the observability settings; default: metrics only, no log output). */
   observability?: Observability;
+  /** HTTP client for the OAuth issuer's metadata and JWKS (tests: a local mock issuer). */
+  fetch?: typeof fetch;
 }
 
 export function errorBody(code: string, message: string, details?: unknown) {
@@ -100,7 +103,8 @@ export function originAllowed(origin: string, hostHeader: string | undefined, co
   return false;
 }
 
-export function createApp({ service, config, observability }: AppDeps) {
+export function createApp(deps: AppDeps) {
+  const { service, config, observability } = deps;
   const app = new Hono<Env>();
   const obs =
     observability ??
@@ -118,6 +122,20 @@ export function createApp({ service, config, observability }: AppDeps) {
           (line) => obs.logger.log('warn', line)
         )
       : new RateLimiter(() => config.rateLimitPerMinute);
+
+  // MCP OAuth (D-111): JWT access tokens of the configured issuer on /mcp, next to API keys.
+  const oauthCfg = config.resolved.config.security.oauth;
+  const oauth = oauthCfg.issuer
+    ? new OAuthVerifier({ issuer: oauthCfg.issuer, audience: oauthCfg.audience ?? `${config.publicUrl}/mcp`, ...(oauthCfg.jwksUrl ? { jwksUrl: oauthCfg.jwksUrl } : {}) }, deps.fetch)
+    : null;
+  /** The 401 challenge: with OAuth on, it points MCP clients at the protected-resource metadata (RFC 9728). */
+  const challenge = (c: Context, mcp: boolean, error?: { error: string; description: string; scope?: string }) => {
+    const parts = ['realm="reelforge"'];
+    if (oauth && mcp) parts.push(`resource_metadata="${resourceMetadataUrl(oauth.settings.audience)}"`);
+    if (error) parts.push(`error="${error.error}"`, `error_description="${error.description.replace(/["\\]/g, "'")}"`);
+    if (error?.scope) parts.push(`scope="${error.scope}"`);
+    c.header('WWW-Authenticate', `Bearer ${parts.join(', ')}`);
+  };
 
   app.onError((err, c) => {
     if (err instanceof ApiError) {
@@ -148,10 +166,18 @@ export function createApp({ service, config, observability }: AppDeps) {
     c.header('Referrer-Policy', 'no-referrer');
   });
 
-  /** Check the bearer key (expiry, revocation, IP allowlist) and the per-key rate limit. */
-  const authorize = async (c: Context): Promise<{ auth: AuthContext } | { response: Response }> => {
+  /** Check the bearer key (expiry, revocation, IP allowlist) or, on /mcp with OAuth on, the access token; then the per-key rate limit. */
+  const authorize = async (c: Context, opts: { oauth?: boolean } = {}): Promise<{ auth: AuthContext } | { response: Response }> => {
     const token = bearer(c);
     const ctx = currentRequest();
+    if (opts.oauth && oauth && token && !token.startsWith('rf_') && looksLikeJwt(token)) {
+      const v = await oauth.verify(token);
+      if (!v.ok) {
+        challenge(c, true, { error: v.error, description: v.description, ...(v.error === 'insufficient_scope' ? { scope: 'reelforge:read' } : {}) });
+        return { response: c.json(errorBody(v.error, `access token refused: ${v.description}`), v.error === 'insufficient_scope' ? 403 : 401) };
+      }
+      return limit(c, v.auth);
+    }
     const r = token ? await service.keys.authenticate(token, { ip: ctx?.ip }) : null;
     if (!r || !r.ok) {
       if (r && r.key && r.reason !== 'unknown') {
@@ -159,17 +185,23 @@ export function createApp({ service, config, observability }: AppDeps) {
         await service.audit({ actorType: 'api_key', actorId: r.key.id, actorName: r.key.name, action: 'auth.denied', targetType: 'key', targetId: r.key.id, result: 'denied', data: { reason: r.reason } });
       }
       if (r?.reason === 'ip_not_allowed') return { response: c.json(errorBody('ip_not_allowed', r.message), 403) };
-      c.header('WWW-Authenticate', 'Bearer realm="reelforge"');
+      challenge(c, Boolean(opts.oauth));
       const message = r && r.reason !== 'unknown' ? `${r.message}; ask an admin for a new key` : 'missing or invalid API key: send "Authorization: Bearer rf_..."';
       return { response: c.json(errorBody(r?.reason === 'expired' ? 'key_expired' : r?.reason === 'revoked' ? 'key_revoked' : 'unauthorized', message), 401) };
     }
-    const wait = await limiter.take(r.auth.keyId, r.auth.rateLimitPerMinute);
+    return limit(c, r.auth);
+  };
+
+  /** The per-key (or per OAuth subject) rate limit. */
+  const limit = async (c: Context, auth: AuthContext): Promise<{ auth: AuthContext } | { response: Response }> => {
+    const wait = await limiter.take(auth.keyId, auth.rateLimitPerMinute);
     if (wait > 0) {
       c.header('Retry-After', String(wait));
       return { response: c.json(errorBody('rate_limited', `too many requests for this key; retry in ${wait}s`), 429) };
     }
-    if (ctx) ctx.auth = r.auth;
-    return { auth: r.auth };
+    const ctx = currentRequest();
+    if (ctx) ctx.auth = auth;
+    return { auth };
   };
 
   const authenticate: MiddlewareHandler<Env> = async (c, next) => {
@@ -323,6 +355,10 @@ export function createApp({ service, config, observability }: AppDeps) {
     return app;
   }
   app.get('/.well-known/mcp.json', (c) => c.json(serverCard(service, config)));
+  // RFC 9728 protected-resource metadata for /mcp (D-111): only with OAuth on. The path form names the resource.
+  const metadata = (c: Context) => (oauth ? c.json(protectedResourceMetadata(oauth.settings)) : c.json(errorBody('not_found', 'OAuth is not configured for /mcp (security.oauth.issuer); use an API key'), 404));
+  app.get('/.well-known/oauth-protected-resource', metadata);
+  app.get('/.well-known/oauth-protected-resource/mcp', metadata);
 
   // ---- MCP ------------------------------------------------------------------------
   app.all('/mcp', async (c) => {
@@ -335,7 +371,7 @@ export function createApp({ service, config, observability }: AppDeps) {
     if (origin && !originAllowed(origin, c.req.header('host'), config)) {
       return c.json(errorBody('forbidden_origin', `origin "${origin}" is not allowed`), 403);
     }
-    const a = await authorize(c);
+    const a = await authorize(c, { oauth: true });
     if ('response' in a) return a.response;
     const auth = a.auth;
     c.set('auth', auth); // access log key id (#64)

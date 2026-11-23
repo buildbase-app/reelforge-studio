@@ -248,6 +248,7 @@ Unit and integration tests are named `SECT-xx` (`security` in the test name):
 | SECT-11 | same | release image without, or with a dev, `build-info.json` refuses to start |
 | SECT-16 | same | webhook targets refused on the same IPv6 ranges |
 | SECT-12..15 | same | sealed licence state (edited row rejected, other secret key rejected), licence server time and clock rollback, Date header recorded |
+| OAUTH-01..08 | `apps/server/test/mcp-oauth.test.ts` | MCP OAuth (#305, D-111) against a local mock issuer: protected-resource metadata; `resource_metadata` in `/mcp` challenges only; RS256 and ES256 tokens accepted and scoped, API keys unchanged; wrong audience, wrong issuer, expired, foreign signature, `alg: none`, HS256 and missing ReelForge scope refused (`invalid_token` / `insufficient_scope`); key rotation refetches the JWKS at most every 30 s; without an issuer nothing changes and nothing is fetched |
 | SECT-20..25 | `apps/server/test/security.test.ts` | `/metrics` needs a token; minimal anonymous `/readyz`, full for admins; `/mcp` Origin with scheme and port; presigned URL redaction |
 | SECT-30..38 | `packages/engine-hyperframes/test/hyperframes.test.ts` | CSP placement and refusals; CLI environment; deny-all sink; with a browser: no request or UDP packet reaches a local canary from a document, navigation, WebRTC or a remote asset; navigation fails fast; no process of a render remains after success, cancel or timeout |
 | SECT-40 | `packages/engine-html/test/html.test.ts` | html scenes: policy elements refused, CSP first in `<head>` |

@@ -2201,3 +2201,25 @@ square frames (every existing default), smaller on landscape frames, where the o
 template and no answer for odd sizes); CSS viewport units only (Remotion and Motion Canvas do not lay out with
 CSS, and the safe areas must be the same numbers in every engine). Proof: `apps/server/test/formats.test.ts`
 (an overflow check on rendered pixels and DOM measurements) and the contact sheets in `docs/proofs/formats/`.
+
+### D-111 --- MCP accepts OAuth 2.1 access tokens as a resource server; JWT and JWKS only; API keys stay
+
+**Status:** DECIDED (reversible), issue #305 (step 2; step 1 is D-110).\
+**What:** with `security.oauth.issuer` set, `/mcp` follows the MCP authorization specification for a resource
+server: protected-resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource` and the path form for
+`/mcp`; `WWW-Authenticate: Bearer resource_metadata="..."` on its 401s; access tokens checked locally as JWTs
+(RFC 9068 profile) against the issuer's JWKS, found through RFC 8414 metadata (then OpenID discovery) unless
+`security.oauth.jwksUrl` names it. Checks: an asymmetric algorithm only (RS/PS/ES 256-512, EdDSA; `none` and HS*
+refused, so a shared secret can never sign), the key's own `alg` if it states one, no `crit`, `iss` equal to the
+issuer, `aud` containing `security.oauth.audience` (default `server.publicUrl` + `/mcp`, the RFC 8707 resource MCP
+clients name), `exp` and `nbf` with 60 s leeway, a `sub`. Scopes: `reelforge:read|write|render|admin` in `scope` or
+`scp` map one to one to the key scopes; generic values (`read`) are ignored, because one authorization server
+usually serves many APIs. The subject becomes the actor `oauth:<sub>`, so the rate limit, quotas and the audit trail
+work as for a key. JWKS: cached 10 minutes, refetched for an unknown `kid` at most every 30 s, private members of a
+JWK dropped before use. *Why no dependency:* `node:crypto` verifies JWS with JWK keys directly (`createPublicKey({
+format: 'jwk' })`); a JOSE library would add a supply-chain surface for ~150 lines. *Why only /mcp:* the issue is MCP
+clients that only speak OAuth; REST keeps API keys. **Not yet:** opaque tokens (introspection, RFC 7662), per-token
+workspaces (every token maps to the default workspace, like keys today), DPoP / sender-constrained tokens, a
+`get_capabilities` field for it, and an interoperability run against a real authorization server (Keycloak, Entra
+ID) and a real OAuth-only MCP client (VERIFY).
+

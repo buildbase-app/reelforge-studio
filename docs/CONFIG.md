@@ -159,6 +159,9 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `security.secretKey` | `REELFORGE_SECRET_KEY` (each also as `_FILE`) | string | (none) | startup | yes | Encrypts secrets stored in the database (provider keys, licence key) with AES-256-GCM. At least 32 characters: `openssl rand -base64 32`. Without it the server refuses to store secrets. Keep it safe: losing it makes stored secrets unreadable. |
 | `security.bootstrapKey` | `REELFORGE_BOOTSTRAP_KEY` (each also as `_FILE`) | string | (none) | startup | yes | First admin API key: `rf_` + at least 32 random URL-safe characters (`rf_$(openssl rand -hex 24)`); low-entropy values are refused. Stored hashed as key "bootstrap" on start if no key exists. |
+| `security.oauth.issuer` | `REELFORGE_MCP_OAUTH_ISSUER` | url | (none) | startup |  | Turns on OAuth for `/mcp`: the issuer identifier of your authorization server, exactly as in its tokens' `iss` (trailing slash included). `/mcp` then also accepts its JWT access tokens (asymmetric signatures, keys from its JWKS) with `reelforge:read`, `reelforge:write`, `reelforge:render` or `reelforge:admin` in `scope`/`scp`, and serves `/.well-known/oauth-protected-resource`. API keys keep working. Unset: API keys only. Example: `https://auth.example.com/realms/studio`. |
+| `security.oauth.audience` | `REELFORGE_MCP_OAUTH_AUDIENCE` | url | (none) | startup |  | What a token's `aud` must contain: this server's MCP URL (RFC 8707 resource indicator). Default: `server.publicUrl` + `/mcp` (one of them is required with an issuer). Example: `https://studio.example.com/mcp`. |
+| `security.oauth.jwksUrl` | `REELFORGE_MCP_OAUTH_JWKS_URL` | url | (none) | startup |  | The issuer's JWKS. Default: `jwks_uri` from its metadata (`/.well-known/oauth-authorization-server`, then OpenID discovery). |
 
 ## audit
 
