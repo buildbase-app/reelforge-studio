@@ -22,8 +22,8 @@
  *
  * Facts used (general, well known): a typical modern balance beats 28,800
  * times an hour (4 Hz, 8 ticks a second), so 691,200 beats a day; a good
- * movement keeps time within a few seconds a day; a mainspring runs a watch
- * for about two days.
+ * movement keeps time within a few seconds a day; a full mainspring runs a watch
+ * for a day or two (typical power reserves are around 40 hours).
  */
 import { composition, type FlagshipReel } from './kit';
 
@@ -187,7 +187,7 @@ function hairspring(thb){var x=BC[0],y=BC[1],n=13,rin=13,rout=70,S=n*40;g.save()
  /* stud and collet */g.fillStyle=rgba(STL,1);var sa=A0+PI;g.beginPath();g.arc(rout*Math.cos(sa),rout*Math.sin(sa),5,0,TAU);g.fill();g.beginPath();g.arc(0,0,11,0,TAU);g.fill();g.restore();ELEMENTS+=n+2}
 
 function balance(thb,alpha){var x=BC[0],y=BC[1];if(!vis(BC,120))return;g.save();g.globalAlpha=alpha;
- g.save();g.translate(x+5,y+9);g.rotate(thb);g.fillStyle='rgba(0,0,0,.4)';g.fill(PBAL,'evenodd');g.restore();
+ if(alpha>.5){g.save();g.translate(x+5,y+9);g.rotate(thb);g.fillStyle='rgba(0,0,0,.4)';g.fill(PBAL,'evenodd');g.restore()}
  g.save();g.translate(x,y);g.rotate(thb);g.fillStyle=fillLocal('b',100,thb);g.fill(PBAL,'evenodd');g.lineWidth=1.1/cz;g.strokeStyle=rgba(BRD,.9);g.stroke(PBAL);
  /* inner bevel of the rim */g.strokeStyle='rgba(255,236,190,.35)';g.lineWidth=1.4;g.beginPath();g.arc(0,0,98,0,TAU);g.stroke();
  /* timing screws round the rim: one fill for the heads, one stroke for the slots */
@@ -196,7 +196,7 @@ function balance(thb,alpha){var x=BC[0],y=BC[1];if(!vis(BC,120))return;g.save();
 function roller(thb,alpha){var x=BC[0],y=BC[1];g.save();g.globalAlpha=alpha;g.translate(x,y);g.rotate(A0+thb);g.fillStyle=fillLocal('s',32,A0+thb);g.beginPath();g.arc(0,0,33,0,TAU);g.fill();g.strokeStyle=rgba(STD,1);g.lineWidth=1;g.stroke();
  g.fillStyle='rgba(10,14,22,.6)';g.beginPath();g.arc(RROLL,0,9,-PI/2,PI/2);g.fill();
  var gr=g.createRadialGradient(RROLL-1.5,-1.5,.5,RROLL,0,5);gr.addColorStop(0,rgba(RBL,1));gr.addColorStop(1,rgba(RUBY,1));g.fillStyle=gr;g.beginPath();g.arc(RROLL,0,4.6,0,TAU);g.fill();g.restore();ELEMENTS+=2}
-function fork(fa,alpha){g.save();g.globalAlpha=alpha;g.lineCap='round';g.lineJoin='round';g.translate(P[0]+4,P[1]+7);g.rotate(BASE+fa);g.fillStyle='rgba(0,0,0,.4)';g.fill(PFORK,'nonzero');g.strokeStyle='rgba(0,0,0,.4)';g.lineWidth=15;g.stroke(PANCH);g.restore();
+function fork(fa,alpha){if(alpha>.5){g.save();g.globalAlpha=alpha;g.lineCap='round';g.lineJoin='round';g.translate(P[0]+4,P[1]+7);g.rotate(BASE+fa);g.fillStyle='rgba(0,0,0,.4)';g.fill(PFORK,'nonzero');g.strokeStyle='rgba(0,0,0,.4)';g.lineWidth=15;g.stroke(PANCH);g.restore()}
  g.save();g.globalAlpha=alpha;g.lineCap='round';g.lineJoin='round';g.translate(P[0],P[1]);g.rotate(BASE+fa);var fs=fillLocal('s',60,BASE+fa);g.strokeStyle=rgba(STD,1);g.lineWidth=15;g.stroke(PANCH);g.strokeStyle=fs;g.lineWidth=12.6;g.stroke(PANCH);g.fillStyle=fs;g.fill(PFORK,'nonzero');g.lineWidth=1/cz;g.strokeStyle=rgba(STD,1);g.stroke(PFORK);
  [STA,STB].forEach(function(s){var c=s.c,o=s.o,h=s.h,L=SL,Wd=SW;g.beginPath();g.moveTo(c[0],c[1]);g.lineTo(c[0]+h[0]*Wd,c[1]+h[1]*Wd);g.lineTo(c[0]+h[0]*Wd+o[0]*L,c[1]+h[1]*Wd+o[1]*L);g.lineTo(c[0]+o[0]*L,c[1]+o[1]*L);g.closePath();
   var gr=g.createLinearGradient(c[0],c[1],c[0]+h[0]*Wd,c[1]+h[1]*Wd);gr.addColorStop(0,rgba(RBL,1));gr.addColorStop(.5,rgba(RUBY,1));gr.addColorStop(1,'rgb(110,8,30)');g.fillStyle=gr;g.fill();g.strokeStyle='rgba(60,0,14,.8)';g.lineWidth=.8;g.stroke();ELEMENTS++});
@@ -206,7 +206,7 @@ function bridges(lift,tau){if(lift>=1)return;for(var i=0;i<BRS.length;i++){var b
  g.save();g.globalAlpha=al;
  g.save();g.translate(5+l*60,9+l*110);g.fillStyle='rgba(0,0,0,'+(.5*(1-l))+')';g.fill(b.p,b.fr);g.restore();
  g.translate(b.c[0],b.c[1]+b.up*l);g.scale(sc,sc);g.translate(-b.c[0],-b.c[1]);
- g.save();g.clip(b.p,b.fr);g.fillStyle='rgb(160,168,182)';g.fillRect(b.c[0]-b.r,b.c[1]-b.r-80,2*b.r,2*b.r+160);g.translate(b.c[0],b.c[1]);g.rotate(-.55);
+ g.save();g.clip(b.p,b.fr);g.translate(b.c[0],b.c[1]);g.rotate(-.55);
  var gr=g.createLinearGradient(0,0,40,0);gr.addColorStop(0,'rgb(138,148,164)');gr.addColorStop(.55,'rgb(214,220,230)');gr.addColorStop(1,'rgb(150,160,176)');g.fillStyle=gr;
  for(var s=-b.r-80;s<b.r+80;s+=40){g.save();g.translate(s,0);g.fillRect(0,-b.r-80,40,2*b.r+160);g.restore();ELEMENTS++}g.restore();
  /* polished bevel along every edge */g.lineWidth=4;g.strokeStyle='rgba(246,248,252,.85)';g.stroke(b.p);g.lineWidth=1.2;g.strokeStyle='rgba(60,68,84,.8)';g.stroke(b.p);
@@ -280,7 +280,7 @@ function dial(tau,st,t){
  g.strokeStyle='rgba(244,226,180,.95)';g.lineWidth=4;g.stroke(tk3[0]);g.strokeStyle='rgba(230,234,242,.8)';g.lineWidth=2.4;g.stroke(tk3[1]);g.strokeStyle='rgba(200,210,226,.45)';g.lineWidth=1.2;g.stroke(tk3[2]);
  /* applied indices */for(var i=0;i<12;i++){if(i===5)continue;var a=i/12*TAU-PI/2;g.save();g.rotate(a+PI/2);var wdt=i===0?16:i%3===0?20:14,len=i%3===0?78:62;var xs=i===0?[-15,15]:[0];
   xs.forEach(function(x0){g.fillStyle='rgba(0,0,0,.5)';g.fillRect(x0-wdt/2+3,-372+5,wdt,len);var gg=g.createLinearGradient(x0-wdt/2,0,x0+wdt/2,0);gg.addColorStop(0,rgba(BRL,1));gg.addColorStop(.5,rgba(BRL,1));gg.addColorStop(.51,rgba(BRD,1));gg.addColorStop(1,rgba(BRASS,1));g.fillStyle=gg;g.fillRect(x0-wdt/2,-372,wdt,len);ELEMENTS++});g.restore()}
- /* hands */var S=SEC0+st.thE/HALF/8,hA=S/43200*TAU,mA=S/3600*TAU,sA=(S%60)/60*TAU;
+ /* hands */var S=SEC0+(st.thE/HALF-BEAT0)/8,hA=S/43200*TAU,mA=S/3600*TAU,sA=(S%60)/60*TAU;
  function dauph(a,len,w){g.save();g.rotate(a);g.fillStyle='rgba(0,0,0,.45)';g.beginPath();g.moveTo(6,10);g.lineTo(6-w,-len*.1+10);g.lineTo(6,-len+10);g.lineTo(6+w,-len*.1+10);g.fill();
   g.fillStyle=rgba(BRL,1);g.beginPath();g.moveTo(0,0);g.lineTo(-w,-len*.1);g.lineTo(0,-len);g.closePath();g.fill();g.fillStyle=rgba(BRD,1);g.beginPath();g.moveTo(0,0);g.lineTo(w,-len*.1);g.lineTo(0,-len);g.closePath();g.fill();g.restore();ELEMENTS+=2}
  dauph(hA,250,22);dauph(mA,380,18);
@@ -323,6 +323,7 @@ var draw=function(t){ELEMENTS=0;g.setTransform(1,0,0,1,0,0);
  g.setTransform(1,0,0,1,0,0);var fa=seg(t,8,8.8)*(1-seg(t,25.4,26.6));if(fa>0){g.globalAlpha=fa;g.drawImage(SPOT,0,0);g.globalAlpha=1}
  g.drawImage(VIG,0,0);
  captions(t,st,tau);labels(t);window.__rfElements=ELEMENTS};
+var BEAT0=esc(tauAt(0)).thE/HALF;
 SPC=(function(){var st=esc(tauAt(0)),tr=train(st.thE);return -7.6*TAU-tr.B})();
 `;
 
@@ -347,7 +348,7 @@ const HTML = `
 <div class="cap top" data-in="0.3" data-out="4.5"><div class="k">A mechanical watch</div><h2>No battery. No chip.</h2><p data-in="1.9" data-out="4.6" style="margin-top:18px">So how does it <b>know the time?</b></p></div>
 <div class="cap top" data-in="5.7" data-out="7.7"><div class="k">Turn it over</div><p>Inside, a tiny machine<br>that runs on a <b>spring</b></p></div>
 <div class="cap top" data-in="7.9" data-out="9.9"><div class="k">1 of 4 · Mainspring</div><p>Winding coils a steel<br>spring <b>tight</b></p></div>
-<div class="cap top" data-in="9.9" data-out="11.6"><div class="k">1 of 4 · Mainspring</div><p>It lets go slowly,<br>over about <b>two days</b></p></div>
+<div class="cap top" data-in="9.9" data-out="11.6"><div class="k">1 of 4 · Mainspring</div><p>It lets go slowly,<br>over <b>a day or two</b></p></div>
 <div class="cap top" data-in="11.8" data-out="14.1"><div class="k">2 of 4 · Gear train</div><p>Each wheel spins <b>faster</b><br>than the one before</p></div>
 <div class="cap top" data-in="14.1" data-out="16.5"><div class="k">2 of 4 · Gear train</div><p>Left alone, it would race.<br>It needs a <b>brake</b></p></div>
 <div class="cap top" data-in="16.7" data-out="18.9"><div class="k">3 of 4 · Escapement</div><p>A fork locks the wheel,<br>then frees <b>one tooth</b></p></div>
@@ -370,7 +371,7 @@ const HTML = `
  <div class="fact" data-in="26.0" data-out="30.4"><span>Balance</span><strong>4 Hz</strong></div>
  <div class="fact" data-in="26.4" data-out="30.4"><span>Ticks an hour</span><strong id="n28">0</strong></div>
  <div class="fact" data-in="26.8" data-out="30.4"><span>Ticks a day</span><strong id="n69">0</strong></div>
- <div class="fact" data-in="27.2" data-out="30.4"><span>Accuracy</span><strong style="color:#E6C680">a few s a day</strong></div>
+ <div class="fact" data-in="27.2" data-out="30.4"><span>Accurate to</span><strong style="color:#E6C680">±5 s a day</strong></div>
 </div>
 <div class="brand" data-in="27.8" data-out="30.4">Rendered with ReelForge</div>
 `;
