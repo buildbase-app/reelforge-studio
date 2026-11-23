@@ -583,7 +583,8 @@ SQLite, PostgreSQL 17 and MySQL 8.4.
 | Unit (core: WHK-40..45, JOB-TMO-01..02) | 8 new cases passed |
 | Contract `webhooks-contract.test.ts` (WHK-DB-01..07) on memory, SQLite, PostgreSQL 17, MySQL 8.4 | 28 passed |
 | Server `webhooks-ops.test.ts` (OPS-01..07: blocked, ready after a 503 and a retry, failed, timeout, cancelled, resend, rotation) | 7 passed on SQLite |
-| `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` | RESULT_PLACEHOLDER |
+| Server `webhooks.test.ts` + `webhooks-ops.test.ts` with `REELFORGE_TEST_DB=postgres` and `mysql` | 20 passed on each |
+| `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` | typecheck passed; workspace run (`--no-bail`) on the shared machine (load average 15-33): project-schema 86, media-pipeline 14, core 413 (+44 skipped), db 216 (+23 skipped), engines html 11, motion-canvas 7, remotion 5, docs 31, capture 25, load 2 passed; hyperframes (5), gallery (1) and server (6: licence render, KEY-09 CLI, IDM-01/02, REST journey) failed with `hyperframes render exited with code 1`, timeouts and `ECONNRESET`; each of those files passed when re-run on its own (hyperframes 18, gallery 31, licence 7, enterprise 22, rest.e2e 2), and licence/IDM fail the same way on unchanged `main` under that load |
 
 Not done: the Docker e2e was not re-run for this change; `render.qa_failed` has no producer until #294; no CLI
 command for resend or the read log yet; engine scene timeouts stay `render.failed`.
