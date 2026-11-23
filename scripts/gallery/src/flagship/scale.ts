@@ -108,7 +108,7 @@ for(var j=N;j>=0;j--){var th=-Math.PI/2+j/N*Math.PI;var c=Math.cos(th),s=Math.si
 function earth(t,cx,cy,r){if(cx+r*1.1<0||cx-r*1.1>W||cy+r*1.1<0||cy-r*1.1>H)return;
 var hg=g.createRadialGradient(cx,cy,r*.98,cx,cy,r*1.07);hg.addColorStop(0,'rgba(110,170,255,.55)');hg.addColorStop(.3,'rgba(80,140,240,.2)');hg.addColorStop(1,'rgba(60,120,230,0)');g.fillStyle=hg;g.beginPath();g.arc(cx,cy,r*1.07,0,TAU);g.fill();
 var og=g.createRadialGradient(cx-r*.38,cy-r*.22,r*.04,cx,cy,r);og.addColorStop(0,'rgb(50,124,214)');og.addColorStop(.55,'rgb(22,70,152)');og.addColorStop(1,'rgb(10,30,78)');g.fillStyle=og;g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();ELEMENTS+=2;
-var la=cl((6000-r)/4000),night=[];if(la>0){var p0=22*D2R,sp=Math.sin(p0),cp=Math.cos(p0),l0=(32-2.4*t)*D2R,sz=r*.0262*.36,big=sz>1.1;g.fillStyle='rgba(214,230,222,'+(.94*la).toFixed(3)+')';g.beginPath();
+var la=cl((2100-r)/1100),night=[];if(la>0){var p0=22*D2R,sp=Math.sin(p0),cp=Math.cos(p0),l0=(32-2.4*t)*D2R,sz=r*.0262*.36,big=sz>1.1;g.fillStyle='rgba(214,230,222,'+(.94*la).toFixed(3)+')';g.beginPath();
 for(var i=0;i<LAND.length;i++){var q=LAND[i],lm=q[2]-l0,cf=q[0],sf=q[1],cm=Math.cos(lm);var z=sp*sf+cp*cf*cm;if(z<=.03)continue;var x=cf*Math.sin(lm),y=cp*sf-sp*cf*cm;var px=cx+x*r,py=cy-y*r;if(px<-4||px>W+4||py<-4||py>H+4)continue;var rd=sz*(.5+.5*z);
 if(big){g.moveTo(px+rd,py);g.arc(px,py,rd,0,TAU)}else g.rect(px-rd,py-rd,rd*2,rd*2);ELEMENTS++;if(x*LX-y*LY+z*LZ<-.04&&q[3]<.4)night.push(px,py,rd)}g.fill()}
 shadow(cx,cy,r,.92);
@@ -191,12 +191,12 @@ FG.push([2.0e22,-1.35e22,1.1e21,0,.6,.32,2],[2.55e22,-.95e22,3e20,1,1.1,.6,1],[1
 FG.sort(function(a,b){return (a[3]*3+a[6])-(b[3]*3+b[6])});
 var FGC=['rgb(255,220,176)','rgb(196,212,255)'],FGA=[.5,.8,1];
 function sprite(c0,c1){var sc=document.createElement('canvas');sc.width=sc.height=64;var x=sc.getContext('2d');var gr=x.createRadialGradient(32,32,0,32,32,32);gr.addColorStop(0,'rgba(255,252,244,1)');gr.addColorStop(.1,c0);gr.addColorStop(.4,c1);gr.addColorStop(1,'rgba(0,0,0,0)');x.fillStyle=gr;x.fillRect(0,0,64,64);return sc}
-var SPR=[sprite('rgba(255,222,180,.85)','rgba(240,190,140,.22)'),sprite('rgba(196,214,255,.8)','rgba(140,170,255,.2)')];
+var SPR=[sprite('rgba(255,224,184,1)','rgba(240,190,140,.4)'),sprite('rgba(200,218,255,1)','rgba(140,170,255,.38)')];
 function field(t){var gx=X(0),gy=Y(GY);if(S>3e-19)return;var nr=7e22*S;if(nr>3&&nr<700){for(var i=1;i<NODES.length;i++){var x=X(NODES[i][0]),y=Y(GY+NODES[i][1]);if(x<-nr||x>W+nr||y<-nr||y>H+nr)continue;var ng=g.createRadialGradient(x,y,0,x,y,nr);ng.addColorStop(0,'rgba(150,170,230,.09)');ng.addColorStop(1,'rgba(120,140,210,0)');g.fillStyle=ng;g.fillRect(x-nr,y-nr,nr*2,nr*2);ELEMENTS++}}
 var wa=cl((1.2e-21-S)/8e-22);if(wa>0){g.lineCap='round';for(var w=0;w<2;w++){g.strokeStyle=w?'rgba(150,170,240,.05)':'rgba(110,130,220,.035)';g.lineWidth=w?7:22;g.globalAlpha=wa;g.beginPath();for(var i=0;i<EDGES.length;i+=4){var a=NODES[EDGES[i]],b=NODES[EDGES[i+1]];g.moveTo(X(a[0]),Y(GY+a[1]));g.quadraticCurveTo(X(EDGES[i+2]),Y(GY+EDGES[i+3]),X(b[0]),Y(GY+b[1]));ELEMENTS++}g.stroke()}g.lineCap='butt';g.globalAlpha=1}
 g.globalCompositeOperation='lighter';var key=-1,BIG=[];g.beginPath();for(var i=0;i<FG.length;i++){var q=FG[i];var x=X(q[0]),y=Y(GY+q[1]);if(x<-20||x>W+20||y<-20||y>H+20)continue;var k=q[3]*3+q[6];if(k!==key){g.fill();key=k;g.fillStyle=FGC[q[3]];g.globalAlpha=FGA[q[6]];g.beginPath()}
 var px=q[2]*S;if(px<.9){var z=q[6]==2?2:1.5;g.rect(x-z/2,y-z/2,z,z)}else BIG.push(i);ELEMENTS++}g.fill();
-for(var j=0;j<BIG.length;j++){var q=FG[BIG[j]];var x=X(q[0]),y=Y(GY+q[1]),px=q[2]*S*1.5,ca=Math.cos(q[4]),sa=Math.sin(q[4]),rr=Math.max(q[5],.9/px);g.globalAlpha=FGA[q[6]];g.setTransform(ca*px/32,sa*px/32,-sa*px*rr/32,ca*px*rr/32,x,y);g.drawImage(SPR[q[3]],-32,-32)}g.setTransform(1,0,0,1,0,0);g.globalAlpha=1;g.globalCompositeOperation='source-over'}
+for(var j=0;j<BIG.length;j++){var q=FG[BIG[j]];var x=X(q[0]),y=Y(GY+q[1]),px=q[2]*S*2.4,ca=Math.cos(q[4]),sa=Math.sin(q[4]),rr=Math.max(q[5],.9/px);g.globalAlpha=FGA[q[6]];g.setTransform(ca*px/32,sa*px/32,-sa*px*rr/32,ca*px*rr/32,x,y);g.drawImage(SPR[q[3]],-32,-32)}g.setTransform(1,0,0,1,0,0);g.globalAlpha=1;g.globalCompositeOperation='source-over'}
 function marker(x,y,a){if(a<=0)return;g.globalAlpha=a;g.strokeStyle=rgba(AMBER,1);g.lineWidth=3;g.beginPath();g.arc(x,y,16,0,TAU);g.stroke();g.fillStyle=rgba(AMBER,1);g.beginPath();g.arc(x,y,3.6,0,TAU);g.fill();g.globalAlpha=1;ELEMENTS+=2}
 
 /* ---------- captions and labels (DOM), driven by the seek ---------- */
@@ -249,7 +249,7 @@ const HTML = `
 <div class="cap top" data-in="19.6" data-out="22.5"><div class="k">Betelgeuse, a red supergiant</div><p>Hundreds of Suns wide.<br>Now the Sun is a dot.</p></div>
 <div class="cap top" data-in="22.6" data-out="24.6"><p>Now zoom out about<br><b>a billion times</b> more</p></div>
 <div class="cap top pan" data-in="24.8" data-out="27.6"><div class="k">The Milky Way</div><p>The Sun is one of roughly<br><b>100 to 400 billion</b> stars</p></div>
-<div class="cap top pan" data-in="27.7" data-out="30.2"><p>And there are more galaxies<br>than anyone can count</p></div>
+<div class="cap top pan" data-in="28.5" data-out="30.5"><p>And there are more galaxies<br>than anyone can count</p></div>
 <div class="lbl you" data-a="you" data-in="5.6" data-out="8.1">You are here</div>
 <div class="lbl" data-a="earth" data-side="l" data-in="8.7" data-out="11">Earth</div>
 <div class="lbl" data-a="earth" data-side="l" data-in="11.5" data-out="14.1">Earth</div>
@@ -258,8 +258,8 @@ const HTML = `
 <div class="lbl" data-a="jup" data-in="14.6" data-out="17">Jupiter</div>
 <div class="lbl" data-a="sun" data-in="20" data-out="22.5">The Sun</div>
 <div class="lbl you" data-a="you" data-in="25.2" data-out="27.6">You are here</div>
-<div class="lbl you end" data-a="you" data-in="29.6" data-out="32.4">You are here</div>
-<div class="brand" data-in="30.4" data-out="32.4">Rendered with ReelForge</div>
+<div class="lbl you end" data-a="you" data-in="30.2" data-out="32.4">You are here</div>
+<div class="brand" data-in="30.7" data-out="32.4">Rendered with ReelForge</div>
 `;
 
 export const SCALE: FlagshipReel = {
