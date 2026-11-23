@@ -78,7 +78,8 @@ or on a backend plugin.
 interface EnginePlugin {          // turns one scene into a video clip
   id: string;                     // 'remotion' | 'motion-canvas' | 'html' | ...
   templates(): TemplateInfo[];    // id, description, props JSON Schema, durations, themeable tokens
-  render(scene, ctx): Promise<ClipResult>;   // ctx: output settings, theme, assets, signal, progress, logger
+  capabilities?(): { frameRanges }; // frameRanges: honours ctx.frameRange, frame-pure (render fan-out chunks, D-097)
+  render(scene, ctx): Promise<ClipResult>;   // ctx: output settings, theme, assets, signal, progress, logger, frameRange?
 }
 interface ProviderPlugin {        // produces an asset (audio, video, image) from parameters
   id: string; kind: 'tts' | 'avatar' | 'music' | 'stock' | 'image';

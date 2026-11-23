@@ -70,6 +70,8 @@ export interface SceneClip {
   engine: string;
   template: string | null;
   startFrame: number;
+  /** A chunk of a long scene (render fan-out, D-097): its first and last frame within the scene; `frames` and `startFrame` are the chunk's. */
+  frameRange?: [number, number];
   engineVersion: string;
   browserVersion?: string;
   millis: number;
@@ -81,8 +83,10 @@ export interface SceneRenderInput extends Pick<RenderPipelineInput, 'runId' | 't
   output: OutputSettings;
   out: string;
   workDir: string;
-  /** Engine progress for this scene. */
+  /** Engine progress for this scene (or frame range). */
   progress(done: number, total: number): void;
+  /** Only these frames of the scene, inclusive (a fan-out chunk; the engine must declare frame ranges). */
+  frameRange?: readonly [number, number];
 }
 
 /**
@@ -95,9 +99,17 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
   const { tracer, meter } = input.telemetry ?? NOOP_TELEMETRY;
   const metrics = coreInstruments(meter);
   const engine = input.registry.engine(scene.engine);
-  const stage = `render:${scene.id}`;
+  const range = input.frameRange;
+  const stage = `render:${scene.id}${range ? `[${range[0]}-${range[1]}]` : ''}`;
+  if (range) {
+    if (!engine.capabilities?.().frameRanges) throw new PipelineError(stage, `engine "${scene.engine}" does not render frame ranges`);
+    if (!Number.isInteger(range[0]) || !Number.isInteger(range[1]) || range[0] < 0 || range[1] < range[0] || range[1] >= scene.durationFrames) {
+      throw new PipelineError(stage, `frame range ${range[0]}-${range[1]} is not inside the scene's ${scene.durationFrames} frames`);
+    }
+  }
+  const frames = range ? range[1] - range[0] + 1 : scene.durationFrames;
   await mkdir(workDir, { recursive: true });
-  log(`${stage}: ${scene.engine}/${scene.template ?? 'html'} ${scene.durationFrames} frames at ${output.width}x${output.height}`);
+  log(`${stage}: ${scene.engine}/${scene.template ?? 'html'} ${frames} frames${range ? ` (frames ${range[0]}-${range[1]} of ${scene.durationFrames})` : ''} at ${output.width}x${output.height}`);
   const engineAttrs = { 'reelforge.engine': scene.engine };
   const sceneStarted = Date.now();
   const res = await withSpan(
@@ -108,7 +120,7 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
       'reelforge.render.id': input.runId,
       'reelforge.scene.id': scene.id,
       'reelforge.scene.template': scene.template ?? 'html',
-      'reelforge.scene.frames': scene.durationFrames,
+      'reelforge.scene.frames': frames,
       'reelforge.output.width': output.width,
       'reelforge.output.height': output.height,
       'reelforge.output.fps': output.fps,
@@ -125,6 +137,7 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
         signal: input.signal,
         log,
         progress: input.progress,
+        ...(range ? { frameRange: [range[0], range[1]] as const } : {}),
       })
   ).catch((e) => {
     metrics.sceneDuration.record((Date.now() - sceneStarted) / 1000, { ...engineAttrs, 'reelforge.outcome': 'error' });
@@ -132,26 +145,27 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
   });
   const sceneSeconds = (Date.now() - sceneStarted) / 1000;
   metrics.sceneDuration.record(sceneSeconds, { ...engineAttrs, 'reelforge.outcome': 'ok' });
-  metrics.framesRendered.add(scene.durationFrames, engineAttrs);
-  if (sceneSeconds > 0) metrics.renderFps.record(scene.durationFrames / sceneSeconds, engineAttrs);
+  metrics.framesRendered.add(frames, engineAttrs);
+  if (sceneSeconds > 0) metrics.renderFps.record(frames / sceneSeconds, engineAttrs);
   const info = await withSpan(tracer, 'ffprobe clip', { 'reelforge.render.id': input.runId }, () => probe(tools.ffprobe, out));
   const problems = checkExpectation(info, {
     width: output.width,
     height: output.height,
     fps: output.fps,
-    frames: scene.durationFrames,
+    frames,
   }).filter((p) => !p.startsWith('pixel format') && !p.startsWith('frame count')); // normalised during assembly
-  if (info.frames < scene.durationFrames) problems.push(`clip has ${info.frames} frames, needs ${scene.durationFrames}`);
+  if (info.frames < frames) problems.push(`clip has ${info.frames} frames, needs ${frames}`);
   if (problems.length) throw new PipelineError(stage, problems.join('; '));
   log(`${stage}: done in ${(res.millis / 1000).toFixed(1)}s`);
   await rm(workDir, { recursive: true, force: true });
   return {
     sceneId: scene.id,
     file: out,
-    frames: scene.durationFrames,
+    frames,
     engine: scene.engine,
     template: scene.template ?? null,
-    startFrame: scene.startFrame,
+    startFrame: scene.startFrame + (range ? range[0] : 0),
+    ...(range ? { frameRange: [range[0], range[1]] as [number, number] } : {}),
     engineVersion: res.engineVersion,
     ...(res.browserVersion ? { browserVersion: res.browserVersion } : {}),
     millis: res.millis,

@@ -36,6 +36,12 @@ export interface RemotionRenderOptions {
   signal?: AbortSignal;
   onProgress?: (framesDone: number, framesTotal: number) => void;
   rebuild?: boolean;
+  /**
+   * Only these frames of the scene, first and last inclusive (render fan-out
+   * chunks): renderMedia's `frameRange`. The composition keeps the scene's
+   * full duration, so frame n looks the same as in a whole render.
+   */
+  frameRange?: readonly [number, number];
 }
 
 export interface RemotionRenderResult {
@@ -106,6 +112,11 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
   const stage = `render:${scene.id}`;
   const browserExecutable = opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH ?? null;
   mkdirSync(dirname(opts.out), { recursive: true });
+  const range = opts.frameRange;
+  if (range && (range[0] < 0 || range[1] < range[0] || range[1] >= scene.durationFrames)) {
+    throw new PipelineError(stage, `frame range ${range[0]}-${range[1]} is not inside the scene's ${scene.durationFrames} frames`);
+  }
+  const frames = range ? range[1] - range[0] + 1 : scene.durationFrames;
 
   if (!scene.template) throw new PipelineError(stage, 'Remotion scenes need a template');
   const inputProps = {
@@ -156,12 +167,13 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
       chromiumOptions: { gl: 'swangle' },
       cancelSignal,
       logLevel: 'error',
-      onProgress: ({ renderedFrames }) => opts.onProgress?.(renderedFrames, scene.durationFrames),
+      ...(range ? { frameRange: [range[0], range[1]] as [number, number] } : {}),
+      onProgress: ({ renderedFrames }) => opts.onProgress?.(renderedFrames, frames),
     });
 
     return {
       out: opts.out,
-      frames: scene.durationFrames,
+      frames,
       engine: 'remotion',
       engineVersion: remotionVersion(),
       millis: Date.now() - started,

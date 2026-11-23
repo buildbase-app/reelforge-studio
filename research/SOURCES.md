@@ -402,3 +402,13 @@ implementation or licensing decisions.
     @prisma/adapter-pg) for the dedicated listen connection. That PostgreSQL serialises the commits of
     NOTIFY-sending transactions on one lock is from its source (src/backend/commands/async.c), not the
     docs page (VERIFY at thousands of commits per second).
+44. **Remotion frame ranges for render fan-out chunks** (read 2026-11-22, issue #156 step 3,
+    D-097): `renderMedia()` (https://www.remotion.dev/docs/renderer/render-media): `frameRange`
+    takes a single frame or an inclusive `[first, last]` tuple (open-ended `[n, null]` from
+    v4.0.421, several ranges from v4.0.502); `null` renders every frame. Checked against the
+    installed `@remotion/renderer` 4.0.545 typings (`dist/frame-range.d.ts`). Self-hosted
+    `renderMedia` only; no Remotion Lambda or other component that needs a company licence is
+    used (the licence question stays with #10). That a composition must render the same frame
+    whatever the order (frames render in parallel tabs) is how `renderMedia` works with
+    `concurrency`; ReelForge measures it for `kinetic-title` (ENG-REM-FR, FAN-32) instead of
+    relying on it.

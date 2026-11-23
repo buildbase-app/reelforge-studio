@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { avDurations, checkTimestamps, frameStats, probe, resolveTools, run, streamParams } from '@reelforge/media-pipeline';
+import { avDurations, checkTimestamps, framePsnr, frameStats, keyFrames, probe, resolveTools, run, streamParams } from '@reelforge/media-pipeline';
 import { createTestDatabase, type TestDatabase } from '@reelforge/db';
 import { S3StorageDriver, streamToBuffer } from '@reelforge/core';
 import { tempDir } from '../../../packages/core/test/helpers';
@@ -17,7 +17,10 @@ import { cliCreateKey, startServerProcess, type ServerProcess } from './serverPr
  * reel rendered with `render.fanOut: scenes` must equal the single-worker
  * render in frame count, scene-boundary frames, A/V duration and ffprobe
  * stream parameters; a unit worker killed with SIGKILL mid-render must lead to
- * the unit being claimed again and exactly one join.
+ * the unit being claimed again and exactly one join. With `scenes+chunks`
+ * (FAN-32) an 8 s 1080x1920 Remotion scene splits into 2 s chunks over the
+ * three workers and must equal the single-worker render frame for frame,
+ * with a key frame at every chunk start.
  *
  * Heavy, so opt-in: FANOUT_E2E=1 with TEST_POSTGRES_URL, FANOUT_E2E_S3_ENDPOINT
  * (a MinIO; e2e/minio/build-image.sh builds one), FANOUT_E2E_S3_ACCESS_KEY /
@@ -60,6 +63,10 @@ const SCENES = [
   scene('outro', 'remotion', 45, 'One join'),
 ];
 const TOTAL = SCENES.reduce((n, s) => n + s.durationFrames, 0);
+/** FAN-32: the longest Remotion scene the kinetic-title template allows (8 s), then a short html card. */
+const CHUNK_SCENES = [scene('long', 'remotion', 240, 'One long scene, four chunks'), scene('end', 'html', 30, 'Joined')];
+const CHUNK_TOTAL = 270;
+const CHUNK_STARTS = [60, 120, 180];
 const BOUNDARIES = SCENES.slice(1).map((_, i) => SCENES.slice(0, i + 1).reduce((n, s) => n + s.durationFrames, 0));
 
 /** A process and everything it started (tsx runs the server in a child node process, which starts Chromium and FFmpeg). */
@@ -136,7 +143,7 @@ describe.skipIf(!enabled)('render fan-out e2e: real engines, PostgreSQL, MinIO, 
     const text = await res.text();
     return { status: res.status, json: text ? JSON.parse(text) : undefined };
   }
-  const jobs = async () => (await rest('GET', '/v1/jobs?projectId=fanout')).json.jobs as any[];
+  const jobs = async (pid = 'fanout') => (await rest('GET', `/v1/jobs?projectId=${pid}`)).json.jobs as any[];
   async function waitDone(id: string, ms = 900_000) {
     const end = Date.now() + ms;
     for (;;) {
@@ -145,22 +152,23 @@ describe.skipIf(!enabled)('render fan-out e2e: real engines, PostgreSQL, MinIO, 
       if (Date.now() > end) throw new Error(`job ${id} did not finish: ${JSON.stringify(j)}`);
     }
   }
-  async function setFanOut(value: 'off' | 'scenes') {
-    expect((await rest('PATCH', '/v1/config', { 'render.fanOut': value })).status).toBe(200);
+  async function setFanOut(value: 'off' | 'scenes' | 'scenes+chunks', extra: Record<string, number> = {}) {
+    const res = await rest('PATCH', '/v1/config', { 'render.fanOut': value, ...extra });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
     // Every instance re-reads runtime settings every 15 s (D-077).
     await new Promise((r) => setTimeout(r, 16_000));
   }
-  async function download(job: any, name: string) {
+  async function download(job: any, name: string, pid = 'fanout') {
     const file = join(dir, `${name}.mp4`);
-    await pipeline(await (await store()).get(`projects/fanout/renders/${job.result.renderId}/final.mp4`), createWriteStream(file));
+    await pipeline(await (await store()).get(`projects/${pid}/renders/${job.result.renderId}/final.mp4`), createWriteStream(file));
     return file;
   }
-  async function renderTimed(name: string) {
+  async function renderTimed(name: string, pid = 'fanout') {
     const t = Date.now();
-    const started = (await rest('POST', '/v1/projects/fanout/renders', {})).json.job;
+    const started = (await rest('POST', `/v1/projects/${pid}/renders`, {})).json.job;
     const job = await waitDone(started.id);
     expect(job.status, JSON.stringify(job.error)).toBe('succeeded');
-    results[name] = { seconds: (Date.now() - t) / 1000, file: await download(job, name), job };
+    results[name] = { seconds: (Date.now() - t) / 1000, file: await download(job, name, pid), job };
     return results[name]!;
   }
 
@@ -247,6 +255,80 @@ describe.skipIf(!enabled)('render fan-out e2e: real engines, PostgreSQL, MinIO, 
         `max per-frame luma difference ${worst.toFixed(2)}; boundaries ${JSON.stringify(boundary)}`
     );
     expect(worst).toBeLessThan(2);
+  }, 1_200_000);
+
+  it('FAN-32 scenes+chunks: an 8 s Remotion scene in 2 s chunks over 3 workers equals the single-worker render frame for frame', async () => {
+    const manifest = { schemaVersion: '0.1', projectId: 'chunks', title: 'Chunks e2e', output: { width: 1080, height: 1920, fps: 30, format: 'mp4' }, audio: { musicTrack: null, voiceTrack: null }, assets: [], scenes: CHUNK_SCENES.slice(0, 1) };
+    expect((await rest('POST', '/v1/projects', { manifest })).status).toBe(201);
+    expect((await rest('POST', '/v1/projects/chunks/scenes', { scene: CHUNK_SCENES[1] })).status).toBe(201);
+    const tone = join(dir, 'tone.mp3');
+    const form = new FormData();
+    form.append('file', new Blob([readFileSync(tone)], { type: 'audio/mpeg' }), 'tone.mp3');
+    form.append('projectId', 'chunks');
+    form.append('assetId', 'music');
+    expect((await rest('POST', '/v1/assets', form)).status).toBe(201);
+    expect((await rest('PATCH', '/v1/projects/chunks/audio', { music: { asset: 'music', volume: 0.4, fadeOutSeconds: 1 } })).status).toBeLessThan(300);
+
+    await setFanOut('off');
+    const single = await renderTimed('chunks-single', 'chunks');
+    await setFanOut('scenes+chunks', { 'render.chunkSeconds': 2, 'render.chunkMinSceneSeconds': 4 });
+    const chunked = await renderTimed('chunks-fanned', 'chunks');
+    await setFanOut('scenes');
+    expect(chunked.job.params.chunks).toEqual({ '0': [[0, 59], [60, 119], [120, 179], [180, 239]] });
+    const children = (await jobs('chunks')).filter((j) => j.parentId === chunked.job.id);
+    const units = children.filter((c) => c.type === 'render_unit');
+    expect(units.map((u) => u.params.range ?? null).sort()).toEqual([[0, 59], [120, 179], [180, 239], [60, 119], null].sort());
+    expect(units.every((u) => u.status === 'succeeded')).toBe(true);
+    expect(children.filter((c) => c.type === 'render_join' && c.status === 'succeeded')).toHaveLength(1);
+    const unitWorkers = new Set(units.map((c) => c.workerId));
+    expect(unitWorkers.size).toBe(3);
+
+    const [a, b] = [await probe(tools.ffprobe, single.file), await probe(tools.ffprobe, chunked.file)];
+    expect(a).toMatchObject({ width: 1080, height: 1920, fps: 30, frames: CHUNK_TOTAL, videoCodec: 'h264', pixelFormat: 'yuv420p', audioCodec: 'aac' });
+    expect(b).toEqual(a);
+    expect(await streamParams(tools.ffprobe, chunked.file)).toEqual(await streamParams(tools.ffprobe, single.file));
+    const [da, dc] = [await avDurations(tools.ffprobe, single.file), await avDurations(tools.ffprobe, chunked.file)];
+    expect(dc).toEqual(da);
+    expect(dc.video).toBeCloseTo(CHUNK_TOTAL / 30, 3);
+    expect(await checkTimestamps(tools.ffprobe, chunked.file, CHUNK_TOTAL, 30)).toEqual([]);
+    // Each chunk was encoded on its own: an IDR at every chunk start (and at the html scene).
+    const keys = await keyFrames(tools.ffprobe, chunked.file);
+    for (const k of [0, ...CHUNK_STARTS, 240]) expect(keys).toContain(k);
+    // Frame for frame: per-frame luma, and the pictures themselves (PSNR) at and around every chunk boundary.
+    const [la, lc] = [await lumaSeries(single.file), await lumaSeries(chunked.file)];
+    expect(lc.length).toBe(CHUNK_TOTAL);
+    const worst = Math.max(...la.map((v, i) => Math.abs(v - lc[i]!)));
+    const psnr = await framePsnr(tools.ffmpeg, single.file, chunked.file);
+    expect(psnr).toHaveLength(CHUNK_TOTAL);
+    const shifted = await framePsnr(tools.ffmpeg, single.file, chunked.file, 1);
+    const boundary: Array<{ frame: number; single: number[]; chunked: number[]; psnr: number[] }> = [];
+    for (const f of CHUNK_STARTS) {
+      const s = [await frameStats(tools.ffmpeg, single.file, f - 1), await frameStats(tools.ffmpeg, single.file, f)];
+      const x = [await frameStats(tools.ffmpeg, chunked.file, f - 1), await frameStats(tools.ffmpeg, chunked.file, f)];
+      boundary.push({ frame: f, single: s.map((v) => v.yAvg), chunked: x.map((v) => v.yAvg), psnr: [psnr[f - 1]!, psnr[f]!].map((v) => Number(v.toFixed(1))) });
+      for (const k of [0, 1]) expect(Math.abs(s[k]!.yAvg - x[k]!.yAvg)).toBeLessThan(1.5);
+    }
+    const minPsnr = Math.min(...psnr);
+    const minAt = psnr.indexOf(minPsnr);
+    const minRemotion = Math.min(...psnr.slice(0, 240));
+    const minHtml = Math.min(...psnr.slice(240));
+    const low = psnr.flatMap((v, i) => (v < 42 ? [`${i}:${v.toFixed(1)}`] : []));
+    const unitSeconds = units.map((u) => `${u.params.range ? u.params.range.join('-') : u.params.sceneId}: ${((u.result?.millis ?? 0) / 1000).toFixed(1)} s`).join(', ');
+    const minAtSeams = Math.min(...CHUNK_STARTS.flatMap((f) => [psnr[f - 1]!, psnr[f]!]));
+    const manifest2 = JSON.parse((await streamToBuffer(await (await store()).get(`projects/chunks/renders/${chunked.job.result.renderId}/render-manifest.json`))).toString('utf8'));
+    expect(manifest2.join).toEqual({ method: 'concat demuxer, video stream copy', clips: 5 });
+    expect(manifest2.scenes.map((x: any) => x.frameRange ?? null)).toEqual([[0, 59], [60, 119], [120, 179], [180, 239], null]);
+    expect((await (await store()).list('projects/chunks/renders/')).filter((o) => o.key.includes('/.tmp-'))).toEqual([]);
+    report(
+      `FAN-32: ${CHUNK_TOTAL} frames at 1080x1920 (an 8 s Remotion scene in 4 chunks of 2 s + a 1 s html scene), ${units.length} units on ${unitWorkers.size} workers; ` +
+        `wall time (shared sandbox, not a benchmark): single worker ${single.seconds.toFixed(1)} s, chunked over 3 workers ${chunked.seconds.toFixed(1)} s; ` +
+        `engine time per unit ${unitSeconds}; ` +
+        `max per-frame luma difference ${worst.toFixed(2)}; per-frame PSNR vs single: min ${minPsnr.toFixed(1)} dB at frame ${minAt} (Remotion scene ${minRemotion.toFixed(1)}, html scene ${minHtml.toFixed(1)}), frames under 42 dB [${low.join(' ')}], min at chunk seams ${minAtSeams.toFixed(1)} dB ` +
+        `(one frame shifted: min ${Math.min(...shifted).toFixed(1)} dB); key frames ${JSON.stringify(keys)}; boundaries ${JSON.stringify(boundary)}`
+    );
+    expect(worst).toBeLessThan(2);
+    expect(minAtSeams).toBeGreaterThan(38);
+    expect(minPsnr).toBeGreaterThan(Math.min(...shifted));
   }, 1_200_000);
 
   it('FAN-31 a unit worker killed with SIGKILL mid-render: the unit is claimed again and the render gets exactly one join', async () => {

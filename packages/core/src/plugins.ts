@@ -57,6 +57,26 @@ export interface EngineRenderContext {
   signal: AbortSignal;
   progress(framesDone: number, framesTotal: number): void;
   log: Logger;
+  /**
+   * Render only these frames of the scene, first and last inclusive (render
+   * fan-out chunks, D-097). Set only for engines whose capabilities() declare
+   * `frameRanges`. The clip then holds exactly `last - first + 1` frames, and
+   * its frame k is the scene's frame `first + k`, the same pixels the full
+   * render has at that frame (the scene still lasts `durationFrames`).
+   * Progress counts the range's frames.
+   */
+  frameRange?: readonly [number, number];
+}
+
+/** What an engine can do beyond rendering a whole scene. */
+export interface EngineCapabilities {
+  /**
+   * The engine honours `EngineRenderContext.frameRange` and its frames are
+   * frame-pure: frame n renders the same whether the render starts at 0 or at
+   * n (no state accumulated from frame 0), so a long scene can be split into
+   * chunks rendered by different workers.
+   */
+  frameRanges: boolean;
 }
 
 export interface ClipResult {
@@ -85,6 +105,8 @@ export interface EnginePlugin {
   availability(): Availability;
   /** Whether this engine's Chromium runs with its own sandbox (omit for engines without a browser). */
   browserSandbox?(): boolean;
+  /** What it can do beyond whole scenes; omitted: no frame ranges. */
+  capabilities?(): EngineCapabilities;
   render(scene: RenderScene, ctx: EngineRenderContext): Promise<ClipResult>;
 }
 
@@ -189,7 +211,11 @@ export interface BackendCapabilities {
   engines: string[];
   /** Longest render unit (one scene, or one frame range) it accepts, in seconds; null: no limit of its own. */
   maxUnitSeconds: number | null;
-  /** Whether it can render part of a scene (a frame range), so a long scene can be split. */
+  /**
+   * Whether it can render part of a scene (a frame range), so a long scene can be split
+   * (`render.fanOut: scenes+chunks`). Only scenes of engines whose own capabilities
+   * declare `frameRanges` are split.
+   */
   frameRanges: boolean;
   /** Whether it starts and stops compute per render by itself (nothing runs, nothing is billed, while idle). */
   scaleToZero: boolean;

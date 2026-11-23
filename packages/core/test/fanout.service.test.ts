@@ -133,10 +133,22 @@ describe('render fan-out in the service (fake engine)', () => {
     for (const j of [solo, preview]) expect(await repos.jobs.list({ parentId: j.id })).toHaveLength(0);
   }, 60_000);
 
-  it('FAN-12 render.fanOut scenes+chunks is refused until frame ranges are built', async () => {
-    await expect(api.updateConfig({ 'render.fanOut': 'scenes+chunks' })).rejects.toThrow(/scenes\+chunks.*not built yet/);
-    await expect(instance('bad', false, { REELFORGE_RENDER_FAN_OUT: 'scenes+chunks' })).rejects.toThrow(/not built yet/);
-  });
+  it('FAN-12 render.fanOut scenes+chunks without a frame-range engine splits by scene only (capability gating)', async () => {
+    // These fake engines declare no frame ranges (packages/core/test/fanout.chunks.test.ts has those): the local
+    // backend reports none, and scenes+chunks queues the same units as scenes.
+    expect(api.capabilities().backends.find((b) => b.id === 'local')!.capabilities.frameRanges).toBe(false);
+    await workers[0]!.updateConfig({ 'render.fanOut': 'scenes+chunks', 'render.chunkSeconds': 1, 'render.chunkMinSceneSeconds': 2 });
+    for (const s of [api, ...workers]) await s.settings.refresh();
+    const job = await api.startRender('fan');
+    const done = await api.waitForJob(job.id, 60);
+    expect(done).toMatchObject({ status: 'succeeded', result: { frames: TOTAL } });
+    expect((done.params as { chunks?: unknown }).chunks).toEqual({});
+    const units = (await children(job)).filter((k) => k.type === UNIT_JOB_TYPE);
+    expect(units).toHaveLength(4);
+    expect(units.every((u) => !('range' in u.params))).toBe(true);
+    await workers[0]!.updateConfig({ 'render.fanOut': 'scenes' });
+    for (const s of [api, ...workers]) await s.settings.refresh();
+  }, 60_000);
 
   it('FAN-13 a failing unit fails the render; retry_job renders only that scene again and reuses the committed units', async () => {
     await api.createProject({ ...manifest('retry'), projectId: 'retry' });

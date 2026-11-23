@@ -205,3 +205,40 @@ export async function avDurations(ffprobe: string, file: string): Promise<{ vide
   const a = streams.find((s) => s.codec_type === 'audio');
   return { video: Number(v?.duration ?? 0), audio: a ? Number(a.duration ?? 0) : null };
 }
+
+/**
+ * Per-frame luma PSNR (dB) of every frame of `file` against the frames of
+ * `reference` starting at frame `from` (FFmpeg psnr): frame k of `file` is
+ * compared with frame `from + k` of `reference`. Shows that a frame-range
+ * render has the same pictures as the whole render, frame for frame (a
+ * duplicated, missing or shifted frame drops it). Identical frames: Infinity.
+ */
+export async function framePsnr(ffmpeg: string, reference: string, file: string, from = 0): Promise<number[]> {
+  const { stdout } = await run(
+    ffmpeg,
+    [
+      '-hide_banner',
+      '-v',
+      'error',
+      '-i',
+      file,
+      '-i',
+      reference,
+      '-filter_complex',
+      `[1:v]trim=start_frame=${from},setpts=PTS-STARTPTS,format=yuv420p[ref];[0:v]setpts=PTS-STARTPTS,format=yuv420p[x];[x][ref]psnr=stats_file=-:shortest=1`,
+      '-f',
+      'null',
+      '-',
+    ],
+    'psnr'
+  );
+  return [...stdout.matchAll(/psnr_y:(\S+)/g)].map((m) => (m[1] === 'inf' ? Infinity : Number(m[1])));
+}
+
+/** Indexes (in presentation order) of the key frames of the first video stream. */
+export async function keyFrames(ffprobe: string, file: string): Promise<number[]> {
+  const { stdout } = await run(ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts,flags', '-of', 'json', file], 'probe');
+  const packets = ((JSON.parse(stdout) as { packets?: Array<{ pts?: number; flags?: string }> }).packets ?? []).map((p) => ({ pts: Number(p.pts), key: String(p.flags ?? '').startsWith('K') }));
+  const order = [...packets].sort((a, b) => a.pts - b.pts);
+  return order.flatMap((p, i) => (p.key ? [i] : []));
+}

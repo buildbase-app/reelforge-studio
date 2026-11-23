@@ -6,7 +6,7 @@ import { ApiError, notFound } from './errors';
 import { NOOP_TELEMETRY, coreInstruments, type Telemetry } from './telemetry';
 import { newId } from './fsutil';
 import type { PageRequest } from './paging';
-import { childJobs, isFannedOut, isTerminal, treeProgress, type ChildSpec } from './fanout';
+import { childJobs, describeUnit, isFannedOut, isTerminal, treeProgress, type ChildSpec } from './fanout';
 import { defaultPriority, effectiveRank, priorityRank, type JobPriority } from './priority';
 import type { DispatchListener, DispatchListenerStatus, DispatchMessage } from './dispatch';
 import type { ChildSettlement, JobCaps, JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
@@ -50,9 +50,10 @@ export interface JobContext {
    * the job stays `running` without a worker, its handler should return, and
    * its children's outcomes finish it (the last unit inserts the join, whose
    * result becomes this job's). Throws when the claim was lost or a cancel was
-   * requested meanwhile.
+   * requested meanwhile. `params` are merged into this job's parameters in the
+   * same write (the join gets a copy of them: the render's unit plan).
    */
-  fanOut?(children: ChildSpec[]): Promise<JobRecord[]>;
+  fanOut?(children: ChildSpec[], params?: Record<string, unknown>): Promise<JobRecord[]>;
 }
 
 export type JobHandler = (ctx: JobContext) => Promise<Record<string, unknown>>;
@@ -1211,7 +1212,7 @@ export class JobRunner {
         this.persistProgress(job);
         this.emit({ jobId: job.id, type: 'progress', job });
       },
-      ...(fence ? { fanOut: (children: ChildSpec[]) => this.fanOut(job, fence, controller, children) } : {}),
+      ...(fence ? { fanOut: (children: ChildSpec[], params?: Record<string, unknown>) => this.fanOut(job, fence, controller, children, params) } : {}),
     };
     try {
       const result = await context.with(trace.setSpan(parent, span), () => this.handlers[job.type]!(ctx));
@@ -1281,12 +1282,17 @@ export class JobRunner {
   }
 
   /** JobContext.fanOut (D-097): store the children and hand the parent off, in order with the job's other writes. */
-  private async fanOut(job: JobRecord, fence: JobLeaseFence, controller: AbortController, specs: ChildSpec[]): Promise<JobRecord[]> {
+  private async fanOut(job: JobRecord, fence: JobLeaseFence, controller: AbortController, specs: ChildSpec[], params?: Record<string, unknown>): Promise<JobRecord[]> {
     if (!specs.length) throw new Error('fanOut needs at least one child');
     if (controller.signal.aborted) throw new Error('cancelled');
     const at = new Date().toISOString();
     const children = childJobs(job, specs);
-    const snapshot: JobRecord = { ...structuredClone(job), pendingChildren: children.length, progress: { stage: 'render', fraction: 0, detail: `${children.length} units queued` } };
+    const snapshot: JobRecord = {
+      ...structuredClone(job),
+      ...(params ? { params: { ...structuredClone(job.params), ...structuredClone(params) } } : {}),
+      pendingChildren: children.length,
+      progress: { stage: 'render', fraction: 0, detail: `${children.length} units queued` },
+    };
     let outcome: Awaited<ReturnType<JobRepository['fanOut']>> | undefined;
     let error: unknown;
     await this.chain(job.id, async () => {
@@ -1309,7 +1315,7 @@ export class JobRunner {
     // No heartbeat for it any more: the row has no worker and no lease.
     this.fences.delete(job.id);
     this.detached.add(job.id);
-    Object.assign(job, { pendingChildren: children.length, progress: snapshot.progress });
+    Object.assign(job, { params: snapshot.params, pendingChildren: children.length, progress: snapshot.progress });
     delete job.workerId;
     delete job.leaseExpiresAt;
     this.queuedCount += children.length;
@@ -1404,13 +1410,15 @@ export class JobRunner {
   /** What a child's final state did to its render (D-097): events, the parent's log, and claim the join at once. */
   private async afterChild(child: JobRecord, s: ChildSettlement, at: string) {
     if (!s.parent) return;
-    const p = child.params as { index?: number; count?: number; sceneId?: string };
-    const what = child.type.endsWith('_join') ? 'join' : `unit ${typeof p.index === 'number' ? p.index + 1 : '?'}${p.count ? `/${p.count}` : ''}${p.sceneId ? ` (scene "${p.sceneId}")` : ''}`;
+    const what = child.type.endsWith('_join') ? 'join' : describeUnit(child.params, '?');
     const line = s.parentFinished
       ? `finished: ${s.parent.status}${s.parent.error ? ` (${s.parent.error.message})` : ''}${s.cancelled.length ? `; ${s.cancelled.length} queued unit(s) cancelled` : ''}`
       : `${what} ${child.status} on worker ${this.workerId} (job ${child.id}); ${s.parent.pendingChildren ?? 0} unit(s) left${s.join ? `; join queued as job ${s.join.id}` : ''}`;
     await this.repo.appendLog(s.parent.id, at, line);
     if (s.parentFinished) this.emitSettled([s.parent]);
+    // Another 10 % of the render's frames committed (exactly one settlement per step): a progress event of the render, so
+    // outbound events and `job.progress` webhooks follow a fanned-out render as they follow one worker's.
+    else if (s.progressed) this.emit({ jobId: s.parent.id, type: 'progress', job: s.parent });
     if (s.cancelled.length) this.emitSettled(s.cancelled);
     if (s.join) {
       this.queuedCount++;

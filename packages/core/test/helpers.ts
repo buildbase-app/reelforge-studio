@@ -10,18 +10,29 @@ export function tempDir(prefix = 'reelforge-core-'): { dir: string; cleanup: () 
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
+/** The fake frame-range engine's luma at frame n of a scene: every frame differs from its neighbours. */
+export const fakeFrameLuma = (n: number) => 16 + (n % 40) * 5;
+
 /**
  * A fake engine for fast tests: FFmpeg's colour source in the theme's
  * background colour (no browser). Uses the real template catalog so manifest
- * validation behaves as in production.
+ * validation behaves as in production. `frameRanges`: it declares frame
+ * ranges and draws frame n of a scene as a flat picture of luma
+ * fakeFrameLuma(n), so a chunked render can be checked frame by frame.
  */
-export function fakeEngine(id: string, opts: { delayPerFrameMs?: number; fail?: boolean } = {}): EnginePlugin & { renders: RenderScene[] } {
+export function fakeEngine(
+  id: string,
+  opts: { delayPerFrameMs?: number; fail?: boolean; frameRanges?: boolean } = {}
+): EnginePlugin & { renders: RenderScene[]; ranges: Array<readonly [number, number] | null> } {
   const renders: RenderScene[] = [];
+  const ranges: Array<readonly [number, number] | null> = [];
   return {
     id,
     displayName: `fake ${id}`,
     acceptsSource: id === 'html' || id === 'hyperframes',
     renders,
+    ranges,
+    ...(opts.frameRanges ? { capabilities: () => ({ frameRanges: true }) } : {}),
     version: () => '0.0.0-test',
     availability: () => ({ ok: true }),
     templates: () =>
@@ -30,22 +41,28 @@ export function fakeEngine(id: string, opts: { delayPerFrameMs?: number; fail?: 
         .map(([tid, t]) => ({ ...t, id: tid })),
     async render(scene: RenderScene, ctx: EngineRenderContext): Promise<ClipResult> {
       renders.push(scene);
+      ranges.push(ctx.frameRange ?? null);
       const started = Date.now();
       if (opts.fail) throw new Error('fake engine failure');
-      for (let f = 1; f <= scene.durationFrames; f++) {
+      if (ctx.frameRange && !opts.frameRanges) throw new Error('fake engine without frame ranges was given one');
+      const [first, last] = ctx.frameRange ?? [0, scene.durationFrames - 1];
+      const frames = last - first + 1;
+      for (let f = 1; f <= frames; f++) {
         if (ctx.signal.aborted) throw new Error('cancelled');
         if (opts.delayPerFrameMs) await new Promise((r) => setTimeout(r, opts.delayPerFrameMs));
-        if (f % 10 === 0 || f === scene.durationFrames) ctx.progress(f, scene.durationFrames);
+        if (f % 10 === 0 || f === frames) ctx.progress(f, frames);
       }
-      const colour = ctx.theme.colors.background.replace('#', '0x');
+      const size = `size=${ctx.output.width}x${ctx.output.height}:rate=${ctx.output.fps}`;
+      const source = opts.frameRanges
+        ? `nullsrc=${size},format=yuv420p,geq=lum='16+mod(N+${first}\\,40)*5':cb=128:cr=128`
+        : `color=c=${ctx.theme.colors.background.replace('#', '0x')}:${size}`;
       await run(
         ctx.tools.ffmpeg,
-        ['-hide_banner', '-y', '-f', 'lavfi', '-i', `color=c=${colour}:size=${ctx.output.width}x${ctx.output.height}:rate=${ctx.output.fps}`,
-          '-frames:v', String(scene.durationFrames), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', ctx.out],
+        ['-hide_banner', '-y', '-f', 'lavfi', '-i', source, '-frames:v', String(frames), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', ctx.out],
         'fake-render',
         { signal: ctx.signal }
       );
-      return { file: ctx.out, frames: scene.durationFrames, engineVersion: '0.0.0-test', millis: Date.now() - started };
+      return { file: ctx.out, frames, engineVersion: '0.0.0-test', millis: Date.now() - started };
     },
   };
 }

@@ -148,7 +148,13 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID, opt
       const j = jobs.get(id);
       if (j?.status === 'running') j.cancelRequestedAt ??= at;
     }
-    return { parent: plan.parent ? clone(plan.parent) : null, parentFinished: plan.parentFinished, cancelled, join: plan.join ? clone(plan.join) : null };
+    return {
+      parent: plan.parent ? clone(plan.parent) : null,
+      parentFinished: plan.parentFinished,
+      cancelled,
+      join: plan.join ? clone(plan.join) : null,
+      ...(plan.progressed ? { progressed: true } : {}),
+    };
   };
   const settle = (child: JobRecord, at: string): ChildSettlement => {
     const parent = child.parentId ? (jobs.get(child.parentId) ?? null) : null;
