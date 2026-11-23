@@ -15,7 +15,8 @@ scenes, and the server renders, assembles and checks the MP4. Nothing goes
 through a ReelForge-operated service except the licence check.
 
 This page takes you from a clean machine to a first render. It uses Docker,
-which is the tested path (Linux x64).
+which is the tested path (Linux x64; the release image is also tested on
+Linux arm64).
 
 ## What you need
 

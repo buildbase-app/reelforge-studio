@@ -7,10 +7,11 @@ you create. The agent decides the scenes; the server validates, renders with
 **Remotion**, **Motion Canvas**, **HTML/CSS** or **HyperFrames**, assembles
 one MP4 with FFmpeg and checks it. No AI provider is required.
 
-> **Status: agent platform v0.1 (experimental).** Tested on Linux x64 only.
-> MCP tool names and manifest v0.2 may change before v1.0. Not
-> production-hardened. What is done, partial and missing:
-> `docs/AGENT_PLATFORM.md` (STATUS) and `docs/STATUS.md`.
+> **Status: agent platform v0.1 (experimental).** Tested on Linux x64; the
+> release image is also built and tested on Linux arm64 in CI. MCP tool names
+> and manifest v0.2 may change before v1.0. Not production-hardened. What is
+> done, partial and missing: `docs/AGENT_PLATFORM.md` (STATUS) and
+> `docs/STATUS.md`.
 
 ## Quick start (server first)
 
@@ -48,9 +49,12 @@ this repo".
 ## What works today
 
 - **Server** (`apps/server`): REST `/v1` and MCP `/mcp` (official MCP SDK,
-  Streamable HTTP) over the same handlers; 46 MCP tools, resources (incl. a workflow guide), prompts
-  `make_reel`/`plan_reel`/`review_reel`; API keys with scopes; per-key rate limit; jobs
-  with progress (SSE), logs, cancel and retry; output download with Range.
+  Streamable HTTP) over the same handlers; <!-- mcp-tool-count -->61<!-- /mcp-tool-count --> MCP tools (generated list:
+  [docs/public/mcp/tools.md](docs/public/mcp/tools.md)), resources (incl. a workflow guide), prompts
+  `make_reel`/`plan_reel`/`review_reel`; API keys with scopes, expiry, rotation and
+  quotas; per-key rate limit; jobs with progress (SSE), logs, cancel and retry;
+  paged lists (`list_projects`, `list_jobs`, `list_assets`: `limit`, `cursor`,
+  `nextCursor`); output download with Range.
 - **Manifest v0.2** (`packages/project-schema`): brief, theme, per-scene
   `durationSeconds` or `durationFrames`, voice/music/sfx, assets, captions
   (stored, not rendered yet); v0.1 files are migrated automatically.
@@ -65,12 +69,30 @@ this repo".
 - **Providers/backends**: ElevenLabs TTS (word timestamps, cost
   acknowledgement, content-hash cache; tested with a mocked API only);
   remotion-lambda reports its configuration but does not render in v0.1.
-- **Licence**: activates with the purchase's licence key through BuildBase
-  (only the key and a random instance id are sent; daily check, 14 days
-  offline grace); without a valid licence renders are refused and everything
-  else works. `REELFORGE_LICENCE_MODE=off` for development (`pnpm dev` sets it).
+- **Licence**: activates with a licence key from BuildBase (a free Personal
+  key for noncommercial use or a paid Commercial key; only the key and a random
+  instance id are sent; daily check, 14 days offline grace; one activation per
+  deployment however many api and worker instances); without a valid licence
+  renders are refused and everything else works. `REELFORGE_LICENCE_MODE=off` for development (`pnpm dev` sets it).
   See docs/DEPLOY.md#licence.
-- **Deployment**: Dockerfile and compose (built and run here), deploy guides.
+- **Data and settings**: metadata in SQLite (default), PostgreSQL or
+  MySQL/MariaDB by `DATABASE_URL`; files on local disk, S3-compatible, Azure
+  Blob or Google Cloud Storage; one configuration schema
+  ([docs/CONFIG.md](docs/CONFIG.md), generated) with runtime changes over the API.
+- **Operations**: structured logs, Prometheus metrics and OpenTelemetry traces;
+  an audit log; signed webhooks and Slack/Discord/Teams/email notifications.
+- **Scaling** ([docs/providers/queue-and-scaling.md](docs/providers/queue-and-scaling.md)):
+  a database job queue with `api` and `worker` roles of one image; job
+  priorities (`interactive` > `standard` > `batch`) with fair claims across keys
+  and admission by estimated queue wait; queue dispatch by polling with backoff
+  or PostgreSQL LISTEN/NOTIFY (`queue.dispatch`); render fan-out over several
+  workers (`render.fanOut`: `off` by default, `scenes`, or `scenes+chunks`,
+  which also splits long Remotion scenes into frame ranges); connection pooling
+  (PgBouncer recipe) and a read replica for list reads. Load test results,
+  all lower bounds on a shared machine: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+- **Deployment**: hardened release image (amd64 and arm64) and compose (built
+  and run here), Kubernetes manifests with a KEDA autoscaling recipe (run on
+  kind), deploy guides ([docs/DEPLOY.md](docs/DEPLOY.md)).
 
 ## Licensing: read before you sell or deploy
 
@@ -82,7 +104,17 @@ this repo".
 - No fonts, music or footage are bundled. Templates use system fonts.
 - Full inventory: `LICENSES/THIRD_PARTY.md`. Network egress: `docs/PRIVACY.md`.
 
-This repository is proprietary; see `LICENSE.md`.
+ReelForge itself is **source-available**, not open source (`LICENSING.md`):
+
+- Noncommercial use (hobby, study, research, evaluation, noncommercial
+  organisations) is free under the **PolyForm Noncommercial License 1.0.0**
+  (`LICENSE.md`). The released image asks for a free Personal licence key.
+- Anything that earns money needs a paid **ReelForge Commercial License**
+  (one-time, `COMMERCIAL-LICENSE.md`, draft), sold at
+  <https://reelforge.buildbase.app/pricing>.
+- Reselling, rebranding, redistributing or hosting ReelForge for others is not
+  permitted under either licence; the name and logo are not licensed
+  (`TRADEMARK.md`). Required notices: `NOTICE`.
 
 ## Layout
 
@@ -90,9 +122,12 @@ This repository is proprietary; see `LICENSE.md`.
 apps/server/            REST + MCP server, CLI
 packages/core/          plugins, service, stores, jobs, render pipeline, providers
 packages/project-schema manifest v0.2 + migration, templates, themes
+packages/db             Prisma repositories (SQLite, PostgreSQL, MySQL), migrations
 packages/media-pipeline FFmpeg/ffprobe
 packages/engine-*       remotion, motion-canvas, html, hyperframes
-docs/                   spec, decisions, status, deploy, agents, privacy
+deployment/             compose overlays, Kubernetes + KEDA, observability, seccomp
+docs/                   spec, decisions, status, deploy, agents, privacy, tutorials
+e2e/                    Docker and Kubernetes end-to-end suites and their test services
 examples/               sample manifests
 scripts/spike.ts        standalone render
 ```

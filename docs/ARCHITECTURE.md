@@ -1,6 +1,13 @@
 # Proposed Architecture
 
-**Status:** Proposal to test, not an implemented architecture.
+**Status (2026-11-23): superseded; kept for its reasoning.** This was the
+proposal written before the build. The implemented architecture is the agent
+platform in [AGENT_PLATFORM.md](AGENT_PLATFORM.md) (D-014): a self-hosted
+server offering REST `/v1` and MCP `/mcp` over one service, where the agent
+plans the scenes and the server validates, renders with four engine plugins
+(Remotion, Motion Canvas, HTML, HyperFrames), assembles with FFmpeg and checks
+the output; no built-in planner and no web UI in v0.1. Where things stand:
+[STATUS.md](STATUS.md). Code layout: AGENTS.md, "Working in this repo".
 
 ## 1. High-level flow
 
