@@ -156,13 +156,29 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
     ...(q.lastError ? { detail: `queue ${q.lastError.operation} failing since ${q.lastError.at}: ${q.lastError.message}` } : q.paused ? { detail: q.paused } : {}),
   };
 
-  // Queue dispatch (D-105): the LISTEN connection of a `notify` worker. Reported, never required: while it is down the
-  // worker polls (queue.pollIntervalMs with backoff), so it keeps claiming; only the wake-up latency is lost.
+  // Queue dispatch (D-105): the LISTEN connection of a `notify` worker, the broker connection of an `sqs` / `redis`
+  // worker, and the outbox relay of every `sqs` / `redis` instance. Reported, never required: while the listener is down
+  // the worker polls (queue.pollIntervalMs with backoff), so it keeps claiming; while the broker refuses publishes the
+  // outbox keeps the rows and retries, and the fallback poll claims their jobs. Only the wake-up latency is lost.
   const d = q.dispatch;
+  const relay = d?.relay
+    ? {
+        relay: {
+          failing: d.relay.failing,
+          published: d.relay.published,
+          failed: d.relay.failed,
+          dropped: d.relay.dropped,
+          ...(d.relay.lastPublishedAt ? { lastPublishedAt: d.relay.lastPublishedAt } : {}),
+          ...(d.relay.lastError ? { lastError: d.relay.lastError, lastErrorAt: d.relay.lastErrorAt } : {}),
+        },
+      }
+    : {};
+  const relayDetail = d?.relay?.failing ? `publishing to ${d.driver} fails (${d.relay.lastError}); the outbox keeps the job ids and retries with backoff` : undefined;
   if (d && d.listener) {
     const l = d.listener;
+    const detail = [d.listening ? undefined : `the ${d.driver} listener is disconnected${l.lastError ? ` (${l.lastError})` : ''}; polling every ${q.dispatch!.pollMs} ms until it reconnects`, relayDetail].filter(Boolean).join('; ');
     dependencies.dispatch = {
-      status: d.listening ? 'ok' : 'error',
+      status: d.listening && !d.relay?.failing ? 'ok' : 'error',
       required: false,
       driver: d.driver,
       connected: l.connected,
@@ -172,10 +188,17 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
       received: d.received,
       duplicates: d.duplicates,
       fallbackClaims: d.fallbackClaims,
-      ...(d.listening ? {} : { detail: `the ${d.driver} listener is disconnected${l.lastError ? ` (${l.lastError})` : ''}; polling every ${q.dispatch!.pollMs} ms until it reconnects` }),
+      ...relay,
+      ...(detail ? { detail } : {}),
     };
   } else if (d) {
-    dependencies.dispatch = { status: 'ok', required: false, driver: d.driver, ...(d.driver === 'poll' ? { pollMs: d.pollMs } : { detail: 'publishes only (this instance does not claim jobs)' }) };
+    dependencies.dispatch = {
+      status: d.relay?.failing ? 'error' : 'ok',
+      required: false,
+      driver: d.driver,
+      ...relay,
+      ...(d.driver === 'poll' ? { pollMs: d.pollMs } : { detail: relayDetail ? `publishes only; ${relayDetail}` : 'publishes only (this instance does not claim jobs)' }),
+    };
   }
 
   if (obs) {

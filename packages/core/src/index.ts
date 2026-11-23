@@ -12,6 +12,7 @@ export * from './themes';
 export * from './assets';
 export * from './jobs';
 export * from './dispatch';
+export * from './dispatch-drivers';
 export * from './fanout';
 export * from './keys';
 export * from './keyStrength';

@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
-import { ReelforgeService, chromiumSandbox, effectiveQueueMode, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
+import { OutboxRelay, ReelforgeService, chromiumSandbox, createBrokerDispatch, effectiveQueueMode, isBrokerDispatch, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
 import { createNotifyListener, defaultDatabaseUrl, notifyChannel, pooledSchemaWarning, prepareDatabase, READ_REPLICA_READS, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
@@ -84,7 +84,13 @@ export async function startServer(
   const workerPool = config.resolved.config.database.workerConnectionLimit;
   // Queue dispatch (D-105): with `notify` every transaction that queues a job sends NOTIFY (api and workers alike).
   const queueCfg = config.resolved.config.queue;
-  const notify = queueCfg.dispatch === 'notify' && (opts.queue?.mode ?? effectiveQueueMode(role, queueCfg.driver)) === 'database';
+  const databaseQueue = (opts.queue?.mode ?? effectiveQueueMode(role, queueCfg.driver)) === 'database';
+  const notify = queueCfg.dispatch === 'notify' && databaseQueue;
+  // `sqs` / `redis` (D-105): job transactions write outbox rows; this instance's relay publishes them to the broker.
+  const brokerDriver = databaseQueue && isBrokerDispatch(queueCfg.dispatch) ? queueCfg.dispatch : undefined;
+  // Runtime settings (credentials, the Redis password) are read on every broker call; the service exists only later.
+  let current: (() => typeof queueCfg) | undefined;
+  const broker = brokerDriver ? createBrokerDispatch(brokerDriver, () => current?.() ?? queueCfg, { log: (level, line) => logger.log(level, line) }) : undefined;
   const { db, imported } = await prepareDatabase({
     url: config.databaseUrl,
     readUrl: config.databaseReadUrl,
@@ -94,12 +100,29 @@ export async function startServer(
     connectTimeoutSeconds: config.dbConnectTimeoutSeconds,
     log,
     ...(notify ? { readySignal: { kind: 'notify' as const, channel: notifyChannel(config.databaseUrl), announceClaimsWithinMs: Math.max(2000, queueCfg.notifyJitterMs * 4) } } : {}),
+    ...(broker ? { readySignal: { kind: 'outbox' as const } } : {}),
   });
+  const repositories = db.repositories();
+  const relay = broker
+    ? new OutboxRelay({ repo: repositories.dispatchOutbox, publisher: broker.publisher, sweepMs: queueCfg.dispatchFallbackSeconds * 1000, telemetry: obs.telemetry, log: (level, line) => logger.log(level, line) })
+    : undefined;
   // Claiming instances LISTEN on their own direct session connection (database.directUrl, else database.url).
   const listener =
     notify && role !== 'api'
       ? createNotifyListener(db, { directUrl: config.resolved.config.database.directUrl, pingMs: queueCfg.dispatchFallbackSeconds * 1000, log: (level, line) => logger.log(level, line) })
-      : undefined;
+      : broker && role !== 'api'
+        ? broker.listener(opts.queue?.workerId ? { consumer: opts.queue.workerId } : {})
+        : undefined;
+  const dispatchOverride = listener || relay
+    ? {
+        dispatch: {
+          driver: queueCfg.dispatch,
+          ...opts.queue?.dispatch,
+          ...(listener ? { listener } : {}),
+          ...(relay ? { onPublished: () => relay.kick(), relay: () => relay.status() } : {}),
+        },
+      }
+    : {};
   if (imported) {
     const { warnings, ...counts } = imported;
     log(`imported v0.1 data from ${config.dataDir}: ${JSON.stringify(counts)}${warnings.length ? ` (${warnings.length} warnings)` : ''}`);
@@ -110,7 +133,7 @@ export async function startServer(
   try {
     const registry = typeof opts.registry === 'function' ? opts.registry(providerEnv) : (opts.registry ?? createDefaultRegistry(providerEnv));
     service = await ReelforgeService.create(registry, {
-      repositories: db.repositories(),
+      repositories,
       providerEnv,
       dataDir: config.dataDir,
       cacheDir: config.cacheDir,
@@ -125,16 +148,17 @@ export async function startServer(
       now: opts.now,
       log: logger.log,
       telemetry: obs.telemetry,
-      ...(opts.queue || opts.once || listener
-        ? { queue: { ...opts.queue, ...(opts.once ? { once: true } : {}), ...(listener ? { dispatch: { driver: 'notify', ...opts.queue?.dispatch, listener } } : {}) } }
-        : {}),
+      ...(opts.queue || opts.once || listener || relay ? { queue: { ...opts.queue, ...(opts.once ? { once: true } : {}), ...dispatchOverride } } : {}),
       ...(opts.once ? { webhooks: { worker: false }, maintenance: false, storage: { ...opts.storage, sweep: false } } : {}),
     });
   } catch (e) {
+    await broker?.publisher.close?.().catch(() => undefined);
     await obs.shutdown();
     await db.close().catch(() => undefined);
     throw e;
   }
+  current = () => service.settings.current.config.queue;
+  relay?.start();
   // Runtime settings stored in the database win over the file and environment; changes apply at once.
   applyServerSettings(config, service.settings.current, null);
   const applyObservability = (resolved: typeof service.settings.current) => {
@@ -177,7 +201,9 @@ export async function startServer(
     log(
       notify
         ? `queue dispatch: notify (PostgreSQL LISTEN/NOTIFY${listener ? `; listening on ${config.resolved.config.database.directUrl ? 'database.directUrl' : 'database.url'}, fallback poll every ${queueCfg.dispatchFallbackSeconds} s` : '; this instance only publishes'})`
-        : `queue dispatch: poll (every ${queueCfg.pollIntervalMs} ms, backing off to ${queueCfg.pollMaxIntervalMs} ms when idle)`
+        : broker
+          ? `queue dispatch: ${broker.driver} (${broker.describe()}; ${listener ? `listening as consumer, fallback poll every ${queueCfg.dispatchFallbackSeconds} s` : 'this instance only publishes'}; outbox relay on this instance)`
+          : `queue dispatch: poll (every ${queueCfg.pollIntervalMs} ms, backing off to ${queueCfg.pollMaxIntervalMs} ms when idle)`
     );
   }
   log(`database: ${db.kind} ${db.displayUrl}${db.kind === 'sqlite' ? '' : ` (pool ${db.poolSize})`}`);
@@ -216,6 +242,12 @@ export async function startServer(
       }
       await service.stop();
       await service.jobs.flush();
+      // After the queue settled: rows of jobs handed back on shutdown are published before the relay stops.
+      if (relay) {
+        await relay.runOnce().catch(() => undefined);
+        await relay.stop();
+        await broker?.publisher.close?.().catch(() => undefined);
+      }
       await obs.shutdown();
       await db.close();
     },

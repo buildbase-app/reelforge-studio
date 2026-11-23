@@ -370,7 +370,8 @@ export class ReelforgeService {
         dispatch: {
           driver: cfg.queue.dispatch,
           fallbackMs: cfg.queue.dispatchFallbackSeconds * 1000,
-          jitterMs: cfg.queue.notifyJitterMs,
+          // A broker message goes to one worker: no herd to spread, so no wait before its claim.
+          jitterMs: cfg.queue.dispatch === 'notify' ? cfg.queue.notifyJitterMs : 0,
           ...config.queue?.dispatch,
         },
         workerId,

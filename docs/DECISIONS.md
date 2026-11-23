@@ -1672,7 +1672,8 @@ not Remotion Cloud Run:** Alpha and "not actively being developed" (Remotion doc
 
 **Status:** PROPOSED (2026-11-22). Extends D-075. **Step 1 built (#158, D-105):** `poll` with backoff on
 empty polls, `notify` (PostgreSQL LISTEN/NOTIFY), the generic dispatch outbox and relay, and the shared
-dispatch contract suite; SQS, Redis Streams and NATS JetStream are not built yet.\
+dispatch contract suite. **Step 2 (#158, D-105 amendment):** SQS and Redis Streams through the outbox; NATS
+JetStream is not built yet.\
 Job state, leases, fencing, attempts, quotas and history stay in the `Job` table (D-075). A
 `queue.dispatch` driver only tells workers that work is ready: `poll` (default, today's
 behaviour, with backoff on empty polls), `notify` (PostgreSQL LISTEN/NOTIFY on a direct session
@@ -2003,8 +2004,8 @@ measured idle load and queue wait: [docs/PERFORMANCE.md](PERFORMANCE.md#queue-di
 
 ### D-105 --- Dispatch wakes the normal claim; `poll` backs off; `notify` sends NOTIFY inside the job's transaction; external brokers publish through an outbox
 
-**Status:** DECIDED (reversible) for `poll` and `notify`; the outbox is built and tested, its drivers (SQS,
-Redis Streams, NATS JetStream) are follow-ups.\
+**Status:** DECIDED (reversible) for `poll` and `notify`; amended 2026-11-23 for `sqs` and `redis` (step 2 of
+#158, below); NATS JetStream is a follow-up.\
 `queue.dispatch` `poll` (default) or `notify`. **A message never chooses the job.** A worker that receives
 "job X is ready" runs the ordinary claim (class, then fairness across keys, then age; D-090, D-103), which may
 take X, another job, or nothing. *Rejected:* claiming the received id with the claim-by-id query of D-100: it
@@ -2047,3 +2048,33 @@ queue's rates (hundreds of claims per second at most), relevant at thousands. *R
 more than the id (priority, key) so workers could pre-filter: it duplicates the record and goes stale; a
 listener per process shared by its runners (fewer connections, but one worker container is one process in
 every recipe here).
+
+**Amendment 2026-11-23: `sqs` and `redis` (step 2 of #158).** `queue.dispatch` `sqs` (an SQS standard queue,
+AWS SDK v3 `@aws-sdk/client-sqs` 3.1164.0) and `redis` (a Redis Stream read through one consumer group, `ioredis`
+6.0.0) publish through the outbox above; every instance runs an `OutboxRelay`, kicked right after its own commit
+and sweeping every `queue.dispatchFallbackSeconds` for rows another instance left behind (a failed publish is
+retried at its backoff time, not at the next sweep). The rule stays: **a message wakes the ordinary claim and
+never claims "that id"**. What a broker changes: each message goes to one consumer and stays until it is
+acknowledged, so (1) no jitter and no claim announcements are needed; (2) **a message is acknowledged after the
+claim it woke, whichever job that claim took** (its own job's message if this worker holds it, else the oldest
+message that arrived before the claim; a claim that finds nothing answers every earlier message), so "one message,
+one claim" holds and nothing is left in the broker for a job that is running; *rejected:* acknowledging only the
+message whose id was claimed, which leaves a message held by a worker whose claim took a higher-priority job until
+the broker's lease ends and wakes nobody meanwhile; (3) **flow control**: a worker holds at most as many unanswered
+messages as it has free slots, and a worker with no free slot stops receiving and gives back what it holds (SQS
+visibility 0; Redis: XADD the id again and XACK the old entry in one MULTI), so messages wait in the broker, where
+an autoscaler sees them, never in a busy worker. A worker that dies after its claim and before its ack: SQS
+redelivers after `queue.sqs.visibilityTimeoutSeconds` (30), Redis consumers `XAUTOCLAIM` entries idle longer than
+`queue.redis.claimIdleSeconds` (30); the late claim is a no-op. Broker errors never fail an enqueue or a worker's
+start: the outbox keeps the rows, the worker polls (`poll` with backoff) and reconnects with backoff (0.5 s to
+30 s); `/readyz` reports the listener and the relay, never requires them. *Rejected:* refusing to start a worker
+whose broker is unreachable (as `notify` does on a failed delivery check): a broker outage would then take every
+new worker down although the database, the record, works; for `notify` the failing check is almost always a
+configuration error (a pooler), for a broker it is as often an outage. Credentials: SQS keys and the Redis password
+are runtime secrets (`_FILE`, or encrypted runtime settings) read on every call or connect, so a rotation applies
+without a restart; unset SQS keys use the AWS default chain; the Redis URL is a start-up secret (`rediss://` for
+TLS, `queue.redis.tlsCaFile`). The client speaks RESP2 (ioredis 6 defaults to RESP3) so reply shapes are the
+same on every server from 6.2. Metric labels stay bounded: driver `sqs`/`redis`; the relay counts
+`published{reason="outbox"}` and the transaction's outbox write is not counted a second time. Tested against SQS on
+LocalStack and Redis 8.4 (contract DSP-01..09, 11, BRK-01..08, server DSP-25..29); CI runs the same cases on an
+in-memory competing-consumer queue.

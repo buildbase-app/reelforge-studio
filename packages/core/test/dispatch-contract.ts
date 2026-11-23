@@ -1,8 +1,10 @@
 /**
  * The queue dispatch contract (D-105, issue #158): what every dispatch driver
  * must do, run against each one (`memory` here in core, `notify` on PostgreSQL
- * 17 in packages/db/test/dispatch.notify.test.ts; SQS, Redis Streams and NATS
- * JetStream reuse it when they are built). Ids DSP-nn are listed in
+ * 17 in packages/db/test/dispatch.notify.test.ts, the broker drivers `sqs` and
+ * `redis` and the in-memory competing-consumer queue through the outbox and
+ * its relay in dispatch.brokers.test.ts here and in packages/db; NATS
+ * JetStream reuses it when it is built). Ids DSP-nn are listed in
  * docs/providers/queue-and-scaling.md.
  *
  * A driver supplies a fixture: a job repository whose transactions send its
@@ -20,8 +22,10 @@ export interface DispatchFixture {
   listener(): DispatchListener;
   /** Cut the listener's connection the way the driver loses it in production. */
   disconnect(l: DispatchListener): Promise<void>;
-  /** Drivers that do not reconnect on their own (the memory bus): reconnect now. */
+  /** Drivers that do not reconnect on their own (the memory bus), or a cut network that comes back: reconnect now. */
   reconnect?(l: DispatchListener): void;
+  /** Outbox drivers: run after a runner committed outbox rows (kicks the fixture's relay). */
+  dispatch?: { onPublished?: () => void };
   close(): Promise<void>;
 }
 
@@ -113,7 +117,7 @@ export function dispatchContract(target: DispatchTarget, opts: { timeoutMs?: num
         heartbeatMs: 2_500,
         pollMs: o.pollMs ?? 2_000,
         pollMaxMs: o.pollMs ?? 2_000,
-        dispatch: { driver: target.driver, ...(o.listener ? { listener: o.listener } : {}), fallbackMs: o.fallbackMs ?? 60_000, jitterMs: o.jitterMs ?? 20 },
+        dispatch: { driver: target.driver, ...fixture?.dispatch, ...(o.listener ? { listener: o.listener } : {}), fallbackMs: o.fallbackMs ?? 60_000, jitterMs: o.jitterMs ?? 20 },
       },
     });
     runners.push(r);
