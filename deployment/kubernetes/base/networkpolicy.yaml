@@ -1,0 +1,122 @@
+# Network policies for the reelforge namespace (#305). Default deny in both
+# directions, then an allowlist. THIS IS AN ALLOWLIST YOU EDIT: the
+# addresses below are placeholders that fit a typical cluster (DNS in
+# kube-system, an ingress controller in "ingress-nginx", Prometheus in
+# "monitoring", the database and broker on private networks). Narrow every
+# ipBlock to the real addresses of your database, broker and storage
+# endpoint. Kubernetes NetworkPolicy matches addresses, not host names: the
+# licence server and S3 need CIDRs (or an egress gateway / FQDN policy of your
+# CNI, e.g. Cilium toFQDNs, Calico DNS policy). docs/DEPLOY.md
+# ("Network policy") lists what each rule is for and the residual risks.
+#
+# A CNI that enforces NetworkPolicy is required (Calico, Cilium, the cloud
+# providers' policy engines); without one these objects change nothing.
+#
+# 1. Deny everything that is not allowed below, for every pod in the namespace
+#    (api, worker, KEDA worker-once jobs).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: reelforge
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# 2. Every ReelForge pod: DNS, the database and the queue broker.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: reelforge-egress-shared
+  namespace: reelforge
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: reelforge }
+  policyTypes: [Egress]
+  egress:
+    # DNS: the cluster resolver only.
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # Database (PostgreSQL 5432 / MySQL 3306; PgBouncer usually 6432).
+    # EDIT: your database's address(es), e.g. 10.20.30.40/32, or a namespaceSelector for an in-cluster database.
+    - to:
+        - ipBlock: { cidr: 10.0.0.0/8 }
+        - ipBlock: { cidr: 172.16.0.0/12 }
+        - ipBlock: { cidr: 192.168.0.0/16 }
+      ports:
+        - { protocol: TCP, port: 5432 }
+        - { protocol: TCP, port: 6432 }
+        - { protocol: TCP, port: 3306 }
+    # Queue broker for queue.dispatch "redis" (6379, 6380 with TLS). "notify" uses the database
+    # connection; "sqs" is HTTPS (rule 3/4). EDIT: your broker's address, or delete if unused.
+    - to:
+        - ipBlock: { cidr: 10.0.0.0/8 }
+        - ipBlock: { cidr: 172.16.0.0/12 }
+        - ipBlock: { cidr: 192.168.0.0/16 }
+      ports:
+        - { protocol: TCP, port: 6379 }
+        - { protocol: TCP, port: 6380 }
+---
+# 3. Workers (and worker-once jobs): the storage endpoint over HTTPS, nothing else.
+#    Renders run scenes in Chromium; scene isolation already blocks their network
+#    (D-086), and this keeps a compromised render process off everything but storage.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: reelforge-worker
+  namespace: reelforge
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [reelforge] }
+      - { key: app.kubernetes.io/component, operator: In, values: [worker, worker-once] }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Prometheus scrapes /metrics (worker.yaml annotations). Kubelet probes come from the node and are allowed by most CNIs.
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+      ports:
+        - { protocol: TCP, port: 4321 }
+  egress:
+    # Storage (S3 or S3-compatible) over HTTPS. EDIT: replace 0.0.0.0/0 with your endpoint's CIDRs
+    # (an S3 VPC endpoint, the AWS ip-ranges for your region, or a namespaceSelector for in-cluster MinIO).
+    # The except list keeps private networks and the cloud metadata service (169.254.169.254) out.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 127.0.0.0/8]
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+# 4. The api: traffic from the ingress controller and Prometheus; out to storage, the
+#    licence server, and the providers / webhooks / email / OTLP endpoints you configured.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: reelforge-api
+  namespace: reelforge
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: reelforge, app.kubernetes.io/component: api }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # EDIT: the namespace (and labels) of your ingress controller or gateway.
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+      ports:
+        - { protocol: TCP, port: 4321 }
+  egress:
+    # HTTPS to public addresses: storage, the licence server (api.console.buildbase.app; only api
+    # instances call it, D-098), SQS, and the providers, webhook, email and OTLP endpoints listed in
+    # docs/PRIVACY.md. EDIT: narrow to their CIDRs, or route through an egress proxy and allow only it.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 127.0.0.0/8]
+      ports:
+        - { protocol: TCP, port: 443 }

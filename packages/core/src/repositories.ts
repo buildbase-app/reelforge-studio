@@ -625,6 +625,12 @@ export interface IdempotencyRepository {
 export interface RateLimitRepository {
   /** Count one request (or `by`) for `key` in the window starting at `windowStart`; returns the window's count including it (atomic increment). */
   hit(key: string, windowStart: string, by?: number): Promise<number>;
+  /**
+   * The per-key request limit's sliding window (#305): count one request for `key` in the window starting at
+   * `windowStart` and read, in the same statement, the count of the window starting at `previousStart`
+   * (0 when there is none). The caller weights `previous` by how much of it still overlaps the last minute.
+   */
+  slide(key: string, windowStart: string, previousStart: string): Promise<{ count: number; previous: number }>;
   /** The windows of one key that started at or after `since`, oldest first (shared statistics such as the claim counter, D-103). */
   windows(key: string, since: string): Promise<Array<{ windowStart: string; count: number }>>;
   /**

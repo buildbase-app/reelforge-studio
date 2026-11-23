@@ -137,7 +137,7 @@ export interface PrismaRepositoryOptions {
    * uses it to count and read in one round trip (#196). Database supplies it; without it the counter falls back to
    * the same statement and `SELECT LAST_INSERT_ID()` in one transaction (exact, but four round trips).
    */
-  insertId?: (sql: string, args: Array<string | number | Date>) => Promise<number>;
+  insertId?: (sql: string, args: Array<string | number | Date>) => Promise<number | bigint>;
 }
 
 export function createPrismaRepositories(prisma: PrismaClient, workspaceId: string, kind: DatabaseKind = 'sqlite', opts: PrismaRepositoryOptions = {}): Repositories {
@@ -165,6 +165,21 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       : `INSERT INTO ${tbl('RateLimitWindow')} (${rlCols}) VALUES (${ph(1)}, ${ph(2)}, ${ph(3)}, ${ph(4)})` +
         ` ON CONFLICT (${qi('workspaceId')}, ${qi('key')}, ${qi('windowStart')}) DO UPDATE SET ${qi('count')} = ${tbl('RateLimitWindow')}.${qi('count')} + excluded.${qi('count')}` +
         ` RETURNING ${qi('count')}`;
+  // The sliding window of the per-key request limit (#305): the same upsert, and the previous window's count read
+  // in the same statement. PostgreSQL and SQLite: a subquery in RETURNING (SQLite placeholders are positional, so
+  // the key is passed twice). MySQL: INSERT ... SELECT from a one-row derived table that sums the previous window;
+  // LAST_INSERT_ID carries the new count in its low 32 bits and the previous count in the high ones (the stored
+  // count is the low part alone), so one round trip still answers both.
+  const prevSql = (w: string, k: string, at: string) =>
+    `SELECT p.${qi('count')} FROM ${tbl('RateLimitWindow')} AS p WHERE p.${qi('workspaceId')} = ${w} AND p.${qi('key')} = ${k} AND p.${qi('windowStart')} = ${at}`;
+  const slideSql =
+    kind === 'mysql'
+      ? `INSERT INTO ${tbl('RateLimitWindow')} (${rlCols}) SELECT ?, ?, ?, LAST_INSERT_ID(1 + 4294967296 * d.prev) & 4294967295` +
+        ` FROM (SELECT COALESCE(SUM(p.\`count\`), 0) AS prev FROM ${tbl('RateLimitWindow')} AS p WHERE p.\`workspaceId\` = ? AND p.\`key\` = ? AND p.\`windowStart\` = ?) AS d` +
+        ` ON DUPLICATE KEY UPDATE \`count\` = LAST_INSERT_ID(${tbl('RateLimitWindow')}.\`count\` + 1 + 4294967296 * d.prev) & 4294967295`
+      : `INSERT INTO ${tbl('RateLimitWindow')} (${rlCols}) VALUES (${ph(1)}, ${ph(2)}, ${ph(3)}, 1)` +
+        ` ON CONFLICT (${qi('workspaceId')}, ${qi('key')}, ${qi('windowStart')}) DO UPDATE SET ${qi('count')} = ${tbl('RateLimitWindow')}.${qi('count')} + 1` +
+        ` RETURNING ${qi('count')}, (${kind === 'postgresql' ? prevSql('$1', '$2', '$4') : prevSql('?', '?', '?')}) AS ${qi('previous')}`;
 
   const toJob = (r: {
     id: string;
@@ -1345,12 +1360,41 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
           const [row] = (await prisma.$queryRawUnsafe(hitSql, workspaceId, key, at, by)) as Array<{ count: number | bigint }>;
           return Number(row!.count);
         }
-        if (opts.insertId) return opts.insertId(hitSql, [workspaceId, key, at, by, by]);
+        if (opts.insertId) return Number(await opts.insertId(hitSql, [workspaceId, key, at, by, by]));
         return prisma.$transaction(async (tx) => {
           await tx.$executeRawUnsafe(hitSql, workspaceId, key, at, by, by);
           const [row] = (await tx.$queryRawUnsafe('SELECT LAST_INSERT_ID() AS n')) as Array<{ n: number | bigint }>;
           return Number(row!.n);
         }, TX);
+      },
+      async slide(key, windowStart, previousStart) {
+        const at = new Date(windowStart);
+        const prev = new Date(previousStart);
+        if (kind !== 'mysql') {
+          const args = kind === 'postgresql' ? [workspaceId, key, at, prev] : [workspaceId, key, at, workspaceId, key, prev];
+          const [row] = (await prisma.$queryRawUnsafe(slideSql, ...args)) as Array<{ count: number | bigint; previous: number | bigint | null }>;
+          return { count: Number(row!.count), previous: Number(row!.previous ?? 0) };
+        }
+        const args = [workspaceId, key, at, workspaceId, key, prev];
+        const once = async () =>
+          opts.insertId
+            ? BigInt(await opts.insertId(slideSql, args))
+            : prisma.$transaction(async (tx) => {
+                await tx.$executeRawUnsafe(slideSql, ...args);
+                const [row] = (await tx.$queryRawUnsafe('SELECT LAST_INSERT_ID() AS n')) as Array<{ n: number | bigint }>;
+                return BigInt(row!.n);
+              }, TX);
+        // Under repeatable read, INSERT ... SELECT share-locks what it reads; when the previous window has no row
+        // that is a gap lock, and concurrent first requests of a key can deadlock on it. InnoDB rolls the victim's
+        // statement back whole, so it is retried (only then is a check more than one statement).
+        for (let attempt = 1; ; attempt++) {
+          try {
+            const packed = await once();
+            return { count: Number(packed & 0xffffffffn), previous: Number(packed >> 32n) };
+          } catch (e) {
+            if (attempt >= 5 || !isWriteConflict(e)) throw e;
+          }
+        }
       },
       async windows(key, since) {
         const rows = await prisma.rateLimitWindow.findMany({ where: { ...ws, key, windowStart: { gte: new Date(since) } }, orderBy: { windowStart: 'asc' }, select: { windowStart: true, count: true } });
@@ -1400,3 +1444,15 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
 }
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled']);
+
+/** A deadlock or write conflict the database resolved by rolling the statement back (MySQL 1213; Prisma P2034). */
+function isWriteConflict(e: unknown): boolean {
+  const x = e as { code?: unknown; message?: unknown; cause?: { kind?: unknown; originalCode?: unknown } } | null;
+  return Boolean(
+    x &&
+      (x.code === 'P2034' ||
+        x.cause?.kind === 'TransactionWriteConflict' ||
+        x.cause?.originalCode === '1213' ||
+        /TransactionWriteConflict|Deadlock found|write conflict/i.test(String(x.message ?? '')))
+  );
+}
