@@ -50,7 +50,7 @@ const { fakeEngine, tempDir } = await import('./helpers');
 
 describe('get_capabilities tool versions (#319)', () => {
   const { dir, cleanup } = tempDir();
-  let svc: InstanceType<typeof ReelforgeService>;
+  let svc: Awaited<ReturnType<typeof ReelforgeService.create>>;
 
   beforeAll(async () => {
     const registry = new PluginRegistry();
