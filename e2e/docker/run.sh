@@ -79,13 +79,19 @@ case "$EDITION" in release|dev) ;; *) echo "EDITION must be release or dev"; exi
 WORK=$(mktemp -d); chmod 755 "$WORK"
 cleanup() {
   docker rm -f $NAME $LIC $OTEL $MINIO $P-nobucket $RX $MAILPIT >/dev/null 2>&1 || true
-  [ "$DB" = sqlite ] && { docker network rm $NET >/dev/null 2>&1 || true; } || docker compose -p $PROJECT --profile "$DB" down -v >/dev/null 2>&1 || true
+  [ "$DB" = sqlite ] && { docker network rm $NET >/dev/null 2>&1 || true; } || compose -p $PROJECT --profile "$DB" down -v >/dev/null 2>&1 || true
   docker volume rm $VOL >/dev/null 2>&1 || true; rm -rf "$WORK"
 }
 trap cleanup EXIT
 # `docker logs X | grep -q ...` is flaky under pipefail: grep -q exits at the first
 # match, docker logs then dies of SIGPIPE (exit 141) and the pipeline fails even
 # though the line is there (CI run 44916484714). Read the whole log, then grep.
+# docker compose interpolates the whole file, and the studio service requires
+# REELFORGE_SECRET_KEY (#305). This script only starts the database services
+# from it, so compose gets a throwaway value; the studio containers below get
+# their real key from $WORK/secret/secretkey.
+compose() { REELFORGE_SECRET_KEY="${REELFORGE_SECRET_KEY:-e2e-compose-interpolation-only}" docker compose "$@"; }
+
 logs_have() { local c=$1; shift; docker logs "$c" > "$WORK/container.log" 2>&1 || true; grep -q -- "$@" "$WORK/container.log"; }
 
 if [ "$EDITION" = release ]; then
@@ -173,7 +179,7 @@ if [ "$DB" = sqlite ]; then
 else
   echo "== $DB from the compose profile"
   POSTGRES_PASSWORD=$DBPASS MYSQL_PASSWORD=$DBPASS MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16) \
-    docker compose -p $PROJECT --profile "$DB" up -d --wait "$DB"
+    compose -p $PROJECT --profile "$DB" up -d --wait "$DB"
 fi
 docker volume create $VOL >/dev/null
 echo "== mock licence server (container \"licence\")"; licence_server
@@ -368,25 +374,25 @@ echo "== licence after the restart"; PHASE=restart client licence.mjs
 [ "$(api "/v1/audit?targetId=$AUD_KEY&action=key.rotate&result=success" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["events"]))')" = 1 ] \
   && echo "✔ the audit trail survives the restart" || { echo "✘ audit trail lost after the restart"; exit 1; }
 case "$DB" in
-  postgres) n=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT count(*) FROM "Project"') ;;
-  mysql) n=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT count(*) FROM Project') ;;
+  postgres) n=$(compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT count(*) FROM "Project"') ;;
+  mysql) n=$(compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT count(*) FROM Project') ;;
   *) n=skip ;;
 esac
 [ "$n" = skip ] || { [ "$n" -ge 2 ] && echo "✔ $n projects are rows in $DB" || { echo "✘ expected projects in $DB, got $n"; exit 1; }; }
 case "$DB" in
-  postgres) aud=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc "SELECT (SELECT count(*) FROM \"AuditLog\" WHERE \"targetId\" = '$AUD_KEY'), (SELECT count(*) FROM \"IdempotencyKey\")" | tr '|' ' ') ;;
-  mysql) aud=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e "SELECT (SELECT count(*) FROM AuditLog WHERE targetId = '$AUD_KEY'), (SELECT count(*) FROM IdempotencyKey)" | tr '\t' ' ') ;;
+  postgres) aud=$(compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc "SELECT (SELECT count(*) FROM \"AuditLog\" WHERE \"targetId\" = '$AUD_KEY'), (SELECT count(*) FROM \"IdempotencyKey\")" | tr '|' ' ') ;;
+  mysql) aud=$(compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e "SELECT (SELECT count(*) FROM AuditLog WHERE targetId = '$AUD_KEY'), (SELECT count(*) FROM IdempotencyKey)" | tr '\t' ' ') ;;
   *) aud=skip ;;
 esac
 [ "$aud" = skip ] || { set -- $aud; [ "$1" -ge 4 ] && [ "$2" -ge 2 ] && echo "✔ audit entries ($1 for the rotated key) and idempotency keys ($2) are rows in $DB" || { echo "✘ unexpected AuditLog/IdempotencyKey rows in $DB: $aud"; exit 1; }; }
 case "$DB" in
-  postgres) rows=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT name, scheme, value FROM "ProviderSetting" UNION ALL SELECT key, scheme, value FROM "Setting"') ;;
-  mysql) rows=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT name, scheme, value FROM ProviderSetting UNION ALL SELECT `key`, scheme, value FROM Setting') ;;
+  postgres) rows=$(compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT name, scheme, value FROM "ProviderSetting" UNION ALL SELECT key, scheme, value FROM "Setting"') ;;
+  mysql) rows=$(compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT name, scheme, value FROM ProviderSetting UNION ALL SELECT `key`, scheme, value FROM Setting') ;;
   *) rows=skip ;;
 esac
 case "$DB" in
-  postgres) lic=$(docker compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT * FROM "LicenceState"') ;;
-  mysql) lic=$(docker compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT * FROM LicenceState') ;;
+  postgres) lic=$(compose -p $PROJECT exec -T postgres psql -U reelforge -d reelforge -tAc 'SELECT * FROM "LicenceState"') ;;
+  mysql) lic=$(compose -p $PROJECT exec -T -e MYSQL_PWD=$DBPASS mysql mysql -ureelforge reelforge -N -e 'SELECT * FROM LicenceState') ;;
   *) lic=skip ;;
 esac
 if [ "$lic" != skip ]; then
