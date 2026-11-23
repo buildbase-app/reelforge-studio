@@ -160,6 +160,7 @@ export class Database {
     if (!r) {
       r = createPrismaRepositories(this.prisma, workspaceId, this.kind, {
         schema: this.schema,
+        ...(this.kind === 'mysql' ? { insertId: (sql: string, args: Array<string | number | Date>) => mysqlInsertId(this.prisma, sql, args) } : {}),
         ...(this.readPrisma ? { read: this.readPrisma } : {}),
         ...(this.readySignal ? { readySignal: this.readySignal } : {}),
       });
@@ -243,7 +244,47 @@ async function createClient(p: ParsedDatabaseUrl): Promise<AnyPrismaClient> {
   const [{ PrismaClient }, { PrismaMariaDb }] = await Promise.all([import('./generated/mysql/client'), import('@prisma/adapter-mariadb')]);
   const url = new URL(p.driverUrl!);
   if (p.connectionLimit) url.searchParams.set('connectionLimit', String(p.connectionLimit));
-  return new PrismaClient({ adapter: new PrismaMariaDb(url.toString()) }) as unknown as AnyPrismaClient;
+  // Keep the adapter Prisma connects (same pool, same argument mapping) for mysqlInsertId.
+  const factory = new PrismaMariaDb(url.toString());
+  const slot: { adapter?: InsertIdQueryable } = {};
+  const tapped = new Proxy(factory, {
+    get(t, prop) {
+      if (prop === 'connect') {
+        return async () => {
+          const adapter = await t.connect();
+          slot.adapter = adapter as unknown as InsertIdQueryable;
+          return adapter;
+        };
+      }
+      const v = Reflect.get(t, prop, t) as unknown;
+      return typeof v === 'function' ? v.bind(t) : v;
+    },
+  });
+  const client = new PrismaClient({ adapter: tapped }) as unknown as AnyPrismaClient;
+  mysqlAdapters.set(client, slot);
+  return client;
+}
+
+/** The part of Prisma's SQL driver adapter interface (@prisma/driver-adapter-utils SqlQueryable) mysqlInsertId uses. */
+interface InsertIdQueryable {
+  queryRaw(q: { sql: string; args: unknown[]; argTypes: Array<{ scalarType: 'string' | 'int' | 'datetime'; arity: 'scalar' }> }): Promise<{ lastInsertId?: string }>;
+}
+const mysqlAdapters = new WeakMap<AnyPrismaClient, { adapter?: InsertIdQueryable }>();
+
+/**
+ * MySQL: run one statement through the adapter Prisma connected (its pool, its argument mapping, so a DATETIME is
+ * written exactly as Prisma writes it) and return the insert id of the OK packet: the value `LAST_INSERT_ID(expr)`
+ * set in that statement, without a second `SELECT LAST_INSERT_ID()` that would need the same connection, hence a
+ * transaction (#196). Prisma's raw API returns only rows or the affected-row count.
+ */
+export async function mysqlInsertId(client: AnyPrismaClient, sql: string, args: Array<string | number | Date>): Promise<number> {
+  const slot = mysqlAdapters.get(client);
+  if (!slot) throw new Error('not a MySQL client created by Database');
+  if (!slot.adapter) await client.$connect();
+  const argTypes = args.map((a) => ({ scalarType: a instanceof Date ? ('datetime' as const) : typeof a === 'number' ? ('int' as const) : ('string' as const), arity: 'scalar' as const }));
+  const r = await slot.adapter!.queryRaw({ sql, args, argTypes });
+  if (r.lastInsertId === undefined) throw new Error('MySQL returned no insert id');
+  return Number(r.lastInsertId);
 }
 
 export interface PrepareOptions {

@@ -125,16 +125,19 @@ describe.skipIf(!pgUrl)('raw SQL names its schema on PostgreSQL (#191)', () => {
       const claimed = await repos.jobs.claim({ workerId: 'w1', types: ['render'], now: now(), leaseUntil: lease(), maxRunningPerKey: 5, priorityAgingSeconds: 60 });
       expect(claimed).not.toBeNull();
       await repos.jobs.cancelTree(claimed!.id, now());
+      expect(await repos.rateLimits.hit('req_sql03', new Date(0).toISOString())).toBe(1); // the counter's upsert (#196)
       await migrationStatus(recording(db.prisma as unknown as RawClient, log), 'postgresql', MIGRATIONS.postgresql ?? [], schema);
 
       expect(log.some((s) => /FOR UPDATE SKIP LOCKED/.test(s))).toBe(true);
       expect(log.some((s) => /RateLimitWindow/.test(s))).toBe(true);
+      expect(log.some((s) => /ON CONFLICT .* DO UPDATE SET/.test(s))).toBe(true);
       expect(log.some((s) => /ApiKey/.test(s))).toBe(true);
       expect(log.some((s) => /_reelforge_migrations/.test(s))).toBe(true);
       const q = `"${schema}".`;
       const problems: string[] = [];
       for (const sql of log) {
-        for (const m of sql.matchAll(/\b(FROM|JOIN|(?<!FOR )UPDATE|INTO)\s+([^\s,()]+)/g)) {
+        // (Not UPDATE in FOR UPDATE, nor in an upsert's ON CONFLICT ... DO UPDATE SET: neither names a table.)
+        for (const m of sql.matchAll(/\b(FROM|JOIN|(?<!FOR |DO )UPDATE|INTO)\s+([^\s,()]+)/g)) {
           const target = m[2]!;
           // Not tables: the catalogue views, and FROM inside EXTRACT(... FROM ...) or a set-returning function.
           if (target.startsWith(q) || /^(information_schema\.|pg_catalog\.|unnest$)/.test(target)) continue;

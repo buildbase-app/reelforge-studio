@@ -81,7 +81,7 @@ finding 8: [full run with a total queue cap](performance/2026-11-22-shared-sandb
 | CRUD req/s, steady mix (no create, no list) | **757 req/s**, p95 129 ms, 0 errors (PgBouncer: 681 req/s, p95 143 ms) |
 | One hot key at the default 300/min | 1 230 answers/s, of which 9.6/s 2xx and 36 609 `429` in 30 s, **0 errors**: the limiter answers fast and is counted apart |
 | What limits CRUD here | the **api processes' CPU** (each at 89 to 97 % of one core), then list_projects, which was unpaginated (finding 1, fixed by #179: [before and after](#list_projects-paging-179-before-and-after)); DB CPU stayed at ~1 vCPU of 4 |
-| Statements per CRUD request | **6** (5.7 for reads): key lookup, rate-limit UPDATE + SELECT, the work, an audit row for writes |
+| Statements per CRUD request | **6** (5.7 for reads): key lookup, rate-limit UPDATE + SELECT, the work, an audit row for writes; one fewer since #196 (one rate-limit statement: [before and after](#rate-limit-counter-196-before-and-after)) |
 | 500 renders during the CRUD mix, 50 workers | **550 jobs, 0 lost, 0 duplicated**, 1 `running` event per attempt, 0 re-claims; queue wait p50/p95/p99 **213 / 463 / 637 ms** (PgBouncer 265 / 527 / 710 ms) |
 | Real short reel during the CRUD mix | succeeded on attempt 1, H.264 1080×1920, 30 frames; exactly-once still holds over all 551 jobs; queue wait 269 ms (smoke run: 7.7 s from enqueue to done, 6.9 s rendering on the worker) |
 | Claims/s, queue only (claim + fenced finish) | 10 workers **267**, 50 workers **330**, 200 workers **219** (PgBouncer 274 / 266 / 187), every job exactly once |
@@ -233,6 +233,9 @@ listed, in its order; 7 to 10 are what the run found besides.
    would save one of the ~6 statements per request (PostgreSQL and SQLite; MySQL has no
    `RETURNING`). Not changed here: it is a schema-neutral but behaviour-relevant change to the
    shared limiter.
+   **Fixed by #196:** one statement per request on every database (an upsert with `RETURNING`;
+   MySQL: `LAST_INSERT_ID(expr)`), 1 statement fewer per request in every scenario, and the count
+   is now exact under concurrency; see [before and after](#rate-limit-counter-196-before-and-after).
 3. **Audit writes:** one `AuditLog` insert per mutating request, as designed (D-055): 58
    rows/s at 58 writes/s in the full mix, mean 0.15 ms. Not a hot spot here; they are a third of
    a write request's inserts (project, version, audit).
@@ -378,6 +381,42 @@ the deployment with `limits.maxQueuedJobs`, moves from about 1 / (4 to 7 round t
 to about 1 / (2 round trips under load). The remaining hold time is those two round trips, and
 it still grows with api CPU; making it zero needs a server-side function
 (rejected in D-090).
+
+## Rate-limit counter (#196): before and after
+
+[^r]: **Conditions of every number in this section:** lower bound, shared sandbox (not dedicated).
+    The same kind of container as above (4 vCPU Intel Xeon @ 2.10 GHz, 15.7 GiB, Linux 6.18,
+    Node 22.23.5, PostgreSQL 17.12 `mirror.gcr.io/library/postgres:17` with the settings above),
+    shared with other workloads, among them other agents' builds and tests: host load average
+    **7.4 to 24.8** during the runs (column below), so throughput moved by tens of percent between
+    runs with nothing changed. Scenario (a) only, direct connections (`LOAD_SCENARIOS=a
+    LOAD_POOLERS=direct pnpm load`, otherwise the full profile: 60 s per variant, 64 connections,
+    2 api instances × `connection_limit=10`, rate limit store `database`). *Before* is `main` at
+    d83f1f6, *after* is this change; runs alternated before, after, before, after, 2026-11-23
+    05:36Z to 05:50Z. Raw results: `docs/performance/2026-11-23-shared-sandbox-196-*.json`.
+
+Each cell is run 1 / run 2. *Rate-limit SQL, mean ms* is `pg_stat_statements` mean execution
+time of the counter's statements (before: the `UPDATE` + the `SELECT`; after: the upsert).
+
+| Variant [^r] | Statements per request, before → after | req/s (all answers), before → after | p95 ms (2xx), before → after | Rate-limit SQL, mean ms, before → after | Host load (mean), before / after |
+| --- | --- | --- | --- | --- | --- |
+| `a:steady-hot-key-high-limit` (one key, same mix as below: the hot row) | **5.6 / 5.7 → 4.6 / 4.6** | 627 / 513 → 984 / 682 | 191 / 283 → 105 / 175 | 2.59 + 0.03 / 4.15 + 0.03 → 2.46 / 5.37 | 9.2 / 11.6, 17.2 / 15.5 |
+| `a:steady-many-keys` (200 keys) | **5.7 / 5.6 → 4.6 / 4.6** | 712 / 606 → 838 / 858 | 152 / 184 → 161 / 129 | 0.20 + 0.07 / 0.11 + 0.04 → 0.09 / 0.09 | 11.8 / 15.1, 12.4 / 19.6 |
+| `a:hot-key-default-limit` (one key at 300/min: mostly 429) | **3.1 / 3.0 → 2.0 / 2.0** | 724 / 1 125 → 1 312 / 918 | 242 / 218 → 146 / 165 | 6.59 + 0.03 / 3.45 + 0.03 → 4.26 / 6.08 | 11.7 / 12.7, 15.3 / 24.8 |
+| `a:many-keys` (full CRUD mix) | **5.8 / 5.8 → 4.7 / 4.7** | 636 / 555 → 804 / 657 | 175 / 243 → 138 / 184 | 0.11 + 0.04 / 0.09 + 0.03 → 0.08 / 0.10 | 7.4 / 19.1, 19.0 / 13.5 |
+
+Every run: 0 errors. What the change guarantees is the first column: **one statement fewer per
+request in every variant** (the `SELECT` of the count is gone; on a 429 the request now costs the
+key lookup and one statement). Throughput was higher after in 7 of 8 pairs, but at host loads
+between 7 and 25 on 4 vCPU the size of that difference is not attributable to the change; the
+dedicated run should measure it. On the hot row the counter statement's own time did not change
+in a way this box can show (2.5 to 5.4 ms, set by the lock wait and the host load): each
+statement still takes the row lock once and commits, and the old `SELECT` ran after that commit,
+so the lock was never held across it. What it removed is one round trip per request from the api
+process and one statement from the database, and the inexact count: the old `SELECT` could read
+the increments of later requests, so under concurrency fewer requests than the limit passed
+(LIM-12 fails on the old code on all three databases). Per-database statements and the MySQL
+measurements: [queue-and-scaling.md](providers/queue-and-scaling.md#quotas-and-rate-limits-across-instances).
 
 ## Queue dispatch (#158): poll backoff and notify
 

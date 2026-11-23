@@ -131,6 +131,13 @@ export interface PrismaRepositoryOptions {
    * every raw statement names it (#191). Ignored on SQLite and MySQL.
    */
   schema?: string | null;
+  /**
+   * MySQL only: runs one statement on the primary's pool and returns the insert id of its OK packet, which carries
+   * the value of `LAST_INSERT_ID(expr)` set by that statement (Prisma's raw API drops it). The rate-limit counter
+   * uses it to count and read in one round trip (#196). Database supplies it; without it the counter falls back to
+   * the same statement and `SELECT LAST_INSERT_ID()` in one transaction (exact, but four round trips).
+   */
+  insertId?: (sql: string, args: Array<string | number | Date>) => Promise<number>;
 }
 
 export function createPrismaRepositories(prisma: PrismaClient, workspaceId: string, kind: DatabaseKind = 'sqlite', opts: PrismaRepositoryOptions = {}): Repositories {
@@ -148,6 +155,16 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
   // (Typed against the SQLite client, which only knows Serializable; the PostgreSQL/MySQL clients take ReadCommitted.)
   const lockingTx = (kind === 'sqlite' ? TX : { ...TX, isolationLevel: 'ReadCommitted' }) as typeof TX;
   const fenceWhere = (f: JobLeaseFence) => ({ workerId: f.workerId, attempts: f.attempts, status: 'running' });
+  // Rate-limit counter (#196): one statement creates the window or adds to it and returns the new count. The row lock
+  // of the upsert makes each count returned distinct, so N concurrent hits get 1..N whatever the database.
+  // MySQL has no RETURNING: LAST_INSERT_ID(expr) puts the new count in the statement's OK packet (opts.insertId).
+  const rlCols = ['workspaceId', 'key', 'windowStart', 'count'].map(qi).join(', ');
+  const hitSql =
+    kind === 'mysql'
+      ? `INSERT INTO ${tbl('RateLimitWindow')} (${rlCols}) VALUES (?, ?, ?, LAST_INSERT_ID(?)) ON DUPLICATE KEY UPDATE \`count\` = LAST_INSERT_ID(\`count\` + ?)`
+      : `INSERT INTO ${tbl('RateLimitWindow')} (${rlCols}) VALUES (${ph(1)}, ${ph(2)}, ${ph(3)}, ${ph(4)})` +
+        ` ON CONFLICT (${qi('workspaceId')}, ${qi('key')}, ${qi('windowStart')}) DO UPDATE SET ${qi('count')} = ${tbl('RateLimitWindow')}.${qi('count')} + excluded.${qi('count')}` +
+        ` RETURNING ${qi('count')}`;
 
   const toJob = (r: {
     id: string;
@@ -1322,22 +1339,18 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
 
     rateLimits: {
       async hit(key, windowStart, by = 1) {
+        // One round trip (#196; was UPDATE, then SELECT of the count): see hitSql.
         const at = new Date(windowStart);
-        for (let i = 0; ; i++) {
-          // Atomic increment of an existing window; the first request of a window creates it.
-          const r = await prisma.rateLimitWindow.updateMany({ where: { ...ws, key, windowStart: at }, data: { count: { increment: by } } });
-          if (!r.count) {
-            try {
-              await prisma.rateLimitWindow.create({ data: { ...ws, key, windowStart: at, count: by } });
-              return by;
-            } catch (e) {
-              if (!isUniqueViolation(e) || i >= 3) throw e; // another instance created it first: increment that row
-              continue;
-            }
-          }
-          const row = await prisma.rateLimitWindow.findUnique({ where: { workspaceId_key_windowStart: { workspaceId, key, windowStart: at } }, select: { count: true } });
-          return row?.count ?? by;
+        if (kind !== 'mysql') {
+          const [row] = (await prisma.$queryRawUnsafe(hitSql, workspaceId, key, at, by)) as Array<{ count: number | bigint }>;
+          return Number(row!.count);
         }
+        if (opts.insertId) return opts.insertId(hitSql, [workspaceId, key, at, by, by]);
+        return prisma.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(hitSql, workspaceId, key, at, by, by);
+          const [row] = (await tx.$queryRawUnsafe('SELECT LAST_INSERT_ID() AS n')) as Array<{ n: number | bigint }>;
+          return Number(row!.n);
+        }, TX);
       },
       async windows(key, since) {
         const rows = await prisma.rateLimitWindow.findMany({ where: { ...ws, key, windowStart: { gte: new Date(since) } }, orderBy: { windowStart: 'asc' }, select: { windowStart: true, count: true } });

@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_WORKSPACE_ID, UNIT_JOB_TYPE, createMemoryRepositories, newId, type JobCaps, type JobRecord, type Repositories } from '@reelforge/core';
-import { Database, availableTestDatabases, createPrismaRepositories, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
+import { Database, availableTestDatabases, createPrismaRepositories, createTestDatabase, mysqlInsertId, prepareDatabase, type TestDatabase } from '../src/index';
 import type { AnyPrismaClient } from '../src/prisma-repositories';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-limits-contract-'));
@@ -40,9 +40,10 @@ const TYPES = ['render', 'preview'];
 
 /**
  * The Prisma client, recording every statement a transaction sends (raw SQL text, or "model.method" for a
- * Prisma call): how many statements an enqueue runs while it holds the cap lock (#180).
+ * Prisma call): how many statements an enqueue runs while it holds the cap lock (#180). `all`: statements outside
+ * a transaction too, and each transaction as "$transaction" (its BEGIN and COMMIT are round trips as well).
  */
-function recording(client: AnyPrismaClient, log: string[]): AnyPrismaClient {
+function recording(client: AnyPrismaClient, log: string[], all = false): AnyPrismaClient {
   const wrapTx = (tx: any) =>
     new Proxy(tx, {
       get(t, prop) {
@@ -56,7 +57,13 @@ function recording(client: AnyPrismaClient, log: string[]): AnyPrismaClient {
     });
   return new Proxy(client, {
     get(t: any, prop) {
-      if (prop === '$transaction') return (fn: any, opts?: unknown) => (typeof fn === 'function' ? t.$transaction((tx: any) => fn(wrapTx(tx)), opts) : t.$transaction(fn, opts));
+      if (prop === '$transaction') {
+        return (fn: any, opts?: unknown) => {
+          if (all) log.push('$transaction');
+          return typeof fn === 'function' ? t.$transaction((tx: any) => fn(wrapTx(tx)), opts) : t.$transaction(fn, opts);
+        };
+      }
+      if (all) return wrapTx(t)[prop];
       const v = t[prop];
       return typeof v === 'function' ? v.bind(t) : v;
     },
@@ -287,6 +294,80 @@ describe.each(targets)('resource limits contract: $name', ({ kind }) => {
       }
       await cancelAll();
     }
+  });
+
+  // Rate-limit counter (limits.rateLimitStore "database", D-078; one statement per check, #196).
+  const minute = (ms: number) => iso(Math.floor(ms / 60_000) * 60_000);
+
+  it('LIM-12 rate-limit counter: concurrent hits from two pools get every count exactly once, so exactly L of N pass a limit L', async () => {
+    let second: Database | undefined;
+    const other = kind === 'memory' || kind === 'sqlite' ? repos : (second = await Database.open({ url: testDb!.url })).repositories();
+    try {
+      const pools = [repos, other];
+      for (const fresh of [true, false]) {
+        // fresh: the window does not exist yet, so the first statements race to create it.
+        const key = `req_conc_${kind}_${seq++}`;
+        const w = minute(now);
+        if (!fresh) expect(await repos.rateLimits.hit(key, w)).toBe(1);
+        const base = fresh ? 0 : 1;
+        const counts = await Promise.all(Array.from({ length: 40 }, (_, i) => pools[i % 2]!.rateLimits.hit(key, w)));
+        expect([...counts].sort((a, b) => a - b)).toEqual(Array.from({ length: 40 }, (_, i) => base + i + 1));
+        const L = 25;
+        expect(counts.filter((c) => c <= L)).toHaveLength(L - base);
+        expect(await repos.rateLimits.windows(key, w)).toEqual([{ windowStart: w, count: base + 40 }]);
+      }
+      // `by` (the claim counter adds a batch): the counts returned are running totals.
+      const key = `req_by_${kind}_${seq++}`;
+      const totals = await Promise.all([3, 5, 7].map((by, i) => pools[i % 2]!.rateLimits.hit(key, minute(now), by)));
+      expect(Math.max(...totals)).toBe(15);
+      expect(await repos.rateLimits.windows(key, minute(now))).toEqual([{ windowStart: minute(now), count: 15 }]);
+      if (kind === 'mysql') {
+        // Without Database's insert-id hook (repositories built directly on a client): the same statement and
+        // SELECT LAST_INSERT_ID() in one transaction, just as exact.
+        const plain = createPrismaRepositories(db!.prisma, DEFAULT_WORKSPACE_ID, 'mysql');
+        const k2 = `req_plain_${seq++}`;
+        const c2 = await Promise.all(Array.from({ length: 20 }, () => plain.rateLimits.hit(k2, minute(now))));
+        expect([...c2].sort((a, b) => a - b)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+      }
+    } finally {
+      await second?.close();
+    }
+  });
+
+  it('LIM-13 rate-limit counter: a new minute starts a new window at 1; the old one keeps its count and is swept', async () => {
+    const key = `req_roll_${kind}_${seq++}`;
+    const w0 = minute(now - 120_000);
+    const w1 = iso(Date.parse(w0) + 60_000);
+    for (let i = 1; i <= 3; i++) expect(await repos.rateLimits.hit(key, w0)).toBe(i);
+    expect(await repos.rateLimits.hit(key, w1)).toBe(1);
+    expect(await repos.rateLimits.hit(key, w1)).toBe(2);
+    expect(await repos.rateLimits.hit(key, w0)).toBe(4); // a late request of the old minute still counts there
+    expect(await repos.rateLimits.windows(key, w0)).toEqual([
+      { windowStart: w0, count: 4 },
+      { windowStart: w1, count: 2 },
+    ]);
+    // The window the raw statement writes is the one Prisma reads and writes (same stored DATETIME, no second row).
+    if (db) expect(await db.prisma.rateLimitWindow.count({ where: { key } })).toBe(2);
+    expect(await repos.rateLimits.deleteOlderThan(w1)).toBeGreaterThanOrEqual(1);
+    expect(await repos.rateLimits.windows(key, w0)).toEqual([{ windowStart: w1, count: 2 }]);
+    expect(await repos.rateLimits.hit(key, w0)).toBe(1); // swept: starts over
+  });
+
+  it.skipIf(kind === 'memory')('LIM-14 rate-limit counter: one statement per check (no transaction), for a new window and an existing one', async () => {
+    const log: string[] = [];
+    const insertId = kind === 'mysql' ? (sql: string, a: Array<string | number | Date>) => (log.push(`insertId: ${sql}`), mysqlInsertId(db!.prisma, sql, a)) : undefined;
+    const r = createPrismaRepositories(recording(db!.prisma, log, true), DEFAULT_WORKSPACE_ID, kind as 'sqlite', { schema: db!.schema, ...(insertId ? { insertId } : {}) });
+    const key = `req_stmt_${kind}_${seq++}`;
+    for (const expected of [1, 2, 3]) {
+      log.length = 0;
+      expect(await r.rateLimits.hit(key, minute(now))).toBe(expected);
+      expect(log).toHaveLength(1);
+      expect(log[0]).toMatch(kind === 'mysql' ? /^insertId: INSERT INTO .*ON DUPLICATE KEY UPDATE .*LAST_INSERT_ID/ : /^INSERT INTO .*ON CONFLICT .*DO UPDATE .*RETURNING/);
+    }
+    // The recorder sees what it should: the old path (a Prisma call and a raw read) would have shown two entries.
+    log.length = 0;
+    await r.rateLimits.usage(key, minute(now));
+    expect(log).toEqual(['rateLimitWindow.findUnique']);
   });
 
   it('LIM-05 usage counters: reserve is atomic across concurrent callers, all-or-nothing, and per window', async () => {

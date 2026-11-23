@@ -1515,6 +1515,15 @@ agreement between instances; the cost (bursts at a minute boundary) is
 documented. A database outage lets requests through rather than failing them
 on the limiter (they would fail on their own database work) and logs a warning
 once a minute. Redis as a store: not built (same reasoning as D-075).
+**Amended by #196:** the counter is one statement per request instead of an
+`UPDATE` and a `SELECT`: an upsert with `RETURNING` on PostgreSQL and SQLite,
+`INSERT ... ON DUPLICATE KEY UPDATE count = LAST_INSERT_ID(count + ?)` on MySQL
+with the new count read from the statement's OK packet through the driver
+adapter Prisma connected (Prisma's raw API drops the insert id). Besides the
+round trip it makes the count exact under concurrency: the old `SELECT` could
+read later requests' increments and refuse requests that were within the
+limit. Measurements and the alternatives:
+[queue-and-scaling.md](providers/queue-and-scaling.md#quotas-and-rate-limits-across-instances).
 
 ### D-079 --- Kubernetes: a Kustomize base with api and worker Deployments; HPA on CPU and the queue depth
 
