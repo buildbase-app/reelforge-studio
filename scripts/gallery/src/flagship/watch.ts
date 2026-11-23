@@ -159,9 +159,9 @@ function screw(p,r,a){if(!vis(p,r*2))return;var x=p[0],y=p[1];var gr=g.createLin
 
 /* ---------- the movement ---------- */
 function plate(){g.save();g.fillStyle='rgba(0,0,0,.5)';g.beginPath();g.arc(6,10,PLR+4,0,TAU);g.fill();g.fillStyle=rgba(PLATE,1);g.beginPath();g.arc(0,0,PLR,0,TAU);g.fill();g.clip();
- for(var r=0;r<PROWS.length;r++){var y=PROWS[r][0];if(y+PS<vy0||y-PS>vy1)continue;var xs=PROWS[r][1],rp=new Path2D(),ed=new Path2D(),hl=new Path2D(),n=0;
-  for(var i=0;i<xs.length;i++){var x=xs[i];if(x+PS<vx0||x-PS>vx1)continue;rp.moveTo(x+PS,y);rp.arc(x,y,PS,0,TAU);ed.moveTo(x+PS*Math.cos(PI+.25),y+PS*Math.sin(PI+.25));ed.arc(x,y,PS,PI+.25,TAU-.25);hl.moveTo(x+PS*.6*Math.cos(-2.6),y+PS*.6*Math.sin(-2.6));hl.arc(x,y,PS*.6,-2.6,-1);n++}
-  if(!n)continue;g.fillStyle='rgb(58,68,86)';g.fill(rp);g.strokeStyle='rgba(14,18,28,.55)';g.lineWidth=1.4;g.stroke(ed);g.strokeStyle='rgba(190,204,224,.16)';g.lineWidth=2.4;g.stroke(hl);ELEMENTS+=n}
+ for(var r=0;r<PROWS.length;r++){var y=PROWS[r][0];if(y+PS<vy0||y-PS>vy1)continue;var xs=PROWS[r][1],rp=new Path2D(),n=0;
+  for(var i=0;i<xs.length;i++){var x=xs[i];if(x+PS<vx0||x-PS>vx1)continue;rp.moveTo(x+PS,y);rp.arc(x,y,PS,0,TAU);n++}
+  if(!n)continue;var pg=g.createLinearGradient(0,y-PS,0,y+PS);pg.addColorStop(0,'rgb(30,36,48)');pg.addColorStop(.12,'rgb(96,108,128)');pg.addColorStop(.45,'rgb(66,76,94)');pg.addColorStop(1,'rgb(40,48,62)');g.fillStyle=pg;g.fill(rp);ELEMENTS+=n}
  g.restore();g.strokeStyle='rgba(220,228,238,.35)';g.lineWidth=3;g.beginPath();g.arc(0,0,PLR-1.5,0,TAU);g.stroke();
  /* sinks and recesses under the wheels */
  [[B,rB+12],[C,rC+10],[T,rT+9],[F,rF+8],[E,RE+10],[BC,118]].forEach(function(o){if(!vis(o[0],o[1]))return;g.fillStyle='rgba(8,11,18,.42)';g.beginPath();g.arc(o[0][0],o[0][1],o[1],0,TAU);g.fill();g.strokeStyle='rgba(200,210,224,.16)';g.lineWidth=1.5/cz;g.stroke();ELEMENTS++})}
