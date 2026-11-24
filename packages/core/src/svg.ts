@@ -48,8 +48,30 @@ const DANGEROUS = /javascript:|vbscript:|data:|@import|expression\s*\(|-moz-bind
 
 /** Does this text look like an SVG document (after an optional BOM, XML declaration, comments and doctype)? */
 export function looksLikeSvg(head: Buffer | string): boolean {
+  // A linear scan, not a regex: a backtracking pattern over repeated comments is a ReDoS on untrusted uploads.
   const s = (typeof head === 'string' ? head : head.toString('utf8')).replace(/^\uFEFF/, '');
-  return /^\s*(<!--[\s\S]*?-->\s*)*(<\?xml\s|<!DOCTYPE\s+svg|<svg[\s>])/i.test(s);
+  const isSpace = (c: string | undefined) => c !== undefined && /\s/.test(c);
+  let i = 0;
+  const skipSpace = () => {
+    while (isSpace(s[i])) i++;
+  };
+  skipSpace();
+  while (s.startsWith('<!--', i)) {
+    const end = s.indexOf('-->', i + 4);
+    if (end < 0) return false;
+    i = end + 3;
+    skipSpace();
+  }
+  if (s.startsWith('<?xml', i)) return isSpace(s[i + 5]);
+  const lower = s.slice(i, i + 9).toLowerCase();
+  if (lower === '<!doctype') {
+    let j = i + 9;
+    if (!isSpace(s[j])) return false;
+    while (isSpace(s[j])) j++;
+    return s.slice(j, j + 3).toLowerCase() === 'svg';
+  }
+  if (lower.startsWith('<svg')) return s[i + 4] === '>' || isSpace(s[i + 4]);
+  return false;
 }
 
 function esc(s: string, attr: boolean): string {
@@ -112,7 +134,8 @@ export function svgSize(input: Buffer | string): { width: number; height: number
   const tag = /<svg\b[^>]*>/i.exec(text)?.[0] ?? '';
   const attr = (n: string) => new RegExp(`\\s${n}="([^"]*)"`).exec(tag)?.[1];
   const px = (v: string | undefined) => {
-    const m = v ? /^\s*([\d.]+)\s*(px)?\s*$/.exec(v) : null;
+    // Trimmed first, so the pattern has one whitespace run (no polynomial backtracking).
+    const m = v ? /^([\d.]+)\s*(?:px)?$/.exec(v.trim()) : null;
     return m ? Number(m[1]) : NaN;
   };
   const vb = (attr('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
