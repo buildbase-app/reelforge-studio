@@ -56,8 +56,9 @@ import { outputSupportIssues } from './output-support';
 
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
-import { KeyStore, quotaWindows, type AuthContext, type KeyOptions, type PublicKey, type Scope } from './keys';
-import type { AuditEntryInput, AuditFilter, JobCaps, QuotaWindow, Repositories } from './repositories';
+import { KeyStore, hasScope, quotaWindows, type AuthContext, type KeyOptions, type PublicKey, type Scope } from './keys';
+import { DEFAULT_WORKSPACE_ID, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories } from './repositories';
+import { WORKSPACE_ID, currentWorkspaceId, isWorkspaceRouter, workspaceKeyPrefix, type WorkspaceRouter } from './workspace';
 import {
   AuditLog,
   MAX_AUDIT_EXPORT,
@@ -391,7 +392,11 @@ export class ReelforgeService {
   /** FFmpeg's encoders, asked with the tool versions (get_capabilities' outputFormats, #302); null until then. */
   private encoderSet: Set<string> | null = null;
   private activatingLicence = false;
+  /** "<workspace>:<runId>" -> projectId (run ids are unique, the workspace keeps lookups inside the caller's, #304). */
   private renderIndex = new Map<string, string>();
+  private rk(runId: string): string {
+    return `${currentWorkspaceId()}:${runId}`;
+  }
   private readonly fetchImpl: typeof fetch;
   readonly telemetry: Telemetry;
 
@@ -412,6 +417,7 @@ export class ReelforgeService {
       dataDir: this.dataDir,
       cacheDir: this.cacheDir,
       activeRunIds: () => this.activeRunIds(),
+      ...(isWorkspaceRouter(config.repositories) ? { workspaces: () => (config.repositories as WorkspaceRouter).workspaceIds() } : {}),
       onSweep: (r) => this.auditCleanup(r, { actorType: 'system' }).then(() => undefined),
       log: config.log,
     });
@@ -426,8 +432,10 @@ export class ReelforgeService {
     });
     this.now = config.now ?? Date.now;
     this.auditLog = new AuditLog(this.repos.audit, { log: config.log });
+    const router = isWorkspaceRouter(this.repos) ? this.repos : null;
     this.keys = new KeyStore(this.repos.keys, {
       now: this.now,
+      ...(router ? { workspaceStatus: async (id: string) => (await router.workspace(id))?.status ?? null } : {}),
       audit: (e) => this.audit(e),
       rotationGraceHours: () => this.settings.current.config.keys.rotationGraceHours,
     });
@@ -1061,7 +1069,7 @@ export class ReelforgeService {
 
   async deleteProject(id: string) {
     await this.projects.delete(id);
-    for (const [run, pid] of this.renderIndex) if (pid === id) this.renderIndex.delete(run);
+    for (const [run, pid] of this.renderIndex) if (pid === id && run.startsWith(this.rk(''))) this.renderIndex.delete(run);
     if (!this.storage.isLocal) {
       // The local folder is gone; remove the project's renders from the bucket too (manifests first).
       const objects = await this.storage.driver.list(`${PROJECTS_PREFIX}${id}/`);
@@ -1452,11 +1460,12 @@ export class ReelforgeService {
    */
   async transcribeCaptions(id: string, input: unknown, expectedVersion?: number) {
     const t = parseInput(transcribeInput, input, 'transcribe_captions arguments');
+    // The project first (#304): a project of another workspace is not found, whatever this server's speech-to-text.
+    const { manifest } = await this.projects.get(id);
     const s = this.sttSettings();
     const plugin = this.registry.stt(t.provider ?? s.provider);
     const available = plugin.availability(s);
     if (!available.ok) throw new ApiError('stt_unavailable', 409, `speech-to-text is not available on this server: ${available.reason}`);
-    const { manifest } = await this.projects.get(id);
     const voice = manifest.audio.voice;
     if (!voice?.asset) {
       throw new ApiError('no_voice_track', 409, 'the project has no voice track to transcribe: upload the voice-over (upload_asset with projectId and assetId "voice"), set_audio { voice: { asset: "voice" } }, then call again');
@@ -1879,7 +1888,7 @@ export class ReelforgeService {
     } else {
       await joinUnits(this.fanOutDeps(), ctx);
     }
-    this.renderIndex.set(p.runId, p.projectId);
+    this.renderIndex.set(this.rk(p.runId), p.projectId);
     return { ...(await this.getRender(p.runId)) };
   }
 
@@ -1888,7 +1897,7 @@ export class ReelforgeService {
     if ((ctx.job.attempts ?? 1) > 1 && (await this.storage.renders.exists(p.projectId, p.runId).catch(() => false))) {
       // An earlier attempt committed the render, then its worker died before recording it: finish with that render.
       ctx.log(`render ${p.runId} was already committed by an earlier attempt; using it`);
-      this.renderIndex.set(p.runId, p.projectId);
+      this.renderIndex.set(this.rk(p.runId), p.projectId);
       return { ...(await this.getRender(p.runId)) };
     }
     const project = await this.projectAsRendered(p.projectId, p.version, p.variant);
@@ -1926,7 +1935,7 @@ export class ReelforgeService {
       },
       { signal: ctx.signal, log: ctx.log, progress: ctx.progress }
     );
-    this.renderIndex.set(outcome.runId, p.projectId);
+    this.renderIndex.set(this.rk(outcome.runId), p.projectId);
     const summary = await this.getRender(outcome.runId);
     return { ...summary };
   }
@@ -2072,9 +2081,9 @@ export class ReelforgeService {
    */
   private async findRender(runId: string): Promise<{ projectId: string }> {
     if (!/^(run|prv)_[a-z0-9]+$/.test(runId)) throw notFound('render', runId);
-    const pid = this.renderIndex.get(runId) ?? (await this.repos.jobs.projectOfRun(runId));
+    const pid = this.renderIndex.get(this.rk(runId)) ?? (await this.repos.jobs.projectOfRun(runId));
     if (pid && (await this.storage.renders.exists(pid, runId))) {
-      this.renderIndex.set(runId, pid);
+      this.renderIndex.set(this.rk(runId), pid);
       return { projectId: pid };
     }
     throw notFound('render', runId);
@@ -2170,13 +2179,17 @@ export class ReelforgeService {
 
   /** A time-limited link to one render file on this server that needs no API key. */
   signedDownload(runId: string, file = 'final.mp4', ttlSeconds = this.config.signedUrlTtlSeconds ?? 3600) {
-    const { expires, sig } = this.signer.sign([runId, file], ttlSeconds);
-    const q = new URLSearchParams({ ...(file !== 'final.mp4' ? { file } : {}), expires: String(expires), sig });
+    // The workspace is part of what is signed (#304): the link opens this render of this workspace and nothing else.
+    const ws = currentWorkspaceId();
+    const { expires, sig } = this.signer.sign(signedParts(ws, runId, file), ttlSeconds);
+    const q = new URLSearchParams({ ...(file !== 'final.mp4' ? { file } : {}), ...(ws !== DEFAULT_WORKSPACE_ID ? { ws } : {}), expires: String(expires), sig });
     return { downloadUrl: this.url(`/v1/renders/${runId}/output?${q}`), downloadUrlExpiresAt: new Date(expires * 1000).toISOString() };
   }
 
-  verifySignedDownload(runId: string, file: string, expires: number, sig: string): boolean {
-    return this.signer.verify([runId, file], expires, sig);
+  /** Check a signed link; `workspaceId` is its `ws` parameter (absent: the default workspace). */
+  verifySignedDownload(runId: string, file: string, expires: number, sig: string, workspaceId: string = DEFAULT_WORKSPACE_ID): boolean {
+    if (!WORKSPACE_ID.test(workspaceId)) return false;
+    return this.signer.verify(signedParts(workspaceId, runId, file), expires, sig);
   }
 
   async getRenderManifest(runId: string): Promise<unknown> {
@@ -2188,7 +2201,7 @@ export class ReelforgeService {
     await this.projects.get(projectId);
     const out: RenderSummary[] = [];
     for (const run of (await this.storage.renders.listRuns(projectId)).filter((r) => r.complete)) {
-      this.renderIndex.set(run.runId, projectId);
+      this.renderIndex.set(this.rk(run.runId), projectId);
       try {
         out.push(await this.getRender(run.runId));
       } catch {
@@ -2226,7 +2239,8 @@ export class ReelforgeService {
 
   // ---- analytics (#292) ---------------------------------------------------------
 
-  private analytics: Analytics | null = null;
+  /** One per workspace (#304): its caches (storage usage, render manifests) never serve another workspace. */
+  private analytics = new Map<string, Analytics>();
 
   /**
    * get_analytics_summary (GET /v1/analytics/summary, read): renders per day by status, success and failure rates,
@@ -2234,14 +2248,20 @@ export class ReelforgeService {
    * webhook delivery health, for a bounded range (at most 90 days by day, 7 by hour). See analytics.ts.
    */
   analyticsSummary(query: Record<string, unknown> = {}): Promise<AnalyticsSummary> {
-    this.analytics ??= new Analytics({
-      jobs: this.jobs, // the runner's page: live state of jobs running in this process, like list_jobs
-      webhooks: this.repos.webhooks,
-      storageUsage: () => this.storage.usage(),
-      readManifest: async (projectId, runId) => (await this.storage.renders.readManifest<{ scenes?: Array<{ engine?: unknown; millis?: unknown }> }>(projectId, runId)) ?? null,
-      now: () => this.now(),
-    });
-    return this.analytics.summary(query);
+    const ws = currentWorkspaceId();
+    let analytics = this.analytics.get(ws);
+    if (!analytics) {
+      analytics = new Analytics({
+        jobs: this.jobs, // the runner's page: live state of jobs running in this process, like list_jobs
+        webhooks: this.repos.webhooks,
+        // The caller's workspace only: storage.usage() adds up every workspace of the install (get_storage, owner).
+        storageUsage: () => this.storage.workspaceUsage(),
+        readManifest: async (projectId, runId) => (await this.storage.renders.readManifest<{ scenes?: Array<{ engine?: unknown; millis?: unknown }> }>(projectId, runId)) ?? null,
+        now: () => this.now(),
+      });
+      this.analytics.set(ws, analytics);
+    }
+    return analytics.summary(query);
   }
 
   /**
@@ -2260,7 +2280,7 @@ export class ReelforgeService {
     }
     const report = await this.storage.cleanup({ dryRun: opts.dryRun === true, overrides });
     if (!report.dryRun) await this.auditCleanup(report, actor ?? { actorType: 'system' });
-    for (const r of report.renders) if (!report.dryRun) this.renderIndex.delete(r.renderId);
+    for (const r of report.renders) if (!report.dryRun) this.renderIndex.delete(`${r.workspaceId ?? DEFAULT_WORKSPACE_ID}:${r.renderId}`);
     return report;
   }
 
@@ -2386,7 +2406,8 @@ export class ReelforgeService {
     }
     if (opts.projectId) await this.projects.get(opts.projectId);
     const cacheKey = provider.cacheKey?.(parsed.data);
-    const cacheFile = cacheKey ? join(this.cacheDir, 'providers', `${cacheKey}.json`) : null;
+    // Per workspace (#304): a hit points at an asset of the caller's workspace.
+    const cacheFile = cacheKey ? join(this.cacheDir, 'providers', workspaceKeyPrefix(currentWorkspaceId()), `${cacheKey}.json`) : null;
     let result: { asset: StoredAsset; data?: Record<string, unknown>; cached?: boolean } | undefined;
     if (cacheFile) {
       const hit = await readJson<{ assetId: string; data?: Record<string, unknown> }>(cacheFile);
@@ -2745,21 +2766,38 @@ export class ReelforgeService {
     ]);
     return { ...k, usage: { rendersToday, rendersThisMonth, providerRunsToday } };
   }
-  createKey(name: string, scopes: Scope[], opts: KeyOptions = {}, actor?: Actor) {
+  /**
+   * Only an owner key gives out or changes an owner key (#304): a workspace admin cannot raise a key above itself.
+   * Calls without an API key (the CLI, start-up) are the operator's and may.
+   */
+  private async guardOwnerKey(scopes: Scope[] | null, targetId?: string): Promise<void> {
+    const auth = currentRequest()?.auth;
+    if (!auth || hasScope(auth, 'owner')) return;
+    const target = targetId ? await this.keys.get(targetId) : null;
+    if ((scopes ?? []).includes('owner') || target?.scopes.includes('owner')) {
+      throw new ApiError('forbidden', 403, 'only an owner key can create or change a key with the "owner" scope');
+    }
+  }
+  async createKey(name: string, scopes: Scope[], opts: KeyOptions = {}, actor?: Actor) {
+    await this.guardOwnerKey(Array.isArray(scopes) ? scopes : null);
     return this.keys.create(name, scopes, opts, actor);
   }
-  updateKey(id: string, patch: KeyOptions & { name?: string }, actor?: Actor) {
+  async updateKey(id: string, patch: KeyOptions & { name?: string }, actor?: Actor) {
+    await this.guardOwnerKey(null, id);
     return this.keys.update(id, patch, actor);
   }
-  rotateKey(id: string, opts: { graceHours?: number } = {}, actor?: Actor) {
+  async rotateKey(id: string, opts: { graceHours?: number } = {}, actor?: Actor) {
+    await this.guardOwnerKey(null, id);
     return this.keys.rotate(id, opts, actor);
   }
-  revokeKey(id: string, actor?: Actor) {
+  async revokeKey(id: string, actor?: Actor) {
     if (actor?.actorId === id) throw new ApiError('conflict', 409, 'refusing to revoke the key used for this request; use another admin key');
+    await this.guardOwnerKey(null, id);
     return this.keys.revoke(id, actor);
   }
-  deleteKey(id: string, actor?: Actor) {
+  async deleteKey(id: string, actor?: Actor) {
     if (actor?.actorId === id) throw new ApiError('conflict', 409, 'refusing to delete the key used for this request');
+    await this.guardOwnerKey(null, id);
     return this.keys.delete(id, actor);
   }
 
@@ -2776,6 +2814,11 @@ export class ReelforgeService {
 }
 
 /** Provider word timestamps ({ word | text, start, end } in seconds) as manifest caption words; anything malformed is dropped. */
+/** What a signed download link signs: the default workspace keeps the parts of earlier versions (old links stay valid). */
+function signedParts(workspaceId: string, runId: string, file: string): string[] {
+  return workspaceId === DEFAULT_WORKSPACE_ID ? [runId, file] : [`ws:${workspaceId}`, runId, file];
+}
+
 export function voiceWords(raw: unknown): Array<{ text: string; start: number; end: number }> {
   if (!Array.isArray(raw)) return [];
   const out: Array<{ text: string; start: number; end: number }> = [];

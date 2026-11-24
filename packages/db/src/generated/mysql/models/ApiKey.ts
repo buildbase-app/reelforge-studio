@@ -777,14 +777,6 @@ export type ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput = {
   deleteMany?: Prisma.ApiKeyScalarWhereInput | Prisma.ApiKeyScalarWhereInput[]
 }
 
-export type NullableDateTimeFieldUpdateOperationsInput = {
-  set?: Date | string | null
-}
-
-export type NullableStringFieldUpdateOperationsInput = {
-  set?: string | null
-}
-
 export type ApiKeyCreateWithoutWorkspaceInput = {
   id: string
   name: string

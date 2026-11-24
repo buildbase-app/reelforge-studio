@@ -12,7 +12,9 @@ import {
   type ApiKeySecret,
   type AuditEntryInput,
   type Scope,
+  type WorkspaceStatus,
 } from './repositories';
+import { runInWorkspace } from './workspace';
 
 export { SCOPES, type ApiKeyRecord, type Scope } from './repositories';
 
@@ -27,6 +29,11 @@ export type PublicKey = Omit<ApiKeyRecord, 'salt' | 'hash' | 'prev'> & {
 
 export interface AuthContext {
   keyId: string;
+  /**
+   * The workspace the key belongs to (#304). Every call made with it reads and writes only this workspace; the
+   * service takes it from here (contextWorkspaceId), never from a request argument. Unset: the default workspace.
+   */
+  workspaceId?: string;
   name: string;
   scopes: Scope[];
   /** Per-key limits (unset: the server-wide setting / unlimited). */
@@ -40,7 +47,12 @@ export interface AuthContext {
 }
 
 /** Why a presented key was refused. `key` is set when the secret matched a known key. */
-export type AuthFailure = { ok: false; reason: 'unknown' | 'expired' | 'revoked' | 'ip_not_allowed'; key?: { id: string; name: string }; message: string };
+export type AuthFailure = {
+  ok: false;
+  reason: 'unknown' | 'expired' | 'revoked' | 'ip_not_allowed' | 'workspace_suspended';
+  key?: { id: string; name: string; workspaceId?: string };
+  message: string;
+};
 export type AuthResult = { ok: true; auth: AuthContext } | AuthFailure;
 
 /** Lifecycle options of a key (create and update_key). null clears one. */
@@ -72,6 +84,8 @@ export interface KeyStoreOptions {
   audit?: (entry: AuditEntryInput) => Promise<unknown>;
   /** keys.rotationGraceHours (read at each rotation; default 24). */
   rotationGraceHours?: () => number;
+  /** The status of a key's workspace (#304): keys of a suspended workspace are refused, of a deleted one unknown. */
+  workspaceStatus?: (workspaceId: string) => Promise<WorkspaceStatus | null>;
   now?: () => number;
 }
 
@@ -102,8 +116,13 @@ export function generateKey(): string {
   return `rf_${randomBytes(32).toString('base64url')}`;
 }
 
-export function hasScope(auth: AuthContext, scope: Scope): boolean {
-  return auth.scopes.includes('admin') || auth.scopes.includes(scope);
+/**
+ * `owner` (instance-level, #304) implies every scope; `admin` implies every scope but `owner`. An owner key still
+ * reads and writes only its own workspace's data: the owner tools manage the other workspaces themselves.
+ */
+export function hasScope(auth: Pick<AuthContext, 'scopes'>, scope: Scope): boolean {
+  if (auth.scopes.includes('owner') || auth.scopes.includes(scope)) return true;
+  return scope !== 'owner' && auth.scopes.includes('admin');
 }
 
 // ---- IP allowlists ------------------------------------------------------------
@@ -350,7 +369,10 @@ export class KeyStore {
       const current = matches(k, presented);
       const previous = !current && !!k.prev && matches(k.prev, presented);
       if (!current && !previous) continue;
-      const key = { id: k.id, name: k.name };
+      const key = { id: k.id, name: k.name, ...(k.workspaceId ? { workspaceId: k.workspaceId } : {}) };
+      const wsStatus = k.workspaceId && this.opts.workspaceStatus ? await this.opts.workspaceStatus(k.workspaceId) : 'active';
+      if (wsStatus === null || wsStatus === 'deleted') return unknown;
+      if (wsStatus === 'suspended') return { ok: false, reason: 'workspace_suspended', key, message: `the workspace of this API key (${k.workspaceId}) is suspended; ask the instance owner` };
       if (k.revokedAt) return { ok: false, reason: 'revoked', key, message: `this API key was revoked at ${k.revokedAt}` };
       if (k.expiresAt && Date.parse(k.expiresAt) <= now) return { ok: false, reason: 'expired', key, message: `this API key expired at ${k.expiresAt}` };
       if (previous && Date.parse(k.prev!.expiresAt) <= now) {
@@ -367,6 +389,7 @@ export class KeyStore {
           keyId: k.id,
           name: k.name,
           scopes: k.scopes,
+          ...(k.workspaceId ? { workspaceId: k.workspaceId } : {}),
           ...(k.rateLimitPerMinute !== undefined ? { rateLimitPerMinute: k.rateLimitPerMinute } : {}),
           ...(k.rendersPerDay !== undefined ? { rendersPerDay: k.rendersPerDay } : {}),
           ...(k.rendersPerMonth !== undefined ? { rendersPerMonth: k.rendersPerMonth } : {}),
@@ -383,7 +406,7 @@ export class KeyStore {
     const now = this.now();
     if (now - (this.lastUsedWrites.get(k.id) ?? 0) < 60_000) return;
     this.lastUsedWrites.set(k.id, now);
-    void this.repo.touch(k.id, new Date(now).toISOString()).catch(() => undefined);
+    void runInWorkspace(k.workspaceId, () => this.repo.touch(k.id, new Date(now).toISOString())).catch(() => undefined);
   }
 
   /**
@@ -395,7 +418,8 @@ export class KeyStore {
     const weak = weakKeyReason(plainKey);
     if (weak) throw new ApiError('bad_request', 400, `REELFORGE_BOOTSTRAP_KEY ${weak}`);
     if ((await this.count()) > 0) return false;
-    await this.create('bootstrap', ['admin'], { plainKey }, { actorType: 'system' });
+    // The install's first key runs the instance (#304): owner, in the default workspace.
+    await this.create('bootstrap', ['admin', 'owner'], { plainKey }, { actorType: 'system' });
     return true;
   }
 }
