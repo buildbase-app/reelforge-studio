@@ -708,3 +708,14 @@ Re-check before relying on any price, limit or date.
   behaviour, marked VERIFY in the guides): DigitalOcean App Platform and Spaces, Railway, GKE
   Autopilot's node-file restrictions, Container Apps' seccomp and `/dev/shm`, Azure user delegation
   key scope, the ADOT and Google Cloud collector exporter names.
+- **OpenMotion comparison (2026-11-24, epic #285, docs/research/OPENMOTION-COMPARISON-2026-11.md).**
+  nexu-io/openmotion read at commit `543c5002f6eebea04744927073e3e7bb873e541c` from a shallow clone
+  (https://github.com/nexu-io/openmotion, Apache-2.0; nothing run). Read: README, LICENSE, CHANGELOG,
+  `docs/hyperframes.md`, `docs/mcp-phase1-tools.md`, `docs/motion-md.md`, `docs/motion-package-spec.md`,
+  `deploy/README.md` and `deploy/k8s/`, `shared/phase1-tools.ts`, `shared/caption-style.ts`,
+  `src/infra/config.ts`, the skills under `skills/`, `library/components/registry/catalog.json`
+  (448 items, counts computed locally), `library/templates/catalog/` (287 entries) and the vendored
+  GSAP "Standard No Charge" licence text. GitHub pages read the same day as a snapshot: repository
+  page (stars shown as 15.8k, README badge 9.5k dated 2026-11-09), releases (v0.1.0 to v0.2.1,
+  17-21 Nov), issues (44 open), commits. Our pinned `hyperframes` 0.9.77 package lists `lint` and
+  `measure` commands in `dist/cli.js` (checked in `node_modules`).
