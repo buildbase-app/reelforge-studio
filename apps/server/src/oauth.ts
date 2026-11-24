@@ -14,9 +14,11 @@ import type { AuthContext, Scope } from '@reelforge/core';
  *   - Tokens: JWT (RFC 9068 profile) signed with an asymmetric key from the
  *     issuer's JWKS; `iss` must be the issuer, `aud` must contain the
  *     audience (the MCP endpoint URL, RFC 8707), `exp` in the future.
- *   - Scopes: `renderweld:read`, `renderweld:write`, `renderweld:render`, `renderweld:admin`
- *     (and the old `reelforge:*` names, #413) in `scope` (space-separated) or `scp`
- *     (array) map to RenderWeld's scopes.
+ *   - Scopes: `renderweld:read`, `renderweld:write`, `renderweld:render`, `renderweld:admin` and
+ *     `renderweld:owner` (and the old `reelforge:*` names, #413) in `scope` (space-separated)
+ *     or `scp` (array) map to RenderWeld's scopes. `renderweld:owner` (or `reelforge:owner`) is
+ *     the instance owner (configuration, licence, providers, storage, workspaces); only the
+ *     operator's authorization server decides who gets it (#304).
  */
 export interface OAuthSettings {
   /** The authorization server's issuer identifier (exact `iss`). */
@@ -33,10 +35,13 @@ export const OAUTH_SCOPES: Record<string, Scope> = {
   'renderweld:write': 'write',
   'renderweld:render': 'render',
   'renderweld:admin': 'admin',
+  // The instance owner, like an owner key: tokens act in the default workspace (the owner's), D-125.
+  'renderweld:owner': 'owner',
   'reelforge:read': 'read',
   'reelforge:write': 'write',
   'reelforge:render': 'render',
   'reelforge:admin': 'admin',
+  'reelforge:owner': 'owner',
 };
 
 export type OAuthResult = { ok: true; auth: AuthContext; subject: string } | { ok: false; error: 'invalid_token' | 'insufficient_scope'; description: string };

@@ -3014,3 +3014,63 @@ splits every operator's dashboards; a setting already), the HTTP auth realms, th
 `apps/server/test/mcp.test.ts`, `apps/server/test/rest.test.ts`, `apps/server/test/mcp-oauth.test.ts`,
 `apps/server/test/rename.test.ts`, `apps/server/test/dashboard.test.ts`, `apps/dashboard/test/unit.test.ts`.
 Reference: [RENAMED.md](RENAMED.md).
+
+## AD. Infrastructure, not a decision engine (2026-11-24, epic #285)
+
+Founder decisions on two feature notes ("features for any reel, any topic, any niche" and "the
+ready-to-use reel engine"), taken as the audit recommended. The founder asked for the items to be
+decided and filed without further questions; the issues are listed in each entry.
+
+### D-128 --- The engine ships mechanisms, never content choices; curated content is paid-pack material; `make_reel` stays a prompt
+
+**Status:** DECIDED (founder, 2026-11-24, epic #285; reversible). Number assigned at merge.\
+**Principle:** ReelForge is infrastructure. What a reel says (topic, hook, script, tone, call to
+action, music choice) is decided by the user or their AI agent. The engine offers generic
+mechanisms that help every niche and never picks for the user. A proposed feature is checked
+against this: if it would make the server choose the words, structure, templates or music, it is
+reshaped into a mechanism (a slot, a tag, a filter, a configurable check) or it belongs to the agent
+or the paid pack. **Mechanisms in the engine:** project blueprints with typed slots, create from
+a blueprint, duplicate a project (#428); labels, collections, search and version diffs (#429);
+template catalogue tags and search (#381); packs (#224 to #226); configurable checks whose
+thresholds live in config and warn by default (#388, #294). **Curated content goes to the paid pack
+(#314, #367), never the public repo or the public image:** the hook library, script structures and
+pacing rules, call-to-action wording, the curated reel blueprints (the 14 reel types of the notes),
+a large named style catalogue, the prompt cookbook per reel type, and rules for picking music by mood
+and placing sound effects. The public image keeps at most one or two neutral example blueprints and a
+few neutral themes; the public cookbook stays at tool level (#32). **`make_reel`:** stays an MCP
+prompt (guidance for the agent, which still writes every word). The one-call path is
+`create_from_blueprint` with slot values and an optional render in the same call (#428), so the
+agent, not the server, supplies the content. *Why:* a self-hosted, source-sold engine that decides
+content for one niche would fit no other; curated libraries are the part customers pay for and the
+part that dates fastest, so they ship through the versioned pack channel. *Rejected:* `make_reel`
+as a tool that goes from a topic to a finished reel (the server would choose script, templates and
+music); built-in hook, tone or CTA presets in the engine; reel types as a product category in the
+schema (templates get intent tags instead, #381). **Filed from the same audit (generic infra):**
+#430 (render credits file, built-in template versions), #431 (locale formatting, `lang` and `dir`),
+#432 (re-burn captions only), #433 (post text fields), #434 (source documents and data files), #435
+(tool profiles for small models), #436 (pan and zoom), #437 (compare, pie, table, device frames,
+chat, poll on one data input), #438 (audio analysis on the asset), #439 (voice settings, noise
+cleanup); caption entry animation on #397; a voice with text and no audio becomes a render error
+on #301.
+
+### D-129 --- Bundles and image size: an optional full image tag; no music shipped; only small licence-clean bundles
+
+**Status:** DECIDED (founder, 2026-11-24, epic #285; reversible). Number assigned at merge.\
+**Image size:** the default release image keeps its 2000 MB budget and its size check (last
+measured about 1854 MB). An optional, separately tagged **full** image (`<version>-full`, built
+from the default) may exceed it to carry local text-to-speech and the Whisper layer (D-114), each
+voice and model only after a per-item licence check (#440, #31). **Music:** none ships in any
+image. Customers bring their own tracks (with the licence recorded on the asset) or use a music
+provider plugin with their own key; there is no default provider (#400). Choosing music by mood is
+the agent's; the engine offers tags and filters. **Small bundles that fit and are licence-clean:**
+an icon set, Lucide (ISC, with Feather's MIT portion; #441); a sound-effects set of about 30 files
+under 5 MB from Kenney (CC0 1.0; #399); procedural animated backgrounds drawn in code from theme
+tokens, no files (#442). Each bundled item needs a row in `LICENSES/THIRD_PARTY.md`, which is
+maintainer-only (AGENTS.md rule 6): the implementing PR gives the exact row text and a maintainer
+adds it (the row text is drafted on #441 and #399; #442 needs no row unless a library is used).
+*Why:* the default image must stay small enough to pull and scan everywhere, while offline buyers
+still get a supported path; music redistribution rights for a paid, source-available product were
+not found for any free set, and a licensing mistake in a sold image is expensive. *Rejected:*
+raising the default budget; bundling starter music (no verified redistribution rights); Twemoji
+(CC-BY 4.0, attribution on every use) and OpenMoji (CC-BY-SA, share-alike risk) for icons or emoji;
+Pixabay audio (no standalone redistribution); Piper's `en_US-lessac` voice (research-only licence).

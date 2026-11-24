@@ -43,7 +43,7 @@ The ones most deployments set:
 | `REELFORGE_DATA_DIR` | `./data` (`/data` in Docker) | Asset and render files, caches, the URL signing key, and the SQLite database by default |
 | `DATABASE_URL` / `REELFORGE_DATABASE_URL` (`_FILE`) | `file:<data>/reelforge.db` (SQLite) | `postgresql://...` or `mysql://...` (MariaDB too). See [Database](#database) |
 | `REELFORGE_SECRET_KEY` (`_FILE`) | (none) | **Set it; the release image does not start without it** (#305). Encrypts provider keys and other secrets stored in the database (AES-256-GCM). `openssl rand -base64 32`. It also keys the seal of the stored licence state. Without it a dev build refuses to store secrets over the API. Back it up: stored secrets cannot be read without it |
-| `REELFORGE_BOOTSTRAP_KEY` (`_FILE`) | (none) | First admin API key (`rf_` + 20 or more URL-safe characters), stored hashed on first start if no key exists |
+| `REELFORGE_BOOTSTRAP_KEY` (`_FILE`) | (none) | First admin API key, stored hashed on first start if no key exists: `rf_` followed by at least 32 URL-safe characters with at least 8 distinct characters and 2.75 bits of entropy per character (`echo rf_$(openssl rand -hex 24)`); a weaker key stops the server at start |
 | `REELFORGE_HOST`, `REELFORGE_PORT` | `127.0.0.1` (`0.0.0.0` in Docker), `4321` | Bind address and port |
 | `REELFORGE_PUBLIC_URL` | (none) | `https://studio.example.com`: output links; allowed as Host on `/mcp` |
 | `REELFORGE_ALLOWED_HOSTS` | (none) | Extra host names accepted on `/mcp` (runtime-changeable) |
@@ -186,7 +186,11 @@ by a key in its JWKS (cached 10 minutes, refetched for a new `kid` at most every
 authorization server to put the MCP URL there: the RFC 8707 `resource`
 parameter MCP clients send), `exp` in the future (60 s leeway). Scopes come from
 `scope` or `scp`: `reelforge:read`, `reelforge:write`, `reelforge:render`,
-`reelforge:admin`; a token with none of them gets `403 insufficient_scope`. The
+`reelforge:admin` and `reelforge:owner`; a token with none of them gets `403
+insufficient_scope`. `reelforge:admin` administers the default workspace;
+`reelforge:owner` is the instance owner (configuration, licence, providers,
+storage, workspaces), so grant it in your authorization server only to the
+people who run the install. The
 rate limit and the audit trail count per subject (`oauth:<sub>`). API keys keep
 working on `/mcp` and are the only credential for REST. Opaque (non-JWT) tokens
 and token introspection are not supported yet. Outbound: the issuer's metadata

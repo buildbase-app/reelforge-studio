@@ -139,7 +139,7 @@ not change.
 | Old | New | Where |
 | --- | --- | --- |
 | `reelforge-studio` | `renderweld` (title `RenderWeld`) | MCP `initialize`, `/.well-known/mcp.json` and `get_capabilities` / `GET /v1/capabilities` `server.name`; the old name is listed under `aliases` |
-| `reelforge:read`, `reelforge:write`, `reelforge:render`, `reelforge:admin` | `renderweld:read`, `renderweld:write`, `renderweld:render`, `renderweld:admin` | OAuth access-token scopes on `/mcp`; both are accepted and listed in `scopes_supported` |
+| `reelforge:read`, `reelforge:write`, `reelforge:render`, `reelforge:admin`, `reelforge:owner` | `renderweld:read`, `renderweld:write`, `renderweld:render`, `renderweld:admin`, `renderweld:owner` | OAuth access-token scopes on `/mcp`; both are accepted and listed in `scopes_supported` |
 | `ReelForge-Studio-Webhooks/1` | `RenderWeld-Webhooks/1 ReelForge-Studio-Webhooks/1` | `User-Agent` of webhook and chat deliveries |
 | `ReelForge-Studio-Notifications/1` | `RenderWeld-Notifications/1 ReelForge-Studio-Notifications/1` | `User-Agent` of email API calls (Resend, Postmark, SendGrid, SES) |
 | `reelforge-studio-asset-fetch` | `RenderWeld-Asset-Fetch/1 reelforge-studio-asset-fetch` | `User-Agent` of `add_asset_from_url` downloads |

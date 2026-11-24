@@ -800,7 +800,7 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_MCP_OAUTH_ISSUER',
         example: 'https://auth.example.com/realms/studio',
         description:
-          'Turns on OAuth for `/mcp`: the issuer identifier of your authorization server, exactly as in its tokens\' `iss` (trailing slash included). `/mcp` then also accepts its JWT access tokens (asymmetric signatures, keys from its JWKS) with `reelforge:read`, `reelforge:write`, `reelforge:render` or `reelforge:admin` in `scope`/`scp`, and serves `/.well-known/oauth-protected-resource`. API keys keep working. Unset: API keys only.',
+          'Turns on OAuth for `/mcp`: the issuer identifier of your authorization server, exactly as in its tokens\' `iss` (trailing slash included). `/mcp` then also accepts its JWT access tokens (asymmetric signatures, keys from its JWKS) with `reelforge:read`, `reelforge:write`, `reelforge:render`, `reelforge:admin` or `reelforge:owner` (instance settings, workspaces) in `scope`/`scp`, and serves `/.well-known/oauth-protected-resource`. API keys keep working. Unset: API keys only.',
       }),
       audience: setting(httpUrl().optional(), {
         kind: 'url',
