@@ -87,7 +87,7 @@ telemetry).
 | Queue dispatch | `poll`, `notify`, `sqs`, `redis` | `queue.dispatch` | startup (SQS keys and Redis password runtime) | `poll` tested; `notify` on PostgreSQL 17; `sqs` on LocalStack; `redis` on Redis 8.4. Google Pub/Sub and NATS **not built** |
 | Rate-limit counters | `auto`, `memory`, `database` | `limits.rateLimitStore` | startup | tested |
 | Text-to-speech | `elevenlabs` | `providers.elevenlabs.apiKey` / `configure_provider` | runtime | stub-tested (mocked API) |
-| Speech-to-text | none on `main` | — | — | faster-whisper is in pull request #332 (not merged) |
+| Speech-to-text | `faster-whisper` (local, optional image layer `deployment/stt`) | `captions.stt.provider`, `captions.stt.*` / `update_config` | runtime | tested with the layer (D-114); not in the release image |
 | LLM, stock media, avatars, music | none | — | — | not built: the agent that calls ReelForge does the planning; ReelForge calls no model API |
 | Notification channels | `webhook`, `slack`, `discord`, `teams`, `email` | `create_webhook` `type` | runtime (per endpoint) | signed webhooks emulator-tested; chat stub-tested |
 | Email providers | `smtp`, `resend`, `postmark`, `sendgrid`, `ses` | the email endpoint's `provider`; credentials `notifications.email.*` | runtime (base URLs and SES endpoint startup) | SMTP emulator-tested (Mailpit); the rest stub-tested |
@@ -170,10 +170,10 @@ cases: [providers/queue-and-scaling.md](providers/queue-and-scaling.md).
 | Provider | Kind | Settings | Credentials | Egress | Limits |
 | --- | --- | --- | --- | --- | --- |
 | ElevenLabs (`elevenlabs`) | text-to-speech with word timestamps | `providers.elevenlabs.apiKey` (`ELEVENLABS_API_KEY`, runtime secret), or `configure_provider { "ELEVENLABS_API_KEY": "..." }` | your ElevenLabs API key | `api.elevenlabs.io`, only on `generate_voice` / `run_provider` with `acknowledgeCost: true` | `limits.providerRunsPerKeyPerDay` (500), `limits.providerRunsPerDay` (`0`: no limit; set one from your plan); identical requests served from the local cache |
+| faster-whisper (`faster-whisper`) | speech-to-text with word timings, run locally (`transcribe_captions`) | `captions.stt.provider`, `captions.stt.command`, `captions.stt.model`, `captions.stt.modelDir`, `captions.stt.language`, `captions.stt.computeType`, `captions.stt.device`, `captions.stt.timeoutSeconds` (all runtime) | none | none: the program runs offline with a pre-downloaded model (Hugging Face offline mode forced); it needs the optional `deployment/stt` image layer | `captions.stt.timeoutSeconds` (600); output capped at 16 MiB |
 
 Providers cost the operator money, so a call without `acknowledgeCost: true`
-answers `402 cost_acknowledgement_required` with the cost note. Speech-to-text
-(faster-whisper, run locally) is in pull request #332 and not on `main`. Overview:
+answers `402 cost_acknowledgement_required` with the cost note. Overview:
 [public/providers/all-providers.md](public/providers/all-providers.md).
 
 ## Notifications and email

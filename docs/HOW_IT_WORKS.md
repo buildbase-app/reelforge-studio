@@ -162,11 +162,12 @@ word timestamps and sets `audio.voice`.
 ## 8. Captions
 
 After assembly, `captionPass` (`packages/core/src/captions.ts`, D-107) builds
-cues from `captions.cues` (written or imported with `import_captions`) or from
+cues from the manifest's caption cues (written or imported with `import_captions`) or from
 the voice's word timestamps, styles them from the theme's caption tokens inside
 the platform's safe area, writes SRT, WebVTT and ASS sidecars, and with mode
 `burned` or `both` burns them in with libass. The mode comes from the manifest's
-`captions.mode` or the render's `captions` override; off by default. Caption QA
+caption mode, the render's `captions` override or the server default
+`captions.defaultMode`; off by default. Caption QA
 (line length, reading speed, gaps) is reported with the render
 ([CAPTIONS.md](CAPTIONS.md)).
 
