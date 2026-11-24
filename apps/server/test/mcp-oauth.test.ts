@@ -5,9 +5,10 @@
  * OAUTH-nn (docs/security/HARDENING.md).
  */
 import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories } from '@reelforge/core';
+import { PluginRegistry, ReelforgeService, createMemoryRepositories, createMemoryWorkspaceRepositories, runInWorkspace, type Repositories } from '@reelforge/core';
 import { createApp, loadConfig } from '../src/index';
 import { OAuthVerifier, looksLikeJwt, resourceMetadataUrl, scopesFromClaims } from '../src/oauth';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
@@ -55,7 +56,7 @@ class MockIssuer {
 
 const rpc = (method: string, params: Record<string, unknown> = {}) => JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
 
-async function setup(env: Record<string, string>, issuer?: MockIssuer) {
+async function setup(env: Record<string, string>, issuer?: MockIssuer, repositories: Repositories = createMemoryRepositories()) {
   const config = loadConfig({
     REELFORGE_DATA_DIR: join(dir, `d${Math.random().toString(36).slice(2)}`),
     REELFORGE_PUBLIC_URL: 'https://studio.example.com',
@@ -64,7 +65,7 @@ async function setup(env: Record<string, string>, issuer?: MockIssuer) {
     ...env,
   });
   const service = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), {
-    repositories: createMemoryRepositories(),
+    repositories,
     dataDir: config.dataDir,
     publicUrl: config.publicUrl,
     configSources: config.sources,
@@ -158,6 +159,40 @@ describe('MCP OAuth 2.1 resource server', () => {
     clock.t += 25_000;
     expect(await v.verify(fresh)).toMatchObject({ ok: true, subject: 'user-42', auth: { keyId: 'oauth:user-42', scopes: ['read'] } });
     expect(jwks()).toBe(2);
+  });
+
+  it('OAUTH-09 workspaces (#304): a token acts in the default workspace, never in another, and is never an owner', async () => {
+    const repos = createMemoryWorkspaceRepositories();
+    const w = await setup({ REELFORGE_MCP_OAUTH_ISSUER: ISSUER }, issuer, repos);
+    await repos.workspaces.create({ id: 'alpha', name: 'alpha', status: 'active', createdAt: new Date().toISOString() });
+    repos.invalidateWorkspaces();
+    const reel = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
+    // This server has the Remotion engine only.
+    const sample = { ...reel, projectId: 'alpha-only-oauth', scenes: reel.scenes.filter((x: { engine: string }) => x.engine === 'remotion') };
+    await runInWorkspace('alpha', () => w.service.createProject(sample));
+    const admin = issuer.token({ scope: 'reelforge:read reelforge:write reelforge:admin' });
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const r = await w.mcp(admin, 'tools/call', { name, arguments: args });
+      expect(r.status, name).toBe(200);
+      const body = (await r.json()) as { result: { isError?: boolean; content: Array<{ text: string }> } };
+      return { isError: body.result.isError, text: body.result.content[0]!.text };
+    };
+    const list = await call('list_projects');
+    expect(list.isError).toBeFalsy();
+    expect(list.text).not.toContain('alpha-only-oauth');
+    for (const name of ['get_project', 'list_renders', 'delete_project']) {
+      const r = await call(name, { projectId: 'alpha-only-oauth' });
+      expect(r.isError, name).toBe(true);
+      expect(JSON.parse(r.text).error.code, name).toBe('not_found');
+    }
+    // reelforge:admin is a workspace admin: instance settings need the owner scope, which no token carries.
+    const cfg = await call('get_config');
+    expect(JSON.parse(cfg.text).error.code).toBe('forbidden');
+    // What the token writes lands in the default workspace.
+    expect((await call('create_project', { manifest: { ...sample, projectId: 'oauth-made' } })).isError).toBeFalsy();
+    expect(await repos.forWorkspace('default').projects.get('oauth-made')).not.toBeNull();
+    expect(await repos.forWorkspace('alpha').projects.get('oauth-made')).toBeNull();
+    expect(await repos.forWorkspace('alpha').projects.get('alpha-only-oauth')).not.toBeNull();
   });
 
   it('OAUTH-06 scopes come from `scope` or `scp`; only reelforge:* values count', () => {

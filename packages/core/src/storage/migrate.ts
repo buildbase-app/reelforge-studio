@@ -10,8 +10,13 @@ export interface MigrationReport {
   failed: Array<{ key: string; error: string }>;
 }
 
-/** What a migration moves: assets and finished renders (not unfinished uploads, not project:// folders). */
-export function isMigratable(key: string): boolean {
+/** A workspace's files are under `workspaces/<id>/` with the same layout inside (#304). */
+const WORKSPACE_DIR = /^workspaces\/[a-z0-9-]+\//;
+const inWorkspace = (key: string) => key.replace(WORKSPACE_DIR, '');
+
+/** What a migration moves: assets and finished renders (not unfinished uploads, not project:// folders), of every workspace. */
+export function isMigratable(fullKey: string): boolean {
+  const key = inWorkspace(fullKey);
   if (key.startsWith(ASSETS_PREFIX)) return !/(^|\/)\.[^/]*\.tmp$/.test(key);
   const m = /^projects\/[^/]+\/renders\/([^/]+)\/[^/]/.exec(key);
   return Boolean(m && !m[1]!.startsWith(TEMP_RUN_PREFIX) && !/(^|\/)\.[^/]*\.tmp$/.test(key));
@@ -30,10 +35,10 @@ export async function migrateStorage(
   opts: { dryRun?: boolean; concurrency?: number; log?: (line: string) => void } = {}
 ): Promise<MigrationReport> {
   const report: MigrationReport = { from: from.id, to: to.id, dryRun: Boolean(opts.dryRun), copied: { objects: 0, bytes: 0 }, skipped: { objects: 0, bytes: 0 }, failed: [] };
-  const objects = [...(await from.list(ASSETS_PREFIX)), ...(await from.list(PROJECTS_PREFIX))].filter((o) => isMigratable(o.key));
-  const isManifest = (o: StorageObject) => o.key.endsWith(`/${RENDER_MANIFEST}`) && o.key.startsWith(PROJECTS_PREFIX);
+  const objects = [...(await from.list(ASSETS_PREFIX)), ...(await from.list(PROJECTS_PREFIX)), ...(await from.list('workspaces/'))].filter((o) => isMigratable(o.key));
+  const isManifest = (o: StorageObject) => o.key.endsWith(`/${RENDER_MANIFEST}`) && inWorkspace(o.key).startsWith(PROJECTS_PREFIX);
   const failedRuns = new Set<string>();
-  const runOf = (key: string) => key.split('/').slice(0, 4).join('/');
+  const runOf = (key: string) => (WORKSPACE_DIR.exec(key)?.[0] ?? '') + inWorkspace(key).split('/').slice(0, 4).join('/');
   const one = async (o: StorageObject) => {
     try {
       const existing = await to.stat(o.key);
@@ -52,7 +57,7 @@ export async function migrateStorage(
       if (report.copied.objects % 100 === 0) opts.log?.(`  ${report.copied.objects} objects copied`);
     } catch (e) {
       report.failed.push({ key: o.key, error: (e as Error).message });
-      if (o.key.startsWith(PROJECTS_PREFIX)) failedRuns.add(runOf(o.key));
+      if (inWorkspace(o.key).startsWith(PROJECTS_PREFIX)) failedRuns.add(runOf(o.key));
     }
   };
   const n = opts.concurrency ?? 4;

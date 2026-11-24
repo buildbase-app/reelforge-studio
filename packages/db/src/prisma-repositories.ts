@@ -48,6 +48,7 @@ import type { PrismaClient } from './generated/sqlite/client';
 import type { DatabaseKind } from './url';
 import { sqlNames } from './sql';
 import { createPrismaWebhookRepository } from './webhook-repository';
+import { createPrismaWorkspaceRepository } from './workspace-repository';
 
 export type AnyPrismaClient = PrismaClient;
 type Tx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$extends'>;
@@ -559,6 +560,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
   const latest = { versions: { orderBy: { version: 'desc' as const }, take: 1, select: { manifest: true } } };
 
   return {
+    workspaces: createPrismaWorkspaceRepository(prisma),
     webhooks: createPrismaWebhookRepository(prisma, workspaceId),
     dispatchOutbox: {
       async claim(now, leaseUntil, limit) {
@@ -1144,6 +1146,10 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       },
       async countByApiKey(apiKeyId, since, types) {
         return prisma.job.count({ where: { ...ws, apiKeyId, createdAt: { gte: new Date(since) }, type: { in: types } } });
+      },
+      async countSince(since, types) {
+        // Index (workspaceId, createdAt).
+        return prisma.job.count({ where: { ...ws, createdAt: { gte: new Date(since) }, type: { in: types } } });
       },
       async appendLog(jobId, at, line) {
         await prisma.jobEvent.create({ data: { ...ws, jobId, at: new Date(at), type: 'log', message: line } });

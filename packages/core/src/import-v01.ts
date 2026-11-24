@@ -111,7 +111,8 @@ export async function importFilesystemV01(repos: Repositories, dataDir: string, 
       continue;
     }
     try {
-      await repos.keys.insert(k);
+      // v0.1 admin keys ran the whole install: they keep that as the instance-level owner scope (#304).
+      await repos.keys.insert(k.scopes.includes('admin') && !k.scopes.includes('owner') ? { ...k, scopes: [...k.scopes, 'owner'] } : k);
       r.keys++;
     } catch (e) {
       if (isConflict(e)) r.skipped++;
