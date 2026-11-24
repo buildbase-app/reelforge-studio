@@ -31,8 +31,10 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> MCP tools, generated list in
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -729,6 +731,18 @@ written scope, an isolated PentAGI 2.2.0 runner without a Docker socket, the pre
 with prompts, ZAP and nuclei baselines, private findings and the release gate). New tooling: the
 real-render driver `pnpm load:real` (`scripts/load/real-render.ts`, dry run tested against an in-memory
 fake server only) and `CHECK_SINCE` for the exactly-once check.
+### Self-hosted web dashboard, part 2 (2026-11-24, issue #292)
+
+Built (D-126): analytics (renders per day by outcome, rates, render time per engine, queue wait, minutes, storage,
+top errors, webhook health) from the new read-scope `GET /v1/analytics/summary` / `get_analytics_summary` (job table
+walked with the keyset index, at most 90 days and 20 000 jobs per call; manifests and storage usage cached);
+settings (every config key grouped with its source, secrets masked, runtime keys edited with type checks from the
+new `kind`/`options`/`min`/`max`/`locked` fields of `get_config`; API keys with a one-time secret; webhooks with the
+delivery log, test, resend and secret rotation; providers and licence); the audit log viewer (filters, keyset pages,
+CSV/JSONL export fetched with the key); caption tracks and, when present, loudness results on the render page.
+JS + CSS 25.4 KB gzip. Tests: `packages/core/test/analytics.test.ts`, `apps/server/test/analytics.test.ts`,
+`apps/dashboard/test/admin.e2e.test.ts` (axe 0 violations, light, dark, 360 px; a read key cannot edit). Not yet:
+brand kits in settings, workspace-scoped views (#304).
 
 ## 4. Infrastructure inventory (no secrets)
 

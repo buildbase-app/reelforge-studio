@@ -1,9 +1,12 @@
-import { Api, HttpError, type Me } from './api';
+import { Api, HttpError, can, type Me } from './api';
 import { fill, h, mark } from './dom';
 import { scopeText } from './format';
+import { analyticsView } from './views/analytics';
+import { auditView } from './views/audit';
 import { jobView, jobsView } from './views/jobs';
 import { libraryView, renderView } from './views/library';
 import { loginView } from './views/login';
+import { configView, keysView, providersView, webhookView, webhooksView } from './views/settings';
 
 /** What every view gets: the API with the signed-in key, and what that key may do. */
 export interface Ctx {
@@ -12,6 +15,8 @@ export interface Ctx {
   /** The key has the render scope (or admin): it may cancel and retry. */
   canRender: boolean;
   isAdmin: boolean;
+  /** Whether the key has a scope, as the server decides it (admin implies the others; owner implies all). */
+  can(scope: string): boolean;
   /** Call from a view's catch: true when the key stopped working (the person is signed out). */
   authLost(e: unknown): boolean;
 }
@@ -62,6 +67,9 @@ function buildShell(me: Me): NonNullable<typeof shell> {
   const nav = {
     jobs: h('a', { href: '#/jobs' }, 'Jobs'),
     library: h('a', { href: '#/library' }, 'Library'),
+    analytics: h('a', { href: '#/analytics' }, 'Analytics'),
+    settings: h('a', { href: '#/settings' }, 'Settings'),
+    audit: h('a', { href: '#/audit' }, 'Audit log'),
   };
   const main = h('main', { id: 'main', class: 'main' });
   fill(
@@ -71,7 +79,7 @@ function buildShell(me: Me): NonNullable<typeof shell> {
       'header',
       { class: 'top' },
       h('a', { class: 'brand', href: '#/jobs' }, mark(20), h('span', null, 'ReelForge Studio')),
-      h('nav', { class: 'nav', 'aria-label': 'Dashboard' }, nav.jobs, nav.library),
+      h('nav', { class: 'nav', 'aria-label': 'Dashboard' }, Object.values(nav)),
       h(
         'div',
         { class: 'who' },
@@ -84,12 +92,20 @@ function buildShell(me: Me): NonNullable<typeof shell> {
   return { main, nav };
 }
 
-const ROUTES: Array<[RegExp, View, 'jobs' | 'library']> = [
+type Section = 'jobs' | 'library' | 'analytics' | 'settings' | 'audit';
+const ROUTES: Array<[RegExp, View, Section]> = [
   [/^#\/jobs\/([\w-]+)$/, jobView, 'jobs'],
   [/^#\/jobs$/, jobsView, 'jobs'],
   [/^#\/library\/([\w-]+)$/, libraryView, 'library'],
   [/^#\/library$/, libraryView, 'library'],
   [/^#\/renders\/([\w-]+)$/, renderView, 'library'],
+  [/^#\/analytics$/, analyticsView, 'analytics'],
+  [/^#\/settings$/, configView, 'settings'],
+  [/^#\/settings\/keys$/, keysView, 'settings'],
+  [/^#\/settings\/webhooks$/, webhooksView, 'settings'],
+  [/^#\/settings\/webhooks\/([\w-]+)$/, webhookView, 'settings'],
+  [/^#\/settings\/providers$/, providersView, 'settings'],
+  [/^#\/audit$/, auditView, 'audit'],
 ];
 
 function route(message?: string): void {
@@ -115,8 +131,9 @@ function route(message?: string): void {
   const ctx: Ctx = {
     api,
     me,
-    canRender: me.scopes.includes('render') || me.scopes.includes('admin'),
-    isAdmin: me.scopes.includes('admin'),
+    canRender: can(me.scopes, 'render'),
+    isAdmin: can(me.scopes, 'admin'),
+    can: (scope) => can(me.scopes, scope),
     authLost: (e) => {
       if (e instanceof HttpError && e.status === 401) {
         signOut(`Signed out: ${e.message}`);

@@ -80,3 +80,48 @@ export function scopeText(scopes: string[]): string {
   if (scopes.length === 1 && scopes[0] === 'read') return 'read only';
   return scopes.join(', ');
 }
+
+/** 0.925 -> "92.5 %"; null (nothing to divide) -> "–". */
+export function rate(r: number | null | undefined): string {
+  if (r === null || r === undefined || !Number.isFinite(r)) return '–';
+  const p = r * 100;
+  return `${Math.abs(p - Math.round(p)) < 1e-9 ? p.toFixed(0) : p.toFixed(1)} %`;
+}
+
+/** Milliseconds or null -> a duration or "–". */
+export function ms(v: number | null | undefined): string {
+  return v === null || v === undefined ? '–' : duration(v);
+}
+
+/** 1234 -> "1,234". */
+export function count(n: number): string {
+  return n.toLocaleString('en-GB');
+}
+
+const UTC_DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const UTC_DAY_LONG = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const UTC_HOUR = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+
+/** A bucket start as an axis label: "24 Nov" (day) or "15:00" (hour), UTC like the buckets. */
+export function bucketLabel(iso: string, bucket: 'day' | 'hour'): string {
+  const d = new Date(iso);
+  return bucket === 'day' ? UTC_DAY.format(d) : UTC_HOUR.format(d);
+}
+
+/** A bucket start as a heading: "Tue, 24 Nov 2026" or "Tue, 24 Nov 2026, 15:00 UTC". */
+export function bucketTitle(iso: string, bucket: 'day' | 'hour'): string {
+  const d = new Date(iso);
+  return bucket === 'day' ? UTC_DAY_LONG.format(d) : `${UTC_DAY_LONG.format(d)}, ${UTC_HOUR.format(d)} UTC`;
+}
+
+/** "limits.rateLimitPerMinute" group "limits" -> "Limits"; "observability" -> "Observability". */
+export function groupTitle(group: string): string {
+  const words = group.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** A short latency: "12 ms" under a second, then like duration(). */
+export function latency(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return '–';
+  return v < 1000 ? `${Math.round(v)} ms` : duration(v);
+}
