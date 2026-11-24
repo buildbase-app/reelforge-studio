@@ -64,6 +64,10 @@ export interface EngineRenderContext {
   tools: Tools;
   /** Assets referenced by the project, already on local disk. */
   assets: ReadonlyMap<string, ResolvedAsset>;
+  /**
+   * Cancellation (job cancel, render timeout). It may already be aborted when render() is called: check
+   * `signal.aborted` first, then listen for 'abort'; pass it to child processes (spawn's `signal` option does both).
+   */
   signal: AbortSignal;
   progress(framesDone: number, framesTotal: number): void;
   log: Logger;

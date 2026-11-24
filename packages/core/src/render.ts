@@ -141,6 +141,9 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
   if (input.alpha && engine.capabilities?.().output?.alpha !== true) throw new PipelineError(stage, `engine "${scene.engine}" cannot render a transparent background`);
   const frames = range ? range[1] - range[0] + 1 : scene.durationFrames;
   await mkdir(workDir, { recursive: true });
+  // A cancel can land while the line above awaits: never hand an engine a signal that is already aborted (an engine
+  // that only listens for the abort event would never hear it and run until the render timeout; #345).
+  if (input.signal.aborted) throw new PipelineError(stage, 'cancelled');
   log(`${stage}: ${scene.engine}/${scene.template ?? 'html'} ${frames} frames${range ? ` (frames ${range[0]}-${range[1]} of ${scene.durationFrames})` : ''} at ${output.width}x${output.height}`);
   const engineAttrs = { 'reelforge.engine': scene.engine };
   const sceneStarted = Date.now();
