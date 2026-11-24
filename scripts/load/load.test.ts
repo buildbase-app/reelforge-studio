@@ -71,6 +71,9 @@ describe.skipIf(!process.env.TEST_POSTGRES_URL)('exactly-once check (PostgreSQL)
       );
       const bad = await exactlyOnce(t.url, { expectedIds: ids });
       expect(bad).toMatchObject({ jobs: 5, lost: 1, unexpected: 1, duplicated: 1, runningEventsNotEqualAttempts: 1, ok: false });
+      // createdSince (CHECK_SINCE): only jobs created since then count, so earlier runs in the same database are not "unexpected".
+      expect((await exactlyOnce(t.url, { createdSince: '1970-01-01T00:00:00Z' })).jobs).toBe(5);
+      expect((await exactlyOnce(t.url, { createdSince: new Date(Date.now() + 60_000).toISOString() })).jobs).toBe(0);
     } finally {
       await db.close();
       await t.drop();

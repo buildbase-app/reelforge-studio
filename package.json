@@ -32,6 +32,7 @@
     "test:capture": "node --test scripts/capture/*.test.mjs",
     "load": "node --import tsx scripts/load/run.ts",
     "load:smoke": "LOAD_PROFILE=smoke node --import tsx scripts/load/run.ts",
+    "load:real": "node --import tsx scripts/load/real-render.ts",
     "test:load": "vitest run --dir scripts/load",
     "formats:prove": "tsx scripts/formats/prove.ts"
   },
