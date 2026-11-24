@@ -2463,3 +2463,144 @@ larger bundle to audit under the CSP); Preact (small, but not needed at this siz
 exists); one job's page follows `GET /v1/jobs/:id/events` and polls its fan-out units (`?parentId=`). About 20
 requests a minute per open page, well inside the default 300 per key. **Split:** part 1 is sign-in, jobs and the
 library; analytics (aggregates the API does not offer yet), settings and the audit log viewer come in part 2.
+
+## Scale hot spots from the live load test (2026-11-23, issue #307)
+
+Section letter and decision number are assigned at merge (D-110 is taken; D-111..D-114 are claimed by open pull requests).
+Measurements, sizing and how to scale: [SCALE.md](SCALE.md); the load-test results:
+[PERFORMANCE.md](PERFORMANCE.md#queue-depth-encoder-memory-and-backpressure-307).
+
+### D-117 --- The claim is planned from a claim index; encoder memory is bounded by default; an overloaded api answers 503 with Retry-After
+
+**Status:** DECIDED (reversible). Number assigned at merge.\
+**Claim plan.** The fair claim (D-090, D-103) used to run a `GROUP BY (apiKeyId, priority)` over every queued job
+on every claim, reading each row from the table. Its cost grew with the queue: on PostgreSQL 17 it was the most
+expensive statement of the Track B load test, and at 20,000 queued jobs it cost 27–43 ms of database time per
+claim; on MySQL 8.4, 520–680 ms (about 43,000–47,000 rows examined per claim). Migration `0013_claim_index` adds
+`Job_claim_idx(workspaceId, queue, status, apiKeyId, priority, createdAt)`. The plan becomes one statement, read
+outside the claim's transaction, and an empty plan (an idle poll) opens no transaction:
+
+- **PostgreSQL** has two exact plans and picks the cheaper one. The `GROUP BY` costs about 1.7 µs per queued job.
+  A recursive skip scan costs one index descent, 35–66 µs, per (key, class) with queued jobs. The `GROUP BY` also
+  counts the jobs, and the skip scan is used while the queue holds more than 32 jobs per (key, class). The choice
+  is checked again every 100 claims or 30 s.
+- **MySQL** cannot seek on an outer reference inside a recursive step (each step read the whole queue, measured),
+  and does not use a loose index scan for this `GROUP BY`, even with `GROUP_INDEX`. It groups the claim index
+  itself, which covers the query. `type` does not fit in that index (MySQL's 3,072-byte key limit), so the age
+  of a (key, class) is the age of its oldest job of any type, which is a lower bound. The lock step reads the
+  oldest job of the worker's types first and re-ranks that (key, class) when that job is younger (a lazy priority
+  queue), so the order stays exact (PRI-10, PRI-12).
+
+The lock step is unchanged (`FOR UPDATE SKIP LOCKED`, MySQL one candidate at a time by primary key, #168, #171),
+and so are leases, fencing and exactly-once (SCL-01..21, QUE-*, PRI-01..12 on SQLite, PostgreSQL 17 and
+MySQL 8.4). *Rejected:*
+
+- Materialised per-key counters or head rows: every path that queues, claims, cancels, re-queues or hands back a
+  job would have to keep them right, and one missed path starves a key (the reason D-090 rejected counter rows).
+  The index heals itself.
+- A per-tenant round-robin cursor: it would replace "fewest running jobs first", a semantic change to D-090.
+- Skip scan alone: with 200 keys and three classes it was slower than the old `GROUP BY` at 5,000, 10,000 and
+  20,000 queued jobs (measured, rep 1); with 20 keys it was 3 to 11 times faster.
+- `type` in the index: it does not fit on MySQL, and on PostgreSQL the lock step would lose its age order across
+  types.
+
+**Encoder memory.** x264 with automatic threads (1.5 per core) and the `medium` preset's 40-frame lookahead peaked
+at 607 MB for a 1080x1920 encode on 4 vCPU, and it grows with the node's core count, not with the video.
+`render.encoderThreads` (default 2) and `render.encoderLookahead` (default 20) are runtime settings, applied in the
+media pipeline to every H.264 encode of the process: the engines' PNG pipe, assembly, and fan-out normalising.
+Captions burn-in keeps the bounded defaults until #332 lands. The thread count does not change the encoded video
+(byte-identical output, measured). The lookahead lowered SSIM against the source frames from 0.99972 to 0.99965
+and PSNR from 58.8 to 57.6 dB, with 7 % smaller files (1080x1920). Neither setting changes the stream format, so
+fan-out clips still join by stream copy (ENC-02). The preset and `-tune` are not exposed: both change the stream
+parameters (references, B-frames), which would break stream-copy joins between workers with different values,
+and the preset trades quality for speed rather than memory. Frames stay PNG on the pipe: raw RGBA at 1080x1920 is
+8 MB a frame, about 100 times more pipe traffic, for no memory gain in FFmpeg.
+
+**Backpressure.** Under the Track B burst (5,000 renders in 30 s, 200 workers on the same host), each api instance
+queued every request behind its 10-connection database pool with no bound. 3.1–3.5 % of CRUD calls failed: client
+timeouts after 10 s, and 500s when Prisma could not start a transaction within its 10 s wait for a connection
+(the api logs: "Unable to start a transaction in the given time"). Each instance now:
+
+- keeps at most `limits.maxInflightRequests` (default 64, runtime) requests in progress. One more waits up to
+  `limits.inflightWaitMs` (3 s) for a slot, first come first served, then gets `503 overloaded` with
+  `Retry-After: 1`. Health, readiness, metrics, long-polls and event streams are not counted;
+- turns a pool or transaction-start timeout into the same 503 instead of a 500.
+
+The guard wraps the server's fetch callback (`apps/server/src/overload.ts`), outside the routes, so auth and rate
+limits are unchanged. *503, not 429:* 429 means "this key sent too many" (D-078); overload is the server's state,
+the same for every key. *Why a short wait, then 503:* refusing at once (the first version, cap 256) left
+requests waiting inside Prisma's pool queue anyway, and refused a well-behaved client's renders in a burst
+that a few seconds would have absorbed (measured: [SCALE.md](SCALE.md#backpressure-the-api-tier)). A small
+cap near the pool's capacity keeps the queue in front of the pool, where its wait is bounded. *Rejected:* a
+separate pool for enqueues. It would not have helped, because the burst was
+of enqueues, and it would add connections the pooler sizing of D-104 has to count.
+
+### D-116 --- Audio: one PCM mix per render, two-pass loudnorm to a preset (social -14 LUFS / -2 dBTP by default), checked after the AAC encode; ducking by volume automation from speech segments
+
+**Status:** DECIDED (reversible). Number assigned at merge (D-110 to D-114 are claimed by open pull requests).\
+Renders came out at about -10 LUFS with true peaks above 0 dBFS, which clips after platform transcoding, and
+`music.ducking` was stored but not applied (#301). Now the audio is mixed **once over the whole timeline** into
+48 kHz float PCM (music padded and faded, voice and sfx with 5-10 ms edge fades, bus gains in dB, a 10 ms master
+fade at both ends), never per scene or fan-out chunk, so joins and seams cannot click; assemble() and the fan-out
+join encode that one track. **Loudness:** FFmpeg `loudnorm` pass 1 measures the mix; pass 2 applies the measured
+values with `linear=true` (one gain) when the true peak allows it, else loudnorm's dynamic mode limits the peaks
+(recorded as `normalisation`). The true-peak target is 0.5 dB under the ceiling for the AAC encoder's overshoot;
+the LRA target is never below the measured range, so the range is not compressed to meet a guideline (EBU R 128
+does not recommend LRA under one minute). Presets: `social` -14 LUFS / -2 dBTP (default; -2 rather than -1 because
+platforms transcode again, and Spotify asks for -2 dBTP above -14 LUFS), `broadcast-ebu` -23 / -1 (EBU R 128),
+`broadcast-atsc` -24 / -2 (ATSC A/85), `podcast` -16 / -1 (Apple Podcasts), `off`; render option > manifest
+`audio.loudness` > `render.audio.loudness`. **Verification** is on the delivered file (after the caption burn-in)
+with the `ebur128` meter, not loudnorm's own figures: on short clips loudnorm's integrated value differed from
+ebur128 by up to 0.7 LU here. Off by more than 1 LU or over the ceiling is a QA warning, or a failure with
+`render.audio.loudnessQa: fail` (default `warn`, so a hard-to-normalise mix still delivers, with the numbers).
+A/V sync (audio starts at 0, durations within one frame; BT.1359 detectability is about +45/-125 ms) always fails
+the render. **Ducking:** a volume curve on the music from the voice's speech segments (`silencedetect` at
+`thresholdDb`, default -40 dBFS), depth 18 dB, attack 120 ms ending where speech starts, release 400 ms; segments
+closer than attack + release merge so the music does not pump; applied per 32-sample block so the ramps make no
+zipper noise. **Toggles:** `audio.enabled.{voice,music,sfx}` and `audio.mute` in the manifest, the same plus
+`loudness` as `render_project` `audio`; a muted render carries a silent AAC track (default) or none
+(`render.audio.mutedTrack: none`). *Rejected:* `sidechaincompress` keyed on the voice (its depth depends on the
+voice level and ratio rather than a number you set, and a live compressor reacts after the first syllable;
+offline we know the voice in advance); a single-pass `loudnorm` (dynamic mode on everything, which changes
+transients and misses the target on short clips); normalising each scene (scene levels would jump and joins
+would need crossfades); an `alimiter` after a plain gain (sample-peak, not true-peak, without oversampling).
+Proof: `packages/media-pipeline/test/audio.test.ts` (AUD-1..7) and `packages/core/test/audio.test.ts`
+(AUD-10..15); a real render of the sample reel went from -9.1 LUFS / +3.1 dBTP to -14.3 LUFS / -2.4 dBTP.
+**FFmpeg 5.1 (release image):** assemble() encodes the video without audio, then muxes the audio in a second pass
+with the video copied and no frame limit, because FFmpeg 5.1 ends every stream of an output once one reaches its
+`-frames` limit (the audio came out about one encoder delay short and failed the A/V sync check; 6.x does not do
+this). Only filter options present in 5.1 are used (`ebur128 framelog=verbose`, not `quiet`), and
+`assertAudioSupport()` tries each audio filter with the pipeline's options once per FFmpeg binary before the first
+mix, failing with the missing one named.
+
+### D-118 --- Layout primitives as one layout template per DOM engine on shared geometry; media fit with CSS object-fit; video as per-frame pictures in the html engine
+
+**Status:** DECIDED (reversible), issue #287. The number is assigned at merge.\
+Users ask for split screens, picture-in-picture, lower thirds, grids and media in any box, at any size. One
+template per engine, `html-layout` and `hyperframes-layout`, takes the same props (`layoutSceneProps`,
+`packages/project-schema/src/layouts.ts`): a `layout` (`full`, `split` with 2-4 panes, a direction and ratios,
+`pip` with corner, width, aspect and margin, `grid` with columns and rows or none, then picked per frame for cells
+closest to square), `panes` (media asset + fit mode + focus + start offset, colour, label, headline, body) and an
+optional `lowerThird` (name, title, alignment, brand colours). The geometry is pure functions in
+`@reelforge/project-schema/layout` (`layoutPanes`, `pipInset`, `lowerThirdBox`, `clearOfLowerThird`, `fitMedia`):
+every size is in layout units (D-108), and the inset, the lower third and pane text are placed from the safe areas,
+so a scene reflows for each output size and variant (D-109). Pane text stays in the content safe area; a pane that
+lies wholly in a tall frame's app-overlay zone (a bottom grid row on 9:16) keeps its text in title safe and says so
+(`textSafe`). One HTML/CSS builder (`layoutSceneDom`) serves both DOM engines, so their pixels match; an engine only
+supplies how a picture reaches the page. Fit modes are CSS `object-fit`/`object-position`; `blur-fill` is a second,
+blurred (3 units), darkened and slightly enlarged `cover` copy behind a `contain` picture. The html engine's page may
+load nothing but `data:` URLs (D-085), so images are inlined after their type is sniffed from the bytes, and a
+video becomes one JPEG per output frame (`extractVideoFrames`: resampled to the scene's rate from `startSeconds`,
+holding its last frame), put into the page before each screenshot: frame-exact, and no codec is needed in the
+browser. HyperFrames gets the files hard-linked into the scene folder (the renderer serves only that folder) and
+plays a video as a timed, muted `<video>` clip (`data-media-start`). Media referenced by a template are checked by
+the project schema (`TemplateDefinition.mediaAssets`): they must be image or video assets in the manifest. The html
+engine's default timeout grows with the frame area (1 s per frame per 1920x1080 worth of pixels), since a 4K
+screenshot is four times the work. *Rejected:* one template per primitive and engine (8-12 templates with the same
+props); compositing media with FFmpeg after the engine (layouts would not be an engine scene and text could not wrap
+around panes); a loopback media server for the html engine (a network path out of the sandboxed page); video
+`<video>` elements in the html engine (Chrome Headless Shell has no H.264 decoder, and seeking is not frame-exact).
+**Not yet:** Remotion and Motion Canvas layout templates (Remotion would need a loopback media server for
+`<OffthreadVideo>`/`<Img>`; Motion Canvas has no DOM). Proof: `apps/server/test/formats.test.ts` (pane geometry and
+text measured in the browser at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K on both engines; fit modes, video start offsets
+and frame-by-frame video checked on rendered pixels) and the contact sheets in `docs/proofs/layouts/`.

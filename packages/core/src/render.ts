@@ -20,9 +20,11 @@ import {
   toRenderScene,
   type OutputSettings,
   type Project,
+  type RenderAudioOptions,
   type ThemeTokens,
   type TimelineScene,
 } from '@reelforge/project-schema';
+import { audioPass, resolveAudioPlan, verifyAudio, type AudioDefaults } from './audio';
 import { captionPass } from './captions';
 import { writeJsonAtomic } from './fsutil';
 import type { Logger, ResolvedAsset } from './plugins';
@@ -51,6 +53,10 @@ export interface RenderPipelineInput {
   telemetry?: Telemetry;
   /** Overrides the manifest's `captions.mode` for this render (render_project's `captions`). */
   captionsMode?: CaptionMode;
+  /** Overrides the manifest's audio toggles and loudness preset for this render (render_project's `audio`). */
+  audio?: RenderAudioOptions;
+  /** The server's `render.audio.*` settings (default: AUDIO_DEFAULTS). */
+  audioDefaults?: AudioDefaults;
   /** The server's captions.defaultMode when the job was queued (projects without captions.mode). */
   captionsDefault?: CaptionMode;
 }
@@ -273,28 +279,21 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
   const { tracer } = input.telemetry ?? NOOP_TELEMETRY;
   const ffmpegSpan = <T>(name: string, fn: () => Promise<T>) => withSpan(tracer, name, { 'reelforge.render.id': input.runId }, fn);
   const rel = (p: string) => relative(tmp, p).split(sep).join('/');
-  // Audio. Previews of a scene subset use silence: their timing differs.
-  const audioFile = (id: string | undefined) => {
-    if (!id) return undefined;
-    const a = input.assets.get(id);
-    if (!a) throw new PipelineError('assemble', `audio asset "${id}" is not available`);
-    return a.file;
-  };
-  const a = project.audio;
-  const music = fullTimeline && a.music ? { file: audioFile(a.music.asset)!, volume: a.music.volume, fadeOutSeconds: a.music.fadeOutSeconds } : null;
-  const voice =
-    fullTimeline && a.voice?.asset
-      ? { file: audioFile(a.voice.asset)!, volume: a.voice.volume, startSeconds: a.voice.startFrame / output.fps }
-      : null;
-  const sfx = fullTimeline
-    ? a.sfx.map((s) => ({ file: audioFile(s.asset)!, volume: s.volume, atSeconds: s.atFrame / output.fps }))
-    : [];
+  // Audio (#301): one mix over the whole timeline, normalised, before assembly. Previews of a scene subset use silence.
+  const totalFrames = clips.reduce((n, c) => n + c.frames, 0);
+  const plan = resolveAudioPlan(project, input.audio, input.audioDefaults);
+  input.progress('audio', 0.86);
+  const audio = await ffmpegSpan('ffmpeg audio', () =>
+    audioPass({ project, output, fullTimeline, totalSeconds: totalFrames / output.fps, assets: input.assets, plan, tools, workDir: join(tmp, 'work', 'audio'), signal, log })
+  );
+  const { music, voice, sfx } = audio.manifest;
+  const audioArgs = audio.noAudio ? { noAudio: true } : { audioFile: audio.file };
 
   input.progress('assemble', 0.87);
   const finalTmp = join(tmp, 'final.mp4');
   log(`${f.streamCopy ? 'join (concat, video stream copy)' : 'assemble'}: ${clips.length} clips${music ? ' + music' : ''}${voice ? ' + voice' : ''}${sfx.length ? ` + ${sfx.length} sfx` : ''}`);
   const assembled = await ffmpegSpan(f.streamCopy ? 'ffmpeg join' : 'ffmpeg assemble', () => f.streamCopy
-    ? concatClips({ ffmpeg: tools.ffmpeg, clips, out: finalTmp, fps: output.fps, listFile: join(tmp, 'concat.txt'), music, voice, sfx, signal })
+    ? concatClips({ ffmpeg: tools.ffmpeg, clips, out: finalTmp, fps: output.fps, listFile: join(tmp, 'concat.txt'), ...audioArgs, signal })
     : assemble({
     ffmpeg: tools.ffmpeg,
     ffprobe: tools.ffprobe,
@@ -303,9 +302,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     width: output.width,
     height: output.height,
     fps: output.fps,
-    music,
-    voice,
-    sfx,
+    ...audioArgs,
     signal,
   }));
 
@@ -338,23 +335,27 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     height: output.height,
     fps: output.fps,
     frames: assembled.totalFrames,
-    audio: true,
+    audio: !audio.noAudio,
   });
   const expectedSeconds = assembled.totalFrames / output.fps;
   if (Math.abs(info.durationSeconds - expectedSeconds) > 1 / output.fps + 0.001) {
     problems.push(`duration is ${info.durationSeconds}s, expected ${expectedSeconds}s`);
   }
-  if (info.audioCodec !== 'aac') problems.push(`audio codec is ${info.audioCodec}, expected aac`);
+  if (!audio.noAudio && info.audioCodec !== 'aac') problems.push(`audio codec is ${info.audioCodec}, expected aac`);
   if (f.streamCopy) {
     // A stream-copy join: every frame exactly once, one frame apart (no duplicated or missing frame at a boundary), and audio as long as video.
     problems.push(...(await ffmpegSpan('ffprobe timestamps', () => checkTimestamps(tools.ffprobe, finalTmp, assembled.totalFrames, output.fps))));
     const d = await avDurations(tools.ffprobe, finalTmp);
-    if (d.audio === null || Math.abs(d.audio - expectedSeconds) > 0.05 || Math.abs(d.video - expectedSeconds) > 0.001) {
+    if ((d.audio === null && !audio.noAudio) || (d.audio !== null && Math.abs(d.audio - expectedSeconds) > 0.05) || Math.abs(d.video - expectedSeconds) > 0.001) {
       problems.push(`A/V durations are ${d.video}s video / ${d.audio}s audio, expected ${expectedSeconds}s`);
     }
   }
   await ffmpegSpan('ffmpeg decode check', () => assertDecodable(tools.ffmpeg, finalTmp));
+  // Audio after the final encode: A/V sync (always a failure) and loudness against the preset (render.audio.loudnessQa).
+  const audioQa = await ffmpegSpan('ffmpeg audio check', () => verifyAudio(tools, finalTmp, output.fps, audio.manifest, plan.qa, signal));
+  problems.push(...audioQa.syncProblems, ...audioQa.failures);
   if (problems.length) throw new PipelineError('validate:output', problems.join('; '));
+  for (const issue of audioQa.manifest.qa?.issues ?? []) log(`audio qa (${issue.severity}): ${issue.message}`);
 
   // A small poster from the first frame (for agents and thumbnails).
   const poster = join(tmp, 'poster.png');
@@ -375,12 +376,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     wallClockMillis: Date.now() - started,
     output: { file: 'final.mp4', poster: 'poster.png', ...info },
     scenes: clips.map((c) => ({ ...c, file: rel(c.file) })),
-    audio: {
-      music: music ? { asset: a.music!.asset, volume: music.volume } : null,
-      voice: voice ? { asset: a.voice!.asset, volume: voice.volume, startSeconds: voice.startSeconds } : null,
-      sfx: fullTimeline ? a.sfx : [],
-      ...(fullTimeline ? {} : { note: 'preview of a scene subset: audio replaced by silence' }),
-    },
+    audio: audioQa.manifest,
     theme: input.theme,
     versions: {
       server: input.serverVersion,
@@ -392,7 +388,14 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     },
     ffmpegAssembleArgs: assembled.args.map((arg) => (arg.startsWith(tmp) ? rel(arg) : arg.includes(sep) && arg.startsWith('/') ? '<asset>' : arg)),
     ...(captions ? { captions: { ...captions, ...(captions.burnArgs ? { burnArgs: captions.burnArgs.map((arg) => (arg.startsWith(tmp) ? rel(arg) : arg)) } : {}) } } : {}),
-    checks: { metadata: 'pass', decode: 'pass', duration: 'pass', ...(f.streamCopy ? { timestamps: 'pass', avDuration: 'pass' } : {}) },
+    checks: {
+      metadata: 'pass',
+      decode: 'pass',
+      duration: 'pass',
+      ...(f.streamCopy ? { timestamps: 'pass', avDuration: 'pass' } : {}),
+      avSync: audio.noAudio ? 'skipped' : 'pass',
+      loudness: audioQa.manifest.loudness.measured ? (audioQa.manifest.qa?.issues.some((x) => x.rule !== 'loudness.lra') ? 'warn' : 'pass') : 'skipped',
+    },
     ...(f.streamCopy ? { join: { method: 'concat demuxer, video stream copy', clips: clips.length } } : {}),
     project,
   };

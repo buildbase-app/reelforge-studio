@@ -69,13 +69,26 @@ describe.skipIf(!hasBrowser)('agent journey over REST against a real server proc
     expect(bad.status).toBe(422);
     expect(bad.json.error.code).toBe('invalid_manifest');
     expect(bad.json.error.details.issues[0]).toMatchObject({ path: 'scenes.0.durationSeconds' });
+    // Layout scenes (#287) are checked like any template: pane counts, and media that must be image or video assets.
+    const layout = await api('POST', '/v1/projects', {
+      ...manifest,
+      projectId: 'rest-layout',
+      scenes: [{ id: 'split', engine: 'html', template: 'html-layout', durationSeconds: 2, props: { layout: { type: 'split', ratios: [2, 1] }, panes: [{ media: { asset: 'missing' } }] } }],
+    });
+    expect(layout.status).toBe(422);
+    expect(layout.json.error.details.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'scenes.0.props.panes', message: 'a split has 2 to 4 panes, got 1' }),
+        expect.objectContaining({ path: 'scenes.0.props.layout.ratios' }),
+      ])
+    );
   });
 
   it('does the whole journey and returns a checked MP4', async () => {
     const caps = await api('GET', '/v1/capabilities');
     expect(caps.json.engines.map((e: any) => e.id)).toEqual(['remotion', 'motion-canvas', 'html', 'hyperframes']);
     expect((await api('GET', '/v1/themes')).json.themes.length).toBeGreaterThanOrEqual(2);
-    expect((await api('GET', '/v1/templates')).json.templates.length).toBe(4);
+    expect((await api('GET', '/v1/templates')).json.templates.length).toBe(6);
 
     expect((await api('POST', '/v1/projects', manifest)).status).toBe(201);
     expect((await api('POST', '/v1/projects/rest-reel/scenes', { scene: { id: 'card', engine: 'html', template: 'html-title', durationSeconds: 1, props: { headline: 'Over HTTP' } } })).status).toBe(201);
