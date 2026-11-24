@@ -1304,6 +1304,8 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
       },
     },
     async ({ brief, targetSeconds, platform }) => {
+      // It lists templates and the workspace's themes, as list_templates and list_themes do: the same scope (#426).
+      requireRead();
       const templates = service.listTemplates().map((t) => `- ${t.engine}/${t.id} (${t.minSeconds}-${t.maxSeconds}s): ${t.description}`).join('\n');
       const themes = (await service.listThemes()).map((t) => `- ${t.id}: ${t.description ?? t.name}`).join('\n');
       return {
