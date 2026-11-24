@@ -1,4 +1,5 @@
 import { Renderer, RendererResult, Vector2, type Project } from '@motion-canvas/core';
+import { loadFontFaces } from '@reelforge/project-schema/media';
 import type {} from '../src/protocol';
 
 /**
@@ -16,6 +17,12 @@ window.__reelforgeRender = async (req) => {
   const load = projects[req.template];
   if (!load) {
     return { ok: false, result: 'error', errors: [`unknown Motion Canvas template "${req.template}"`] };
+  }
+  // Fonts first (#303): Txt measures and draws with canvas, which uses only fonts that have loaded.
+  try {
+    await loadFontFaces(req.fonts ?? []);
+  } catch (e) {
+    return { ok: false, result: 'error', errors: [(e as Error).message] };
   }
   const project = (await load()).default;
   const errors: string[] = [];

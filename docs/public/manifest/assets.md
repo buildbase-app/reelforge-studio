@@ -43,7 +43,7 @@ from the file name:
 | image | PNG, JPEG, WebP, GIF, SVG (sanitised, see [Security](#security)) |
 | video | MP4, MOV, WebM |
 | audio | MP3, WAV, AAC, M4A, OGG, FLAC |
-| font | TTF, OTF, WOFF, WOFF2 (stored now; using them in themes comes with #303) |
+| font | TTF, OTF, WOFF, WOFF2 (validated on upload; the theme uses them by family name, see [Fonts](/docs/manifest/fonts)) |
 
 ## 2. Use it in a scene
 

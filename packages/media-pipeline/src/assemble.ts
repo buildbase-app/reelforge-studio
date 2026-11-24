@@ -60,8 +60,10 @@ export interface AssembleResult {
 
 /**
  * Normalise every scene clip (size, frame rate, pixel format, exact frame
- * count) and join them in order in a single FFmpeg pass, adding an AAC track:
- * the music if given, otherwise silence, so every export has audio.
+ * count) and join them in order: one FFmpeg pass for the video (H.264, or
+ * the format's encoder with `encoding`, #302), then a second that muxes the
+ * audio (the finished track, the mix, or silence) with the video copied. No
+ * second pass with `noAudio` or a format without audio (GIF, PNG masters).
  *
  * A clip shorter than its scene is an error, not something to pad silently
  * (ARCHITECTURE §2, "Detect missing media and fail clearly").

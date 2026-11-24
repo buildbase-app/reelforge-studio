@@ -27,6 +27,8 @@ import {
   htmlTitleProps,
   MAX_SOURCE_BYTES,
   TEMPLATES,
+  FONT_LOAD_TIMEOUT_MS,
+  fontFaceCss,
   mediaKey,
   rewriteAssetRefs,
   type DomLogo,
@@ -141,6 +143,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   const token = assetToken();
   const assetBase = `${ASSET_ORIGIN}/${token}/`;
   const videos: Record<string, string[]> = {};
+  const tools = opts.tools ?? { ffmpeg: opts.ffmpeg, ffprobe: opts.ffmpeg.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1') };
   if (scene.html === undefined && scene.template === 'html-layout') {
     try {
       const l = await layoutSource({
@@ -157,6 +160,20 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
       });
       source = { html: l.dom.html, css: l.dom.css };
       layoutVideos = l.videos;
+      // Fonts (#303) for layout panes too: the theme's family, from project font assets or the bundled set.
+      const f = await stageSceneAssets({
+        uses: [],
+        assets: opts.assets ?? new Map(),
+        dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
+        tools,
+        output,
+        frames: { first: 0, count: frames },
+        video: 'frames',
+        fonts: { family: theme.fontFamily, markup: '' },
+        ...(opts.signal ? { signal: opts.signal } : {}),
+        ...(opts.log ? { log: opts.log } : {}),
+      });
+      if (f.fonts.length) staged = f;
     } catch (e) {
       if (e instanceof PipelineError) throw e;
       throw new PipelineError(stage, (e as Error).message);
@@ -168,9 +185,8 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     } catch (e) {
       throw new PipelineError(stage, (e as Error).message);
     }
-    if (uses.length) {
-      const tools = opts.tools ?? { ffmpeg: opts.ffmpeg, ffprobe: opts.ffmpeg.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1') };
-      staged = await stageSceneAssets({
+    {
+      const st = await stageSceneAssets({
         uses,
         assets: opts.assets ?? new Map(),
         dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
@@ -178,20 +194,24 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
         output,
         frames: { first: 0, count: frames },
         video: 'frames',
+        // Fonts (#303): project font assets and bundled fonts of the families the theme and the scene name.
+        fonts: { family: theme.fontFamily, markup: `${scene.html ?? ''}\n${scene.css ?? ''}` },
         ...(opts.signal ? { signal: opts.signal } : {}),
         ...(opts.log ? { log: opts.log } : {}),
       });
+      if (st.items.size || st.fonts.length) staged = st;
     }
     for (const [k, it] of staged?.items ?? []) if (it.frames) videos[k] = it.frames.names.map((n) => assetBase + n);
     source = sceneSource(scene, durationSeconds, staged, assetBase);
   }
+  const fontCss = staged?.fonts.length ? fontFaceCss(staged.fontFaces(assetBase)) : undefined;
   // Inlined pictures (html-layout) are not scene source; only agent and template markup counts.
   if (scene.template !== 'html-layout' && Buffer.byteLength(source.html) + Buffer.byteLength(source.css) > MAX_SOURCE_BYTES * 2) {
     throw new PipelineError(stage, `html scene is larger than ${MAX_SOURCE_BYTES * 2} bytes`);
   }
   let doc: string;
   try {
-    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds, ...(opts.platform ? { platform: opts.platform } : {}), ...(staged ? { assetBase } : {}), ...(opts.alpha ? { transparent: true } : {}) });
+    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds, ...(opts.platform ? { platform: opts.platform } : {}), ...(staged ? { assetBase } : {}), ...(fontCss ? { fontCss } : {}), ...(opts.alpha ? { transparent: true } : {}) });
   } catch (e) {
     throw new PipelineError(stage, (e as Error).message);
   }
@@ -273,7 +293,15 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     };
     page.on('framenavigated', onNavigated);
     if (page.url() !== home) onNavigated(page.mainFrame());
-    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    // Fonts (#303): wait until every face the page uses has loaded (a face that fails fails the render), within a limit.
+    const fontProblem = await page.evaluate(async (limit) => {
+      void document.body.offsetHeight; // lay out, so the faces in use start loading
+      const done = await Promise.race([document.fonts.ready.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), limit))]);
+      if (!done) return `fonts did not load within ${limit} ms`;
+      const failed = [...document.fonts].filter((f) => f.status === 'error').map((f) => f.family);
+      return failed.length ? `font(s) did not load: ${[...new Set(failed)].join(', ')}` : '';
+    }, FONT_LOAD_TIMEOUT_MS);
+    if (fontProblem) throw new PipelineError(stage, fontProblem);
     if (staged) {
       // Every asset picture must have loaded before the first frame (a missing one fails the render, not a blank frame).
       const broken = await page.evaluate(async (base) => {
