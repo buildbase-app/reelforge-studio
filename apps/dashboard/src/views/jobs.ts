@@ -234,7 +234,7 @@ export const jobView: View = (ctx, main, id) => {
     }
     renderProgress(j);
     renderFacts(j);
-    document.title = `${title.textContent} ${j.id} · ReelForge Studio`;
+    document.title = `${title.textContent} ${j.id} · RenderWeld`;
   };
 
   const renderUnits = (units: Job[]) => {

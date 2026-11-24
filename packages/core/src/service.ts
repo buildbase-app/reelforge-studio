@@ -45,6 +45,7 @@ import {
   type ValidationWarning,
 } from '@reelforge/project-schema';
 import type { AudioManifest } from './audio';
+import { OLD_SERVER_NAMES, PRODUCT_NAME, SERVER_NAME } from './product';
 import { AssetStore, assetUsableBy, stageStream } from './assets';
 import { CAPTION_FILE_PATTERN, captionFileNames, captionsEtag, type CaptionManifest } from './captions';
 import { applyCaptionUpdate, getCaptionsInput, parseInput, projectCaptionsView, renderCaptionsView, transcribeInput, updateCaptionsInput, type ProjectCaptionsView, type RenderCaptionsView } from './captions-edit';
@@ -857,7 +858,8 @@ export class ReelforgeService {
     const engines = this.registry.listEngines();
     const sandboxOff = engines.filter((e) => e.browserSandbox?.() === false).map((e) => e.id);
     return {
-      server: { name: 'reelforge-studio', version: this.serverVersion, edition: this.settings.current.build.edition, mcpToolsStatus: 'experimental' },
+      // `name` is the RenderWeld server name; `aliases` keeps the old one findable until phase 7 (#413, docs/RENAMED.md).
+      server: { name: SERVER_NAME, title: PRODUCT_NAME, aliases: [...OLD_SERVER_NAMES], version: this.serverVersion, edition: this.settings.current.build.edition, mcpToolsStatus: 'experimental' },
       schemaVersion: SCHEMA_VERSION,
       supportedSchemaVersions: SUPPORTED_SCHEMA_VERSIONS,
       engines: engines.map((e) => {

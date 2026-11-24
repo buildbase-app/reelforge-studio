@@ -309,7 +309,7 @@ export function createApp(deps: AppDeps) {
         data: { ...data, status, ...(err ? { error: err } : {}), ...(ctx.idempotentReplay ? { idempotentReplay: true } : {}) },
       });
     } catch (e) {
-      console.error('[reelforge] audit write failed', (e as Error).message);
+      console.error('[renderweld] audit write failed', (e as Error).message);
     }
   };
 

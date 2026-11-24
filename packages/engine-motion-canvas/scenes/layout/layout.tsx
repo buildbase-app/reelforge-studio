@@ -114,7 +114,7 @@ export default makeScene2D(function* (view) {
   const theme = (vars.get('theme', null)() as ThemeVars | null) ?? FALLBACK;
   const props = vars.get('props', null)() as PropsVar | null;
   const spec = vars.get('spec', null)() as LayoutSpec | null;
-  if (!props || !spec) throw new Error('motion-canvas-layout renders only through the ReelForge renderer (no props)');
+  if (!props || !spec) throw new Error('motion-canvas-layout renders only through the RenderWeld renderer (no props)');
   const duration = vars.get('durationSeconds', 2)() as number;
   /** The exact rate as a number (fpsValue: 29.97 is 30000/1001); frame i shows time i / fps. */
   const fps = vars.get('fps', 30)() as number;

@@ -31,7 +31,7 @@ async function canvasToBase64Png(canvas: HTMLCanvasElement): Promise<string> {
 
 class CaptureExporter implements Exporter {
   static readonly id = 'reelforge-capture';
-  static readonly displayName = 'ReelForge capture';
+  static readonly displayName = 'RenderWeld capture';
 
   static meta(): ObjectMetaField<any> {
     return new ObjectMetaField(this.id, {});
@@ -43,7 +43,7 @@ class CaptureExporter implements Exporter {
 
   async handleFrame(canvas: HTMLCanvasElement, frame: number): Promise<void> {
     const send = window.__reelforgeFrame;
-    if (!send) throw new Error('ReelForge capture binding is missing');
+    if (!send) throw new Error('RenderWeld capture binding is missing');
     await send(frame, await canvasToBase64Png(canvas));
   }
 }

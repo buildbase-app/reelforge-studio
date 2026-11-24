@@ -11,7 +11,7 @@ import { FONT_LOAD_TIMEOUT_MS, loadFontFaces } from '@reelforge/project-schema/m
  * cancels the render with its name instead of falling back silently.
  */
 export const FontGate: React.FC<{ fonts: FontFaceSpec[]; children: React.ReactNode }> = ({ fonts, children }) => {
-  const [handle] = useState(() => (fonts.length ? delayRender('ReelForge fonts', { timeoutInMilliseconds: FONT_LOAD_TIMEOUT_MS + 5000 }) : null));
+  const [handle] = useState(() => (fonts.length ? delayRender('RenderWeld fonts', { timeoutInMilliseconds: FONT_LOAD_TIMEOUT_MS + 5000 }) : null));
   const [ready, setReady] = useState(fonts.length === 0);
   useEffect(() => {
     if (handle === null) return;

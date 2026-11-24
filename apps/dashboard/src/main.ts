@@ -78,7 +78,7 @@ function buildShell(me: Me): NonNullable<typeof shell> {
     h(
       'header',
       { class: 'top' },
-      h('a', { class: 'brand', href: '#/jobs' }, mark(20), h('span', null, 'ReelForge Studio')),
+      h('a', { class: 'brand', href: '#/jobs' }, mark(20), h('span', null, 'RenderWeld')),
       h('nav', { class: 'nav', 'aria-label': 'Dashboard' }, Object.values(nav)),
       h(
         'div',
@@ -113,7 +113,7 @@ function route(message?: string): void {
   dispose = undefined;
   if (!session) {
     shell = null;
-    document.title = 'Sign in · ReelForge Studio';
+    document.title = 'Sign in · RenderWeld';
     loginView(root, { onSubmit: signIn, message });
     return;
   }
@@ -145,7 +145,7 @@ function route(message?: string): void {
   shell.main.replaceChildren();
   dispose = hit.view(ctx, shell.main, hit.m![1]);
   const h1 = shell.main.querySelector('h1');
-  document.title = `${h1?.textContent ?? 'Dashboard'} · ReelForge Studio`;
+  document.title = `${h1?.textContent ?? 'Dashboard'} · RenderWeld`;
   if (focusOnRoute) h1?.focus();
   focusOnRoute = true;
 }

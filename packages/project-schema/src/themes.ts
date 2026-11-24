@@ -31,6 +31,18 @@ export const themeColors = z
   })
   .strict();
 
+/**
+ * A caption colour that can be switched off: null or "none". "none" exists
+ * because a JSON merge patch (update_project) cannot set a key to null (null
+ * deletes the key, so the default comes back); both mean the same.
+ */
+export const captionColorOrNone = z.union([hexColor, z.literal('none')]).nullable();
+
+/** "none" -> null, so renderers only see a colour or null. */
+export function captionColor<T extends string | null | undefined>(c: T): T | null {
+  return c === 'none' ? null : c;
+}
+
 export const captionStyle = z
   .object({
     /** Inside the safe area: bottom (default), top or centre (docs/CAPTIONS.md#style). */
@@ -38,16 +50,16 @@ export const captionStyle = z
     /** Font size as a fraction of the shorter side of the video (min(width, height)). */
     fontScale: z.number().min(0.02).max(0.12).default(0.05),
     color: hexColor.default('#ffffff'),
-    /** Box behind each line; null for no box (text with an outline instead). */
-    background: hexColor.nullable().default('#000000'),
+    /** Box behind each line; null or "none" for no box (text with an outline instead). */
+    background: captionColorOrNone.default('#000000'),
     /** Opacity of the box, 0..1. Default 0.8. */
     backgroundOpacity: z.number().min(0).max(1).optional(),
     /** Caption font. Default: the theme's fontFamily (its first family is used). */
     fontFamily: fontFamily.optional(),
     /** Default 700. */
     weight: z.number().int().min(100).max(900).optional(),
-    /** Outline colour when there is no box. Default: #000000; null for none. */
-    outline: hexColor.nullable().optional(),
+    /** Outline colour when there is no box. Default: #000000; null or "none" for none. */
+    outline: captionColorOrNone.optional(),
     /** Colour of the word being spoken (word highlight). Default: the theme's accent. */
     highlightColor: hexColor.optional(),
   })

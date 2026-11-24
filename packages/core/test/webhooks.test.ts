@@ -223,7 +223,8 @@ describe('event filters and payloads (WHK-02)', () => {
 
   it('plain-text rendering flattens the data', () => {
     const text = eventText({ id: 'evt_1', type: 'job.failed', timestamp: '2026-11-21T12:00:00.000Z', data: { job: { id: 'job_1', type: 'render', error: { code: 'render_failed', message: 'boom' } } } });
-    expect(text).toContain('ReelForge: render job_1 failed: render_failed');
+    expect(text).toContain('RenderWeld: render job_1 failed: render_failed');
+    expect(text).toContain('Sent by RenderWeld.');
     expect(text).toContain('job.error.message: boom');
   });
 
@@ -301,6 +302,8 @@ describe('delivery through the outbox', () => {
     const hit = rx.of('/ok').at(-1)!;
     expect(hit.headers['webhook-id']).toBe(d.messageId);
     expect(hit.headers['content-type']).toBe('application/json');
+    // The RenderWeld product token first, the old one after it for receivers that filter on it (#413).
+    expect(hit.headers['user-agent']).toBe('RenderWeld-Webhooks/1 ReelForge-Studio-Webhooks/1');
     const wh = new Webhook(secret!);
     // The official library checks the timestamp against the real clock; the harness clock is fixed, so check with ours too.
     expect(() => verifySignature(secret!, hit.headers as Record<string, string>, hit.body, { now: x.clock.t })).not.toThrow();
@@ -694,6 +697,7 @@ const PROVIDER_CASES: ProviderCase[] = [
     expect(b.content).toContain('job.error.message: out of memory');
     expect(b.content.length).toBeLessThanOrEqual(2000);
     expect(b.allowed_mentions).toEqual({ parse: [] });
+    expect(b.username).toBe('RenderWeld');
   }),
   httpCase('teams', 'teams', '/c/teams/workflows/x', (hit) => {
     const b = JSON.parse(hit.body);
@@ -704,6 +708,7 @@ const PROVIDER_CASES: ProviderCase[] = [
   httpCase('email:resend', 'email', '/resend/emails', (hit) => {
     expect(hit.headers.authorization).toBe(`Bearer ${CREDS.resend}`);
     expect(hit.headers['idempotency-key']).toBe('msg_contract');
+    expect(hit.headers['user-agent']).toBe('RenderWeld-Notifications/1 ReelForge-Studio-Notifications/1');
     expect(JSON.parse(hit.body)).toMatchObject({ from: 'ReelForge <studio@example.com>', to: ['ops@example.com'], subject: expect.stringContaining('failed') });
     // The message id header under the new and the old name (#412).
     expect(JSON.parse(hit.body).headers).toEqual({ 'X-Renderweld-Message-Id': 'msg_contract', 'X-Reelforge-Message-Id': 'msg_contract' });

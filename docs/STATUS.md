@@ -815,6 +815,18 @@ headers, Grafana and alert rules on the new names, `docs/CONFIG.md` listing new 
 [RENAMED.md](RENAMED.md) and the public page [Renamed from ReelForge](public/install/renamed-from-reelforge.md).
 Not yet: compose/Kubernetes manifests and docs prose (phase 6), public names such as the MCP server name (phase 4).
 
+### Public surfaces say RenderWeld (2026-11-24, issue #413, phase 4 of #408)
+
+The MCP server is `renderweld` (title RenderWeld) in `initialize`, the server card and `get_capabilities`,
+with `reelforge-studio` under `aliases`; instructions, tool descriptions and the `make_reel`, `plan_reel` and
+`review_reel` prompts say RenderWeld. OAuth accepts `renderweld:*` scopes next to `reelforge:*`. Outbound
+User-Agents (webhooks, email APIs, asset downloads, licence checks, ElevenLabs) start with a `RenderWeld-*/1`
+token and keep the old token after it. Notification titles, licence, CLI, database and engine messages, the
+`[renderweld]` pretty log prefix, the dashboard (title, sign-in, the new mark, the kit's icons and a web app
+manifest) and the image labels (`title`, `url`, `vendor`, `app.renderweld.edition` next to the old label) name
+RenderWeld. Not yet: the image name and `source` URL (they follow the GitHub rename, #409), the OTel
+`service.name` default, and messages that still suggest `REELFORGE_*` variables (both names work).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |
