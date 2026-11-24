@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 
 /** Raised when a pipeline stage fails. Carries the stage name and tool output. */
 export class PipelineError extends Error {
@@ -23,10 +23,7 @@ export interface Tools {
  * a bare ENOENT later (TEST_PLAN §3, "Missing FFmpeg").
  */
 export function resolveTools(env: NodeJS.ProcessEnv = process.env): Tools {
-  const tools: Tools = {
-    ffmpeg: env.FFMPEG_PATH || 'ffmpeg',
-    ffprobe: env.FFPROBE_PATH || 'ffprobe',
-  };
+  const tools = toolPaths(env);
   for (const [name, bin] of Object.entries(tools)) {
     const r = spawnSync(bin, ['-version'], { encoding: 'utf8' });
     if (r.error || r.status !== 0) {
@@ -41,9 +38,41 @@ export function resolveTools(env: NodeJS.ProcessEnv = process.env): Tools {
   return tools;
 }
 
+/** The FFmpeg and ffprobe commands (FFMPEG_PATH / FFPROBE_PATH, else PATH), without checking them. */
+export function toolPaths(env: NodeJS.ProcessEnv = process.env): Tools {
+  return { ffmpeg: env.FFMPEG_PATH || 'ffmpeg', ffprobe: env.FFPROBE_PATH || 'ffprobe' };
+}
+
+/** First line of `<bin> -version` per binary, filled by toolVersion() and toolVersionAsync() (#319). */
+const toolVersions = new Map<string, string>();
+
+/**
+ * First line of `<bin> -version`. Cached per binary after the first answer,
+ * so only the first call for a binary starts a (synchronous) process. Request
+ * paths use toolVersionAsync() or a value probed earlier instead (#319).
+ */
 export function toolVersion(bin: string): string {
-  const r = spawnSync(bin, ['-version'], { encoding: 'utf8' });
-  return (r.stdout ?? '').split('\n')[0] ?? 'unknown';
+  const cached = toolVersions.get(bin);
+  if (cached) return cached;
+  const r = spawnSync(bin, ['-version'], { encoding: 'utf8', timeout: 10_000 });
+  const v = (r.stdout ?? '').split('\n')[0] ?? 'unknown';
+  if (v && r.status === 0) toolVersions.set(bin, v);
+  return v;
+}
+
+/**
+ * First line of `<bin> -version` without blocking the event loop (an async
+ * child process; always probes, and refreshes the cache toolVersion() reads).
+ * null when the tool is missing or fails.
+ */
+export function toolVersionAsync(bin: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(bin, ['-version'], { encoding: 'utf8', timeout: 10_000, maxBuffer: 1024 * 1024 }, (err, stdout) => {
+      const v = err ? '' : (stdout.split('\n')[0] ?? '');
+      if (v) toolVersions.set(bin, v);
+      resolve(v || null);
+    });
+  });
 }
 
 export interface RunResult {

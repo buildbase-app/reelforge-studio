@@ -162,6 +162,34 @@ read and change the runtime configuration (`get_config` / `update_config`,
 `/v1/config`), and do everything else. Give day-to-day agents a key without `admin`
 (`read,write,render`). Scopes: `read`, `write`, `render`, `admin` (implies all).
 
+### MCP OAuth
+
+MCP clients that only speak OAuth (remote connectors) can sign in through your
+own authorization server instead of holding an API key (#305, D-112). ReelForge
+is the **resource server** of the MCP authorization spec: it never issues tokens
+or sees passwords. Set:
+
+```bash
+REELFORGE_MCP_OAUTH_ISSUER=https://auth.example.com/realms/studio   # exactly the tokens' `iss`
+REELFORGE_MCP_OAUTH_AUDIENCE=https://studio.example.com/mcp         # default: REELFORGE_PUBLIC_URL + /mcp
+# REELFORGE_MCP_OAUTH_JWKS_URL=...   # default: jwks_uri from the issuer's metadata
+```
+
+`/.well-known/oauth-protected-resource` (and `.../mcp`) then names the issuer
+(RFC 9728), and a `401` from `/mcp` carries `WWW-Authenticate: Bearer
+resource_metadata="..."`, so a client finds where to sign in. `/mcp` accepts the
+issuer's JWT access tokens: an asymmetric signature (RS/PS/ES 256-512, EdDSA)
+by a key in its JWKS (cached 10 minutes, refetched for a new `kid` at most every
+30 s), `iss` equal to the issuer, `aud` containing the audience (configure your
+authorization server to put the MCP URL there: the RFC 8707 `resource`
+parameter MCP clients send), `exp` in the future (60 s leeway). Scopes come from
+`scope` or `scp`: `reelforge:read`, `reelforge:write`, `reelforge:render`,
+`reelforge:admin`; a token with none of them gets `403 insufficient_scope`. The
+rate limit and the audit trail count per subject (`oauth:<sub>`). API keys keep
+working on `/mcp` and are the only credential for REST. Opaque (non-JWT) tokens
+and token introspection are not supported yet. Outbound: the issuer's metadata
+and JWKS URLs (docs/PRIVACY.md).
+
 ## 1. Local (pnpm)
 
 Requirements: Node 22, pnpm 10 (`corepack enable`), FFmpeg (6.1 tested; 5.1 in Docker), Chrome Headless
