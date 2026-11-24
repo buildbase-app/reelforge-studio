@@ -82,6 +82,9 @@ function validateLeaf(def: SettingDef, value: unknown, source: ConfigSource, ori
 }
 
 /** Turn an environment variable's text into a value of the setting's kind. */
+/** A decimal number as text. Each string matches in one way only, so a long hostile value can't blow up backtracking (CodeQL js/polynomial-redos). */
+export const NUMBER_TEXT = /^-?(?:\d+(?:\.\d*)?|\.\d+)$/;
+
 function fromEnvText(def: SettingDef, text: string, origin: string, issues: ConfigIssue[]): unknown {
   const shown = def.secret ? '' : ` (got "${text}")`;
   switch (def.kind) {
@@ -90,7 +93,7 @@ function fromEnvText(def: SettingDef, text: string, origin: string, issues: Conf
       issues.push({ key: def.key, source: 'env', origin, message: `must be an integer${shown}` });
       return undefined;
     case 'number':
-      if (/^-?(\d+\.?\d*|\.\d+)$/.test(text)) return Number(text);
+      if (NUMBER_TEXT.test(text)) return Number(text);
       issues.push({ key: def.key, source: 'env', origin, message: `must be a number${shown}` });
       return undefined;
     case 'boolean': {
@@ -308,6 +311,10 @@ function storageIssues(settings: Map<string, ResolvedSetting>): ConfigIssue[] {
   }
   if (Boolean(v('storage.s3.accessKeyId')) !== Boolean(v('storage.s3.secretAccessKey'))) {
     issue(v('storage.s3.accessKeyId') ? 'storage.s3.secretAccessKey' : 'storage.s3.accessKeyId', 'set both storage.s3.accessKeyId and storage.s3.secretAccessKey, or neither (ambient identity)');
+  }
+  // MCP OAuth (D-112): a token must name this server, so an issuer needs an audience (or the public URL it defaults from).
+  if (v('security.oauth.issuer') && !v('security.oauth.audience') && !v('server.publicUrl')) {
+    issue('security.oauth.audience', 'security.oauth.issuer is set: set security.oauth.audience (REELFORGE_MCP_OAUTH_AUDIENCE) to this server\'s MCP URL, or server.publicUrl');
   }
   return out;
 }

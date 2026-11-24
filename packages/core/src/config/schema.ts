@@ -764,6 +764,30 @@ export const ConfigSchema = z.object({
           'First admin API key: `rf_` + at least 32 random URL-safe characters (`rf_$(openssl rand -hex 24)`); low-entropy values are refused. Stored hashed as key "bootstrap" on start if no key exists.',
       }
     ),
+    // MCP authorization (#305, D-112): OAuth 2.1 access tokens on /mcp next to API keys.
+    oauth: z.object({
+      issuer: setting(z.string().regex(/^https?:\/\/[^\s/]+(\/[^\s]*)?$/, 'must start with https:// (http:// only for a local test issuer)').optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_MCP_OAUTH_ISSUER',
+        example: 'https://auth.example.com/realms/studio',
+        description:
+          'Turns on OAuth for `/mcp`: the issuer identifier of your authorization server, exactly as in its tokens\' `iss` (trailing slash included). `/mcp` then also accepts its JWT access tokens (asymmetric signatures, keys from its JWKS) with `reelforge:read`, `reelforge:write`, `reelforge:render` or `reelforge:admin` in `scope`/`scp`, and serves `/.well-known/oauth-protected-resource`. API keys keep working. Unset: API keys only.',
+      }),
+      audience: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_MCP_OAUTH_AUDIENCE',
+        example: 'https://studio.example.com/mcp',
+        description: 'What a token\'s `aud` must contain: this server\'s MCP URL (RFC 8707 resource indicator). Default: `server.publicUrl` + `/mcp` (one of them is required with an issuer).',
+      }),
+      jwksUrl: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_MCP_OAUTH_JWKS_URL',
+        description: 'The issuer\'s JWKS. Default: `jwks_uri` from its metadata (`/.well-known/oauth-authorization-server`, then OpenID discovery).',
+      }),
+    }),
   }),
   audit: z.object({
     retentionDays: setting(z.number().int().min(0).max(36500), {
