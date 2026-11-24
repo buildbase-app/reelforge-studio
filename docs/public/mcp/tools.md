@@ -489,6 +489,7 @@ Validates the project and starts the final render (every scene with its engine, 
 | `variant` | string | no | Render only this output variant (an id from the manifest's variants). Omit to render every variant, or output when the manifest has none. |
 | `priority` | "interactive" \| "standard" \| "batch" | no | Queue priority: jobs are started interactive first, then standard, then batch (fairly across API keys within a class). Default "standard" for a render. Use "batch" for work that can wait. A higher class than your key allows (get_capabilities limits.priority.maxForThisKey) is refused with priority_not_allowed. |
 | `captions` | "off" \| "burned" \| "sidecar" \| "both" | no | Captions for this render, overriding the manifest's captions.mode (and the server default captions.defaultMode): off, burned into the video, sidecar files (SRT, WebVTT, ASS per language) next to final.mp4, or both. |
+| `audio` | object | no | Audio for this render, overriding the manifest: mute (silence everything), voice / music / sfx (false leaves that track out), loudness (social -14 LUFS, broadcast-ebu -23, broadcast-atsc -24, podcast -16, off). E.g. { music: false } for a voice-only cut, { mute: true } for a silent autoplay version. |
 | `idempotencyKey` | string | no | Optional idempotency key (e.g. a UUID you generate once per intended action): retrying the call with the same key and arguments returns the first result instead of doing it twice; the same key with different arguments fails with idempotency_conflict. Kept 24 h. |
 
 ### `get_job`

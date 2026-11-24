@@ -3,7 +3,8 @@ import { copyFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { PipelineError, normaliseClip, streamParams, toolVersion, type StreamParams, type Tools } from '@reelforge/media-pipeline';
-import { timeline, type CaptionMode, type Project, type ThemeTokens } from '@reelforge/project-schema';
+import { timeline, type CaptionMode, type Project, type RenderAudioOptions, type ThemeTokens } from '@reelforge/project-schema';
+import type { AudioDefaults } from './audio';
 import { describeUnit, JOIN_JOB_TYPE, UNIT_JOB_TYPE, type ChildSpec } from './fanout';
 import type { JobContext } from './jobs';
 import type { ResolvedAsset } from './plugins';
@@ -56,6 +57,8 @@ export interface RenderJobParams {
   scale?: number;
   /** captions.mode override of this render (render_project's `captions`). */
   captions?: CaptionMode;
+  /** Audio toggles and loudness preset of this render (render_project's `audio`). */
+  audio?: RenderAudioOptions;
   /** The server's captions.defaultMode when the render was queued. */
   captionsDefault?: CaptionMode;
   /** Render this output variant of the project (#287): its size and platform replace `output`'s. */
@@ -124,6 +127,8 @@ export interface FanOutDeps {
   project(projectId: string, version: number, variant?: string): Promise<Project>;
   theme(project: Project): Promise<ThemeTokens>;
   assets(project: Project, projectId: string): Promise<Map<string, ResolvedAsset>>;
+  /** The server's render.audio.* settings when the join runs. */
+  audioDefaults?(): AudioDefaults;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -350,6 +355,8 @@ export async function joinUnits(deps: FanOutDeps, ctx: JobContext): Promise<Join
         progress: ctx.progress,
         telemetry: deps.telemetry,
         ...(p.captions ? { captionsMode: p.captions } : {}),
+        ...(p.audio ? { audio: p.audio } : {}),
+        ...(deps.audioDefaults ? { audioDefaults: deps.audioDefaults() } : {}),
         ...(p.captionsDefault ? { captionsDefault: p.captionsDefault } : {}),
       },
       tmp,
