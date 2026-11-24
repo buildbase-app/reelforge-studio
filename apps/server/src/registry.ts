@@ -1,4 +1,4 @@
-import { ElevenLabsTts, PluginRegistry, RemotionLambdaBackend } from '@reelforge/core';
+import { ElevenLabsTts, FasterWhisperStt, PluginRegistry, RemotionLambdaBackend } from '@reelforge/core';
 import { htmlEngine } from '@reelforge/engine-html';
 import { hyperframesEngine } from '@reelforge/engine-hyperframes';
 import { motionCanvasEngine } from '@reelforge/engine-motion-canvas';
@@ -15,5 +15,6 @@ export function createDefaultRegistry(env: NodeJS.ProcessEnv = process.env): Plu
     .registerEngine(htmlEngine())
     .registerEngine(hyperframesEngine())
     .registerProvider(new ElevenLabsTts(env))
+    .registerStt(new FasterWhisperStt())
     .registerBackend(new RemotionLambdaBackend(env));
 }

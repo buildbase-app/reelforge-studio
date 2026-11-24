@@ -31,7 +31,8 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->62<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -83,6 +84,12 @@ test on rendered pixels at 16:9, 1:1, 4:5, 9:16 and 4K and by contact sheets in 
 **Output variants (#287, D-109, 2026-11-23):** a manifest may list `variants` (extra sizes); one `render_project`
 call (REST or MCP) starts one render per variant, each its own job and run id, grouped by a `batchId`
 ([manifest](public/manifest/v0-2.md#output-variants)).
+**Layouts and fit modes (#287, D-118, 2026-11-24):** templates `html-layout` and `hyperframes-layout` place panes as
+a split screen (2-4, side by side or stacked, ratios), picture-in-picture, grid (n x m or chosen per frame) or full
+frame, each with an image or video asset (`contain`, `cover`, `blur-fill`), text and an optional lower third, all in
+layout units and safe areas so they reflow per size and variant; pane geometry and text checked in the browser at six
+sizes on both engines and on rendered pixels, contact sheets in `docs/proofs/layouts/`
+([Formats and layouts](public/manifest/formats.md#layouts-split-screen-picture-in-picture-lower-thirds-grids)).
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,
@@ -581,6 +588,103 @@ run on all three); `RateLimit-*` fields on every keyed response, `Retry-After` a
 a default-deny `NetworkPolicy` with an allowlist (kubeconform). Not yet: MCP OAuth 2.1 (step 2), a
 scheduled workflow for the weekly snapshot bump (maintainer, `.github/`), the kind e2e and the
 Docker e2e with these changes (heavy tier).
+### Webhooks for operations (2026-11-23, issue #306)
+
+Built (D-113, docs/providers/webhooks-and-notifications.md): every render or preview job ends with exactly one
+terminal event, `render.ready`, `render.failed` (typed code, stage, the last 20 log lines), `render.timeout` (new
+runtime setting `render.timeoutSeconds`, 3600), `render.cancelled`, `render.qa_failed` (reserved for #294) or
+`render.blocked` (the licence gate refused the render; moderation later), each with timing, costs (CPU seconds when
+the job ran alone on its instance, output and storage bytes) and API links. `dedupeKey` `render:<jobId>`, and the
+`webhook-id` is derived from the endpoint and that key, so every resend of an outcome has one id. Retries for up to
+`webhooks.retryWindowHours` (24) with a 10 s timeout, then dead; each attempt is recorded once (the write is fenced by
+the claim's lease). New tools: `resend_webhook`, `rotate_webhook_secret` (admin; two valid secrets during the overlap)
+and `get_webhook_log` (read scope: status, attempts, latency, no payloads). Migration `0013_webhook_operations` on
+SQLite, PostgreSQL 17 and MySQL 8.4.
+
+| Check | Result |
+| --- | --- |
+| Unit (core: WHK-40..45, JOB-TMO-01..02) | 8 new cases passed |
+| Contract `webhooks-contract.test.ts` (WHK-DB-01..07) on memory, SQLite, PostgreSQL 17, MySQL 8.4 | 28 passed |
+| Server `webhooks-ops.test.ts` (OPS-01..07: blocked, ready after a 503 and a retry, failed, timeout, cancelled, resend, rotation) | 7 passed on SQLite |
+| Server `webhooks.test.ts` + `webhooks-ops.test.ts` with `REELFORGE_TEST_DB=postgres` and `mysql` | 20 passed on each |
+| `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` | typecheck passed; workspace run (`--no-bail`) on the shared machine (load average 15-33): project-schema 86, media-pipeline 14, core 413 (+44 skipped), db 216 (+23 skipped), engines html 11, motion-canvas 7, remotion 5, docs 31, capture 25, load 2 passed; hyperframes (5), gallery (1) and server (6: licence render, KEY-09 CLI, IDM-01/02, REST journey) failed with `hyperframes render exited with code 1`, timeouts and `ECONNRESET`; each of those files passed when re-run on its own (hyperframes 18, gallery 31, licence 7, enterprise 22, rest.e2e 2), and licence/IDM fail the same way on unchanged `main` under that load |
+
+Not done: the Docker e2e was not re-run for this change; `render.qa_failed` has no producer until #294; no CLI
+command for resend or the read log yet; engine scene timeouts stay `render.failed`.
+### Captions step 2: speech-to-text, approval, languages, audio description (2026-11-23, issue #300)
+
+Built (D-114, [CAPTIONS.md](CAPTIONS.md)): `transcribe_captions` runs a local speech-to-text
+provider (`SpeechToTextPlugin`; default faster-whisper as the external program `reelforge-whisper`,
+installed only by the optional layer `deployment/stt`, models pre-downloaded at build time, offline
+at run time) on the voice track and stores word timings on `audio.voice.words`, so cues come from
+`buildCuesFromWords`; `get_captions` / `update_captions` (etag check, edits or replacement per
+language, `approve`, audit `captions.update` / `captions.approve`), also on a render
+(`GET /v1/renders/:id/captions`); `captions.tracks` per BCP 47 language with one `burnLanguage` and
+sidecars per language (`captions.<tag>.*`, WebVTT `Language:` and ASS `Language:` headers);
+`kind: "description"` cues written to `descriptions[.<tag>].vtt` (`Kind: descriptions`), never
+burned; server default `captions.defaultMode`. Settings `captions.*` (docs/CONFIG.md). Tests: tags,
+tracks, kinds and mode resolution (project-schema); fake STT provider, approval, a two-language
+render with pixel checks of the burned language, the default mode (core); the provider's spawn
+contract with fake programs (arguments, offline secret-free environment, timeout, output cap) and the
+real program with a `tiny` model on FFmpeg `flite` speech (skipped without the program); REST
+scopes, If-Match etag, conflict and audit (server). The layer was built and run on
+`debian:bookworm-slim`, not yet on top of the release image. Not yet: a recorded audio-description
+voice track, machine translation, STT as a background job.
+### Self-hosted web dashboard, part 1 (2026-11-23, issue #292)
+
+Built (D-115; [public/install/dashboard.md](public/install/dashboard.md)): `apps/dashboard`, plain
+TypeScript bundled by esbuild into static files (JS + CSS 11.9 KB gzip, budget 150 KB) that the studio
+serves at `/dashboard` when `dashboard.enabled` is on (off by default; file, env or `PATCH /v1/config`).
+Sign-in with an API key held in memory (sessionStorage only when asked), every call to the public REST
+API with that key; strict CSP, same Host check as `/mcp`, no cookie, no external host. Live jobs
+(progress per scene and per fan-out unit over the job's SSE stream, cancel and retry for render keys)
+and the library (projects, renders, player, poster, format, quality checks, scenes, versions, storage
+driver and key prefix, signed download, manifest). New REST/MCP pair `GET /v1/me` / `get_me`;
+`RenderSummary.storage`. Tests: route and API (`apps/server/test/dashboard.test.ts`) and a Playwright
+journey with axe-core, 0 violations in light, dark and at 360 px (`apps/dashboard/test`). Not yet:
+analytics, settings and the audit log viewer (part 2 of #292).
+### Scale hot spots from the live load test (2026-11-23, issue #307, step 1)
+
+Built (D-117, [SCALE.md](SCALE.md)). **Claim plan:** migration `0013_claim_index` adds a claim index. On
+PostgreSQL the fair claim reads it with a skip scan (one index descent per key and class), falling back to
+the old grouping when that is cheaper. On MySQL it groups the covering index, with a lazy re-rank that
+keeps the order exact (PRI-10..12). Idle polls open no transaction. Exactly-once is unchanged (SCL, QUE,
+PRI suites on SQLite, PostgreSQL 17 and MySQL 8.4). **Encoder memory:** `render.encoderThreads` (2) and
+`render.encoderLookahead` (20) are runtime settings for every H.264 encode; fan-out clips still join by
+stream copy (ENC-02). **Backpressure:** `limits.maxInflightRequests` (64) per api instance, a wait of up to
+`limits.inflightWaitMs` (3 s) for a slot, then `503 overloaded` with `Retry-After`; database pool timeouts
+are 503 instead of 500 (OVL-01..05).
+**Harness:** `pnpm load:depth` (5k/10k/20k queued, PostgreSQL and MySQL), `pnpm load:encode` (memory, CPU
+and SSIM/PSNR per encoder setting), `LOAD_LOGS=1`, and a CI smoke in `pnpm test:load`. Measured on the
+shared host (lower bounds): at 20,000 queued jobs and 20 keys, PostgreSQL 29.5 → 2.9 ms and MySQL 658 →
+36 ms of database time per claim; render memory 1,012 → 772 MB (1080x1920) and 2,516 → 1,643 MB (4K); under a 5,000-render burst CRUD errors 3.1–3.3 % → 0
+(503s with `Retry-After` instead) and queue wait p95 6.8–9.5 → 1.2 s.
+Not yet: a dedicated run, PostgreSQL with hundreds of keys queueing at once (about as before), the
+captions encode (#332), and the rest of #307 (throttled state, layered timeouts, asset preflight, OOM
+reporting).
+### Audio: loudness, ducking, toggles (2026-11-23, issue #301, step 1)
+
+Built (D-116, [audio.md](public/manifest/audio.md)): the audio is mixed once over the whole timeline into
+48 kHz PCM (never per scene or fan-out chunk), then normalised with a two-pass FFmpeg `loudnorm`
+(`linear=true` where the true peak allows, else its dynamic mode, recorded) to a preset: `social`
+(default; -14 LUFS, -2 dBTP), `broadcast-ebu` (-23 LUFS, -1 dBTP), `broadcast-atsc` (-24 LKFS, -2 dBTP),
+`podcast` (-16 LUFS, -1 dBTP) or `off`; per render (`render_project` `audio.loudness`), per project
+(`audio.loudness`) or the server default (`render.audio.loudness`, runtime). The delivered file is measured
+again with `ebur128` after the AAC encode and caption burn-in (integrated, true peak, LRA in the render
+manifest and `get_render_output`); off target by more than 1 LU or over the ceiling is a QA warning, or a
+failure with `render.audio.loudnessQa: fail`. Ducking of music under the voice (volume automation from the
+voice's speech segments, depth 18 dB, attack 120 ms ending at the speech, release 400 ms), bus gains in dB,
+music fade-in/out, 5-10 ms edge fades on voice, sfx and the whole mix; voice/music/sfx/mute toggles per
+project (`audio.enabled`, `audio.mute`) and per render; a muted render carries a silent AAC track or none
+(`render.audio.mutedTrack`). Every render checks A/V sync (audio starts at 0, durations within one frame).
+Measured on a real render of the sample reel (Remotion + Motion Canvas, 7 s; loud synthetic music bed + voice + sfx,
+ebur128): before -9.1 LUFS, true peak +3.1 dBFS (clipping), LRA 0.8 LU; after -14.3 LUFS, -2.4 dBTP,
+LRA 3.5 LU. Tests: loudness within 1 LU and peak under the ceiling after the AAC encode for three presets,
+ducking depth in the speech windows, sample-step click checks at sfx/voice edges and scene joins (assemble
+and the fan-out concat), A/V sync and offsets, muted output (media-pipeline); service renders with presets,
+toggles, mute and the QA rule (core). Checked on FFmpeg 5.1.6 (built from source, standing in for the image's Debian 5.1) and 6.1.1: media-pipeline and core
+suites pass on both. Not yet (rest of #301): a voice with provider + text but no asset
+still renders silently (warning), scene timing from the voice, the per-render ducking amount of #298.
 
 ## 4. Infrastructure inventory (no secrets)
 

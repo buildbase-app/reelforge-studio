@@ -72,6 +72,13 @@ export interface EventEnvelope {
   /** ISO-8601, when the event happened. */
   timestamp: string;
   data: Record<string, unknown>;
+  /**
+   * The outcome this event reports, for receivers that deduplicate (#306): `render:<jobId>` on every terminal render
+   * event (exactly one outcome per render job). Absent on other events: their `id` is the key. The webhook-id of a
+   * delivery is derived from the endpoint and this key, so the same outcome always reaches an endpoint under one
+   * webhook-id, however often it is sent.
+   */
+  dedupeKey?: string;
 }
 
 /** One message to one endpoint: the outbox row and its current state. */
@@ -83,6 +90,8 @@ export interface WebhookDeliveryRecord {
   messageId: string;
   eventId: string;
   eventType: string;
+  /** The envelope's dedupeKey, as a column (resend_webhook finds an outcome by it). */
+  dedupeKey?: string;
   payload: EventEnvelope;
   status: DeliveryStatus;
   /** Attempts made so far. */
@@ -134,6 +143,8 @@ export interface DeliveryFilter {
   endpointId?: string;
   status?: DeliveryStatus;
   eventType?: string;
+  eventId?: string;
+  dedupeKey?: string;
   /** Page cursor: deliveries with an id lower than this (older). */
   before?: string;
   /** Default 50. */
@@ -165,8 +176,14 @@ export interface WebhookRepository {
    * by exactly one of them.
    */
   claim(now: string, leaseUntil: string, limit: number): Promise<WebhookDeliveryRecord[]>;
-  /** Append the attempt and update the delivery, atomically. */
-  recordAttempt(attempt: WebhookAttemptRecord, patch: WebhookDeliveryPatch): Promise<void>;
+  /**
+   * Append the attempt and update the delivery, atomically. With `lease` (the `lockedUntil` the claim set), only
+   * while the row is still `delivering` under that lease: a worker whose lease ran out and was claimed again by
+   * another records nothing (false), so each attempt number is recorded once.
+   */
+  recordAttempt(attempt: WebhookAttemptRecord, patch: WebhookDeliveryPatch, lease?: string): Promise<boolean>;
+  /** Make a pending delivery due at `at` (resend_webhook on a delivery waiting for its next attempt). False when it is not pending. */
+  reschedule(id: string, at: string): Promise<boolean>;
   /** Hand claimed deliveries back (graceful shutdown): delivering -> pending, due now. */
   release(ids: string[], at: string): Promise<void>;
   /** Oldest first. */

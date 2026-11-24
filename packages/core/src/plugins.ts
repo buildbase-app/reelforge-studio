@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream';
 import type { Tools } from '@reelforge/media-pipeline';
 import type {
   CaptionMode,
+  RenderAudioOptions,
   OutputSettings,
   Project,
   RenderScene,
@@ -176,6 +177,50 @@ export interface ProviderPlugin {
   run(params: unknown, ctx: ProviderRunContext): Promise<ProviderResult>;
 }
 
+/** Settings a speech-to-text provider runs with (config `captions.stt.*`, docs/CAPTIONS.md#speech-to-text). */
+export interface SttSettings {
+  /** Program to start: a name on PATH or an absolute path. */
+  command: string;
+  model: string;
+  modelDir?: string;
+  /** "auto" or a BCP 47 tag. */
+  language: string;
+  computeType: string;
+  device: string;
+  timeoutSeconds: number;
+}
+
+export interface SttRequest {
+  /** A local audio or video file from the asset store. */
+  file: string;
+  /** BCP 47 tag of the spoken language, or "auto" to detect it. */
+  language: string;
+  settings: SttSettings;
+}
+
+export interface SttResult {
+  /** Detected or given language (BCP 47 / ISO 639-1), when the provider reports it. */
+  language: string | null;
+  /** Words with times in seconds from the start of the file. */
+  words: Array<{ text: string; start: number; end: number }>;
+  durationSeconds?: number;
+  /** What produced it (name, version, model), for the response and the cache. */
+  engine: Record<string, string>;
+}
+
+/**
+ * Turns speech in an audio asset into timed words (#300). Runs locally: no
+ * network at run time, no cost note. Words become caption cues through
+ * buildCuesFromWords (the voice track's `words`).
+ */
+export interface SpeechToTextPlugin {
+  id: string;
+  displayName: string;
+  /** Whether it can run here with these settings (program installed, ...), and how to fix it when not. Cheap: no transcription. */
+  availability(settings: SttSettings): Availability;
+  transcribe(req: SttRequest, ctx: { signal: AbortSignal; log: Logger }): Promise<SttResult>;
+}
+
 export interface RenderRequest {
   jobId: string;
   runId: string;
@@ -188,6 +233,10 @@ export interface RenderRequest {
   scale?: number;
   /** Overrides the manifest's captions.mode for this render. */
   captionsMode?: CaptionMode;
+  /** Overrides the manifest's audio toggles and loudness preset for this render (render_project's `audio`). */
+  audio?: RenderAudioOptions;
+  /** The server's captions.defaultMode when the job was queued (projects without captions.mode). */
+  captionsDefault?: CaptionMode;
 }
 
 export interface RenderOutcome {
