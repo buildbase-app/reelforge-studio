@@ -637,6 +637,25 @@ driver and key prefix, signed download, manifest). New REST/MCP pair `GET /v1/me
 `RenderSummary.storage`. Tests: route and API (`apps/server/test/dashboard.test.ts`) and a Playwright
 journey with axe-core, 0 violations in light, dark and at 360 px (`apps/dashboard/test`). Not yet:
 analytics, settings and the audit log viewer (part 2 of #292).
+### Scale hot spots from the live load test (2026-11-23, issue #307, step 1)
+
+Built (D-117, [SCALE.md](SCALE.md)). **Claim plan:** migration `0013_claim_index` adds a claim index. On
+PostgreSQL the fair claim reads it with a skip scan (one index descent per key and class), falling back to
+the old grouping when that is cheaper. On MySQL it groups the covering index, with a lazy re-rank that
+keeps the order exact (PRI-10..12). Idle polls open no transaction. Exactly-once is unchanged (SCL, QUE,
+PRI suites on SQLite, PostgreSQL 17 and MySQL 8.4). **Encoder memory:** `render.encoderThreads` (2) and
+`render.encoderLookahead` (20) are runtime settings for every H.264 encode; fan-out clips still join by
+stream copy (ENC-02). **Backpressure:** `limits.maxInflightRequests` (64) per api instance, a wait of up to
+`limits.inflightWaitMs` (3 s) for a slot, then `503 overloaded` with `Retry-After`; database pool timeouts
+are 503 instead of 500 (OVL-01..05).
+**Harness:** `pnpm load:depth` (5k/10k/20k queued, PostgreSQL and MySQL), `pnpm load:encode` (memory, CPU
+and SSIM/PSNR per encoder setting), `LOAD_LOGS=1`, and a CI smoke in `pnpm test:load`. Measured on the
+shared host (lower bounds): at 20,000 queued jobs and 20 keys, PostgreSQL 29.5 → 2.9 ms and MySQL 658 →
+36 ms of database time per claim; render memory 1,012 → 772 MB (1080x1920) and 2,516 → 1,643 MB (4K); under a 5,000-render burst CRUD errors 3.1–3.3 % → 0
+(503s with `Retry-After` instead) and queue wait p95 6.8–9.5 → 1.2 s.
+Not yet: a dedicated run, PostgreSQL with hundreds of keys queueing at once (about as before), the
+captions encode (#332), and the rest of #307 (throttled state, layered timeouts, asset preflight, OOM
+reporting).
 
 ## 4. Infrastructure inventory (no secrets)
 

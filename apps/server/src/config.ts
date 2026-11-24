@@ -34,6 +34,10 @@ export interface ServerConfig {
   maxUploadBytes: number;
   /** Max JSON body size in bytes. Runtime. */
   maxJsonBytes: number;
+  /** Requests in progress per instance before 503 overloaded (overload.ts); 0 = no limit. Runtime. */
+  maxInflightRequests: number;
+  /** How long a request over the cap waits for a slot before 503 (ms). Runtime. */
+  inflightWaitMs: number;
   /** Runtime. */
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   logFormat: 'text' | 'json';
@@ -74,6 +78,8 @@ export function serverConfigFrom(resolved: ResolvedConfig, sources: ConfigSource
     renderConcurrency: c.limits.renderConcurrency,
     maxUploadBytes: c.limits.maxUploadBytes,
     maxJsonBytes: c.limits.maxJsonBytes,
+    maxInflightRequests: c.limits.maxInflightRequests,
+    inflightWaitMs: c.limits.inflightWaitMs,
     logLevel: c.logging.level,
     logFormat: c.logging.format,
     sources,
@@ -102,6 +108,8 @@ export function applyServerSettings(config: ServerConfig, resolved: ResolvedConf
   if (use('limits.rateLimitPerMinute')) config.rateLimitPerMinute = c.limits.rateLimitPerMinute;
   if (use('limits.maxUploadBytes')) config.maxUploadBytes = c.limits.maxUploadBytes;
   if (use('limits.maxJsonBytes')) config.maxJsonBytes = c.limits.maxJsonBytes;
+  if (use('limits.maxInflightRequests')) config.maxInflightRequests = c.limits.maxInflightRequests;
+  if (use('limits.inflightWaitMs')) config.inflightWaitMs = c.limits.inflightWaitMs;
   if (use('limits.renderConcurrency')) config.renderConcurrency = c.limits.renderConcurrency;
   if (use('logging.level')) config.logLevel = c.logging.level;
 }
