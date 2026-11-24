@@ -144,7 +144,7 @@ client.
 ### Analytics
 
 `GET /v1/analytics/summary?from=&to=&bucket=day|hour` reads the job table, the
-render manifests, storage usage and the webhook outbox (D-1XX). `from` and `to`
+render manifests, storage usage and the webhook outbox (D-126). `from` and `to`
 take an ISO time or a UTC date (a `to` date includes its day); the default is
 the last 30 days. A range is at most 90 days by day and 7 days by hour, and one
 call reads at most 20 000 jobs: past that, `scan.truncated` is true and

@@ -4,6 +4,7 @@ import { parse as parseYaml } from 'yaml';
 import type { z } from 'zod';
 import { buildOrigin, currentBuild, type BuildInfo } from './build';
 import { SECRET_KEY_HELP } from './crypto';
+import { isLegacyEnvName, isNewEnvName, readRenamedEnv, renameConflictMessage, renameWarning } from './rename';
 import { ConfigSchema, FileConfigSchema, SETTINGS, SETTINGS_BY_KEY, envNames, getPath, setPath, type Config, type SettingDef } from './schema';
 
 /** `build`: fixed by a release image (D-039); nothing else can change it. */
@@ -58,10 +59,16 @@ export function readConfigFile(path: string): ConfigFile {
   }
 }
 
-/** REELFORGE_CONFIG, read and parsed; undefined when not set. */
+/** The config file path: RENDERWELD_CONFIG, or its old name REELFORGE_CONFIG (both naming different files is refused). */
+function configPath(env: NodeJS.ProcessEnv) {
+  return readRenamedEnv(env, 'REELFORGE_CONFIG', (a, b) => resolve(a) === resolve(b));
+}
+
+/** RENDERWELD_CONFIG (or REELFORGE_CONFIG), read and parsed; undefined when not set. Throws ConfigError. */
 export function loadConfigFile(env: NodeJS.ProcessEnv): ConfigFile | undefined {
-  const p = env.REELFORGE_CONFIG?.trim();
-  return p ? readConfigFile(p) : undefined;
+  const p = configPath(env);
+  if (p.conflict) throw new ConfigError([{ key: '', source: 'file', origin: p.origin, message: p.conflict }]);
+  return p.value ? readConfigFile(p.value) : undefined;
 }
 
 interface LayerValue {
@@ -114,36 +121,77 @@ function fromEnvText(def: SettingDef, text: string, origin: string, issues: Conf
 }
 
 /**
+ * The Docker image sets its defaults (data directory, host, port, browser)
+ * under the RENDERWELD_* names and lists them, as `NAME=value` separated by
+ * spaces, in RENDERWELD_IMAGE_DEFAULTS. Such a value ranks below any value the
+ * operator sets for the same setting, under either name, so `-e REELFORGE_PORT=8080`
+ * still works on the image (with the rename warning) instead of clashing with
+ * the image's RENDERWELD_PORT.
+ */
+export const IMAGE_DEFAULTS_ENV = 'RENDERWELD_IMAGE_DEFAULTS';
+
+function parseImageDefaults(text: string | undefined): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const pair of (text ?? '').split(/\s+/)) {
+    const i = pair.indexOf('=');
+    if (i > 0) out.set(pair.slice(0, i), pair.slice(i + 1));
+  }
+  return out;
+}
+
+/**
  * The environment layer: for each setting, the first of its names that is set
- * (REELFORGE_* before aliases; for secrets NAME before NAME_FILE). Empty
- * variables count as unset (Compose passes `${X:-}` as "").
+ * (RENDERWELD_* before the old REELFORGE_* names before other aliases; for
+ * secrets NAME before NAME_FILE). Empty variables count as unset (Compose
+ * passes `${X:-}` as ""). Rename rules (#412): an old name alone works with
+ * one warning per variable; old and new names with different values are an
+ * error.
  */
 function envLayer(env: NodeJS.ProcessEnv, issues: ConfigIssue[], warnings: string[]): Map<string, LayerValue> {
   const out = new Map<string, LayerValue>();
+  const imageDefaults = parseImageDefaults(env[IMAGE_DEFAULTS_ENV]);
   for (const def of SETTINGS) {
-    const found: Array<{ origin: string; text: string }> = [];
+    const found: Array<{ name: string; origin: string; text: string }> = [];
     for (const name of envNames(def)) {
       const direct = env[name];
-      if (direct !== undefined && direct.trim() !== '') found.push({ origin: name, text: direct.trim() });
+      if (direct !== undefined && direct.trim() !== '') found.push({ name, origin: name, text: direct.trim() });
       const file = def.secret ? env[`${name}_FILE`]?.trim() : undefined;
       if (file) {
         try {
           const text = readFileSync(file, 'utf8').trim();
           if (!text) issues.push({ key: def.key, source: 'env', origin: `${name}_FILE`, message: `the file ${file} is empty` });
-          else found.push({ origin: `${name}_FILE`, text });
+          else found.push({ name, origin: `${name}_FILE`, text });
         } catch (e) {
           issues.push({ key: def.key, source: 'env', origin: `${name}_FILE`, message: `cannot read ${file}: ${(e as NodeJS.ErrnoException).code ?? (e as Error).message}` });
         }
       }
     }
     if (!found.length) continue;
-    const [first, ...rest] = found as [{ origin: string; text: string }, ...Array<{ origin: string; text: string }>];
-    if (rest.some((r) => r.text !== first.text)) warnings.push(`${found.map((f) => f.origin).join(', ')} are all set for ${def.key} with different values; using ${first.origin}`);
+    // A value the Docker image sets as its default (RENDERWELD_IMAGE_DEFAULTS) gives way to any value the operator set.
+    const operator = found.filter((f) => imageDefaults.get(f.origin) !== f.text);
+    if (operator.length) found.splice(0, found.length, ...operator);
+    const fresh = found.find((f) => isNewEnvName(f.name));
+    const old = found.filter((f) => isLegacyEnvName(f.name));
+    if (fresh) {
+      const clash = old.filter((o) => o.text !== fresh.text);
+      for (const o of clash) issues.push({ key: def.key, source: 'env', origin: `${fresh.origin}, ${o.origin}`, message: renameConflictMessage(fresh.origin, o.origin) });
+      if (clash.length) continue;
+    } else {
+      for (const o of old) warnings.push(renameWarning(o.origin));
+    }
+    // An old name that repeats the new name's value is not a second, different source.
+    const used = fresh ? found.filter((f) => !isLegacyEnvName(f.name)) : found;
+    const [first, ...rest] = used as [(typeof used)[number], ...typeof used];
+    if (rest.some((r) => r.text !== first.text)) warnings.push(`${used.map((f) => f.origin).join(', ')} are all set for ${def.key} with different values; using ${first.origin}`);
     const raw = fromEnvText(def, first.text, first.origin, issues);
     if (raw === undefined) continue;
     const v = validateLeaf(def, raw, 'env', first.origin, issues);
     if (v) out.set(def.key, v);
   }
+  // Read outside the schema at start-up: the config file path (loadConfigFile).
+  const config = configPath(env);
+  if (config.conflict) issues.push({ key: '', source: 'env', origin: config.origin, message: config.conflict });
+  else if (config.legacy) warnings.push(renameWarning('REELFORGE_CONFIG'));
   return out;
 }
 

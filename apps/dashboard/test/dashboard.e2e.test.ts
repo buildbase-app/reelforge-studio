@@ -5,6 +5,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { fakeEngine } from '../../../packages/core/test/helpers';
 import { BUDGET_GZIP_BYTES } from '../build';
 import { htmlReel, startStudio } from './harness';
+import { envValue } from '@reelforge/core';
 
 /**
  * The dashboard in a real browser against a real studio (fake engines, real
@@ -12,9 +13,9 @@ import { htmlReel, startStudio } from './harness';
  * key, read-only as a read key, axe-core with 0 violations in light and dark,
  * no CSP violation and no request to another origin.
  */
-const executablePath = process.env.REELFORGE_CHROMIUM_PATH;
+const executablePath = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(executablePath && existsSync(executablePath));
-const requireBrowser = process.env.REELFORGE_REQUIRE_BROWSER === '1';
+const requireBrowser = envValue('REELFORGE_REQUIRE_BROWSER') === '1';
 const axeSource = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
 
 it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => expect(hasBrowser).toBe(true));

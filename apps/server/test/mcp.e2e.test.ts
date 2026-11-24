@@ -8,6 +8,7 @@ import { assertDecodable, checkExpectation, frameStats, probe, resolveTools } fr
 import { tempDir } from '../../../packages/core/test/helpers';
 import { startMockLicenceServer, type MockLicenceServer } from '../../../e2e/mock-licence/server.mjs';
 import { cliCreateKey, startServerProcess, testDatabase, type ServerProcess } from './serverProcess';
+import { envValue } from '@reelforge/core';
 
 /**
  * The whole agent journey over MCP only, against a real server process
@@ -18,9 +19,9 @@ import { cliCreateKey, startServerProcess, testDatabase, type ServerProcess } fr
  * Needs a Chromium (REELFORGE_CHROMIUM_PATH). Skips without one, unless
  * REELFORGE_REQUIRE_BROWSER=1 (CI), which turns a missing browser into a failure.
  */
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(browser && existsSync(browser));
-const requireBrowser = process.env.REELFORGE_REQUIRE_BROWSER === '1';
+const requireBrowser = envValue('REELFORGE_REQUIRE_BROWSER') === '1';
 
 describe('browser requirement', () => {
   it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {

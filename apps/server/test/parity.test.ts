@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createApp, INFRA_ROUTES, loadConfig, REST_ROUTES, TOOL_ALIASES, TOOLS } from '../src/index';
+import { createApp, INFRA_ROUTES, loadConfig, REST_ROUTES, RESOURCE_SCHEMES, RESOURCES, serverCard, TOOL_ALIASES, TOOLS } from '../src/index';
 
 /** Every REST capability has an MCP tool, and every MCP tool maps back to REST. */
 describe('REST / MCP parity', () => {
@@ -73,6 +73,18 @@ describe('REST / MCP parity', () => {
     }
     // Calls that return a secret never store their result.
     for (const t of ['create_key', 'rotate_key']) expect(Object.keys(tools.get(t)!.input)).not.toContain('idempotencyKey');
+  });
+
+  it('every MCP resource has a renderweld:// URI and its old reelforge:// alias, and the server card names both (#412)', () => {
+    expect([...RESOURCE_SCHEMES]).toEqual(['renderweld', 'reelforge']);
+    const card = serverCard({ serverVersion: '0.0.0' } as never, loadConfig({}));
+    expect(card.resources).toEqual(RESOURCES.map((r) => `renderweld://${r.path}`));
+    expect(card.resources).toEqual(['renderweld://guide/workflow', 'renderweld://schema/project', 'renderweld://templates', 'renderweld://projects/{id}']);
+    for (const r of RESOURCES) expect(card.resourceAliases[`reelforge://${r.path}`]).toBe(`renderweld://${r.path}`);
+    // The data resources have the same REST reads.
+    for (const route of ['GET /v1/schema/project', 'GET /v1/templates', 'GET /v1/projects/:id']) expect(table).toContain(route);
+    // Tool names do not change with the rename.
+    for (const t of TOOLS) expect(t.name).not.toMatch(/renderweld|reelforge/i);
   });
 
   it('every MCP tool maps back to a REST route', () => {

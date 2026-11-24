@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
-import { OutboxRelay, ReelforgeService, chromiumSandbox, createBrokerDispatch, effectiveQueueMode, isBrokerDispatch, secretKeyProblem, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
+import { OutboxRelay, ReelforgeService, chromiumSandbox, createBrokerDispatch, effectiveQueueMode, isBrokerDispatch, secretKeyProblem, envValue, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
 import { createNotifyListener, defaultDatabaseUrl, notifyChannel, pooledSchemaWarning, prepareDatabase, READ_REPLICA_READS, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
@@ -75,7 +75,7 @@ export async function startServer(
   if (!chromiumSandbox()) {
     logger.log(
       'warn',
-      process.env.REELFORGE_CHROMIUM_NO_SANDBOX === '1'
+      envValue('REELFORGE_CHROMIUM_NO_SANDBOX') === '1'
         ? "REELFORGE_CHROMIUM_NO_SANDBOX=1: Chromium's own sandbox is OFF for every engine (explicit opt-out). Agent-supplied scenes then run in a renderer with the server's privileges; see docs/security/HARDENING.md"
         : "Chromium's own sandbox is OFF because the server runs as root; run as a non-root user (docs/security/HARDENING.md)"
     );
@@ -148,6 +148,7 @@ export async function startServer(
       publicUrl: config.publicUrl,
       maxUploadBytes: config.maxUploadBytes,
       configSources: config.sources,
+      loggedConfigWarnings: config.resolved.warnings,
       licence: opts.licence,
       storage: opts.storage,
       auditSinks: opts.auditSinks,

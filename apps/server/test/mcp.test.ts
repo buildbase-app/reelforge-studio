@@ -108,17 +108,29 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
   it('exposes resources and prompts', async () => {
     const client = await connect(adminKey);
     const { resources } = await client.listResources();
-    expect(resources.map((r) => r.uri)).toEqual(expect.arrayContaining(['reelforge://schema/project', 'reelforge://templates', 'reelforge://projects/sample-reel']));
+    expect(resources.map((r) => r.uri)).toEqual(expect.arrayContaining(['renderweld://schema/project', 'renderweld://templates', 'renderweld://guide/workflow', 'renderweld://projects/sample-reel']));
+    // Projects are listed once, under the new scheme.
+    expect(resources.filter((r) => r.uri.endsWith('projects/sample-reel')).map((r) => r.uri)).toEqual(['renderweld://projects/sample-reel']);
     const { resourceTemplates } = await client.listResourceTemplates();
-    expect(resourceTemplates.map((r) => r.uriTemplate)).toContain('reelforge://projects/{id}');
-    const schema = await client.readResource({ uri: 'reelforge://schema/project' });
-    expect(JSON.parse((schema.contents[0] as any).text).type).toBe('object');
-    const project = await client.readResource({ uri: 'reelforge://projects/sample-reel' });
-    expect(JSON.parse((project.contents[0] as any).text).manifest.projectId).toBe('sample-reel');
+    expect(resourceTemplates.map((r) => r.uriTemplate)).toEqual(expect.arrayContaining(['renderweld://projects/{id}', 'reelforge://projects/{id}']));
     const { prompts } = await client.listPrompts();
     expect(prompts.map((p) => p.name).sort()).toEqual(['make_reel', 'plan_reel', 'review_reel']);
-    const guide = await client.readResource({ uri: 'reelforge://guide/workflow' });
-    expect((guide.contents[0] as any).text).toContain('render_project');
+    // Every resource answers under renderweld:// and the old reelforge:// with the same content (#412).
+    for (const scheme of ['renderweld', 'reelforge']) {
+      const schema = await client.readResource({ uri: `${scheme}://schema/project` });
+      expect(schema.contents[0]!.uri).toBe(`${scheme}://schema/project`);
+      expect(JSON.parse((schema.contents[0] as any).text).type).toBe('object');
+      const templates = await client.readResource({ uri: `${scheme}://templates` });
+      expect(JSON.parse((templates.contents[0] as any).text).length).toBeGreaterThan(0);
+      const project = await client.readResource({ uri: `${scheme}://projects/sample-reel` });
+      expect(JSON.parse((project.contents[0] as any).text).manifest.projectId).toBe('sample-reel');
+      const guide = await client.readResource({ uri: `${scheme}://guide/workflow` });
+      expect((guide.contents[0] as any).text).toContain('render_project');
+    }
+    const old = resources.find((r) => r.uri === 'reelforge://guide/workflow');
+    expect(old?.description).toMatch(/Same as renderweld:\/\/guide\/workflow/);
+    expect((await client.readResource({ uri: 'renderweld://guide/workflow' })).contents[0]).toMatchObject({ text: WORKFLOW_GUIDE });
+    expect(client.getInstructions()).toContain('renderweld://guide/workflow');
     const make = await client.getPrompt({ name: 'make_reel', arguments: { topic: 'a bakery opening' } });
     expect((make.messages[0]!.content as any).text).toContain('a bakery opening');
     const plan = await client.getPrompt({ name: 'plan_reel', arguments: { brief: 'Launch of a coffee app', targetSeconds: '12' } });
