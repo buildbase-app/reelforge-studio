@@ -101,7 +101,7 @@ export async function captureStudio(run) {
   const meta = `ReelForge Studio from source · licence mode off (local development) · ${new Date().toISOString().slice(0, 10)}`;
 
   // 1. An API key (printed once; it stays in this process).
-  const created = await sh('pnpm --silent reelforge keys create --name docs-capture --scopes read,write,render,admin', env, { cwd: REPO_ROOT });
+  const created = await sh('pnpm --silent reelforge keys create --name docs-capture --scopes read,write,render,admin,owner', env, { cwd: REPO_ROOT });
   const key = /rf_[A-Za-z0-9_-]{40,}/.exec(created.output)?.[0];
   if (!key) throw new Error(`keys create printed no key: ${cleanOutput(created.output).slice(0, 200).replace(/rf_\S+/g, 'rf_…')}`);
   env.REELFORGE_KEY = key;

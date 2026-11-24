@@ -10,7 +10,8 @@ export interface RouteEntry {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
   display?: string;
-  scope: 'read' | 'write' | 'render' | 'admin';
+  /** `owner`: instance-level (#304); `admin`: the key's own workspace. */
+  scope: 'read' | 'write' | 'render' | 'admin' | 'owner';
   tool: string;
   /** How the MCP tool differs, when it does. */
   note?: string;
@@ -71,13 +72,13 @@ export const REST_ROUTES: RouteEntry[] = [
     note: 'Multipart upload in REST; base64 (a few MB) in MCP. JSON {url} maps to add_asset_from_url.',
   },
   { method: 'GET', path: '/v1/providers', scope: 'read', tool: 'list_providers' },
-  { method: 'PUT', path: '/v1/providers/:id/config', scope: 'admin', tool: 'configure_provider' },
+  { method: 'PUT', path: '/v1/providers/:id/config', scope: 'owner', tool: 'configure_provider' },
   { method: 'POST', path: '/v1/providers/:id/run', scope: 'render', tool: 'run_provider', note: 'generate_voice is a TTS shortcut.' },
-  { method: 'GET', path: '/v1/config', scope: 'admin', tool: 'get_config' },
-  { method: 'PATCH', path: '/v1/config', scope: 'admin', tool: 'update_config' },
+  { method: 'GET', path: '/v1/config', scope: 'owner', tool: 'get_config' },
+  { method: 'PATCH', path: '/v1/config', scope: 'owner', tool: 'update_config' },
   { method: 'GET', path: '/v1/licence', scope: 'read', tool: 'get_licence' },
-  { method: 'POST', path: '/v1/licence', scope: 'admin', tool: 'activate_licence' },
-  { method: 'DELETE', path: '/v1/licence', scope: 'admin', tool: 'deactivate_licence' },
+  { method: 'POST', path: '/v1/licence', scope: 'owner', tool: 'activate_licence' },
+  { method: 'DELETE', path: '/v1/licence', scope: 'owner', tool: 'deactivate_licence' },
   {
     method: 'GET',
     path: '/v1/analytics/summary',
@@ -85,8 +86,8 @@ export const REST_ROUTES: RouteEntry[] = [
     tool: 'get_analytics_summary',
     note: 'Query ?from=&to= (ISO time or UTC date; at most 90 days) and ?bucket=day|hour (hour: at most 7 days).',
   },
-  { method: 'GET', path: '/v1/storage', scope: 'admin', tool: 'get_storage' },
-  { method: 'POST', path: '/v1/storage/cleanup', scope: 'admin', tool: 'run_storage_cleanup' },
+  { method: 'GET', path: '/v1/storage', scope: 'owner', tool: 'get_storage' },
+  { method: 'POST', path: '/v1/storage/cleanup', scope: 'owner', tool: 'run_storage_cleanup' },
   { method: 'GET', path: '/v1/keys', scope: 'admin', tool: 'list_keys' },
   { method: 'POST', path: '/v1/keys', scope: 'admin', tool: 'create_key' },
   { method: 'GET', path: '/v1/keys/:id', scope: 'admin', tool: 'get_key' },
@@ -94,6 +95,12 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'POST', path: '/v1/keys/:id/rotate', scope: 'admin', tool: 'rotate_key' },
   { method: 'POST', path: '/v1/keys/:id/revoke', scope: 'admin', tool: 'revoke_key' },
   { method: 'DELETE', path: '/v1/keys/:id', scope: 'admin', tool: 'delete_key' },
+  { method: 'GET', path: '/v1/workspace', scope: 'read', tool: 'get_workspace' },
+  { method: 'GET', path: '/v1/workspaces', scope: 'owner', tool: 'list_workspaces' },
+  { method: 'POST', path: '/v1/workspaces', scope: 'owner', tool: 'create_workspace' },
+  { method: 'PATCH', path: '/v1/workspaces/:id', scope: 'owner', tool: 'update_workspace' },
+  { method: 'DELETE', path: '/v1/workspaces/:id', scope: 'owner', tool: 'delete_workspace' },
+  { method: 'POST', path: '/v1/workspaces/:id/restore', scope: 'owner', tool: 'restore_workspace' },
   { method: 'GET', path: '/v1/webhooks', scope: 'admin', tool: 'list_webhooks' },
   { method: 'POST', path: '/v1/webhooks', scope: 'admin', tool: 'create_webhook' },
   { method: 'GET', path: '/v1/webhooks/:id', scope: 'admin', tool: 'get_webhook' },
@@ -116,7 +123,7 @@ export const REST_ROUTES: RouteEntry[] = [
     path: '/v1/audit',
     scope: 'admin',
     tool: 'list_audit_events',
-    note: 'REST ?format=jsonl|csv streams an export (up to 100 000 entries); the MCP tool returns up to 10 000 in one result.',
+    note: 'REST ?format=jsonl|csv streams an export (up to 100 000 entries); the MCP tool returns up to 10 000 in one result. Owner keys: ?workspaceId=<id>|* (json pages).',
   },
 ];
 

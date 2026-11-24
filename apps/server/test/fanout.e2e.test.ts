@@ -176,7 +176,7 @@ describe.skipIf(!enabled)('render fan-out e2e: real engines, PostgreSQL, MinIO, 
     mkdirSync(dir, { recursive: true });
     await bucket('CreateBucketCommand');
     db = await createTestDatabase('postgresql', dir);
-    key = cliCreateKey(join(dir, 'api'), 'fanout-e2e', 'admin', { ...baseEnv() });
+    key = cliCreateKey(join(dir, 'api'), 'fanout-e2e', 'admin,owner', { ...baseEnv() });
     api = await startServerProcess({ ...baseEnv(), REELFORGE_ROLE: 'api', REELFORGE_DATA_DIR: join(dir, 'api') });
     for (const w of ['w1', 'w2', 'w3']) await worker(w);
     // v0.1 manifests know two engines: create with the first two scenes, then add the rest (html, HyperFrames) in order.

@@ -123,7 +123,7 @@ beforeAll(async () => {
   vi.spyOn(console, 'log').mockImplementation(keep);
   vi.spyOn(console, 'error').mockImplementation(keep);
   server = await startServer({ dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' }, { registry, env, licence: { api: licenceApi, start: false }, logWrite: (_l, line) => keep(line) });
-  admin = (await server.service.keys.create('admin', ['admin', 'write', 'render', 'read'])).key;
+  admin = (await server.service.keys.create('admin', ['admin', 'owner', 'write', 'render', 'read'])).key;
   secrets.push(admin);
 }, 60_000);
 
