@@ -25,7 +25,7 @@ const TEXT_RULES: Array<[RegExp, string]> = [
 
 const SECRET_FIELD = /pass(word)?|secret|token|api[-_]?key|authori[sz]ation|cookie|credential|private[-_]?key|^key$/i;
 /** Field names that look like secrets but carry ids (never the key itself). */
-const SAFE_FIELDS = new Set(['key_id', 'keyId', 'reelforge.key_id', 'tokens_used']);
+const SAFE_FIELDS = new Set(['key_id', 'keyId', 'reelforge.key_id', 'renderweld.key_id', 'tokens_used']);
 
 /** Shortest secret value replaced by exact match (shorter values would hit ordinary words). */
 const MIN_SECRET_LENGTH = 6;

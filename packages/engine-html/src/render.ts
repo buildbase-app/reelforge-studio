@@ -17,6 +17,7 @@ import {
   type EnginePlugin,
   type ResolvedAsset,
   type StagedSceneAssets,
+  envValue,
 } from '@reelforge/core';
 import { PipelineError, startPngEncoder, type Tools } from '@reelforge/media-pipeline';
 import {
@@ -85,7 +86,7 @@ export function htmlEngineVersion(): string {
 export const chromiumSandbox = coreChromiumSandbox;
 
 export function resolveHtmlBrowser(explicit?: string): string {
-  const p = explicit ?? process.env.REELFORGE_CHROMIUM_PATH;
+  const p = explicit ?? envValue('REELFORGE_CHROMIUM_PATH');
   if (p && existsSync(p)) return p;
   throw new PipelineError('setup', `No Chromium for the html engine: set REELFORGE_CHROMIUM_PATH (tried ${p ?? '(unset)'})`);
 }
@@ -432,7 +433,7 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         file: res.out,
         frames: res.frames,
         engineVersion: htmlEngineVersion(),
-        browserVersion: browserVersion(opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH) ?? res.browser,
+        browserVersion: browserVersion(opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH')) ?? res.browser,
         millis: res.millis,
       };
     },

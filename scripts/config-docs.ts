@@ -8,7 +8,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SETTINGS, type SettingDef } from '@reelforge/core';
+import { IMAGE_DEFAULTS_ENV, SETTINGS, envNames, isLegacyEnvName, type SettingDef } from '@reelforge/core';
 
 const out = join(dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'CONFIG.md');
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
@@ -20,9 +20,13 @@ function defaultText(d: SettingDef): string {
   return `\`${String(d.default)}\``;
 }
 
+/** The RENDERWELD_* name first, other aliases, then the old REELFORGE_* names as aliases (#412, docs/RENAMED.md). */
 function envText(d: SettingDef): string {
-  const names = [d.env, ...(d.aliases ?? [])].map((n) => `\`${n}\``);
-  const text = names.join(', ');
+  const code = (n: string) => `\`${n}\``;
+  const names = envNames(d);
+  const current = names.filter((n) => !isLegacyEnvName(n)).map(code).join(', ');
+  const legacy = names.filter(isLegacyEnvName);
+  const text = legacy.length ? `${current}; old name${legacy.length > 1 ? 's' : ''} ${legacy.map(code).join(', ')}` : current;
   return d.secret ? `${text} (each also as \`_FILE\`)` : text;
 }
 
@@ -49,10 +53,15 @@ const lines: string[] = [
   'Precedence, lowest to highest (D-029):',
   '',
   '1. **default** (below)',
-  '2. **file**: the YAML or JSON file named by `REELFORGE_CONFIG`, nested by key',
+  '2. **file**: the YAML or JSON file named by `RENDERWELD_CONFIG` (old name `REELFORGE_CONFIG`), nested by key',
   '   (`limits.rateLimitPerMinute` is `limits: { rateLimitPerMinute: 120 }`); unknown keys are refused',
-  '3. **env**: the environment variables below; the `REELFORGE_` name wins over older aliases;',
+  '3. **env**: the environment variables below; the `RENDERWELD_` name wins over older aliases;',
   '   every secret can also be read from a file named by `<NAME>_FILE` (Docker/Kubernetes secrets)',
+  '',
+  '**Renamed from ReelForge** ([RENAMED.md](RENAMED.md)): every `RENDERWELD_*` variable below also works under its old',
+  'name `REELFORGE_*` (and `REELFORGE_*_FILE`). The old name alone logs one warning at start naming the new one; both',
+  'names set to different values stop the server with an error naming both; both set to the same value is fine.',
+  'The old names keep working until a removal date announced in the release notes, at least 90 days after the rename ships.',
   '4. **runtime**: values set over the API (`PATCH /v1/config`, MCP `update_config`, admin scope), stored in the',
   '   database; only settings with scope **runtime**. `null` clears a runtime value.',
   '',
@@ -66,9 +75,10 @@ const lines: string[] = [
   'where to set them. `GET /v1/config` / MCP `get_config` show each effective value and its source; secrets show',
   'only `set` / `not set`. Secrets set at runtime are stored encrypted (AES-256-GCM) with `REELFORGE_SECRET_KEY`;',
   'without it the server refuses to store them. Check a configuration without starting the server:',
-  '`reelforge config check [--file PATH]`; print the effective one: `reelforge config show`.',
+  '`renderweld config check [--file PATH]`; print the effective one: `renderweld config show` (both name the variable that',
+  'supplied each value; `reelforge` is the old name of the command).',
   '',
-  'Example `reelforge.yaml`:',
+  'Example `renderweld.yaml` (any file name works; `reelforge.yaml` too):',
   '',
   '```yaml',
   'server:',
@@ -96,7 +106,9 @@ lines.push(
   '',
   '| Env | Description |',
   '| --- | --- |',
-  '| `REELFORGE_CONFIG` | Path of the config file (YAML or JSON). |',
+  '| `RENDERWELD_CONFIG`; old name `REELFORGE_CONFIG` | Path of the config file (YAML or JSON). Both set to different files is an error. |',
+  `| \`${IMAGE_DEFAULTS_ENV}\` | Set by the Docker image: its own defaults (\`NAME=value\`, space-separated), which give way to any value set under either name. |`,
+  '| `RENDERWELD_LICENCE_KEY_INPUT`; old name `REELFORGE_LICENCE_KEY_INPUT` | The key for `renderweld licence activate` when none is given on the command line. |',
   '| Provider settings declared by plugins | Set with `configure_provider` / `PUT /v1/providers/:id/config` (stored encrypted, like `providers.*`) or the environment variable the provider names. |',
   '| `HYPERFRAMES_NO_TELEMETRY`, `DO_NOT_TRACK`, `CHECKPOINT_DISABLE` | Telemetry opt-outs for third-party tools, set in the Docker image. |',
   ''

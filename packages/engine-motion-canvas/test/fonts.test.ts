@@ -7,9 +7,10 @@ import { resolveTools } from '@reelforge/media-pipeline';
 import { builtinTheme, type OutputSettings } from '@reelforge/project-schema';
 import { renderMotionCanvasScene } from '../src/index';
 import { TEST_FONTS, inkRatio, readPicture } from '../../media-pipeline/test/media-fixtures';
+import { envValue } from '@reelforge/core';
 
 /** #303: the theme's project font is loaded before the first frame and drawn by Motion Canvas' Txt nodes. */
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-mc-fonts-'));
 const cacheDir = resolve(__dirname, '../../../.render-cache');

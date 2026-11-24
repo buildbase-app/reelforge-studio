@@ -4,14 +4,14 @@
 # (e2e/docker/run.sh).
 #
 # SLO, at the maximum number of worker replicas: p95 of enqueue -> first claim below 60 s for previews and below
-# 300 s (5 min) for renders. Both thresholds are bucket boundaries of reelforge_job_queue_wait_seconds, so the
+# 300 s (5 min) for renders. Both thresholds are bucket boundaries of renderweld_job_queue_wait_seconds, so the
 # quantile is exact at the threshold. Every instance that claims jobs exports the histogram: sum it over all of them.
 groups:
   - name: reelforge-queue-wait
     rules:
       - alert: ReelforgePreviewQueueWaitSLO
         expr: |
-          histogram_quantile(0.95, sum by (le) (rate(reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="preview"}[15m]))) > 60
+          histogram_quantile(0.95, sum by (le) (rate(renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="preview"}[15m]))) > 60
         for: 10m
         labels:
           severity: warning
@@ -19,11 +19,11 @@ groups:
           summary: Previews wait more than 60 s for a worker (p95, 15 min)
           description: >-
             p95 queue wait of previews is {{ $value | printf "%.0f" }} s. Add worker replicas (or raise the autoscaler's
-            maximum), check that workers are claiming (reelforge_queue_errors_total, /readyz), or set
+            maximum), check that workers are claiming (renderweld_queue_errors_total, /readyz), or set
             limits.maxEstimatedWaitSeconds so new work is refused with Retry-After instead of piling up.
       - alert: ReelforgeRenderQueueWaitSLO
         expr: |
-          histogram_quantile(0.95, sum by (le) (rate(reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="render"}[15m]))) > 300
+          histogram_quantile(0.95, sum by (le) (rate(renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="render"}[15m]))) > 300
         for: 15m
         labels:
           severity: warning

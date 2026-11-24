@@ -228,7 +228,7 @@ if [ "$HARDENED" = 1 ]; then
   docker exec $NAME sh -c 'touch /etc/rf 2>/dev/null' && { echo "✘ the root filesystem is writable"; exit 1; } || echo "✔ the root filesystem is read-only; /tmp and /data are writable: $(docker exec $NAME sh -c 'touch /tmp/rf /data/.rf && rm /tmp/rf /data/.rf && echo yes')"
   [ "$(docker exec $NAME sh -c 'grep CapEff /proc/1/status' | awk '{print $2}')" = 0000000000000000 ] && echo "✔ no effective capabilities" || { echo "✘ capabilities present"; exit 1; }
   docker exec $NAME sh -c 'grep -q "NoNewPrivs:[[:space:]]*1" /proc/1/status' && echo "✔ NoNewPrivs is set" || { echo "✘ NoNewPrivs not set"; exit 1; }
-  [ "$(docker exec $NAME printenv REELFORGE_CHROMIUM_NO_SANDBOX)" = 0 ] && echo "✔ the image default is REELFORGE_CHROMIUM_NO_SANDBOX=0 (no override in this run)" || { echo "✘ the image does not default to the sandbox"; exit 1; }
+  [ "$(docker exec $NAME printenv RENDERWELD_CHROMIUM_NO_SANDBOX)" = 0 ] && echo "✔ the image default is RENDERWELD_CHROMIUM_NO_SANDBOX=0 (no override in this run)" || { echo "✘ the image does not default to the sandbox"; exit 1; }
   probe=$(docker exec -i $NAME node --input-type=module < e2e/docker/sandbox-probe.mjs)
   echo "$probe" | grep '"sandboxed":true' >/dev/null && echo "✔ Chromium's own sandbox runs (renderers in a nested PID namespace): $probe" || { echo "✘ Chromium sandbox not active: $probe"; exit 1; }
 fi

@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer';
 import { PipelineError } from '@reelforge/media-pipeline';
-import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, type AssetServer, type ResolvedAsset } from '@reelforge/core';
+import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, envValue, type AssetServer, type ResolvedAsset } from '@reelforge/core';
 import type { Tools } from '@reelforge/media-pipeline';
 import { TEMPLATES, fpsValue, type OutputSettings, type RenderScene, type ThemeTokens } from '@reelforge/project-schema';
 
@@ -124,7 +124,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
   const started = Date.now();
   const { scene, output } = opts;
   const stage = `render:${scene.id}`;
-  const browserExecutable = opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH ?? null;
+  const browserExecutable = opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH') ?? null;
   mkdirSync(dirname(opts.out), { recursive: true });
   const range = opts.frameRange;
   if (range && (range[0] < 0 || range[1] < range[0] || range[1] >= scene.durationFrames)) {

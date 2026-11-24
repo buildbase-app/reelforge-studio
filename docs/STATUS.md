@@ -721,6 +721,17 @@ with prompts, ZAP and nuclei baselines, private findings and the release gate). 
 real-render driver `pnpm load:real` (`scripts/load/real-render.ts`, dry run tested against an in-memory
 fake server only) and `CHECK_SINCE` for the exactly-once check.
 
+### Rename compatibility layer (2026-11-24, issue #412, phase 3 of #408)
+
+ReelForge becomes RenderWeld; nothing an install uses breaks. Every `REELFORGE_*` variable (183 setting names
+and the 5 read outside the schema) also works as `RENDERWELD_*`, `_FILE` included; the new name wins, the old
+one alone logs one warning, different values under both stop the start. `renderweld` CLI next to `reelforge`
+(stderr notice), MCP resources under `renderweld://` and `reelforge://`, the 25 `reelforge_*` metrics also served
+as `renderweld_*` with identical labels, `renderweld.*` span and metric attributes, both email message-id
+headers, Grafana and alert rules on the new names, `docs/CONFIG.md` listing new names first. D-1XX;
+[RENAMED.md](RENAMED.md) and the public page [Renamed from ReelForge](public/install/renamed-from-reelforge.md).
+Not yet: compose/Kubernetes manifests and docs prose (phase 6), public names such as the MCP server name (phase 4).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |

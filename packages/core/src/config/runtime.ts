@@ -3,7 +3,7 @@ import type { Repositories, StoredValue } from '../repositories';
 import { ENCRYPTED_SCHEME, PLAIN_SCHEME, SECRET_KEY_HELP, SecretCipher, SecretDecryptError } from './crypto';
 import type { BuildInfo } from './build';
 import { ConfigError, buildLockedMessage, formatIssue, parseSettingValue, resolveConfig, type ConfigFile, type ConfigSource, type ResolvedConfig, type ResolvedSetting } from './load';
-import { SETTINGS, SETTINGS_BY_KEY, type Config, type SettingDef, type SettingScope } from './schema';
+import { SETTINGS, SETTINGS_BY_KEY, envNames, type Config, type SettingDef, type SettingScope } from './schema';
 
 /** Where configuration comes from besides the database. */
 export interface ConfigSources {
@@ -315,7 +315,7 @@ export class RuntimeConfig {
         continue;
       }
       if (def.scope !== 'runtime') {
-        const env = [def.env, ...(def.aliases ?? [])].flatMap((n) => (def.secret ? [n, `${n}_FILE`] : [n]));
+        const env = envNames(def).flatMap((n) => (def.secret ? [n, `${n}_FILE`] : [n]));
         issues.push({ key, code: 'startup_only', message: `"${key}" applies at start-up only and cannot be changed at runtime: ${whereToSet(def)}`, setIn: { configFile: key, env } });
         continue;
       }

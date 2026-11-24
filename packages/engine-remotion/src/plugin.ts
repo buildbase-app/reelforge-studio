@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { browserVersion, type EnginePlugin } from '@reelforge/core';
+import { browserVersion, envValue, type EnginePlugin } from '@reelforge/core';
 import { TEMPLATES } from '@reelforge/project-schema';
 import { remotionVersion, renderRemotionScene } from './render';
 
@@ -12,7 +12,7 @@ export interface RemotionEngineOptions {
 
 /** The Remotion engine as a plugin (templates: kinetic-title). */
 export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
-  const browser = () => opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH;
+  const browser = () => opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH');
   return {
     id: 'remotion',
     displayName: 'Remotion',

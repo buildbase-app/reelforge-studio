@@ -23,17 +23,18 @@ import type { ResolvedAsset } from '@reelforge/core';
 import { FIT_TEXT_SCRIPT, frameLayout, htmlTitleProps, layoutPanes, layoutSceneDom, layoutSceneProps, toLayoutSpec, type OutputSettings } from '@reelforge/project-schema';
 import { LAYOUT_ENGINES, LAYOUT_FORMATS, LAYOUT_SAMPLES, renderLayout, type LayoutSample } from './formats/layouts';
 import { FORMATS, FORMAT_4K, SAMPLES, THEME, checkOverflow, engines, frameRgb, renderSample, scaled, type Format } from './formats/matrix';
+import { envValue } from '@reelforge/core';
 
 const run = promisify(execFile);
 
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-formats-test-'));
 const cacheDir = resolve(import.meta.dirname, '../../../.render-cache');
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 describe('browser requirement', () => {
-  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
+  it.runIf(envValue('REELFORGE_REQUIRE_BROWSER') === '1')('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });
