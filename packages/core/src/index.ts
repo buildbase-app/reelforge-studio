@@ -29,6 +29,8 @@ export * from './backends/local';
 export * from './backends/remotion-lambda';
 export * from './backends/estimate';
 export * from './providers/elevenlabs';
+export * from './providers/faster-whisper';
+export * from './captions-edit';
 export * from './secrets';
 export * from './import-v01';
 export * from './config/index';

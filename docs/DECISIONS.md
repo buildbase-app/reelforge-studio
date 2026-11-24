@@ -2261,6 +2261,209 @@ an allowlist operators narrow (NetworkPolicy has no host names).
 per the MCP authorization spec (protected-resource metadata, JWT access tokens checked against the issuer's JWKS,
 audience = the server's MCP URL, scopes mapped to `read`/`write`/`admin`), with API keys unchanged.
 
+### D-111 --- HyperFrames' Node-side fetch is refused by a preloaded guard; missing web fonts fall back instead of downloading
+
+**Status:** DECIDED (reversible).\
+Live test #318: with a theme or scene that names a web font that is not installed, the HyperFrames CLI (0.9.77)
+asked `fonts.googleapis.com` for it from its own Node process, with the family name and the characters used on
+the page in `text=`. That request uses Node's global `fetch`, not the capture proxy that D-085 points at the
+deny-all sink, so it left the machine and the render still succeeded. HyperFrames has no option that turns the
+fetch off (`failClosedFontFetch` only changes what happens when it fails). **Decision:** every HyperFrames render
+runs with `NODE_OPTIONS=--import=<engine-hyperframes/src/egress-guard.mjs>` (after any operator `NODE_OPTIONS`, so
+every Node process the CLI starts loads it too). The guard replaces the global `fetch`: `data:`, `blob:`, `file:`
+and loopback pass; everything else is refused with an `ECONNREFUSED` error before any DNS lookup or connection.
+Google Fonts hosts are refused quietly: HyperFrames then keeps the CSS fallback (installed, bundled or project
+fonts), the same result as the html engine, and the job log says the font was not downloaded. Any other host is
+refused and reported, and the engine fails the render with its usual network error (D-085). As a second line,
+Node's own proxy support (`NODE_USE_ENV_PROXY=1`, `HTTP_PROXY`/`HTTPS_PROXY` = the sink, `NO_PROXY` = loopback;
+Node 22.21 and later) sends anything that slips past the guard to the sink, which refuses and fails the render.
+HyperFrames' font cache (`HYPERFRAMES_FONT_CACHE_DIR`) moves into ReelForge's cache directory, so fonts that other
+tools downloaded into `~/.cache` do not change renders. Tested by SECT-41..43, including an `strace` run of a
+whole render (no `connect()` or send outside loopback, no DNS). html, Remotion and Motion Canvas renders with the
+same missing font were measured under `strace` too: no connection outside loopback, so they are unchanged.
+**Chromium's IPv6 reachability check (found by that test in CI, job 137840212606).** On a runner with an IPv6
+stack, three processes of a HyperFrames render (one per browser launch) called `connect()` to
+`[2001:4860:4860::8888]:443`, Google's public DNS address; the runner has no IPv6 route, so it failed with
+`ENETUNREACH`. This is not DNS over HTTPS: Chrome Headless Shell 157's net-log shows `secure_dns_mode` Off, no DoH
+servers, no DoH upgrade and no secure DNS transactions, even with 8.8.8.8 as the system resolver (the upgrade
+candidate). It is Chromium's IPv6 reachability check (`HOST_RESOLVER_MANAGER_IPV6_REACHABILITY_CHECK`): before its
+first host resolution, which every engine's page load needs, even of `127.0.0.1` (a `data:` URL alone does not
+trigger it), Chromium `connect()`s a **UDP** socket to that address to learn whether the kernel has an IPv6
+route, reads the local address and closes it. A UDP `connect()` sends no packet. No switch turns it off in this
+build: `--host-resolver-rules` and `--enable-features=EnableIPv6ReachabilityOverride` were tried and the check
+still ran. On hosts without IPv6 (this repository's development sandbox) Chromium cannot create the socket, which
+is why the local run did not see it. The `strace` test therefore allows exactly this call (UDP over IPv6, that
+address, port 443 or 80) and still fails on anything sent on that socket, on TCP to the same address (DoH), on any
+other address and on any DNS port; it traces `connect`, `sendto`, `sendmsg` and `sendmmsg` with socket types
+(`strace -yy`) and counts every call whatever its result, since a missing route only hides a leak. DoH flags are
+not added to the engines: DoH is already off in the browser we ship.
+*Rejected:* failing every render that names a missing web font (a theme font that is not installed is a normal
+case and renders fine on the other engines); patching HyperFrames' bundle (D-085); a network namespace per render
+(not available to an unprivileged container); ignoring failed `connect()` calls in the test (the CI leak only
+failed for want of a route); allowing every UDP `connect()` (a connected UDP socket can send DNS).
+
+### D-112 --- MCP accepts OAuth 2.1 access tokens as a resource server; JWT and JWKS only; API keys stay
+
+**Status:** DECIDED (reversible), issue #305 (step 2; step 1 is D-110).\
+**What:** with `security.oauth.issuer` set, `/mcp` follows the MCP authorization specification for a resource
+server: protected-resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource` and the path form for
+`/mcp`; `WWW-Authenticate: Bearer resource_metadata="..."` on its 401s; access tokens checked locally as JWTs
+(RFC 9068 profile) against the issuer's JWKS, found through RFC 8414 metadata (then OpenID discovery) unless
+`security.oauth.jwksUrl` names it. Checks: an asymmetric algorithm only (RS/PS/ES 256-512, EdDSA; `none` and HS*
+refused, so a shared secret can never sign), the key's own `alg` if it states one, no `crit`, `iss` equal to the
+issuer, `aud` containing `security.oauth.audience` (default `server.publicUrl` + `/mcp`, the RFC 8707 resource MCP
+clients name), `exp` and `nbf` with 60 s leeway, a `sub`. Scopes: `reelforge:read|write|render|admin` in `scope` or
+`scp` map one to one to the key scopes; generic values (`read`) are ignored, because one authorization server
+usually serves many APIs. The subject becomes the actor `oauth:<sub>`, so the rate limit, quotas and the audit trail
+work as for a key. JWKS: cached 10 minutes, refetched for an unknown `kid` at most every 30 s, private members of a
+JWK dropped before use. *Why no dependency:* `node:crypto` verifies JWS with JWK keys directly (`createPublicKey({
+format: 'jwk' })`); a JOSE library would add a supply-chain surface for ~150 lines. *Why only /mcp:* the issue is MCP
+clients that only speak OAuth; REST keeps API keys. **Not yet:** opaque tokens (introspection, RFC 7662), per-token
+workspaces (every token maps to the default workspace, like keys today), DPoP / sender-constrained tokens, a
+`get_capabilities` field for it, and an interoperability run against a real authorization server (Keycloak, Entra
+ID) and a real OAuth-only MCP client (VERIFY).
+
+## AB. Webhooks for operations (2026-11-23, issue #306)
+
+Terminal events for every render outcome, the retry window, the dedupe key, the delivery log for read keys, resend
+and rotation with an overlap. Reference and test cases:
+[docs/providers/webhooks-and-notifications.md](providers/webhooks-and-notifications.md#terminal-render-events).
+D-110 to D-112 went to #341, #324 and #343, merged first; this entry is D-113.
+
+### D-113 --- One terminal `render.*` event per render job; a derived webhook-id as the dedupe key; a 24 h retry window; resend, rotation and a read-scope log on top of the D-071 outbox
+
+**Status:** DECIDED (reversible; event names are part of the experimental API, D-070).\
+**Events.** Every render or preview job ends with exactly one of `render.ready`, `render.failed`, `render.timeout`,
+`render.cancelled`, `render.qa_failed` or `render.blocked`, chosen from the job's status and error code (pure
+function `renderOutcome`: `render_timeout` → timeout, `qa_*` → qa_failed, `licence_required|licence_invalid|content_blocked`
+→ blocked, other failures → failed). They come from the same `JobRunner.onEvent` listener as `job.*` (D-070), on the
+instance that finished the job; `job.*` events are unchanged. `render.blocked` is also emitted when the licence gate
+refuses `render_project`, `preview_scene` or `retry_job` before a job exists (the caller still gets its 403; the
+event is for automations that never see that answer). `render.qa_failed` is reserved for #294; moderation for later.
+*Rejected:* a `job.timeout` status: a new `JobStatus` would touch every reader of jobs; a timeout is a `failed` job
+with the typed code `render_timeout`. **Timeout:** `render.timeoutSeconds` (runtime, 3600, `0` = none), read when a
+job starts, aborts the handler's signal with a reason of its own; units and joins of a fanned-out render each get the
+limit. The engines' own scene timeouts (`render.sceneTimeoutSeconds`, D-087) stay `render.failed`.
+**Payload.** The render summary (ready), the typed error and the last 20 job log lines (failed and its kinds),
+`timing` (queued/started/finished, queue and render seconds), `costs` and API `links`; never signed download links
+(D-070). `costs.cpuSeconds` is `process.cpuUsage()` plus the reaped children's `cutime + cstime` from `/proc/self/stat`
+over the run, reported only when no other job ran on that instance meanwhile (the figure is per process), else
+`cpuUnavailable` with the reason; a browser kept alive between renders is not counted. `outputBytes`/`storageBytes`
+come from one storage listing of the render. The payload is built lazily, only when an endpoint subscribes.
+**Dedupe key.** Terminal events carry `dedupeKey: "render:<jobId>"` in the envelope and a `dedupeKey` column (migration
+`0013_webhook_operations`, with indexes on `eventId` and `dedupeKey`). `webhook-id` is now
+`msg_` + the first 32 hex characters of `sha256(endpointId + "\n" + (dedupeKey ?? eventId))` instead of a random id,
+so a retry, replay, resend or a second emit of the same outcome (e.g. a worker that lost its lease after emitting)
+reaches an endpoint under one webhook-id, which is what Standard Webhooks receivers deduplicate on.
+**Retries.** `webhooks.retryWindowHours` (24): attempts are scheduled with the D-071 backoff but never after
+`createdAt + window`; the last one lands on the end of the window, then the delivery is `dead` (the "failed" state;
+the status name is kept for compatibility) with `lastError` naming the limit. `maxAttempts` default 15 → 20 so the
+window is what ends retries; `timeoutSeconds` default 15 → 10 s. **Exactly once per attempt:** the claim was already a
+compare-and-set (D-071); `recordAttempt` is now fenced by the claim's lease (`status = delivering AND lockedUntil =
+<lease>`), delivery update first and the attempt row only when it matched, so a worker that outlived its lease writes
+nothing and each attempt number is logged once (WHK-DB-07 on SQLite, PostgreSQL, MySQL).
+**Tools** (REST/MCP parity): `resend_webhook` (`POST /v1/webhooks/:id/resend`, admin: by `deliveryId`, `eventId` or
+`dedupeKey`; a pending delivery is made due now, a finished one is queued again with a fresh window, an event the
+endpoint never got is queued for it), `rotate_webhook_secret` (`POST .../rotate-secret`, admin: `overlapHours`, own
+`secret`, `endOverlap`; the D-072 two-secret overlap, now a tool of its own), `get_webhook_log` (`GET .../log`,
+**read**: the delivery log without payloads, URL or secrets: status, attempts, per-attempt latency, `giveUpAt`, a
+summary and the retry policy). `list_webhook_deliveries` (payloads) and everything else stay admin.
+*Rejected:* a separate secrets table: the endpoint already holds the current and the previous secret (sealed), and
+Standard Webhooks needs no more than that for an overlap.
+
+## AB. Captions step 2: speech-to-text, approval, languages, audio description (2026-11-23, issue #300)
+
+How they work: [docs/CAPTIONS.md](CAPTIONS.md) (sections "Speech-to-text", "Review and approval",
+"Several languages", "Audio description").
+
+### D-114 --- Local speech-to-text as an external program in an optional image layer; caption approval by etag; languages as tracks with one burned; descriptions as a WebVTT text track
+
+**Status:** DECIDED (reversible). *Number:* D-108 and D-109 are taken by open PRs (#317 formats, #323
+variants); renumber if needed.\
+**Speech-to-text:** a new plugin kind, `SpeechToTextPlugin` (`availability(settings)`,
+`transcribe({ file, language, settings }, ctx)` returning timed words), registered with
+`registerStt()`; settings `captions.stt.*` (provider, command, model, modelDir, language, compute type,
+device, timeout), all runtime, admin-only. The default, faster-whisper, is Python, so it runs as an
+**external program** (`reelforge-whisper`, a short script with a JSON contract) that the optional
+layer `deployment/stt/Dockerfile` installs with one model downloaded **at build time**; the base
+image stays as it is (the layer adds about 800 MB). At run time nothing is downloaded: the server
+sets `HF_HUB_OFFLINE=1`, the program sets it before importing the library and loads the model with
+`local_files_only`. The program is started with an argument array (no shell), an allowlisted
+environment (no server secrets), the asset store's absolute file path, a timeout and a 16 MB output
+cap; its JSON is validated and every word reduced to plain text. Words go onto `audio.voice.words`,
+the same place as TTS timestamps (D-107), so cues come from `buildCuesFromWords` and follow the voice
+start. One transcription per process at a time, in the request (no job yet); results cached by
+content hash and settings. *Rejected:* bundling Python and a model in the release image (size, and
+most buyers never use it); a Node binding to whisper.cpp (a native module per platform to maintain,
+and the issue asks for faster-whisper); a cloud STT API by default (network egress, seller-paid or
+key-paid; founder decision 4); a sidecar HTTP service (more moving parts than a process for a
+request that runs a few seconds to minutes, and another port to secure).
+**Approval:** `get_captions` (read) and `update_captions` (write) are on the shared route table
+(REST `GET`/`PATCH /v1/projects/:id/captions`, `GET /v1/renders/:id/captions`). Concurrency uses an
+**etag of what the captions show** (mode, burn language, highlight, style and every language's
+resolved cues, built ones included), not the project version: an edit elsewhere in the project does
+not make a caption review stale, but a new voice does. `approve: true` stores `captions.approval`
+with the etag after the update; it holds only while the etag is the same. Renders record the etag and
+whether it was approved; rendering never requires approval (the agent asks; the workflow guide and
+`make_reel` prompt say so). Every update is an audit event (`captions.update` / `captions.approve`).
+Editing cues built from the voice materialises them as manual cues; an edited text drops its word
+timings. *Rejected:* the project version as the check (spurious conflicts while an agent edits
+scenes); an approval gate in `render_project` (a server cannot know whether a human looked; it
+would only add a flag agents learn to set).
+**Languages:** the primary language stays `captions.cues` / `captions.language` (so step 1 manifests
+and file names are unchanged); others are `captions.tracks` keyed by BCP 47 tag (at most 20
+languages). Exactly one is burned (`captions.burnLanguage`, default the primary); every language gets
+sidecars (`captions.<tag>.srt|vtt|ass`) with the tag in the WebVTT and ASS headers. Tags are checked
+for well-formedness with `Intl.getCanonicalLocales` plus a letters/digits/hyphen scan (safe in file
+names and header lines), compared case-insensitively, not against the IANA registry.
+**Audio description:** cues with `kind: "description"` in any language, written only to
+`descriptions[.<tag>].vtt` (`Kind: descriptions`) for `<track kind="descriptions">`, in every mode but
+`off`, never burned, never in SRT/ASS, not checked by the caption rules. A recorded description voice
+track is not built. **Toggles:** a server default `captions.defaultMode` (runtime) below the
+project's `captions.mode`, below `render_project`'s `captions`; the default is captured when a render
+is queued.
+
+## AB. Self-hosted web dashboard (2026-11-23, issue #292)
+
+How to run it and what it shows: [docs/public/install/dashboard.md](public/install/dashboard.md).
+
+### D-115 --- The dashboard is static files in the studio, a client of the public REST API with an API-key sign-in; off by default
+
+**Status:** DECIDED (reversible).\
+**Where it runs.** `apps/dashboard` builds (esbuild, `pnpm --filter @reelforge/dashboard build`, also in the
+Docker `build` stage) into `apps/dashboard/dist`: one `index.html`, one JS module and one stylesheet with
+content-hashed names, the mark as the icon. The server serves them at `/dashboard` from a new file
+(`apps/server/src/dashboard.ts`, mounted with one line in `app.ts`), so the dashboard ships in the one image and
+the customer operates it like the rest of the studio; nothing runs on our side. **Off by default:**
+`dashboard.enabled` (runtime setting; file, `REELFORGE_DASHBOARD_ENABLED` or `PATCH /v1/config`); off, every
+`/dashboard` path answers 404 with how to turn it on. Worker instances never serve it. **Only the public API:**
+the page calls `/v1` with `Authorization: Bearer <key>` like any client, so scopes, rate limits, IP allowlists,
+expiry and the audit log apply unchanged, and a gap in the API is a gap the dashboard cannot hide. Gaps found and
+closed for part 1: `GET /v1/me` / MCP `get_me` (the calling key's name, scopes and limits, so the page offers
+cancel and retry only to keys with the render scope; the server refuses them anyway), and
+`RenderSummary.storage` (`driver` and the render's key `prefix`; the bucket or root stays with `get_storage`,
+admin, as D-088 keeps paths from callers below admin). **Sign-in:** the person pastes an API key; it is checked
+with `GET /v1/me` and kept in memory, or in `sessionStorage` (ends with the tab) when they tick "keep me signed
+in"; never a cookie, so there is no session the browser sends by itself and no CSRF surface, and never in a URL.
+Posters and videos, which an `<img>` or `<video>` cannot fetch with a header, are fetched with the key into
+object URLs, except a render file behind a link this server signed (D-067), which plays from its path on the same
+origin. *Rejected:* a server-side session cookie (a second auth system, CSRF, logout and expiry to build, and a
+cookie the browser attaches by itself); `EventSource` (cannot send the header: the page reads the job's SSE
+stream with `fetch`); a bucket link in the player (another origin, which the CSP refuses). **Strict headers:**
+`default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:;
+connect-src 'self'; font-src 'self'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';
+frame-ancestors 'none'`, plus `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy` and
+`Cross-Origin-Resource-Policy: same-origin`; no inline script or style anywhere (the page builds its DOM with text
+nodes and never sets a `style` attribute); system fonts, no CDN, no external request. The same Host check as
+`/mcp` (`server.publicUrl`, `server.allowedHosts`) guards against DNS rebinding. **Stack:** plain TypeScript and a
+few DOM helpers, no framework: part 1 is 11.9 KB of JS and CSS gzipped against a 150 KB budget that the build
+enforces. *Rejected:* Vite + React as #15 sketched (a framework and a dev server for a handful of views, and a
+larger bundle to audit under the CSP); Preact (small, but not needed at this size; revisit if part 2's forms grow).
+**Live jobs:** the list polls `GET /v1/jobs` every 3 s while the tab is visible (no list-wide event stream
+exists); one job's page follows `GET /v1/jobs/:id/events` and polls its fan-out units (`?parentId=`). About 20
+requests a minute per open page, well inside the default 300 per key. **Split:** part 1 is sign-in, jobs and the
+library; analytics (aggregates the API does not offer yet), settings and the audit log viewer come in part 2.
+
 ### D-116 --- Audio: one PCM mix per render, two-pass loudnorm to a preset (social -14 LUFS / -2 dBTP by default), checked after the AAC encode; ducking by volume automation from speech segments
 
 **Status:** DECIDED (reversible). Number assigned at merge (D-110 to D-114 are claimed by open pull requests).\

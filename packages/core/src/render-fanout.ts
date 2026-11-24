@@ -59,6 +59,8 @@ export interface RenderJobParams {
   captions?: CaptionMode;
   /** Audio toggles and loudness preset of this render (render_project's `audio`). */
   audio?: RenderAudioOptions;
+  /** The server's captions.defaultMode when the render was queued. */
+  captionsDefault?: CaptionMode;
   /** Render this output variant of the project (#287): its size and platform replace `output`'s. */
   variant?: string;
   /** Renders started by one render_project call over the project's variants share this id. */
@@ -355,6 +357,7 @@ export async function joinUnits(deps: FanOutDeps, ctx: JobContext): Promise<Join
         ...(p.captions ? { captionsMode: p.captions } : {}),
         ...(p.audio ? { audio: p.audio } : {}),
         ...(deps.audioDefaults ? { audioDefaults: deps.audioDefaults() } : {}),
+        ...(p.captionsDefault ? { captionsDefault: p.captionsDefault } : {}),
       },
       tmp,
       finalDir,

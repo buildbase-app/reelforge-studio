@@ -108,7 +108,8 @@ describe('security: composition isolation (SEC-01, SEC-02)', () => {
 
   it('SECT-32 the CLI gets no server secrets and every outbound connection goes to the deny-all sink', () => {
     const env = hyperframesEnv('/bin/chrome', '/c', { PATH: '/usr/bin', DATABASE_URL: 'postgres://x', REELFORGE_SECRET_KEY: 's', REELFORGE_LICENCE_KEY: 'k', AWS_SECRET_ACCESS_KEY: 'a', HTTPS_PROXY: 'http://proxy:3128' }, 'http://127.0.0.1:9');
-    for (const k of ['DATABASE_URL', 'REELFORGE_SECRET_KEY', 'REELFORGE_LICENCE_KEY', 'AWS_SECRET_ACCESS_KEY', 'HTTPS_PROXY']) expect(env[k], k).toBeUndefined();
+    for (const k of ['DATABASE_URL', 'REELFORGE_SECRET_KEY', 'REELFORGE_LICENCE_KEY', 'AWS_SECRET_ACCESS_KEY']) expect(env[k], k).toBeUndefined();
+    expect(env.HTTPS_PROXY).toBe('http://127.0.0.1:9'); // never the server's proxy: Node's own proxy support goes to the sink too (#318)
     expect(env).toMatchObject({ PRODUCER_RESTRICT_PAGE_NETWORK: 'true', PRODUCER_NON_PUBLIC_CIDRS: '0.0.0.0/0,::/0', HYPERFRAMES_CAPTURE_PROXY: 'http://127.0.0.1:9' });
   });
 

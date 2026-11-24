@@ -50,6 +50,12 @@ logging:
 | `server.workerConcurrency` | `REELFORGE_WORKER_CONCURRENCY` | integer | `limits.renderConcurrency` | startup |  | Jobs one `worker` (or `all`) instance claims and renders at the same time. Unset: `limits.renderConcurrency` (which can then be changed at runtime). Scale out with more worker instances rather than a high value here. |
 | `server.workerOnce` | `REELFORGE_WORKER_ONCE` | boolean | `false` | startup |  | Run as `reelforge worker --once` (D-100): claim at most one job, render it and exit (0 succeeded, cancelled or nothing queued; 1 failed; 75 handed back, lease lost, or the `--job` still queued; see docs/providers/backends.md). For job platforms that start one container per unit (KEDA ScaledJob, Azure Container Apps event jobs, AWS Batch, Cloud Run Jobs, ECS RunTask). Implies `server.role` `worker` (same database and storage rules); serves no HTTP. |
 
+## dashboard
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `dashboard.enabled` | `REELFORGE_DASHBOARD_ENABLED` | boolean | `false` | runtime |  | Serve the web dashboard at `/dashboard` (D-115; docs/public/install/dashboard.md): live jobs with cancel and retry, and the library of projects and renders. Off: `/dashboard` answers 404. It is a client of the public REST API: people sign in with an API key, and every call is checked against that key's scopes. Same Host check as `/mcp` (`server.publicUrl`, `server.allowedHosts`), a strict Content-Security-Policy, no cookies and no external hosts. Not served by `worker` instances. |
+
 ## queue
 
 | Key | Env | Type | Default | Scope | Secret | Description |
@@ -163,6 +169,9 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `security.secretKey` | `REELFORGE_SECRET_KEY` (each also as `_FILE`) | string | (none) | startup | yes | Encrypts secrets stored in the database (provider keys, licence key) with AES-256-GCM and keys the integrity seal of the stored licence state. At least 32 characters: `openssl rand -base64 32`. **Required by the release edition**: it does not start without it (#305). A dev build without it refuses to store secrets and seals the licence state with a random key in `<dataDir>/licence-seal.key` (instances sharing a database then need the same secret key). Keep it safe: losing it makes stored secrets unreadable. |
 | `security.bootstrapKey` | `REELFORGE_BOOTSTRAP_KEY` (each also as `_FILE`) | string | (none) | startup | yes | First admin API key: `rf_` + at least 32 random URL-safe characters (`rf_$(openssl rand -hex 24)`); low-entropy values are refused. Stored hashed as key "bootstrap" on start if no key exists. |
+| `security.oauth.issuer` | `REELFORGE_MCP_OAUTH_ISSUER` | url | (none) | startup |  | Turns on OAuth for `/mcp`: the issuer identifier of your authorization server, exactly as in its tokens' `iss` (trailing slash included). `/mcp` then also accepts its JWT access tokens (asymmetric signatures, keys from its JWKS) with `reelforge:read`, `reelforge:write`, `reelforge:render` or `reelforge:admin` in `scope`/`scp`, and serves `/.well-known/oauth-protected-resource`. API keys keep working. Unset: API keys only. Example: `https://auth.example.com/realms/studio`. |
+| `security.oauth.audience` | `REELFORGE_MCP_OAUTH_AUDIENCE` | url | (none) | startup |  | What a token's `aud` must contain: this server's MCP URL (RFC 8707 resource indicator). Default: `server.publicUrl` + `/mcp` (one of them is required with an issuer). Example: `https://studio.example.com/mcp`. |
+| `security.oauth.jwksUrl` | `REELFORGE_MCP_OAUTH_JWKS_URL` | url | (none) | startup |  | The issuer's JWKS. Default: `jwks_uri` from its metadata (`/.well-known/oauth-authorization-server`, then OpenID discovery). |
 
 ## audit
 
@@ -190,8 +199,9 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `webhooks.allowPrivateNetworks` | `REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS` | boolean | `false` | startup |  | Let webhook and chat endpoints reach loopback, private (RFC 1918), link-local, CGNAT and other non-public addresses. Off by default (SSRF guard, checked when connecting). Start-up only: it can never be turned on over the API. |
 | `webhooks.allowHttp` | `REELFORGE_WEBHOOKS_ALLOW_HTTP` | boolean | `false` | startup |  | Allow `http://` endpoint URLs (payloads and signatures then travel unencrypted). Off by default; start-up only. |
-| `webhooks.timeoutSeconds` | `REELFORGE_WEBHOOKS_TIMEOUT_SECONDS` | integer | `15` | runtime |  | Longest time one delivery attempt may take (connect, send, answer); then it counts as failed and is retried. |
-| `webhooks.maxAttempts` | `REELFORGE_WEBHOOKS_MAX_ATTEMPTS` | integer | `15` | runtime |  | Attempts per delivery before it becomes dead (dead letter; replayable). With the default backoff, 15 attempts span about 24 hours. |
+| `webhooks.timeoutSeconds` | `REELFORGE_WEBHOOKS_TIMEOUT_SECONDS` | integer | `10` | runtime |  | Longest time one delivery attempt may take (connect, send, answer); then it counts as failed and is retried. |
+| `webhooks.maxAttempts` | `REELFORGE_WEBHOOKS_MAX_ATTEMPTS` | integer | `20` | runtime |  | Attempts per delivery before it becomes dead (failed for good; the dead letter queue, sent again with `resend_webhook`). With the default backoff the retry window ends first (about 15 attempts in 24 hours). |
+| `webhooks.retryWindowHours` | `REELFORGE_WEBHOOKS_RETRY_WINDOW_HOURS` | integer | `24` | runtime |  | How long a delivery is retried after it was queued; the last attempt lands on the end of the window, then the delivery is dead (failed for good). A resend starts a new window. |
 | `webhooks.retryBaseSeconds` | `REELFORGE_WEBHOOKS_RETRY_BASE_SECONDS` | integer | `30` | runtime |  | Delay after the first failed attempt; it doubles after each further one (±20 % jitter, at least the receiver's `Retry-After`). |
 | `webhooks.retryMaxDelaySeconds` | `REELFORGE_WEBHOOKS_RETRY_MAX_DELAY_SECONDS` | integer | `14400` | runtime |  | Longest delay between two attempts (default 4 hours). |
 | `webhooks.secretRotationGraceHours` | `REELFORGE_WEBHOOKS_SECRET_ROTATION_GRACE_HOURS` | integer | `24` | runtime |  | After `update_webhook { rotateSecret: true }`, messages carry signatures with the new and the old secret for this many hours so receivers can switch. |
@@ -227,6 +237,7 @@ logging:
 | `render.chromiumPath` | `REELFORGE_CHROMIUM_PATH` | path | (none; set in Docker) | startup |  | Chrome Headless Shell binary used by every engine. |
 | `render.chromiumNoSandbox` | `REELFORGE_CHROMIUM_NO_SANDBOX` | boolean | `false` | startup |  | `true` turns Chromium's own sandbox off. The sandbox is on by default everywhere, the release image included (run it with `deployment/seccomp/chrome.json`, docs/security/HARDENING.md). `true` is an explicit opt-out: it is logged at start and reported in `get_capabilities` and `/readyz`. |
 | `render.sceneTimeoutSeconds` | `REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS` | integer | `900` | startup |  | Hard limit for rendering one html or hyperframes scene, whatever its length (engines use their per-frame estimate when it is shorter). 30 to 3600 seconds. |
+| `render.timeoutSeconds` | `REELFORGE_RENDER_TIMEOUT_SECONDS` | integer | `3600` | runtime |  | Longest time one render or preview job (or one unit or join of a fanned-out render) may run on a worker; then it is stopped and fails with `render_timeout` (the `render.timeout` event). `0`: no limit. Read when the job starts. |
 | `render.fanOut` | `REELFORGE_RENDER_FAN_OUT` | `off` \| `scenes` \| `scenes+chunks` | `off` | runtime |  | Split one render across workers (D-097, docs/providers/queue-and-scaling.md#render-fan-out). `off`: one worker renders every scene and assembles the video (the default; unchanged behaviour). `scenes`: with the database queue, a `render` of the `local` backend with two or more scenes becomes one `render_unit` job per scene, claimed by any worker, and one `render_join` job that assembles and commits the video; previews and the in-process queue always use one worker. `scenes+chunks`: as `scenes`, and a scene of at least `render.chunkMinSceneSeconds` whose engine renders frame ranges (Remotion; not html, Motion Canvas or HyperFrames) is split into chunks of `render.chunkSeconds`, one unit each, so one long scene no longer bounds the render's latency. |
 | `render.chunkSeconds` | `REELFORGE_RENDER_CHUNK_SECONDS` | number | `4` | runtime |  | With `render.fanOut: scenes+chunks`: length of one chunk of a split scene, in seconds of video (1 to 600). The last chunk takes the rest: it is shorter, or up to half a chunk longer when the rest would be under half a chunk. Shorter chunks spread a scene over more workers; each chunk pays a browser start and an encode of its own. |
 | `render.chunkMinSceneSeconds` | `REELFORGE_RENDER_CHUNK_MIN_SCENE_SECONDS` | number | `8` | runtime |  | With `render.fanOut: scenes+chunks`: scenes shorter than this (seconds, 2 to 3600) are never split and render as one unit. |
@@ -244,6 +255,20 @@ logging:
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
 | `providers.elevenlabs.apiKey` | `REELFORGE_ELEVENLABS_API_KEY`, `ELEVENLABS_API_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Enables the ElevenLabs TTS provider. Same setting as `configure_provider` / `PUT /v1/providers/elevenlabs/config`; stored encrypted when set at runtime. |
+
+## captions
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `captions.defaultMode` | `REELFORGE_CAPTIONS_DEFAULT_MODE` | `off` \| `burned` \| `sidecar` \| `both` | `off` | runtime |  | Captions for projects that do not set `captions.mode` (docs/CAPTIONS.md): `off` (the default; projects render as before), `burned` into the video, `sidecar` files (SRT, WebVTT, ASS) next to final.mp4, or `both`. A project's `captions.mode` and render_project's `captions` override it. |
+| `captions.stt.provider` | `REELFORGE_STT_PROVIDER` | string | `faster-whisper` | runtime |  | Speech-to-text provider used by `transcribe_captions` (get_capabilities `captions.stt` lists the installed ones and whether each can run here). |
+| `captions.stt.command` | `REELFORGE_STT_COMMAND` | path | `reelforge-whisper` | runtime |  | The local speech-to-text program: a name looked up on PATH or an absolute path. It is started directly (never through a shell) with a fixed argument list and no network access is needed (deployment/stt/README.md). The default `reelforge-whisper` is installed by the optional speech-to-text image layer; without it speech-to-text is off and get_capabilities says so. Admin-only like every setting, and audit-logged. |
+| `captions.stt.model` | `REELFORGE_STT_MODEL` | string | `small` | runtime |  | Whisper model: a name (tiny, base, small, medium, large-v3, distil-large-v3, ... and the .en variants) that must already be downloaded into `captions.stt.modelDir`, or the path of a converted model directory. Models are never downloaded at run time. |
+| `captions.stt.modelDir` | `REELFORGE_STT_MODEL_DIR` | path | (the Hugging Face cache of the server user) | runtime |  | Directory the models were pre-downloaded into (the image layer uses `/opt/reelforge/whisper-models`). |
+| `captions.stt.language` | `REELFORGE_STT_LANGUAGE` | string | `auto` | runtime |  | Spoken language of voice-overs: `auto` detects it, or a BCP 47 tag (its primary subtag is passed to Whisper, e.g. `pt` for `pt-BR`). `transcribe_captions` can pass one per call. |
+| `captions.stt.computeType` | `REELFORGE_STT_COMPUTE_TYPE` | `default` \| `auto` \| `int8` \| `int8_float32` \| `int8_float16` \| `int8_bfloat16` \| `int16` \| `float16` \| `bfloat16` \| `float32` | `int8` | runtime |  | CTranslate2 compute type: `int8` is fast on a CPU; `float16` needs a GPU. |
+| `captions.stt.device` | `REELFORGE_STT_DEVICE` | `cpu` \| `cuda` \| `auto` | `cpu` | runtime |  | `cpu`, `cuda` (an NVIDIA GPU with CUDA libraries in the image) or `auto`. |
+| `captions.stt.timeoutSeconds` | `REELFORGE_STT_TIMEOUT_SECONDS` | integer | `600` | runtime |  | Longest one transcription may run (10 to 3600 seconds); the process is killed after it. |
 
 ## logging
 

@@ -16,8 +16,10 @@ import {
   eventText,
   isPrivateAddress,
   maskUrl,
+  messageIdFor,
   newSigningSecret,
   postOnce,
+  renderOutcome,
   signPayload,
   signatureHeaders,
   validEventFilter,
@@ -802,5 +804,180 @@ describe('email through the outbox (NTF-10)', () => {
     await settled(x, d.id, 'succeeded');
     expect(smtpMail.at(-1)!.data).toContain('licence valid -> grace');
     expect(JSON.stringify(await x.repos.webhooks.listAttempts(d.id))).not.toContain(smtpAuth.pass);
+  });
+});
+
+// ---- webhooks for operations (#306): WHK-40.. ------------------------------------------
+
+describe('webhooks for operations (#306)', () => {
+  it('WHK-40 terminal render events: one outcome per job, by status and error code', () => {
+    expect(renderOutcome({ status: 'succeeded' })).toBe('render.ready');
+    expect(renderOutcome({ status: 'cancelled', error: { code: 'cancelled', message: 'x' } })).toBe('render.cancelled');
+    expect(renderOutcome({ status: 'failed', error: { code: 'render_failed', message: 'x' } })).toBe('render.failed');
+    expect(renderOutcome({ status: 'failed', error: { code: 'job_failed', message: 'x' } })).toBe('render.failed');
+    expect(renderOutcome({ status: 'failed', error: { code: 'render_timeout', message: 'x' } })).toBe('render.timeout');
+    expect(renderOutcome({ status: 'failed', error: { code: 'qa_failed', message: 'x' } })).toBe('render.qa_failed');
+    expect(renderOutcome({ status: 'failed', error: { code: 'qa_loudness', message: 'x' } })).toBe('render.qa_failed');
+    expect(renderOutcome({ status: 'failed', error: { code: 'licence_invalid', message: 'x' } })).toBe('render.blocked');
+    expect(renderOutcome({ status: 'running' })).toBeNull();
+    expect(renderOutcome({ status: 'queued' })).toBeNull();
+    for (const t of ['render.ready', 'render.failed', 'render.cancelled', 'render.timeout', 'render.qa_failed', 'render.blocked']) {
+      expect(validEventFilter(t), t).toBe(true);
+      expect(eventMatches(['render.*'], t), t).toBe(true);
+      expect(eventMatches(['*'], t), t).toBe(true);
+    }
+  });
+
+  it('WHK-41 dedupe key: the same outcome reaches an endpoint under one webhook-id however often it is emitted; it is in the body', async () => {
+    const x = await h({}, { start: false });
+    const a = (await x.svc.create({ name: 'a', url: rx.on('/dedupe-a', [200]), events: ['render.*'] })).webhook;
+    const b = (await x.svc.create({ name: 'b', url: rx.on('/dedupe-b', [200]), events: ['render.failed'] })).webhook;
+    x.svc.emit('render.failed', { jobId: 'job_1' }, { dedupeKey: 'render:job_1' });
+    x.svc.emit('render.failed', { jobId: 'job_1' }, { dedupeKey: 'render:job_1' });
+    x.svc.emit('render.failed', { jobId: 'job_2' }, { dedupeKey: 'render:job_2' });
+    await x.svc.flush();
+    const da = await x.repos.webhooks.listDeliveries({ endpointId: a.id });
+    const db = await x.repos.webhooks.listDeliveries({ endpointId: b.id });
+    expect(da).toHaveLength(3);
+    const one = da.filter((d) => d.dedupeKey === 'render:job_1');
+    expect(one).toHaveLength(2);
+    expect(one[0]!.eventId).not.toBe(one[1]!.eventId);
+    expect(one[0]!.messageId).toBe(one[1]!.messageId);
+    expect(one[0]!.messageId).toBe(messageIdFor(a.id, 'render:job_1'));
+    expect(db.find((d) => d.dedupeKey === 'render:job_1')!.messageId).not.toBe(one[0]!.messageId);
+    expect(da.find((d) => d.dedupeKey === 'render:job_2')!.messageId).not.toBe(one[0]!.messageId);
+    expect(one[0]!.payload).toMatchObject({ type: 'render.failed', dedupeKey: 'render:job_1' });
+    // Events without a key: their id is the key.
+    x.svc.emit('render.ready', { jobId: 'job_3' });
+    await x.svc.flush();
+    const r = (await x.repos.webhooks.listDeliveries({ endpointId: a.id, eventType: 'render.ready' }))[0]!;
+    expect(r.dedupeKey).toBeUndefined();
+    expect(r.messageId).toBe(messageIdFor(a.id, r.eventId));
+  });
+
+  it('WHK-42 retries for up to webhooks.retryWindowHours: the last attempt lands on the end of the window, then the delivery is dead with the reason', async () => {
+    const x = await h({ REELFORGE_WEBHOOKS_RETRY_WINDOW_HOURS: '1' });
+    const { webhook } = await x.svc.create({ name: 'down', url: rx.on('/window', [503]), events: ['*'] });
+    x.svc.emit('key.created', { keyId: 'k1' });
+    const d = await onlyDelivery(x, webhook.id);
+    const deadline = Date.parse(d.createdAt) + 3_600_000;
+    let s = await settled(x, d.id);
+    for (let i = 0; i < 25 && s.status === 'pending'; i++) {
+      expect(Date.parse(s.nextAttemptAt)).toBeLessThanOrEqual(deadline);
+      const n = s.attempts;
+      x.clock.t = Date.parse(s.nextAttemptAt);
+      await until(async () => (await x.repos.webhooks.getDelivery(d.id))!.attempts > n);
+      s = await settled(x, d.id);
+    }
+    expect(s.status).toBe('dead');
+    expect(s.attempts).toBeLessThan(20);
+    expect(s.lastError).toMatch(/HTTP 503; no more attempts: the retry window \(webhooks.retryWindowHours, 1 h\) ended/);
+    const log = await x.repos.webhooks.listAttempts(d.id);
+    expect(Date.parse(log.at(-1)!.at)).toBe(deadline);
+    expect(log.at(-1)!.outcome).toBe('failed');
+    expect(x.logs.some((l) => l.includes('send it again with resend_webhook'))).toBe(true);
+  });
+
+  it('WHK-43 resend: a waiting delivery is sent now; a dead one again with the same webhook-id; an outcome by dedupeKey to an endpoint that never got it', async () => {
+    const x = await h();
+    let up = false;
+    const url = rx.on('/resend', (_q, _b, res) => void res.writeHead(up ? 200 : 500).end());
+    const { webhook } = await x.svc.create({ name: 'resend', url, events: ['render.*'] });
+    x.svc.emit('render.failed', { jobId: 'job_9', error: { code: 'render_failed' } }, { dedupeKey: 'render:job_9' });
+    const d = await onlyDelivery(x, webhook.id);
+    let s = await settled(x, d.id, 'pending');
+    expect(Date.parse(s.nextAttemptAt)).toBeGreaterThan(x.clock.t);
+    up = true;
+    // Waiting for its next attempt: rescheduled to now, no new row.
+    const r1 = await x.svc.resend(webhook.id, { deliveryId: d.id });
+    expect(r1).toMatchObject({ action: 'rescheduled', delivery: { id: d.id } });
+    s = await settled(x, d.id, 'succeeded');
+    expect(s.attempts).toBe(2);
+    // Finished: queued again as a replay with the same webhook-id.
+    const r2 = await x.svc.resend(webhook.id, { dedupeKey: 'render:job_9' });
+    expect(r2.action).toBe('queued');
+    expect(r2.delivery).toMatchObject({ replayOf: d.id, messageId: d.messageId, dedupeKey: 'render:job_9' });
+    await settled(x, r2.delivery.id, 'succeeded');
+    // A new endpoint never got the event: by eventId (or dedupeKey) it gets it under its own webhook-id.
+    const late = (await x.svc.create({ name: 'late', url: rx.on('/resend-late', [200]), events: ['job.failed'] })).webhook;
+    const r3 = await x.svc.resend(late.id, { eventId: d.eventId });
+    expect(r3.action).toBe('queued');
+    expect(r3.delivery.messageId).toBe(messageIdFor(late.id, 'render:job_9'));
+    expect(r3.delivery.replayOf).toBeUndefined();
+    await settled(x, r3.delivery.id, 'succeeded');
+    expect(JSON.parse(rx.of('/resend-late')[0]!.body)).toMatchObject({ type: 'render.failed', dedupeKey: 'render:job_9', data: { jobId: 'job_9' } });
+    expect(x.audits.filter((e) => e.action === 'webhook.resend').map((e) => (e.data as { action: string }).action)).toEqual(['rescheduled', 'queued', 'queued']);
+    // Refusals.
+    await expect(x.svc.resend(webhook.id, {})).rejects.toMatchObject({ status: 400 });
+    await expect(x.svc.resend(webhook.id, { deliveryId: d.id, eventId: d.eventId })).rejects.toMatchObject({ status: 400 });
+    await expect(x.svc.resend(webhook.id, { dedupeKey: 'render:job_none' })).rejects.toMatchObject({ status: 404 });
+    await expect(x.svc.resend(late.id, { deliveryId: d.id })).rejects.toMatchObject({ status: 404 });
+    await expect(x.svc.resend('whk_none', { deliveryId: d.id })).rejects.toMatchObject({ status: 404 });
+    await x.svc.update(late.id, { enabled: false });
+    await expect(x.svc.resend(late.id, { eventId: d.eventId })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('WHK-44 rotate_webhook_secret: both secrets verify during the overlap; endOverlap stops the old one; a secret brought by the receiver is not echoed', async () => {
+    const x = await h();
+    const url = rx.on('/rotate2', [200]);
+    const { webhook, secret: s1 } = await x.svc.create({ name: 'rotate2', url, events: ['*'] });
+    const r = await x.svc.rotateSecret(webhook.id, { overlapHours: 2 });
+    expect(r.secret).toMatch(/^whsec_/);
+    expect(r.webhook.signing).toMatchObject({ rotating: true, previousSecretValidUntil: new Date(x.clock.t + 7_200_000).toISOString() });
+    await x.svc.test(webhook.id);
+    await until(() => rx.of('/rotate2').length === 1);
+    let hit = rx.of('/rotate2').at(-1)!;
+    expect(() => verifySignature(s1!, hit.headers as Record<string, string>, hit.body, { now: x.clock.t })).not.toThrow();
+    expect(() => verifySignature(r.secret!, hit.headers as Record<string, string>, hit.body, { now: x.clock.t })).not.toThrow();
+    const own = newSigningSecret();
+    const r2 = await x.svc.rotateSecret(webhook.id, { secret: own, overlapHours: 1 });
+    expect(r2.secret).toBeUndefined();
+    expect(JSON.stringify(r2)).not.toContain(own.slice(6));
+    await x.svc.test(webhook.id);
+    await until(() => rx.of('/rotate2').length === 2);
+    hit = rx.of('/rotate2').at(-1)!;
+    // Never more than two: the oldest secret dropped out.
+    expect((hit.headers['webhook-signature'] as string).split(' ')).toHaveLength(2);
+    expect(() => verifySignature(own, hit.headers as Record<string, string>, hit.body, { now: x.clock.t })).not.toThrow();
+    expect(() => verifySignature(r.secret!, hit.headers as Record<string, string>, hit.body, { now: x.clock.t })).not.toThrow();
+    expect(() => verifySignature(s1!, hit.headers as Record<string, string>, hit.body, { now: x.clock.t })).toThrow();
+    const end = await x.svc.rotateSecret(webhook.id, { endOverlap: true });
+    expect(end.webhook.signing).toMatchObject({ rotating: false });
+    await x.svc.test(webhook.id);
+    await until(() => rx.of('/rotate2').length === 3);
+    hit = rx.of('/rotate2').at(-1)!;
+    expect((hit.headers['webhook-signature'] as string).split(' ')).toHaveLength(1);
+    expect(() => verifySignature(r.secret!, hit.headers as Record<string, string>, hit.body, { now: x.clock.t })).toThrow();
+    await expect(x.svc.rotateSecret(webhook.id, { endOverlap: true, overlapHours: 1 })).rejects.toMatchObject({ status: 400 });
+    await expect(x.svc.rotateSecret(webhook.id, { secret: 'not-a-secret' })).rejects.toMatchObject({ status: 400 });
+    expect(x.audits.filter((e) => e.action === 'webhook.rotate_secret')).toHaveLength(3);
+    expect(JSON.stringify(x.audits)).not.toContain(own.slice(6));
+  });
+
+  it('WHK-45 the delivery log: status, attempts and latency per delivery, a summary, the retry policy; no payload, no target URL', async () => {
+    const x = await h();
+    const url = rx.on('/log/secret-token-path', [500, 200]);
+    const { webhook } = await x.svc.create({ name: 'log', url, events: ['*'] });
+    x.svc.emit('key.created', { keyId: 'k1' });
+    const d = await onlyDelivery(x, webhook.id);
+    const p = await settled(x, d.id, 'pending');
+    const view = await x.svc.log(webhook.id);
+    expect(view.deliveries[0]).toMatchObject({ id: d.id, status: 'pending', attempts: 1, lastStatus: 500, giveUpAt: new Date(Date.parse(d.createdAt) + 24 * 3_600_000).toISOString() });
+    expect(view.retry).toEqual({ windowHours: 24, maxAttempts: 20, timeoutSeconds: 2 });
+    x.clock.t = Date.parse(p.nextAttemptAt);
+    await settled(x, d.id, 'succeeded');
+    const done = await x.svc.log(webhook.id, { status: 'succeeded' });
+    const row = done.deliveries[0]! as Record<string, any>;
+    expect(row.attemptLog.map((a: any) => [a.attempt, a.status, a.outcome])).toEqual([[1, 500, 'retry'], [2, 200, 'success']]);
+    expect(row.latencyMs).toBe(row.attemptLog[1].durationMs);
+    expect(row.giveUpAt).toBeUndefined();
+    expect(done.summary).toMatchObject({ deliveries: 1, attempts: 2, successRate: 0.5 });
+    expect(done.summary.latencyMs.max).toBeGreaterThanOrEqual(0);
+    expect(done.webhook).toEqual({ id: webhook.id, name: 'log', type: 'webhook', enabled: true });
+    const text = JSON.stringify(done);
+    expect(text).not.toContain('secret-token-path');
+    expect(text).not.toContain('"payload"');
+    expect(text).not.toContain('k1');
+    await expect(x.svc.log('whk_none')).rejects.toMatchObject({ status: 404 });
   });
 });
