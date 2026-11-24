@@ -79,7 +79,7 @@ export function mixGraph(
   firstInput: number
 ): { inputs: string[]; filters: string[] } {
   const T = opts.totalSeconds;
-  const t = T.toFixed(3);
+  const t = T.toFixed(6);
   const g = opts.gainDb ?? {};
   const inputs: string[] = [];
   const filters: string[] = [];
@@ -190,7 +190,7 @@ export async function mixAudio(opts: MixOptions): Promise<MixResult> {
     sfx: await Promise.all((opts.sfx ?? []).map((s) => audioDuration(opts.ffprobe, s.file))),
   };
   const graph = mixGraph({ ...opts, durations }, 0);
-  const args = ['-hide_banner', '-v', 'error', '-y', ...graph.inputs, '-filter_complex', graph.filters.join(';'), '-map', '[aout]', '-c:a', 'pcm_f32le', '-ar', String(SAMPLE_RATE), '-ac', '2', '-t', opts.totalSeconds.toFixed(3), opts.out];
+  const args = ['-hide_banner', '-v', 'error', '-y', ...graph.inputs, '-filter_complex', graph.filters.join(';'), '-map', '[aout]', '-c:a', 'pcm_f32le', '-ar', String(SAMPLE_RATE), '-ac', '2', '-t', opts.totalSeconds.toFixed(6), opts.out];
   await run(opts.ffmpeg, args, 'audio:mix', { signal: opts.signal });
   return { out: opts.out, args };
 }

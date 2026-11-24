@@ -466,13 +466,14 @@ Renders run as jobs: queued, running, then succeeded, failed or cancelled.
 
 **Render a quick preview**. Scope: `render`. REST: `POST /v1/projects/:id/preview`.
 
-Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted. Previews are queued at priority "interactive" (ahead of renders) by default. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image). When the server is busy it refuses with 429: too_many_jobs (your key has too many unfinished jobs), queue_full (the queue is full, or a new job would wait longer than limits.maxEstimatedWaitSeconds; details has the estimate and queued counts) or quota_exceeded. Wait details.retryAfterSeconds, then call again with the same idempotencyKey.
+Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted; with variant, at that output variant's size and platform (the layout reflowed for it). Previews are queued at priority "interactive" (ahead of renders) by default. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image). When the server is busy it refuses with 429: too_many_jobs (your key has too many unfinished jobs), queue_full (the queue is full, or a new job would wait longer than limits.maxEstimatedWaitSeconds; details has the estimate and queued counts) or quota_exceeded. Wait details.retryAfterSeconds, then call again with the same idempotencyKey.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `projectId` | string | yes | Project id (the manifest's projectId). |
 | `sceneId` | string | no |  |
 | `scale` | number | no |  |
+| `variant` | string | no | Preview at this output variant (an id from the manifest's variants). Omit for output. |
 | `priority` | "interactive" \| "standard" \| "batch" | no | Queue priority: jobs are started interactive first, then standard, then batch (fairly across API keys within a class). Default "interactive" for a preview. Use "batch" for work that can wait. A higher class than your key allows (get_capabilities limits.priority.maxForThisKey) is refused with priority_not_allowed. |
 | `idempotencyKey` | string | no | Optional idempotency key (e.g. a UUID you generate once per intended action): retrying the call with the same key and arguments returns the first result instead of doing it twice; the same key with different arguments fails with idempotency_conflict. Kept 24 h. |
 

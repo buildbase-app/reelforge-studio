@@ -1,6 +1,7 @@
 import { mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PipelineError, run } from './ffmpeg';
+import { rateArg } from './rate';
 
 export interface VideoFramesOptions {
   ffmpeg: string;
@@ -39,7 +40,7 @@ export async function extractVideoFrames(o: VideoFramesOptions): Promise<string[
     o.input,
     '-an',
     '-vf',
-    `fps=${o.fps},tpad=stop_mode=clone:stop=-1,scale='min(iw,${max})':'min(ih,${max})':force_original_aspect_ratio=decrease`,
+    `fps=${rateArg(o.fps)},tpad=stop_mode=clone:stop=-1,scale='min(iw,${max})':'min(ih,${max})':force_original_aspect_ratio=decrease`,
     '-frames:v',
     String(o.frames),
     '-q:v',

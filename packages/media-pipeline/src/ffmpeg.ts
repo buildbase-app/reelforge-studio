@@ -1,4 +1,5 @@
 import { execFile, spawn, spawnSync } from 'node:child_process';
+import { rateArg } from './rate';
 
 /** Raised when a pipeline stage fails. Carries the stage name and tool output. */
 export class PipelineError extends Error {
@@ -184,7 +185,8 @@ export interface FrameEncoder {
 export function startPngEncoder(
   ffmpeg: string,
   out: string,
-  fps: number,
+  /** A number or an exact "num/den" such as "30000/1001" (#302). */
+  fps: number | string,
   stage = 'encode'
 ): FrameEncoder {
   const child = spawn(
@@ -197,14 +199,14 @@ export function startPngEncoder(
       '-f',
       'image2pipe',
       '-framerate',
-      String(fps),
+      rateArg(fps),
       '-c:v',
       'png',
       '-i',
       '-',
       ...h264Args(),
       '-r',
-      String(fps),
+      rateArg(fps),
       '-an',
       out,
     ],

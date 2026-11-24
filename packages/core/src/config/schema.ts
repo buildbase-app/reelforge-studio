@@ -441,26 +441,27 @@ export const ConfigSchema = z.object({
       description:
         'Admission control (D-103): refuse a new render or preview with `429 queue_full`, `Retry-After` and `details` (queued jobs ahead, estimated wait) when its estimated queue wait is longer than this. The estimate is measured, not configured: the smaller of how long the oldest queued job of the same or a higher priority has waited and the jobs ahead divided by the claim throughput of the last minutes (shared by every instance through the database). Checked in the same statement as the job caps. `0`: off.',
     }),
-    maxRenderSeconds: setting(z.number().int().min(1).max(180), {
+    maxRenderSeconds: setting(z.number().int().min(1).max(14_400), {
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_MAX_RENDER_SECONDS',
       default: 180,
-      description: 'Longest render or preview, in seconds (the project schema allows at most 180). Longer projects are refused with `422 render_limit_exceeded`.',
+      description:
+        'Longest render or preview, in seconds. Longer projects are refused with `422 render_limit_exceeded`. Up to 14400 (4 hours, the most a manifest describes); long renders need disk for every clip and time per frame, so raise `maxRenderFrames` with it and consider `render.fanOut` (docs/CONFIG.md, #302).',
     }),
-    maxRenderFrames: setting(z.number().int().min(1).max(10_800), {
+    maxRenderFrames: setting(z.number().int().min(1).max(864_000), {
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_MAX_RENDER_FRAMES',
       default: 5400,
-      description: 'Most frames in one render or preview (duration × fps; 5400 is 180 s at 30 fps or 90 s at 60 fps). Refused with `422 render_limit_exceeded`.',
+      description: 'Most frames in one render or preview (duration × fps; 5400 is 180 s at 30 fps or 90 s at 60 fps; at most 864000, 4 hours at 60 fps). Refused with `422 render_limit_exceeded`.',
     }),
-    maxScenes: setting(z.number().int().min(1).max(50), {
+    maxScenes: setting(z.number().int().min(1).max(2000), {
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_MAX_SCENES',
       default: 50,
-      description: 'Most scenes in one render (the project schema allows at most 50). Refused with `422 render_limit_exceeded`.',
+      description: 'Most scenes in one render (up to 2000, the most a manifest holds). Refused with `422 render_limit_exceeded`.',
     }),
     maxRenderDimension: setting(z.number().int().min(16).max(4096), {
       kind: 'integer',
@@ -474,7 +475,7 @@ export const ConfigSchema = z.object({
       scope: 'runtime',
       env: 'REELFORGE_MAX_RENDER_FPS',
       default: 60,
-      description: 'Highest output frame rate (supported: 24, 25, 30, 60). Refused with `422 render_limit_exceeded`.',
+      description: 'Highest output frame rate (supported: 23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60). Refused with `422 render_limit_exceeded`.',
     }),
     providerRunsPerKeyPerDay: setting(nonNegative(), {
       kind: 'integer',
