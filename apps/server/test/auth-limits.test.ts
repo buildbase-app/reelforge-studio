@@ -44,7 +44,7 @@ async function setup(env: Record<string, string>) {
     dataDir: config.dataDir,
     configSources: config.sources,
   });
-  const key = (await service.keys.create('agent', ['admin'])).key;
+  const key = (await service.keys.create('agent', ['admin', 'owner'])).key;
   const app = createApp({ service, config });
   const call = (ip: string, token: string | null, path = '/v1/capabilities') =>
     app.request(path, { headers: { host: 'localhost', 'x-forwarded-for': ip, ...(token ? { authorization: `Bearer ${token}` } : {}) } });

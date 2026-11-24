@@ -28,7 +28,8 @@ export async function startStudio(engines: EnginePlugin[], opts: { dashboard?: b
     configSources: { env: { ...env, REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', REELFORGE_LICENCE_MODE: 'off' } },
   });
   const keys = {
-    admin: (await service.keys.create('ops-admin', ['admin'])).key,
+    // Upgraded installs give admin keys the owner scope (#304); runtime settings and storage need it.
+    admin: (await service.keys.create('ops-admin', ['admin', 'owner'])).key,
     read: (await service.keys.create('ops-viewer', ['read'])).key,
     render: (await service.keys.create('render-agent', ['read', 'write', 'render'])).key,
   };

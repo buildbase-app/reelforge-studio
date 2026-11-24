@@ -7,10 +7,11 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { PipelineError, checkExpectation, frameStats, probe, resolveTools } from '@reelforge/media-pipeline';
 import { builtinTheme, type OutputSettings, type RenderScene } from '@reelforge/project-schema';
 import { CSP, buildDocument, chromiumSandbox, escapeHtml, htmlEngine, htmlTitle, renderHtmlScene } from '../src/index';
+import { envValue } from '@reelforge/core';
 
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(browser && existsSync(browser));
-const requireBrowser = process.env.REELFORGE_REQUIRE_BROWSER === '1';
+const requireBrowser = envValue('REELFORGE_REQUIRE_BROWSER') === '1';
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-html-'));
 // Chrome can still be flushing its profile when the suite ends; retry ENOTEMPTY/EBUSY.
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));

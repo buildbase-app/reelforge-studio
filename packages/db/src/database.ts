@@ -1,6 +1,6 @@
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DEFAULT_WORKSPACE_ID, hasFilesystemData, importFilesystemV01, type ImportReport, type ReadySignal, type Repositories } from '@reelforge/core';
+import { createWorkspaceRouter, DEFAULT_WORKSPACE_ID, hasFilesystemData, importFilesystemV01, type ImportReport, type ReadySignal, type Repositories, type WorkspaceRouter } from '@reelforge/core';
 import { MIGRATIONS } from './generated/migrations';
 import { applyMigrations, migrationStatus, type MigrationStatus, type RawClient } from './migrate';
 import { createPrismaRepositories, isUniqueViolation, type AnyPrismaClient } from './prisma-repositories';
@@ -48,6 +48,7 @@ export const FS_IMPORT_STATE = 'import.fs-v0.1';
  */
 export class Database {
   private repos = new Map<string, Repositories>();
+  private router: WorkspaceRouter | null = null;
 
   private constructor(
     readonly kind: DatabaseKind,
@@ -167,6 +168,15 @@ export class Database {
       this.repos.set(workspaceId, r);
     }
     return r;
+  }
+
+  /**
+   * The routing bundle the server gives the service (#304): every call goes to the caller's workspace (the API
+   * key's, or the one a background task runs in), instance-level state to the default workspace.
+   */
+  workspaceRepositories(): WorkspaceRouter {
+    this.router ??= createWorkspaceRouter({ bind: (id) => this.repositories(id) });
+    return this.router;
   }
 
   async getState(key: string): Promise<string | null> {

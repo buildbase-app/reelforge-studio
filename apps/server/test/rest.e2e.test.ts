@@ -4,12 +4,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertDecodable, checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
 import { tempDir } from '../../../packages/core/test/helpers';
 import { cliCreateKey, startServerProcess, testDatabase, type ServerProcess } from './serverProcess';
+import { envValue } from '@reelforge/core';
 
 /**
  * The REST twin of mcp.e2e.test.ts: the same agent journey with plain HTTP
  * against a real server process, keys from the CLI, real engines, ffprobe.
  */
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(browser && existsSync(browser));
 
 describe.skipIf(!hasBrowser)('agent journey over REST against a real server process (needs REELFORGE_CHROMIUM_PATH)', () => {

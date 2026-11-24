@@ -234,7 +234,7 @@ describe.runIf(hasBrowser)('dashboard part 2 in a browser', () => {
     expect(await axe(page), 'analytics, dark').toEqual([]);
 
     await go(page, 'settings', 'Settings');
-    await page.getByText('The configuration needs a key with the admin scope.').waitFor();
+    await page.getByText('The configuration needs a key with the owner scope.').waitFor();
     expect(await page.getByRole('button', { name: 'Edit' }).count()).toBe(0);
     expect(await axe(page), 'settings, dark').toEqual([]);
     await go(page, 'settings/keys', 'Settings');
@@ -261,7 +261,7 @@ describe.runIf(hasBrowser)('dashboard part 2 in a browser', () => {
   }, 90_000);
 
   it('a key that can read the configuration but not change it gets values without edit controls', async () => {
-    // Today get_config needs the admin scope; with workspaces (#304) reading and changing may need different scopes.
+    // get_config needs the owner scope (#304); a deployment could serve it to more keys than may change it.
     // The page decides from the key's scopes, so a read key that is served the configuration sees it read only.
     const report = (await studio.call('GET', '/v1/config')).json;
     const { context, page } = await open('light');

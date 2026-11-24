@@ -7,7 +7,10 @@ import type { Config } from '../config/schema';
 import type { RuntimeConfig } from '../config/runtime';
 import type { StorageDriver } from '../plugins';
 import type { StorageFactory } from './factory';
-import { ASSETS_PREFIX, checkKey } from './keys';
+import { DEFAULT_WORKSPACE_ID } from '../repositories';
+import { currentWorkspaceId, runInWorkspace, workspaceKeyPrefix } from '../workspace';
+import { ASSETS_PREFIX, checkKey, mapLimit } from './keys';
+import { scopeDriver } from './scoped';
 import { RenderStore, type StoredRun } from './renders';
 
 export type RetentionPolicy = Pick<Config['storage']['retention'], 'renderDays' | 'keepLastRendersPerProject' | 'tempHours' | 'cacheDays'>;
@@ -17,10 +20,10 @@ export interface CleanupReport {
   policy: RetentionPolicy;
   startedAt: string;
   durationMs: number;
-  /** Renders deleted (or, in a dry run, that would be). */
-  renders: Array<{ projectId: string; renderId: string; createdAt: string; objects: number; bytes: number; reason: 'older_than_renderDays' | 'beyond_keepLastRendersPerProject' }>;
+  /** Renders deleted (or, in a dry run, that would be). `workspaceId` outside the default workspace (#304). */
+  renders: Array<{ workspaceId?: string; projectId: string; renderId: string; createdAt: string; objects: number; bytes: number; reason: 'older_than_renderDays' | 'beyond_keepLastRendersPerProject' }>;
   /** Unfinished uploads (`.tmp-<runId>/`) and incomplete render directories older than tempHours. */
-  temp: Array<{ projectId: string; runId: string; createdAt: string; objects: number; bytes: number }>;
+  temp: Array<{ workspaceId?: string; projectId: string; runId: string; createdAt: string; objects: number; bytes: number }>;
   /** Local staging directories of renders for remote storage, older than tempHours. */
   staging: Array<{ path: string; bytes: number }>;
   /** Local copies of remote files unused for cacheDays. */
@@ -36,6 +39,11 @@ export interface StorageManagerOptions {
   cacheDir: string;
   /** Run ids of renders that are queued or running (never cleaned up). */
   activeRunIds: () => Promise<Set<string>>;
+  /**
+   * Workspaces whose files the sweep, cleanup and usage cover (#304); unset: only the caller's. Each one's files
+   * are under its own key prefix (workspaceKeyPrefix), which `driver` applies for the workspace of the call.
+   */
+  workspaces?: () => Promise<string[]>;
   /** Called after every scheduled sweep that removed something (audit log). */
   onSweep?: (report: CleanupReport) => Promise<void>;
   log?: (level: 'info' | 'warn' | 'error', line: string) => void;
@@ -84,9 +92,35 @@ export class StorageManager {
     this.stagingRoot = join(opts.cacheDir, 'render-staging');
   }
 
+  /**
+   * The driver, seen from the caller's workspace (#304): every key is under that workspace's prefix
+   * (`workspaces/<id>/` outside the default workspace), so one workspace cannot name another's objects.
+   */
   get driver(): StorageDriver {
+    return scopeDriver(this.rootDriver, workspaceKeyPrefix(currentWorkspaceId()));
+  }
+
+  /** The driver without a workspace prefix (health, migration between drivers, purging a workspace). */
+  get rootDriver(): StorageDriver {
     if (!this.current) throw new Error('storage is not initialised');
     return this.current;
+  }
+
+  /** Delete every object of a workspace (purge, #304). Never the default workspace. Returns how many. */
+  async purgeWorkspace(id: string): Promise<number> {
+    const prefix = workspaceKeyPrefix(id);
+    if (!prefix) throw new Error('the default workspace is never purged');
+    const objects = await this.rootDriver.list(prefix);
+    await mapLimit(objects, 8, (o) => this.rootDriver.delete(o.key));
+    await rm(join(this.cacheRoot, prefix), { recursive: true, force: true }).catch(() => undefined);
+    return objects.length;
+  }
+
+  private async eachWorkspace<T>(fn: (ws: string) => Promise<T>): Promise<Array<{ ws: string; value: T }>> {
+    const ids = (await this.opts.workspaces?.()) ?? [currentWorkspaceId()];
+    const out: Array<{ ws: string; value: T }> = [];
+    for (const ws of ids) out.push({ ws, value: await runInWorkspace(ws, () => fn(ws)) });
+    return out;
   }
 
   /** True when files live on this machine (renders are renamed into place, no copies needed). */
@@ -130,7 +164,7 @@ export class StorageManager {
   async localFile(key: string, expectedBytes?: number): Promise<string> {
     const direct = this.driver.localPath(key);
     if (direct) return direct;
-    const file = join(this.cacheRoot, checkKey(key));
+    const file = join(this.cacheRoot, checkKey(workspaceKeyPrefix(currentWorkspaceId()) + key));
     const s = await stat(file).catch(() => null);
     if (s && (expectedBytes === undefined || s.size === expectedBytes)) {
       const t = new Date(this.now());
@@ -159,9 +193,23 @@ export class StorageManager {
     };
   }
 
+  /** Bytes of assets and renders of the caller's workspace (storage limits, #304). */
+  async workspaceBytes(): Promise<number> {
+    return (await this.workspaceUsage()).totalBytes;
+  }
+
+  /** Renders and assets of the caller's workspace only, under its own prefix (analytics, storage limits; #304). */
+  async workspaceUsage(): Promise<{ totalBytes: number; renders: { count: number; bytes: number }; assets: { objects: number; bytes: number } }> {
+    const [runs, assets] = await Promise.all([this.renders.listAllRuns(), this.driver.list(ASSETS_PREFIX)]);
+    const sum = (xs: Array<{ bytes: number }>) => xs.reduce((n, x) => n + x.bytes, 0);
+    const complete = runs.filter((r) => r.complete);
+    return { totalBytes: sum(assets) + sum(runs), renders: { count: complete.length, bytes: sum(complete) }, assets: { objects: assets.length, bytes: sum(assets) } };
+  }
+
   async usage() {
-    const runs = await this.renders.listAllRuns();
-    const assets = await this.driver.list(ASSETS_PREFIX);
+    const per = await this.eachWorkspace(async () => ({ runs: await this.renders.listAllRuns(), assets: await this.driver.list(ASSETS_PREFIX) }));
+    const runs = per.flatMap((p) => p.value.runs);
+    const assets = per.flatMap((p) => p.value.assets);
     const complete = runs.filter((r) => r.complete);
     const temp = runs.filter((r) => !r.complete);
     const cache = await duFiles(this.cacheRoot);
@@ -174,6 +222,7 @@ export class StorageManager {
       localCache: { files: cache.length, bytes: sum(cache) },
       localStaging: { files: staging.length, bytes: sum(staging) },
       totalBytes: sum(assets) + sum(runs),
+      ...(per.length > 1 ? { workspaces: Object.fromEntries(per.map((p) => [p.ws, { bytes: sum(p.value.assets) + sum(p.value.runs) }])) } : {}),
     };
   }
 
@@ -236,9 +285,27 @@ export class StorageManager {
       totals: { renders: 0, objects: 0, bytes: 0 },
       errors: [],
     };
-    const active = await this.opts.activeRunIds();
-    const runs = await this.renders.listAllRuns();
     const tempBefore = startedMs - policy.tempHours * 3600 * 1000;
+    const active = new Set<string>();
+    // Renders and unfinished uploads, one workspace at a time under its own prefix (#304).
+    await this.eachWorkspace(async (ws) => {
+      const own = await this.opts.activeRunIds();
+      for (const id of own) active.add(id);
+      await this.cleanupRenders(report, dryRun, policy, own, await this.renders.listAllRuns(), startedMs, tempBefore, ws === DEFAULT_WORKSPACE_ID ? {} : { workspaceId: ws });
+    });
+    return this.finishCleanup(report, dryRun, policy, active, startedMs, tempBefore);
+  }
+
+  private async cleanupRenders(
+    report: CleanupReport,
+    dryRun: boolean,
+    policy: RetentionPolicy,
+    active: Set<string>,
+    runs: StoredRun[],
+    startedMs: number,
+    tempBefore: number,
+    tag: { workspaceId?: string }
+  ): Promise<void> {
     const remove = async (run: StoredRun) => {
       if (dryRun) return true;
       try {
@@ -264,7 +331,7 @@ export class StorageManager {
           const reason = renderDays > 0 ? (age > renderDays * DAY ? 'older_than_renderDays' : null) : 'beyond_keepLastRendersPerProject';
           if (!reason) continue;
           if (await remove(run)) {
-            report.renders.push({ projectId: run.projectId, renderId: run.runId, createdAt: run.createdAt, objects: run.objects, bytes: run.bytes, reason });
+            report.renders.push({ ...tag, projectId: run.projectId, renderId: run.runId, createdAt: run.createdAt, objects: run.objects, bytes: run.bytes, reason });
             report.totals.renders++;
             report.totals.objects += run.objects;
             report.totals.bytes += run.bytes;
@@ -278,12 +345,14 @@ export class StorageManager {
       const runId = run.temp ? run.runId.slice('.tmp-'.length) : run.runId;
       if (active.has(runId) || Date.parse(run.createdAt) >= tempBefore) continue;
       if (await remove(run)) {
-        report.temp.push({ projectId: run.projectId, runId: run.runId, createdAt: run.createdAt, objects: run.objects, bytes: run.bytes });
+        report.temp.push({ ...tag, projectId: run.projectId, runId: run.runId, createdAt: run.createdAt, objects: run.objects, bytes: run.bytes });
         report.totals.objects += run.objects;
         report.totals.bytes += run.bytes;
       }
     }
+  }
 
+  private async finishCleanup(report: CleanupReport, dryRun: boolean, policy: RetentionPolicy, active: Set<string>, startedMs: number, tempBefore: number): Promise<CleanupReport> {
     // Local staging directories <cacheDir>/render-staging/<project>/<runId>.
     for (const pid of await readdir(this.stagingRoot).catch(() => [] as string[])) {
       for (const dir of await readdir(join(this.stagingRoot, pid)).catch(() => [] as string[])) {

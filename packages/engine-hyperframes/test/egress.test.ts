@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { builtinTheme } from '@reelforge/project-schema';
 import { hyperframesEnv, renderHyperframesScene, startNetworkSink } from '../src/index';
 import { externalNetworkCalls } from './strace-egress';
+import { envValue } from '@reelforge/core';
 
 /**
  * #318: HyperFrames resolves web fonts with the CLI's own Node `fetch`
@@ -17,7 +18,7 @@ import { externalNetworkCalls } from './strace-egress';
  * and (where strace works) the render makes no connect() outside loopback.
  */
 
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(browser && existsSync(browser));
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const hasStrace = spawnSync('strace', ['-f', '-qq', '-yy', '-e', 'trace=connect', '-o', '/dev/null', 'true']).status === 0;

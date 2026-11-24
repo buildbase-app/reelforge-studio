@@ -9,6 +9,7 @@ import { ApiError, notFound } from './errors';
 import { KeyedMutex } from './fsutil';
 import type { PageRequest } from './paging';
 import type { ProjectMeta, ProjectRepository, ProjectSummary, StoredProject } from './repositories';
+import { currentWorkspaceId, workspaceKeyPrefix } from './workspace';
 
 export type { ProjectMeta, StoredProject } from './repositories';
 
@@ -42,14 +43,19 @@ const MAX_SAVE_ATTEMPTS = 20;
  * `expectedVersion`.
  */
 export class ProjectStore {
-  readonly root: string;
+  private readonly dataDir: string;
   private mutex = new KeyedMutex();
 
   constructor(
     private readonly repo: ProjectRepository,
     dataDir: string
   ) {
-    this.root = resolve(dataDir, 'projects');
+    this.dataDir = resolve(dataDir);
+  }
+
+  /** `<dataDir>/projects` of the caller's workspace (#304): `<dataDir>/workspaces/<id>/projects` outside "default". */
+  get root(): string {
+    return resolve(this.dataDir, workspaceKeyPrefix(currentWorkspaceId()), 'projects');
   }
 
   private checkId(id: string): void {
@@ -75,7 +81,7 @@ export class ProjectStore {
   async create(manifest: Project): Promise<StoredProject> {
     const id = manifest.projectId;
     this.checkId(id);
-    return this.mutex.run(id, async () => {
+    return this.mutex.run(`${currentWorkspaceId()}:${id}`, async () => {
       const now = new Date().toISOString();
       const stored: StoredProject = { meta: { id, version: 1, createdAt: now, updatedAt: now }, manifest };
       await this.repo.create(stored);
@@ -122,7 +128,7 @@ export class ProjectStore {
     expectedVersion?: number
   ): Promise<StoredProject> {
     this.checkId(id);
-    return this.mutex.run(id, async () => {
+    return this.mutex.run(`${currentWorkspaceId()}:${id}`, async () => {
       for (let attempt = 1; ; attempt++) {
         const current = await this.get(id);
         if (expectedVersion !== undefined && expectedVersion !== current.meta.version) throw versionConflict(id, current.meta.version, expectedVersion);
@@ -142,7 +148,7 @@ export class ProjectStore {
 
   async delete(id: string): Promise<void> {
     this.checkId(id);
-    await this.mutex.run(id, async () => {
+    await this.mutex.run(`${currentWorkspaceId()}:${id}`, async () => {
       if (!(await this.repo.delete(id))) throw notFound('project', id);
       // A render writing into the folder at this moment can make one pass fail with ENOTEMPTY: retried.
       await rm(this.dir(id), { recursive: true, force: true, maxRetries: 3 });
