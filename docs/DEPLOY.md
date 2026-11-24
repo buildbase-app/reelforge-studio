@@ -186,7 +186,11 @@ by a key in its JWKS (cached 10 minutes, refetched for a new `kid` at most every
 authorization server to put the MCP URL there: the RFC 8707 `resource`
 parameter MCP clients send), `exp` in the future (60 s leeway). Scopes come from
 `scope` or `scp`: `reelforge:read`, `reelforge:write`, `reelforge:render`,
-`reelforge:admin`; a token with none of them gets `403 insufficient_scope`. The
+`reelforge:admin` and `reelforge:owner`; a token with none of them gets `403
+insufficient_scope`. `reelforge:admin` administers the default workspace;
+`reelforge:owner` is the instance owner (configuration, licence, providers,
+storage, workspaces), so grant it in your authorization server only to the
+people who run the install. The
 rate limit and the audit trail count per subject (`oauth:<sub>`). API keys keep
 working on `/mcp` and are the only credential for REST. Opaque (non-JWT) tokens
 and token introspection are not supported yet. Outbound: the issuer's metadata
