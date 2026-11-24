@@ -8,7 +8,7 @@ import {
   type RenderScene,
   type Scene,
 } from './project';
-import { BUILTIN_CATALOG, type TemplateCatalog } from './templates';
+import { BUILTIN_CATALOG, SHORT_SCENE_WARN_SECONDS, type TemplateCatalog } from './templates';
 import { fpsLabel, fpsValue, framesToSeconds } from './common';
 import {
   CAPTION_RULES,
@@ -103,6 +103,13 @@ function collectWarnings(p: Project, captionsDefaultMode?: CaptionMode): Validat
     }
   });
   p.scenes.forEach((s, i) => {
+    const seconds = framesToSeconds(sceneFrames(s, p.output.fps), p.output.fps);
+    if (seconds < SHORT_SCENE_WARN_SECONDS) {
+      warnings.push({
+        path: `scenes.${i}.${s.durationSeconds !== undefined ? 'durationSeconds' : 'durationFrames'}`,
+        message: `scene "${s.id}" is ${seconds.toFixed(3)}s (${sceneFrames(s, p.output.fps)} frames), under ${SHORT_SCENE_WARN_SECONDS}s: fine for a hard cut on a beat, too short for text to be read or a caption to show`,
+      });
+    }
     if (s.durationSeconds !== undefined) {
       const exact = s.durationSeconds * fpsValue(p.output.fps);
       if (Math.abs(exact - Math.round(exact)) > 1e-6) {

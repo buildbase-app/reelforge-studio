@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { MIN_SCENE_FRAMES } from '@reelforge/project-schema';
 import {
   DEFAULT_ENCODER_SETTINGS,
   H264_ARGS,
@@ -15,7 +16,9 @@ import {
   h264Args,
   inputThreadArgs,
   filterThreadArgs,
+  checkTimestamps,
   normaliseClip,
+  probe,
   resolveTools,
   run,
   setEncoderSettings,
@@ -73,5 +76,38 @@ describe('encoder settings', () => {
         .filter((l) => l && !l.startsWith('#'))
         .map((l) => l.split(',').pop()!.trim());
     expect(await md5(joined)).toEqual((await Promise.all(clips.map(md5))).flat());
+  }, 60_000);
+
+  it('ENC-03 beat-length clips (#450): from MIN_SCENE_FRAMES frames every clip has the same B-frame delay and joins frame-exact; a 2-frame clip does not', async () => {
+    const src = join(dir, 'beats.mp4');
+    await run(tools.ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=180x320:rate=30', '-frames:v', '30', '-pix_fmt', 'yuv420p', src], 'test');
+    const clip = async (frames: number) => {
+      const out = join(dir, `beat-${frames}.mp4`);
+      await normaliseClip({ ffmpeg: tools.ffmpeg, ffprobe: tools.ffprobe, input: src, out, width: 180, height: 320, fps: 30, frames });
+      const { stdout } = await run(tools.ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=dts', '-of', 'csv=p=0', out], 'probe');
+      return { file: out, frames, firstDts: Number(stdout.split('\n')[0]) };
+    };
+    const join_ = async (clips: Array<{ file: string; frames: number }>, name: string) => {
+      const out = join(dir, `${name}.mp4`);
+      await concatClips({ ffmpeg: tools.ffmpeg, clips, out, fps: 30, listFile: join(dir, `${name}.txt`), noAudio: true });
+      const frames = clips.reduce((n, c) => n + c.frames, 0);
+      return { frames, info: await probe(tools.ffprobe, out), timestamps: await checkTimestamps(tools.ffprobe, out, frames, 30) };
+    };
+    const floor = await clip(MIN_SCENE_FRAMES);
+    const six = await clip(6);
+    const long = await clip(30);
+    // x264 (medium, B-pyramid): 2 frames of decode delay from 3 frames on, whatever the length.
+    expect(MIN_SCENE_FRAMES).toBe(3);
+    expect(floor.firstDts).toBeLessThan(0);
+    expect(new Set([floor.firstDts, six.firstDts, long.firstDts]).size).toBe(1);
+    const ok = await join_([long, floor, six, floor, floor, long], 'beats-ok');
+    expect(ok.info.frames).toBe(ok.frames);
+    expect(Math.abs(ok.info.durationSeconds - ok.frames / 30)).toBeLessThan(0.002);
+    expect(ok.timestamps).toEqual([]);
+    // Why the floor is not 2: a 2-frame clip has no delay, and the join after it comes out short.
+    const two = await clip(MIN_SCENE_FRAMES - 1);
+    expect(two.firstDts).toBe(0);
+    const short = await join_([two, six], 'beats-short');
+    expect(short.frames / 30 - short.info.durationSeconds).toBeGreaterThan(1 / 30);
   }, 60_000);
 });

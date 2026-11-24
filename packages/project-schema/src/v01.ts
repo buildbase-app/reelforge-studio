@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TEMPLATES, type TemplateId } from './templates';
+import { TEMPLATES, templateDurationLabel, type TemplateId } from './templates';
 
 /**
  * Manifest v0.1 (legacy). Kept so v0.1 files are validated with their own
@@ -156,7 +156,7 @@ export const projectV01 = projectShape.superRefine((p, ctx) => {
       ctx.addIssue({
         code: 'custom',
         path: ['scenes', i, 'durationFrames'],
-        message: `template "${s.template}" supports ${template.minSeconds}-${template.maxSeconds}s; this scene is ${seconds.toFixed(2)}s`,
+        message: `template "${s.template}" supports ${templateDurationLabel(template)}; this scene is ${seconds.toFixed(2)}s`,
       });
     }
     const props = template.props.safeParse(s.props);

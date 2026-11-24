@@ -4,7 +4,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { ApiError, PRIORITIES, ReelforgeService, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
 import { auditAction, auditTarget } from './audit';
-import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag, renderAudioOptions } from '@reelforge/project-schema';
+import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag, renderAudioOptions, templateDurationLabel } from '@reelforge/project-schema';
 import { z } from 'zod';
 import type { ServerConfig } from './config';
 import { resourceMetadataUrl } from './oauth';
@@ -1373,7 +1373,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
       },
     },
     async ({ brief, targetSeconds, platform }) => {
-      const templates = service.listTemplates().map((t) => `- ${t.engine}/${t.id} (${t.minSeconds}-${t.maxSeconds}s): ${t.description}`).join('\n');
+      const templates = service.listTemplates().map((t) => `- ${t.engine}/${t.id} (${templateDurationLabel(t)}): ${t.description}`).join('\n');
       const themes = (await service.listThemes()).map((t) => `- ${t.id}: ${t.description ?? t.name}`).join('\n');
       return {
         messages: [
