@@ -550,3 +550,38 @@ implementation or licensing decisions.
   TP −9..0; linear mode needs every `measured_*` value with `measured_LRA` ≠ 0 and the measured LRA at or
   under the LRA target (else dynamic mode); ebur128 `peak=true` reports true peak. Used in
   `packages/project-schema/src/audio.ts` and `packages/media-pipeline/src/audio.ts` (D-116).
+
+- **PentAGI for the pre-production pentest (2026-11-24, issue #325, docs/runbooks/PENTEST.md).**
+  Read on 2026-11-24: the repository README (https://github.com/vxcontrol/pentagi, raw `README.md`,
+  `.env.example` and `docker-compose.yml` on `main`), the worker node guide
+  (https://github.com/vxcontrol/pentagi/blob/main/examples/guides/worker_node.md), the releases page and
+  the v2.2.0 release notes (https://github.com/vxcontrol/pentagi/releases/tag/v2.2.0), and the Docker Hub
+  tags of `vxcontrol/pentagi` (`2.2.0` pushed 2026-10-05; `latest` rebuilt 2026-10-23). Findings used:
+  2.2.0 is the newest release; it closes CVE-2026-14784 / GHSA-7wx2-8pqj-q3gr (2.1.0 and earlier mounted
+  the host Docker socket into every sandbox when `DOCKER_INSIDE=true`), sets `DOCKER_INSIDE=false` by
+  default, needs `DOCKER_INSIDE_HOST` for nested Docker, refuses session cookies from older versions, and
+  runs eight migrations on start. Requirements: Docker and Compose, at least 2 vCPU, 4 GB RAM, 20 GB disk.
+  Manual install: `.env` from `.env.example`, the three example provider files, `docker compose up -d`;
+  web UI on `127.0.0.1:8443` by default (`PENTAGI_LISTEN_IP`); default login `admin@pentagi.com` /
+  `admin`, to be changed at first login. The stock compose file mounts
+  `${PENTAGI_DOCKER_SOCKET:-/var/run/docker.sock}` into the PentAGI container and runs it as root; the
+  worker node guide's two-node layout reaches the worker's Docker over TLS (`DOCKER_HOST=tcp://...:2376`,
+  `DOCKER_TLS_VERIFY`, `PENTAGI_DOCKER_CERT_PATH`) and gives sandboxes a hardened dind over TLS
+  (`DOCKER_INSIDE_HOST`, `DOCKER_INSIDE_TLS_VERIFY`, `DOCKER_INSIDE_CERT_PATH`,
+  `DOCKER_INSIDE_POLICY_TESTS`), with `DOCKER_SOCKET` empty. Each flow publishes two TCP ports from
+  `DOCKER_PORTS_BASE` (28000-29999) on `DOCKER_PUBLIC_IP`; Docker-published ports bypass `ufw`, so the
+  README says to filter them in front of the host or in the `DOCKER-USER` chain. LLM keys are `.env`
+  variables (`OPEN_AI_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, ...). Licence: MIT source plus an EULA
+  limited to lawful, authorised testing (#325).
+- **OWASP ZAP and nuclei for the non-AI baseline (2026-11-24, docs/runbooks/PENTEST.md).** ZAP API scan
+  usage (https://www.zaproxy.org/docs/docker/api-scan/, read 2026-11-24): `zap-api-scan.py -t <definition>
+  -f openapi|soap|graphql`, `-r`/`-J` reports. Header authentication
+  (https://www.zaproxy.org/docs/getting-further/authentication/handling-auth-yourself/, read 2026-11-24):
+  `ZAP_AUTH_HEADER_VALUE`, `ZAP_AUTH_HEADER` (default `Authorization`), `ZAP_AUTH_HEADER_SITE`, set before
+  ZAP starts. nuclei: Docker Hub `projectdiscovery/nuclei` tag `v3.11.1` (2026-08-08) is the newest.
+- **Cloud prices for the capacity test (2026-11-24, docs/runbooks/SCALE-TEST.md).** instances.vantage.sh:
+  `c7i.4xlarge` 16 vCPU / 32 GiB, $0.714 per hour on demand, about $0.352 spot; RDS `db.r7g.2xlarge`
+  8 vCPU / 64 GiB, $0.956 per hour (deployment option not shown; Multi-AZ assumed about twice).
+  gcloud-compute.com, us-central1: `c3d-highcpu-16` 16 vCPU / 32 GB, $0.5997 per hour on demand,
+  $0.1371 spot; `c3d-standard-16` $0.7264 / $0.1661. Other prices in the runbook are estimates marked
+  VERIFY.
