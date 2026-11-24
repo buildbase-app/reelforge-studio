@@ -83,6 +83,10 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
     const err = json(bad).error;
     expect(err.code).toBe('invalid_manifest');
     expect(err.details.issues[0].path).toBe('scenes.0.props.headline');
+    // An unsupported frame rate names the supported ones (#322).
+    const fps = json(await client.callTool({ name: 'create_project', arguments: { manifest: { ...sample, projectId: 'bad-fps', output: { ...sample.output, fps: 50 } } } })).error;
+    expect(fps.code).toBe('invalid_manifest');
+    expect(fps.details.issues.find((i: any) => i.path === 'output.fps')?.message).toBe('fps must be one of 24, 25, 30, 60 (got 50)');
     const lambda = await client.callTool({ name: 'render_project', arguments: { projectId: 'sample-reel', backend: 'remotion-lambda' } });
     expect(json(lambda).error.code).toBe('backend_not_configured');
     await client.close();

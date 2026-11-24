@@ -7,6 +7,7 @@ import { auditAction, auditTarget } from './audit';
 import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag } from '@reelforge/project-schema';
 import { z } from 'zod';
 import type { ServerConfig } from './config';
+import { resourceMetadataUrl } from './oauth';
 
 /**
  * MCP tools are thin wrappers over ReelforgeService (the same methods the REST
@@ -1263,7 +1264,16 @@ export function serverCard(service: ReelforgeService, config: ServerConfig) {
     description: 'Self-hosted short-form video studio. Agents create and edit projects; the server renders and validates MP4s.',
     endpoint: `${base}/mcp`,
     transport: { type: 'streamable-http', stateless: true, jsonResponse: true },
-    authentication: { type: 'bearer', header: 'Authorization', format: 'Bearer rf_<key>', howToGetAKey: 'the operator runs `pnpm keys:create` or POST /v1/keys' },
+    authentication: {
+      type: 'bearer',
+      header: 'Authorization',
+      format: 'Bearer rf_<key>',
+      howToGetAKey: 'the operator runs `pnpm keys:create` or POST /v1/keys',
+      // MCP OAuth (D-112): an access token of this issuer works too; discovery via the protected-resource metadata.
+      ...(config.resolved.config.security.oauth.issuer
+        ? { oauth: { issuer: config.resolved.config.security.oauth.issuer, resourceMetadata: resourceMetadataUrl(config.resolved.config.security.oauth.audience ?? `${base}/mcp`) } }
+        : {}),
+    },
     status: 'experimental',
     schemaVersion: SCHEMA_VERSION,
     tools: TOOLS.map((t) => ({ name: t.name, title: t.title, scope: t.scope, status: 'experimental' })),
