@@ -1,7 +1,7 @@
 import { ENV_PREFIX, LEGACY_ENV_PREFIX, SETTINGS, renamedEnvName } from './schema';
 
 /**
- * The rename compatibility layer for environment variables (#412, D-1XX):
+ * The rename compatibility layer for environment variables (#412, D-127):
  * ReelForge is now RenderWeld. Every `REELFORGE_*` name is also read as
  * `RENDERWELD_*`:
  *
