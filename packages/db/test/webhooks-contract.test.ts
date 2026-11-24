@@ -206,4 +206,49 @@ describe.each(targets)('webhook repository contract: $name', ({ kind }) => {
     expect(await repos.webhooks.listAttempts(old.id)).toEqual([]);
     expect((await repos.webhooks.countByStatus()).succeeded).toBeGreaterThanOrEqual(0);
   });
+
+  it('WHK-DB-06 dedupeKey round-trips; lists filter by eventId and dedupeKey; reschedule makes only a pending row due', async () => {
+    const ep = endpoint();
+    const other = endpoint();
+    await repos.webhooks.insertEndpoint(ep);
+    await repos.webhooks.insertEndpoint(other);
+    const key = `render:${newSequentialId('job')}`;
+    const a = delivery(ep.id, { eventType: 'render.failed', dedupeKey: key, nextAttemptAt: at(3_600_000) });
+    const b = delivery(other.id, { eventId: a.eventId, eventType: 'render.failed', dedupeKey: key, payload: a.payload });
+    const c = delivery(ep.id);
+    await repos.webhooks.enqueue([a, b, c]);
+    expect(await repos.webhooks.getDelivery(a.id)).toEqual(a);
+    expect((await repos.webhooks.getDelivery(c.id))!.dedupeKey).toBeUndefined();
+    expect((await repos.webhooks.listDeliveries({ eventId: a.eventId })).map((d) => d.id).sort()).toEqual([a.id, b.id].sort());
+    expect((await repos.webhooks.listDeliveries({ dedupeKey: key, endpointId: other.id })).map((d) => d.id)).toEqual([b.id]);
+    expect(await repos.webhooks.listDeliveries({ dedupeKey: 'render:job_none' })).toEqual([]);
+    // Pending and not due: due now after reschedule; a claimed (delivering) row is not touched.
+    expect(await repos.webhooks.reschedule(a.id, at(5))).toBe(true);
+    expect((await repos.webhooks.getDelivery(a.id))!.nextAttemptAt).toBe(at(5));
+    const [claimed] = (await repos.webhooks.claim(at(10), at(60_000), 100)).filter((d) => d.id === c.id);
+    expect(claimed).toBeDefined();
+    expect(await repos.webhooks.reschedule(c.id, at(20))).toBe(false);
+    expect(await repos.webhooks.reschedule('dlv_missing', at(20))).toBe(false);
+  });
+
+  it('WHK-DB-07 recordAttempt fenced by the lease: a worker whose lease was claimed again records nothing; of two racing recorders exactly one wins', async () => {
+    const ep = endpoint();
+    await repos.webhooks.insertEndpoint(ep);
+    const d = delivery(ep.id);
+    await repos.webhooks.enqueue([d]);
+    const first = (await repos.webhooks.claim(at(), at(1000), 100)).find((x) => x.id === d.id)!;
+    // The first worker stalls past its lease; a second one claims the row again.
+    const second = (await repos.webhooks.claim(at(2000), at(62_000), 100)).find((x) => x.id === d.id)!;
+    expect(second.lockedUntil).toBe(at(62_000));
+    const attempt = (n: number, ms: number) => ({ id: newSequentialId('att'), deliveryId: d.id, endpointId: ep.id, attempt: n, at: at(ms), durationMs: 5, status: 200, outcome: 'success' as const });
+    const done = (ms: number) => ({ status: 'succeeded' as const, attempts: 1, lockedUntil: null, lastStatus: 200, deliveredAt: at(ms), updatedAt: at(ms) });
+    expect(await repos.webhooks.recordAttempt(attempt(1, 3000), done(3000), first.lockedUntil)).toBe(false);
+    expect(await repos.webhooks.listAttempts(d.id)).toEqual([]);
+    expect((await repos.webhooks.getDelivery(d.id))!.status).toBe('delivering');
+    // Both "workers" record attempt 1 under the current lease at the same time: one row in the log.
+    const results = await Promise.all([repos.webhooks.recordAttempt(attempt(1, 4000), done(4000), second.lockedUntil), repos.webhooks.recordAttempt(attempt(1, 4001), done(4001), second.lockedUntil)]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await repos.webhooks.listAttempts(d.id)).toHaveLength(1);
+    expect((await repos.webhooks.getDelivery(d.id))!).toMatchObject({ status: 'succeeded', attempts: 1 });
+  });
 });

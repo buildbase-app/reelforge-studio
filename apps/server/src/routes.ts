@@ -90,6 +90,15 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'POST', path: '/v1/webhooks/:id/test', scope: 'admin', tool: 'test_webhook' },
   { method: 'GET', path: '/v1/webhooks/:id/deliveries', scope: 'admin', tool: 'list_webhook_deliveries' },
   { method: 'POST', path: '/v1/webhooks/:id/deliveries/:deliveryId/replay', scope: 'admin', tool: 'replay_webhook_delivery' },
+  { method: 'POST', path: '/v1/webhooks/:id/resend', scope: 'admin', tool: 'resend_webhook' },
+  { method: 'POST', path: '/v1/webhooks/:id/rotate-secret', scope: 'admin', tool: 'rotate_webhook_secret' },
+  {
+    method: 'GET',
+    path: '/v1/webhooks/:id/log',
+    scope: 'read',
+    tool: 'get_webhook_log',
+    note: 'The delivery log without payloads or targets (status, attempts, latency); list_webhook_deliveries (admin) has the payloads.',
+  },
   {
     method: 'GET',
     path: '/v1/audit',

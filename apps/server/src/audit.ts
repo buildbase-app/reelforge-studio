@@ -17,6 +17,9 @@ const ACTION_NAMES: Record<string, string> = {
   get_render_output: 'render.get',
   list_webhook_deliveries: 'webhook.deliveries.list',
   replay_webhook_delivery: 'webhook.delivery.replay',
+  resend_webhook: 'webhook.resend',
+  rotate_webhook_secret: 'webhook.rotate_secret',
+  get_webhook_log: 'webhook.log.get',
 };
 
 /** create_project -> project.create, reorder_scenes -> scenes.reorder. */
