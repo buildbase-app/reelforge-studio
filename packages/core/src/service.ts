@@ -127,6 +127,8 @@ export interface ServiceConfig {
    * runtime layer stored in the database). Default: { env: providerEnv }.
    */
   configSources?: ConfigSources;
+  /** Configuration warnings the caller already logged at start (the server does): not logged again, so each appears once (#412). */
+  loggedConfigWarnings?: readonly string[];
   /**
    * Licence checks (D-028). The licence server URL, org id, mode and grace
    * period come from the configuration (licence.*); tests inject the API and
@@ -526,7 +528,8 @@ export class ReelforgeService {
       config.log?.('info', `encrypted ${encrypted.length} stored secret(s) with REELFORGE_SECRET_KEY: ${encrypted.join(', ')}`);
       await s.audit({ actorType: 'system', action: 'config.secrets.encrypt', data: { names: encrypted } });
     }
-    for (const w of s.settings.warnings()) config.log?.('warn', w);
+    const logged = new Set(config.loggedConfigWarnings ?? []);
+    for (const w of s.settings.warnings()) if (!logged.has(w)) config.log?.('warn', w);
     // Storage needs the runtime layer: credentials may be encrypted settings in the database (D-066).
     await s.storage.init();
     s.settings.onChange((_r, keys) => {

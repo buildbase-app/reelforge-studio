@@ -18,6 +18,7 @@ import {
   type EnginePlugin,
   type ResolvedAsset,
   type StagedSceneAssets,
+  envValue,
 } from '@reelforge/core';
 import { PipelineError, type Tools } from '@reelforge/media-pipeline';
 import {
@@ -397,7 +398,7 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   const started = Date.now();
   const { scene, output } = opts;
   const stage = `render:${scene.id}`;
-  const browser = opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH;
+  const browser = opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH');
   if (!browser || !existsSync(browser)) throw new PipelineError('setup', 'no browser for HyperFrames: set REELFORGE_CHROMIUM_PATH');
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
   const project = join(opts.workDir, 'hyperframes');
@@ -542,7 +543,7 @@ function tail(s: string): string {
 
 /** HyperFrames as a ReelForge engine plugin. */
 export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?: number } = {}): EnginePlugin {
-  const browser = () => opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH;
+  const browser = () => opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH');
   return {
     id: 'hyperframes',
     displayName: 'HyperFrames (local renderer)',

@@ -2854,3 +2854,40 @@ packaging (GIF and PNG would need their own burn); an alpha GIF (1-bit transpare
 *Known limits:* non-alpha clips are still H.264 (CRF 18) before a ProRes or VP9 encode; Remotion and
 Motion Canvas alpha; ZIP64 for PNG sequences over 65,535 frames or 4 GiB. Debian bookworm's FFmpeg
 5.1.9 (the image's package) has every encoder used and libass `alpha`, and the media-pipeline format tests pass on it.
+
+### D-127 --- Rename compatibility layer: RENDERWELD_* names first, every REELFORGE_* name still accepted; one alias table derived from the schema
+
+**Status:** DECIDED (reversible), issue #412 (phase 3 of the rename epic #408). Number assigned at merge.\
+**Settings:** the schema keeps its `REELFORGE_*` names; `envNames()` derives a `RENDERWELD_*` twin for each (so the
+181 settings and their 183 `REELFORGE_*` names need no edit), ranked new name, old name, other aliases
+(`DATABASE_URL`, `OTEL_*`, ...), and `_FILE` for secrets under both. Rules in the environment layer: the new name
+alone is used; the old name alone is used and adds one start-up warning per variable naming the new one; both with
+the same value is fine; both with different values is a `ConfigError` naming both, never the values. The few names
+read outside the schema (`REELFORGE_CONFIG`, `REELFORGE_LICENCE_KEY_INPUT` and the test switches) are listed in
+`OTHER_RENAMED_ENV` (`packages/core/src/config/rename.ts`, with the full table `RENAMED_ENV`); engines and tests
+read their few variables through `envValue()`; the server exports `processEnv` settings under both names so every
+reader agrees. The server logs configuration warnings once (the service no longer repeats them). **Image:** the
+Docker image's defaults move to `RENDERWELD_*` and are listed in `RENDERWELD_IMAGE_DEFAULTS`; such a value ranks
+below any operator value, so `-e REELFORGE_PORT=8080` replaces the image's port (with the warning) instead of
+clashing with it. **Config file:** `RENDERWELD_CONFIG` (old `REELFORGE_CONFIG`) names the file; there is no
+built-in file name, so `renderweld.yaml` and `reelforge.yaml` both work; two variables naming different files
+fail. **CLI:** `renderweld` (`apps/server/src/cli.ts`) and the old `reelforge` (`src/reelforge.ts`, same stdout,
+one deprecation line on stderr). **MCP:** every resource is registered under `renderweld://` and `reelforge://`
+(both listed, the old ones marked; projects enumerated once), tool and prompt names unchanged; the server card
+lists the new URIs and `resourceAliases`. **Telemetry:** at export time (`apps/server/src/observability/rename.ts`):
+collected metrics get a `renderweld.*` copy of every `reelforge.*` metric (Prometheus and OTLP push) and every
+`reelforge.*` attribute gets a `renderweld.*` twin on data points and spans (a span processor that runs before
+the batch processor); the resource carries `renderweld.edition`. Grafana dashboard and alert rules use the new
+names. **Headers:** webhooks use the Standard Webhooks headers (no product name); notification email sends
+`X-Renderweld-Message-Id` and `X-Reelforge-Message-Id`. The old names work until a removal date announced in the
+release notes, at least 90 days after the rename ships (phase 7). *Rejected:* adding `RENDERWELD_*` aliases to
+each setting by hand (217 edits that drift); switching the schema's primary names now (every error message and
+`GET /v1/config` `env` field would change before the public rename, phase 4); letting the new name silently win
+over a different old value (an install would change behaviour without notice); renaming instruments at the
+source (two instruments per metric, callbacks run twice, values could differ between the names). **Not in this
+step:** the compose files and Kubernetes manifests still set `REELFORGE_*` names (they work, with warnings; switched
+with the docs in phase 6), the HPA's `reelforge_jobs_queued` external metric (named by the operator's adapter),
+`scripts/`, `examples/` and the e2e scripts' own variables. Proof: `packages/core/test/rename.test.ts`,
+`apps/server/test/rename.test.ts`, `apps/server/test/observability.test.ts` (OBS-18, OBS-07, OBS-09),
+`apps/server/test/mcp.test.ts`, `apps/server/test/parity.test.ts`, `scripts/docs/cloud-docs.test.mjs`. Reference:
+[RENAMED.md](RENAMED.md).

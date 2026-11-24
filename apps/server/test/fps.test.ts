@@ -10,19 +10,19 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ReelforgeService, createMemoryRepositories, type EnginePlugin } from '@reelforge/core';
+import { envValue, ReelforgeService, createMemoryRepositories, type EnginePlugin } from '@reelforge/core';
 import { assertDecodable, checkExpectation, checkTimestamps, normaliseClip, probe, resolveTools } from '@reelforge/media-pipeline';
 import { builtinTheme, fpsLabel, fpsValue, sceneFrames, type FrameRate, type OutputSettings, type RenderScene } from '@reelforge/project-schema';
 import { createDefaultRegistry } from '../src/registry';
 
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-fps-test-'));
 const cacheDir = resolve(import.meta.dirname, '../../../.render-cache');
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 describe('browser requirement', () => {
-  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
+  it.runIf(envValue('REELFORGE_REQUIRE_BROWSER') === '1')('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });
