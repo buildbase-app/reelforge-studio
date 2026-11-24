@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-24T05:18:39.785Z",
+  "generatedAt": "2026-11-24T10:02:42.351Z",
   "command": "pnpm formats:prove-layouts",
   "samples": [
     {
@@ -210,7 +210,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 37668,
+      "renderMillis": 36306,
       "problems": []
     },
     {
@@ -220,7 +220,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 22697,
+      "renderMillis": 23581,
       "problems": []
     },
     {
@@ -230,7 +230,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 34636,
+      "renderMillis": 38081,
       "problems": []
     },
     {
@@ -240,7 +240,7 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 127408,
+      "renderMillis": 140059,
       "problems": []
     },
     {
@@ -250,7 +250,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 33138,
+      "renderMillis": 41528,
       "problems": []
     },
     {
@@ -260,7 +260,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 33332,
+      "renderMillis": 39652,
       "problems": []
     },
     {
@@ -270,7 +270,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 30616,
+      "renderMillis": 52407,
       "problems": []
     },
     {
@@ -280,7 +280,87 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 93405,
+      "renderMillis": 110745,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "remotion",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 19426,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "remotion",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 11649,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "remotion",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 16798,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "remotion",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 63621,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "motion-canvas",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 25980,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "motion-canvas",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 17808,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "motion-canvas",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 26065,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "motion-canvas",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 71331,
       "problems": []
     },
     {
@@ -290,7 +370,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 22607,
+      "renderMillis": 21661,
       "problems": []
     },
     {
@@ -300,7 +380,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 17952,
+      "renderMillis": 17315,
       "problems": []
     },
     {
@@ -310,7 +390,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 26077,
+      "renderMillis": 24214,
       "problems": []
     },
     {
@@ -320,7 +400,7 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 66096,
+      "renderMillis": 61259,
       "problems": []
     },
     {
@@ -330,7 +410,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 19321,
+      "renderMillis": 21529,
       "problems": []
     },
     {
@@ -340,7 +420,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 17927,
+      "renderMillis": 17448,
       "problems": []
     },
     {
@@ -350,7 +430,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 24534,
+      "renderMillis": 22291,
       "problems": []
     },
     {
@@ -360,7 +440,87 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 49494,
+      "renderMillis": 41340,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "remotion",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 7340,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "remotion",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 6675,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "remotion",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 7768,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "remotion",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 15821,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "motion-canvas",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 15128,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "motion-canvas",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 11676,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "motion-canvas",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 15539,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "motion-canvas",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 36085,
       "problems": []
     },
     {
@@ -370,7 +530,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 37039,
+      "renderMillis": 34520,
       "problems": []
     },
     {
@@ -380,7 +540,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 23869,
+      "renderMillis": 21459,
       "problems": []
     },
     {
@@ -390,7 +550,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 35625,
+      "renderMillis": 31090,
       "problems": []
     },
     {
@@ -400,7 +560,7 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 143497,
+      "renderMillis": 148412,
       "problems": []
     },
     {
@@ -410,7 +570,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 26917,
+      "renderMillis": 29041,
       "problems": []
     },
     {
@@ -420,7 +580,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 22975,
+      "renderMillis": 22726,
       "problems": []
     },
     {
@@ -430,7 +590,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 28060,
+      "renderMillis": 29556,
       "problems": []
     },
     {
@@ -440,7 +600,87 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 115865,
+      "renderMillis": 116796,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "remotion",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 14970,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "remotion",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 10743,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "remotion",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 15692,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "remotion",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 99824,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "motion-canvas",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 24101,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "motion-canvas",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 17514,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "motion-canvas",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 24068,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "motion-canvas",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 101746,
       "problems": []
     },
     {
@@ -450,7 +690,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 37914,
+      "renderMillis": 38853,
       "problems": []
     },
     {
@@ -460,7 +700,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 25963,
+      "renderMillis": 24741,
       "problems": []
     },
     {
@@ -470,7 +710,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 37297,
+      "renderMillis": 34339,
       "problems": []
     },
     {
@@ -480,7 +720,7 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 185043,
+      "renderMillis": 163703,
       "problems": []
     },
     {
@@ -490,7 +730,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 39669,
+      "renderMillis": 31966,
       "problems": []
     },
     {
@@ -500,7 +740,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 29024,
+      "renderMillis": 24363,
       "problems": []
     },
     {
@@ -510,7 +750,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 36494,
+      "renderMillis": 32321,
       "problems": []
     },
     {
@@ -520,7 +760,87 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 137870,
+      "renderMillis": 129704,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "remotion",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 15627,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "remotion",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 15647,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "remotion",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 21339,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "remotion",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 117419,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "motion-canvas",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 29654,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "motion-canvas",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 21038,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "motion-canvas",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 24813,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "motion-canvas",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 90693,
       "problems": []
     },
     {
@@ -530,7 +850,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 26761,
+      "renderMillis": 30243,
       "problems": []
     },
     {
@@ -540,7 +860,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 18918,
+      "renderMillis": 21190,
       "problems": []
     },
     {
@@ -550,7 +870,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 26653,
+      "renderMillis": 28776,
       "problems": []
     },
     {
@@ -560,7 +880,7 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 80382,
+      "renderMillis": 86609,
       "problems": []
     },
     {
@@ -570,7 +890,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 26081,
+      "renderMillis": 29300,
       "problems": []
     },
     {
@@ -580,7 +900,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 21410,
+      "renderMillis": 24796,
       "problems": []
     },
     {
@@ -590,7 +910,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 26763,
+      "renderMillis": 29735,
       "problems": []
     },
     {
@@ -600,7 +920,87 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 55452,
+      "renderMillis": 65980,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "remotion",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 10634,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "remotion",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 7859,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "remotion",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 10219,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "remotion",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 32009,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "motion-canvas",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 20129,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "motion-canvas",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 14558,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "motion-canvas",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 19910,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "motion-canvas",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 55743,
       "problems": []
     },
     {
@@ -610,7 +1010,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 16430,
+      "renderMillis": 16815,
       "problems": []
     },
     {
@@ -620,7 +1020,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 12592,
+      "renderMillis": 12601,
       "problems": []
     },
     {
@@ -630,7 +1030,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 20555,
+      "renderMillis": 20813,
       "problems": []
     },
     {
@@ -640,7 +1040,7 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 43622,
+      "renderMillis": 42340,
       "problems": []
     },
     {
@@ -650,7 +1050,7 @@
       "width": 1920,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 12665,
+      "renderMillis": 13291,
       "problems": []
     },
     {
@@ -660,7 +1060,7 @@
       "width": 1080,
       "height": 1080,
       "frames": 60,
-      "renderMillis": 10222,
+      "renderMillis": 11128,
       "problems": []
     },
     {
@@ -670,7 +1070,7 @@
       "width": 1080,
       "height": 1920,
       "frames": 60,
-      "renderMillis": 12295,
+      "renderMillis": 13586,
       "problems": []
     },
     {
@@ -680,7 +1080,87 @@
       "width": 3840,
       "height": 2160,
       "frames": 60,
-      "renderMillis": 22124,
+      "renderMillis": 26293,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "remotion",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 8463,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "remotion",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 6856,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "remotion",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 8593,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "remotion",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 32552,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "motion-canvas",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 13101,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "motion-canvas",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 8754,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "motion-canvas",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 14204,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "motion-canvas",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 32612,
       "problems": []
     }
   ]
