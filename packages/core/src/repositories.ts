@@ -416,6 +416,8 @@ export interface JobRepository {
   countQueued(before?: { createdAt: string; id: string; priority?: JobPriority }): Promise<number>;
   /** How many jobs of these types `apiKeyId` started at or after `since` (render quotas). */
   countByApiKey(apiKeyId: string, since: string, types: string[]): Promise<number>;
+  /** How many jobs of these types the workspace started at or after `since` (workspace render limits, #304). */
+  countSince(since: string, types: string[]): Promise<number>;
   appendLog(jobId: string, at: string, line: string): Promise<void>;
   /** Log lines as "<iso time> <line>", oldest first; the last `tail` if given. */
   logs(jobId: string, tail?: number): Promise<string[]>;

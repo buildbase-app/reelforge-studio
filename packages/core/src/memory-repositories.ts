@@ -531,6 +531,9 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID, opt
       async countByApiKey(apiKeyId, since, types) {
         return [...jobs.values()].filter((j) => j.apiKeyId === apiKeyId && j.createdAt >= since && types.includes(j.type)).length;
       },
+      async countSince(since, types) {
+        return [...jobs.values()].filter((j) => j.createdAt >= since && types.includes(j.type)).length;
+      },
       async appendLog(jobId, at, line) {
         appendLine(jobId, at, line);
       },
