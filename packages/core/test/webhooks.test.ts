@@ -705,18 +705,23 @@ const PROVIDER_CASES: ProviderCase[] = [
     expect(hit.headers.authorization).toBe(`Bearer ${CREDS.resend}`);
     expect(hit.headers['idempotency-key']).toBe('msg_contract');
     expect(JSON.parse(hit.body)).toMatchObject({ from: 'ReelForge <studio@example.com>', to: ['ops@example.com'], subject: expect.stringContaining('failed') });
+    // The message id header under the new and the old name (#412).
+    expect(JSON.parse(hit.body).headers).toEqual({ 'X-Renderweld-Message-Id': 'msg_contract', 'X-Reelforge-Message-Id': 'msg_contract' });
   }, { provider: 'resend', to: ['ops@example.com'] }),
   httpCase('email:postmark', 'email', '/postmark/email', (hit) => {
     expect(hit.headers['x-postmark-server-token']).toBe(CREDS.postmark);
     expect(JSON.parse(hit.body)).toMatchObject({ From: 'ReelForge <studio@example.com>', To: 'ops@example.com', MessageStream: 'outbound', TextBody: expect.stringContaining('render_failed') });
+    expect(JSON.parse(hit.body).Headers).toEqual([{ Name: 'X-Renderweld-Message-Id', Value: 'msg_contract' }, { Name: 'X-Reelforge-Message-Id', Value: 'msg_contract' }]);
   }, { provider: 'postmark', to: ['ops@example.com'] }),
   httpCase('email:sendgrid', 'email', '/sendgrid/v3/mail/send', (hit) => {
     expect(hit.headers.authorization).toBe(`Bearer ${CREDS.sendgrid}`);
     expect(JSON.parse(hit.body)).toMatchObject({ personalizations: [{ to: [{ email: 'ops@example.com' }] }], from: { email: 'ReelForge <studio@example.com>' }, content: [{ type: 'text/plain' }] });
+    expect(JSON.parse(hit.body).headers).toEqual({ 'X-Renderweld-Message-Id': 'msg_contract', 'X-Reelforge-Message-Id': 'msg_contract' });
   }, { provider: 'sendgrid', to: ['ops@example.com'] }),
   httpCase('email:ses', 'email', '/ses/v2/email/outbound-emails', (hit) => {
     expect(hit.headers.authorization).toMatch(new RegExp(`^AWS4-HMAC-SHA256 Credential=${CREDS.sesId}/\\d{8}/eu-west-1/ses/aws4_request`));
     expect(JSON.parse(hit.body)).toMatchObject({ FromEmailAddress: 'ReelForge <studio@example.com>', Destination: { ToAddresses: ['ops@example.com'] }, Content: { Simple: { Body: { Text: { Data: expect.stringContaining('render_failed') } } } } });
+    expect(JSON.parse(hit.body).Content.Simple.Headers).toEqual([{ Name: 'X-Renderweld-Message-Id', Value: 'msg_contract' }, { Name: 'X-Reelforge-Message-Id', Value: 'msg_contract' }]);
   }, { provider: 'ses', to: ['ops@example.com'] }),
   {
     id: 'email:smtp',
@@ -733,6 +738,8 @@ const PROVIDER_CASES: ProviderCase[] = [
       expect(m.to).toEqual(['ops@example.com']);
       expect(m.from).toBe('studio@example.com');
       expect(m.data).toContain('Message-ID: <msg_contract@reelforge.local>');
+      expect(m.data).toMatch(/X-Renderweld-Message-Id: msg_contract/i);
+      expect(m.data).toMatch(/X-Reelforge-Message-Id: msg_contract/i);
       expect(m.data).toContain('render_failed');
     },
   },

@@ -30,9 +30,11 @@ What it shows today:
 ![Analytics, 30 days, dark theme](../../proofs/dashboard/analytics-desktop-dark.png)
 
 A read key sees jobs, renders and analytics, and an endpoint's delivery log.
-The configuration, key management, webhook actions and the audit log need the
-`admin` scope; the page shows no edit control to other keys, and the server
-refuses the call anyway.
+Key management, webhook actions and the audit log need the `admin` scope; the
+configuration and provider settings need the instance-level `owner` scope
+(D-124 in [DECISIONS.md](../../DECISIONS.md)). The page shows no edit control
+to other keys, and the server refuses the call anyway. Every figure is the
+key's own workspace's.
 
 ## Turn it on
 
@@ -47,9 +49,9 @@ docker run ... -e REELFORGE_DASHBOARD_ENABLED=true reelforge-studio
 dashboard:
   enabled: true
 
-# at runtime, no restart (admin key)
+# at runtime, no restart (owner key)
 curl -X PATCH https://studio.example.com/v1/config \
-  -H "Authorization: Bearer $ADMIN_KEY" -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $OWNER_KEY" -H 'Content-Type: application/json' \
   -d '{"settings": {"dashboard.enabled": true}}'
 ```
 
@@ -75,7 +77,8 @@ reelforge keys create --name dashboard-ops --scopes read,render   # also cancel 
 | --- | --- | --- |
 | `read` | yes | no (buttons disabled; the server refuses them too) |
 | `read`, `render` | yes | yes |
-| `admin` | yes | yes, and the render page also shows the bucket or folder |
+| `admin` | yes | yes |
+| `owner` | yes | yes, and the render page also shows the bucket or folder |
 
 The key stays in the browser tab. By default it is kept in memory only, so a
 reload asks for it again; tick **Keep me signed in until this tab closes** to
@@ -124,10 +127,10 @@ Everything the dashboard shows comes from these endpoints
 | `POST /v1/jobs/:id/cancel`, `POST /v1/jobs/:id/retry` | Cancel and retry |
 | `GET /v1/projects`, `GET /v1/projects/:id/renders` | The library |
 | `GET /v1/renders/:id`, `GET /v1/renders/:id/output` | A render, its poster, video and manifest |
-| `GET /v1/storage` | The bucket or folder, for admin keys |
+| `GET /v1/storage` | The bucket or folder, for owner keys |
 | `GET /v1/renders/:id/captions` | Caption tracks of a render |
 | `GET /v1/analytics/summary` | Analytics |
-| `GET /v1/config`, `PATCH /v1/config` | Settings (admin) |
+| `GET /v1/config`, `PATCH /v1/config` | Settings (owner) |
 | `GET /v1/keys`, `POST /v1/keys`, `POST /v1/keys/:id/rotate`, `POST /v1/keys/:id/revoke` | API keys (admin) |
 | `GET /v1/webhooks`, `GET /v1/webhooks/:id/log`, `POST /v1/webhooks/:id/test`, `POST /v1/webhooks/:id/resend`, `POST /v1/webhooks/:id/rotate-secret` | Webhooks (the log with the read scope, the rest admin) |
 | `GET /v1/providers`, `GET /v1/licence` | Providers and licence |
@@ -141,7 +144,7 @@ client.
 ### Analytics
 
 `GET /v1/analytics/summary?from=&to=&bucket=day|hour` reads the job table, the
-render manifests, storage usage and the webhook outbox (D-1XX). `from` and `to`
+render manifests, storage usage and the webhook outbox (D-126). `from` and `to`
 take an ISO time or a UTC date (a `to` date includes its day); the default is
 the last 30 days. A range is at most 90 days by day and 7 days by hour, and one
 call reads at most 20 000 jobs: past that, `scan.truncated` is true and

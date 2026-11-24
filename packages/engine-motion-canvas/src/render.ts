@@ -19,6 +19,7 @@ import {
   stampMatches,
   type ResolvedAsset,
   type StagedSceneAssets,
+  envValue,
 } from '@reelforge/core';
 import type { Tools } from '@reelforge/media-pipeline';
 import {
@@ -104,7 +105,7 @@ export function resolveBrowser(
   env: NodeJS.ProcessEnv = process.env,
   fallback: () => string | undefined = safeDefaultPath
 ): string {
-  const candidates = [explicit, env.REELFORGE_CHROMIUM_PATH, fallback()].filter(
+  const candidates = [explicit, envValue('REELFORGE_CHROMIUM_PATH', env), fallback()].filter(
     (p): p is string => Boolean(p)
   );
   const found = candidates.find((p) => existsSync(p));

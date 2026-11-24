@@ -14,6 +14,7 @@ import { MeterProvider, MetricReader, type PushMetricExporter } from '@opentelem
 import { BatchSpanProcessor, ParentBasedSampler, TraceIdRatioBasedSampler, TracerProvider } from '@opentelemetry/sdk-trace';
 import type { Config, LicenceStatus, ReelforgeService, Telemetry } from '@reelforge/core';
 import type { LogsExporter, StructuredLogger } from './logger';
+import { RenameSpanProcessor, twinResourceMetrics } from './rename';
 
 /**
  * Logs, metrics and traces with selectable exporters (issue #64, D-050..D-054).
@@ -138,7 +139,7 @@ class PushMetricReader extends MetricReader {
     const exporter = this.exporter;
     if (!exporter) return;
     const { resourceMetrics } = await this.collect();
-    await new Promise<void>((resolve) => exporter.export(resourceMetrics, () => resolve()));
+    await new Promise<void>((resolve) => exporter.export(twinResourceMetrics(resourceMetrics), () => resolve()));
   }
 
   protected async onForceFlush(): Promise<void> {
@@ -165,7 +166,7 @@ class SwitchTracer implements Tracer {
  * The Prometheus text serializer, with the unit suffix Prometheus expects for
  * seconds (`http_server_request_duration_seconds_bucket`), which the
  * OpenTelemetry serializer leaves out. Scope labels are dropped; target_info
- * carries service.name, service.version and reelforge.edition.
+ * carries service.name, service.version and reelforge.edition (and renderweld.edition).
  */
 function prometheusSerializer(): PrometheusSerializer {
   const serializer = new PrometheusSerializer(undefined, false, undefined, false, true);
@@ -218,6 +219,7 @@ export class Observability {
       'service.name': settings.serviceName,
       'service.version': settings.serviceVersion,
       'reelforge.edition': settings.edition,
+      'renderweld.edition': settings.edition,
     });
     this.meterProvider = new MeterProvider({ resource: this.resource, readers: [this.pull, this.push] });
     this.meter = this.meterProvider.getMeter('reelforge', settings.serviceVersion);
@@ -317,7 +319,8 @@ export class Observability {
       this.tracerProvider = new TracerProvider({
         resource: this.resource,
         sampler: new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(s.sampleRatio) }),
-        spanProcessors: [new BatchSpanProcessor({ exporter, scheduledDelayMillis: 2000, exportTimeoutMillis: config.timeoutMillis + 1000 })],
+        // RenameSpanProcessor first: it adds the renderweld.* attribute twins before the batch processor takes the span (#412).
+        spanProcessors: [new RenameSpanProcessor(), new BatchSpanProcessor({ exporter, scheduledDelayMillis: 2000, exportTimeoutMillis: config.timeoutMillis + 1000 })],
       });
       this.currentTracer = this.tracerProvider.getTracer('reelforge', s.serviceVersion);
     }
@@ -389,7 +392,8 @@ export class Observability {
   async prometheus(): Promise<string> {
     const { resourceMetrics, errors } = await this.pull.collect();
     for (const e of errors) this.logger.log('warn', `collecting metrics: ${String(e)}`);
-    return this.serializer.serialize(resourceMetrics);
+    // Every reelforge_* metric also as renderweld_*, with the same labels (#412).
+    return this.serializer.serialize(twinResourceMetrics(resourceMetrics));
   }
 
   /** Flush and stop every exporter (shutdown). */

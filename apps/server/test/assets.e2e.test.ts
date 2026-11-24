@@ -2,7 +2,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ReelforgeService, createMemoryRepositories } from '@reelforge/core';
+import { envValue, ReelforgeService, createMemoryRepositories } from '@reelforge/core';
 import { probe, resolveTools, run, type Tools } from '@reelforge/media-pipeline';
 import { tempDir } from '../../../packages/core/test/helpers';
 import { externalNetworkCalls } from '../../../packages/engine-hyperframes/test/strace-egress';
@@ -18,7 +18,7 @@ import { createDefaultRegistry } from '../src/registry';
  * project cannot render another project's assets.
  */
 
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(browser && existsSync(browser));
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const hasStrace = spawnSync('strace', ['-f', '-qq', '-yy', '-e', 'trace=connect', '-o', '/dev/null', 'true']).status === 0;

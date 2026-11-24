@@ -1,6 +1,7 @@
 #!/usr/bin/env -S npx tsx
 /**
- * reelforge CLI (operator tasks that need no running server).
+ * renderweld CLI (operator tasks that need no running server). The old name
+ * `reelforge` (src/reelforge.ts) runs the same commands with a deprecation notice.
  *
  *   reelforge migrate [--status]       apply database migrations (and import v0.1 data once)
  *   reelforge import-v01 [--data-dir DIR]  import a v0.1 filesystem data directory again (existing rows are kept)
@@ -36,13 +37,15 @@
  * Uses DATABASE_URL (default: SQLite in REELFORGE_DATA_DIR, ./data) like the
  * server. The key is printed once.
  */
-import { createWriteStream, existsSync } from 'node:fs';
+import { createWriteStream, existsSync, realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { userInfo } from 'node:os';
 import {
   AuditLog,
   ConfigError,
   KeyStore,
   RuntimeConfig,
+  DEFAULT_WORKSPACE_ID,
   SCOPES,
   STORAGE_DRIVERS,
   StorageManager,
@@ -52,6 +55,9 @@ import {
   createLicenceManager,
   createStorageDriver,
   formatIssue,
+  legacyNote,
+  readRenamedEnv,
+  renameWarning,
   migrateStorage,
   scrubSecretEnv,
   secretKeyProblem,
@@ -80,7 +86,7 @@ const USAGE = `usage:
   reelforge migrate [--status]
   reelforge import-v01 [--data-dir DIR]
   reelforge backup <file>   (SQLite; use pg_dump / mysqldump for the others)
-  reelforge keys create [--name NAME] [--scopes ${SCOPES.join(',')}] [LIMITS]
+  reelforge keys create [--name NAME] [--scopes ${SCOPES.join(',')}] [LIMITS]   (every keys command takes --workspace ID; default "default")
   reelforge keys list
   reelforge keys show <keyId>
   reelforge keys update <keyId> [--name NAME] [LIMITS]   ("none" clears a limit)
@@ -114,7 +120,7 @@ const USAGE = `usage:
  */
 async function storage(cmd: string | undefined, argv: string[], config: ServerConfig): Promise<void> {
   if (!['status', 'migrate', 'cleanup'].includes(cmd ?? '')) {
-    console.log(USAGE);
+    console.log(usage());
     process.exitCode = 1;
     return;
   }
@@ -155,9 +161,11 @@ async function storage(cmd: string | undefined, argv: string[], config: ServerCo
       if (r.failed.length) process.exitCode = 1;
       return;
     }
-    const manager = new StorageManager({ factory: createStorageDriver, settings, dataDir: config.dataDir, cacheDir, activeRunIds: async () => {
+    // Every workspace's files (#304): the manager runs activeRunIds inside each workspace in turn.
+    const router = db.workspaceRepositories();
+    const manager = new StorageManager({ factory: createStorageDriver, settings, dataDir: config.dataDir, cacheDir, workspaces: () => router.workspaceIds(), activeRunIds: async () => {
       const ids = new Set<string>();
-      for (const status of ['queued', 'running'] as const) for (const j of await repos.jobs.list({ status })) {
+      for (const status of ['queued', 'running'] as const) for (const j of await router.jobs.list({ status })) {
         const runId = (j.params as { runId?: unknown } | undefined)?.runId;
         if (typeof runId === 'string') ids.add(runId);
       }
@@ -196,7 +204,7 @@ async function storage(cmd: string | undefined, argv: string[], config: ServerCo
  */
 async function webhooks(cmd: string | undefined, argv: string[], config: ServerConfig): Promise<void> {
   if (!['list', 'show', 'create', 'update', 'delete', 'test', 'deliveries', 'replay'].includes(cmd ?? '')) {
-    console.log(USAGE);
+    console.log(usage());
     process.exitCode = 1;
     return;
   }
@@ -312,7 +320,7 @@ function printLicence(r: LicenceReport, json: boolean) {
  */
 async function licence(cmd: string | undefined, argv: string[], config: ServerConfig): Promise<void> {
   if (!['status', 'activate', 'deactivate'].includes(cmd ?? '')) {
-    console.log(USAGE);
+    console.log(usage());
     process.exitCode = 1;
     return;
   }
@@ -328,7 +336,10 @@ async function licence(cmd: string | undefined, argv: string[], config: ServerCo
     if (cmd === 'status') {
       r = argv.includes('--check') ? await manager.check('cli') : manager.report();
     } else if (cmd === 'activate') {
-      const key = argv.find((a) => !a.startsWith('--')) ?? process.env.REELFORGE_LICENCE_KEY_INPUT;
+      const input = readRenamedEnv(process.env, 'REELFORGE_LICENCE_KEY_INPUT');
+      if (input.conflict) throw new Error(input.conflict);
+      if (input.legacy && !argv.some((a) => !a.startsWith('--'))) console.error(renameWarning('REELFORGE_LICENCE_KEY_INPUT'));
+      const key = argv.find((a) => !a.startsWith('--')) ?? input.value;
       if (key) {
         const { changes } = await settings.update({ 'licence.key': key.trim() });
         await repos.audit.write({ actorType: 'cli', action: 'config.update', targetType: 'config', data: { changes } });
@@ -353,7 +364,8 @@ async function licence(cmd: string | undefined, argv: string[], config: ServerCo
 /** `reelforge config check`: validate the file and environment without starting anything. Exit 1 on errors. */
 function configCheck(argv: string[]): void {
   const file = arg('file', argv);
-  const env = file ? { ...process.env, REELFORGE_CONFIG: file } : process.env;
+  // --file replaces RENDERWELD_CONFIG and its old name REELFORGE_CONFIG.
+  const env = file ? { ...process.env, RENDERWELD_CONFIG: file, REELFORGE_CONFIG: undefined } : process.env;
   let config: ServerConfig;
   try {
     config = loadConfig(env);
@@ -392,6 +404,12 @@ function configCheck(argv: string[]): void {
   console.log(`configuration is valid${config.sources.file ? ` (config file ${config.sources.file.path})` : ' (no config file; REELFORGE_CONFIG is not set)'}`);
   console.log(`  ${Object.entries(counts).map(([k, v]) => `${v} from ${k}`).join(', ')}`);
   console.log(`  edition: ${config.resolved.build.edition}${config.resolved.build.edition === 'release' ? ' (licence.mode, licence.serverUrl and licence.orgId are fixed by the build)' : ''}`);
+  // Which variable supplied each value from the environment (RENDERWELD_* or an old REELFORGE_* name, #412).
+  for (const s of config.resolved.settings.values()) {
+    if (s.source !== 'env' || !s.origin) continue;
+    const note = legacyNote(s.origin);
+    console.log(`  ${s.def.key} <- ${s.origin}${note ? ` (${note})` : ''}`);
+  }
   for (const w of warnings) console.log(`  ! ${w}`);
 }
 
@@ -400,7 +418,9 @@ function printReport(r: ConfigReport, note?: string) {
   const width = Math.max(...r.settings.map((s) => s.key.length));
   for (const s of r.settings) {
     const where = s.source === 'default' ? 'default' : `${s.source}${s.origin && s.origin !== 'database' ? `: ${s.origin}` : ''}`;
-    console.log(`${s.key.padEnd(width)}  ${JSON.stringify(s.value)}  (${where}${s.scope === 'startup' ? ', start-up only' : ''}${s.error ? `; ${s.error}` : ''})`);
+    // The variable that supplied the value is in `where`; an old REELFORGE_* name also gets a note (#412).
+    const note = s.source === 'env' ? legacyNote(s.origin) : '';
+    console.log(`${s.key.padEnd(width)}  ${JSON.stringify(s.value)}  (${where}${s.scope === 'startup' ? ', start-up only' : ''}${s.error ? `; ${s.error}` : ''})${note ? `  [${note}]` : ''}`);
   }
   for (const w of r.warnings) console.log(`! ${w}`);
 }
@@ -450,6 +470,21 @@ async function worker(args: string[]): Promise<void> {
   scrubSecretEnv(process.env);
   process.exit(await runWorkerOnce(env, opts));
 }
+
+/**
+ * The CLI. `renderweld` is its name (cli.ts runs as `renderweld`); the old
+ * name `reelforge` (reelforge.ts) runs the same commands after a one-line
+ * notice on stderr (#412; stdout stays the same for scripts that parse it).
+ */
+export async function runCli(argv: string[], name: CliName = 'renderweld'): Promise<void> {
+  cliName = name;
+  return main(argv);
+}
+
+export type CliName = 'renderweld' | 'reelforge';
+let cliName: CliName = 'renderweld';
+/** The usage text under the name this CLI was started with. */
+const usage = () => USAGE.replace(/^ {2}reelforge /gm, `  ${cliName} `);
 
 async function main(argv: string[]) {
   const [group, cmd, ...rest] = argv;
@@ -506,7 +541,7 @@ async function main(argv: string[]) {
   if (group === 'audit') return audit(cmd, rest, config);
   if (group === 'webhooks' || group === 'webhook') return webhooks(cmd, rest, config);
   if (group !== 'keys' || !['create', 'list', 'show', 'update', 'rotate', 'revoke', 'delete'].includes(cmd ?? '')) {
-    console.log(USAGE);
+    console.log(usage());
     process.exitCode = group ? 1 : 0;
     return;
   }
@@ -577,7 +612,15 @@ function describeKey(k: PublicKey): string {
 async function keys(cmd: string, rest: string[], config: ServerConfig): Promise<void> {
   const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds });
   try {
-    const repos = db.repositories();
+    // --workspace: keys of another workspace (#304); default: the default workspace.
+    const workspace = arg('workspace', rest) ?? DEFAULT_WORKSPACE_ID;
+    const ws = await db.repositories().workspaces.get(workspace);
+    if (!ws || ws.status === 'deleted') {
+      console.error(`no workspace "${workspace}"${ws ? ' (it is deleted)' : ''}; list them with GET /v1/workspaces (owner key)`);
+      process.exitCode = 1;
+      return;
+    }
+    const repos = db.repositories(workspace);
     const settings = new RuntimeConfig(repos, config.sources);
     await settings.load();
     const audit = cliAuditLog(repos);
@@ -595,7 +638,7 @@ async function keys(cmd: string, rest: string[], config: ServerConfig): Promise<
     } else if (cmd === 'list') {
       for (const k of await store.list()) console.log(describeKey(k));
     } else if (!id) {
-      console.log(USAGE);
+      console.log(usage());
       process.exitCode = 1;
     } else if (cmd === 'show') {
       console.log(JSON.stringify(await store.get(id), null, 2));
@@ -623,7 +666,7 @@ async function keys(cmd: string, rest: string[], config: ServerConfig): Promise<
 /** `reelforge audit list|export|sweep`. */
 async function audit(cmd: string | undefined, rest: string[], config: ServerConfig): Promise<void> {
   if (!['list', 'export', 'sweep'].includes(cmd ?? '')) {
-    console.log(USAGE);
+    console.log(usage());
     process.exitCode = 1;
     return;
   }
@@ -680,7 +723,18 @@ async function audit(cmd: string | undefined, rest: string[], config: ServerConf
   }
 }
 
-main(process.argv.slice(2)).catch((e) => {
-  console.error((e as Error).message);
-  process.exit(1);
-});
+/** Run as a program (not imported by reelforge.ts or a test). */
+function isEntry(): boolean {
+  try {
+    return Boolean(process.argv[1]) && realpathSync(process.argv[1]!) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntry()) {
+  runCli(process.argv.slice(2), 'renderweld').catch((e) => {
+    console.error((e as Error).message);
+    process.exit(1);
+  });
+}

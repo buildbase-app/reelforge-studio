@@ -7,6 +7,7 @@ import { resolveTools } from '@reelforge/media-pipeline';
 import { builtinTheme, type OutputSettings } from '@reelforge/project-schema';
 import { renderHtmlScene } from '../src/index';
 import { TEST_FONTS, inkRatio, readPicture } from '../../media-pipeline/test/media-fixtures';
+import { envValue } from '@reelforge/core';
 
 /**
  * #303: a project font asset is used by the theme in the html engine, and
@@ -15,7 +16,7 @@ import { TEST_FONTS, inkRatio, readPicture } from '../../media-pipeline/test/med
  * not load fails the render instead of falling back.
  */
 
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-html-fonts-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));

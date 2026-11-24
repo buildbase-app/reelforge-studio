@@ -370,7 +370,7 @@ export const renderView: View = (ctx, main, renderId) => {
             )
           )
         ),
-        section('Storage', storageRows, ctx.isAdmin ? null : h('p', { class: 'help' }, 'The bucket or folder is shown to admin keys.')),
+        section('Storage', storageRows, ctx.can('owner') ? null : h('p', { class: 'help' }, 'The bucket or folder is shown to owner keys.')),
         section(
           'Versions',
           dl([
@@ -391,8 +391,8 @@ export const renderView: View = (ctx, main, renderId) => {
         .catch(() => captionsBox.remove());
     } else captionsBox.remove();
 
-    // Bucket and root of the storage: get_storage is admin only.
-    if (ctx.isAdmin) {
+    // Bucket and root of the storage: get_storage is owner only (instance-level, #304).
+    if (ctx.can('owner')) {
       ctx.api
         .get<{ location: Record<string, unknown> }>('/v1/storage', ac.signal)
         .then((st) => {

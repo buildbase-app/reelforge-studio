@@ -145,7 +145,7 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
     testDb = await createTestDatabase(kind!, dir);
     api = await instance('api-1', 'api');
     workers.push(await instance('worker-a', 'worker', 2), await instance('worker-b', 'worker', 2));
-    admin = (await api.service.keys.create('admin', ['admin'])).key;
+    admin = (await api.service.keys.create('admin', ['admin', 'owner'])).key;
     expect((await rest(api, 'POST', '/v1/projects', { manifest: { ...sample, projectId: 'scale', title: 'Scale' } })).status).toBe(201);
     const url = `http://127.0.0.1:${(receiver.address() as AddressInfo).port}/hook`;
     expect((await rest(api, 'POST', '/v1/webhooks', { name: 'cluster', url, events: ['job.*', 'render.ready'] })).status).toBe(201);
@@ -272,11 +272,12 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
 
   it('SCA-11 metrics: role gauge and cluster queue depth, bounded labels', async () => {
     const text = await (await metrics(workers.at(-1)!.url)).text();
-    expect(text).toMatch(/^reelforge_server_role\{reelforge_role="worker"\} 1$/m);
-    expect(text).toMatch(/^reelforge_server_role\{reelforge_role="api"\} 0$/m);
+    expect(text).toMatch(/^reelforge_server_role\{reelforge_role="worker",renderweld_role="worker"\} 1$/m);
+    expect(text).toMatch(/^reelforge_server_role\{reelforge_role="api",renderweld_role="api"\} 0$/m);
     expect(text).toMatch(/^reelforge_jobs_queued \d+$/m);
+    expect(text).toMatch(/^renderweld_server_role\{reelforge_role="worker",renderweld_role="worker"\} 1$/m);
     const apiText = await (await metrics(api.url)).text();
-    expect(apiText).toMatch(/^reelforge_server_role\{reelforge_role="api"\} 1$/m);
+    expect(apiText).toMatch(/^reelforge_server_role\{reelforge_role="api",renderweld_role="api"\} 1$/m);
     const labels = new Set([...text.matchAll(/="([^"]*)"/g)].map((m) => m[1]));
     expect([...labels].some((l) => /^(job|run|prv|key)_[a-z0-9]{8,}|worker-/.test(l!))).toBe(false);
   });

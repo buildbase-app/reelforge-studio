@@ -177,10 +177,12 @@ COPY --from=prod-deps /prod /app
 COPY --from=build /out /app
 COPY LICENSE.md NOTICE /app/
 COPY LICENSES /app/LICENSES
-# `docker exec <container> reelforge keys create --name agent`, `reelforge migrate`, `reelforge licence status`.
+# `docker exec <container> renderweld keys create --name agent`, `renderweld migrate`, `renderweld licence status`
+# (`reelforge` is the old name: same commands, plus a deprecation line on stderr).
 RUN ln -s /opt/chrome-headless-shell/chrome-headless-shell /usr/local/bin/chrome-headless-shell \
- && printf '#!/bin/sh\nexec /app/apps/server/node_modules/.bin/tsx /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/reelforge \
- && chmod 755 /usr/local/bin/reelforge
+ && printf '#!/bin/sh\nexec /app/apps/server/node_modules/.bin/tsx /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/renderweld \
+ && printf '#!/bin/sh\nexec /app/apps/server/node_modules/.bin/tsx /app/apps/server/src/reelforge.ts "$@"\n' > /usr/local/bin/reelforge \
+ && chmod 755 /usr/local/bin/renderweld /usr/local/bin/reelforge
 
 # Edition (D-039). `release` (default) fixes licence.mode = required and the BuildBase
 # licence server and organisation in /app/packages/core/build-info.json: no config
@@ -205,7 +207,7 @@ RUN set -e; \
     fi; \
     chmod -R a+rX,go-w /app; \
     # The check needs a secret key in a release build (#305): a random one for this command only, never stored.
-    REELFORGE_SECRET_KEY="$(head -c 48 /dev/urandom | base64 | tr -d '\n')" REELFORGE_DATA_DIR=/tmp/check reelforge config check >/dev/null; rm -rf /tmp/*
+    RENDERWELD_SECRET_KEY="$(head -c 48 /dev/urandom | base64 | tr -d '\n')" RENDERWELD_DATA_DIR=/tmp/check renderweld config check >/dev/null; rm -rf /tmp/*
 LABEL org.opencontainers.image.title="ReelForge Studio" \
       org.opencontainers.image.description="Self-hosted, AI-agent-driven short-form video studio (REST + MCP)" \
       org.opencontainers.image.source="https://github.com/buildbase-app/reelforge-studio" \
@@ -225,15 +227,18 @@ WORKDIR /app
 # it (D-041). REELFORGE_CHROMIUM_NO_SANDBOX=1 is an explicit, logged opt-out
 # (docs/security/HARDENING.md).
 # Writable paths: /data (volume) and /tmp (tmpfs with --read-only); HOME is /tmp.
+# The image's defaults use the RENDERWELD_* names (#412) and are listed in RENDERWELD_IMAGE_DEFAULTS, so a value
+# set with either name, including an old REELFORGE_* one, replaces them instead of clashing (docs/RENAMED.md).
 ENV NODE_ENV=production \
     HOME=/tmp \
     XDG_CACHE_HOME=/tmp/.cache \
     XDG_CONFIG_HOME=/tmp/.config \
-    REELFORGE_DATA_DIR=/data \
-    REELFORGE_HOST=0.0.0.0 \
-    REELFORGE_PORT=4321 \
-    REELFORGE_CHROMIUM_PATH=/usr/local/bin/chrome-headless-shell \
-    REELFORGE_CHROMIUM_NO_SANDBOX=0 \
+    RENDERWELD_DATA_DIR=/data \
+    RENDERWELD_HOST=0.0.0.0 \
+    RENDERWELD_PORT=4321 \
+    RENDERWELD_CHROMIUM_PATH=/usr/local/bin/chrome-headless-shell \
+    RENDERWELD_CHROMIUM_NO_SANDBOX=0 \
+    RENDERWELD_IMAGE_DEFAULTS="RENDERWELD_DATA_DIR=/data RENDERWELD_HOST=0.0.0.0 RENDERWELD_PORT=4321 RENDERWELD_CHROMIUM_PATH=/usr/local/bin/chrome-headless-shell RENDERWELD_CHROMIUM_NO_SANDBOX=0" \
     HYPERFRAMES_NO_TELEMETRY=1 \
     CHECKPOINT_DISABLE=1 \
     DO_NOT_TRACK=1
@@ -242,7 +247,7 @@ USER 10001:10001
 VOLUME ["/data"]
 EXPOSE 4321
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.REELFORGE_PORT||4321)+'/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.REELFORGE_PORT||process.env.RENDERWELD_PORT||4321)+'/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
 ENTRYPOINT ["/usr/bin/tini", "--"]
 # `--migrate-only` after main.ts: apply migrations and exit (release step / init container).
 CMD ["apps/server/node_modules/.bin/tsx", "apps/server/src/main.ts"]

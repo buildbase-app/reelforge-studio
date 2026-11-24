@@ -6,14 +6,15 @@ import { PipelineError, checkExpectation, framePsnr, frameStats, probe, resolveT
 import { builtinTheme } from '@reelforge/project-schema';
 import type { OutputSettings, RenderScene as Scene } from '@reelforge/project-schema';
 import { remotionEngine, renderRemotionScene } from '../src/index';
+import { envValue } from '@reelforge/core';
 
 // Remotion downloads its own browser when none is configured; in CI we point
 // it at a preinstalled one so the test does not depend on network access.
-const hasBrowser = Boolean(process.env.REELFORGE_CHROMIUM_PATH && existsSync(process.env.REELFORGE_CHROMIUM_PATH));
+const hasBrowser = Boolean(envValue('REELFORGE_CHROMIUM_PATH') && existsSync(envValue('REELFORGE_CHROMIUM_PATH')));
 
 // In CI REELFORGE_REQUIRE_BROWSER=1 turns a missing browser into a failure instead of a skip.
 describe('browser requirement', () => {
-  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('a browser must be configured', () => {
+  it.runIf(envValue('REELFORGE_REQUIRE_BROWSER') === '1')('a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });

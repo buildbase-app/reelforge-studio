@@ -7,6 +7,7 @@ import { resolveTools, type Tools } from '@reelforge/media-pipeline';
 import { builtinTheme, frameLayout, type OutputSettings, type RenderScene } from '@reelforge/project-schema';
 import { renderRemotionScene } from '../src/index';
 import { QUAD, colorDistance, makeNumberedClip, makeQuadImage, meanColor, readBars, readPicture } from '../../media-pipeline/test/media-fixtures';
+import { envValue } from '@reelforge/core';
 
 /**
  * #299: kinetic-title shows a background video and a logo from the project's
@@ -14,7 +15,7 @@ import { QUAD, colorDistance, makeNumberedClip, makeQuadImage, meanColor, readBa
  * shows the same pictures as the whole render.
  */
 
-const hasBrowser = Boolean(process.env.REELFORGE_CHROMIUM_PATH && existsSync(process.env.REELFORGE_CHROMIUM_PATH));
+const hasBrowser = Boolean(envValue('REELFORGE_CHROMIUM_PATH') && existsSync(envValue('REELFORGE_CHROMIUM_PATH')));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-remotion-assets-'));
 const cacheDir = resolve(__dirname, '../../../.render-cache');
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));

@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { envValue } from './config/rename';
 
 /**
  * Installed version of a package, resolved the way Node would load it from
@@ -53,7 +54,7 @@ export function browserVersion(binary: string | undefined): string | undefined {
  * Remotion always passes --no-sandbox itself, so it is unsandboxed either way.
  */
 export function chromiumSandbox(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.REELFORGE_CHROMIUM_NO_SANDBOX === '1') return false;
+  if (envValue('REELFORGE_CHROMIUM_NO_SANDBOX', env) === '1') return false;
   return typeof process.getuid !== 'function' || process.getuid() !== 0;
 }
 
@@ -68,7 +69,7 @@ export const SCENE_TIMEOUT_MAX_SECONDS = 3600;
  * to 30 s .. 1 h.
  */
 export function sceneTimeoutCapMs(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = Number(env.REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS);
+  const raw = Number(envValue('REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS', env));
   const s = Number.isFinite(raw) && raw > 0 ? raw : SCENE_TIMEOUT_DEFAULT_SECONDS;
   return Math.round(Math.min(SCENE_TIMEOUT_MAX_SECONDS, Math.max(30, s)) * 1000);
 }
