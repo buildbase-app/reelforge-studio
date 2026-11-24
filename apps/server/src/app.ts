@@ -158,10 +158,11 @@ export function createApp({ service, config, observability }: AppDeps) {
   });
 
   /** A 429 with the RateLimit-* and Retry-After fields, and a body that says which limit and what to do (#305). */
-  const limited = (c: Context, scope: 'key' | 'client_ip' | 'auth_failures', d: RateDecision): Response => {
+  const limited = (c: Context, scope: 'key' | 'workspace' | 'client_ip' | 'auth_failures', d: RateDecision): Response => {
     for (const [k, v] of Object.entries(rateLimitHeaders(d))) c.header(k, v);
     const retry = Math.max(1, Math.ceil(d.retryAfterSeconds));
     const text = {
+      workspace: { message: `too many requests for this workspace; retry in ${retry}s`, hint: 'Every key of the workspace shares this budget (limits.rateLimitPerMinute of the workspace, or workspaces.rateLimitPerMinute); the instance owner can raise it with update_workspace.' },
       key: { message: `too many requests for this key; retry in ${retry}s`, hint: 'Slow down to the limit in RateLimit-Limit (per 60 s, sliding) and retry after Retry-After seconds; an admin can raise this key\'s rateLimitPerMinute or limits.rateLimitPerMinute.' },
       client_ip: { message: `too many requests from this address; retry in ${retry}s`, hint: 'Every request from one address counts before the key is checked (limits.preAuthPerMinute). Retry after Retry-After seconds; behind a proxy, set server.trustProxy so each client is counted on its own.' },
       auth_failures: { message: `too many failed authentications from this address; retry in ${retry}s`, hint: 'Check the API key (Authorization: Bearer rf_...). Each further run of failures doubles the lockout (limits.authFailuresPerMinute, limits.authLockoutSeconds).' },
@@ -169,7 +170,15 @@ export function createApp({ service, config, observability }: AppDeps) {
     return c.json(errorBody('rate_limited', text.message, { scope, hint: text.hint, limit: d.limit, retryAfterSeconds: retry }), 429);
   };
 
-  /** Check the client address budget, then the bearer key (expiry, revocation, IP allowlist), then the per-key rate limit. */
+  /**
+   * Check the client address budget, then the bearer key (expiry, revocation, IP allowlist), then the per-key rate limit.
+   *
+   * TODO(#343, #304): MCP OAuth access tokens. When #343 lands, authorize() also accepts an OAuth access token on
+   * /mcp; map a token claim to the workspace there (default claim "reelforge:workspace", configurable), refuse a
+   * token without it unless it names the default workspace, and check that the workspace exists and is active
+   * (as KeyStore.authenticate does through workspaceStatus). The AuthContext then carries workspaceId like a key's,
+   * and every repository call is scoped by it. test/workspaces.test.ts has the matching it.todo.
+   */
   const authorize = async (c: Context): Promise<{ auth: AuthContext } | { response: Response }> => {
     const ctx = currentRequest();
     // Before any database work: a flood or a key-guessing run from one address stops here (#305).
@@ -198,6 +207,12 @@ export function createApp({ service, config, observability }: AppDeps) {
     }
     const d = await limiter.take(r.auth.keyId, r.auth.rateLimitPerMinute);
     if (!d.allowed) return { response: limited(c, 'key', d) };
+    // The workspace's own budget across all its keys (optional; unlimited unless the owner sets one, #304).
+    const wsLimit = r.auth.workspaceId ? await service.workspaceAdmin?.rateLimitOf(r.auth.workspaceId) : undefined;
+    if (wsLimit) {
+      const w = await limiter.take(`workspace:${r.auth.workspaceId}`, wsLimit);
+      if (!w.allowed) return { response: limited(c, 'workspace', w) };
+    }
     // Every limited response carries the key's budget (draft-ietf-httpapi-ratelimit-headers).
     for (const [k, v] of Object.entries(rateLimitHeaders(d))) c.header(k, v);
     if (ctx) ctx.auth = r.auth;
@@ -601,6 +616,17 @@ export function createApp({ service, config, observability }: AppDeps) {
     await service.deleteKey(c.req.param('id'), actor(c));
     return c.body(null, 204);
   });
+
+  // ---- workspaces (#304) -------------------------------------------------------------
+  v1.get('/workspace', need('read'), async (c) => c.json(await service.getWorkspace()));
+  v1.get('/workspaces', need('owner'), async (c) => c.json(await service.listWorkspaces()));
+  v1.post('/workspaces', need('owner'), json, async (c) => {
+    const r = await service.createWorkspace(await body(c), actor(c));
+    return c.json(r.key ? { ...r, note: 'store the admin key now; it is not shown again' } : r, 201);
+  });
+  v1.patch('/workspaces/:id', need('owner'), json, async (c) => c.json(await service.updateWorkspace(c.req.param('id'), await body(c), actor(c))));
+  v1.delete('/workspaces/:id', need('owner'), async (c) => c.json(await service.deleteWorkspace(c.req.param('id'), actor(c))));
+  v1.post('/workspaces/:id/restore', need('owner'), async (c) => c.json(await service.restoreWorkspace(c.req.param('id'), actor(c))));
 
   // ---- outbound events (#66): webhooks, chat and email channels ---------------------
   v1.get('/webhooks', need('admin'), async (c) => c.json(await service.listWebhooks()));

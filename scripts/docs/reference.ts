@@ -66,6 +66,11 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
     tools: ['preview_scene', 'render_project', 'get_job', 'list_jobs', 'get_job_logs', 'cancel_job', 'retry_job', 'get_render_output', 'list_renders'],
   },
   {
+    title: 'Workspaces',
+    intro: 'Every key belongs to one workspace and sees only its projects, assets, themes, jobs, renders, keys, webhooks and audit log (#304, docs/WORKSPACES.md). Managing workspaces needs the instance-level owner scope.',
+    tools: ['get_workspace', 'list_workspaces', 'create_workspace', 'update_workspace', 'delete_workspace', 'restore_workspace'],
+  },
+  {
     title: 'Licence',
     intro: 'Renders need an activated licence key. Everything else works without one.',
     tools: ['get_licence', 'activate_licence', 'deactivate_licence'],

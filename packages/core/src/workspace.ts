@@ -255,6 +255,7 @@ export function createWorkspaceRouter(opts: WorkspaceRouterOptions): WorkspaceRo
       return counts.reduce((a, b) => a + b, 0);
     },
     countByApiKey: (...a) => here().jobs.countByApiKey(...a),
+    countSince: (...a) => here().jobs.countSince(...a),
     appendLog: byId((r, id: string, at: string, line: string) => r.appendLog(id, at, line)),
     logs: byId((r, id: string, tail?: number) => r.logs(id, tail)),
   };

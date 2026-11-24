@@ -2301,3 +2301,68 @@ not added to the engines: DoH is already off in the browser we ship.
 case and renders fine on the other engines); patching HyperFrames' bundle (D-085); a network namespace per render
 (not available to an unprivileged container); ignoring failed `connect()` calls in the test (the CI leak only
 failed for want of a route); allowing every UDP `connect()` (a connected UDP socket can send DNS).
+
+### D-1XX --- Workspaces: routing repositories, an instance-level owner scope, and 404 across workspaces
+
+**Status:** DECIDED (reversible).\
+The number is assigned at merge (D-112..D-116 are claimed by open PRs).
+
+**Problem (#304, #326/#328 AI-10 and AI-12, #330 DATA-03 and DATA-08).** Every row already carried
+`workspaceId`, and every Prisma repository bundle was bound to one workspace, but the service held a single bundle
+for `default`. So every key read and could delete every project of the install.
+
+**Decision.**
+
+1. **Routing repositories.** The service gets a routing `Repositories` that resolves the caller's workspace on
+   every call:
+   - an explicit `runInWorkspace` (a job, a webhook delivery, a sweep);
+   - else the authenticated key in the request context;
+   - else, in system context, `default`.
+   The service never takes a workspace from request arguments, and no route can forget the filter because routes
+   never see it.
+2. **Instance-level and cross-workspace state.** Runtime settings, provider settings, the licence, rate-limit
+   windows and instance leases stay in `default`. These operations are written out in the router as
+   cross-workspace: key lookup by prefix (authentication), the queue claim, heartbeat and lease recovery, the
+   webhook and dispatch outboxes, and the retention sweeps.
+3. **The claim stays one statement per workspace (overlaps with #307).** The SQL claim is unchanged; the router
+   calls each active workspace's claim in turn, starting after the workspace served last. That is fairness between
+   workspaces without touching the claim SQL, at the cost of up to N queries for an empty poll with N workspaces.
+   A distinct-workspaces query can replace the loop if installs grow to many workspaces.
+4. **Keys and the owner scope.** Keys belong to one workspace. `admin` manages that workspace. A new
+   instance-level `owner` scope manages workspaces, runtime configuration, the licence, provider credentials and
+   storage, and implies `admin` in its own workspace. Migration 0013 gives `owner` to every admin key that existed
+   before, and v0.1 imports and the bootstrap key get it too, so an upgraded install behaves exactly as before.
+   Only an owner key (or the CLI) creates or changes an owner key.
+5. **Another workspace's resources answer 404, not 403**, so a probe cannot tell that they exist. 403 stays for
+   missing scopes, owner-only routes and suspended workspaces.
+6. **Files.**
+   - Every workspace but `default` keeps its files under `workspaces/<id>/` in the storage driver, the data
+     directory and the local caches; `default` keeps the old layout, so no files move.
+   - Signed download links sign `ws:<id>` with the run and file. Links for `default` keep the old format, so links
+     already handed out stay valid.
+7. **Workspace lifecycle.**
+   - Suspension refuses the workspace's keys and pauses its queued jobs.
+   - Deletion is soft: keys stop and jobs are not claimed at once. After `workspaces.deleteGraceDays` (default 30)
+     the hourly sweep purges the workspace: the database's cascading foreign keys remove every row, then its files
+     are deleted.
+   - `default` cannot be suspended or deleted.
+8. **Optional limits per workspace.** Renders per day and month, requests per minute and storage bytes, from the
+   `workspaces.*` settings or the workspace's own `limits`. They are unlimited by default, following the founder's
+   rule that users are limited only by the licence.
+
+**Tests.**
+
+- A denial suite iterates the REST route table and the MCP tool list, so new routes and tools are probed
+  automatically.
+- Contract tests run the router, the purge and migration 0013 on SQLite, PostgreSQL and MySQL.
+
+**Rejected:**
+
+- *Threading a workspace argument through every service method.* Large, and easy to get wrong in one place.
+- *One service instance per workspace.* It would duplicate the job runner, workers and caches.
+- *Database row-level security now.* It does not fit Prisma's connection pooling on three databases, and it would
+  not protect files. It can be revisited for multi-team installs.
+- *403 for other workspaces' ids.* It reveals that the resource exists.
+- *Making admin keys of `default` implicitly owners.* An implicit rule nobody can see in the key's scopes.
+- *Per-workspace provider credentials and licences in this step.* The licence is per install by product decision.
+

@@ -37,3 +37,4 @@ export * from './webhooks/index';
 export * from './limits';
 export * from './priority';
 export * from './workspace';
+export * from './workspace-admin';

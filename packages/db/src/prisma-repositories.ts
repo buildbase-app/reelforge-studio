@@ -1065,6 +1065,10 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
       async countByApiKey(apiKeyId, since, types) {
         return prisma.job.count({ where: { ...ws, apiKeyId, createdAt: { gte: new Date(since) }, type: { in: types } } });
       },
+      async countSince(since, types) {
+        // Index (workspaceId, createdAt).
+        return prisma.job.count({ where: { ...ws, createdAt: { gte: new Date(since) }, type: { in: types } } });
+      },
       async appendLog(jobId, at, line) {
         await prisma.jobEvent.create({ data: { ...ws, jobId, at: new Date(at), type: 'log', message: line } });
       },

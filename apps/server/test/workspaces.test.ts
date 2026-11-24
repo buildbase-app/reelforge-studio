@@ -177,6 +177,7 @@ const A_IDS: Record<string, () => string> = {
   keys: () => a.key,
   webhooks: () => a.webhook,
   deliveries: () => a.delivery,
+  workspaces: () => A,
   // Providers are instance-level plugins, not workspace resources: the probe names A's project in the body.
   providers: () => 'elevenlabs',
 };
@@ -260,6 +261,7 @@ describe('workspaces: cross-workspace denial (#304)', () => {
       keyId: () => a.key,
       webhookId: () => a.webhook,
       deliveryId: () => a.delivery,
+      workspaceId: () => A,
     };
     const filler: Record<string, unknown> = {
       id: 'beta-probe-theme', name: 'beta probe', tokens: THEME_TOKENS, manifest: { ...sample, projectId: 'beta-probe-reel-mcp' }, patch: { title: 'B' }, scene: { id: 'x', engine: 'html', html: '<p>x</p>', durationSeconds: 1 },

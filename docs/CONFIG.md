@@ -178,6 +178,16 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `keys.rotationGraceHours` | `REELFORGE_KEY_ROTATION_GRACE_HOURS` | integer | `24` | runtime |  | After `rotate_key`, the old secret keeps working this many hours so clients can switch. `0` ends it at once; a rotation may pass its own `graceHours`. |
 
+## workspaces
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `workspaces.deleteGraceDays` | `REELFORGE_WORKSPACE_DELETE_GRACE_DAYS` | integer | `30` | runtime |  | A deleted workspace (`delete_workspace`) can be restored this many days; then the hourly sweep purges its rows and files for good. `0` purges at the next sweep. |
+| `workspaces.rendersPerDay` | `REELFORGE_WORKSPACE_RENDERS_PER_DAY` | integer | `0` | runtime |  | Default render and preview jobs per UTC day for each workspace, across all its keys; a workspace's own `limits.rendersPerDay` wins. `0`: unlimited (the default: users are limited only by the licence). |
+| `workspaces.rendersPerMonth` | `REELFORGE_WORKSPACE_RENDERS_PER_MONTH` | integer | `0` | runtime |  | Default render and preview jobs per calendar month (UTC) for each workspace; a workspace's own `limits.rendersPerMonth` wins. `0`: unlimited. |
+| `workspaces.rateLimitPerMinute` | `REELFORGE_WORKSPACE_RATE_LIMIT_PER_MINUTE` | integer | `0` | runtime |  | Default requests per minute for each workspace, across all its keys (each key's own limit applies too); a workspace's own `limits.rateLimitPerMinute` wins. `0`: unlimited. |
+| `workspaces.storageBytes` | `REELFORGE_WORKSPACE_STORAGE_BYTES` | integer | `0` | runtime |  | Default bytes of assets and renders each workspace may store; uploads and renders are refused (507) once it is reached. Usage is measured at most a minute earlier. `0`: unlimited. |
+
 ## idempotency
 
 | Key | Env | Type | Default | Scope | Secret | Description |

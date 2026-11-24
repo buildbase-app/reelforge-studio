@@ -31,7 +31,7 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->62<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->68<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -581,6 +581,35 @@ run on all three); `RateLimit-*` fields on every keyed response, `Retry-After` a
 a default-deny `NetworkPolicy` with an allowlist (kubeconform). Not yet: MCP OAuth 2.1 (step 2), a
 scheduled workflow for the weekly snapshot bump (maintainer, `.github/`), the kind e2e and the
 Docker e2e with these changes (heavy tier).
+
+### Workspaces and per-workspace authorization (2026-11-24, issue #304)
+
+Built (D-1XX, [WORKSPACES.md](WORKSPACES.md)). Every repository call goes to the workspace of the caller's key: a
+routing bundle resolves it from the request context, never from arguments. Instance-level state stays in
+`default`. The queue claim takes turns between workspaces, and suspended or deleted workspaces' jobs wait. Keys
+carry their workspace.
+
+- **Owner scope.** The new instance-level `owner` scope covers configuration, the licence, provider credentials,
+  storage and workspace management. Migration 0013 gives it to existing admin keys, so existing installs work
+  unchanged.
+- **Files and links.** Files outside `default` live under `workspaces/<id>/`, and signed links sign their
+  workspace.
+- **Owner tools.** Create (with a first admin key), list, rename, limits, suspend, soft delete with a grace period
+  (`workspaces.deleteGraceDays`), restore, purge by the sweep, and every workspace's audit log
+  (`workspaceId=*`).
+- **Optional limits.** Renders per day and month, requests per minute and storage bytes, set as `workspaces.*`
+  defaults or per workspace; unlimited unless set.
+- **Tests.** The denial suite probes every REST route and MCP tool cross-workspace (404/403, no leaks, A's rows
+  and files unchanged; new routes and tools are probed automatically). Contract tests cover the router, the purge
+  cascade and migration 0013 on SQLite, PostgreSQL and MySQL.
+
+Not yet:
+
+- The MCP OAuth claim, after #343 (TODO and `it.todo`).
+- Checking the dashboard (#344) once it lands. It uses public REST, so it should already be scoped.
+- Database row-level security.
+- Per-workspace provider credentials.
+- The Docker e2e with these changes (heavy tier).
 
 ## 4. Infrastructure inventory (no secrets)
 
