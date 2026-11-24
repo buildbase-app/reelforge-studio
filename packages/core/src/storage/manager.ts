@@ -195,8 +195,15 @@ export class StorageManager {
 
   /** Bytes of assets and renders of the caller's workspace (storage limits, #304). */
   async workspaceBytes(): Promise<number> {
+    return (await this.workspaceUsage()).totalBytes;
+  }
+
+  /** Renders and assets of the caller's workspace only, under its own prefix (analytics, storage limits; #304). */
+  async workspaceUsage(): Promise<{ totalBytes: number; renders: { count: number; bytes: number }; assets: { objects: number; bytes: number } }> {
     const [runs, assets] = await Promise.all([this.renders.listAllRuns(), this.driver.list(ASSETS_PREFIX)]);
-    return [...runs, ...assets].reduce((n, x) => n + x.bytes, 0);
+    const sum = (xs: Array<{ bytes: number }>) => xs.reduce((n, x) => n + x.bytes, 0);
+    const complete = runs.filter((r) => r.complete);
+    return { totalBytes: sum(assets) + sum(runs), renders: { count: complete.length, bytes: sum(complete) }, assets: { objects: assets.length, bytes: sum(assets) } };
   }
 
   async usage() {

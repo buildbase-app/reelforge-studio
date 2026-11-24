@@ -431,6 +431,32 @@ describe('workspaces: cross-workspace denial (#304)', () => {
     }
   });
 
+  it('analytics (#378) count only the caller\'s workspace: jobs, storage and webhook health, cached per workspace', async () => {
+    // A first, so any cache an instance-wide summary kept would now hold A's figures.
+    const aSum = await rest('GET', '/v1/analytics/summary', { key: keyA.admin });
+    expect(aSum.status, aSum.text.slice(0, 300)).toBe(200);
+    expect(aSum.json.totals.succeeded).toBeGreaterThanOrEqual(1);
+    expect(aSum.json.storage).toMatchObject({ renders: { count: 1 }, assets: { objects: 1 } });
+    expect(aSum.json.webhooks.endpoints.map((e: any) => e.id)).toContain(a.webhook);
+    const bSum = await rest('GET', '/v1/analytics/summary');
+    expect(bSum.status).toBe(200);
+    expect(leaks(bSum.text)).toBeNull();
+    const bJobs = (await repos.forWorkspace(B).jobs.list()).filter((j) => j.type === 'render' || j.type === 'preview');
+    expect(bSum.json.totals.jobs).toBe(bJobs.length);
+    expect(bSum.json.storage).toMatchObject({ renders: { count: 0 }, assets: { objects: 0 } });
+    expect(bSum.json.storage.totalBytes).toBeLessThan(aSum.json.storage.totalBytes);
+    expect(bSum.json.webhooks.endpoints.every((e: any) => e.name.startsWith('beta'))).toBe(true);
+    const client = await connect(keyB);
+    try {
+      const r: any = await client.callTool({ name: 'get_analytics_summary', arguments: {} });
+      expect(r.isError).toBeFalsy();
+      expect(leaks(text(r))).toBeNull();
+      expect(JSON.parse(text(r)).storage.renders.count).toBe(0);
+    } finally {
+      await client.close();
+    }
+  });
+
   it('staged assets (#373) and audio (#346): B\'s manifest cannot name A\'s stored asset', async () => {
     const before = await snapshotA();
     // A v0.2 manifest of B's own (the sample is v0.1, which has no asset:// references), naming A's stored asset.

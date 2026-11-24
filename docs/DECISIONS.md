@@ -2755,6 +2755,43 @@ a numbered clip frame-exact in two panes with in-points, whole and frame range),
 pixel tests in `apps/server/test/formats.test.ts`, the contact sheets (a row per engine) and `geometry.json` in
 `docs/proofs/layouts/`.
 
+### D-126 --- Dashboard part 2: analytics from the job table and manifests through one bounded read-scope summary; settings and audit through the existing tools
+
+*(Number assigned at merge.)*
+
+**Status:** DECIDED (reversible).\
+**Analytics endpoint.** `GET /v1/analytics/summary` / MCP `get_analytics_summary` (read scope, in the shared route
+table, so the parity test covers it). One call returns, for a range: render and preview jobs per UTC day or hour by
+status, success and failure rates (`failed / (succeeded + failed)`: a cancelled job is neither), job render time and
+queue wait (p50, p95; nearest rank), scene render time per engine (p50, p95 from each manifest scene's `millis`),
+minutes rendered (`result.durationSeconds` of successful jobs), storage used, the top 10 error codes, and webhook
+deliveries per status and endpoint. **Where the numbers come from.** The durable records, not the metrics exporter:
+the OpenTelemetry instruments (`reelforge.job.duration`, `reelforge.job.queue_wait`, ...) are per instance, start
+at zero on every restart and exist only when an exporter is configured, so they cannot answer "renders per day for
+the last month". The Job table can: the summary walks it newest first from `to` with the existing keyset page query
+(index `workspaceId, createdAt, id`, D-102) and stops at `from`. Render time per engine needs the manifest; the newest
+200 successful renders of the range are read (eight at a time), and each manifest's scene timings are cached in
+memory by render id (a manifest never changes; an unreadable one is not cached). Storage used is the `get_storage`
+usage walk, cached for 5 minutes. Webhook health is `countByStatus` per endpoint (at most 50), over every delivery
+still in the outbox retention, not only the range. No schema change and no new repository method, so the
+workspace work (#304) and the three databases are untouched. **Bounds.** The range is at most 90 days by day and 7
+by hour (400 otherwise), and one call reads at most 20 000 jobs (units and joins of fanned-out renders count);
+past that the answer says `scan.truncated` and which part of the range it covers. *Rejected:* SQL aggregates
+(percentiles differ across SQLite, PostgreSQL and MySQL, and a new repository method would collide with #304's
+scoping); a rollup table (a second source of truth to keep in step for a page an operator opens now and then);
+reading the in-process metrics (above). **Scope.** Read: the summary holds counts, durations and sizes, never a
+path or a bucket (D-088), and webhook endpoints by id, name and type only, as `get_webhook_log` (read) already shows
+them. **Config entries say their type.** `get_config` rows gain `kind`, enum `options`, number `min`/`max` and
+`locked` (fixed by the image), read from the setting's Zod schema, so a client offers the right input and checks a
+value before `update_config`, which still validates everything. **Settings and audit pages** use only existing tools:
+`get_config`/`update_config` (runtime keys, admin), `list_keys`/`create_key`/`rotate_key`/`revoke_key`,
+`list_webhooks`/`get_webhook_log`/`test_webhook`/`resend_webhook`/`rotate_webhook_secret` (D-113),
+`list_providers`, `get_licence`, `list_audit_events` with keyset pages, and the REST audit export, which the page
+fetches with the key and saves as a blob: an export link would have to carry the key in its URL. Edit controls follow
+the key's scopes as the server reads them (admin implies the others, owner all, ready for #304); the server refuses
+anything else. One-time secrets (a new or rotated key, a rotated webhook secret) are shown once in the page and never
+stored.
+
 ### D-124 --- Workspaces: routing repositories, an instance-level owner scope, and 404 across workspaces
 
 **Status:** DECIDED (reversible).
@@ -2791,8 +2828,9 @@ for `default`. So every key read and could delete every project of the install.
 5. **Another workspace's resources answer 404, not 403**, so a probe cannot tell that they exist. 403 stays for
    missing scopes, owner-only routes and suspended workspaces. This covers every route and tool, including those
    added since: captions and their approval (D-114), resend, rotation and the delivery log of webhooks (D-113), and
-   the dashboard's reads (D-115), which go through the same REST routes. A manifest naming another workspace's
-   stored asset (`asset://`, D-120) fails validation, preview and render with "not in the asset store".
+   the dashboard's reads (D-115, D-126), which go through the same REST routes. Analytics (D-126) are computed
+   per workspace, with per-workspace caches and the workspace's own storage usage. A manifest naming another
+   workspace's stored asset (`asset://`, D-120) fails validation, preview and render with "not in the asset store".
 6. **Files.**
    - Every workspace but `default` keeps its files under `workspaces/<id>/` in the storage driver, the data
      directory and the local caches; `default` keeps the old layout, so no files move.

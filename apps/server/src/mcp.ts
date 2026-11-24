@@ -733,6 +733,20 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'get_analytics_summary',
+    title: 'Get render analytics',
+    description:
+      'Aggregates for a time range (default: the last 30 days by UTC day; at most 90 days, or 7 days with bucket "hour"): render and preview jobs per bucket by status (succeeded, failed, cancelled, unfinished), success and failure rates (failed / (succeeded + failed); cancelled jobs are left out), render time and queue wait (p50 and p95 in ms), scene render time per engine (p50, p95, from the manifests of the newest 200 successful renders), minutes rendered, storage used (measured at most every 5 minutes), the top error codes of failed jobs, and webhook deliveries per status and endpoint. scan.truncated says when the range had more jobs than one call reads (20 000); the figures then cover scan.coveredFrom to range.to. Needs the read scope.',
+    scope: 'read',
+    input: {
+      from: z.string().max(40).optional().describe('Start: ISO 8601 time or a UTC date (YYYY-MM-DD). Aligned down to the bucket. Default: 29 days before today (UTC), or 24 hours before `to` with bucket "hour".'),
+      to: z.string().max(40).optional().describe('End, exclusive: ISO 8601 time, or a UTC date (that whole day is included). Default: now.'),
+      bucket: z.enum(['day', 'hour']).optional().describe('Bucket size of the series (default day).'),
+    },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => service.analyticsSummary(a),
+  },
+  {
     name: 'get_licence',
     title: 'Get the licence status',
     description:
