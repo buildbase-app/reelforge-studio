@@ -2464,7 +2464,7 @@ exists); one job's page follows `GET /v1/jobs/:id/events` and polls its fan-out 
 requests a minute per open page, well inside the default 300 per key. **Split:** part 1 is sign-in, jobs and the
 library; analytics (aggregates the API does not offer yet), settings and the audit log viewer come in part 2.
 
-### D-1XX --- Layout primitives as one layout template per DOM engine on shared geometry; media fit with CSS object-fit; video as per-frame pictures in the html engine
+### D-118 --- Layout primitives as one layout template per DOM engine on shared geometry; media fit with CSS object-fit; video as per-frame pictures in the html engine
 
 **Status:** DECIDED (reversible), issue #287. The number is assigned at merge.\
 Users ask for split screens, picture-in-picture, lower thirds, grids and media in any box, at any size. One
