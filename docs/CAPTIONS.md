@@ -99,10 +99,14 @@ From the theme's `captionStyle` tokens, then `captions.style`:
 | `fontFamily` | theme `fontFamily` | the first installed family of the list is used (`fc-match`) |
 | `weight` | `700` | 600 and above draw bold |
 | `color` | `#ffffff` | text |
-| `background` | `#000000` | box behind each line; `null` = no box, outlined text |
+| `background` | `#000000` | box behind each line; `null` or `"none"` = no box, outlined text |
 | `backgroundOpacity` | `0.8` | |
-| `outline` | `#000000` | outline colour when there is no box; `null` = none |
+| `outline` | `#000000` | outline colour when there is no box; `null` or `"none"` = none |
 | `highlightColor` | theme `accent` | the word being spoken |
+
+`update_project` takes a JSON merge patch, where `null` deletes a key (and the
+default comes back), so switch the box or outline off with `"none"` there:
+`{ "captions": { "style": { "background": "none" } } }`.
 
 **Safe area** (a local helper until the shared one of #287 lands): portrait
 12 % top, 20 % bottom (platform buttons, caption and progress bar), 8 % sides;

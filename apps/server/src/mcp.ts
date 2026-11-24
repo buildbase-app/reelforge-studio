@@ -214,7 +214,7 @@ export const TOOLS: ToolDef[] = [
     name: 'update_project',
     title: 'Update a project',
     description:
-      'Changes a project. Give either patch (a JSON merge patch, RFC 7396: objects merge, null deletes a key, arrays replace) or manifest (a full replacement). For single scenes prefer add_scene / update_scene. Every update is validated and saved as a new version.',
+      'Changes a project. Give either patch (a JSON merge patch, RFC 7396: objects merge, null deletes a key, arrays replace) or manifest (a full replacement). Because null deletes, a patch cannot set a field to null: for caption style use "none" (captions.style.background "none" = no box, outline "none" = no outline); for other nullable fields send the full manifest. For single scenes prefer add_scene / update_scene. Every update is validated and saved as a new version.',
     scope: 'write',
     input: {
       projectId,

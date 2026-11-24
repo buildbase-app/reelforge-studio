@@ -5,6 +5,7 @@ import { extname, join } from 'node:path';
 import { PipelineError, burnSubtitles, type Tools } from '@reelforge/media-pipeline';
 import {
   breakLines,
+  captionColor,
   checkCaptions,
   cueTokens,
   formatSrt,
@@ -98,8 +99,9 @@ export function installedFontFamily(list: string): string | null {
 export function captionRenderStyle(project: Project, theme: ThemeTokens, output: OutputSettings, maxLineChars: number): CaptionRenderStyle {
   const s = { ...theme.captionStyle, ...Object.fromEntries(Object.entries(project.captions.style ?? {}).filter(([, v]) => v !== undefined)) };
   const safeArea = captionSafeArea(output.width, output.height);
+  const background = captionColor(s.background);
   const wanted = s.fontScale * Math.min(output.width, output.height);
-  const pad = s.background ? wanted * 0.22 : 0;
+  const pad = background ? wanted * 0.22 : 0;
   const safeWidth = output.width - safeArea.left - safeArea.right - 2 * pad;
   const fontPx = Math.max(8, Math.round(Math.min(wanted, safeWidth / (maxLineChars * CHAR_EM))));
   return {
@@ -107,9 +109,9 @@ export function captionRenderStyle(project: Project, theme: ThemeTokens, output:
     fontPx,
     bold: (s.weight ?? 700) >= 600,
     color: s.color,
-    background: s.background,
+    background,
     backgroundOpacity: s.backgroundOpacity ?? 0.8,
-    outline: s.outline === undefined ? '#000000' : s.outline,
+    outline: s.outline === undefined ? '#000000' : captionColor(s.outline),
     highlightColor: s.highlightColor ?? theme.colors.accent,
     position: s.position,
     safeArea,
