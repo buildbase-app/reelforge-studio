@@ -10,7 +10,7 @@ export interface RemotionEngineOptions {
   concurrency?: number;
 }
 
-/** The Remotion engine as a plugin (templates: kinetic-title). */
+/** The Remotion engine as a plugin (templates: kinetic-title, remotion-layout). */
 export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
   const browser = () => opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH;
   return {

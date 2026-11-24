@@ -100,6 +100,14 @@ and Remotion, the composition folder for HyperFrames). Uploads with a `projectId
 four-engine render with an image, a clip, an SVG logo and an audio bed checked by pixels and loudness, under
 `strace` with 0 connections outside loopback, plus per-engine pixel tests and refusal tests
 ([Images, video and audio in scenes](public/manifest/assets.md)). Fonts in themes follow in #303.
+**Layouts on Remotion and Motion Canvas (#287, D-1XX, 2026-11-24):** templates `remotion-layout` and
+`motion-canvas-layout` take the same props as `html-layout` and `hyperframes-layout`, so a layout scene moves between
+all four engines by changing its engine and template. Remotion draws the shared HTML/CSS builder's markup and seeks its
+animations per frame; Motion Canvas builds the scene from its own nodes, placed by the same geometry functions, type
+sizes and timing. Media in panes come from #299's staging (loopback origin for Remotion, token path for Motion Canvas),
+video one picture per frame. Tests: on rendered pixels at 16:9, 1:1, 9:16 and 4K, every pane and the lower third within
+1 layout unit of the html engine's, and all pane text inside its box; a numbered clip frame-exact in panes with
+in-points, whole and frame range; contact sheets with a row per engine and `geometry.json` in `docs/proofs/layouts/`.
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,

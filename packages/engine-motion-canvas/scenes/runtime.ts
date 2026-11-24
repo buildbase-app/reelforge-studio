@@ -10,6 +10,7 @@ import type {} from '../src/protocol';
  */
 const projects: Record<string, () => Promise<{ default: Project }>> = {
   'animated-explainer': () => import('./animated-explainer/project?project'),
+  'motion-canvas-layout': () => import('./layout/project?project'),
 };
 
 window.__reelforgeRender = async (req) => {
@@ -34,7 +35,7 @@ window.__reelforgeRender = async (req) => {
   await renderer.render({
     name: project.name,
     // The renderer exports frames from..to inclusive, so N frames end at (N-1)/fps.
-    range: [0, (req.frames - 1) / req.fps],
+    range: [(req.firstFrame ?? 0) / req.fps, (req.frames - 1) / req.fps],
     fps: req.fps,
     size: new Vector2(req.width, req.height),
     resolutionScale: 1,

@@ -1,5 +1,6 @@
 // One project that uses uploaded assets on every engine (#299): an image, a
-// video clip and an SVG logo in the scenes, and an audio bed under them.
+// video clip and an SVG logo in the scenes, and an audio bed under them; and
+// the same image and clip in the Remotion and Motion Canvas layout templates (#287).
 // Rendered by the real service with the server's engines, then prints one
 // JSON line. Run by assets.e2e.test.ts, under strace where it works
 // (`node --import tsx render-assets.mts <dir>`), so every connect() and send
@@ -46,6 +47,14 @@ const result = await (async () => {
           html: sourceLayout + '<video src="asset:clip" muted playsinline data-start="0" style="position:absolute;left:0;top:220px;width:320px;height:80px;object-fit:fill"></video>',
           css: '#root{background:#000}',
         },
+        // Layout templates (#287): the clip from 1 s over the picture, stacked, on Remotion and Motion Canvas.
+        ...(['remotion', 'motion-canvas'] as const).map((engine) => ({
+          id: `${engine}-layout`,
+          engine,
+          template: `${engine}-layout`,
+          durationFrames: 30,
+          props: { layout: { type: 'split', direction: 'vertical', gap: 0 }, panes: [{ media: { asset: 'clip', fit: 'contain', startSeconds: 1 }, color: '#000000' }, { media: { asset: 'quad', fit: 'cover' } }] },
+        })),
       ],
     });
     const { job } = await svc.renderProject('assets-reel');

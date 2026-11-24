@@ -126,9 +126,11 @@ below `data-rf-fit-min` pixels (default: 40 % of its CSS size).
 
 ## Layouts: split screen, picture-in-picture, lower thirds, grids
 
-The templates `html-layout` (html engine) and `hyperframes-layout`
-(HyperFrames) arrange **panes**. Both take the same props and put every pane,
-text block and lower third on the same pixels. Each pane can hold an image or
+The templates `html-layout` (html engine), `hyperframes-layout`
+(HyperFrames), `remotion-layout` (Remotion) and `motion-canvas-layout` (Motion
+Canvas) arrange **panes**. All four take the same props and put every pane,
+text block and lower third in the same place, so a scene moves to another
+engine by changing only its `engine` and `template`. Each pane can hold an image or
 video asset, a colour, a short label, a headline and body text. Sizes are in
 layout units and positions follow the safe areas, so one scene reflows for
 every output size and every variant.
@@ -207,18 +209,24 @@ that band, or below it when there is no room above.
 
 ### Engines
 
-| Engine | Images | Video |
-| --- | --- | --- |
-| `html` | Inlined as `data:` URLs (PNG, JPEG, WebP, GIF, SVG; the type is read from the bytes) | Decoded by FFmpeg into one picture per output frame and shown frame by frame, so any format FFmpeg reads works |
-| `hyperframes` | Linked into the scene folder | A timed, muted `<video>` clip that HyperFrames seeks frame by frame |
+| Engine | Template | How it draws | Images | Video |
+| --- | --- | --- | --- | --- |
+| `html` | `html-layout` | The shared HTML/CSS builder | Inlined as `data:` URLs (PNG, JPEG, WebP, GIF, SVG; the type is read from the bytes) | Decoded by FFmpeg into one picture per output frame and shown frame by frame, so any format FFmpeg reads works |
+| `hyperframes` | `hyperframes-layout` | The shared HTML/CSS builder | Linked into the scene folder | A timed, muted `<video>` clip that HyperFrames seeks frame by frame |
+| `remotion` | `remotion-layout` | The shared HTML/CSS builder inside a Remotion composition; each frame seeks the CSS animations to its time | Staged and served on a loopback origin for the length of the render ([assets](assets.md)) | One picture per output frame, picture k at frame k, also in a frame-range chunk |
+| `motion-canvas` | `motion-canvas-layout` | Motion Canvas nodes placed by the same geometry functions, type sizes and timing; text wraps in Motion Canvas's layout (the browser's line breaking) and shrinks to fit the same way | Staged and served on the bundle server under a per-render token ([assets](assets.md)) | One picture per output frame, picture k at frame k |
 
-Remotion and Motion Canvas have no layout template yet.
+Every engine renders offline: pictures come only from the render's own staged
+files, and nothing is fetched from the network. Motion Canvas draws on a
+canvas, so its text can break lines differently where the DOM engines balance
+the last lines of a paragraph (`text-wrap: pretty`); boxes, panes and the lower
+third are in the same place.
 
 ### Proof: layout contact sheets
 
 Each sheet shows one primitive at 16:9 (1920x1080), 1:1 (1080x1080), 9:16
-(1080x1920) and 4K (3840x2160), left to right: the html engine on the top row,
-HyperFrames below it. The frames are rendered at full size and scaled down; the
+(1080x1920) and 4K (3840x2160), left to right, one row per engine from the top:
+html, HyperFrames, Remotion and Motion Canvas. The frames are rendered at full size and scaled down; the
 thin grey outline is the content safe area. The media are made with FFmpeg's
 own sources (a toned Mandelbrot still at 4:3 and two Game of Life clips at
 16:9 and 9:16), so the sheets show the layout and no third-party pictures.
@@ -248,12 +256,17 @@ Fit modes, the same 4:3 picture as `contain`, `cover` and `blur-fill`:
 
 ![Fit modes contact sheet](../../proofs/layouts/fit.jpg)
 
-Render times and probe results are in `docs/proofs/layouts/report.json`. To
-make them again:
+Render times and probe results are in `docs/proofs/layouts/report.json`.
+`docs/proofs/layouts/geometry.json` compares the engines: every sample (and the
+longest-text samples) with flat pane colours, rendered on html, Remotion and
+Motion Canvas at the four sizes, with each pane and the lower third found by
+colour on the frame and its distance from the geometry and from the html
+engine's, in pixels. To make them again:
 
 ```bash
 export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm formats:prove-layouts
+pnpm formats:prove-layouts --geometry
 ```
 
 ## Proof: contact sheets
@@ -302,15 +315,25 @@ pnpm formats:prove
 - one 3840x2160 smoke render.
 
 - every layout sample, plus the longest text the schema allows in a 6-pane
-  grid and in a lower third over a split, is measured in the browser on both
-  engines at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K: each pane is where the geometry
+  grid and in a lower third over a split, is measured in the browser on html
+  and HyperFrames at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K: each pane is where the geometry
   puts it (within a pixel), the inset is inside the safe area, no text
   overflows, pane text is inside its pane and the safe area, the lower third is
   inside the content safe area and no pane text is under it;
-- on rendered pixels, on both engines: `contain` shows the pane colour in the
-  letterbox, `cover` fills it, `blur-fill` fills it with the blurred picture,
-  the gap between panes shows the background, and a video pane plays frame by
-  frame from `startSeconds` and holds its last frame.
+- on rendered pixels, on all four engines: `contain` shows the pane colour in
+  the letterbox, `cover` fills it, `blur-fill` fills it with the blurred
+  picture, the gap between panes shows the background, and a video pane plays
+  frame by frame from `startSeconds` and holds its last frame.
+
+`apps/server/test/layouts-engines.test.ts` compares Remotion and Motion Canvas
+with the html engine on rendered pixels, at full size at 16:9, 1:1, 9:16 and
+4K, for every layout sample and the longest-text samples, with flat pane
+colours: each pane, found by its colour, is within 1 layout unit of the
+geometry and of the html engine's; the lower third is within 1 unit of the html
+engine's and inside the content safe area; every text pixel in a pane is inside
+that pane's text box (so inside the safe area, never clipped). It also renders a
+clip that shows its own frame number in two panes with different in-points and
+checks the number at each frame, on a whole render and on a frame range.
 
 `pnpm formats:prove` renders the template matrix at the real sizes, and
 `pnpm formats:prove-layouts` the layout sheets.

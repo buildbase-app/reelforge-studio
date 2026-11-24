@@ -14,9 +14,12 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { EnginePlugin, ResolvedAsset } from '@reelforge/core';
+import { renderHtmlScene } from '@reelforge/engine-html';
+import { renderMotionCanvasScene } from '@reelforge/engine-motion-canvas';
+import { renderRemotionScene } from '@reelforge/engine-remotion';
 import { resolveTools } from '@reelforge/media-pipeline';
-import { frameLayout, type LayoutSceneProps, type OutputSettings, type RenderScene } from '@reelforge/project-schema';
-import { THEME, type Format } from './matrix';
+import { clearOfLowerThird, frameLayout, layoutPanes, layoutSceneProps, lowerThirdBox, toLayoutSpec, type LayoutSceneProps, type OutputSettings, type RenderScene } from '@reelforge/project-schema';
+import { THEME, frameRgb, type Format } from './matrix';
 
 const run = promisify(execFile);
 
@@ -30,6 +33,8 @@ export const LAYOUT_FORMATS: Format[] = [
 export const LAYOUT_ENGINES = [
   { engine: 'html', template: 'html-layout' },
   { engine: 'hyperframes', template: 'hyperframes-layout' },
+  { engine: 'remotion', template: 'remotion-layout' },
+  { engine: 'motion-canvas', template: 'motion-canvas-layout' },
 ] as const;
 
 export interface LayoutSample {
@@ -119,6 +124,39 @@ export const LAYOUT_SAMPLES: LayoutSample[] = [
         { media: { asset: 'still', fit: 'cover' }, label: 'cover' },
         { media: { asset: 'still', fit: 'blur-fill' }, label: 'blur-fill' },
       ],
+    },
+  },
+];
+
+/** The longest text the schema allows in every pane of a 6-pane grid, and a lower third at its limits over a split. */
+export const LAYOUT_STRESS_SAMPLES: LayoutSample[] = [
+  {
+    id: 'stress-grid',
+    title: 'longest text',
+    seconds: 2,
+    settled: 0.8,
+    props: {
+      layout: { type: 'grid' },
+      panes: Array.from({ length: 6 }, (_, i) => ({
+        media: { asset: i % 2 ? 'wide' : 'tall', fit: 'cover' },
+        label: 'A label of forty characters, at the cap',
+        headline: 'WWWW A headline at the eighty character limit that must shrink to fit its pane',
+        body: 'Body text of a realistic length that wraps onto two or three lines in a narrow pane and must stay inside the pane and the safe area too.',
+      })),
+    },
+  },
+  {
+    id: 'stress-lower-third',
+    title: 'longest lower third',
+    seconds: 2,
+    settled: 0.8,
+    props: {
+      layout: { type: 'split' },
+      panes: [
+        { media: { asset: 'wide', fit: 'cover' }, label: 'A label of forty characters, at the cap', headline: 'WWWW A headline at the eighty character limit that must shrink to fit its pane' },
+        { media: { asset: 'tall', fit: 'blur-fill' }, body: 'Body text of a realistic length that wraps onto two or three lines in a narrow pane and must stay inside the pane and the safe area too.' },
+      ],
+      lowerThird: { name: 'A name at the sixty character limit for lower third names ok', title: 'And a title of eighty characters that wraps onto a second line in narrow frames.' },
     },
   },
 ];
@@ -215,10 +253,256 @@ export async function layoutSheet(rows: string[][], out: string): Promise<void> 
       filters.push(`${lab}pad=iw+12:ih+12:6:6:color=0x17171c[${o}]`);
       return `[${o}]`;
     });
-    filters.push(`${padded.join('')}hstack=inputs=${row.length}[r${ri}]`);
+    filters.push(row.length > 1 ? `${padded.join('')}hstack=inputs=${row.length}[r${ri}]` : `${padded[0]}null[r${ri}]`);
     rowLabels.push(`[r${ri}]`);
   });
   const stacked = rows.length > 1 ? `${rowLabels.join('')}vstack=inputs=${rows.length},` : `${rowLabels[0]}`;
   filters.push(`${stacked}pad=iw+12:ih+12:6:6:color=0x17171c[out]`);
   await run('ffmpeg', ['-hide_banner', '-v', 'error', '-y', ...inputs, '-filter_complex', filters.join(';'), '-map', '[out]', '-frames:v', '1', '-q:v', '4', '-update', '1', out]);
 }
+
+/* ---------------------------------------------------------------------------
+ * Cross-engine geometry on rendered pixels: every layout sample with its media
+ * swapped for flat pane colours (geometry does not depend on the pictures),
+ * rendered on an engine, then each pane found by its colour. Used by
+ * test/layouts-engines.test.ts and `pnpm formats:prove-layouts --geometry`.
+ * ------------------------------------------------------------------------- */
+
+/** Flat pane colours, at least 64 apart in some channel from each other, the theme's text and background, and LOWER_THIRD_PROBE (H.264 shifts colours near edges by up to about 20). */
+export const PANE_COLORS = ['#b03a48', '#2f5fb0', '#3f8f2f', '#b08a1f', '#7a3fb0', '#1fa0a0'] as const;
+/** The lower third's background in geometry samples, so it can be found by colour. */
+export const LOWER_THIRD_PROBE = '#d04a90';
+/** Geometry samples last 1.5 s; frame 30 (1 s) is after every entry and before the lower third's exit (1.05 s). */
+export const GEOMETRY_SECONDS = 1.5;
+export const GEOMETRY_FRAME = 30;
+
+/** A sample's props with media replaced by flat colours (text and lower third kept). */
+export function geometryProps(sample: LayoutSample): Record<string, unknown> {
+  const p = sample.props as { panes: Array<Record<string, unknown>>; lowerThird?: Record<string, unknown> } & Record<string, unknown>;
+  return {
+    ...p,
+    panes: p.panes.map(({ media: _media, ...pane }, i) => ({ ...pane, color: PANE_COLORS[i % PANE_COLORS.length] })),
+    ...(p.lowerThird ? { lowerThird: { ...p.lowerThird, background: LOWER_THIRD_PROBE } } : {}),
+  };
+}
+
+const rgbOf = (hex: string): [number, number, number] => {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+const near = (rgb: Buffer, i: number, c: readonly number[], tol: number) =>
+  Math.abs(rgb[i]! - c[0]!) <= tol && Math.abs(rgb[i + 1]! - c[1]!) <= tol && Math.abs(rgb[i + 2]! - c[2]!) <= tol;
+
+export interface PixelRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** How many pixels had the colour. */
+  pixels: number;
+}
+
+/**
+ * The rectangle a flat colour fills: the rows and columns where at least
+ * `share` of the busiest row or column has the colour (within `tol`). Robust
+ * to stray pixels of a similar colour (antialiased text, chroma subsampling
+ * at edges) and to text drawn over part of the rectangle. Null when the
+ * colour is not there.
+ */
+export function colorRect(rgb: Buffer, width: number, height: number, hex: string, tol = 20, share = 0.25): PixelRect | null {
+  const c = rgbOf(hex);
+  const cols = new Uint32Array(width);
+  const rows = new Uint32Array(height);
+  let pixels = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!near(rgb, (y * width + x) * 3, c, tol)) continue;
+      pixels++;
+      cols[x]!++;
+      rows[y]!++;
+    }
+  }
+  if (!pixels) return null;
+  const span = (counts: Uint32Array) => {
+    const min = Math.max(1, Math.max(...counts) * share);
+    let a = -1;
+    let b = -1;
+    counts.forEach((n, i) => {
+      if (n < min) return;
+      if (a < 0) a = i;
+      b = i;
+    });
+    return [a, b] as const;
+  };
+  const [x0, x1] = span(cols);
+  const [y0, y1] = span(rows);
+  return { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1, pixels };
+}
+
+export interface InkReport {
+  /** Per pane: pixels that are not its colour, inside the pane (eroded), outside the inset and the lower third. */
+  panes: Array<{ index: number; ink: number; stray: number; strayBox: Box | null }>;
+}
+
+interface Box {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/**
+ * Text and labels inside their boxes, measured on pixels: in each pane, every
+ * pixel far from the pane's colour (text, a label's card) must lie in that
+ * pane's text box (`text`, grown by `tol`). Pixels under the inset or the
+ * lower third (`skip`) and within 3 px of the pane's edge (antialiasing,
+ * chroma subsampling) are not counted.
+ */
+export function inkOutsideText(
+  rgb: Buffer,
+  width: number,
+  panes: Array<{ index: number; rect: { x: number; y: number; width: number; height: number }; text: { x: number; y: number; width: number; height: number }; color: string }>,
+  skip: Array<{ x: number; y: number; width: number; height: number }>,
+  tol: number
+): InkReport {
+  const out: InkReport['panes'] = [];
+  for (const p of panes) {
+    const c = rgbOf(p.color);
+    let ink = 0;
+    let stray = 0;
+    const b: Box = { x0: Infinity, y0: Infinity, x1: -1, y1: -1 };
+    const inside = (r: { x: number; y: number; width: number; height: number }, x: number, y: number, by: number) => x >= r.x - by && x < r.x + r.width + by && y >= r.y - by && y < r.y + r.height + by;
+    for (let y = Math.ceil(p.rect.y + 3); y < p.rect.y + p.rect.height - 3; y++) {
+      for (let x = Math.ceil(p.rect.x + 3); x < p.rect.x + p.rect.width - 3; x++) {
+        if (skip.some((s) => inside(s, x, y, 3))) continue;
+        if (near(rgb, (y * width + x) * 3, c, 60)) continue;
+        ink++;
+        if (inside(p.text, x, y, tol)) continue;
+        stray++;
+        b.x0 = Math.min(b.x0, x);
+        b.y0 = Math.min(b.y0, y);
+        b.x1 = Math.max(b.x1, x);
+        b.y1 = Math.max(b.y1, y);
+      }
+    }
+    out.push({ index: p.index, ink, stray, strayBox: stray ? b : null });
+  }
+  return { panes: out };
+}
+
+/**
+ * One frame of a geometry sample as RGB, rendered by an engine's own render
+ * function: html renders the whole clip (it has no frame ranges); Remotion and
+ * Motion Canvas render the one frame (`frameRange`).
+ */
+export async function renderGeometryFrame(
+  engine: 'html' | 'remotion' | 'motion-canvas',
+  sample: LayoutSample,
+  f: Format,
+  dir: string,
+  cacheDir: string
+): Promise<Buffer> {
+  const output: OutputSettings = { width: f.width, height: f.height, fps: 30, format: 'mp4' };
+  const durationFrames = Math.round(GEOMETRY_SECONDS * 30);
+  const template = LAYOUT_ENGINES.find((e) => e.engine === engine)!.template;
+  const scene: RenderScene = { id: `geo-${sample.id}-${engine}-${f.id}`, engine, template, durationFrames, props: geometryProps(sample) };
+  const out = join(dir, `${scene.id}.mp4`);
+  const workDir = join(dir, 'work', scene.id);
+  mkdirSync(workDir, { recursive: true });
+  const tools = resolveTools();
+  const range = [GEOMETRY_FRAME, GEOMETRY_FRAME] as const;
+  try {
+    if (engine === 'html') {
+      await renderHtmlScene({ scene, output, theme: THEME, out, ffmpeg: tools.ffmpeg, workDir, tools });
+      return await frameRgb(out, GEOMETRY_FRAME, f.width, f.height);
+    }
+    if (engine === 'remotion') {
+      await renderRemotionScene({ scene, output, theme: THEME, out, cacheDir, workDir, tools, frameRange: range });
+    } else {
+      await renderMotionCanvasScene({ scene, output, theme: THEME, out, cacheDir, ffmpeg: tools.ffmpeg, workDir, tools, frameRange: range });
+    }
+    return await frameRgb(out, 0, f.width, f.height);
+  } finally {
+    rmSync(out, { force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  }
+}
+
+export interface GeometryCheck {
+  sample: string;
+  format: string;
+  engine: string;
+  /** Per pane: the rectangle found by colour, and its largest edge difference from the geometry and from the html engine, in px. */
+  panes: Array<{ index: number; found: PixelRect | null; vsGeometry: number; vsHtml: number }>;
+  lowerThird: { found: PixelRect | null; vsHtml: number } | null;
+  ink: InkReport['panes'];
+  /** One layout unit in px (the tolerance). */
+  unit: number;
+  problems: string[];
+}
+
+const edgeDiff = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) =>
+  Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.x + a.width - (b.x + b.width)), Math.abs(a.y + a.height - (b.y + b.height)));
+
+/**
+ * Check one engine's frame of a geometry sample: each pane where
+ * `layoutPanes` puts it and where the html engine drew it (within 1 unit),
+ * the lower third where html drew it and inside the content safe area, and
+ * all pane text inside its pane's text box (`inkOutsideText`).
+ */
+export function checkGeometry(sample: LayoutSample, f: Format, engine: string, rgb: Buffer, html: Buffer | null): GeometryCheck {
+  const props = layoutSceneProps.parse(geometryProps(sample));
+  const l = frameLayout(f.width, f.height);
+  const u = l.unit;
+  const lt = props.lowerThird ? lowerThirdBox(l, props.lowerThird.align) : null;
+  const panesOnly = layoutPanes(l, toLayoutSpec(props.layout), props.panes.length);
+  const geo = lt ? clearOfLowerThird(panesOnly, lt) : panesOnly;
+  const problems: string[] = [];
+  const panes = geo.panes.map((p) => {
+    const color = PANE_COLORS[p.index % PANE_COLORS.length]!;
+    const found = colorRect(rgb, f.width, f.height, color);
+    const ref = html ? colorRect(html, f.width, f.height, color) : null;
+    const vsGeometry = found ? edgeDiff(found, p) : Infinity;
+    const vsHtml = found && ref ? edgeDiff(found, ref) : html ? Infinity : 0;
+    if (vsGeometry > u) problems.push(`pane ${p.index} is ${vsGeometry}px from the geometry (${JSON.stringify(found)} vs ${JSON.stringify({ x: p.x, y: p.y, width: p.width, height: p.height })})`);
+    if (vsHtml > u) problems.push(`pane ${p.index} is ${vsHtml}px from the html engine's`);
+    return { index: p.index, found, vsGeometry, vsHtml };
+  });
+  let lowerThird: GeometryCheck['lowerThird'] = null;
+  if (lt) {
+    const found = colorRect(rgb, f.width, f.height, LOWER_THIRD_PROBE);
+    const ref = html ? colorRect(html, f.width, f.height, LOWER_THIRD_PROBE) : null;
+    const vsHtml = found && ref ? edgeDiff(found, ref) : html ? Infinity : 0;
+    lowerThird = { found, vsHtml };
+    if (!found) problems.push('the lower third is not drawn');
+    else {
+      const inside = found.x >= l.box.x - u && found.y >= l.box.y - u && found.x + found.width <= l.box.x + l.box.width + u && found.y + found.height <= l.box.y + l.box.height + u;
+      if (!inside) problems.push(`the lower third ${JSON.stringify(found)} is outside the content safe area`);
+      if (found.height > lt.height + u) problems.push(`the lower third is ${found.height}px tall, its band ${lt.height}px`);
+    }
+    if (vsHtml > u) problems.push(`the lower third is ${vsHtml}px from the html engine's`);
+  }
+  const inset = geo.panes.find((p) => p.role === 'inset');
+  // Not ink of the pane under them: the picture-in-picture inset (with its outline) and the lower third.
+  const skip = [
+    ...(inset ? [{ x: inset.x - S_OUTLINE * u, y: inset.y - S_OUTLINE * u, width: inset.width + 2 * S_OUTLINE * u, height: inset.height + 2 * S_OUTLINE * u }] : []),
+    // The lower third and its accent bar (1 unit, outside the probe colour).
+    ...(lowerThird?.found ? [{ x: lowerThird.found.x - lt!.bar - 2, y: lowerThird.found.y, width: lowerThird.found.width + 2 * lt!.bar + 4, height: lowerThird.found.height }] : []),
+  ];
+  const ink = inkOutsideText(
+    rgb,
+    f.width,
+    geo.panes.map((p) => ({ index: p.index, rect: p, text: p.text, color: PANE_COLORS[p.index % PANE_COLORS.length]! })),
+    skip,
+    u
+  ).panes;
+  for (const k of ink) {
+    const pane = props.panes[k.index]!;
+    if ((pane.label || pane.headline || pane.body) && k.ink === 0) problems.push(`pane ${k.index} shows no text`);
+    if (k.stray > 0) problems.push(`pane ${k.index}: ${k.stray} text pixels outside its text box, in ${JSON.stringify(k.strayBox)}`);
+  }
+  return { sample: sample.id, format: f.id, engine, panes, lowerThird, ink, unit: u, problems };
+}
+
+/** The inset's outline in units (LAYOUT_STYLE.inset.outline), plus its antialiasing. */
+const S_OUTLINE = 1;

@@ -9,6 +9,8 @@ export interface RenderRequest {
   height: number;
   fps: number;
   frames: number;
+  /** Export from this frame on (a frame range's first frame); the scene still runs from frame 0. Default 0. */
+  firstFrame?: number;
   background: string | null;
 }
 

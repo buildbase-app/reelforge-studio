@@ -12,7 +12,8 @@ import { createDefaultRegistry } from '../src/registry';
 /**
  * #299 end to end: assets uploaded to the store are used by every engine in
  * one render (image, video clip, SVG logo in the scenes; an audio bed under
- * them), checked on the final video's pixels and sound; the whole render runs
+ * them), and the Remotion and Motion Canvas layout templates (#287) with the
+ * same image and clip, checked on the final video's pixels and sound; the whole render runs
  * under strace where it can and makes no connection outside loopback. A
  * project cannot render another project's assets.
  */
@@ -57,7 +58,7 @@ describe.skipIf(!hasBrowser)('ASSET-E2E uploaded assets on every engine in one r
     expect(result.error).toBeUndefined();
     expect(result.ok).toBe(true);
     const info = await probe(tools.ffprobe, result.file!);
-    expect(info).toMatchObject({ width: 320, height: 320, frames: 165, hasAudio: true, audioCodec: 'aac' });
+    expect(info).toMatchObject({ width: 320, height: 320, frames: 225, hasAudio: true, audioCodec: 'aac' });
     expect(result.manifest.audio.music.asset).toBe('bed');
     // The bed is audible (a silent track would be about -91 dB).
     const { stderr } = await run(tools.ffmpeg, ['-hide_banner', '-i', result.file!, '-map', '0:a', '-af', 'volumedetect', '-f', 'null', '-'], 'volume');
@@ -82,6 +83,16 @@ describe.skipIf(!hasBrowser)('ASSET-E2E uploaded assets on every engine in one r
         expect(colorDistance(meanColor(p, 150, 75), QUAD.br), `${engine} ${k}`).toBeLessThan(30);
         expect(colorDistance(meanColor(p, 280, 20), [230, 30, 30]), `${engine} ${k} svg`).toBeLessThan(30);
         expect(readBars(p, { x: 0, y: 220, width: 320, height: 80 }), `${engine} frame ${k}`).toBe(k);
+      }
+    }
+    // remotion-layout (165-194) and motion-canvas-layout (195-224): top pane, the clip from 1 s contained
+    // (160 px tall, 284.4 px wide, centred); bottom pane, the 2:1 picture covering 320x160 exactly.
+    for (const [engine, first] of [['remotion-layout', 165], ['motion-canvas-layout', 195]] as const) {
+      for (const k of [0, 13, 29]) {
+        const p = await at(first + k);
+        expect(readBars(p, { x: 17.8, y: 0, width: 284.4, height: 160 }), `${engine} frame ${k}`).toBe(30 + k);
+        expect(colorDistance(meanColor(p, 80, 200), QUAD.tl), `${engine} ${k} picture`).toBeLessThan(30);
+        expect(colorDistance(meanColor(p, 240, 280), QUAD.br), `${engine} ${k} picture`).toBeLessThan(30);
       }
     }
   });
