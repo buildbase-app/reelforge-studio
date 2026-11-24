@@ -427,7 +427,15 @@ export function createApp(deps: AppDeps) {
     if ('response' in a) return a.response;
     const auth = a.auth;
     c.set('auth', auth); // access log key id (#64)
-    return handleMcp(c.req.raw, auth, service, config);
+    // The JSON body limit applies to /mcp exactly as to REST (limits.maxJsonBytes, runtime; #321): the MCP SDK's own
+    // 4 MiB cap would otherwise be the only bound. A declared Content-Length is checked at once; a chunked body is
+    // cut off while it streams. GET (SSE) and DELETE have no body.
+    if (c.req.method !== 'POST') return handleMcp(c.req.raw, auth, service, config);
+    let answered: Response | undefined;
+    const refused = await json(c, async () => {
+      answered = await handleMcp(c.req.raw, auth, service, config);
+    });
+    return answered ?? refused ?? c.res;
   });
 
   // ---- REST v1 ---------------------------------------------------------------------
