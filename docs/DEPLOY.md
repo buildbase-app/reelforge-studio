@@ -43,7 +43,7 @@ The ones most deployments set:
 | `REELFORGE_DATA_DIR` | `./data` (`/data` in Docker) | Asset and render files, caches, the URL signing key, and the SQLite database by default |
 | `DATABASE_URL` / `REELFORGE_DATABASE_URL` (`_FILE`) | `file:<data>/reelforge.db` (SQLite) | `postgresql://...` or `mysql://...` (MariaDB too). See [Database](#database) |
 | `REELFORGE_SECRET_KEY` (`_FILE`) | (none) | **Set it; the release image does not start without it** (#305). Encrypts provider keys and other secrets stored in the database (AES-256-GCM). `openssl rand -base64 32`. It also keys the seal of the stored licence state. Without it a dev build refuses to store secrets over the API. Back it up: stored secrets cannot be read without it |
-| `REELFORGE_BOOTSTRAP_KEY` (`_FILE`) | (none) | First admin API key (`rf_` + 20 or more URL-safe characters), stored hashed on first start if no key exists |
+| `REELFORGE_BOOTSTRAP_KEY` (`_FILE`) | (none) | First admin API key, stored hashed on first start if no key exists: `rf_` followed by at least 32 URL-safe characters with at least 8 distinct characters and 2.75 bits of entropy per character (`echo rf_$(openssl rand -hex 24)`); a weaker key stops the server at start |
 | `REELFORGE_HOST`, `REELFORGE_PORT` | `127.0.0.1` (`0.0.0.0` in Docker), `4321` | Bind address and port |
 | `REELFORGE_PUBLIC_URL` | (none) | `https://studio.example.com`: output links; allowed as Host on `/mcp` |
 | `REELFORGE_ALLOWED_HOSTS` | (none) | Extra host names accepted on `/mcp` (runtime-changeable) |

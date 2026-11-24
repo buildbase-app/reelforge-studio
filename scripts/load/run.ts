@@ -20,6 +20,10 @@
  *   LOAD_POOLERS=pgbouncer LOAD_SCENARIOS=c pnpm load # one part
  *   LOAD_DISPATCH=notify pnpm load                    # queue.dispatch notify (#158): api instances NOTIFY, workers LISTEN
  *   LOAD_POLL_MAX_MS=1000 pnpm load                   # poll without backoff on empty polls (the behaviour before #158)
+ *   LOAD_DATABASE_URL=postgresql://admin:…@db.internal:5432/postgres pnpm load
+ *                                                     # an existing PostgreSQL on its own machine (#421) instead of
+ *                                                     # the container; add LOAD_POOLER_URL for its pooler (PgBouncer,
+ *                                                     # RDS Proxy, ...) and LOAD_POOLERS=direct,pgbouncer
  *
  * Settings (environment): see `cfg` below. Results: LOAD_OUT/<date>-<profile>.json and .md.
  */
@@ -66,6 +70,15 @@ export const cfg = {
   warmupSeconds: envNum('LOAD_WARMUP_SECONDS', smoke ? 3 : 15),
   out: resolve(repo, env('LOAD_OUT', 'out/load')),
   prefix: env('LOAD_PREFIX', 'rf-load'),
+  /**
+   * An existing PostgreSQL server (#421), e.g. a managed database on its own machine, as the production shape:
+   * a role that may create and drop databases, its URL naming the maintenance database (`/postgres`). The load
+   * databases (`rfload_*`) are created on it and dropped at the end (unless LOAD_KEEP=1). Its CPU is not
+   * sampled (read it from the provider's monitoring); pg_stat_statements is used when the server has it.
+   */
+  externalUrl: env('LOAD_DATABASE_URL', ''),
+  /** With LOAD_DATABASE_URL: the pooler in front of it (same role), measured as the `pgbouncer` run. */
+  externalPoolerUrl: env('LOAD_POOLER_URL', ''),
   pgImage: env('LOAD_PG_IMAGE', 'mirror.gcr.io/library/postgres:17'),
   pgArgs: env('LOAD_PG_ARGS', '-c max_connections=600 -c shared_buffers=512MB'),
   bouncerImage: env('LOAD_PGBOUNCER_IMAGE', 'mirror.gcr.io/edoburu/pgbouncer@sha256:8638aa563607256d3c7440437534195f1066a92b68015d89ae9d6b935b444a6d'),
@@ -103,8 +116,22 @@ function useBridge(name: string, port: number): string | undefined {
   const ok = sh('sh', ['-c', `timeout 2 bash -c '</dev/tcp/${ip}/${port}' && echo ok`], { allowFail: true });
   return ok === 'ok' ? `${ip}:${port}` : undefined;
 }
-const adminUrl = (db = 'postgres') => `postgresql://postgres:${PW}@${addr.pg}/${db}`;
-const appUrl = (pooler: string, db: string, limit: number) => `postgresql://postgres:${PW}@${pooler === 'pgbouncer' ? addr.bouncer : addr.pg}/${db}?connection_limit=${limit}`;
+const external = cfg.externalUrl !== '';
+/** `base` with another database and extra query parameters (credentials, host and e.g. sslmode kept). */
+function onDatabase(base: string, db: string, params: Record<string, string> = {}): string {
+  const u = new URL(base);
+  u.pathname = `/${db}`;
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  return u.toString();
+}
+const externalAdminDb = external ? decodeURIComponent(new URL(cfg.externalUrl).pathname.slice(1)) || 'postgres' : 'postgres';
+const adminUrl = (db = externalAdminDb) => (external ? onDatabase(cfg.externalUrl, db) : `postgresql://postgres:${PW}@${addr.pg}/${db}`);
+const appUrl = (pooler: string, db: string, limit: number) =>
+  external
+    ? onDatabase(pooler === 'pgbouncer' ? cfg.externalPoolerUrl : cfg.externalUrl, db, { connection_limit: String(limit) })
+    : `postgresql://postgres:${PW}@${pooler === 'pgbouncer' ? addr.bouncer : addr.pg}/${db}?connection_limit=${limit}`;
+/** Load databases made on an external server, dropped at the end. */
+const created = new Set<string>();
 
 // ---- infrastructure ---------------------------------------------------------
 
@@ -113,6 +140,18 @@ function docker(...args: string[]) {
 }
 
 async function startPostgres() {
+  if (external) {
+    if (cfg.poolers.includes('pgbouncer') && !cfg.externalPoolerUrl) throw new Error('LOAD_DATABASE_URL with LOAD_POOLERS=pgbouncer needs LOAD_POOLER_URL (the pooler in front of that server)');
+    const db = await Database.open({ url: adminUrl() });
+    try {
+      await db.prisma.$executeRawUnsafe('CREATE EXTENSION IF NOT EXISTS pg_stat_statements');
+    } catch (e) {
+      log(`pg_stat_statements is not available on the external server (${(e as Error).message.split('\n')[0]}): statement counts are not measured`);
+    } finally {
+      await db.close();
+    }
+    return;
+  }
   sh('docker', ['rm', '-f', '-v', PG, BOUNCER], { allowFail: true });
   sh('docker', ['network', 'rm', NET], { allowFail: true });
   docker('network', 'create', NET);
@@ -174,6 +213,7 @@ async function freshDatabase(name: string) {
   await db.prisma.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
   await db.prisma.$executeRawUnsafe(`CREATE DATABASE "${name}"`);
   await db.close();
+  if (external) created.add(name);
   // Migrations on the direct port (PgBouncer is for the app's traffic; #152).
   const p = await prepareDatabase({ url: adminUrl(name), dataDir: join(work, 'migrate') });
   await p.db.close();
@@ -468,7 +508,7 @@ async function waitDrained(dbUrl: string, timeoutMs: number) {
 /** Run one CRUD variant with every sampler. */
 async function measured<T>(dbName: string, fn: () => Promise<T>, apis: ChildProcess[]) {
   const sampler = await (await DbSampler.open(adminUrl(), adminUrl(dbName), dbName)).start();
-  const cpu = new ContainerCpuSampler(PG).start();
+  const cpu = new ContainerCpuSampler(external ? undefined : PG).start();
   const load = new LoadAvgSampler().start();
   const cpuBefore = apis.map((a) => cpuSeconds(a.pid));
   const clientBefore = process.cpuUsage();
@@ -704,7 +744,7 @@ async function main() {
   let probes: Record<string, string> | undefined;
   for (const pooler of cfg.poolers) {
     const r: Record<string, unknown> = {};
-    if (pooler === 'pgbouncer') {
+    if (pooler === 'pgbouncer' && !external) {
       probes = await probePgBouncer();
       for (const [k, v] of Object.entries(probes)) log(`pgbouncer probe: ${k}: ${v}`);
       startPgBouncer({ maxPreparedStatements: 200 });
@@ -718,8 +758,10 @@ async function main() {
     caveat: 'lower bound, shared sandbox (not dedicated) unless LOAD_HARDWARE_NOTE says otherwise',
     hardwareNote: env('LOAD_HARDWARE_NOTE', 'shared container, other workloads running (not dedicated)'),
     host: { ...host, loadAvgAtEnd: (await import('node:os')).loadavg().map((x) => round(x, 2)) },
-    postgres: { ...pg, image: cfg.pgImage, args: cfg.pgArgs, pgbouncer: cfg.poolers.includes('pgbouncer') ? { image: cfg.bouncerImage, pool_mode: 'transaction', default_pool_size: cfg.bouncerPoolSize, max_prepared_statements: 200 } : null },
-    config: cfg,
+    postgres: external
+      ? { ...pg, external: { host: new URL(cfg.externalUrl).host, pooler: cfg.externalPoolerUrl ? new URL(cfg.externalPoolerUrl).host : null }, cpu: 'not sampled (external server: see its monitoring)' }
+      : { ...pg, image: cfg.pgImage, args: cfg.pgArgs, pgbouncer: cfg.poolers.includes('pgbouncer') ? { image: cfg.bouncerImage, pool_mode: 'transaction', default_pool_size: cfg.bouncerPoolSize, max_prepared_statements: 200 } : null },
+    config: { ...cfg, externalUrl: external ? '(set)' : '', externalPoolerUrl: cfg.externalPoolerUrl ? '(set)' : '' },
     pgbouncerProbes: probes ?? null,
     results,
   };
@@ -738,9 +780,14 @@ async function main() {
 
 async function cleanup() {
   await Promise.all([...children].map((c) => stopChild(c, 5000)));
+  if (!cfg.keep && external) {
+    const db = await Database.open({ url: adminUrl() }).catch(() => undefined);
+    for (const name of created) await db?.prisma.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`).catch((e: Error) => log(`could not drop ${name}: ${e.message.split('\n')[0]}`));
+    await db?.close();
+  }
   if (!cfg.keep) {
-    sh('docker', ['rm', '-f', '-v', PG, BOUNCER], { allowFail: true });
-    sh('docker', ['network', 'rm', NET], { allowFail: true });
+    if (!external) sh('docker', ['rm', '-f', '-v', PG, BOUNCER], { allowFail: true });
+    if (!external) sh('docker', ['network', 'rm', NET], { allowFail: true });
     rmSync(work, { recursive: true, force: true });
   }
 }
