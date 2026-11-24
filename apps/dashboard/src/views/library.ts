@@ -1,6 +1,6 @@
 import { HttpError, sameOriginLink, type ProjectSummary, type RenderAudio, type RenderCaptionsView, type RenderManifest, type RenderSummary } from '../api';
 import { fill, h, notice, tableWrap } from '../dom';
-import { ago, clock, dateTime, duration, size } from '../format';
+import { ago, clock, dateTime, downloadLabel, duration, outputFormat, outputShort, playerKind, size, stillNote } from '../format';
 import type { Ctx, View } from '../main';
 
 const CHECK_LABEL: Record<string, string> = {
@@ -10,12 +10,21 @@ const CHECK_LABEL: Record<string, string> = {
   timestamps: 'Timestamps are continuous',
   avDuration: 'Audio and video end together',
   captions: 'Captions meet the reading rules',
+  alpha: 'Alpha channel present',
+  size: 'Within the GIF size limit',
+  entries: 'One PNG per frame in the zip',
+  pngHeaders: 'Frame size and colour type match',
+  audio: 'Audio codec and length match',
   avSync: 'Audio and video stay in sync',
   loudness: 'Loudness meets the preset',
 };
 
-function format(r: Pick<RenderSummary, 'width' | 'height' | 'fps' | 'durationSeconds'>): string {
-  return `${size(r.width, r.height)} · ${r.fps} fps · ${r.durationSeconds.toFixed(1)} s`;
+function format(r: Pick<RenderSummary, 'width' | 'height' | 'fps' | 'durationSeconds' | 'format' | 'codec' | 'alpha'>): string {
+  const parts = playerKind(r.format) === 'audio'
+    ? [outputShort(r), `${r.durationSeconds.toFixed(1)} s`]
+    : [outputShort(r), size(r.width, r.height), `${r.fps} fps`, `${r.durationSeconds.toFixed(1)} s`];
+  // A card's line wraps between parts only, never inside "30 fps" or "1920 × 1080".
+  return parts.map((p) => p.replace(/ /g, '\u00a0')).join(' · ');
 }
 
 /** 3.25 -> "0:03.2" (cue times). */
@@ -176,15 +185,16 @@ export const libraryView: View = (ctx, main, projectId) => {
         'ul',
         { class: 'render-grid' },
         renders.map((r) => {
-          const img = h('img', { alt: `First frame of ${r.renderId}`, width: r.width, height: r.height, loading: 'lazy', decoding: 'async' });
-          poster(r.renderId, img);
+          const img = h('img', { alt: `First frame of ${r.renderId}`, width: r.width || 16, height: r.height || 9, loading: 'lazy', decoding: 'async' });
+          if (r.posterUrl !== undefined || r.format === undefined) poster(r.renderId, img);
+          else img.alt = `${outputFormat(r)}: no picture`;
           return h(
             'li',
             null,
             h(
               'a',
               { href: `#/renders/${r.renderId}`, class: 'render-card' },
-              h('span', { class: 'thumb' }, img),
+              h('span', { class: r.alpha ? 'thumb alpha' : 'thumb' }, img),
               h('span', { class: 'card-body' }, h('span', { class: 'card-title' }, kindLabel(r.kind), h('span', { class: 'mono sub' }, r.renderId)), h('span', { class: 'sub num' }, format(r)), h('span', { class: 'sub' }, ago(r.createdAt, now)))
             )
           );
@@ -251,22 +261,35 @@ export const renderView: View = (ctx, main, renderId) => {
     crumbs.append(h('a', { href: `#/library/${r.projectId}` }, projectTitle), h('span', { 'aria-current': 'page', class: 'mono' }, id));
     fill(sub, `${kindLabel(r.kind)} `, h('span', { class: 'mono' }, id), ` · ${dateTime(r.createdAt)}`);
 
-    const video = h('video', { controls: true, preload: 'metadata', playsinline: true, width: r.width, height: r.height, 'aria-label': `${kindLabel(r.kind)} of ${projectTitle}` });
-    const link = sameOriginLink(r);
-    ctx.api
-      .objectUrl(`/v1/renders/${enc}/output?file=poster.png`, ac.signal)
-      .then((u) => (urls.push(u), (video.poster = u)))
-      .catch(() => undefined);
+    // The player follows the format (#302): video (MP4, MOV, WebM), the GIF itself, audio, or the poster of a PNG zip.
+    const kind = playerKind(r.format);
+    const label = `${kindLabel(r.kind)} of ${projectTitle}`;
+    const video =
+      kind === 'audio'
+        ? h('audio', { controls: true, preload: 'metadata', 'aria-label': label })
+        : kind === 'video'
+          ? h('video', { controls: true, preload: 'metadata', playsinline: true, width: r.width, height: r.height, 'aria-label': label })
+          : h('img', { width: r.width, height: r.height, alt: kind === 'image' ? label : `A frame of ${projectTitle}` });
+    const link = kind === 'still' ? null : sameOriginLink(r);
+    if (kind !== 'audio')
+      ctx.api
+        .objectUrl(`/v1/renders/${enc}/output?file=poster.png`, ac.signal)
+        .then((u) => (urls.push(u), video instanceof HTMLVideoElement ? (video.poster = u) : kind === 'still' && video instanceof HTMLImageElement ? (video.src = u) : undefined))
+        .catch(() => undefined);
     // Sidecar captions play in the player from this server (a <track> needs the same origin).
     const vtt = r.captions?.files.find((f) => f.format === 'vtt');
     const vttLink = vtt ? sameOriginLink({ downloadUrl: vtt.downloadUrl, downloadVia: r.downloadVia }) : null;
-    if (vttLink && !r.captions?.burned) video.append(h('track', { kind: 'captions', src: vttLink, srclang: r.captions?.language ?? 'en', label: 'Captions', default: true }));
-    if (link) video.src = link;
+    if (vttLink && !r.captions?.burned && kind === 'video') video.append(h('track', { kind: 'captions', src: vttLink, srclang: r.captions?.language ?? 'en', label: 'Captions', default: true }));
+    if (kind === 'still') {
+      // ProRes or a zip of PNG frames: the first frame stands in for a player.
+    } else if (link) (video as HTMLMediaElement | HTMLImageElement).src = link;
     else
       ctx.api
         .objectUrl(`/v1/renders/${enc}/output`, ac.signal)
-        .then((u) => (urls.push(u), (video.src = u)))
+        .then((u) => (urls.push(u), ((video as HTMLMediaElement | HTMLImageElement).src = u)))
         .catch(() => undefined);
+    const file = r.file ?? 'final.mp4';
+    const ext = file.slice(file.lastIndexOf('.') + 1);
 
     const captionsBox = h('div', { hidden: true });
     const checks = Object.entries(m.checks ?? {});
@@ -282,13 +305,14 @@ export const renderView: View = (ctx, main, renderId) => {
 
     fill(
       body,
-      h('div', { class: 'render-grid-2' }, h('div', { class: 'player' }, video), h(
+      h('div', { class: 'render-grid-2' }, h('figure', { class: 'player-figure' }, h('div', { class: r.alpha ? 'player alpha' : 'player' }, video), stillNote(r.format) && kind === 'still' ? h('figcaption', { class: 'help' }, stillNote(r.format)!) : null), h(
         'div',
         { class: 'render-side' },
         section(
           'Output',
           dl([
-            ['Size', size(r.width, r.height)],
+            ['Format', outputFormat(r)],
+            ['Size', kind === 'audio' ? '–' : size(r.width, r.height)],
             ['Frame rate', `${r.fps} fps`],
             ['Length', `${r.durationSeconds.toFixed(1)} s · ${r.frames} frames`],
             ['Render time', m.wallClockMillis !== undefined ? duration(m.wallClockMillis) : '–'],
@@ -298,7 +322,7 @@ export const renderView: View = (ctx, main, renderId) => {
           h(
             'div',
             { class: 'actions' },
-            h('a', { class: 'btn btn-primary', href: link ?? r.downloadUrl, download: `${id}.mp4`, rel: 'noreferrer' }, 'Download MP4'),
+            h('a', { class: 'btn btn-primary', href: sameOriginLink(r) ?? r.downloadUrl, download: `${id}.${ext}`, rel: 'noreferrer' }, downloadLabel(file)),
             h('button', { type: 'button', class: 'btn', onclick: () => downloadManifest(m) }, 'Download manifest'),
             (r.captions?.files ?? []).map((f) =>
               h('a', { class: 'btn btn-quiet', href: sameOriginLink({ downloadUrl: f.downloadUrl, downloadVia: r.downloadVia }) ?? f.downloadUrl, download: f.file, rel: 'noreferrer' }, `${f.format.toUpperCase()} captions`)

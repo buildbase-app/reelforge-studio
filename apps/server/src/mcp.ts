@@ -538,7 +538,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_render_output',
     title: 'Get a render output',
     description:
-      'Returns the output of a finished render: downloadUrl (a signed link to the MP4 that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG of the first frame so you can look at it.',
+      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha).',
     scope: 'read',
     input: { renderId: z.string().optional(), jobId: z.string().optional(), includePoster: z.boolean().optional() },
     annotations: { readOnlyHint: true },
@@ -555,7 +555,7 @@ export const TOOLS: ToolDef[] = [
       return { ...summary, output: manifest.output, checks: manifest.checks, versions: manifest.versions };
     },
     extra: async (result, args, { service }) => {
-      if (args.includePoster === false) return [];
+      if (args.includePoster === false || !result.posterUrl) return [];
       const { path } = await service.renderFile(result.renderId, 'poster.png');
       return [{ type: 'image', data: (await readFile(path)).toString('base64'), mimeType: 'image/png' }];
     },

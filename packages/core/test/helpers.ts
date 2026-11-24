@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { run } from '@reelforge/media-pipeline';
+import { ALPHA_CLIP_ARGS, run } from '@reelforge/media-pipeline';
 import { TEMPLATES, type RenderScene } from '@reelforge/project-schema';
 import { checkKey, type EnginePlugin, type EngineRenderContext, type ClipResult } from '../src/index';
 
@@ -22,7 +22,7 @@ export const fakeFrameLuma = (n: number) => 16 + (n % 40) * 5;
  */
 export function fakeEngine(
   id: string,
-  opts: { delayPerFrameMs?: number; fail?: boolean; frameRanges?: boolean } = {}
+  opts: { delayPerFrameMs?: number; fail?: boolean; frameRanges?: boolean; alpha?: boolean } = {}
 ): EnginePlugin & { renders: RenderScene[]; ranges: Array<readonly [number, number] | null> } {
   const renders: RenderScene[] = [];
   const ranges: Array<readonly [number, number] | null> = [];
@@ -32,7 +32,7 @@ export function fakeEngine(
     acceptsSource: id === 'html' || id === 'hyperframes',
     renders,
     ranges,
-    ...(opts.frameRanges ? { capabilities: () => ({ frameRanges: true }) } : {}),
+    ...(opts.frameRanges || opts.alpha ? { capabilities: () => ({ frameRanges: opts.frameRanges === true, ...(opts.alpha ? { output: { alpha: true } } : {}) }) } : {}),
     version: () => '0.0.0-test',
     availability: () => ({ ok: true }),
     templates: () =>
@@ -56,6 +56,18 @@ export function fakeEngine(
       const source = opts.frameRanges
         ? `nullsrc=${size},format=yuv420p,geq=lum='16+mod(N+${first}\\,40)*5':cb=128:cr=128`
         : `color=c=${ctx.theme.colors.background.replace('#', '0x')}:${size}`;
+      if (ctx.alpha) {
+        if (!opts.alpha) throw new Error('fake engine without alpha was asked for it');
+        // Transparent background with an opaque box in the theme's accent (ProRes 4444, as the real engines write).
+        const box = `color=c=${ctx.theme.colors.accent.replace('#', '0x')}:s=${Math.max(2, Math.round(ctx.output.width / 4))}x${Math.max(2, Math.round(ctx.output.height / 4))}:r=${ctx.output.fps},format=rgba`;
+        await run(
+          ctx.tools.ffmpeg,
+          ['-hide_banner', '-y', '-f', 'lavfi', '-i', `color=c=black@0:size=${ctx.output.width}x${ctx.output.height}:rate=${ctx.output.fps},format=rgba`, '-f', 'lavfi', '-i', box, '-filter_complex', '[0][1]overlay=10:10:format=auto,format=rgba', '-frames:v', String(frames), ...ALPHA_CLIP_ARGS, ctx.out],
+          'fake-render',
+          { signal: ctx.signal }
+        );
+        return { file: ctx.out, frames, engineVersion: '0.0.0-test', millis: Date.now() - started };
+      }
       await run(
         ctx.tools.ffmpeg,
         ['-hide_banner', '-y', '-f', 'lavfi', '-i', source, '-frames:v', String(frames), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', ctx.out],
