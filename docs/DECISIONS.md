@@ -2918,6 +2918,41 @@ for `default`. So every key read and could delete every project of the install.
 - *Making admin keys of `default` implicitly owners.* An implicit rule nobody can see in the key's scopes.
 - *Mapping OAuth tokens to workspaces by a claim in this step.* Every token acts in `default` until a mapping is
   designed.
+
+### D-125 --- Workspaces: owner tools, soft delete with a grace period, optional per-workspace limits
+
+**Status:** DECIDED (reversible). Builds on D-124 (#304, part 2).
+
+**Problem.** D-124 scopes every row and file to a workspace, but an operator still needs a way to create
+workspaces, hand out their first admin key, pause or remove one, read every workspace's audit trail, and, where
+teams share one install, keep one from using all of it.
+
+**Decision.**
+
+1. **Owner tools.** `owner` keys create (optionally with a first admin key, shown once), list, rename, change the
+   limits of, suspend, delete and restore workspaces over REST (`/v1/workspaces`) and MCP. Any key reads its own
+   workspace with `get_workspace` (`GET /v1/workspace`): its limits in force and usage. Every action is audited in
+   the owner's workspace and in the workspace it changed. `list_audit_events` takes `workspaceId` (one workspace,
+   or `*` for all, merged newest first) for owner keys only; exports stay per workspace.
+2. **Workspace lifecycle.**
+   - Suspension refuses the workspace's keys (403 `workspace_suspended`) and pauses its queued jobs.
+   - Deletion is soft: keys stop and jobs are not claimed at once. After `workspaces.deleteGraceDays` (default 30)
+     the hourly sweep purges the workspace: the database's cascading foreign keys remove every row, then its files
+     are deleted. `restore_workspace` undoes a deletion within the grace period.
+   - `default` cannot be suspended or deleted.
+3. **Optional limits per workspace.** Renders per day and month, requests per minute (one budget for all of the
+   workspace's keys, after the per-key limit) and storage bytes, from the `workspaces.*` settings or the
+   workspace's own `limits`. They are unlimited by default, following the founder's rule that users are limited
+   only by the licence.
+4. **OAuth tokens (D-112)** have no workspace claim yet: they act in `default`, are never owners, and so never
+   reach the owner tools.
+
+**Rejected:**
+
+- *Hard delete at once.* A mistaken delete would lose every render with no way back.
+- *Per-workspace provider credentials and licences in this step.* The licence is per install by product decision.
+- *Limits on by default.* Contradicts the founder decision above; operators who host other teams turn them on.
+
 ### D-127 --- Rename compatibility layer: RENDERWELD_* names first, every REELFORGE_* name still accepted; one alias table derived from the schema
 
 **Status:** DECIDED (reversible), issue #412 (phase 3 of the rename epic #408). Number assigned at merge.\

@@ -95,6 +95,12 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'POST', path: '/v1/keys/:id/rotate', scope: 'admin', tool: 'rotate_key' },
   { method: 'POST', path: '/v1/keys/:id/revoke', scope: 'admin', tool: 'revoke_key' },
   { method: 'DELETE', path: '/v1/keys/:id', scope: 'admin', tool: 'delete_key' },
+  { method: 'GET', path: '/v1/workspace', scope: 'read', tool: 'get_workspace' },
+  { method: 'GET', path: '/v1/workspaces', scope: 'owner', tool: 'list_workspaces' },
+  { method: 'POST', path: '/v1/workspaces', scope: 'owner', tool: 'create_workspace' },
+  { method: 'PATCH', path: '/v1/workspaces/:id', scope: 'owner', tool: 'update_workspace' },
+  { method: 'DELETE', path: '/v1/workspaces/:id', scope: 'owner', tool: 'delete_workspace' },
+  { method: 'POST', path: '/v1/workspaces/:id/restore', scope: 'owner', tool: 'restore_workspace' },
   { method: 'GET', path: '/v1/webhooks', scope: 'admin', tool: 'list_webhooks' },
   { method: 'POST', path: '/v1/webhooks', scope: 'admin', tool: 'create_webhook' },
   { method: 'GET', path: '/v1/webhooks/:id', scope: 'admin', tool: 'get_webhook' },
@@ -117,7 +123,7 @@ export const REST_ROUTES: RouteEntry[] = [
     path: '/v1/audit',
     scope: 'admin',
     tool: 'list_audit_events',
-    note: 'REST ?format=jsonl|csv streams an export (up to 100 000 entries); the MCP tool returns up to 10 000 in one result.',
+    note: 'REST ?format=jsonl|csv streams an export (up to 100 000 entries); the MCP tool returns up to 10 000 in one result. Owner keys: ?workspaceId=<id>|* (json pages).',
   },
 ];
 

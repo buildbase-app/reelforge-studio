@@ -204,6 +204,7 @@ const A_IDS: Record<string, () => string> = {
   keys: () => a.key,
   webhooks: () => a.webhook,
   deliveries: () => a.delivery,
+  workspaces: () => A,
   // Providers are instance-level plugins, not workspace resources: the probe names A's project in the body.
   providers: () => 'elevenlabs',
 };
@@ -292,6 +293,7 @@ describe('workspaces: cross-workspace denial (#304)', () => {
       webhookId: () => a.webhook,
       deliveryId: () => a.delivery,
       parentId: () => a.job,
+      workspaceId: () => A,
     };
     /** Tools that take one of several resource arguments: probed once with each. */
     const ONE_OF: Record<string, string[]> = { get_captions: ['projectId', 'renderId'] };
