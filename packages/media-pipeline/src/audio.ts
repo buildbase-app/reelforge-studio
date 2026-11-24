@@ -283,26 +283,59 @@ export interface AvSync {
  * A/V sync of a finished file: audio starts at 0 like the video (no edit-list
  * or start offset; ITU-R BT.1359 detectability is about +45 ms lead / -125 ms
  * lag, we allow one frame) and both streams are as long within one frame.
+ *
+ * Codec priming the decoder drops is not an offset (#302): Opus in WebM
+ * starts its first packet `initial_padding` samples (the pre-skip, 312) before
+ * 0, which ffprobe reports as a start of -7 ms, and the first sample heard is
+ * at 0. Matroska has no per-stream duration, so its `DURATION` tag is used.
  */
 export async function checkAvSync(ffprobe: string, file: string, fps: number): Promise<AvSync> {
-  const { stdout } = await run(ffprobe, ['-v', 'error', '-show_entries', 'stream=codec_type,start_time,duration', '-of', 'json', file], 'probe');
-  const streams = (JSON.parse(stdout) as { streams: Array<{ codec_type?: string; start_time?: string; duration?: string }> }).streams;
+  const { stdout } = await run(ffprobe, ['-v', 'error', '-show_entries', 'stream=codec_type,start_time,duration,initial_padding,sample_rate:stream_tags=DURATION', '-of', 'json', file], 'probe');
+  type S = { codec_type?: string; start_time?: string; duration?: string; initial_padding?: number; sample_rate?: string; tags?: { DURATION?: string } };
+  const streams = (JSON.parse(stdout) as { streams: S[] }).streams;
   const v = streams.find((s) => s.codec_type === 'video');
   const a = streams.find((s) => s.codec_type === 'audio');
   const frame = 1 / fps;
-  const r = {
-    videoStart: Number(v?.start_time ?? 0),
-    audioStart: a ? Number(a.start_time ?? 0) : null,
-    videoDuration: Number(v?.duration ?? 0),
-    audioDuration: a ? Number(a.duration ?? 0) : null,
-    problems: [] as string[],
+  const duration = (s: S | undefined) => {
+    const d = Number(s?.duration);
+    return Number.isFinite(d) ? d : tagSeconds(s?.tags?.DURATION) ?? 0;
   };
+  const start = (s: S | undefined) => Number(s?.start_time ?? 0) || 0;
+  let audioStart: number | null = null;
+  let audioDuration: number | null = null;
+  if (a) {
+    const raw = start(a);
+    const rate = Number(a.sample_rate);
+    // The priming only explains a start before 0 (MP4 hides AAC's in an edit list and reports 0 and no padding).
+    const priming = raw < 0 && a.initial_padding && rate > 0 ? a.initial_padding / rate : 0;
+    audioStart = Number((raw + priming).toFixed(6));
+    audioDuration = Number((raw + duration(a) - audioStart).toFixed(6));
+  }
+  const r = { videoStart: start(v), audioStart, videoDuration: duration(v), audioDuration, problems: [] as string[] };
   if (r.audioStart === null || r.audioDuration === null) return r;
   const offset = r.audioStart - r.videoStart;
-  if (Math.abs(offset) > 0.001) r.problems.push(`audio starts ${(offset * 1000).toFixed(1)} ms ${offset > 0 ? 'after' : 'before'} the video (expected 0)`);
+  if (Math.abs(offset) > 0.001) r.problems.push(`audio starts ${(Math.abs(offset) * 1000).toFixed(1)} ms ${offset > 0 ? 'after' : 'before'} the video (expected 0)`);
   const diff = r.audioDuration - r.videoDuration;
   if (Math.abs(diff) > frame + 1e-6) r.problems.push(`audio is ${(diff * 1000).toFixed(1)} ms ${diff > 0 ? 'longer' : 'shorter'} than the video (allowed: one frame, ${(frame * 1000).toFixed(1)} ms)`);
   return r;
+}
+
+/**
+ * A Matroska `DURATION` tag ("00:00:02.002000000") in seconds; null when
+ * absent or malformed. A linear scan of fixed fields, no regular expression.
+ */
+export function tagSeconds(tag: string | undefined): number | null {
+  if (!tag || tag.length > 32) return null;
+  const parts = tag.split(':');
+  if (parts.length !== 3) return null;
+  let total = 0;
+  for (const [i, p] of parts.entries()) {
+    if (p === '' || ![...p].every((c) => (c >= '0' && c <= '9') || (i === 2 && c === '.'))) return null;
+    const n = Number(p);
+    if (!Number.isFinite(n)) return null;
+    total = total * 60 + n;
+  }
+  return total;
 }
 
 /**

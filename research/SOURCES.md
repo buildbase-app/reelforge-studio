@@ -741,3 +741,24 @@ Re-check before relying on any price, limit or date.
   1.0*; OpenType spec (Microsoft Typography) `name` IDs 1, 2, 4, 13, 14, 16, 17, `OS/2.usWeightClass`/`fsSelection`,
   `fvar` axis records. VERIFY against the live specs (written from the specs as known and checked against the
   bundled fonts and fontTools 4.68 output).
+
+- **Output formats: ProRes data rates, VP9 quality, HEVC patent pool (2026-11-24, issue #302, D-123).**
+  Apple ProRes White Paper (https://www.apple.com/final-cut-pro/docs/Apple_ProRes.pdf, read
+  2026-11-24): target data rates at 1920 x 1080, 29.97 fps of about 220 Mbit/s (422 HQ) and
+  330 Mbit/s (4444, with up to 16-bit alpha). Google's VP9 VOD settings
+  (https://developers.google.com/media/vp9/settings/vod, read 2026-11-24): CRF 31 for 1080p, the
+  `render.formats.vp9Crf` default. Via LA's HEVC/VVC pool (https://via-la.com/licensing-programs/hevc-vvc/,
+  read 2026-11-24) covers "HEVC/VVC Products Sold to End Users" with per-unit royalties (0 for the
+  first 100,000 units of one legal entity, then $0.20 to $0.30) and an annual cap; Access Advance's
+  HEVC Advance page (https://accessadvance.com/licensing-programs/hevc-advance/) defers which
+  devices and software are covered to its licence agreement, which is not public. Not legal
+  advice; the reason HEVC is not offered. The FFmpeg 6.1.1 used for the tests (Ubuntu
+  `6.1.1-3ubuntu5`, `--enable-gpl --enable-libx265 --enable-libvpx --enable-libaom --enable-libsvtav1
+  --enable-librav1e --enable-libopus --enable-libass`) lists the encoders `prores_ks`, `libvpx-vp9`,
+  `libsvtav1` (SVT-AV1 1.7.0), `libaom-av1`, `librav1e`, `libopus`, `gif`, `png`, `ffv1`, `aac`,
+  `pcm_s16le`/`pcm_s24le` and `libx265` (`ffmpeg -encoders`, 2026-11-24). Debian bookworm's package,
+  the one the release image installs (`ffmpeg 5.1.9-0+deb12u1`, installed in `debian:bookworm-slim`
+  on 2026-11-24), lists the same encoders (`prores_ks`, `libvpx-vp9`, `libsvtav1`, `libaom-av1`,
+  `librav1e`, `libopus`, `gif`, `png`, `ffv1`, `aac`, `pcm_s16le`, `pcm_s24le`, `libx265`) and the
+  libass filter's `alpha` option, and `packages/media-pipeline/test/formats.test.ts` passes on it (13 of 13, in `node:22-bookworm-slim`); the service and engine tests ran with 6.1.1. A server whose
+  FFmpeg lacks an encoder refuses that format (`422 unsupported_output`).

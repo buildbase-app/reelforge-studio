@@ -80,6 +80,14 @@ export interface EngineRenderContext {
    * Progress counts the range's frames.
    */
   frameRange?: readonly [number, number];
+  /**
+   * The render keeps a transparent background (#302: output.alpha). Set only
+   * for engines whose capabilities() declare `output.alpha`. The clip at `out`
+   * (ending in .mov) is then ProRes 4444 with an alpha channel
+   * (ALPHA_CLIP_ARGS), transparent wherever the scene paints nothing; the page
+   * background itself is not painted.
+   */
+  alpha?: boolean;
 }
 
 /** What an engine can do beyond rendering a whole scene. */
@@ -92,9 +100,10 @@ export interface EngineCapabilities {
    */
   frameRanges: boolean;
   /**
-   * Sizes and frame rates the engine renders beyond the H.264 rules every
-   * engine shares (output-support.ts). A render or preview outside them is
-   * refused before it is queued (`422 unsupported_output`). Omitted: every
+   * Output support beyond an opaque H.264 clip (#302: alpha), and sizes and
+   * frame rates the engine renders beyond the H.264 rules every engine shares
+   * (output-support.ts). A render or preview outside them is refused before
+   * it is queued (`422 unsupported_output`). Omitted: no alpha, every
    * supported rate, no size limit of its own.
    */
   output?: EngineOutputSupport;
