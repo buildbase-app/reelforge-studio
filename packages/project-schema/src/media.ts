@@ -108,3 +108,71 @@ export function mediaLayersHtml(bg: DomMediaLayer | undefined, logo: DomLogo | u
   }
   return { under, over, css };
 }
+
+/** One @font-face (#303): a project font asset or a bundled font, on the render's asset origin. */
+export interface FontFaceSpec {
+  family: string;
+  url: string;
+  format: 'woff2' | 'woff' | 'truetype' | 'opentype';
+  /** A weight or a range ("100 900" for a variable font). */
+  weight: string;
+  style: 'normal' | 'italic';
+  /** Width range of a variable font ("75% 125%"). */
+  stretch?: string;
+  unicodeRange?: string;
+}
+
+/** Longest a render waits for its fonts before failing (shorter than any scene timeout). */
+export const FONT_LOAD_TIMEOUT_MS = 15_000;
+
+/** The family names in a CSS font-family list, unquoted ("Brand Sans", Inter, sans-serif -> [Brand Sans, Inter, sans-serif]). */
+export function fontFamilies(list: string): string[] {
+  return list
+    .split(',')
+    .map((f) => f.trim().replace(/^["']|["']$/g, '').trim())
+    .filter(Boolean);
+}
+
+const cssString = (s: string) => `"${s.replace(/["\\\n]/g, '')}"`;
+
+/** @font-face rules for DOM engines. */
+export function fontFaceCss(faces: readonly FontFaceSpec[]): string {
+  return faces
+    .map(
+      (f) =>
+        `@font-face{font-family:${cssString(f.family)};src:url(${cssString(f.url)}) format("${f.format}");font-weight:${f.weight};font-style:${f.style};` +
+        `${f.stretch ? `font-stretch:${f.stretch};` : ''}${f.unicodeRange ? `unicode-range:${f.unicodeRange};` : ''}font-display:block}`
+    )
+    .join('');
+}
+
+/**
+ * Canvas engines (Remotion measures text with canvas, Motion Canvas draws
+ * with it): add every face with the FontFace API and wait until all have
+ * loaded, or fail naming the ones that did not, at most `timeoutMs`. Browser
+ * only.
+ */
+export async function loadFontFaces(faces: readonly FontFaceSpec[], timeoutMs = FONT_LOAD_TIMEOUT_MS): Promise<void> {
+  if (!faces.length) return;
+  const g = globalThis as unknown as {
+    FontFace: new (family: string, source: string, d: Record<string, string>) => { load(): Promise<unknown>; family: string };
+    document: { fonts: { add(f: unknown): void } };
+  };
+  const failed: string[] = [];
+  const loads = faces.map((f) => {
+    const face = new g.FontFace(f.family, `url(${cssString(f.url)}) format("${f.format}")`, {
+      weight: f.weight,
+      style: f.style,
+      ...(f.stretch ? { stretch: f.stretch } : {}),
+      ...(f.unicodeRange ? { unicodeRange: f.unicodeRange } : {}),
+    });
+    g.document.fonts.add(face);
+    return face.load().catch(() => failed.push(`${f.family} (${f.url.slice(f.url.lastIndexOf('/') + 1)})`));
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<'timeout'>((resolve) => (timer = setTimeout(() => resolve('timeout'), timeoutMs)));
+  const r = await Promise.race([Promise.all(loads), timeout]);
+  clearTimeout(timer);
+  if (r === 'timeout') throw new Error(`fonts did not load within ${timeoutMs} ms`);
+  if (failed.length) throw new Error(`font(s) did not load: ${failed.join(', ')}`);
+}

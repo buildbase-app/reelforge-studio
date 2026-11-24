@@ -733,3 +733,11 @@ Re-check before relying on any price, limit or date.
   to it (measured here: source frame within half an output frame, no drift over 12 s at 23.976 and
   29.97; `packages/media-pipeline/test/media.test.ts`). Playwright (playwright-core 1.65.1) `route.fulfill` answers
   requests in an `offline: true` context (checked here before relying on it).
+- **Fonts (2026-11-24, issue #303).** npm registry (`npm view`, 2026-11-24): `@fontsource-variable/inter` 5.3.0,
+  `@fontsource-variable/source-serif-4` 5.3.1, `@fontsource-variable/jetbrains-mono` 5.3.0, all `OFL-1.1`; each
+  package's `LICENSE` is the SIL OFL 1.1 text, and the copyright lines quoted in docs/public/manifest/fonts.md were
+  read from the fonts' own `name` table (ID 0). W3C *WOFF File Format 2.0* (Recommendation, §4-5: table directory,
+  UIntBase128, transform versions; `glyf`/`loca` transformed at version 0, others at non-zero) and *WOFF File Format
+  1.0*; OpenType spec (Microsoft Typography) `name` IDs 1, 2, 4, 13, 14, 16, 17, `OS/2.usWeightClass`/`fsSelection`,
+  `fvar` axis records. VERIFY against the live specs (written from the specs as known and checked against the
+  bundled fonts and fontTools 4.68 output).

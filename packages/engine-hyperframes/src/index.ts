@@ -27,6 +27,7 @@ import {
   fpsLabel,
   fpsValue,
   frameLayout,
+  fontFaceCss,
   framesToSeconds,
   hyperframesTitleProps,
   layoutCssVars,
@@ -242,9 +243,12 @@ export function buildComposition(
     throw new PipelineError(stage, `unknown hyperframes template "${scene.template}"`);
   }
 
+  // Fonts (#303): @font-face for the staged faces, files in the composition folder ('self' in the policy).
+  const fonts = staged?.fonts.length ? `<style>${fontFaceCss(staged.fontFaces('assets/')).replace(/<\/style/gi, '')}</style>` : '';
   const head =
     `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${HF_CSP}">` +
     `<script>${HF_PAGE_GUARD}</script>` +
+    fonts +
     `<style>${themeVars(theme, output, platform)}html,body{margin:0;width:${output.width}px;height:${output.height}px;overflow:hidden;background:var(--rf-bg);color:var(--rf-text);font-family:var(--rf-font)}*{box-sizing:border-box}</style>` +
     (css ? `<style>${css}</style>` : '');
 
@@ -406,19 +410,19 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
       throw new PipelineError(stage, (e as Error).message);
     }
     // Inside the composition folder, so --refuse-outside-files still holds; HyperFrames seeks video itself.
-    const staged = uses.length
-      ? await stageSceneAssets({
-          uses,
-          assets: opts.assets ?? new Map(),
-          dir: join(project, 'assets'),
-          tools: opts.tools ?? { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe' },
-          output,
-          frames: { first: 0, count: scene.durationFrames },
-          video: 'file',
-          ...(opts.signal ? { signal: opts.signal } : {}),
-          ...(opts.log ? { log: opts.log } : {}),
-        })
-      : undefined;
+    const staged = await stageSceneAssets({
+      uses,
+      assets: opts.assets ?? new Map(),
+      dir: join(project, 'assets'),
+      tools: opts.tools ?? { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe' },
+      output,
+      frames: { first: 0, count: scene.durationFrames },
+      video: 'file',
+      // Fonts (#303): project font assets and bundled fonts of the families the theme and the scene name.
+      fonts: { family: theme.fontFamily, markup: `${scene.html ?? ''}\n${scene.css ?? ''}` },
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      ...(opts.log ? { log: opts.log } : {}),
+    });
     doc = buildComposition(scene, output, theme, opts.platform, staged);
   }
   // One temp directory per render: the CLI and its browser inherit it, which is how

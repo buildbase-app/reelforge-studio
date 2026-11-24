@@ -40,7 +40,12 @@ function registry(): PluginRegistry {
         ctx.log?.('engine: frame 12 could not be drawn (injected)');
         throw new Error('fake engine failure');
       }
-      if (mode === 'hang') await new Promise((_, reject) => ctx.signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true }));
+      // Like a real engine, a hang honours a signal that was aborted before render() was called, not only a later abort.
+      if (mode === 'hang')
+        await new Promise((_, reject) => {
+          if (ctx.signal.aborted) return reject(new Error('cancelled'));
+          ctx.signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
+        });
       return e.render(scene, ctx);
     },
   });
