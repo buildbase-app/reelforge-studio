@@ -778,7 +778,7 @@ and the 5 read outside the schema) also works as `RENDERWELD_*`, `_FILE` include
 one alone logs one warning, different values under both stop the start. `renderweld` CLI next to `reelforge`
 (stderr notice), MCP resources under `renderweld://` and `reelforge://`, the 25 `reelforge_*` metrics also served
 as `renderweld_*` with identical labels, `renderweld.*` span and metric attributes, both email message-id
-headers, Grafana and alert rules on the new names, `docs/CONFIG.md` listing new names first. D-1XX;
+headers, Grafana and alert rules on the new names, `docs/CONFIG.md` listing new names first. D-127;
 [RENAMED.md](RENAMED.md) and the public page [Renamed from ReelForge](public/install/renamed-from-reelforge.md).
 Not yet: compose/Kubernetes manifests and docs prose (phase 6), public names such as the MCP server name (phase 4).
 

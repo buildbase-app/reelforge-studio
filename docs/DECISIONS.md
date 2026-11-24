@@ -2855,7 +2855,7 @@ packaging (GIF and PNG would need their own burn); an alpha GIF (1-bit transpare
 Motion Canvas alpha; ZIP64 for PNG sequences over 65,535 frames or 4 GiB. Debian bookworm's FFmpeg
 5.1.9 (the image's package) has every encoder used and libass `alpha`, and the media-pipeline format tests pass on it.
 
-### D-1XX --- Rename compatibility layer: RENDERWELD_* names first, every REELFORGE_* name still accepted; one alias table derived from the schema
+### D-127 --- Rename compatibility layer: RENDERWELD_* names first, every REELFORGE_* name still accepted; one alias table derived from the schema
 
 **Status:** DECIDED (reversible), issue #412 (phase 3 of the rename epic #408). Number assigned at merge.\
 **Settings:** the schema keeps its `REELFORGE_*` names; `envNames()` derives a `RENDERWELD_*` twin for each (so the

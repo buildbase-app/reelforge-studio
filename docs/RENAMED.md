@@ -1,6 +1,6 @@
 # Renamed from ReelForge
 
-ReelForge Studio is now **RenderWeld** (epic #408, decision D-1XX). This page
+ReelForge Studio is now **RenderWeld** (epic #408, decision D-127). This page
 lists every technical name that changes, the old name next to the new one.
 The public version of this page is
 [docs/public/install/renamed-from-reelforge.md](public/install/renamed-from-reelforge.md).
