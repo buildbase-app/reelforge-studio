@@ -31,7 +31,8 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->65<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -83,7 +84,7 @@ test on rendered pixels at 16:9, 1:1, 4:5, 9:16 and 4K and by contact sheets in 
 **Output variants (#287, D-109, 2026-11-23):** a manifest may list `variants` (extra sizes); one `render_project`
 call (REST or MCP) starts one render per variant, each its own job and run id, grouped by a `batchId`
 ([manifest](public/manifest/v0-2.md#output-variants)).
-**Frame rates and output checks (#302, #287, D-1XX, 2026-11-24):** `output.fps` takes 23.976, 24, 25, 29.97, 30, 48,
+**Frame rates and output checks (#302, #287, D-119, 2026-11-24):** `output.fps` takes 23.976, 24, 25, 29.97, 30, 48,
 50, 59.94 and 60, NTSC rates stored as exact fractions (`"30000/1001"`); every engine renders each one and the final
 MP4's `r_frame_rate` is exact (ffprobe-checked, also through the fan-out join and captions). Sizes and rates an engine
 cannot render are refused with `422 unsupported_output` before queueing; `preview_scene` takes a `variant`; the
@@ -610,6 +611,38 @@ SQLite, PostgreSQL 17 and MySQL 8.4.
 
 Not done: the Docker e2e was not re-run for this change; `render.qa_failed` has no producer until #294; no CLI
 command for resend or the read log yet; engine scene timeouts stay `render.failed`.
+### Captions step 2: speech-to-text, approval, languages, audio description (2026-11-23, issue #300)
+
+Built (D-114, [CAPTIONS.md](CAPTIONS.md)): `transcribe_captions` runs a local speech-to-text
+provider (`SpeechToTextPlugin`; default faster-whisper as the external program `reelforge-whisper`,
+installed only by the optional layer `deployment/stt`, models pre-downloaded at build time, offline
+at run time) on the voice track and stores word timings on `audio.voice.words`, so cues come from
+`buildCuesFromWords`; `get_captions` / `update_captions` (etag check, edits or replacement per
+language, `approve`, audit `captions.update` / `captions.approve`), also on a render
+(`GET /v1/renders/:id/captions`); `captions.tracks` per BCP 47 language with one `burnLanguage` and
+sidecars per language (`captions.<tag>.*`, WebVTT `Language:` and ASS `Language:` headers);
+`kind: "description"` cues written to `descriptions[.<tag>].vtt` (`Kind: descriptions`), never
+burned; server default `captions.defaultMode`. Settings `captions.*` (docs/CONFIG.md). Tests: tags,
+tracks, kinds and mode resolution (project-schema); fake STT provider, approval, a two-language
+render with pixel checks of the burned language, the default mode (core); the provider's spawn
+contract with fake programs (arguments, offline secret-free environment, timeout, output cap) and the
+real program with a `tiny` model on FFmpeg `flite` speech (skipped without the program); REST
+scopes, If-Match etag, conflict and audit (server). The layer was built and run on
+`debian:bookworm-slim`, not yet on top of the release image. Not yet: a recorded audio-description
+voice track, machine translation, STT as a background job.
+### Self-hosted web dashboard, part 1 (2026-11-23, issue #292)
+
+Built (D-115; [public/install/dashboard.md](public/install/dashboard.md)): `apps/dashboard`, plain
+TypeScript bundled by esbuild into static files (JS + CSS 11.9 KB gzip, budget 150 KB) that the studio
+serves at `/dashboard` when `dashboard.enabled` is on (off by default; file, env or `PATCH /v1/config`).
+Sign-in with an API key held in memory (sessionStorage only when asked), every call to the public REST
+API with that key; strict CSP, same Host check as `/mcp`, no cookie, no external host. Live jobs
+(progress per scene and per fan-out unit over the job's SSE stream, cancel and retry for render keys)
+and the library (projects, renders, player, poster, format, quality checks, scenes, versions, storage
+driver and key prefix, signed download, manifest). New REST/MCP pair `GET /v1/me` / `get_me`;
+`RenderSummary.storage`. Tests: route and API (`apps/server/test/dashboard.test.ts`) and a Playwright
+journey with axe-core, 0 violations in light, dark and at 360 px (`apps/dashboard/test`). Not yet:
+analytics, settings and the audit log viewer (part 2 of #292).
 
 ## 4. Infrastructure inventory (no secrets)
 

@@ -2371,7 +2371,100 @@ summary and the retry policy). `list_webhook_deliveries` (payloads) and everythi
 *Rejected:* a separate secrets table: the endpoint already holds the current and the previous secret (sealed), and
 Standard Webhooks needs no more than that for an overlap.
 
-### D-1XX --- Exact rational frame rates (23.976, 29.97, 48, 50, 59.94); per-engine output checks before queueing; length and scene caps become config bounds
+## AB. Captions step 2: speech-to-text, approval, languages, audio description (2026-11-23, issue #300)
+
+How they work: [docs/CAPTIONS.md](CAPTIONS.md) (sections "Speech-to-text", "Review and approval",
+"Several languages", "Audio description").
+
+### D-114 --- Local speech-to-text as an external program in an optional image layer; caption approval by etag; languages as tracks with one burned; descriptions as a WebVTT text track
+
+**Status:** DECIDED (reversible). *Number:* D-108 and D-109 are taken by open PRs (#317 formats, #323
+variants); renumber if needed.\
+**Speech-to-text:** a new plugin kind, `SpeechToTextPlugin` (`availability(settings)`,
+`transcribe({ file, language, settings }, ctx)` returning timed words), registered with
+`registerStt()`; settings `captions.stt.*` (provider, command, model, modelDir, language, compute type,
+device, timeout), all runtime, admin-only. The default, faster-whisper, is Python, so it runs as an
+**external program** (`reelforge-whisper`, a short script with a JSON contract) that the optional
+layer `deployment/stt/Dockerfile` installs with one model downloaded **at build time**; the base
+image stays as it is (the layer adds about 800 MB). At run time nothing is downloaded: the server
+sets `HF_HUB_OFFLINE=1`, the program sets it before importing the library and loads the model with
+`local_files_only`. The program is started with an argument array (no shell), an allowlisted
+environment (no server secrets), the asset store's absolute file path, a timeout and a 16 MB output
+cap; its JSON is validated and every word reduced to plain text. Words go onto `audio.voice.words`,
+the same place as TTS timestamps (D-107), so cues come from `buildCuesFromWords` and follow the voice
+start. One transcription per process at a time, in the request (no job yet); results cached by
+content hash and settings. *Rejected:* bundling Python and a model in the release image (size, and
+most buyers never use it); a Node binding to whisper.cpp (a native module per platform to maintain,
+and the issue asks for faster-whisper); a cloud STT API by default (network egress, seller-paid or
+key-paid; founder decision 4); a sidecar HTTP service (more moving parts than a process for a
+request that runs a few seconds to minutes, and another port to secure).
+**Approval:** `get_captions` (read) and `update_captions` (write) are on the shared route table
+(REST `GET`/`PATCH /v1/projects/:id/captions`, `GET /v1/renders/:id/captions`). Concurrency uses an
+**etag of what the captions show** (mode, burn language, highlight, style and every language's
+resolved cues, built ones included), not the project version: an edit elsewhere in the project does
+not make a caption review stale, but a new voice does. `approve: true` stores `captions.approval`
+with the etag after the update; it holds only while the etag is the same. Renders record the etag and
+whether it was approved; rendering never requires approval (the agent asks; the workflow guide and
+`make_reel` prompt say so). Every update is an audit event (`captions.update` / `captions.approve`).
+Editing cues built from the voice materialises them as manual cues; an edited text drops its word
+timings. *Rejected:* the project version as the check (spurious conflicts while an agent edits
+scenes); an approval gate in `render_project` (a server cannot know whether a human looked; it
+would only add a flag agents learn to set).
+**Languages:** the primary language stays `captions.cues` / `captions.language` (so step 1 manifests
+and file names are unchanged); others are `captions.tracks` keyed by BCP 47 tag (at most 20
+languages). Exactly one is burned (`captions.burnLanguage`, default the primary); every language gets
+sidecars (`captions.<tag>.srt|vtt|ass`) with the tag in the WebVTT and ASS headers. Tags are checked
+for well-formedness with `Intl.getCanonicalLocales` plus a letters/digits/hyphen scan (safe in file
+names and header lines), compared case-insensitively, not against the IANA registry.
+**Audio description:** cues with `kind: "description"` in any language, written only to
+`descriptions[.<tag>].vtt` (`Kind: descriptions`) for `<track kind="descriptions">`, in every mode but
+`off`, never burned, never in SRT/ASS, not checked by the caption rules. A recorded description voice
+track is not built. **Toggles:** a server default `captions.defaultMode` (runtime) below the
+project's `captions.mode`, below `render_project`'s `captions`; the default is captured when a render
+is queued.
+
+## AB. Self-hosted web dashboard (2026-11-23, issue #292)
+
+How to run it and what it shows: [docs/public/install/dashboard.md](public/install/dashboard.md).
+
+### D-115 --- The dashboard is static files in the studio, a client of the public REST API with an API-key sign-in; off by default
+
+**Status:** DECIDED (reversible).\
+**Where it runs.** `apps/dashboard` builds (esbuild, `pnpm --filter @reelforge/dashboard build`, also in the
+Docker `build` stage) into `apps/dashboard/dist`: one `index.html`, one JS module and one stylesheet with
+content-hashed names, the mark as the icon. The server serves them at `/dashboard` from a new file
+(`apps/server/src/dashboard.ts`, mounted with one line in `app.ts`), so the dashboard ships in the one image and
+the customer operates it like the rest of the studio; nothing runs on our side. **Off by default:**
+`dashboard.enabled` (runtime setting; file, `REELFORGE_DASHBOARD_ENABLED` or `PATCH /v1/config`); off, every
+`/dashboard` path answers 404 with how to turn it on. Worker instances never serve it. **Only the public API:**
+the page calls `/v1` with `Authorization: Bearer <key>` like any client, so scopes, rate limits, IP allowlists,
+expiry and the audit log apply unchanged, and a gap in the API is a gap the dashboard cannot hide. Gaps found and
+closed for part 1: `GET /v1/me` / MCP `get_me` (the calling key's name, scopes and limits, so the page offers
+cancel and retry only to keys with the render scope; the server refuses them anyway), and
+`RenderSummary.storage` (`driver` and the render's key `prefix`; the bucket or root stays with `get_storage`,
+admin, as D-088 keeps paths from callers below admin). **Sign-in:** the person pastes an API key; it is checked
+with `GET /v1/me` and kept in memory, or in `sessionStorage` (ends with the tab) when they tick "keep me signed
+in"; never a cookie, so there is no session the browser sends by itself and no CSRF surface, and never in a URL.
+Posters and videos, which an `<img>` or `<video>` cannot fetch with a header, are fetched with the key into
+object URLs, except a render file behind a link this server signed (D-067), which plays from its path on the same
+origin. *Rejected:* a server-side session cookie (a second auth system, CSRF, logout and expiry to build, and a
+cookie the browser attaches by itself); `EventSource` (cannot send the header: the page reads the job's SSE
+stream with `fetch`); a bucket link in the player (another origin, which the CSP refuses). **Strict headers:**
+`default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:;
+connect-src 'self'; font-src 'self'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';
+frame-ancestors 'none'`, plus `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy` and
+`Cross-Origin-Resource-Policy: same-origin`; no inline script or style anywhere (the page builds its DOM with text
+nodes and never sets a `style` attribute); system fonts, no CDN, no external request. The same Host check as
+`/mcp` (`server.publicUrl`, `server.allowedHosts`) guards against DNS rebinding. **Stack:** plain TypeScript and a
+few DOM helpers, no framework: part 1 is 11.9 KB of JS and CSS gzipped against a 150 KB budget that the build
+enforces. *Rejected:* Vite + React as #15 sketched (a framework and a dev server for a handful of views, and a
+larger bundle to audit under the CSP); Preact (small, but not needed at this size; revisit if part 2's forms grow).
+**Live jobs:** the list polls `GET /v1/jobs` every 3 s while the tab is visible (no list-wide event stream
+exists); one job's page follows `GET /v1/jobs/:id/events` and polls its fan-out units (`?parentId=`). About 20
+requests a minute per open page, well inside the default 300 per key. **Split:** part 1 is sign-in, jobs and the
+library; analytics (aggregates the API does not offer yet), settings and the audit log viewer come in part 2.
+
+### D-119 --- Exact rational frame rates (23.976, 29.97, 48, 50, 59.94); per-engine output checks before queueing; length and scene caps become config bounds
 
 **Status:** DECIDED (reversible), issues #302 and #287. The number is assigned at merge.\
 **Frame rates.** `output.fps` accepts 23.976, 24, 25, 29.97, 30, 48, 50, 59.94 and 60, given as a number, a
