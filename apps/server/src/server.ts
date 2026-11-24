@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
-import { OutboxRelay, ReelforgeService, chromiumSandbox, createBrokerDispatch, effectiveQueueMode, isBrokerDispatch, secretKeyProblem, envValue, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
+import { OutboxRelay, PRODUCT_NAME, ReelforgeService, chromiumSandbox, createBrokerDispatch, effectiveQueueMode, isBrokerDispatch, secretKeyProblem, envValue, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
 import { createNotifyListener, defaultDatabaseUrl, notifyChannel, pooledSchemaWarning, prepareDatabase, READ_REPLICA_READS, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
@@ -200,7 +200,7 @@ export async function startServer(
   const port = server ? (server.address() as AddressInfo).port : 0;
   const shownHost = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
   const url = server ? `http://${shownHost.includes(':') ? `[${shownHost}]` : shownHost}:${port}` : '';
-  log(server ? `ReelForge Studio ${SERVER_VERSION} listening on ${url} (data: ${config.dataDir})` : `ReelForge Studio ${SERVER_VERSION} worker --once (no HTTP listener; data: ${config.dataDir})`);
+  log(server ? `${PRODUCT_NAME} ${SERVER_VERSION} listening on ${url} (data: ${config.dataDir})` : `${PRODUCT_NAME} ${SERVER_VERSION} worker --once (no HTTP listener; data: ${config.dataDir})`);
   if (role === 'worker') {
     if (server) log(`role worker: renders jobs from the database queue (worker ${service.jobs.workerId}, ${service.jobs.concurrency} at a time); serves only /healthz, /readyz and /metrics`);
     log('licence: this worker never calls the licence server; it applies the licence state the api instances store in the database (re-read every minute)');

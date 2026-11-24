@@ -101,7 +101,27 @@ describe('the renderweld and reelforge commands', () => {
     // Usage under the name the command was started with.
     expect(run('cli.ts', []).stdout).toMatch(/^ {2}renderweld migrate/m);
     expect(run('reelforge.ts', []).stdout).toMatch(/^ {2}reelforge migrate/m);
+    // Messages that name a command use the name it was started with too (#413).
+    const fresh2 = run('cli.ts', ['worker']);
+    const old2 = run('reelforge.ts', ['worker']);
+    expect(fresh2.status).toBe(1);
+    expect(old2.status).toBe(1);
+    expect(fresh2.stderr).toMatch(/^usage: renderweld worker --once/m);
+    expect(old2.stderr).toMatch(/^usage: reelforge worker --once/m);
   }, 120_000);
+
+  it('the image labels say RenderWeld and keep the old edition label (#413)', () => {
+    const dockerfile = readFileSync(join(repo, 'Dockerfile'), 'utf8');
+    const labels = Object.fromEntries([...dockerfile.matchAll(/^\s*(?:LABEL\s+)?([a-z.]+)="([^"]*)"/gm)].map((m) => [m[1], m[2]]));
+    expect(labels).toMatchObject({
+      'org.opencontainers.image.title': 'RenderWeld',
+      'org.opencontainers.image.url': 'https://renderweld.com',
+      'org.opencontainers.image.vendor': 'RenderWeld',
+      'app.renderweld.edition': '${REELFORGE_EDITION}',
+      'app.reelforge.edition': '${REELFORGE_EDITION}',
+    });
+    expect(labels['org.opencontainers.image.description']).toMatch(/^Self-hosted video rendering for AI agents/);
+  });
 
   it('config check and config show name the variable that supplied each value, and flag old names', () => {
     const configFile = join(dir, 'renderweld.yaml');

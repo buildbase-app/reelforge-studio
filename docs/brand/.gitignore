@@ -1,0 +1,14 @@
+# Build inputs and outputs of the brand kit that stay out of the repository (#410).
+# Committed: the master SVGs (src/), the generator, BRAND.md, and the outputs this
+# repository uses: web/ (favicons, app and manifest icons), share/ (Open Graph and
+# X cards) and github/ (README banners, social preview). Everything else ships in
+# the downloadable kit zip that `node build.mjs` writes.
+node_modules/
+.cache/
+fonts/
+social/
+listings/
+business/
+slack-discord-apps/
+contact-sheet-*.png
+renderweld-brand-kit.zip

@@ -67,13 +67,14 @@ async function until<T>(f: () => Promise<T | null | undefined | false> | T | nul
 }
 
 describe('worker --once: start-up guard (any database)', () => {
-  it('BKD-25 `reelforge worker --once` on SQLite refuses to start (exit 1) and says why; `worker` without --once prints usage', async () => {
+  it('BKD-25 `renderweld worker --once` on SQLite refuses to start (exit 1) and says why; `worker` without --once prints usage', async () => {
     const p = spawnOnce(join(repo, 'apps/server/src/cli.ts'), ['worker', '--once'], { ...base, REELFORGE_DATA_DIR: join(dir, 'sqlite-guard') });
     expect((await p.exited).code).toBe(1);
     expect(p.out()).toMatch(/server\.role "worker" needs a shared database/);
     const u = spawnOnce(join(repo, 'apps/server/src/cli.ts'), ['worker'], { ...base, REELFORGE_DATA_DIR: join(dir, 'sqlite-guard') });
     expect((await u.exited).code).toBe(1);
-    expect(u.out()).toMatch(/usage: reelforge worker --once/);
+    // cli.ts is the renderweld command (#413); the old reelforge name prints its own name (rename.test.ts).
+    expect(u.out()).toMatch(/usage: renderweld worker --once/);
   }, 60_000);
 });
 

@@ -2,9 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { ApiError, PRIORITIES, ReelforgeService, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
+import { ApiError, OLD_SERVER_NAMES, PRIORITIES, PRODUCT_NAME, ReelforgeService, SERVER_NAME, SERVER_TITLE, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
 import { auditAction, auditTarget } from './audit';
-import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag, renderAudioOptions } from '@reelforge/project-schema';
+import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag, renderAudioOptions, templateDurationLabel } from '@reelforge/project-schema';
 import { z } from 'zod';
 import type { ServerConfig } from './config';
 import { resourceMetadataUrl } from './oauth';
@@ -116,7 +116,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_capabilities',
     title: 'Get server capabilities',
     description:
-      'Start here. Returns what this ReelForge server can do right now: installed engines (and whether each can render on this machine), templates, themes, media providers (configured or not, with cost notes), render backends, limits (fps, max duration, upload size) and tool versions. Never guess an engine, template or provider: use what this returns.',
+      'Start here. Returns what this RenderWeld server can do right now: installed engines (and whether each can render on this machine), templates, themes, media providers (configured or not, with cost notes), render backends, limits (fps, max duration, upload size) and tool versions. Never guess an engine, template or provider: use what this returns.',
     scope: 'read',
     input: {},
     annotations: { readOnlyHint: true },
@@ -214,7 +214,7 @@ export const TOOLS: ToolDef[] = [
     name: 'update_project',
     title: 'Update a project',
     description:
-      'Changes a project. Give either patch (a JSON merge patch, RFC 7396: objects merge, null deletes a key, arrays replace) or manifest (a full replacement). For single scenes prefer add_scene / update_scene. Every update is validated and saved as a new version.',
+      'Changes a project. Give either patch (a JSON merge patch, RFC 7396: objects merge, null deletes a key, arrays replace) or manifest (a full replacement). Because null deletes, a patch cannot set a field to null: for caption style use "none" (captions.style.background "none" = no box, outline "none" = no outline); for other nullable fields send the full manifest. For single scenes prefer add_scene / update_scene. Every update is validated and saved as a new version.',
     scope: 'write',
     input: {
       projectId,
@@ -604,7 +604,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'delete_project',
     title: 'Delete a project',
-    description: 'Deletes a project with all its versions and renders. Cannot be undone; confirm with the user first.',
+    description: 'Deletes a project with all its versions and renders, and cancels its queued and running renders and previews. Cannot be undone; confirm with the user first.',
     scope: 'write',
     input: { projectId },
     annotations: { destructiveHint: true },
@@ -762,7 +762,7 @@ export const TOOLS: ToolDef[] = [
     description:
       'Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the owner scope (instance-level, #304).',
     scope: 'owner',
-    input: { key: z.string().optional().describe('The licence key from the ReelForge purchase, e.g. "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2". Omit to re-check the configured key.') },
+    input: { key: z.string().optional().describe('The licence key from the RenderWeld purchase, e.g. "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2". Omit to re-check the configured key.') },
     annotations: { openWorldHint: true, idempotentHint: true },
     run: async (a, { service, auth }) => service.activateLicence(a.key, { actorType: 'api_key', actorId: auth.keyId }),
   },
@@ -1128,7 +1128,25 @@ export const RESOURCES = [
 export type ResourcePath = (typeof RESOURCES)[number]['path'];
 
 /** Served as the resource renderweld://guide/workflow (and reelforge://guide/workflow) and inside the make_reel prompt. */
-export const WORKFLOW_GUIDE = `# ReelForge Studio: making a reel with MCP tools only
+/**
+ * The essentials of a video brief (#313): what the brief_intake prompt has an agent ask when the request leaves
+ * them open, and where each answer goes. The studio asks; the user or agent decides.
+ */
+export const BRIEF_ESSENTIALS: ReadonlyArray<{ id: string; question: string; field: string }> = [
+  { id: 'goal', question: 'What should a viewer do or remember after watching (the goal and call to action)?', field: 'brief.goal, and the closing scene' },
+  { id: 'audience', question: 'Who is it for?', field: 'brief.audience' },
+  { id: 'platform', question: 'Where will it be published, at what size and aspect ratio (any size works)? One video or several formats?', field: 'brief.platform, output.width/height, variants' },
+  { id: 'length', question: 'How long should it be?', field: 'brief.targetSeconds and the scene durations' },
+  { id: 'language', question: 'Which language?', field: 'brief.language' },
+  { id: 'style', question: 'What tone and look (calm, energetic, playful, premium...)?', field: 'brief.style and the theme' },
+  { id: 'brand', question: 'Which brand colours, fonts and logo, if any? Upload the files or name an existing theme.', field: 'theme (create_theme), assets (upload_asset)' },
+  { id: 'captions', question: 'Captions: none, burned into the video, a separate subtitle file, or both?', field: 'captions' },
+  { id: 'voice', question: 'A voice-over? If so, whose voice or which provider voice?', field: 'audio.voice (generate_voice, or an uploaded recording)' },
+  { id: 'music', question: 'Background music or sound effects? Upload the track, or none.', field: 'audio.music, audio.sfx' },
+  { id: 'content', question: 'Are there facts, numbers, product names or images that must appear exactly as given?', field: 'scene props and assets' },
+];
+
+export const WORKFLOW_GUIDE = `# RenderWeld: making a video with MCP tools only
 
 You decide the scenes; the server validates, renders and checks. Everything is
 done with tools; there is no UI.
@@ -1226,10 +1244,10 @@ const DELIVERY_CHECKLIST = [
 
 function buildServer(service: ReelforgeService, auth: AuthContext, config: ServerConfig): McpServer {
   const server = new McpServer(
-    { name: 'reelforge-studio', version: service.serverVersion },
+    { name: SERVER_NAME, title: SERVER_TITLE, version: service.serverVersion },
     {
       instructions:
-        'ReelForge Studio renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ' +
+        `${PRODUCT_NAME} renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ` +
         'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
         'With captions, call get_captions and ask the user to approve them (update_captions approve: true) before render_project; never assume approval. ' +
         `Full guide with a minimal manifest: resource ${resourceUri('guide/workflow')} or prompt make_reel. ` +
@@ -1263,7 +1281,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
             if (e instanceof ApiError) error = e;
             const err = e instanceof ApiError ? e.toJSON() : { code: 'internal', message: e instanceof Error ? e.message : String(e) };
             failure = { code: err.code, message: err.message };
-            if (!(e instanceof ApiError)) console.error(`[reelforge] tool ${t.name} failed`, e);
+            if (!(e instanceof ApiError)) console.error(`[renderweld] tool ${t.name} failed`, e);
             return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: err }, null, 2) }] };
           } finally {
             // One audit entry per admin or write call (D-055), unless the service wrote a detailed one.
@@ -1279,7 +1297,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
                   result: !failure ? 'success' : error?.status === 401 || error?.status === 403 ? 'denied' : 'failure',
                   data: { ...data, ...(failure ? { error: failure.code } : {}), ...(call.idempotentReplay ? { idempotentReplay: true } : {}) },
                 })
-                .catch((e) => console.error('[reelforge] audit write failed', (e as Error).message));
+                .catch((e) => console.error('[renderweld] audit write failed', (e as Error).message));
             }
           }
         });
@@ -1342,6 +1360,32 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
   }
 
   server.registerPrompt(
+    'brief_intake',
+    {
+      title: 'Ask before assuming: complete the brief',
+      description: 'Lists the essentials of a video brief, says where each goes in the manifest, and has the agent ask only the ones the request leaves open.',
+      argsSchema: { request: z.string().describe('What the user asked for so far, in their words.') },
+    },
+    async ({ request }) => ({
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text:
+              `Before planning this video, make sure the brief is complete. The user asked:\n\n${request}\n\n` +
+              'Go through the essentials below. For each one the request already answers, use that answer. For each one it leaves open, ask the user; ' +
+              'ask all open questions in one short message, each with a sensible default they can accept ("vertical 1080x1920 unless you say otherwise"). ' +
+              'Do not invent answers. If the user says "you decide", use the defaults and say which ones you used.\n\n' +
+              `${BRIEF_ESSENTIALS.map((e, i) => `${i + 1}. ${e.question} Goes to: ${e.field}.`).join('\n')}\n\n` +
+              'Then write the answers into the manifest (create_project or update_project) and continue with plan_reel or make_reel.',
+          },
+        },
+      ],
+    })
+  );
+
+  server.registerPrompt(
     'make_reel',
     {
       title: 'Make a reel end to end',
@@ -1354,7 +1398,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
           role: 'user',
           content: {
             type: 'text',
-            text: `Make a short video about: ${topic}\n\nUse the size the user asked for (vertical 1080x1920 if they did not say). Follow this guide exactly, using only the ReelForge tools. Show me the scene list with timings before rendering. If the reel has captions, show me them (get_captions) and ask me to approve or change them before the final render; do not assume I approve. Give me the downloadUrl at the end.\n\n${WORKFLOW_GUIDE}`,
+            text: `Make a short video about: ${topic}\n\nUse the size the user asked for (vertical 1080x1920 if they did not say). Follow this guide exactly, using only the RenderWeld tools. If the topic leaves essentials open (audience, platform and size, length, tone, brand, call to action, captions, voice, music), ask me those first, as the brief_intake prompt lists them; do not assume. Show me the scene list with timings before rendering. If the reel has captions, show me them (get_captions) and ask me to approve or change them before the final render; do not assume I approve. Give me the downloadUrl at the end.\n\n${WORKFLOW_GUIDE}`,
           },
         },
       ],
@@ -1365,7 +1409,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
     'plan_reel',
     {
       title: 'Plan a reel from a brief',
-      description: 'Turns a brief into a ReelForge manifest using the templates installed on this server.',
+      description: 'Turns a brief into a RenderWeld manifest using the templates installed on this server.',
       argsSchema: {
         brief: z.string().describe('What the video is about, for whom, and the call to action.'),
         targetSeconds: z.string().optional().describe('Target length in seconds (default 15).'),
@@ -1373,7 +1417,9 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
       },
     },
     async ({ brief, targetSeconds, platform }) => {
-      const templates = service.listTemplates().map((t) => `- ${t.engine}/${t.id} (${t.minSeconds}-${t.maxSeconds}s): ${t.description}`).join('\n');
+      // It lists templates and the workspace's themes, as list_templates and list_themes do: the same scope (#426).
+      requireRead();
+      const templates = service.listTemplates().map((t) => `- ${t.engine}/${t.id} (${templateDurationLabel(t)}): ${t.description}`).join('\n');
       const themes = (await service.listThemes()).map((t) => `- ${t.id}: ${t.description ?? t.name}`).join('\n');
       return {
         messages: [
@@ -1382,7 +1428,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
             content: {
               type: 'text',
               text:
-                `Plan a short video for ReelForge Studio.\n\nBrief: ${brief}\nTarget length: ${targetSeconds ?? '15'} seconds\nPlatform: ${platform ?? 'instagram-reels'}\n\n` +
+                `Plan a short video for RenderWeld.\n\nBrief: ${brief}\nTarget length: ${targetSeconds ?? '15'} seconds\nPlatform: ${platform ?? 'instagram-reels'}\n\n` +
                 `Installed templates:\n${templates}\n\nThemes:\n${themes}\n\n` +
                 'Steps:\n1. Call list_templates to read each template\'s props schema.\n' +
                 '2. Write a manifest with schemaVersion "0.2", output sized for the platform at 30 fps (1080x1920 for instagram-reels, tiktok and youtube-shorts; 1920x1080 for youtube or the web; 1080x1080 or 1080x1350 for feed posts; any size the user asks for), a brief with that platform, a theme, and 3-6 scenes that add up to the target length. Use durationSeconds within each template\'s range. Open with a hook; keep on-screen text short (about 3 words per second).\n' +
@@ -1412,7 +1458,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
             content: {
               type: 'text',
               text:
-                `Review this ReelForge project against the checklist. For each item answer pass / fail / unknown with a one-line reason, then list concrete fixes as tool calls (update_scene, set_theme, ...).\n\n` +
+                `Review this RenderWeld project against the checklist. For each item answer pass / fail / unknown with a one-line reason, then list concrete fixes as tool calls (update_scene, set_theme, ...).\n\n` +
                 `Checklist:\n${DELIVERY_CHECKLIST.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n` +
                 `Validation report:\n${JSON.stringify(report, null, 2)}\n\nManifest (version ${p.meta.version}):\n${JSON.stringify(p.manifest, null, 2)}`,
             },
@@ -1442,10 +1488,12 @@ export async function handleMcp(req: Request, auth: AuthContext, service: Reelfo
 export function serverCard(service: ReelforgeService, config: ServerConfig) {
   const base = config.publicUrl ?? `http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${config.port}`;
   return {
-    name: 'reelforge-studio',
-    title: 'ReelForge Studio',
+    name: SERVER_NAME,
+    title: SERVER_TITLE,
+    // The old server name (#413): still listed until phase 7, so a client that matched on it finds this server.
+    aliases: [...OLD_SERVER_NAMES],
     version: service.serverVersion,
-    description: 'Self-hosted short-form video studio. Agents create and edit projects; the server renders and validates MP4s.',
+    description: 'Self-hosted video rendering for AI agents. Agents create and edit projects; the server renders and validates the video.',
     endpoint: `${base}/mcp`,
     transport: { type: 'streamable-http', stateless: true, jsonResponse: true },
     authentication: {
@@ -1464,7 +1512,7 @@ export function serverCard(service: ReelforgeService, config: ServerConfig) {
     resources: RESOURCES.map((r) => resourceUri(r.path)),
     // The old URIs (#412): still answered, not listed in new docs.
     resourceAliases: Object.fromEntries(RESOURCES.map((r) => [`reelforge://${r.path}`, resourceUri(r.path)])),
-    prompts: ['make_reel', 'plan_reel', 'review_reel'],
+    prompts: ['brief_intake', 'make_reel', 'plan_reel', 'review_reel'],
     rest: { base: `${base}/v1`, capabilities: `${base}/v1/capabilities` },
   };
 }

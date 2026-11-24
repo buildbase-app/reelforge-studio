@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# ReelForge Studio: REST + MCP server with every engine, FFmpeg and Chrome Headless Shell.
+# RenderWeld (formerly ReelForge Studio): REST + MCP server with every engine, FFmpeg and Chrome Headless Shell.
 #
 #   docker build -t reelforge-studio .                                 # release image (the default target)
 #   docker build --build-arg REELFORGE_EDITION=dev -t reelforge-studio:dev .   # same image, licence settings not fixed
@@ -208,12 +208,17 @@ RUN set -e; \
     chmod -R a+rX,go-w /app; \
     # The check needs a secret key in a release build (#305): a random one for this command only, never stored.
     RENDERWELD_SECRET_KEY="$(head -c 48 /dev/urandom | base64 | tr -d '\n')" RENDERWELD_DATA_DIR=/tmp/check renderweld config check >/dev/null; rm -rf /tmp/*
-LABEL org.opencontainers.image.title="ReelForge Studio" \
-      org.opencontainers.image.description="Self-hosted, AI-agent-driven short-form video studio (REST + MCP)" \
+# OCI labels name RenderWeld (#413). `source` follows the GitHub repository rename (#409); GitHub redirects
+# the old URL. app.reelforge.edition stays next to app.renderweld.edition until the aliases go (#416).
+LABEL org.opencontainers.image.title="RenderWeld" \
+      org.opencontainers.image.description="Self-hosted video rendering for AI agents (REST + MCP)" \
+      org.opencontainers.image.url="https://renderweld.com" \
+      org.opencontainers.image.vendor="RenderWeld" \
       org.opencontainers.image.source="https://github.com/buildbase-app/reelforge-studio" \
       org.opencontainers.image.licenses="LicenseRef-PolyForm-Noncommercial-1.0.0" \
       org.opencontainers.image.version="${REELFORGE_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
+      app.renderweld.edition="${REELFORGE_EDITION}" \
       app.reelforge.edition="${REELFORGE_EDITION}"
 
 WORKDIR /app

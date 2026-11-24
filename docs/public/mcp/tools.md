@@ -38,7 +38,7 @@ What this server can do, the manifest schema and the installed templates. Call t
 
 **Get server capabilities**. Scope: `read`, read-only. REST: `GET /v1/capabilities`.
 
-Start here. Returns what this ReelForge server can do right now: installed engines (and whether each can render on this machine), templates, themes, media providers (configured or not, with cost notes), render backends, limits (fps, max duration, upload size) and tool versions. Never guess an engine, template or provider: use what this returns.
+Start here. Returns what this RenderWeld server can do right now: installed engines (and whether each can render on this machine), templates, themes, media providers (configured or not, with cost notes), render backends, limits (fps, max duration, upload size) and tool versions. Never guess an engine, template or provider: use what this returns.
 
 No arguments.
 
@@ -109,7 +109,7 @@ Returns the current manifest, its version number and the computed timing of ever
 
 **Update a project**. Scope: `write`. REST: `PATCH /v1/projects/:id`.
 
-Changes a project. Give either patch (a JSON merge patch, RFC 7396: objects merge, null deletes a key, arrays replace) or manifest (a full replacement). For single scenes prefer add_scene / update_scene. Every update is validated and saved as a new version.
+Changes a project. Give either patch (a JSON merge patch, RFC 7396: objects merge, null deletes a key, arrays replace) or manifest (a full replacement). Because null deletes, a patch cannot set a field to null: for caption style use "none" (captions.style.background "none" = no box, outline "none" = no outline); for other nullable fields send the full manifest. For single scenes prefer add_scene / update_scene. Every update is validated and saved as a new version.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -142,7 +142,7 @@ Every update saves a new version. Returns the version numbers; read one with get
 
 **Delete a project**. Scope: `write`, destructive. REST: `DELETE /v1/projects/:id`.
 
-Deletes a project with all its versions and renders. Cannot be undone; confirm with the user first.
+Deletes a project with all its versions and renders, and cancels its queued and running renders and previews. Cannot be undone; confirm with the user first.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -670,7 +670,7 @@ Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
-| `key` | string | no | The licence key from the ReelForge purchase, e.g. "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2". Omit to re-check the configured key. |
+| `key` | string | no | The licence key from the RenderWeld purchase, e.g. "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2". Omit to re-check the configured key. |
 
 ### `deactivate_licence`
 

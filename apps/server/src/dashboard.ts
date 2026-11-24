@@ -26,7 +26,7 @@ export const DASHBOARD_CSP = [
   "media-src 'self' blob:",
   "connect-src 'self'",
   "font-src 'self'",
-  "manifest-src 'none'",
+  "manifest-src 'self'", // the web app manifest from assets/ (#413)
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
@@ -45,9 +45,11 @@ const TYPES: Record<string, string> = {
   js: 'text/javascript; charset=utf-8',
   css: 'text/css; charset=utf-8',
   svg: 'image/svg+xml',
+  png: 'image/png',
+  webmanifest: 'application/manifest+json',
 };
 /** Only the hashed files the build writes: no path separators, no dot segments. */
-const ASSET = /^assets\/([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.(js|css|svg))$/;
+const ASSET = /^assets\/([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.(js|css|svg|png|webmanifest))$/;
 
 function enabled(service: ReelforgeService, config: ServerConfig): boolean {
   // The live settings (PATCH /v1/config applies dashboard.enabled without a restart), else file + env.

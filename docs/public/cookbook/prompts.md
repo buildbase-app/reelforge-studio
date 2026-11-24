@@ -14,6 +14,18 @@ tools it will typically call. The agent decides the exact calls; these are what
 the server offers for each job. Prefix a prompt with "Use reelforge:" if your
 client has several MCP servers.
 
+## Ask before assuming
+
+> We need a reel for our bakery opening. Ask me whatever you need first.
+
+The `brief_intake` prompt lists the essentials of a brief: goal and call to action,
+audience, platform and size, length, language, tone, brand, captions, voice-over,
+music, and any content that must appear exactly. The agent asks only the ones
+your request leaves open, in one message, each with a default you can accept.
+It writes the answers into the manifest (`brief`, `output`, `theme`, `captions`,
+`audio`). `make_reel` does the same before it plans. Say "you decide" and the
+agent uses the defaults and tells you which.
+
 ## A reel from a brief
 
 > Plan a 15 second vertical reel about our new budgeting app for students. Show

@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from '../product';
 import type { JobRecord } from '../repositories';
 import type { EventEnvelope } from './types';
 
@@ -129,35 +130,35 @@ export function eventTitle(e: EventEnvelope): string {
     case 'job.started':
     case 'job.succeeded':
     case 'job.cancelled':
-      return `ReelForge: ${job?.type ?? 'job'} ${job?.id ?? ''} ${e.type.slice(4)}${job?.projectId ? ` (project ${job.projectId})` : ''}`;
+      return `${PRODUCT_NAME}: ${job?.type ?? 'job'} ${job?.id ?? ''} ${e.type.slice(4)}${job?.projectId ? ` (project ${job.projectId})` : ''}`;
     case 'job.failed':
-      return `ReelForge: ${job?.type ?? 'job'} ${job?.id ?? ''} failed${job?.projectId ? ` (project ${job.projectId})` : ''}: ${job?.error?.code ?? 'error'}`;
+      return `${PRODUCT_NAME}: ${job?.type ?? 'job'} ${job?.id ?? ''} failed${job?.projectId ? ` (project ${job.projectId})` : ''}: ${job?.error?.code ?? 'error'}`;
     case 'job.progress':
-      return `ReelForge: ${job?.type ?? 'job'} ${job?.id ?? ''} at ${Math.round((job?.progress?.fraction ?? 0) * 100)} %`;
+      return `${PRODUCT_NAME}: ${job?.type ?? 'job'} ${job?.id ?? ''} at ${Math.round((job?.progress?.fraction ?? 0) * 100)} %`;
     case 'render.ready':
-      return `ReelForge: ${d.kind ?? 'render'} ${d.renderId ?? ''} of project ${d.projectId ?? '?'} is ready`;
+      return `${PRODUCT_NAME}: ${d.kind ?? 'render'} ${d.renderId ?? ''} of project ${d.projectId ?? '?'} is ready`;
     case 'render.failed':
     case 'render.timeout':
     case 'render.qa_failed':
-      return `ReelForge: ${d.kind ?? 'render'} ${d.jobId ?? ''} of project ${d.projectId ?? '?'} ${e.type === 'render.timeout' ? 'timed out' : e.type === 'render.qa_failed' ? 'failed a quality check' : 'failed'}: ${d.error?.code ?? 'error'}`;
+      return `${PRODUCT_NAME}: ${d.kind ?? 'render'} ${d.jobId ?? ''} of project ${d.projectId ?? '?'} ${e.type === 'render.timeout' ? 'timed out' : e.type === 'render.qa_failed' ? 'failed a quality check' : 'failed'}: ${d.error?.code ?? 'error'}`;
     case 'render.cancelled':
-      return `ReelForge: ${d.kind ?? 'render'} ${d.jobId ?? ''} of project ${d.projectId ?? '?'} was cancelled`;
+      return `${PRODUCT_NAME}: ${d.kind ?? 'render'} ${d.jobId ?? ''} of project ${d.projectId ?? '?'} was cancelled`;
     case 'render.blocked':
-      return `ReelForge: ${d.kind ?? 'render'} of project ${d.projectId ?? '?'} was refused: ${d.error?.code ?? 'blocked'}`;
+      return `${PRODUCT_NAME}: ${d.kind ?? 'render'} of project ${d.projectId ?? '?'} was refused: ${d.error?.code ?? 'blocked'}`;
     case 'licence.state_changed':
-      return `ReelForge: licence ${d.previous?.status ?? '?'} -> ${d.status}${d.renderAllowed === false ? ' (renders are refused)' : ''}`;
+      return `${PRODUCT_NAME}: licence ${d.previous?.status ?? '?'} -> ${d.status}${d.renderAllowed === false ? ' (renders are refused)' : ''}`;
     case 'key.created':
-      return `ReelForge: API key "${d.name ?? d.keyId}" created`;
+      return `${PRODUCT_NAME}: API key "${d.name ?? d.keyId}" created`;
     case 'key.revoked':
-      return `ReelForge: API key "${d.name ?? d.keyId}" revoked`;
+      return `${PRODUCT_NAME}: API key "${d.name ?? d.keyId}" revoked`;
     case 'config.changed':
-      return `ReelForge: settings changed: ${(d.keys as string[] | undefined)?.join(', ') ?? ''}`;
+      return `${PRODUCT_NAME}: settings changed: ${(d.keys as string[] | undefined)?.join(', ') ?? ''}`;
     case 'audit.entry':
-      return `ReelForge audit: ${d.entry?.action ?? ''} (${d.entry?.result ?? ''})`;
+      return `${PRODUCT_NAME} audit: ${d.entry?.action ?? ''} (${d.entry?.result ?? ''})`;
     case 'webhook.test':
-      return 'ReelForge: test notification';
+      return `${PRODUCT_NAME}: test notification`;
     default:
-      return `ReelForge: ${e.type}`;
+      return `${PRODUCT_NAME}: ${e.type}`;
   }
 }
 
@@ -174,6 +175,6 @@ export function eventText(e: EventEnvelope, serverUrl?: string): string {
   lines.push('');
   flat(e.data);
   if (serverUrl) lines.push('', `Server: ${serverUrl}`);
-  lines.push('', '-- ', 'Sent by ReelForge Studio. Change which events reach this address with update_webhook.');
+  lines.push('', '-- ', `Sent by ${PRODUCT_NAME}. Change which events reach this address with update_webhook.`);
   return lines.join('\n');
 }

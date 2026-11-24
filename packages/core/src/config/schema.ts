@@ -517,7 +517,7 @@ export const ConfigSchema = z.object({
       env: 'REELFORGE_STORAGE_DRIVER',
       default: 'local',
       description:
-        'Where asset and render files are kept (D-065): `local` (the data directory), `s3` (any S3-compatible API: AWS S3, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, MinIO, GCS with HMAC keys), `azure` (Azure Blob Storage) or `gcs` (Google Cloud Storage, native). Move existing files with `reelforge storage migrate --to <driver>`.',
+        'Where asset and render files are kept (D-065): `local` (the data directory), `s3` (any S3-compatible API: AWS S3, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, MinIO, GCS with HMAC keys), `azure` (Azure Blob Storage) or `gcs` (Google Cloud Storage, native). Move existing files with `renderweld storage migrate --to <driver>`.',
     }),
     localShared: setting(z.boolean(), {
       kind: 'boolean',
@@ -755,7 +755,7 @@ export const ConfigSchema = z.object({
       scope: 'startup',
       env: 'REELFORGE_MIGRATE_ON_START',
       default: true,
-      description: 'Apply pending migrations on start. Off: refuse to start while migrations are pending (run `reelforge migrate`).',
+      description: 'Apply pending migrations on start. Off: refuse to start while migrations are pending (run `renderweld migrate`).',
     }),
     connectTimeoutSeconds: setting(nonNegative(), {
       kind: 'integer',
@@ -800,7 +800,7 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_MCP_OAUTH_ISSUER',
         example: 'https://auth.example.com/realms/studio',
         description:
-          'Turns on OAuth for `/mcp`: the issuer identifier of your authorization server, exactly as in its tokens\' `iss` (trailing slash included). `/mcp` then also accepts its JWT access tokens (asymmetric signatures, keys from its JWKS) with `reelforge:read`, `reelforge:write`, `reelforge:render` or `reelforge:admin` in `scope`/`scp`, and serves `/.well-known/oauth-protected-resource`. API keys keep working. Unset: API keys only.',
+          'Turns on OAuth for `/mcp`: the issuer identifier of your authorization server, exactly as in its tokens\' `iss` (trailing slash included). `/mcp` then also accepts its JWT access tokens (asymmetric signatures, keys from its JWKS) with `reelforge:read`, `reelforge:write`, `reelforge:render`, `reelforge:admin` or `reelforge:owner` (instance settings, workspaces) in `scope`/`scp`, and serves `/.well-known/oauth-protected-resource`. API keys keep working. Unset: API keys only.',
       }),
       audience: setting(httpUrl().optional(), {
         kind: 'url',
@@ -971,7 +971,7 @@ export const ConfigSchema = z.object({
         kind: 'string',
         scope: 'runtime',
         env: 'REELFORGE_EMAIL_FROM',
-        example: 'ReelForge <studio@example.com>',
+        example: 'RenderWeld <studio@example.com>',
         description: 'Sender of notification emails (every email provider needs it; Resend, Postmark, SES and SendGrid only send from verified senders).',
       }),
       smtp: z.object({
@@ -1375,7 +1375,7 @@ export const ConfigSchema = z.object({
         default: (get: Getter) => (get('logging.format') === 'text' ? 'pretty' : 'stdout'),
         defaultText: '`stdout` (`pretty` when `logging.format` is `text`)',
         description:
-          '`stdout`: one JSON object per line (request id, key id, route, status, duration; secrets redacted). `pretty`: readable `[reelforge] ...` lines for development. `otlp`: JSON lines on stdout and OpenTelemetry log records to `observability.otlp.endpoint` (Grafana Loki, Datadog, Honeycomb, Elastic, ...).',
+          '`stdout`: one JSON object per line (request id, key id, route, status, duration; secrets redacted). `pretty`: readable `[renderweld] ...` lines for development. `otlp`: JSON lines on stdout and OpenTelemetry log records to `observability.otlp.endpoint` (Grafana Loki, Datadog, Honeycomb, Elastic, ...).',
       }),
     }),
     metrics: z.object({
@@ -1486,7 +1486,7 @@ export const ConfigSchema = z.object({
       aliases: ['REELFORGE_LICENSE_KEY'],
       secret: true,
       description:
-        'Licence key from your ReelForge purchase (D-028). Activated on start and when set; validated daily. Setting it with `activate_licence` / `POST /v1/licence` stores it encrypted (needs `REELFORGE_SECRET_KEY`). Only the key and a random instance id are sent to the licence server (docs/PRIVACY.md).',
+        'Licence key from your RenderWeld purchase (D-028). Activated on start and when set; validated daily. Setting it with `activate_licence` / `POST /v1/licence` stores it encrypted (needs `REELFORGE_SECRET_KEY`). Only the key and a random instance id are sent to the licence server (docs/PRIVACY.md).',
     }),
     offlineGraceDays: setting(z.number().int().min(0).max(14), {
       kind: 'integer',

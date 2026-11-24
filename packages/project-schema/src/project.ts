@@ -18,8 +18,10 @@ import { formatSpecIssues } from './output-formats';
 import {
   BUILTIN_CATALOG,
   MAX_SOURCE_BYTES,
+  MIN_SCENE_FRAMES,
   SOURCE_ENGINES,
   SOURCE_SCENE_SECONDS,
+  templateDurationLabel,
   type TemplateCatalog,
 } from './templates';
 import { themeId, themeTokensPatch } from './themes';
@@ -302,6 +304,9 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
       add(['scenes', i, 'durationFrames'], 'give exactly one of durationFrames or durationSeconds');
     }
     const frames = sceneFrames(s, p.output.fps);
+    if (hasFrames !== hasSeconds && frames < MIN_SCENE_FRAMES) {
+      add(['scenes', i, hasSeconds ? 'durationSeconds' : 'durationFrames'], `a scene needs at least ${MIN_SCENE_FRAMES} frames; this scene is ${frames} frame${frames === 1 ? '' : 's'}`);
+    }
 
     if (s.startFrame !== undefined && s.startFrame !== cursor) {
       add(['scenes', i, 'startFrame'], `scenes play back to back: expected startFrame ${cursor}, got ${s.startFrame}`);
@@ -342,10 +347,10 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
         add(['scenes', i, 'template'], 'a template is required (or html for the html/hyperframes engines)');
         return;
       }
-      if (seconds < SOURCE_SCENE_SECONDS.min || seconds > SOURCE_SCENE_SECONDS.max) {
+      if (seconds > SOURCE_SCENE_SECONDS.max) {
         add(
-          ['scenes', i, 'durationFrames'],
-          `html scenes support ${SOURCE_SCENE_SECONDS.min}-${SOURCE_SCENE_SECONDS.max}s; this scene is ${seconds.toFixed(2)}s`
+          ['scenes', i, hasSeconds ? 'durationSeconds' : 'durationFrames'],
+          `html scenes support ${MIN_SCENE_FRAMES} frames to ${SOURCE_SCENE_SECONDS.max}s; this scene is ${seconds.toFixed(2)}s`
         );
       }
       return;
@@ -371,7 +376,7 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
     if (seconds < template.minSeconds || seconds > template.maxSeconds) {
       add(
         ['scenes', i, hasSeconds ? 'durationSeconds' : 'durationFrames'],
-        `template "${s.template}" supports ${template.minSeconds}-${template.maxSeconds}s; this scene is ${seconds.toFixed(2)}s`
+        `template "${s.template}" supports ${templateDurationLabel(template)}; this scene is ${seconds.toFixed(2)}s`
       );
     }
     const props = template.props.safeParse(s.props);

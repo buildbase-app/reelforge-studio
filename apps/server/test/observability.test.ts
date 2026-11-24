@@ -107,7 +107,7 @@ describe('logger and redaction (unit)', () => {
     expect(out).toHaveLength(2);
     logger.exporter = 'pretty';
     logger.log('warn', 'careful', { route: '/v1/x' });
-    expect(out[2]).toEqual(['warn', '[reelforge] warn: careful route=/v1/x']);
+    expect(out[2]).toEqual(['warn', '[renderweld] warn: careful route=/v1/x']);
   });
 
   it('OBS-02 redaction: API keys, bearer/basic credentials, URL passwords, signed-URL signatures, secret values and secret-named fields', () => {

@@ -46,13 +46,18 @@ export function fill(el: Element, ...children: Child[]): void {
   append(el, children);
 }
 
-/** The ReelForge mark: a 9:16 reel frame with the tally light (docs/brand/reelforge-mark.svg). */
+/**
+ * The RenderWeld mark: a portrait and a landscape frame sharing a wall, the
+ * orange weld dot on the joint. Drawn with the kit's small-size geometry
+ * (docs/brand/src/icon.svg, the 16 px design on a 32 grid), sharp at 16 to 24 px.
+ */
 export function mark(size = 20): SVGElement {
   return s(
     'svg',
     { viewBox: '0 0 32 32', width: size, height: size, 'aria-hidden': 'true', class: 'mark', focusable: 'false' },
-    s('rect', { x: '8.25', y: '2.25', width: '15.5', height: '27.5', rx: '4', 'stroke-width': '2.5', class: 'mark-frame' }),
-    s('circle', { cx: '16', cy: '16', r: '4.25', class: 'mark-dot' })
+    s('rect', { x: '2', y: '4', width: '12', height: '24', rx: '3', 'stroke-width': '4', class: 'mark-frame' }),
+    s('rect', { x: '14', y: '16', width: '16', height: '12', rx: '3', 'stroke-width': '4', class: 'mark-frame' }),
+    s('circle', { cx: '14', cy: '16', r: '5', class: 'mark-dot' })
   );
 }
 
