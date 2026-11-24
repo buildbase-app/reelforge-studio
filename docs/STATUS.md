@@ -804,7 +804,10 @@ Decided: see `docs/DECISIONS.md` (D-001..D-105). Key ones: both Remotion and
 Motion Canvas (D-002, D-008); self-hosted one-time sale (D-003, D-004); no
 mandatory seller-paid AI (D-005); **REST + MCP agent platform with plugins**
 (D-014, `docs/AGENT_PLATFORM.md`); HyperFrames is a self-hosted engine plugin
-(#9 comment).
+(#9 comment). **Infrastructure, not a decision engine** (2026-11-24, #285): the engine ships
+mechanisms (blueprints, slots, packs, tags, configurable checks) and curated content goes to the
+paid pack (D-128); an optional full image tag for local TTS and Whisper, no music shipped, and only
+small licence-clean bundles (D-129).
 
 **Open and hard to reverse (do not decide by default):**
 1. Remotion licence for the source-sale model (#10): go/no-go, needs a written answer.
