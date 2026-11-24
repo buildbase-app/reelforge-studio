@@ -8,18 +8,18 @@ tests:
   - interval: 1m
     input_series:
       # Previews: 10 per minute, 1 of them within 60 s, the rest within 120 s: p95 is about 117 s.
-      - series: 'reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="preview",reelforge_job_priority="interactive",le="60"}'
+      - series: 'renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="preview",renderweld_job_priority="interactive",le="60"}'
         values: '0+1x60'
-      - series: 'reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="preview",reelforge_job_priority="interactive",le="120"}'
+      - series: 'renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="preview",renderweld_job_priority="interactive",le="120"}'
         values: '0+10x60'
-      - series: 'reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="preview",reelforge_job_priority="interactive",le="+Inf"}'
+      - series: 'renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="preview",renderweld_job_priority="interactive",le="+Inf"}'
         values: '0+10x60'
       # Renders: 10 per minute, all within 300 s: inside the SLO.
-      - series: 'reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="render",reelforge_job_priority="standard",le="120"}'
+      - series: 'renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="render",renderweld_job_priority="standard",le="120"}'
         values: '0+5x60'
-      - series: 'reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="render",reelforge_job_priority="standard",le="300"}'
+      - series: 'renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="render",renderweld_job_priority="standard",le="300"}'
         values: '0+10x60'
-      - series: 'reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="render",reelforge_job_priority="standard",le="+Inf"}'
+      - series: 'renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="render",renderweld_job_priority="standard",le="+Inf"}'
         values: '0+10x60'
     alert_rule_test:
       # Pending for the first 10 minutes of breach, then firing.
@@ -33,18 +33,18 @@ tests:
               severity: warning
             exp_annotations:
               summary: Previews wait more than 60 s for a worker (p95, 15 min)
-              description: "p95 queue wait of previews is 117 s. Add worker replicas (or raise the autoscaler's maximum), check that workers are claiming (reelforge_queue_errors_total, /readyz), or set limits.maxEstimatedWaitSeconds so new work is refused with Retry-After instead of piling up."
+              description: "p95 queue wait of previews is 117 s. Add worker replicas (or raise the autoscaler's maximum), check that workers are claiming (renderweld_queue_errors_total, /readyz), or set limits.maxEstimatedWaitSeconds so new work is refused with Retry-After instead of piling up."
       - eval_time: 30m
         alertname: ReelforgeRenderQueueWaitSLO
         exp_alerts: []
   - interval: 1m
     input_series:
       # Renders: half of them wait more than 300 s: p95 is far above the SLO.
-      - series: 'reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="render",reelforge_job_priority="standard",le="300"}'
+      - series: 'renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="render",renderweld_job_priority="standard",le="300"}'
         values: '0+5x60'
-      - series: 'reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="render",reelforge_job_priority="standard",le="600"}'
+      - series: 'renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="render",renderweld_job_priority="standard",le="600"}'
         values: '0+10x60'
-      - series: 'reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="render",reelforge_job_priority="standard",le="+Inf"}'
+      - series: 'renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="render",renderweld_job_priority="standard",le="+Inf"}'
         values: '0+10x60'
     alert_rule_test:
       - eval_time: 40m

@@ -7,8 +7,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 const require = createRequire('/app/packages/engine-html/package.json');
 const { chromium } = require('playwright-core');
-const sandbox = process.env.REELFORGE_CHROMIUM_NO_SANDBOX !== '1';
-const browser = await chromium.launch({ executablePath: process.env.REELFORGE_CHROMIUM_PATH, chromiumSandbox: sandbox });
+// An operator's old REELFORGE_* value replaces the image's RENDERWELD_* default (#412).
+const sandbox = (process.env.REELFORGE_CHROMIUM_NO_SANDBOX ?? process.env.RENDERWELD_CHROMIUM_NO_SANDBOX) !== '1';
+const browser = await chromium.launch({ executablePath: process.env.REELFORGE_CHROMIUM_PATH ?? process.env.RENDERWELD_CHROMIUM_PATH, chromiumSandbox: sandbox });
 const page = await browser.newPage();
 await page.setContent('<p id="x">ok</p>');
 const rendered = await page.textContent('#x');

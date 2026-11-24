@@ -32,7 +32,7 @@ beforeAll(async () => {
   dropDb = database.drop;
   env = database.env;
   server = await start();
-  adminKey = (await server.service.keys.create('admin', ['admin'])).key;
+  adminKey = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   for (let i = 0; i < PROJECTS; i++) await server.service.createProject({ ...sample, projectId: `rl-${String(i).padStart(3, '0')}` });
   const job = await server.service.jobs.waitFor((await server.service.startRender(OWNER)).id, 120_000);
   expect(job.status, JSON.stringify(job.error)).toBe('succeeded');

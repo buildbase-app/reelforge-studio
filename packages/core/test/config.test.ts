@@ -363,11 +363,11 @@ describe('RuntimeConfig', () => {
     expect(err.message).toContain('server.port');
     expect(err.message).toContain('REELFORGE_PORT');
     expect(err.message).toContain('REELFORGE_CONFIG');
-    expect(err.details.issues[0]).toMatchObject({ key: 'server.port', code: 'startup_only', setIn: { configFile: 'server.port', env: ['REELFORGE_PORT'] } });
+    expect(err.details.issues[0]).toMatchObject({ key: 'server.port', code: 'startup_only', setIn: { configFile: 'server.port', env: ['RENDERWELD_PORT', 'REELFORGE_PORT'] } });
     expect(await repos.settings.list()).toEqual([]);
     expect(rc.config.limits.rateLimitPerMinute).toBe(300);
     const db = await rc.update({ 'database.url': 'postgresql://x/y' }).catch((e) => e);
-    expect(db.details.issues[0].setIn.env).toEqual(['REELFORGE_DATABASE_URL', 'REELFORGE_DATABASE_URL_FILE', 'DATABASE_URL', 'DATABASE_URL_FILE']);
+    expect(db.details.issues[0].setIn.env).toEqual(['RENDERWELD_DATABASE_URL', 'RENDERWELD_DATABASE_URL_FILE', 'REELFORGE_DATABASE_URL', 'REELFORGE_DATABASE_URL_FILE', 'DATABASE_URL', 'DATABASE_URL_FILE']);
     expect(db.message).not.toContain('postgresql://x/y');
   });
 

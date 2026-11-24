@@ -680,10 +680,10 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'configure_provider',
-    title: 'Configure a media provider (admin)',
+    title: 'Configure a media provider (owner)',
     description:
-      'Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider\'s setting names). Values are stored encrypted in the server database (needs REELFORGE_SECRET_KEY on the server) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the admin scope. Only do this with a key the user gave you for this purpose.',
-    scope: 'admin',
+      'Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider\'s setting names). Values are stored encrypted in the server database (needs REELFORGE_SECRET_KEY on the server) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the owner scope (instance-level, #304). Only do this with a key the user gave you for this purpose.',
+    scope: 'owner',
     input: {
       providerId: z.string(),
       values: z.record(z.string(), z.string().nullable()).describe('Setting name -> value, or null to clear.'),
@@ -692,20 +692,20 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'get_config',
-    title: 'Get the server configuration (admin)',
+    title: 'Get the server configuration (owner)',
     description:
-      'Returns every server setting with its effective value and where it comes from: source "default", "file" (REELFORGE_CONFIG), "env" (origin names the variable) or "runtime" (set with update_config, stored in the database; wins over the others). scope "runtime" settings can be changed with update_config; scope "startup" ones only in the config file or environment, then a restart. Secrets are only "set" / "not set". Optional prefix filters keys, e.g. "limits". Needs the admin scope.',
-    scope: 'admin',
+      'Returns every server setting with its effective value and where it comes from: source "default", "file" (REELFORGE_CONFIG), "env" (origin names the variable) or "runtime" (set with update_config, stored in the database; wins over the others). scope "runtime" settings can be changed with update_config; scope "startup" ones only in the config file or environment, then a restart. Secrets are only "set" / "not set". Optional prefix filters keys, e.g. "limits". Needs the owner scope (instance-level, #304).',
+    scope: 'owner',
     input: { prefix: z.string().optional().describe('Only keys under this group, e.g. "limits" or "providers.elevenlabs".') },
     annotations: { readOnlyHint: true },
     run: async (a, { service }) => service.getConfig({ prefix: a.prefix }),
   },
   {
     name: 'update_config',
-    title: 'Change runtime settings (admin)',
+    title: 'Change runtime settings (owner)',
     description:
-      'Changes runtime settings at once and stores them in the database (they survive restarts and override the config file and environment). settings maps dotted keys from get_config to values, e.g. { "limits.rateLimitPerMinute": 120 }; null clears a runtime value (the file/env/default applies again). All or nothing: start-up-only keys (port, database URL, data directory, ...) are refused with where to set them. Secrets (provider keys, licence key) are stored encrypted and need REELFORGE_SECRET_KEY on the server. Every change is audit-logged. Needs the admin scope. Only change what the user asked for.',
-    scope: 'admin',
+      'Changes runtime settings at once and stores them in the database (they survive restarts and override the config file and environment). settings maps dotted keys from get_config to values, e.g. { "limits.rateLimitPerMinute": 120 }; null clears a runtime value (the file/env/default applies again). All or nothing: start-up-only keys (port, database URL, data directory, ...) are refused with where to set them. Secrets (provider keys, licence key) are stored encrypted and need REELFORGE_SECRET_KEY on the server. Every change is audit-logged. Needs the owner scope (instance-level, #304). Only change what the user asked for.',
+    scope: 'owner',
     input: {
       settings: z.record(z.string(), z.unknown()).describe('Dotted setting key -> new value (JSON type of the setting), or null to clear the runtime value.'),
     },
@@ -758,40 +758,40 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'activate_licence',
-    title: 'Set and activate the licence key (admin)',
+    title: 'Set and activate the licence key (owner)',
     description:
-      'Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the admin scope.',
-    scope: 'admin',
+      'Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the owner scope (instance-level, #304).',
+    scope: 'owner',
     input: { key: z.string().optional().describe('The licence key from the ReelForge purchase, e.g. "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2". Omit to re-check the configured key.') },
     annotations: { openWorldHint: true, idempotentHint: true },
     run: async (a, { service, auth }) => service.activateLicence(a.key, { actorType: 'api_key', actorId: auth.keyId }),
   },
   {
     name: 'deactivate_licence',
-    title: 'Give the licence activation back (admin)',
+    title: 'Give the licence activation back (owner)',
     description:
-      'Frees this server\'s activation of the licence key at the licence server, so the key can be activated on another server. Afterwards renders and previews are refused here until activate_licence is called again. Only do this when the user asks (e.g. moving to a new server). Needs the admin scope.',
-    scope: 'admin',
+      'Frees this server\'s activation of the licence key at the licence server, so the key can be activated on another server. Afterwards renders and previews are refused here until activate_licence is called again. Only do this when the user asks (e.g. moving to a new server). Needs the owner scope (instance-level, #304).',
+    scope: 'owner',
     input: {},
     annotations: { destructiveHint: true, openWorldHint: true },
     run: async (_a, { service, auth }) => service.deactivateLicence({ actorType: 'api_key', actorId: auth.keyId }),
   },
   {
     name: 'get_storage',
-    title: 'Get storage driver, usage and health (admin)',
+    title: 'Get storage driver, usage and health (owner)',
     description:
-      'Returns where asset and render files are stored: driver ("local", "s3", "azure", "gcs"), location (bucket/container, endpoint, prefix, credential source; never secrets), how download links are made (bucket-signed or through this server), health (can the store be reached), usage (assets, renders, unfinished uploads, local cache in objects and bytes), the retention policy (storage.retention.*, change it with update_config) and the last scheduled sweep. Needs the admin scope.',
-    scope: 'admin',
+      'Returns where asset and render files are stored: driver ("local", "s3", "azure", "gcs"), location (bucket/container, endpoint, prefix, credential source; never secrets), how download links are made (bucket-signed or through this server), health (can the store be reached), usage (assets, renders, unfinished uploads, local cache in objects and bytes), the retention policy (storage.retention.*, change it with update_config) and the last scheduled sweep. Needs the owner scope (instance-level, #304).',
+    scope: 'owner',
     input: {},
     annotations: { readOnlyHint: true },
     run: async (_a, { service }) => service.getStorage(),
   },
   {
     name: 'run_storage_cleanup',
-    title: 'Apply the storage retention policy now (admin)',
+    title: 'Apply the storage retention policy now (owner)',
     description:
-      'Deletes renders the retention policy no longer keeps (older than storage.retention.renderDays; the newest keepLastRendersPerProject of each project and renders of running jobs are always kept), unfinished uploads and stale staging directories older than tempHours, and local cached copies unused for cacheDays. Call with dryRun: true first and show the user what would be deleted; deleting renders cannot be undone. renderDays / keepLastRendersPerProject try another policy for this run only (to set the policy, use update_config). Returns every render removed with its size and reason. Audit-logged. Needs the admin scope.',
-    scope: 'admin',
+      'Deletes renders the retention policy no longer keeps (older than storage.retention.renderDays; the newest keepLastRendersPerProject of each project and renders of running jobs are always kept), unfinished uploads and stale staging directories older than tempHours, and local cached copies unused for cacheDays. Call with dryRun: true first and show the user what would be deleted; deleting renders cannot be undone. renderDays / keepLastRendersPerProject try another policy for this run only (to set the policy, use update_config). Returns every render removed with its size and reason. Audit-logged. Needs the owner scope (instance-level, #304).',
+    scope: 'owner',
     input: {
       dryRun: z.boolean().optional().describe('true: only report what would be deleted. Default false.'),
       renderDays: z.number().int().min(0).max(36500).optional().describe('Override storage.retention.renderDays for this run (0 = no age limit).'),
@@ -824,7 +824,7 @@ export const TOOLS: ToolDef[] = [
     name: 'create_key',
     title: 'Create an API key (admin)',
     description:
-      'Creates an API key with the given scopes (read, write, render, admin) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.',
+      'Creates an API key in this key\'s workspace with the given scopes (read, write, render, admin; owner only from an owner key) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.',
     scope: 'admin',
     input: { name: z.string(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).min(1), ...keyLimits },
     run: async (a, { service, auth }) => ({
@@ -1040,7 +1040,25 @@ export const TOOLS: ToolDef[] = [
   },
 ];
 
-/** Served as the resource reelforge://guide/workflow and inside the make_reel prompt. */
+/**
+ * MCP resource URIs (#412): `renderweld://` is the scheme; the old
+ * `reelforge://` answers every URI too until a removal date announced in the
+ * release notes (docs/RENAMED.md). Tool and prompt names do not change.
+ */
+export const RESOURCE_SCHEME = 'renderweld';
+export const RESOURCE_SCHEMES = ['renderweld', 'reelforge'] as const;
+export const resourceUri = (path: string) => `${RESOURCE_SCHEME}://${path}`;
+
+/** The resources, by path under either scheme. */
+export const RESOURCES = [
+  { name: 'workflow-guide', path: 'guide/workflow', title: 'How to make a reel with these tools', description: 'Step-by-step workflow, a minimal manifest and rules of thumb. Read this first if you have no other docs.', mimeType: 'text/markdown' },
+  { name: 'project-schema', path: 'schema/project', title: 'Project manifest JSON Schema', description: 'JSON Schema of the current manifest version.', mimeType: 'application/json' },
+  { name: 'templates', path: 'templates', title: 'Installed templates', description: 'Templates with engines, durations, theme tokens and props schemas.', mimeType: 'application/json' },
+  { name: 'project', path: 'projects/{id}', title: 'Project manifest', description: 'The current manifest of a project.', mimeType: 'application/json' },
+] as const;
+export type ResourcePath = (typeof RESOURCES)[number]['path'];
+
+/** Served as the resource renderweld://guide/workflow (and reelforge://guide/workflow) and inside the make_reel prompt. */
 export const WORKFLOW_GUIDE = `# ReelForge Studio: making a reel with MCP tools only
 
 You decide the scenes; the server validates, renders and checks. Everything is
@@ -1145,7 +1163,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
         'ReelForge Studio renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ' +
         'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
         'With captions, call get_captions and ask the user to approve them (update_captions approve: true) before render_project; never assume approval. ' +
-        'Full guide with a minimal manifest: resource reelforge://guide/workflow or prompt make_reel. ' +
+        `Full guide with a minimal manifest: resource ${resourceUri('guide/workflow')} or prompt make_reel. ` +
         'Renders need a valid licence: get_capabilities.licence / get_licence say whether renders are allowed and, if not, what the user must do. ' +
         'Tools are experimental until v1.0.',
     }
@@ -1204,50 +1222,55 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
     if (!hasScope(auth, 'read')) throw new ApiError('forbidden', 403, 'this API key lacks the "read" scope');
   };
 
-  server.registerResource(
-    'project-schema',
-    'reelforge://schema/project',
-    { title: 'Project manifest JSON Schema', description: 'JSON Schema of the current manifest version.', mimeType: 'application/json' },
-    async (uri) => {
+  // Every resource answers under renderweld:// (the name) and the old reelforge:// (#412, RESOURCES).
+  const read = {
+    'schema/project': async () => {
       requireRead();
-      return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(service.projectSchema(), null, 2) }] };
-    }
-  );
-  server.registerResource(
-    'templates',
-    'reelforge://templates',
-    { title: 'Installed templates', description: 'Templates with engines, durations, theme tokens and props schemas.', mimeType: 'application/json' },
-    async (uri) => {
+      return JSON.stringify(service.projectSchema(), null, 2);
+    },
+    templates: async () => {
       requireRead();
-      return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(service.listTemplates(), null, 2) }] };
+      return JSON.stringify(service.listTemplates(), null, 2);
+    },
+    'guide/workflow': async () => WORKFLOW_GUIDE,
+  } satisfies Record<Exclude<ResourcePath, 'projects/{id}'>, () => Promise<string>>;
+  for (const r of RESOURCES) {
+    for (const scheme of RESOURCE_SCHEMES) {
+      const legacy = scheme !== RESOURCE_SCHEME;
+      const name = legacy ? `${r.name}-${scheme}` : r.name;
+      const meta = {
+        title: legacy ? `${r.title} (old URI)` : r.title,
+        description: legacy ? `Same as ${resourceUri(r.path)}; the old ${scheme}:// URI keeps working until a removal date announced in the release notes (docs/RENAMED.md).` : r.description,
+        mimeType: r.mimeType,
+      };
+      if (r.path === 'projects/{id}') {
+        server.registerResource(
+          name,
+          new ResourceTemplate(`${scheme}://${r.path}`, {
+            // Listed once, under the new scheme; the old one still reads every project.
+            list: legacy
+              ? undefined
+              : async () => {
+                  requireRead();
+                  return {
+                    // The newest 200 (one page, D-102): this list callback gets no cursor; list_projects pages through all.
+                    resources: (await service.listProjects({ limit: 200 })).projects.map((p) => ({ uri: resourceUri(`projects/${p.id}`), name: p.title, mimeType: 'application/json' })),
+                  };
+                },
+          }),
+          meta,
+          async (uri, vars) => {
+            requireRead();
+            const p = await service.getProject(String(vars.id));
+            return { contents: [{ uri: uri.href, mimeType: r.mimeType, text: JSON.stringify(p, null, 2) }] };
+          }
+        );
+      } else {
+        const text = read[r.path];
+        server.registerResource(name, `${scheme}://${r.path}`, meta, async (uri) => ({ contents: [{ uri: uri.href, mimeType: r.mimeType, text: await text() }] }));
+      }
     }
-  );
-  server.registerResource(
-    'project',
-    new ResourceTemplate('reelforge://projects/{id}', {
-      list: async () => {
-        requireRead();
-        return {
-          // The newest 200 (one page, D-102): this list callback gets no cursor; list_projects pages through all.
-          resources: (await service.listProjects({ limit: 200 })).projects.map((p) => ({ uri: `reelforge://projects/${p.id}`, name: p.title, mimeType: 'application/json' })),
-        };
-      },
-    }),
-    { title: 'Project manifest', description: 'The current manifest of a project.', mimeType: 'application/json' },
-    async (uri, vars) => {
-      requireRead();
-      const id = String(vars.id);
-      const p = await service.getProject(id);
-      return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(p, null, 2) }] };
-    }
-  );
-
-  server.registerResource(
-    'workflow-guide',
-    'reelforge://guide/workflow',
-    { title: 'How to make a reel with these tools', description: 'Step-by-step workflow, a minimal manifest and rules of thumb. Read this first if you have no other docs.', mimeType: 'text/markdown' },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: 'text/markdown', text: WORKFLOW_GUIDE }] })
-  );
+  }
 
   server.registerPrompt(
     'make_reel',
@@ -1369,7 +1392,9 @@ export function serverCard(service: ReelforgeService, config: ServerConfig) {
     status: 'experimental',
     schemaVersion: SCHEMA_VERSION,
     tools: TOOLS.map((t) => ({ name: t.name, title: t.title, scope: t.scope, status: 'experimental' })),
-    resources: ['reelforge://guide/workflow', 'reelforge://schema/project', 'reelforge://templates', 'reelforge://projects/{id}'],
+    resources: RESOURCES.map((r) => resourceUri(r.path)),
+    // The old URIs (#412): still answered, not listed in new docs.
+    resourceAliases: Object.fromEntries(RESOURCES.map((r) => [`reelforge://${r.path}`, resourceUri(r.path)])),
     prompts: ['make_reel', 'plan_reel', 'review_reel'],
     rest: { base: `${base}/v1`, capabilities: `${base}/v1/capabilities` },
   };

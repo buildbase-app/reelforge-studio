@@ -771,6 +771,17 @@ loudness with no video pass; #349's thread cap on every video encoder (look-ahea
 libaom); #376's exact rates for MOV/WebM (`r_frame_rate` checked), GIF and PNG `frameRate`. After the
 merge the tests ran on FFmpeg 6.1.1 only; re-running the format tests on 5.1.9 is still to do (VERIFY).
 
+### Rename compatibility layer (2026-11-24, issue #412, phase 3 of #408)
+
+ReelForge becomes RenderWeld; nothing an install uses breaks. Every `REELFORGE_*` variable (183 setting names
+and the 5 read outside the schema) also works as `RENDERWELD_*`, `_FILE` included; the new name wins, the old
+one alone logs one warning, different values under both stop the start. `renderweld` CLI next to `reelforge`
+(stderr notice), MCP resources under `renderweld://` and `reelforge://`, the 25 `reelforge_*` metrics also served
+as `renderweld_*` with identical labels, `renderweld.*` span and metric attributes, both email message-id
+headers, Grafana and alert rules on the new names, `docs/CONFIG.md` listing new names first. D-127;
+[RENAMED.md](RENAMED.md) and the public page [Renamed from ReelForge](public/install/renamed-from-reelforge.md).
+Not yet: compose/Kubernetes manifests and docs prose (phase 6), public names such as the MCP server name (phase 4).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |

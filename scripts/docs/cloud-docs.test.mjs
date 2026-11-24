@@ -33,6 +33,9 @@ const PAGES = [
 /** REELFORGE_* names that are not settings: build arguments, compose variables, CLI input, test switches. */
 const NOT_SETTINGS = new Set([
   'REELFORGE_CONFIG',
+  'RENDERWELD_CONFIG',
+  'RENDERWELD_IMAGE_DEFAULTS',
+  'RENDERWELD_LICENCE_KEY_INPUT',
   'REELFORGE_EDITION',
   'REELFORGE_IMAGE',
   'REELFORGE_DOMAIN',
@@ -74,6 +77,19 @@ describe('cloud and provider docs match the code', () => {
   it('reads docs/CONFIG.md', () => {
     assert.ok(SETTINGS.size > 100, `only ${SETTINGS.size} settings parsed from docs/CONFIG.md`);
     for (const [key, s] of SETTINGS) assert.match(s.scope, /^(startup|runtime)$/, `${key} has no scope in docs/CONFIG.md`);
+  });
+
+  it('names every setting by its RENDERWELD_* variable first, with each old REELFORGE_* name as an alias (#412)', () => {
+    const config = read('docs/CONFIG.md');
+    assert.match(config, /\[RENAMED\.md\]\(RENAMED\.md\)/);
+    for (const [key, s] of SETTINGS) {
+      const names = s.envs.filter((n) => n !== '_FILE');
+      const fresh = names.filter((n) => n.startsWith('RENDERWELD_'));
+      const old = names.filter((n) => n.startsWith('REELFORGE_'));
+      assert.ok(names[0].startsWith('RENDERWELD_'), `${key}: the first variable is ${names[0]}, not a RENDERWELD_* name`);
+      assert.deepEqual(old.map((n) => n.replace(/^REELFORGE_/, 'RENDERWELD_')), fresh, `${key}: every RENDERWELD_* name has its old REELFORGE_* alias`);
+      assert.ok(names.indexOf(old[0]) > names.indexOf(fresh.at(-1)), `${key}: the old names come after the new ones`);
+    }
   });
 
   for (const page of PAGES) {
@@ -163,8 +179,8 @@ describe('cloud and provider docs match the code', () => {
 
   it('runtime settings are settable over REST and MCP', () => {
     const routes = read('apps/server/src/routes.ts');
-    assert.match(routes, /method: 'GET', path: '\/v1\/config', scope: 'admin', tool: 'get_config'/);
-    assert.match(routes, /method: 'PATCH', path: '\/v1\/config', scope: 'admin', tool: 'update_config'/);
+    assert.match(routes, /method: 'GET', path: '\/v1\/config', scope: 'owner', tool: 'get_config'/);
+    assert.match(routes, /method: 'PATCH', path: '\/v1\/config', scope: 'owner', tool: 'update_config'/);
     const mcp = read('apps/server/src/mcp.ts');
     assert.match(mcp, /name: 'get_config'/);
     assert.match(mcp, /name: 'update_config'/);

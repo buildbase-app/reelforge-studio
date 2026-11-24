@@ -140,7 +140,7 @@ beforeAll(async () => {
   vi.spyOn(console, 'log').mockImplementation(quiet);
   vi.spyOn(console, 'error').mockImplementation(quiet);
   server = await startServer({ dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' }, { registry: registry(), env, licence: { api: licenceApi, start: false }, logWrite: quiet });
-  admin = (await server.service.keys.create('admin', ['admin', 'write', 'render', 'read'])).key;
+  admin = (await server.service.keys.create('admin', ['admin', 'owner', 'write', 'render', 'read'])).key;
   reader = (await server.service.keys.create('reader', ['read'])).key;
   const c = await rest('POST', '/v1/webhooks', { body: { name: 'ops', url: `${rxUrl}/ops`, events: ['render.*'] } });
   expect(c.status).toBe(201);

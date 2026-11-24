@@ -28,7 +28,10 @@ import {
   type Repositories,
   type StoredProject,
   type DispatchOutboxRow,
+  type WorkspaceRecord,
+  type WorkspaceRepository,
 } from './repositories';
+import { createWorkspaceRouter, type WorkspaceRouter } from './workspace';
 
 const clone = <T>(v: T): T => structuredClone(v);
 /** A job row as stored: like a database, the class is always set (unset reads as standard; D-103). */
@@ -80,6 +83,67 @@ const byNewest = (a: { createdAt: string; id: string }, b: { createdAt: string; 
 export interface MemoryRepositoryOptions {
   /** Queue dispatch (D-105): tell workers when jobs become claimable (an in-memory bus, or rows in the outbox). */
   readySignal?: ReadySignal;
+  /** The install's workspaces, shared by every bound bundle (createMemoryWorkspaceRepositories); default: a new set. */
+  workspaces?: WorkspaceRepository;
+}
+
+/** In-memory workspaces (#304): "default" exists from the start. */
+export function createMemoryWorkspaceRepository(): WorkspaceRepository & { readonly purged: string[] } {
+  const rows = new Map<string, WorkspaceRecord>([[DEFAULT_WORKSPACE_ID, { id: DEFAULT_WORKSPACE_ID, name: 'Default', status: 'active', createdAt: new Date().toISOString() }]]);
+  const purged: string[] = [];
+  const copy = (r: WorkspaceRecord): WorkspaceRecord => structuredClone(r);
+  return {
+    purged,
+    async list() {
+      return [...rows.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).map(copy);
+    },
+    async get(id) {
+      const r = rows.get(id);
+      return r ? copy(r) : null;
+    },
+    async create(record) {
+      if (rows.has(record.id)) return false;
+      rows.set(record.id, copy(record));
+      return true;
+    },
+    async update(id, patch) {
+      const r = rows.get(id);
+      if (!r) return null;
+      const next: WorkspaceRecord = { ...r };
+      if (patch.name !== undefined) next.name = patch.name;
+      if (patch.status !== undefined) next.status = patch.status;
+      for (const k of ['suspendedAt', 'deletedAt', 'purgeAfter'] as const) {
+        if (patch[k] === null) delete next[k];
+        else if (patch[k] !== undefined) next[k] = patch[k]!;
+      }
+      if (patch.limits === null) delete next.limits;
+      else if (patch.limits !== undefined) next.limits = { ...patch.limits };
+      next.updatedAt = patch.updatedAt;
+      rows.set(id, next);
+      return copy(next);
+    },
+    async purge(id) {
+      if (!rows.delete(id)) return false;
+      purged.push(id);
+      return true;
+    },
+  };
+}
+
+/**
+ * In-memory repositories for several workspaces behind one routing bundle (#304): what the server builds from the
+ * database, for tests and throwaway instances.
+ */
+export function createMemoryWorkspaceRepositories(opts: Omit<MemoryRepositoryOptions, 'workspaces'> = {}): WorkspaceRouter {
+  const workspaces = createMemoryWorkspaceRepository();
+  const bound = new Map<string, Repositories>();
+  const bind = (id: string) => {
+    if (workspaces.purged.includes(id)) bound.delete(id);
+    let r = bound.get(id);
+    if (!r) bound.set(id, (r = createMemoryRepositories(id, { ...opts, workspaces })));
+    return r;
+  };
+  return createWorkspaceRouter({ bind, listTtlMs: 0 });
 }
 
 export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID, opts: MemoryRepositoryOptions = {}): Repositories {
@@ -178,6 +242,7 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID, opt
 
   return {
     workspaceId,
+    workspaces: opts.workspaces ?? createMemoryWorkspaceRepository(),
     webhooks: createMemoryWebhookRepository(),
     dispatchOutbox: {
       async claim(now, leaseUntil, limit) {
