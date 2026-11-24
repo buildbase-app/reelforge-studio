@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { join } from 'node:path';
+import { rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import {
   assetHeaders,
   assetToken,
@@ -22,11 +22,13 @@ import { PipelineError, startPngEncoder, type Tools } from '@reelforge/media-pip
 import {
   BUILTIN_THEMES,
   FIT_TEXT_SCRIPT,
+  fpsArg,
+  framesToSeconds,
+  htmlTitleProps,
   MAX_SOURCE_BYTES,
   TEMPLATES,
   FONT_LOAD_TIMEOUT_MS,
   fontFaceCss,
-  htmlTitleProps,
   mediaKey,
   rewriteAssetRefs,
   type DomLogo,
@@ -36,6 +38,7 @@ import {
   type ThemeTokens,
 } from '@reelforge/project-schema';
 import { chromium, type Browser } from 'playwright-core';
+import { frameDataUrl, layoutSource } from './media';
 import { buildDocument, htmlTitle } from './page';
 
 export interface HtmlRenderOptions {
@@ -49,13 +52,13 @@ export interface HtmlRenderOptions {
   browserExecutable?: string;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
-  /** Whole-render timeout. Default: 30 s + 1 s per frame, at most render.sceneTimeoutSeconds. */
+  /** Whole-render timeout. Default: 30 s + 1 s per frame (per 1920x1080 worth of pixels), at most render.sceneTimeoutSeconds. */
   timeoutMs?: number;
-  /** The project's assets (EngineRenderContext.assets); the scene may use only these (#299). */
+  /** The project's assets (EngineRenderContext.assets); the scene may use only these (#299). html-layout panes read them directly. */
   assets?: ReadonlyMap<string, ResolvedAsset>;
   /** FFmpeg/ffprobe for staging assets (default: `ffmpeg` and `ffprobe` next to opts.ffmpeg). */
   tools?: Tools;
-  /** Scratch directory (staged assets). Default: next to `out`. */
+  /** Scratch directory (staged assets, video frames of html-layout panes). Default: next to `out`. */
   workDir?: string;
   log?: (line: string) => void;
 }
@@ -125,43 +128,83 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   const { scene, output } = opts;
   const stage = `render:${scene.id}`;
   const frames = scene.durationFrames;
-  const durationSeconds = frames / output.fps;
+  const durationSeconds = framesToSeconds(frames, output.fps);
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
   const executable = resolveHtmlBrowser(opts.browserExecutable);
 
-  // Assets (#299): stage the files this scene uses (only the project's own), served under a per-render base.
-  let uses;
-  try {
-    uses = sceneAssetUses(scene, scene.template ? TEMPLATES[scene.template as keyof typeof TEMPLATES] : undefined);
-  } catch (e) {
-    throw new PipelineError(stage, (e as Error).message);
-  }
+  let source: { html: string; css: string };
+  // html-layout panes (#287): pictures inlined as data: URLs, video as one JPEG per frame swapped in per screenshot.
+  let layoutVideos = new Map<string, string[]>();
+  const framesDir = join(opts.workDir ?? join(dirname(opts.out), `.work-${scene.id}`), 'frames');
+  // Other scenes (#299): stage the files this scene uses (only the project's own), served under a per-render base.
   let staged: StagedSceneAssets | undefined;
   const token = assetToken();
   const assetBase = `${ASSET_ORIGIN}/${token}/`;
-  {
-    const tools = opts.tools ?? { ffmpeg: opts.ffmpeg, ffprobe: opts.ffmpeg.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1') };
-    const s = await stageSceneAssets({
-      uses,
-      assets: opts.assets ?? new Map(),
-      dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
-      tools,
-      output,
-      frames: { first: 0, count: frames },
-      video: 'frames',
-      // Fonts (#303): project font assets and bundled fonts of the families the theme and the scene name.
-      fonts: { family: theme.fontFamily, markup: `${scene.html ?? ''}\n${scene.css ?? ''}` },
-      ...(opts.signal ? { signal: opts.signal } : {}),
-      ...(opts.log ? { log: opts.log } : {}),
-    });
-    if (s.items.size || s.fonts.length) staged = s;
+  const videos: Record<string, string[]> = {};
+  const tools = opts.tools ?? { ffmpeg: opts.ffmpeg, ffprobe: opts.ffmpeg.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1') };
+  if (scene.html === undefined && scene.template === 'html-layout') {
+    try {
+      const l = await layoutSource({
+        props: scene.props,
+        output,
+        ...(opts.platform ? { platform: opts.platform } : {}),
+        durationSeconds,
+        frames,
+        assets: opts.assets ?? new Map(),
+        ffmpeg: opts.ffmpeg,
+        framesDir,
+        stage,
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      });
+      source = { html: l.dom.html, css: l.dom.css };
+      layoutVideos = l.videos;
+      // Fonts (#303) for layout panes too: the theme's family, from project font assets or the bundled set.
+      const f = await stageSceneAssets({
+        uses: [],
+        assets: opts.assets ?? new Map(),
+        dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
+        tools,
+        output,
+        frames: { first: 0, count: frames },
+        video: 'frames',
+        fonts: { family: theme.fontFamily, markup: '' },
+        ...(opts.signal ? { signal: opts.signal } : {}),
+        ...(opts.log ? { log: opts.log } : {}),
+      });
+      if (f.fonts.length) staged = f;
+    } catch (e) {
+      if (e instanceof PipelineError) throw e;
+      throw new PipelineError(stage, (e as Error).message);
+    }
+  } else {
+    let uses;
+    try {
+      uses = sceneAssetUses(scene, scene.template ? TEMPLATES[scene.template as keyof typeof TEMPLATES] : undefined);
+    } catch (e) {
+      throw new PipelineError(stage, (e as Error).message);
+    }
+    {
+      const st = await stageSceneAssets({
+        uses,
+        assets: opts.assets ?? new Map(),
+        dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
+        tools,
+        output,
+        frames: { first: 0, count: frames },
+        video: 'frames',
+        // Fonts (#303): project font assets and bundled fonts of the families the theme and the scene name.
+        fonts: { family: theme.fontFamily, markup: `${scene.html ?? ''}\n${scene.css ?? ''}` },
+        ...(opts.signal ? { signal: opts.signal } : {}),
+        ...(opts.log ? { log: opts.log } : {}),
+      });
+      if (st.items.size || st.fonts.length) staged = st;
+    }
+    for (const [k, it] of staged?.items ?? []) if (it.frames) videos[k] = it.frames.names.map((n) => assetBase + n);
+    source = sceneSource(scene, durationSeconds, staged, assetBase);
   }
   const fontCss = staged?.fonts.length ? fontFaceCss(staged.fontFaces(assetBase)) : undefined;
-  const videos: Record<string, string[]> = {};
-  for (const [k, it] of staged?.items ?? []) if (it.frames) videos[k] = it.frames.names.map((n) => assetBase + n);
-
-  const source = sceneSource(scene, durationSeconds, staged, assetBase);
-  if (Buffer.byteLength(source.html) + Buffer.byteLength(source.css) > MAX_SOURCE_BYTES * 2) {
+  // Inlined pictures (html-layout) are not scene source; only agent and template markup counts.
+  if (scene.template !== 'html-layout' && Buffer.byteLength(source.html) + Buffer.byteLength(source.css) > MAX_SOURCE_BYTES * 2) {
     throw new PipelineError(stage, `html scene is larger than ${MAX_SOURCE_BYTES * 2} bytes`);
   }
   let doc: string;
@@ -172,7 +215,9 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   }
 
   mkdirSync(dirname(opts.out), { recursive: true });
-  const timeoutMs = Math.min(opts.timeoutMs ?? 30_000 + frames * 1000, sceneTimeoutCapMs());
+  // 1 s per frame at 1080p and less, more for larger frames (a 4K screenshot is four times the pixels).
+  const perFrameMs = 1000 * Math.max(1, (output.width * output.height) / (1920 * 1080));
+  const timeoutMs = Math.min(opts.timeoutMs ?? 30_000 + frames * perFrameMs, sceneTimeoutCapMs());
   const timeout = AbortSignal.timeout(timeoutMs);
   // The page leaving its document (meta refresh, a link) fails the render (D-085).
   const navigation = new AbortController();
@@ -180,7 +225,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   const signal = AbortSignal.any([timeout, navigation.signal, ...(opts.signal ? [opts.signal] : [])]);
   const navigationError = () =>
     new PipelineError(stage, `the scene tried to navigate away from its document (${navigatedTo.slice(0, 120)}): scenes render without network access and must not navigate`);
-  const encoder = startPngEncoder(opts.ffmpeg, opts.out, output.fps, stage);
+  const encoder = startPngEncoder(opts.ffmpeg, opts.out, fpsArg(output.fps), stage);
   const blocked: string[] = [];
   const assetRequests: string[] = [];
   let browser: Browser | undefined;
@@ -271,13 +316,27 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
 
     for (let f = 0; f < frames; f++) {
       if (signal.aborted) break;
-      const t = (f * 1000) / output.fps;
-      await page.evaluate((ms) => {
-        for (const a of document.getAnimations()) {
-          a.pause();
-          a.currentTime = ms;
-        }
-      }, t);
+      const t = framesToSeconds(f, output.fps) * 1000;
+      // Video in layout panes: this frame's picture of each video, decoded before the screenshot.
+      const pictures: Array<[string, string]> = [];
+      for (const [key, files] of layoutVideos) pictures.push([key, await frameDataUrl(files[f]!)]);
+      await page.evaluate(
+        async ({ ms, pictures }) => {
+          for (const a of document.getAnimations()) {
+            a.pause();
+            a.currentTime = ms;
+          }
+          const loads: Array<Promise<void>> = [];
+          for (const [key, src] of pictures) {
+            for (const img of document.querySelectorAll<HTMLImageElement>(`img[data-rf-video="${CSS.escape(key)}"]`)) {
+              img.src = src;
+              loads.push(img.decode().catch(() => undefined));
+            }
+          }
+          await Promise.all(loads);
+        },
+        { ms: t, pictures }
+      );
       if (hasVideo) {
         // Video (#299): picture f of each clip, decoded before the screenshot (frame-exact, no codec in the browser).
         const missing = await page.evaluate(async (frame) => {
@@ -327,6 +386,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   } finally {
     signal.removeEventListener('abort', onAbort);
     await browser?.close().catch(() => undefined);
+    if (layoutVideos.size) await rm(framesDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 

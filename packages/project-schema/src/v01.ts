@@ -9,7 +9,7 @@ import { TEMPLATES, type TemplateId } from './templates';
 export const V01_SCHEMA_VERSION = '0.1' as const;
 const V01_ENGINES = ['remotion', 'motion-canvas'] as const;
 
-import { MAX_PROJECT_SECONDS, assetLicense, output, safeRelativePath } from './common';
+import { MAX_PROJECT_SECONDS, MAX_SCENES, assetLicense, framesToSeconds, output, safeRelativePath } from './common';
 
 const id = z
   .string()
@@ -66,7 +66,7 @@ const projectShape = z
     output,
     audio: audio.default({ musicTrack: null, voiceTrack: null, musicVolume: 0.8 }),
     assets: z.array(asset).default([]),
-    scenes: z.array(scene).min(1).max(50),
+    scenes: z.array(scene).min(1).max(MAX_SCENES),
   })
   .strict();
 
@@ -151,7 +151,7 @@ export const projectV01 = projectShape.superRefine((p, ctx) => {
       });
       return;
     }
-    const seconds = s.durationFrames / p.output.fps;
+    const seconds = framesToSeconds(s.durationFrames, p.output.fps);
     if (seconds < template.minSeconds || seconds > template.maxSeconds) {
       ctx.addIssue({
         code: 'custom',
@@ -171,7 +171,7 @@ export const projectV01 = projectShape.superRefine((p, ctx) => {
     }
   });
 
-  const totalSeconds = cursor / p.output.fps;
+  const totalSeconds = framesToSeconds(cursor, p.output.fps);
   if (totalSeconds > MAX_PROJECT_SECONDS) {
     ctx.addIssue({
       code: 'custom',

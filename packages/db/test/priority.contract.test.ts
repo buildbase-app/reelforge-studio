@@ -91,6 +91,41 @@ describe.each(targets)('overload protection contract: $name', ({ kind }) => {
     expect(await repos.jobs.countQueued()).toBe(1000 - (WORKERS - 1));
   }, 120_000);
 
+  it('PRI-10 a worker that handles only some types gets the exact order: an older job of another type at the head of a key does not move that key ahead (#307)', async () => {
+    // key_a's oldest job is a preview the worker below does not handle; its render is newer than key_b's.
+    const [, aRender, bRender] = await insert([job({ type: 'preview', apiKeyId: 'key_a' }), job({ apiKeyId: 'key_a' }), job({ apiKeyId: 'key_b' })]);
+    // Make key_b's render older than key_a's: the order is by the oldest job the worker can run.
+    const older = job({ apiKeyId: 'key_b', createdAt: iso(Date.parse(aRender!.createdAt) - 500) });
+    await insert([older]);
+    expect((await claim('w1', { types: ['render'] }))?.id).toBe(older.id);
+    // Both keys now run one render: key_a's render (older than key_b's other one) is next.
+    expect((await claim('w2', { types: ['render'] }))?.id).toBe(aRender!.id);
+    expect((await claim('w3', { types: ['render'] }))?.id).toBe(bRender!.id);
+    expect(await claim('w4', { types: ['render'] })).toBeNull();
+  });
+
+  it('PRI-12 the same exact order on a deep queue, where PostgreSQL plans with the skip scan instead of the GROUP BY (#307)', async () => {
+    // 400 older batch jobs of another key: far more jobs than (key, class) pairs, so after the first claim PostgreSQL
+    // walks the claim index. Strict classes (aging 0): they all come after the standard renders.
+    await insert(Array.from({ length: 400 }, () => job({ priority: 'batch', apiKeyId: 'key_z' })));
+    const [, aRender, bRender] = await insert([job({ type: 'preview', apiKeyId: 'key_a' }), job({ apiKeyId: 'key_a' }), job({ apiKeyId: 'key_b' })]);
+    const older = job({ apiKeyId: 'key_b', createdAt: iso(Date.parse(aRender!.createdAt) - 500) });
+    await insert([older]);
+    const take = (w: string) => claim(w, { types: ['render'], aging: 0 });
+    expect((await take('w1'))?.id).toBe(older.id);
+    expect((await take('w2'))?.id).toBe(aRender!.id);
+    expect((await take('w3'))?.id).toBe(bRender!.id);
+    expect((await take('w4'))?.apiKeyId).toBe('key_z');
+  }, 120_000);
+
+  it('PRI-11 more keys with queued jobs than a recursive query takes by default (MySQL: 1,000): every key is reachable and fairness holds', async () => {
+    const jobs = Array.from({ length: 1100 }, (_, i) => job({ apiKeyId: `key_${String(i).padStart(4, '0')}` }));
+    await insert(jobs);
+    // Every key has one job and none running: the claims go oldest first, through all of them.
+    for (const want of [jobs[0]!, jobs[1]!, jobs[2]!]) expect((await claim('w'))?.id).toBe(want.id);
+    expect(await repos.jobs.countQueued()).toBe(1097);
+  }, 120_000);
+
   it('PRI-02 the claim takes interactive, then standard, then batch; fairness across keys and age only within a class', async () => {
     const batch = job({ priority: 'batch', apiKeyId: 'key_a' });
     const std1 = job({ apiKeyId: 'key_a' });

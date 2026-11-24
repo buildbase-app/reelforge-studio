@@ -72,6 +72,51 @@ importers:
         specifier: ^4.1.0
         version: 4.6.7
 
+  apps/dashboard:
+    devDependencies:
+      '@hono/node-server':
+        specifier: 2.1.11
+        version: 2.1.11(hono@4.13.19)
+      '@reelforge/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@reelforge/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@reelforge/engine-html':
+        specifier: workspace:*
+        version: link:../../packages/engine-html
+      '@reelforge/media-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/media-pipeline
+      '@reelforge/project-schema':
+        specifier: workspace:*
+        version: link:../../packages/project-schema
+      '@reelforge/server':
+        specifier: workspace:*
+        version: link:../server
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.5
+      axe-core:
+        specifier: 4.14.0
+        version: 4.14.0
+      esbuild:
+        specifier: 0.25.12
+        version: 0.25.12
+      playwright:
+        specifier: 1.63.0
+        version: 1.63.0
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.15
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(vite@7.3.8(@types/node@22.20.5)(terser@5.51.4)(tsx@4.23.15)(yaml@2.9.1))
+
   apps/server:
     dependencies:
       '@hono/node-server':
@@ -2182,6 +2227,10 @@ packages:
   autocannon@8.0.0:
     resolution: {integrity: sha512-fMMcWc2JPFcUaqHeR6+PbmEpTxCrPZyBUM95oG4w3ngJ8NfBNas/ZXA+pTHXLqJ0UlFVTcy05GC25WxKx/M20A==}
     hasBin: true
+
+  axe-core@4.14.0:
+    resolution: {integrity: sha512-9WTZxEjsZ7b13TH8JPmbV2z8CHbl80/2hm3XPEG4JgNdQLK81IBRXmSxHfMAOkSqQeRxT/0dwNDz2GOm3zzpcQ==}
+    engines: {node: '>=4'}
 
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
@@ -6031,6 +6080,8 @@ snapshots:
       retimer: 3.0.0
       semver: 7.8.6
       timestring: 6.0.0
+
+  axe-core@4.14.0: {}
 
   balanced-match@1.0.2: {}
 

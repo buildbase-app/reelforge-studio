@@ -133,3 +133,64 @@ describe('JobRunner', () => {
     expect((await second.logs(job.id)).at(-1)).toMatch(/interrupted/);
   });
 });
+
+/** Webhooks for operations (#306): the job-level timeout and what a job used (JOB-TMO-*). */
+describe('JobRunner: render.timeoutSeconds and usage (#306)', () => {
+  it('JOB-TMO-01 a job running longer than its timeout is stopped and fails with render_timeout; the final event carries its usage', async () => {
+    const jobs = new JobRunner({
+      repo: createMemoryRepositories().jobs,
+      handlers: {
+        render: (ctx) =>
+          new Promise((_, reject) => {
+            ctx.progress('encode', 0.4);
+            ctx.signal.addEventListener('abort', () => reject(new Error('aborted by the signal')), { once: true });
+          }),
+        quick: async () => ({ ok: true }),
+      },
+      timeoutSeconds: (job) => (job.type === 'render' ? 0.2 : 0),
+    });
+    await jobs.init();
+    const finals: JobEvent[] = [];
+    jobs.onEvent((e) => {
+      if (e.type === 'status' && (e.job.status === 'failed' || e.job.status === 'succeeded')) finals.push(e);
+    });
+    const started = Date.now();
+    const done = await jobs.waitFor((await jobs.submit('render', {})).id);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(done.status).toBe('failed');
+    expect(done.error).toMatchObject({ code: 'render_timeout', stage: 'encode' });
+    expect(done.error!.message).toMatch(/render\.timeoutSeconds \(0\.2 s\)/);
+    expect((await jobs.logs(done.id)).some((l) => l.includes('stopped after render.timeoutSeconds'))).toBe(true);
+    // 0 means no limit; a job that finishes in time is untouched.
+    expect((await jobs.waitFor((await jobs.submit('quick', {})).id)).status).toBe('succeeded');
+    const usage = finals.find((e) => e.jobId === done.id)!.usage!;
+    expect(usage.runSeconds).toBeGreaterThanOrEqual(0.15);
+    expect(usage.cpuSeconds).toBeGreaterThanOrEqual(0);
+    expect(usage.cpuUnavailable).toBeUndefined();
+  });
+
+  it('JOB-TMO-02 CPU seconds only for a job that ran alone: overlapping jobs say why they have none', async () => {
+    const jobs = new JobRunner({
+      repo: createMemoryRepositories().jobs,
+      concurrency: 2,
+      handlers: {
+        work: async () => {
+          const end = Date.now() + 60;
+          while (Date.now() < end) Math.sqrt(Math.random()); // some CPU
+          await sleep(40);
+          return {};
+        },
+      },
+    });
+    await jobs.init();
+    const usage = new Map<string, JobEvent['usage']>();
+    jobs.onEvent((e) => e.type === 'status' && e.job.status === 'succeeded' && usage.set(e.jobId, e.usage));
+    const a = await jobs.submit('work', {});
+    const b = await jobs.submit('work', {});
+    await Promise.all([jobs.waitFor(a.id), jobs.waitFor(b.id)]);
+    for (const id of [a.id, b.id]) expect(usage.get(id)).toMatchObject({ cpuUnavailable: 'another job ran on this instance at the same time' });
+    const c = await jobs.submit('work', {});
+    await jobs.waitFor(c.id);
+    expect(usage.get(c.id)!.cpuSeconds).toBeGreaterThan(0);
+  });
+});

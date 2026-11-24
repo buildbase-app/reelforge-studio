@@ -500,6 +500,225 @@ implementation or licensing decisions.
   **Kubernetes NetworkPolicy**: https://kubernetes.io/docs/concepts/services-networking/network-policies/
   (default deny with an empty `podSelector`; policies match addresses, not DNS names); the manifests
   pass kubeconform 0.7.0 -strict against the Kubernetes 1.31 schemas (`e2e/k8s/kubeconform.sh`).
+- **Webhook operations references (2026-11-23, issue #306).** HeyGen webhooks
+  (https://developers.heygen.com/docs/webhooks.md, read 2026-11-23): HMAC-SHA256 of the raw body, retries with
+  exponential backoff for up to 24 h, receivers must answer 2xx within 10 s, a rotate-secret endpoint that invalidates
+  the old secret at once, receivers deduplicate on a stable field. Remotion Lambda webhooks
+  (https://www.remotion.dev/docs/lambda/webhooks, read 2026-11-23): one of `success`, `error` (with `errors`) or
+  `timeout` per render, `costs` and `timeToFinish` on success, HMAC-SHA512 signature. ReelForge keeps Standard Webhooks
+  signatures (D-072) and takes from these the 24 h window, the 10 s timeout, a terminal timeout event and costs; its
+  rotation keeps an overlap instead of invalidating at once (D-113).
+
+- **faster-whisper for local speech-to-text (2026-11-23, issue #300, D-114).** faster-whisper
+  1.2.1 (PyPI, MIT, https://github.com/SYSTRAN/faster-whisper), read from the wheel's source on
+  2026-11-23: `WhisperModel(model_size_or_path, device, compute_type, download_root,
+  local_files_only)` (a name is resolved through `download_model`, a directory is loaded as is),
+  `transcribe(audio, language=None, word_timestamps=True, vad_filter=True, ...)` returning segments
+  with `words` (`word`, `start`, `end`, `probability`) and `TranscriptionInfo.language` /
+  `language_probability` / `duration`; `download_model(size_or_id, cache_dir=...)`; model names
+  map to `Systran/faster-whisper-*` repositories. Requires ctranslate2 4.x, huggingface-hub,
+  tokenizers, onnxruntime (Silero VAD, bundled in the wheel) and av. Measured: with PyAV 19.0.2
+  `transcribe` fails with `open() got an unexpected keyword argument 'metadata_errors'`; PyAV
+  15.1.0 to 18.0.0 work (Python 3.13, ctranslate2 4.9.1, onnxruntime 1.32.0). The `tiny` model
+  transcribed an FFmpeg `flite` sentence offline (`HF_HUB_OFFLINE=1`) in about 9 s on the
+  sandbox CPU, language `en`, word timings within the 4.5 s clip. Hugging Face's Xet download
+  host was blocked by the sandbox proxy; `HF_HUB_DISABLE_XET=1` downloads over plain HTTPS.
+  WebVTT `Kind:` / `Language:` header lines follow the form YouTube and other players write;
+  they are metadata lines in the WebVTT header block (W3C WebVTT, "file header"), not cue
+  settings. BCP 47 well-formedness is checked with `Intl.getCanonicalLocales` (ECMA-402).
+- **Loudness and A/V sync (2026-11-23, issue #301).** Read 2026-11-23. *EBU R 128-2023*
+  (https://tech.ebu.ch/docs/r/r128.pdf, November 2023): Programme Loudness normalised to −23.0 LUFS,
+  ±1.0 LU where the target "is not achievable practically (for example, live programmes)", ±0.2 LU QC
+  measurement tolerance; true peak "shall not exceed −1 dBTP"; footnote 2: "For programmes shorter than
+  1 minute, the use of the measure Loudness Range is not recommended". *EBU R 128 s2-2023*
+  (https://tech.ebu.ch/docs/r/r128s2.pdf): stream at −23.0 LUFS, or a Distribution Loudness Level in
+  the range −20.0 to −16.0 LUFS for mobile listening. *ATSC A/85:2013*: −24 LKFS (±2 dB measurement
+  tolerance), true peak −2 dBTP, taken from the summary table of ITU-R Report BS.2434-0 (2018,
+  https://www.itu.int/dms_pub/itu-r/opb/rep/R-REP-BS.2434-2018-PDF-E.pdf), which also cites AES TD1004
+  (−16 to −20 LKFS for audio streaming) and AES71-2018; atsc.org refused the download here (HTTP 403),
+  and a search shows an A/85 revision dated July 2026 (VERIFY its numbers before broadcast delivery).
+  *Apple Podcasts audio requirements* (https://podcasters.apple.com/support/audio-requirements): "around
+  -16 dB LKFS", "+/- 1 dB tolerance", true peak not above "-1 dB FS", BS.1770-5, before encoding.
+  *Spotify loudness normalization* (https://support.spotify.com/us/artists/article/loudness-normalization/):
+  default playback −14 LUFS; masters below −1 dBTP, below −2 dBTP when louder than −14 LUFS. YouTube,
+  TikTok, Instagram and the other video platforms publish no loudness target (searched 2026-11-23;
+  −14 LUFS for them is a convention from secondary sources). *ITU-R BT.1359-1* (1998,
+  https://www.itu.int/rec/R-REC-BT.1359): detectability thresholds "about +45 ms to –125 ms" and
+  acceptability "+90 ms to –185 ms", positive = sound advanced. *FFmpeg filters*
+  (https://ffmpeg.org/ffmpeg-filters.html, `loudnorm`, `ebur128`, `silencedetect`, `volume`): behaviour
+  checked locally with FFmpeg 6.1.1 (Ubuntu `6.1.1-3ubuntu5`): loudnorm 6.1 ranges I −70..−5, LRA 1..50,
+  TP −9..0; linear mode needs every `measured_*` value with `measured_LRA` ≠ 0 and the measured LRA at or
+  under the LRA target (else dynamic mode); ebur128 `peak=true` reports true peak. Used in
+  `packages/project-schema/src/audio.ts` and `packages/media-pipeline/src/audio.ts` (D-116).
+
+- **PentAGI for the pre-production pentest (2026-11-24, issue #325, docs/runbooks/PENTEST.md).**
+  Read on 2026-11-24: the repository README (https://github.com/vxcontrol/pentagi, raw `README.md`,
+  `.env.example` and `docker-compose.yml` on `main`), the worker node guide
+  (https://github.com/vxcontrol/pentagi/blob/main/examples/guides/worker_node.md), the releases page and
+  the v2.2.0 release notes (https://github.com/vxcontrol/pentagi/releases/tag/v2.2.0), and the Docker Hub
+  tags of `vxcontrol/pentagi` (`2.2.0` pushed 2026-10-05; `latest` rebuilt 2026-10-23). Findings used:
+  2.2.0 is the newest release; it closes CVE-2026-14784 / GHSA-7wx2-8pqj-q3gr (2.1.0 and earlier mounted
+  the host Docker socket into every sandbox when `DOCKER_INSIDE=true`), sets `DOCKER_INSIDE=false` by
+  default, needs `DOCKER_INSIDE_HOST` for nested Docker, refuses session cookies from older versions, and
+  runs eight migrations on start. Requirements: Docker and Compose, at least 2 vCPU, 4 GB RAM, 20 GB disk.
+  Manual install: `.env` from `.env.example`, the three example provider files, `docker compose up -d`;
+  web UI on `127.0.0.1:8443` by default (`PENTAGI_LISTEN_IP`); default login `admin@pentagi.com` /
+  `admin`, to be changed at first login. The stock compose file mounts
+  `${PENTAGI_DOCKER_SOCKET:-/var/run/docker.sock}` into the PentAGI container and runs it as root; the
+  worker node guide's two-node layout reaches the worker's Docker over TLS (`DOCKER_HOST=tcp://...:2376`,
+  `DOCKER_TLS_VERIFY`, `PENTAGI_DOCKER_CERT_PATH`) and gives sandboxes a hardened dind over TLS
+  (`DOCKER_INSIDE_HOST`, `DOCKER_INSIDE_TLS_VERIFY`, `DOCKER_INSIDE_CERT_PATH`,
+  `DOCKER_INSIDE_POLICY_TESTS`), with `DOCKER_SOCKET` empty. Each flow publishes two TCP ports from
+  `DOCKER_PORTS_BASE` (28000-29999) on `DOCKER_PUBLIC_IP`; Docker-published ports bypass `ufw`, so the
+  README says to filter them in front of the host or in the `DOCKER-USER` chain. LLM keys are `.env`
+  variables (`OPEN_AI_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, ...). Licence: MIT source plus an EULA
+  limited to lawful, authorised testing (#325).
+- **OWASP ZAP and nuclei for the non-AI baseline (2026-11-24, docs/runbooks/PENTEST.md).** ZAP API scan
+  usage (https://www.zaproxy.org/docs/docker/api-scan/, read 2026-11-24): `zap-api-scan.py -t <definition>
+  -f openapi|soap|graphql`, `-r`/`-J` reports. Header authentication
+  (https://www.zaproxy.org/docs/getting-further/authentication/handling-auth-yourself/, read 2026-11-24):
+  `ZAP_AUTH_HEADER_VALUE`, `ZAP_AUTH_HEADER` (default `Authorization`), `ZAP_AUTH_HEADER_SITE`, set before
+  ZAP starts. nuclei: Docker Hub `projectdiscovery/nuclei` tag `v3.11.1` (2026-08-08) is the newest.
+- **Cloud prices for the capacity test (2026-11-24, docs/runbooks/SCALE-TEST.md).** instances.vantage.sh:
+  `c7i.4xlarge` 16 vCPU / 32 GiB, $0.714 per hour on demand, about $0.352 spot; RDS `db.r7g.2xlarge`
+  8 vCPU / 64 GiB, $0.956 per hour (deployment option not shown; Multi-AZ assumed about twice).
+  gcloud-compute.com, us-central1: `c3d-highcpu-16` 16 vCPU / 32 GB, $0.5997 per hour on demand,
+  $0.1371 spot; `c3d-standard-16` $0.7264 / $0.1661. Other prices in the runbook are estimates marked
+  VERIFY.
+## Platforms and changelogs review (2026-11-24, epic #285 track C)
+
+Read on **2026-11-24** for `docs/research/PLATFORMS-2026-11.md`. Dates in brackets are the
+vendor's own entry dates. **(secondary)** marks claims found only in third-party articles.
+Re-check before relying on any price, limit or date.
+
+- **Remotion:** releases v4.0.539-v4.0.546 [2026-10-26..2026-11-23], https://github.com/remotion-dev/remotion/releases;
+  pricing https://www.remotion.dev/docs/license/pricing; telemetry and licensing (mandatory for
+  Automators from 5.0) https://www.remotion.dev/docs/telemetry, https://www.remotion.dev/docs/licensing/;
+  OTIO export (not deterministic) https://www.remotion.dev/docs/opentimeline/export; Lambda
+  troubleshooting https://www.remotion.dev/docs/lambda/troubleshooting/rate-limit; showcase
+  https://www.remotion.dev/showcase; Player https://www.remotion.dev/docs/player; DPA
+  https://www.remotion.dev/docs/dpa; blog archive https://www.remotion.dev/blog/archive.
+- **Shotstack:** announcements [2026-09-15, 2026-10-05, 2026-11-09, 2026-11-19]
+  https://shotstack.io/learn/announcement/; pricing https://shotstack.io/pricing; billing FAQ
+  https://help.shotstack.io/en/articles/14050672-billing-faqs; terms [updated 2026-05-06]
+  https://shotstack.io/terms/; security FAQ https://help.shotstack.io/en/articles/16187587-security-compliance-faq-soc-2-iso-27001-data-handling;
+  sub-processors https://shotstack.io/sub-processors/; incident [2025-07-23]
+  https://status.shotstack.io/incidents/3; Studio SDK (PolyForm Shield) https://shotstack.io/docs/guide/studio-sdk/.
+- **Creatomate:** Preview SDK https://creatomate.com/docs/api/preview-sdk/what-is-the-preview-sdk;
+  hosted MCP and keyframe editor (secondary, checked 2026-11-15) https://orshot.com/blog/creatomate-api-alternative;
+  reviews https://www.capterra.com/p/268283/Creatomate/reviews/; privacy policy [2022-06-27]
+  https://creatomate.com/privacy-policy. creatomate.com/changelog returned 404.
+- **JSON2Video:** changelog [2026-05-12, 2026-09-28, 2026-09-29] https://json2video.com/docs/v2/reference/changelog.
+- **Plainly:** changelog [2025-09-02..2026-11-19] https://help.plainlyvideos.com/docs/changelog.
+- **Bannerbear:** changelog [2026-01-31..2026-11-17] https://www.bannerbear.com/changelog/.
+- **Mux:** Robots [2026-04-16] https://www.mux.com/blog/mux-robots; @mux/ai [2025-12-16]
+  https://www.mux.com/blog/video-ai-shouldn-t-be-hard-so-we-built-mux-ai; changelog [2026-11-04]
+  https://www.mux.com/docs/changelog/video-auto-generated-captions-skipped-status.
+- **Editframe** https://editframe.com/changelog/001 (2024 only); **Revideo** https://github.com/redotvideo/revideo;
+  **Motion Canvas** https://motioncanvas.io/blog; **Rendley** [2026-03-31..2026-04-18]
+  https://docs.rendleysdk.com/changelog; **IMG.LY CE.SDK** [v1.64 2025-11-21, v1.78]
+  https://img.ly/docs/cesdk/changelog/v1-64-0/, https://img.ly/docs/cesdk/changelog/v1-78-0/;
+  **VideoGen** https://videogen.io/llms.txt.
+- **Synthesia:** EU Art. 50 code, C2PA, labels [2026-07-29]
+  https://www.synthesia.io/post/synthesia-among-the-first-ai-video-companies-to-sign-the-eu-article-50-code-of-practice;
+  Interactive Avatar API [2026-09-14] https://www.synthesia.io/post/interactive-avatar-api-real-time-avatars;
+  security practices (Ireland) https://www.synthesia.io/legal/security-practices; SCIM
+  https://help.synthesia.io/en/articles/12951831-user-s-guide-to-scim; audit logs
+  https://www.synthesia.io/updates/analyze-workspace-activity-with-audit-logs; ISO 42001
+  https://www.synthesia.io/post/synthesia-world-first-iso-42001-compliant-ai-video-company.
+- **HeyGen:** developer changelog (entries Apr-Nov 2026, v1/v2 sunset 2026-10-31)
+  https://developers.heygen.com/changelog; security https://www.heygen.com/security; compliance
+  https://developers.heygen.com/docs/compliance.md; HyperFrames (Apache-2.0, April 2026)
+  https://github.com/heygen-com/hyperframes.
+- **D-ID** [2026-03-17] https://www.prnewswire.com/il/news-releases/d-id-launches-v4-expressive-visual-agents-for-real-time-llm-connected-interaction-at-enterprise-scale-302714463.html;
+  **Colossyan** https://www.colossyan.com/enterprise/.
+- **Runway:** API changelog [2026-02-10..2026-08-20] https://docs.dev.runwayml.com/api-details/api_changelog/.
+- **Luma** https://lumalabs.ai/news/introducing-ray-3-2; **Google Veo** (preview shut 2026-10-22)
+  https://ai.google.dev/gemini-api/docs/veo, Veo 3.1 Lite [2026-03-31] https://www.marktechpost.com/2026/03/31/google-ai-releases-veo-3-1-lite-giving-developers-low-cost-high-speed-video-generation-via-the-gemini-api/;
+  **OpenAI Sora** API removal [2026-09-24] (secondary) https://techjacksolutions.com/ai-brief/openai-videos-api-sora-2-deprecated-september-2026/;
+  **Kling**, **Pika**, **Higgsfield** API: secondary only; Higgsfield reviews https://www.trustpilot.com/review/higgsfield.ai;
+  **Hedra** https://www.hedra.com/develop/models/video/hedra-character-3.
+- **Captions/Mirage** https://captions.ai/help/docs/api/video-captions, https://captions.ai/help/whats-new;
+  **InVideo** reviews https://www.trustpilot.com/review/ai.invideo.io; **Pictory** [2026-05-13]
+  https://docs.pictory.ai/changelog; **OpusClip** https://www.opus.pro/api, https://www.opus.pro/llms.txt;
+  **Submagic** https://submagic.canny.io/changelog; **Descript** https://feedback.descript.com/changelog,
+  https://www.descript.com/blog/article/dont-ship-your-api-as-an-mcp [updated 2026-06-23];
+  **VEED** [2026-09-30, 2026-10-28] https://www.veed.io/newsroom/veed-is-now-api-self-serve,
+  https://www.veed.io/newsroom/dubbing-api-video-that-travels, https://changelog.veed.io;
+  **Kapwing** [2026-09-28] https://www.kapwing.com/help/release-notes-kapwing-mcp/;
+  **CapCut** terms [2026-04-15] https://www.capcut.com/clause/terms-of-service;
+  **Canva** https://www.canva.dev/docs/connect/changelog/.
+- **Cloudflare** [2026-03-18] https://developers.cloudflare.com/changelog/post/2026-03-18-media-transformations-workers-binding/;
+  **AWS MediaConvert** [2026-02-24] https://aws.amazon.com/about-aws/whats-new/2026/02/aws-mediaconvert-introduces-video-probe;
+  **Coconut** https://docs.coconut.co/; **Transloadit** https://transloadit.com/blog/2026/;
+  **AssemblyAI** [2026-03-03] https://assemblyai.com/blog/universal-3-pro-streaming;
+  **Rev.ai** https://docs.rev.ai/changelog; **ElevenLabs** [2026-04-01, 2026-04-20, 2026-10-26]
+  https://elevenlabs.io/docs/changelog/2026/10/26. Deepgram: nothing found (VERIFY).
+- **Regulation and platforms:** EU Code of Practice on marking and labelling [final 2026-06-10]
+  https://digital-strategy.ec.europa.eu/en/news/commission-publishes-code-practice-marking-and-labelling-ai-generated-content;
+  YouTube inauthentic-content clarification [2026-07-16] https://www.tubefilter.com/2026/07/13/youtube-inauthentic-content-monetization-policy-update/;
+  YouTube Data API `status.containsSyntheticMedia` https://developers.google.com/youtube/v3/docs/videos;
+  MCP Apps extension [2026-01-26] https://blog.modelcontextprotocol.io/posts/2026-01-26-mcp-apps/.
+- 2026-11-24 (#285, #288, #291; docs/cloud/, docs/PROVIDERS.md, docs/ISOLATION.md). **Cloud deployment
+  guides**, read on 2026-11-24 unless noted. AWS: *Amazon ECS task definition parameters for Fargate*
+  (https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html):
+  "If you're using tasks that use Fargate, the `sharedMemorySize` parameter isn't supported";
+  `ephemeralStorage` expands Fargate task storage (platform 1.4.0+); `dockerSecurityOptions` is not
+  offered for Fargate, so no custom seccomp profile; `stopTimeout` "The maximum value is 120 seconds".
+  *Fargate task ephemeral storage*
+  (https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-task-storage.html): "a minimum of
+  20 GiB", "up to a maximum of 200 GiB", and the container image is stored on that ephemeral storage. *Understand how EKS Pod Identity works*
+  (https://docs.aws.amazon.com/eks/latest/userguide/pod-id-how-it-works.html): the pod gets
+  `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://169.254.170.23/v1/credentials` and a projected token
+  with audience `pods.eks.amazonaws.com`; the container credential provider is part of the SDKs'
+  default chain. Google Cloud: *Control communication between Pods and Services using network
+  policies* (https://docs.cloud.google.com/kubernetes-engine/docs/network-policy): with Workload
+  Identity Federation for GKE allow egress to `169.254.169.252/32` on ports 988 and 987 (GKE
+  1.21.0-gke.1000 and later), `127.0.0.1/32` on 988 and 987 before that, and `169.254.169.254/32` on
+  ports 80 and 8080 with GKE Dataplane V2. *Authenticate to Google Cloud APIs from GKE workloads*
+  (https://docs.cloud.google.com/kubernetes-engine/docs/how-to/workload-identity): principal
+  identifier `principal://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/PROJECT_ID.svc.id.goog/subject/ns/NAMESPACE/sa/KSA_NAME`.
+  Cloud Run: *Configure secrets* (https://docs.cloud.google.com/run/docs/configuring/services/secrets):
+  `--update-secrets=PATH=SECRET:VERSION` mounts a file, `ENV=SECRET:VERSION` an environment variable,
+  the service identity needs `roles/secretmanager.secretAccessor`, two secrets cannot share a path;
+  *Billing settings* (https://docs.cloud.google.com/run/docs/configuring/billing-settings):
+  `--no-cpu-throttling` is instance-based billing, request-based billing allocates CPU only while a
+  request is processed; *Deploy worker pools* (https://docs.cloud.google.com/run/docs/deploy-worker-pools):
+  `gcloud run worker-pools deploy`, no load-balanced URL, no autoscaling (instance count set by hand).
+  Azure: *Use a Microsoft Entra Workload ID on AKS*
+  (https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview, updated 2026-10-20): pod label
+  `azure.workload.identity/use: "true"` required, service account annotation
+  `azure.workload.identity/client-id`, the webhook sets `AZURE_FEDERATED_TOKEN_FILE`;
+  `@azure/identity` 3.2.0 minimum for Node.js. *Scaling in Azure Container Apps*
+  (https://learn.microsoft.com/en-us/azure/container-apps/scale-app, 2026-05-19): custom rules from
+  "any ScaledObject-based KEDA scaler", event-driven jobs from ScaledJob-based scalers, defaults 30 s
+  polling and 300 s cooldown, `activeRevisionsMode: single` for non-HTTP rules. *Manage secrets in
+  Azure Container Apps* (https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets,
+  2026-09-04): `keyvaultref:<uri>,identityref:<id>`, role Key Vault Secrets User, a secret volume mounts
+  each secret as a file named after it, new Key Vault versions picked up within 30 minutes. Storage:
+  Cloudflare R2 *S3 API compatibility* (https://developers.cloudflare.com/r2/api/s3/api/): endpoint
+  `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`, region `auto`, multipart and CopyObject implemented,
+  the `x-amz-server-side-encryption` header not implemented (SSE-C is). Hetzner *Using S3 API tools*
+  (https://docs.hetzner.com/storage/object-storage/getting-started/using-s3-api-tools/): endpoint
+  per location (`fsn1.your-objectstorage.com`), virtual-hosted addressing. Tigris *AWS JS SDK*
+  (https://www.tigrisdata.com/docs/sdks/s3/aws-js-sdk/): endpoint `https://t3.storage.dev`, region
+  `auto`, no path style. Fly.io *App configuration* (https://docs.fly.io/reference/configuration):
+  `[processes]` groups, `[[mounts]]` and `[[vm]]` per process group, `auto_stop_machines` `off` /
+  `stop` / `suspend`; a volume mounts on one Machine. Not fetched (written from the vendors' documented
+  behaviour, marked VERIFY in the guides): DigitalOcean App Platform and Spaces, Railway, GKE
+  Autopilot's node-file restrictions, Container Apps' seccomp and `/dev/shm`, Azure user delegation
+  key scope, the ADOT and Google Cloud collector exporter names.
+- **OpenMotion comparison (2026-11-24, epic #285, docs/research/OPENMOTION-COMPARISON-2026-11.md).**
+  nexu-io/openmotion read at commit `543c5002f6eebea04744927073e3e7bb873e541c` from a shallow clone
+  (https://github.com/nexu-io/openmotion, Apache-2.0; nothing run). Read: README, LICENSE, CHANGELOG,
+  `docs/hyperframes.md`, `docs/mcp-phase1-tools.md`, `docs/motion-md.md`, `docs/motion-package-spec.md`,
+  `deploy/README.md` and `deploy/k8s/`, `shared/phase1-tools.ts`, `shared/caption-style.ts`,
+  `src/infra/config.ts`, the skills under `skills/`, `library/components/registry/catalog.json`
+  (448 items, counts computed locally), `library/templates/catalog/` (287 entries) and the vendored
+  GSAP "Standard No Charge" licence text. GitHub pages read the same day as a snapshot: repository
+  page (stars shown as 15.8k, README badge 9.5k dated 2026-11-09), releases (v0.1.0 to v0.2.1,
+  17-21 Nov), issues (44 open), commits. Our pinned `hyperframes` 0.9.77 package lists `lint` and
+  `measure` commands in `dist/cli.js` (checked in `node_modules`).
 - **Assets in engines (2026-11-24, issue #299).** Read from the installed packages (no network):
   HyperFrames 0.9.77 `dist/chunk-ZXZVZTKA.js` `parseVideoElements` (every `<video src>` in a
   composition is extracted frame by frame by its own FFmpeg pass; `data-start`, `data-duration`,

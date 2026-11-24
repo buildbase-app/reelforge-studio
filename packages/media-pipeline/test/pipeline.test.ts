@@ -268,6 +268,7 @@ describe('checkExpectation', () => {
     frames: 90,
     durationSeconds: 3,
     videoCodec: 'h264',
+    frameRate: '30/1',
     pixelFormat: 'yuv420p',
     hasAudio: true,
     audioCodec: 'aac',
@@ -276,6 +277,15 @@ describe('checkExpectation', () => {
   };
   it('passes matching media', () => {
     expect(checkExpectation(ok, { width: 1080, height: 1920, fps: 30, frames: 90, audio: true })).toEqual([]);
+  });
+  it('checks r_frame_rate exactly when asked (the final output, #302)', () => {
+    const ntsc = { ...ok, fps: 30000 / 1001, frameRate: '30000/1001' };
+    expect(checkExpectation(ntsc, { width: 1080, height: 1920, fps: '30000/1001', frames: 90, audio: true, exactRate: true })).toEqual([]);
+    expect(checkExpectation(ok, { width: 1080, height: 1920, fps: 30, frames: 90, audio: true, exactRate: true })).toEqual([]);
+    // 2997/100 is within 0.01 of 29.97 but not the NTSC rate: only the exact check sees it.
+    const rounded = { ...ok, fps: 29.97, frameRate: '2997/100' };
+    expect(checkExpectation(rounded, { width: 1080, height: 1920, fps: '30000/1001', frames: 90, audio: true })).toEqual([]);
+    expect(checkExpectation(rounded, { width: 1080, height: 1920, fps: '30000/1001', frames: 90, audio: true, exactRate: true })).toEqual(['r_frame_rate is 2997/100, expected 30000/1001']);
   });
   it('reports every mismatch', () => {
     const problems = checkExpectation(

@@ -1,47 +1,16 @@
 /**
- * Media fit (#299): where an image or video lands in its box. No
- * dependencies, so the Remotion and Motion Canvas browser bundles import it
- * (`@reelforge/project-schema/media`, hashed into their cache keys).
- *
- * The layouts work (#287) adds the same `FitMode` / `fitMedia` to layout.ts.
- * This file is the minimal version for asset rendering; when #287 lands, its
- * definitions replace these (same names and signature) and this file goes.
+ * Media for templates (#299): staged-asset descriptions, logo boxes and the
+ * background layers of DOM templates. No dependencies, so the Remotion and
+ * Motion Canvas browser bundles import it (`@reelforge/project-schema/media`,
+ * hashed into their cache keys). Fit modes and `fitMedia` live in layout.ts
+ * (#287) and are re-exported here so existing imports keep working.
  */
 
-export interface MediaBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+import { FIT_MODES, fitMedia, type FitMode, type FitResult, type Rect } from './layout';
 
-/** How media fills its box: `contain` letterboxes, `cover` crops, `blur-fill` letterboxes over a blurred, cropped copy of itself. */
-export type FitMode = 'contain' | 'cover' | 'blur-fill';
-export const FIT_MODES = ['contain', 'cover', 'blur-fill'] as const satisfies readonly FitMode[];
+export { FIT_MODES, fitMedia, type FitMode, type FitResult };
 
-export interface FitResult {
-  /** Where the picture is drawn (may extend past the box for `cover`; clip to the box). */
-  fg: MediaBox;
-  /** `blur-fill` only: the blurred copy, covering the box. */
-  bg: MediaBox | null;
-}
-
-/**
- * Where media of `mediaWidth` x `mediaHeight` lands in `box` for a fit mode.
- * `focus` (0-100 per axis, default centre) is the point kept in view when
- * `cover` crops, the same as CSS `object-position` in percent.
- */
-export function fitMedia(box: MediaBox, mediaWidth: number, mediaHeight: number, mode: FitMode, focus: { x: number; y: number } = { x: 50, y: 50 }): FitResult {
-  const place = (scale: number): MediaBox => {
-    const w = mediaWidth * scale;
-    const h = mediaHeight * scale;
-    return { x: box.x + (box.width - w) * (focus.x / 100), y: box.y + (box.height - h) * (focus.y / 100), width: w, height: h };
-  };
-  const contain = Math.min(box.width / mediaWidth, box.height / mediaHeight);
-  const cover = Math.max(box.width / mediaWidth, box.height / mediaHeight);
-  if (mode === 'cover') return { fg: place(cover), bg: null };
-  return { fg: place(contain), bg: mode === 'blur-fill' ? place(cover) : null };
-}
+export type MediaBox = Rect;
 
 /** Blur radius of the `blur-fill` background as a share of the shorter frame side (3 layout units). */
 export const BLUR_FILL_RADIUS = 0.03;
