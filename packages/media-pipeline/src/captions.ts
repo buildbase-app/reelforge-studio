@@ -13,6 +13,8 @@ export interface BurnOptions {
   video?: string[];
   /** The video has an alpha channel: libass draws into it too (`alpha=1`), so captions show over transparent areas. */
   alpha?: boolean;
+  /** A folder next to the ASS file (a bare name) whose fonts libass loads before the system's (`fontsdir`, #447): the project's or bundled caption font. */
+  fontsDir?: string;
   signal?: AbortSignal;
 }
 
@@ -28,8 +30,8 @@ export function hasLibass(ffmpeg: string): boolean {
 /**
  * Burn captions into a video: one libass pass over the assembled file (every
  * frame kept, H.264 settings as in assembly, audio copied). FFmpeg runs in the
- * ASS file's directory and gets its bare name, so no path needs filter
- * escaping. Returns the FFmpeg arguments for the render manifest.
+ * ASS file's directory and gets its bare name (and the fonts folder's), so no
+ * path needs filter escaping. Returns the FFmpeg arguments for the render manifest.
  */
 export async function burnSubtitles(o: BurnOptions): Promise<{ args: string[] }> {
   if (!hasLibass(o.ffmpeg)) {
@@ -37,7 +39,8 @@ export async function burnSubtitles(o: BurnOptions): Promise<{ args: string[] }>
   }
   const name = basename(o.assFile);
   if (!/^[\w.-]+$/.test(name)) throw new PipelineError('captions:burn', `unsafe subtitle file name "${name}"`);
-  const args = ['-hide_banner', '-v', 'error', '-y', '-i', resolve(o.input), '-map', '0:v:0', '-map', '0:a?', '-vf', `ass=${name}${o.alpha ? ':alpha=1' : ''}`, ...(o.video ?? H264_ARGS), '-c:a', 'copy', resolve(o.out)];
+  if (o.fontsDir !== undefined && !/^[\w-]+$/.test(o.fontsDir)) throw new PipelineError('captions:burn', `unsafe fonts folder name "${o.fontsDir}"`);
+  const args = ['-hide_banner', '-v', 'error', '-y', '-i', resolve(o.input), '-map', '0:v:0', '-map', '0:a?', '-vf', `ass=${name}${o.fontsDir ? `:fontsdir=${o.fontsDir}` : ''}${o.alpha ? ':alpha=1' : ''}`, ...(o.video ?? H264_ARGS), '-c:a', 'copy', resolve(o.out)];
   await run(o.ffmpeg, args, 'captions:burn', { signal: o.signal, cwd: dirname(resolve(o.assFile)) });
   return { args };
 }

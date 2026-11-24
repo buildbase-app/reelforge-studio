@@ -361,6 +361,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     captionPass(
       {
         project,
+        assets: input.assets,
         theme: input.theme,
         output,
         ...(input.captionsMode ? { modeOverride: input.captionsMode } : {}),

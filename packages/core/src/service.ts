@@ -41,10 +41,12 @@ import {
   type Project,
   type ValidationIssue,
   type ValidationWarning,
+  type ThemeTokens,
 } from '@reelforge/project-schema';
+import { BUNDLED_FONTS } from './fonts';
 import type { AudioManifest } from './audio';
 import { AssetStore, assetUsableBy, stageStream } from './assets';
-import { CAPTION_FILE_PATTERN, captionFileNames, captionsEtag, type CaptionManifest } from './captions';
+import { CAPTION_FILE_PATTERN, captionFileNames, captionFontChoice, captionFontList, captionsEtag, type CaptionManifest } from './captions';
 import { applyCaptionUpdate, getCaptionsInput, parseInput, projectCaptionsView, renderCaptionsView, transcribeInput, updateCaptionsInput, type ProjectCaptionsView, type RenderCaptionsView } from './captions-edit';
 import { LocalBackend } from './backends/local';
 import { ApiError, badRequest, invalidManifest, notFound } from './errors';
@@ -1149,8 +1151,9 @@ export class ReelforgeService {
   private async deepChecks(p: Project, projectId: string | null): Promise<{ errors: ValidationIssue[]; warnings: ValidationWarning[] }> {
     const errors: ValidationIssue[] = [];
     const warnings: ValidationWarning[] = [];
+    let theme: ThemeTokens | null = null;
     try {
-      await this.themes.resolve(p.theme);
+      theme = await this.themes.resolve(p.theme);
     } catch (e) {
       // The list is only a hint (it may come from a lagging or unreachable read replica, D-104): never let it replace the real error.
       const available = await this.themes.list().then((l) => l.map((t) => t.id).join(', '), () => 'unknown (list_themes failed)');
@@ -1185,7 +1188,13 @@ export class ReelforgeService {
         // unknown engines are already reported by schema validation
       }
     });
+    // The burned caption font (#447): a project font asset, a bundled font or an installed family; else say what libass draws instead.
+    const fontFamiliesInProject: string[] = [];
     for (const [i, a] of p.assets.entries()) {
+      if (a.mediaType === 'font' && a.uri.startsWith('asset://')) {
+        const family = ((await this.assets.find(a.uri.slice('asset://'.length)))?.metadata as { font?: { family?: string } } | undefined)?.font?.family;
+        if (family) fontFamiliesInProject.push(family);
+      }
       if (a.uri.startsWith('https://')) {
         errors.push({ path: `assets.${i}.uri`, message: `asset "${a.id}" has not been imported; call add_asset_from_url with this URL` });
       } else if (a.uri.startsWith('asset://')) {
@@ -1201,6 +1210,16 @@ export class ReelforgeService {
         } else if (!existsSync(this.projectFile(projectId, a.uri))) {
           errors.push({ path: `assets.${i}.uri`, message: `file for asset "${a.id}" not found in the project's assets/ folder` });
         }
+      }
+    }
+    const captionMode = resolveCaptions(p, { defaultMode: this.settings.current.config.captions.defaultMode }).mode;
+    if (theme && (captionMode === 'burned' || captionMode === 'both')) {
+      const choice = captionFontChoice(captionFontList(p, theme), fontFamiliesInProject);
+      if (choice.source === 'fallback' || choice.family.toLowerCase() !== choice.requested.toLowerCase()) {
+        warnings.push({
+          path: p.captions.style?.fontFamily ? 'captions.style.fontFamily' : 'theme',
+          message: `burned captions: font "${choice.requested}" is not a font asset of this project, a bundled font (${BUNDLED_FONTS.map((f) => f.family).join(', ')}) or installed; they use "${choice.family}" instead. Upload the font with upload_asset (projectId) and add it to the manifest's assets`,
+        });
       }
     }
     return { errors, warnings };

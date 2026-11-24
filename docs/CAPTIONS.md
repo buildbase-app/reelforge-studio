@@ -96,7 +96,7 @@ From the theme's `captionStyle` tokens, then `captions.style`:
 | --- | --- | --- |
 | `position` | `bottom` | `bottom`, `top` or `center`, inside the safe area |
 | `fontScale` | `0.05` | font size as a fraction of `min(width, height)` |
-| `fontFamily` | theme `fontFamily` | the first installed family of the list is used (`fc-match`) |
+| `fontFamily` | theme `fontFamily` | the first family of the list that is a project font asset, a bundled font (Inter, Source Serif 4, JetBrains Mono) or installed; project and bundled fonts go to libass with the burn pass (`fontsdir`). None of them: the closest installed family (`fc-match`), and `validate_project` warns |
 | `weight` | `700` | 600 and above draw bold |
 | `color` | `#ffffff` | text |
 | `background` | `#000000` | box behind each line; `null` = no box, outlined text |
@@ -132,10 +132,13 @@ scene's cues at preview time.
 
 **Requirements:** an FFmpeg built with libass (`--enable-libass`; the Debian and
 Ubuntu `ffmpeg` packages and the release image have it). Without it a burned
-render fails with `captions:burn` and the fix; `sidecar` still works. Fonts come
-from the system (the image ships DejaVu, Liberation and Noto); a theme font that
-is not installed falls back to the closest installed family, and the manifest
-records which one.
+render fails with `captions:burn` and the fix; `sidecar` still works. The caption
+font is a project font asset or a bundled font (their files are passed to libass
+with `fontsdir`), or a system font (the image ships DejaVu, Liberation and Noto).
+A family that is none of these falls back to the closest installed family;
+`validate_project` warns, and the manifest records the font used
+(`style.fontName`) and its source (`style.fontSource`: `project`, `bundled`,
+`installed` or `fallback`).
 
 ## Quality rules
 
