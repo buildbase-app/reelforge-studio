@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, open as openFile, rm } from 'node:fs/promises';
+import { mkdir, open as openFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
@@ -15,10 +15,12 @@ import type { AssetRecord, AssetRepository } from './repositories';
 import type { StorageDriver } from './plugins';
 import { ASSETS_PREFIX } from './storage/keys';
 import { LocalStorageDriver } from './storage/local';
+import { MAX_SVG_BYTES, SvgError, looksLikeSvg, sanitizeSvg } from './svg';
 
 /**
  * Content types the asset store accepts, decided from the file's bytes, not
- * from what the client claims. SVG and HTML are deliberately absent.
+ * from what the client claims. HTML is deliberately absent; SVG is accepted
+ * only through `sanitizeSvg` (AssetStore.store), never as uploaded.
  */
 export function sniffContentType(b: Buffer): { contentType: string; mediaType: StoredAsset['mediaType']; ext: string } | null {
   const starts = (sig: number[], offset = 0) => sig.every((v, i) => b[offset + i] === v);
@@ -343,6 +345,18 @@ function getOnce(u: URL, limits: FetchLimits): Promise<IncomingMessage> {
 
 // ---- store ----------------------------------------------------------------
 
+/** Projects an asset was attached to (metadata.projects); empty: shared by the workspace. */
+export function assetProjects(a: Pick<StoredAsset, 'metadata'>): string[] {
+  const p = a.metadata?.projects;
+  return Array.isArray(p) ? p.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** May `projectId` use this asset? Yes when it was attached to that project, or to none (shared by the workspace). */
+export function assetUsableBy(a: Pick<StoredAsset, 'metadata'>, projectId: string): boolean {
+  const p = assetProjects(a);
+  return p.length === 0 || p.includes(projectId);
+}
+
 const ASSET_ID = /^ast-[0-9a-f]{16}$/;
 
 const toStored = ({ storageKey: _k, ...asset }: AssetRecord): StoredAsset => asset;
@@ -381,7 +395,7 @@ export class AssetStore {
       throw new ApiError('too_large', 413, `file is ${input.data.length} bytes; the limit is ${this.limits.maxBytes}`, { limit: 'limits.maxUploadBytes', max: this.limits.maxBytes });
     }
     const sha256 = createHash('sha256').update(input.data).digest('hex');
-    return this.store(input, { bytes: input.data.length, sha256, head: input.data }, (key, contentType) => this.storage.driver.put(key, input.data, { contentType }));
+    return this.store(input, { bytes: input.data.length, sha256, head: input.data }, (key, contentType) => this.storage.driver.put(key, input.data, { contentType }), async () => input.data);
   }
 
   /** Where streamed uploads are written while they arrive. */
@@ -408,21 +422,36 @@ export class AssetStore {
     if (staged.bytes > this.limits.maxBytes) {
       throw new ApiError('too_large', 413, `file is ${staged.bytes} bytes; the limit is ${this.limits.maxBytes}`, { limit: 'limits.maxUploadBytes', max: this.limits.maxBytes });
     }
-    return this.store(input, staged, (key, contentType) => this.storage.driver.putFile(key, staged.path, { contentType }));
+    return this.store(input, staged, (key, contentType) => this.storage.driver.putFile(key, staged.path, { contentType }), () => readFile(staged.path));
   }
 
   private async store(
     input: Omit<PutAssetInput, 'data'>,
     file: { bytes: number; sha256: string; head: Buffer },
-    write: (key: string, contentType: string) => Promise<unknown>
+    write: (key: string, contentType: string) => Promise<unknown>,
+    readAll: () => Promise<Buffer>
   ): Promise<StoredAsset> {
     if (file.bytes === 0) throw new ApiError('bad_request', 400, 'the file is empty');
-    const sniffed = sniffContentType(file.head);
+    let sniffed = sniffContentType(file.head);
+    if (!sniffed && looksLikeSvg(file.head)) {
+      // SVG (#299): stored only as rewritten from the allowlist (no scripts, handlers, links or remote files).
+      if (file.bytes > MAX_SVG_BYTES) throw new ApiError('too_large', 413, `SVG files may be at most ${MAX_SVG_BYTES} bytes`);
+      let clean: Buffer;
+      try {
+        clean = sanitizeSvg(await readAll());
+      } catch (e) {
+        if (e instanceof SvgError) throw new ApiError('unsupported_media_type', 415, `the SVG file was refused: ${e.message}`);
+        throw e;
+      }
+      sniffed = { contentType: 'image/svg+xml', mediaType: 'image', ext: 'svg' };
+      file = { bytes: clean.length, sha256: createHash('sha256').update(clean).digest('hex'), head: clean };
+      write = (key, contentType) => this.storage.driver.put(key, clean, { contentType });
+    }
     if (!sniffed) {
       throw new ApiError(
         'unsupported_media_type',
         415,
-        'unsupported file type; accepted: PNG, JPEG, GIF, WebP, MP3, WAV, AAC, M4A, OGG, FLAC, MP4, MOV, WebM, TTF, OTF, WOFF, WOFF2',
+        'unsupported file type; accepted: PNG, JPEG, GIF, WebP, SVG (sanitised), MP3, WAV, AAC, M4A, OGG, FLAC, MP4, MOV, WebM, TTF, OTF, WOFF, WOFF2',
         { declaredContentType: input.declaredContentType }
       );
     }
@@ -483,6 +512,19 @@ export class AssetStore {
   /** One keyset page, newest first (D-102). */
   async page(req: PageRequest): Promise<StoredAsset[]> {
     return (await this.repo.page(req)).map(toStored);
+  }
+
+  /**
+   * Record that a project uses this asset (#299): uploads, URL imports and
+   * provider results attached to a project with projectId. An asset with no
+   * recorded project is shared by every project of its workspace (a brand
+   * kit); one with projects may be used only by them (`usableBy`).
+   */
+  async addProject(id: string, projectId: string): Promise<StoredAsset> {
+    const a = await this.get(id);
+    const projects = assetProjects(a);
+    if (projects.includes(projectId)) return a;
+    return this.updateMetadata(id, { metadata: { ...(a.metadata ?? {}), projects: [...projects, projectId].slice(-1000) } });
   }
 
   async updateMetadata(id: string, patch: Partial<Pick<StoredAsset, 'durationSeconds' | 'metadata' | 'license'>>): Promise<StoredAsset> {

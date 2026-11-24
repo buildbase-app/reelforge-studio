@@ -40,3 +40,5 @@ export * from './webhooks/index';
 export * from './limits';
 export * from './output-support';
 export * from './priority';
+export * from './svg';
+export * from './sceneAssets';
