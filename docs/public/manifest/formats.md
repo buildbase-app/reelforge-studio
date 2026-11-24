@@ -1,6 +1,6 @@
 ---
 title: "Formats and layouts"
-description: "Any output size and aspect ratio in ReelForge Studio: the layout unit, safe areas with their sources, fit-to-box text, how built-in templates reflow, and the contact sheets that prove it."
+description: "Any output size, aspect ratio and file format in ReelForge Studio: MP4, ProRes MOV with alpha, WebM (VP9, AV1), GIF, PNG sequences and audio only; the layout unit, safe areas with their sources, fit-to-box text, how built-in templates reflow, and the contact sheets that prove it."
 folder: "manifest"
 slug: "formats"
 order: 3
@@ -22,12 +22,74 @@ the same scenes work at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K.
 | Portrait feed posts | 1080x1350 (4:5) |
 | Cinema-style banners | 2560x1080 (21:9) |
 
-Width and height must be even (H.264 with yuv420p needs it), and a server can
+Width and height must be even (H.264 and ProRes 4:2:2 need it), and a server can
 set lower limits (`limits.maxRenderDimension`, see `get_capabilities`).
 
 To render several of these sizes from one project in one call, list them as
 `variants` in the manifest: `render_project` then starts one render per
 variant, laid out again for each size ([Output variants](/docs/manifest/v0-2#output-variants)).
+
+## Output formats
+
+`output.format` picks the file a render delivers, `output.codec` the codec
+inside it (omit it for the format's default) and `output.alpha: true` a
+transparent background where the codec can carry one:
+
+```json
+"output": { "width": 1920, "height": 1080, "fps": 30, "format": "mov", "codec": "prores-4444", "alpha": true }
+```
+
+| `format` | `codec` (default first) | File | What it is for | Alpha | Audio | Captions | Size notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `mp4` | `h264` | `final.mp4` | Social apps, websites, players everywhere | No | AAC 192 kbit/s | Burned and sidecar | Smallest video; the default |
+| `mov` | `prores-422-hq`, `prores-4444` | `final.mov` | Hand-off to editors and NLEs (Premiere, Resolve, Final Cut) | `prores-4444` only (`alpha: true` picks it) | PCM 24-bit 48 kHz | Burned and sidecar | Very large: ProRes is an intermediate codec (Apple quotes about 220 Mbit/s for 422 HQ and 330 Mbit/s for 4444 at 1920x1080, 29.97 fps) |
+| `webm` | `vp9`, `av1` | `final.webm` | The web: `<video>` in browsers, overlays with transparency | `vp9` only | Opus 128 kbit/s | Burned and sidecar | Quality and speed: `render.formats.vp9*` / `av1*`. AV1 encodes more slowly and needs an FFmpeg with SVT-AV1 or libaom |
+| `gif` | `gif` | `final.gif` | Docs, pull requests, chat | No | None | Burned and sidecar | Two-pass palette; at most `render.formats.gifFps` (15) fps, `gifMaxSide` (480 px), `gifMaxSeconds` (30 s) and `gifMaxBytes` (50 MiB) |
+| `png-sequence` | `png` | `frames.zip` | Compositing (After Effects, Nuke, Fusion), frame-exact review | Yes (RGBA PNGs) | None | Burned and sidecar | One `frame_000001.png` per frame in a stored zip; at most 65,535 frames |
+| `m4a` | `aac` | `final.m4a` | The soundtrack alone (music, voice, sound effects) | - | AAC, `render.formats.aacKbps` (192) | Sidecar only | No scene is rendered; needs project audio |
+| `wav` | `pcm-s16le` | `final.wav` | The soundtrack, uncompressed, for audio editors | - | PCM 16-bit 48 kHz | Sidecar only | About 11.5 MB a minute (48 kHz stereo) |
+
+Every format gets the same captions sidecars (SRT, WebVTT and ASS per
+language) next to its file. Burned captions are drawn into the pictures,
+also into the alpha channel of transparent renders, so they show over a
+transparent background. GIF and PNG sequences have no sound, and audio-only
+formats have no pictures, so burned captions are refused for `m4a` and `wav`.
+
+**Transparency.** The `html` and `hyperframes` engines can render a
+transparent background (`get_capabilities` lists `alpha: true` per engine):
+the page paints no background, so whatever your scene leaves unpainted stays
+transparent. Built-in templates and scenes that paint a full-frame background
+stay opaque. Remotion and Motion Canvas scenes are refused in a render with
+`alpha: true`.
+
+**What is refused, and when.** A combination that can never work (a codec of
+another format, alpha on a codec without it, alpha on audio only) is an
+`invalid_manifest` error on the field when you save the project. What depends
+on the server (an engine without transparency, an encoder its FFmpeg lacks,
+audio only without audio, a GIF over its length limit) is a
+`422 unsupported_output` from `render_project` before anything is queued, with
+`details.issues` naming the path, the variant and the engine; `validate_project`
+lists the same problems. `get_capabilities` shows which formats and codecs
+this server can encode (`outputFormats`).
+
+**Variants.** A variant may set its own `format`, `codec` and `alpha`: one
+project can render a transparent ProRes for the editor, a WebM for the site
+and a GIF for the docs in one `render_project` call. A variant that sets
+`format` takes neither `codec` nor `alpha` from `output`; one that does not,
+inherits them unless it sets them.
+
+**Previews** (`preview_scene`) are always H.264 MP4, whatever the format.
+Renders in other formats run on one worker (render fan-out joins MP4 only).
+
+**Not offered: HEVC/H.265.** The FFmpeg in the image could encode it (x265),
+but HEVC's patent pools license encoders in products that are sold, and
+ReelForge is sold. Until that is cleared, ReelForge leaves HEVC out. AV1 and
+VP9 are royalty-free alternatives for small files.
+
+Quality settings per format are runtime settings (`render.formats.*`; change
+them with `update_config` / `PATCH /v1/config`, no restart): VP9 and AV1 quality and speed,
+GIF frame rate, size, dithering and limits, AAC and Opus bitrates. The H.264
+settings are unchanged.
 
 ## The layout unit
 

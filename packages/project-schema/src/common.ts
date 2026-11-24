@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { formatSpecIssues, outputFormat, outputFormatFields } from './output-formats';
 
 /** Frame rates the pipeline supports. Kept small on purpose: each one is tested. */
 export const SUPPORTED_FPS = [24, 25, 30, 60] as const;
@@ -62,11 +63,16 @@ export const output = z
       // Say what is allowed, so a client (or agent) can correct itself (#322).
       { error: (issue) => `fps must be one of ${SUPPORTED_FPS.join(', ')} (got ${fpsShown(issue.input)})` }
     ),
-    format: z.literal('mp4'),
+    /** Container (#302): mp4, mov, webm, gif, png-sequence (a zip of PNG frames), m4a or wav (audio only). */
+    format: outputFormat,
+    ...outputFormatFields,
   })
   .strict()
   .refine((o) => o.width % 2 === 0 && o.height % 2 === 0, {
     message: 'width and height must be even (required by H.264 yuv420p)',
+  })
+  .superRefine((o, ctx) => {
+    for (const i of formatSpecIssues(o)) ctx.addIssue({ code: 'custom', path: [i.field], message: i.message });
   });
 
 export type OutputSettings = z.infer<typeof output>;
@@ -78,10 +84,12 @@ export const MAX_OUTPUT_VARIANTS = 8;
 
 /**
  * One extra output format of a project (#287): the same scenes rendered at
- * another size. fps and format come from `output`, so the timeline is the
- * same in every variant; templates lay out again for the new size (reflow,
- * not cropping). `platform` overrides `brief.platform` for this variant
- * (safe areas for app overlays on tall frames).
+ * another size. fps comes from `output`, so the timeline is the same in every
+ * variant; templates lay out again for the new size (reflow, not cropping).
+ * `platform` overrides `brief.platform` for this variant (safe areas for app
+ * overlays on tall frames). `format`, `codec` and `alpha` override output's
+ * (#302): a variant that sets `format` takes neither codec nor alpha from
+ * `output`; one that does not inherits them unless it sets them.
  */
 export const outputVariant = z
   .object({
@@ -89,6 +97,8 @@ export const outputVariant = z
     width: z.number().int().min(16).max(4096),
     height: z.number().int().min(16).max(4096),
     platform: z.string().min(1).max(40).optional(),
+    format: outputFormat.optional(),
+    ...outputFormatFields,
   })
   .strict()
   .refine((o) => o.width % 2 === 0 && o.height % 2 === 0, {

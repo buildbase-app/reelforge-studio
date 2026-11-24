@@ -573,9 +573,9 @@ export function createApp(deps: AppDeps) {
     return c.json(await service.getCaptions({ renderId: c.req.param('id'), ...(language ? { language } : {}) }));
   });
   v1.get('/renders/:id/output', need('read'), async (c) => {
-    const file = c.req.query('file') ?? 'final.mp4';
-    const o = await service.renderObject(c.req.param('id'), file);
-    return sendStored(c, service, o, file.split('/').pop()!);
+    // Without ?file= the render's output, in whatever format it was rendered (#302).
+    const o = await service.renderObject(c.req.param('id'), c.req.query('file'));
+    return sendStored(c, service, o, o.file.split('/').pop()!);
   });
 
   v1.get('/assets', need('read'), async (c) => c.json(await service.listAssets({ projectId: c.req.query('projectId') }, page(c))));

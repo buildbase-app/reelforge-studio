@@ -19,6 +19,7 @@ export * from './keyStrength';
 export * from './audit';
 export * from './idempotency';
 export * from './render';
+export * from './output-formats';
 export * from './captions';
 export * from './service';
 export * from './versions';

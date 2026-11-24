@@ -23,6 +23,7 @@ import {
 } from './captions';
 
 export * from './common';
+export * from './output-formats';
 export * from './project';
 export * from './templates';
 export * from './themes';

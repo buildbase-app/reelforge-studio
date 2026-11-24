@@ -8,6 +8,10 @@ export interface MediaInfo {
   durationSeconds: number;
   videoCodec: string;
   pixelFormat: string;
+  /** Codec profile as ffprobe names it (ProRes: "HQ", "4444"). */
+  videoProfile?: string;
+  /** WebM VP9 with an alpha stream carries the tag alpha_mode=1. */
+  alphaMode?: boolean;
   hasAudio: boolean;
   audioCodec: string | null;
   audioSampleRate: number | null;
@@ -32,7 +36,7 @@ export async function probe(ffprobe: string, file: string): Promise<MediaInfo> {
       'error',
       '-count_frames',
       '-show_entries',
-      'stream=codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,nb_read_frames,pix_fmt,sample_rate,channels:format=duration',
+      'stream=codec_type,codec_name,profile,width,height,r_frame_rate,avg_frame_rate,nb_read_frames,pix_fmt,sample_rate,channels:stream_tags=alpha_mode:format=duration',
       '-of',
       'json',
       file,
@@ -40,7 +44,7 @@ export async function probe(ffprobe: string, file: string): Promise<MediaInfo> {
     'probe'
   );
   const data = JSON.parse(stdout) as {
-    streams: Array<Record<string, string | number | undefined>>;
+    streams: Array<Record<string, string | number | undefined> & { tags?: Record<string, string> }>;
     format?: { duration?: string };
   };
   const video = data.streams.find((s) => s.codec_type === 'video');
@@ -54,10 +58,26 @@ export async function probe(ffprobe: string, file: string): Promise<MediaInfo> {
     durationSeconds: Number(data.format?.duration ?? 0),
     videoCodec: String(video.codec_name),
     pixelFormat: String(video.pix_fmt),
+    ...(video.profile !== undefined ? { videoProfile: String(video.profile) } : {}),
+    ...(video.tags?.alpha_mode !== undefined || video.tags?.ALPHA_MODE !== undefined ? { alphaMode: (video.tags.alpha_mode ?? video.tags.ALPHA_MODE) === '1' } : {}),
     hasAudio: Boolean(audio),
     audioCodec: audio ? String(audio.codec_name) : null,
     audioSampleRate: audio ? Number(audio.sample_rate) : null,
     audioChannels: audio ? Number(audio.channels) : null,
+  };
+}
+
+/** An audio-only file (m4a, wav): its first audio stream and duration. */
+export async function probeAudio(ffprobe: string, file: string): Promise<{ hasVideo: boolean; audioCodec: string | null; sampleRate: number | null; channels: number | null; durationSeconds: number }> {
+  const { stdout } = await run(ffprobe, ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,sample_rate,channels:format=duration', '-of', 'json', file], 'probe');
+  const data = JSON.parse(stdout) as { streams: Array<Record<string, string | number | undefined>>; format?: { duration?: string } };
+  const a = data.streams.find((s) => s.codec_type === 'audio');
+  return {
+    hasVideo: data.streams.some((s) => s.codec_type === 'video'),
+    audioCodec: a ? String(a.codec_name) : null,
+    sampleRate: a ? Number(a.sample_rate) : null,
+    channels: a ? Number(a.channels) : null,
+    durationSeconds: Number(data.format?.duration ?? 0),
   };
 }
 
@@ -80,6 +100,9 @@ export interface Expectation {
   fps: number;
   frames: number;
   audio?: boolean;
+  /** Expected video codec (default h264) and pixel formats (default yuv420p), for other output formats (#302). */
+  videoCodec?: string;
+  pixelFormats?: readonly string[];
 }
 
 /** Compare probed metadata with what the manifest asked for. Returns problems. */
@@ -90,8 +113,10 @@ export function checkExpectation(info: MediaInfo, want: Expectation): string[] {
   }
   if (Math.abs(info.fps - want.fps) > 0.01) problems.push(`fps is ${info.fps}, expected ${want.fps}`);
   if (info.frames !== want.frames) problems.push(`frame count is ${info.frames}, expected ${want.frames}`);
-  if (info.videoCodec !== 'h264') problems.push(`video codec is ${info.videoCodec}, expected h264`);
-  if (info.pixelFormat !== 'yuv420p') problems.push(`pixel format is ${info.pixelFormat}, expected yuv420p`);
+  const codec = want.videoCodec ?? 'h264';
+  const pixFmts = want.pixelFormats ?? ['yuv420p'];
+  if (info.videoCodec !== codec) problems.push(`video codec is ${info.videoCodec}, expected ${codec}`);
+  if (!pixFmts.includes(info.pixelFormat)) problems.push(`pixel format is ${info.pixelFormat}, expected ${pixFmts.join(' or ')}`);
   if (want.audio === true && !info.hasAudio) problems.push('expected an audio stream, found none');
   if (want.audio === false && info.hasAudio) problems.push('expected no audio stream, found one');
   return problems;

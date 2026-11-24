@@ -45,6 +45,13 @@ export async function streamToBuffer(r: Readable | NodeJS.ReadableStream): Promi
 
 export function contentTypeFor(key: string): string {
   if (key.endsWith('.mp4')) return 'video/mp4';
+  // Other output formats (#302).
+  if (key.endsWith('.mov')) return 'video/quicktime';
+  if (key.endsWith('.webm')) return 'video/webm';
+  if (key.endsWith('.gif')) return 'image/gif';
+  if (key.endsWith('.zip')) return 'application/zip';
+  if (key.endsWith('.m4a')) return 'audio/mp4';
+  if (key.endsWith('.wav')) return 'audio/wav';
   if (key.endsWith('.png')) return 'image/png';
   if (key.endsWith('.json')) return 'application/json';
   if (key.endsWith('.srt')) return 'application/x-subrip; charset=utf-8';

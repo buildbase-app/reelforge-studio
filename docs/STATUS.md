@@ -638,6 +638,24 @@ driver and key prefix, signed download, manifest). New REST/MCP pair `GET /v1/me
 journey with axe-core, 0 violations in light, dark and at 360 px (`apps/dashboard/test`). Not yet:
 analytics, settings and the audit log viewer (part 2 of #292).
 
+### Output formats: MOV/ProRes, WebM, GIF, PNG sequences, audio only (2026-11-24, issue #302)
+
+Built (D-1XX, [formats](public/manifest/formats.md#output-formats)): `output.format` / `codec` /
+`alpha` and per-variant overrides; `mov` (ProRes 422 HQ, ProRes 4444 with alpha), `webm` (VP9 with
+alpha, AV1 with SVT-AV1 or libaom), `gif` (palette, size and length limits), `png-sequence`
+(`frames.zip`, RGBA with alpha), `m4a` and `wav` (no scene rendered); transparent capture in the
+html and HyperFrames engines (`EngineCapabilities.output.alpha`); `422 unsupported_output` before
+queueing for engines without alpha, missing encoders, audio only without audio or with burned
+captions, GIF over its limit; burned captions (into alpha too) and sidecars per format; per-format
+ffprobe QA; content types, `get_render_output` / summaries with `format`, `codec`, `alpha`, `file`,
+`contentType`; `get_capabilities` `outputFormats` and per-engine `alpha`; settings
+`render.formats.*`. Tests: schema combinations and variant overrides (project-schema); every
+format's master, GIF, zip, audio mix and alpha caption burn (media-pipeline); every format through
+the service with ffprobe and 422 refusals (core, fake engines); html and HyperFrames alpha to MOV and
+WebM over REST with signed downloads (server, real engines). Not yet: HEVC (licence, D-1XX),
+Remotion/Motion Canvas alpha, lossless intermediates for opaque non-MP4 renders, ZIP64, fan-out for
+non-MP4 formats, the dashboard (not merged), the release image's FFmpeg 5.1 encoder list (VERIFY).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |

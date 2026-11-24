@@ -8,6 +8,9 @@ import {
   checkExpectation,
   checkTimestamps,
   concatClips,
+  encodersOf,
+  formatSettings,
+  mixAudio,
   probe,
   run,
   toolVersion,
@@ -17,6 +20,8 @@ import {
   SCHEMA_VERSION,
   timeline,
   type CaptionMode,
+  formatSpec,
+  type FormatSpec,
   toRenderScene,
   type OutputSettings,
   type Project,
@@ -25,6 +30,7 @@ import {
 } from '@reelforge/project-schema';
 import { captionPass } from './captions';
 import { writeJsonAtomic } from './fsutil';
+import { MP4_SPEC, checkFormatOutput, isAudioOnly, packageFormat, planFor } from './output-formats';
 import type { Logger, ResolvedAsset } from './plugins';
 import type { PluginRegistry } from './registry';
 import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
@@ -53,6 +59,8 @@ export interface RenderPipelineInput {
   captionsMode?: CaptionMode;
   /** The server's captions.defaultMode when the job was queued (projects without captions.mode). */
   captionsDefault?: CaptionMode;
+  /** GIF output larger than this fails its check (render.formats.gifMaxBytes; 0: no limit). */
+  gifMaxBytes?: number;
 }
 
 export interface RenderPipelineResult {
@@ -60,7 +68,8 @@ export interface RenderPipelineResult {
   dir: string;
   outputFile: string;
   manifestFile: string;
-  posterFile: string;
+  /** null for audio-only formats. */
+  posterFile: string | null;
   durationSeconds: number;
   frames: number;
   width: number;
@@ -95,6 +104,8 @@ export interface SceneRenderInput extends Pick<RenderPipelineInput, 'runId' | 't
   frameRange?: readonly [number, number];
   /** brief.platform (safe areas, #287). */
   platform?: string;
+  /** Keep a transparent background (#302): the engine must declare output.alpha; the clip is ProRes 4444 with alpha. */
+  alpha?: boolean;
 }
 
 /**
@@ -111,10 +122,12 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
   const stage = `render:${scene.id}${range ? `[${range[0]}-${range[1]}]` : ''}`;
   if (range) {
     if (!engine.capabilities?.().frameRanges) throw new PipelineError(stage, `engine "${scene.engine}" does not render frame ranges`);
+    if (input.alpha) throw new PipelineError(stage, 'a frame range cannot keep alpha (renders with alpha run on one worker)');
     if (!Number.isInteger(range[0]) || !Number.isInteger(range[1]) || range[0] < 0 || range[1] < range[0] || range[1] >= scene.durationFrames) {
       throw new PipelineError(stage, `frame range ${range[0]}-${range[1]} is not inside the scene's ${scene.durationFrames} frames`);
     }
   }
+  if (input.alpha && engine.capabilities?.().output?.alpha !== true) throw new PipelineError(stage, `engine "${scene.engine}" cannot render a transparent background`);
   const frames = range ? range[1] - range[0] + 1 : scene.durationFrames;
   await mkdir(workDir, { recursive: true });
   log(`${stage}: ${scene.engine}/${scene.template ?? 'html'} ${frames} frames${range ? ` (frames ${range[0]}-${range[1]} of ${scene.durationFrames})` : ''} at ${output.width}x${output.height}`);
@@ -147,6 +160,7 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
         log,
         progress: input.progress,
         ...(range ? { frameRange: [range[0], range[1]] as const } : {}),
+        ...(input.alpha ? { alpha: true } : {}),
       })
   ).catch((e) => {
     metrics.sceneDuration.record((Date.now() - sceneStarted) / 1000, { ...engineAttrs, 'reelforge.outcome': 'error' });
@@ -162,7 +176,9 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
     height: output.height,
     fps: output.fps,
     frames,
+    ...(input.alpha ? { videoCodec: 'prores' } : {}),
   }).filter((p) => !p.startsWith('pixel format') && !p.startsWith('frame count')); // normalised during assembly
+  if (input.alpha && !info.pixelFormat.startsWith('yuva')) problems.push(`clip has pixel format ${info.pixelFormat}, expected one with alpha (ProRes 4444)`);
   if (info.frames < frames) problems.push(`clip has ${info.frames} frames, needs ${frames}`);
   if (problems.length) throw new PipelineError(stage, problems.join('; '));
   log(`${stage}: done in ${(res.millis / 1000).toFixed(1)}s`);
@@ -209,8 +225,12 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
   await rm(tmp, { recursive: true, force: true });
   await mkdir(join(tmp, 'clips'), { recursive: true });
   const started = Date.now();
+  // Output format (#302). Previews are always H.264 MP4 (quick review), whatever the manifest asks for.
+  const spec = input.kind === 'preview' ? MP4_SPEC : formatSpec(project.output);
 
   try {
+    // Audio only (m4a, wav): no scene is rendered; the mix covers the whole timeline.
+    if (isAudioOnly(spec)) return await finishRender({ input, tmp, finalDir, clips: [], fullTimeline: scenes.length === all.length, output, started, spec, audioOnlyFrames: scenes.reduce((n, s) => n + s.durationFrames, 0) });
     const totalSceneFrames = scenes.reduce((n, s) => n + s.durationFrames, 0);
     let framesBefore = 0;
     const clips: SceneClip[] = [];
@@ -218,7 +238,7 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
     for (const [i, scene] of scenes.entries()) {
       if (signal.aborted) throw new PipelineError('render', 'cancelled');
       const stage = `render:${scene.id}`;
-      const out = join(tmp, 'clips', `${String(i + 1).padStart(2, '0')}-${scene.id}.mp4`);
+      const out = join(tmp, 'clips', `${String(i + 1).padStart(2, '0')}-${scene.id}.${spec.alpha ? 'mov' : 'mp4'}`);
       input.progress(stage, (0.85 * framesBefore) / totalSceneFrames, `scene ${i + 1}/${scenes.length}`);
       clips.push(
         await renderSceneClip({
@@ -227,6 +247,7 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
           output,
           ...(project.brief?.platform ? { platform: project.brief.platform } : {}),
           out,
+          ...(spec.alpha ? { alpha: true } : {}),
           workDir: join(tmp, 'work', scene.id),
           progress: (done, total) =>
             input.progress(stage, (0.85 * (framesBefore + Math.min(done, total))) / totalSceneFrames, `scene ${i + 1}/${scenes.length}: ${done}/${total} frames`),
@@ -234,7 +255,7 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
       );
       framesBefore += scene.durationFrames;
     }
-    return await finishRender({ input, tmp, finalDir, clips, fullTimeline: scenes.length === all.length, output, started });
+    return await finishRender({ input, tmp, finalDir, clips, fullTimeline: scenes.length === all.length, output, started, spec });
   } catch (e) {
     await rm(tmp, { recursive: true, force: true });
     throw e;
@@ -259,6 +280,10 @@ export interface FinishRenderInput {
    * the joined timestamps and A/V durations too. Unset: assemble() re-encodes.
    */
   streamCopy?: boolean;
+  /** Output format (#302); default H.264 MP4. Other formats never use streamCopy. */
+  spec?: FormatSpec;
+  /** Audio-only formats: the timeline's frames (there are no clips). */
+  audioOnlyFrames?: number;
 }
 
 /**
@@ -290,10 +315,19 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     ? a.sfx.map((s) => ({ file: audioFile(s.asset)!, volume: s.volume, atSeconds: s.atFrame / output.fps }))
     : [];
 
+  // Output format (#302): H.264 MP4 keeps the path below unchanged; others assemble a master with their encoder.
+  const spec = f.spec ?? MP4_SPEC;
+  const mp4 = spec.format === 'mp4';
+  if (!mp4 && f.streamCopy) throw new PipelineError('assemble', 'only H.264 MP4 renders are joined by stream copy');
+  const plan = mp4 ? null : planFor(spec, await encodersOf(tools.ffmpeg));
+  const outName = plan?.file ?? 'final.mp4';
+
   input.progress('assemble', 0.87);
-  const finalTmp = join(tmp, 'final.mp4');
+  const finalTmp = join(tmp, plan?.master?.file ?? outName);
   log(`${f.streamCopy ? 'join (concat, video stream copy)' : 'assemble'}: ${clips.length} clips${music ? ' + music' : ''}${voice ? ' + voice' : ''}${sfx.length ? ` + ${sfx.length} sfx` : ''}`);
-  const assembled = await ffmpegSpan(f.streamCopy ? 'ffmpeg join' : 'ffmpeg assemble', () => f.streamCopy
+  const assembled = await ffmpegSpan(f.streamCopy ? 'ffmpeg join' : 'ffmpeg assemble', async () => plan && !plan.master
+    ? { totalFrames: f.audioOnlyFrames ?? 0, ...(await mixAudio({ ffmpeg: tools.ffmpeg, out: finalTmp, seconds: (f.audioOnlyFrames ?? 0) / output.fps, codecArgs: spec.codec === 'aac' ? ['-c:a', 'aac', '-b:a', `${formatSettings().aacKbps}k`, '-movflags', '+faststart'] : ['-c:a', 'pcm_s16le'], music, voice, sfx, signal })) }
+    : f.streamCopy
     ? concatClips({ ffmpeg: tools.ffmpeg, clips, out: finalTmp, fps: output.fps, listFile: join(tmp, 'concat.txt'), music, voice, sfx, signal })
     : assemble({
     ffmpeg: tools.ffmpeg,
@@ -306,6 +340,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     music,
     voice,
     sfx,
+    ...(plan?.master ? { encoding: plan.master } : {}),
     signal,
   }));
 
@@ -323,6 +358,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
         durationSeconds: assembled.totalFrames / output.fps,
         dir: tmp,
         workDir: join(tmp, 'work', 'captions'),
+        ...(plan ? { encoding: plan.master ? { video: plan.master.video, alpha: spec.alpha } : null } : {}),
         tools,
         signal,
         log,
@@ -332,35 +368,58 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
   );
 
   input.progress('validate', 0.93);
-  const info = await ffmpegSpan('ffprobe output', () => probe(tools.ffprobe, finalTmp));
-  const problems = checkExpectation(info, {
-    width: output.width,
-    height: output.height,
-    fps: output.fps,
-    frames: assembled.totalFrames,
-    audio: true,
-  });
-  const expectedSeconds = assembled.totalFrames / output.fps;
-  if (Math.abs(info.durationSeconds - expectedSeconds) > 1 / output.fps + 0.001) {
-    problems.push(`duration is ${info.durationSeconds}s, expected ${expectedSeconds}s`);
-  }
-  if (info.audioCodec !== 'aac') problems.push(`audio codec is ${info.audioCodec}, expected aac`);
-  if (f.streamCopy) {
-    // A stream-copy join: every frame exactly once, one frame apart (no duplicated or missing frame at a boundary), and audio as long as video.
-    problems.push(...(await ffmpegSpan('ffprobe timestamps', () => checkTimestamps(tools.ffprobe, finalTmp, assembled.totalFrames, output.fps))));
-    const d = await avDurations(tools.ffprobe, finalTmp);
-    if (d.audio === null || Math.abs(d.audio - expectedSeconds) > 0.05 || Math.abs(d.video - expectedSeconds) > 0.001) {
-      problems.push(`A/V durations are ${d.video}s video / ${d.audio}s audio, expected ${expectedSeconds}s`);
+  let info: { width: number; height: number; fps: number; frames: number; durationSeconds: number } & Record<string, unknown>;
+  let formatChecks: Record<string, string> | null = null;
+  let packaging: string[] | undefined;
+  let outputTmp = finalTmp;
+  let poster: string | null = join(tmp, 'poster.png');
+  const makePoster = (from: string) =>
+    ffmpegSpan('ffmpeg poster', () =>
+      run(tools.ffmpeg, ['-hide_banner', '-v', 'error', '-y', '-i', from, '-vf', 'select=eq(n\\,0),scale=270:-2', '-frames:v', '1', poster!], 'poster')
+    );
+  if (plan) {
+    // Other formats (#302): GIF / PNG zip from the master, then the format's own checks.
+    const geometry = { width: output.width, height: output.height, fps: output.fps, frames: assembled.totalFrames };
+    const pkg = await ffmpegSpan('ffmpeg package', () => packageFormat({ plan, tools, master: finalTmp, dir: tmp, workDir: join(tmp, 'work', 'format'), ...geometry, signal }));
+    outputTmp = pkg.file;
+    packaging = pkg.args;
+    await mkdir(join(tmp, 'work', 'format'), { recursive: true });
+    const fc = await ffmpegSpan('ffprobe output', () => checkFormatOutput({ plan, tools, pkg, workDir: join(tmp, 'work', 'format'), ...geometry, gifMaxBytes: input.gifMaxBytes ?? 0 }));
+    if (fc.problems.length) throw new PipelineError('validate:output', fc.problems.join('; '));
+    info = fc.info;
+    formatChecks = fc.checks;
+    if (plan.kind === 'audio') poster = null;
+    else await makePoster(plan.kind === 'image-sequence' ? finalTmp : outputTmp);
+    if (plan.master && !plan.master.final) await rm(finalTmp, { force: true });
+  } else {
+    const probed = await ffmpegSpan('ffprobe output', () => probe(tools.ffprobe, finalTmp));
+    info = { ...probed };
+    const problems = checkExpectation(probed, {
+      width: output.width,
+      height: output.height,
+      fps: output.fps,
+      frames: assembled.totalFrames,
+      audio: true,
+    });
+    const expectedSeconds = assembled.totalFrames / output.fps;
+    if (Math.abs(probed.durationSeconds - expectedSeconds) > 1 / output.fps + 0.001) {
+      problems.push(`duration is ${probed.durationSeconds}s, expected ${expectedSeconds}s`);
     }
-  }
-  await ffmpegSpan('ffmpeg decode check', () => assertDecodable(tools.ffmpeg, finalTmp));
-  if (problems.length) throw new PipelineError('validate:output', problems.join('; '));
+    if (probed.audioCodec !== 'aac') problems.push(`audio codec is ${probed.audioCodec}, expected aac`);
+    if (f.streamCopy) {
+      // A stream-copy join: every frame exactly once, one frame apart (no duplicated or missing frame at a boundary), and audio as long as video.
+      problems.push(...(await ffmpegSpan('ffprobe timestamps', () => checkTimestamps(tools.ffprobe, finalTmp, assembled.totalFrames, output.fps))));
+      const d = await avDurations(tools.ffprobe, finalTmp);
+      if (d.audio === null || Math.abs(d.audio - expectedSeconds) > 0.05 || Math.abs(d.video - expectedSeconds) > 0.001) {
+        problems.push(`A/V durations are ${d.video}s video / ${d.audio}s audio, expected ${expectedSeconds}s`);
+      }
+    }
+    await ffmpegSpan('ffmpeg decode check', () => assertDecodable(tools.ffmpeg, finalTmp));
+    if (problems.length) throw new PipelineError('validate:output', problems.join('; '));
 
-  // A small poster from the first frame (for agents and thumbnails).
-  const poster = join(tmp, 'poster.png');
-  await ffmpegSpan('ffmpeg poster', () =>
-    run(tools.ffmpeg, ['-hide_banner', '-v', 'error', '-y', '-i', finalTmp, '-vf', 'select=eq(n\\,0),scale=270:-2', '-frames:v', '1', poster], 'poster')
-  );
+    // A small poster from the first frame (for agents and thumbnails).
+    await makePoster(finalTmp);
+  }
 
   const engineVersions: Record<string, string> = {};
   for (const c of clips) engineVersions[c.engine] = c.engineVersion;
@@ -373,7 +432,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     schemaVersion: SCHEMA_VERSION,
     createdAt: new Date().toISOString(),
     wallClockMillis: Date.now() - started,
-    output: { file: 'final.mp4', poster: 'poster.png', ...info },
+    output: plan ? { file: outName, ...(poster ? { poster: 'poster.png' } : {}), ...info } : { file: 'final.mp4', poster: 'poster.png', ...info },
     scenes: clips.map((c) => ({ ...c, file: rel(c.file) })),
     audio: {
       music: music ? { asset: a.music!.asset, volume: music.volume } : null,
@@ -390,9 +449,10 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
       engines: engineVersions,
       browser: browsers.length ? browsers : ['(not reported)'],
     },
+    ...(packaging ? { ffmpegPackageArgs: packaging.map((arg) => (arg.startsWith(tmp) ? rel(arg) : arg)) } : {}),
     ffmpegAssembleArgs: assembled.args.map((arg) => (arg.startsWith(tmp) ? rel(arg) : arg.includes(sep) && arg.startsWith('/') ? '<asset>' : arg)),
     ...(captions ? { captions: { ...captions, ...(captions.burnArgs ? { burnArgs: captions.burnArgs.map((arg) => (arg.startsWith(tmp) ? rel(arg) : arg)) } : {}) } } : {}),
-    checks: { metadata: 'pass', decode: 'pass', duration: 'pass', ...(f.streamCopy ? { timestamps: 'pass', avDuration: 'pass' } : {}) },
+    checks: formatChecks ?? { metadata: 'pass', decode: 'pass', duration: 'pass', ...(f.streamCopy ? { timestamps: 'pass', avDuration: 'pass' } : {}) },
     ...(f.streamCopy ? { join: { method: 'concat demuxer, video stream copy', clips: clips.length } } : {}),
     project,
   };
@@ -410,9 +470,9 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
   return {
     runId: input.runId,
     dir: finalDir,
-    outputFile: join(finalDir, 'final.mp4'),
+    outputFile: join(finalDir, relative(tmp, outputTmp)),
     manifestFile: join(finalDir, 'render-manifest.json'),
-    posterFile: join(finalDir, 'poster.png'),
+    posterFile: poster ? join(finalDir, 'poster.png') : null,
     durationSeconds: info.durationSeconds,
     frames: info.frames,
     width: info.width,

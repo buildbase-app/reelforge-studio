@@ -526,3 +526,21 @@ implementation or licensing decisions.
   WebVTT `Kind:` / `Language:` header lines follow the form YouTube and other players write;
   they are metadata lines in the WebVTT header block (W3C WebVTT, "file header"), not cue
   settings. BCP 47 well-formedness is checked with `Intl.getCanonicalLocales` (ECMA-402).
+
+- **Output formats: ProRes data rates, VP9 quality, HEVC patent pool (2026-11-24, issue #302, D-1XX).**
+  Apple ProRes White Paper (https://www.apple.com/final-cut-pro/docs/Apple_ProRes.pdf, read
+  2026-11-24): target data rates at 1920 x 1080, 29.97 fps of about 220 Mbit/s (422 HQ) and
+  330 Mbit/s (4444, with up to 16-bit alpha). Google's VP9 VOD settings
+  (https://developers.google.com/media/vp9/settings/vod, read 2026-11-24): CRF 31 for 1080p, the
+  `render.formats.vp9Crf` default. Via LA's HEVC/VVC pool (https://via-la.com/licensing-programs/hevc-vvc/,
+  read 2026-11-24) covers "HEVC/VVC Products Sold to End Users" with per-unit royalties (0 for the
+  first 100,000 units of one legal entity, then $0.20 to $0.30) and an annual cap; Access Advance's
+  HEVC Advance page (https://accessadvance.com/licensing-programs/hevc-advance/) defers which
+  devices and software are covered to its licence agreement, which is not public. Not legal
+  advice; the reason HEVC is not offered. The FFmpeg 6.1.1 used for the tests (Ubuntu
+  `6.1.1-3ubuntu5`, `--enable-gpl --enable-libx265 --enable-libvpx --enable-libaom --enable-libsvtav1
+  --enable-librav1e --enable-libopus --enable-libass`) lists the encoders `prores_ks`, `libvpx-vp9`,
+  `libsvtav1` (SVT-AV1 1.7.0), `libaom-av1`, `librav1e`, `libopus`, `gif`, `png`, `ffv1`, `aac`,
+  `pcm_s16le`/`pcm_s24le` and `libx265` (`ffmpeg -encoders`, 2026-11-24). The release image's Debian
+  bookworm FFmpeg 5.1 was not checked here (VERIFY: `docker run --rm <image> ffmpeg -encoders`);
+  formats whose encoder is missing are refused per server (`422 unsupported_output`).

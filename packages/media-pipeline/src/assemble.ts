@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { H264_ARGS, PipelineError, run } from './ffmpeg';
+import type { MasterEncoding } from './formats';
 import { probe } from './probe';
 
 export interface ClipInput {
@@ -23,6 +24,8 @@ export interface AssembleOptions {
   voice?: { file: string; volume: number; startSeconds?: number } | null;
   /** Optional sound effects, each starting at `atSeconds`. */
   sfx?: Array<{ file: string; volume: number; atSeconds: number }>;
+  /** Another output format (#302, formatPlan().master): its encoder, pixel format and audio. Omitted: H.264 + AAC. */
+  encoding?: Pick<MasterEncoding, 'pixFmt' | 'padColor' | 'video' | 'audio'>;
   signal?: AbortSignal;
 }
 
@@ -61,14 +64,16 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
   for (const clip of clips) args.push('-i', clip.file);
 
   const audioIndex = clips.length;
-  const audio = audioGraph(opts, audioIndex, totalSeconds);
+  const enc = opts.encoding;
+  const withAudio = !enc || enc.audio !== null;
+  const audio = withAudio ? audioGraph(opts, audioIndex, totalSeconds) : { inputs: [], filters: [] };
   args.push(...audio.inputs);
 
   const filters: string[] = clips.map(
     (clip, i) =>
       `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,` +
-      `fps=${fps},format=yuv420p,trim=end_frame=${clip.frames},setpts=PTS-STARTPTS[v${i}]`
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=${enc?.padColor ?? 'black'},setsar=1,` +
+      `fps=${fps},format=${enc?.pixFmt ?? 'yuv420p'},trim=end_frame=${clip.frames},setpts=PTS-STARTPTS[v${i}]`
   );
   filters.push(`${clips.map((_, i) => `[v${i}]`).join('')}concat=n=${clips.length}:v=1:a=0[vout]`);
   filters.push(...audio.filters);
@@ -78,19 +83,13 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
     filters.join(';'),
     '-map',
     '[vout]',
-    '-map',
-    '[aout]',
-    ...H264_ARGS,
+    ...(withAudio ? ['-map', '[aout]'] : []),
+    ...(enc ? enc.video : H264_ARGS),
     '-r',
     String(fps),
     '-frames:v',
     String(totalFrames),
-    '-c:a',
-    'aac',
-    '-b:a',
-    '192k',
-    '-ar',
-    '48000',
+    ...(enc ? (enc.audio ?? ['-an']) : ['-c:a', 'aac', '-b:a', '192k', '-ar', '48000']),
     '-t',
     totalSeconds.toFixed(3),
     out
@@ -208,6 +207,28 @@ export async function concatClips(opts: ConcatOptions): Promise<AssembleResult> 
 }
 
 type AudioOptions = Pick<AssembleOptions, 'music' | 'voice' | 'sfx'>;
+
+export interface MixAudioOptions extends AudioOptions {
+  ffmpeg: string;
+  out: string;
+  /** Length of the timeline in seconds (the audio is exactly this long). */
+  seconds: number;
+  /** Audio encoder arguments, e.g. ['-c:a', 'aac', '-b:a', '192k']. */
+  codecArgs: string[];
+  signal?: AbortSignal;
+}
+
+/**
+ * Audio-only output (#302: m4a, wav): the same mix as a video's audio track
+ * (audioGraph: music trimmed and faded, voice and sound effects on top, or
+ * silence) over the whole timeline, without pictures.
+ */
+export async function mixAudio(opts: MixAudioOptions): Promise<{ out: string; args: string[] }> {
+  const audio = audioGraph(opts, 0, opts.seconds);
+  const args = ['-hide_banner', '-y', ...audio.inputs, '-filter_complex', audio.filters.join(';'), '-map', '[aout]', '-vn', ...opts.codecArgs, '-ar', '48000', '-t', opts.seconds.toFixed(3), opts.out];
+  await run(opts.ffmpeg, args, 'assemble:audio', { signal: opts.signal });
+  return { out: opts.out, args };
+}
 
 /**
  * The audio inputs and filter graph of a render: the music (trimmed, padded

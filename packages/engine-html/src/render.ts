@@ -29,6 +29,8 @@ export interface HtmlRenderOptions {
   onProgress?: (done: number, total: number) => void;
   /** Whole-render timeout. Default: 30 s + 1 s per frame, at most render.sceneTimeoutSeconds. */
   timeoutMs?: number;
+  /** Transparent background (#302): no page background, screenshots with alpha, ProRes 4444 clip (`out` ends in .mov). */
+  alpha?: boolean;
 }
 
 export interface HtmlRenderResult {
@@ -82,7 +84,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   }
   let doc: string;
   try {
-    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds, ...(opts.platform ? { platform: opts.platform } : {}) });
+    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds, ...(opts.platform ? { platform: opts.platform } : {}), ...(opts.alpha ? { transparent: true } : {}) });
   } catch (e) {
     throw new PipelineError(stage, (e as Error).message);
   }
@@ -96,7 +98,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   const signal = AbortSignal.any([timeout, navigation.signal, ...(opts.signal ? [opts.signal] : [])]);
   const navigationError = () =>
     new PipelineError(stage, `the scene tried to navigate away from its document (${navigatedTo.slice(0, 120)}): scenes render without network access and must not navigate`);
-  const encoder = startPngEncoder(opts.ffmpeg, opts.out, output.fps, stage);
+  const encoder = startPngEncoder(opts.ffmpeg, opts.out, output.fps, stage, { alpha: opts.alpha === true });
   const blocked: string[] = [];
   let browser: Browser | undefined;
   const onAbort = () => {
@@ -166,7 +168,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
           a.currentTime = ms;
         }
       }, t);
-      const png = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: output.width, height: output.height }, caret: 'hide', animations: 'allow' });
+      const png = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: output.width, height: output.height }, caret: 'hide', animations: 'allow', omitBackground: opts.alpha === true });
       await encoder.write(png);
       opts.onProgress?.(f + 1, frames);
     }
@@ -211,6 +213,8 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         .filter(([, t]) => t.engine === 'html')
         .map(([id, t]) => ({ ...t, id })),
     browserSandbox: () => chromiumSandbox(),
+    // Transparent backgrounds (#302): screenshots keep alpha when the page paints no background.
+    capabilities: () => ({ frameRanges: false, output: { alpha: true } }),
     availability() {
       try {
         resolveHtmlBrowser(opts.browserExecutable);
@@ -231,6 +235,7 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         signal: ctx.signal,
         onProgress: ctx.progress,
         timeoutMs: opts.timeoutMs,
+        ...(ctx.alpha ? { alpha: true } : {}),
       });
       if (res.blockedRequests.length) ctx.log(`html sandbox blocked ${res.blockedRequests.length} request(s): ${res.blockedRequests.slice(0, 5).join(', ')}`);
       return {

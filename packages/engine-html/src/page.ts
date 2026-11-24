@@ -38,6 +38,8 @@ export function buildDocument(opts: {
   durationSeconds: number;
   /** brief.platform: decides the ui safe zone on tall frames. */
   platform?: string;
+  /** output.alpha (#302): the page paints no background, so what the scene leaves unpainted is transparent. */
+  transparent?: boolean;
 }): string {
   if (/<\/style/i.test(opts.css)) throw new Error('css must not contain "</style"');
   assertSafeSceneFragment(opts.html);
@@ -47,7 +49,7 @@ export function buildDocument(opts: {
     '<!doctype html><html><head><meta charset="utf-8">' +
     `<meta http-equiv="Content-Security-Policy" content="${CSP}">` +
     `<style>${themeCss(opts.theme, opts.output, opts.durationSeconds, opts.platform)}` +
-    `html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden;background:var(--rf-bg);color:var(--rf-text);font-family:var(--rf-font)}` +
+    `html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden;background:${opts.transparent ? 'transparent' : 'var(--rf-bg)'};color:var(--rf-text);font-family:var(--rf-font)}` +
     `#rf-root{position:relative;width:${width}px;height:${height}px;overflow:hidden;box-sizing:border-box}` +
     '*{box-sizing:border-box}</style>' +
     `<style>${opts.css}</style></head>` +

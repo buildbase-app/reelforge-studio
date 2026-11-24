@@ -120,6 +120,12 @@ export const H264_ARGS = [
   '+faststart',
 ];
 
+/**
+ * The clip an engine writes when a render keeps alpha (#302, EngineRenderContext.alpha):
+ * ProRes 4444 with a 16-bit alpha channel in a MOV (FFmpeg's prores_ks).
+ */
+export const ALPHA_CLIP_ARGS = ['-c:v', 'prores_ks', '-profile:v', '4', '-vendor', 'apl0', '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16'];
+
 export interface FrameEncoder {
   /** Write one PNG frame. Resolves once FFmpeg has accepted it. */
   write(png: Buffer): Promise<void>;
@@ -138,7 +144,9 @@ export function startPngEncoder(
   ffmpeg: string,
   out: string,
   fps: number,
-  stage = 'encode'
+  stage = 'encode',
+  /** alpha: keep the PNGs' alpha channel (ALPHA_CLIP_ARGS, `out` should end in .mov) instead of H.264. */
+  opts: { alpha?: boolean } = {}
 ): FrameEncoder {
   const child = spawn(
     ffmpeg,
@@ -153,7 +161,7 @@ export function startPngEncoder(
       'png',
       '-i',
       '-',
-      ...H264_ARGS,
+      ...(opts.alpha ? ALPHA_CLIP_ARGS : H264_ARGS),
       '-r',
       String(fps),
       '-an',

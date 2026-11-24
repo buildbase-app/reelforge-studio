@@ -7,7 +7,10 @@ import {
   output,
   outputVariant,
   slugId,
+  type OutputSettings,
+  type OutputVariant,
 } from './common';
+import { formatSpecIssues } from './output-formats';
 import {
   BUILTIN_CATALOG,
   MAX_SOURCE_BYTES,
@@ -214,7 +217,8 @@ const projectShape = z
     /**
      * Optional extra formats (#287): render_project renders one video per
      * variant (each its own job and render, grouped by a batch id) instead of
-     * one at `output`. Variants share output.fps and format.
+     * one at `output`. Variants share output.fps; format, codec and alpha
+     * may be overridden per variant (#302).
      */
     variants: z.array(outputVariant).min(1).max(MAX_OUTPUT_VARIANTS).optional(),
     render: renderSettings.default({ backend: 'local' }),
@@ -264,6 +268,10 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
   p.variants?.forEach((v, i) => {
     if (variantIds.has(v.id)) add(['variants', i, 'id'], `duplicate variant id "${v.id}"`);
     variantIds.add(v.id);
+    // The combination as rendered (inherited from output where the variant does not set it).
+    if (v.format !== undefined || v.codec !== undefined || v.alpha !== undefined) {
+      for (const issue of formatSpecIssues(variantOutput(p.output, v))) add(['variants', i, issue.field], `variant "${v.id}": ${issue.message}`);
+    }
   });
 
   const sceneIds = new Set<string>();
@@ -430,9 +438,22 @@ export function withVariant(p: Project, variantId: string): Project {
   if (!v) throw new Error(`unknown variant "${variantId}"; variants: ${(p.variants ?? []).map((x) => x.id).join(', ') || '(none)'}`);
   return {
     ...p,
-    output: { ...p.output, width: v.width, height: v.height },
+    output: variantOutput(p.output, v),
     ...(v.platform ? { brief: { ...(p.brief ?? {}), platform: v.platform } } : {}),
   };
+}
+
+/**
+ * `output` as a variant renders it: the variant's size, and its format, codec
+ * and alpha (#302). A variant that sets `format` takes neither codec nor alpha
+ * from output; otherwise it inherits each one it does not set.
+ */
+export function variantOutput(o: OutputSettings, v: OutputVariant): OutputSettings {
+  const { codec: _c, alpha: _a, ...base } = o;
+  const inherit = v.format === undefined;
+  const codec = v.codec ?? (inherit ? o.codec : undefined);
+  const alpha = v.alpha ?? (inherit ? o.alpha : undefined);
+  return { ...base, width: v.width, height: v.height, format: v.format ?? o.format, ...(codec !== undefined ? { codec } : {}), ...(alpha !== undefined ? { alpha } : {}) };
 }
 
 /**

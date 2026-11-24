@@ -127,7 +127,7 @@ ${props.subline ? `<p id="hf-sub">${escapeHtml(props.subline)}</p>` : ''}
  * (wrapped in a root composition of the right size and duration) or a full
  * HyperFrames document (must declare data-composition-id with the output size).
  */
-export function buildComposition(scene: RenderScene, output: OutputSettings, theme: ThemeTokens, platform?: string): string {
+export function buildComposition(scene: RenderScene, output: OutputSettings, theme: ThemeTokens, platform?: string, opts: { transparent?: boolean } = {}): string {
   const seconds = scene.durationFrames / output.fps;
   const stage = `render:${scene.id}`;
   let body: string;
@@ -146,7 +146,7 @@ export function buildComposition(scene: RenderScene, output: OutputSettings, the
   const head =
     `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${HF_CSP}">` +
     `<script>${HF_PAGE_GUARD}</script>` +
-    `<style>${themeVars(theme, output, platform)}html,body{margin:0;width:${output.width}px;height:${output.height}px;overflow:hidden;background:var(--rf-bg);color:var(--rf-text);font-family:var(--rf-font)}*{box-sizing:border-box}</style>` +
+    `<style>${themeVars(theme, output, platform)}html,body{margin:0;width:${output.width}px;height:${output.height}px;overflow:hidden;background:${opts.transparent ? 'transparent' : 'var(--rf-bg)'};color:var(--rf-text);font-family:var(--rf-font)}*{box-sizing:border-box}</style>` +
     (scene.css ? `<style>${scene.css}</style>` : '');
 
   // A full document (agent's own <html>) or a fragment wrapped in a sized root composition.
@@ -195,6 +195,8 @@ export interface HyperframesRenderOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   log?: (line: string) => void;
+  /** Transparent background (#302): HyperFrames' MOV output (ProRes 4444 with alpha), `out` ends in .mov. */
+  alpha?: boolean;
 }
 
 /**
@@ -250,7 +252,7 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   const browser = opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH;
   if (!browser || !existsSync(browser)) throw new PipelineError('setup', 'no browser for HyperFrames: set REELFORGE_CHROMIUM_PATH');
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
-  const doc = buildComposition(scene, output, theme, opts.platform);
+  const doc = buildComposition(scene, output, theme, opts.platform, { transparent: opts.alpha === true });
   const project = join(opts.workDir, 'hyperframes');
   await mkdir(project, { recursive: true });
   // One temp directory per render: the CLI and its browser inherit it, which is how
@@ -269,10 +271,12 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
     opts.out,
     '--fps',
     String(output.fps),
-    '--end',
-    String(seconds),
+    // --end renders MP4 only; MOV (alpha) renders the composition's whole data-duration.
+    ...(opts.alpha ? [] : ['--end', String(seconds)]),
     '--workers',
     '1',
+    // MOV renders with transparency, as ProRes 4444 (its default profile keeps alpha).
+    ...(opts.alpha ? ['--format', 'mov', '--prores-profile', '4444'] : []),
     '--refuse-outside-files',
     '--no-browser-gpu',
     '--quiet',
@@ -373,6 +377,8 @@ export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?
         .filter(([, t]) => t.engine === 'hyperframes')
         .map(([id, t]) => ({ ...t, id })),
     browserSandbox: () => chromiumSandbox(),
+    // Transparent backgrounds (#302): HyperFrames captures with alpha for its MOV output.
+    capabilities: () => ({ frameRanges: false, output: { alpha: true } }),
     availability() {
       const b = browser();
       if (!b || !existsSync(b)) return { ok: false, reason: 'no browser: set REELFORGE_CHROMIUM_PATH to a Chrome Headless Shell binary' };
@@ -396,6 +402,7 @@ export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?
         signal: ctx.signal,
         timeoutMs: opts.timeoutMs,
         log: ctx.log,
+        ...(ctx.alpha ? { alpha: true } : {}),
       });
       ctx.progress(scene.durationFrames, scene.durationFrames);
       return {
