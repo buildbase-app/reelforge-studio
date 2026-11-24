@@ -84,6 +84,12 @@ test on rendered pixels at 16:9, 1:1, 4:5, 9:16 and 4K and by contact sheets in 
 **Output variants (#287, D-109, 2026-11-23):** a manifest may list `variants` (extra sizes); one `render_project`
 call (REST or MCP) starts one render per variant, each its own job and run id, grouped by a `batchId`
 ([manifest](public/manifest/v0-2.md#output-variants)).
+**Layouts and fit modes (#287, D-118, 2026-11-24):** templates `html-layout` and `hyperframes-layout` place panes as
+a split screen (2-4, side by side or stacked, ratios), picture-in-picture, grid (n x m or chosen per frame) or full
+frame, each with an image or video asset (`contain`, `cover`, `blur-fill`), text and an optional lower third, all in
+layout units and safe areas so they reflow per size and variant; pane geometry and text checked in the browser at six
+sizes on both engines and on rendered pixels, contact sheets in `docs/proofs/layouts/`
+([Formats and layouts](public/manifest/formats.md#layouts-split-screen-picture-in-picture-lower-thirds-grids)).
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,
