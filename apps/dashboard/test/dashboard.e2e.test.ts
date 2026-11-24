@@ -22,10 +22,10 @@ it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configu
 describe.runIf(hasBrowser)('dashboard in a browser', () => {
   let studio: Awaited<ReturnType<typeof startStudio>>;
   let browser: Browser;
-  const ids = { done: '', failed: '', running: '', render: '' };
+  const ids = { done: '', failed: '', running: '', render: '', mov: '', gif: '' };
 
   beforeAll(async () => {
-    studio = await startStudio([fakeEngine('html'), fakeEngine('hyperframes', { delayPerFrameMs: 400 }), fakeEngine('remotion', { fail: true })]);
+    studio = await startStudio([fakeEngine('html', { alpha: true }), fakeEngine('hyperframes', { delayPerFrameMs: 400 }), fakeEngine('remotion', { fail: true })]);
     const { call, waitFor } = studio;
     expect((await call('POST', '/v1/projects', htmlReel('spring-launch', 'Spring launch teaser'))).status).toBe(201);
     expect((await call('POST', '/v1/projects', htmlReel('long-cut', 'Long cut for the lobby screen', 8, 'hyperframes'))).status).toBe(201);
@@ -42,6 +42,14 @@ describe.runIf(hasBrowser)('dashboard in a browser', () => {
     const done = await waitFor(ids.done);
     expect(done.status).toBe('succeeded');
     ids.render = done.result.renderId;
+    // Other output formats (#302): a transparent ProRes MOV and a GIF of one project.
+    const overlay = { ...htmlReel('lower-third', 'Speaker lower third'), output: { width: 640, height: 360, fps: 30, format: 'mov', alpha: true }, variants: [{ id: 'overlay', width: 640, height: 360 }, { id: 'gif', width: 640, height: 360, format: 'gif' }] };
+    expect((await call('POST', '/v1/projects', overlay)).status).toBe(201);
+    for (const queued of (await call('POST', '/v1/projects/lower-third/renders', {})).json.jobs as Array<{ id: string; params: { variant: 'overlay' | 'gif' } }>) {
+      const job = await waitFor(queued.id);
+      expect(job.status).toBe('succeeded');
+      ids[queued.params.variant === 'overlay' ? 'mov' : 'gif'] = job.result.renderId;
+    }
     ids.failed = (await call('POST', '/v1/projects/broken-intro/renders', {})).json.job.id;
     expect((await waitFor(ids.failed)).status).toBe('failed');
     ids.running = (await call('POST', '/v1/projects/long-cut/renders', {})).json.job.id;
@@ -200,6 +208,43 @@ describe.runIf(hasBrowser)('dashboard in a browser', () => {
     await checkClean(page, context, requests);
     await context.close();
   }, 60_000);
+
+  for (const [scheme, viewport] of [['light', { width: 1280, height: 900 }], ['dark', { width: 1280, height: 900 }], ['light', { width: 360, height: 740 }]] as const) {
+    it(`output formats (#302): format labels, the MOV still on a checkerboard, the GIF itself, no axe violations (${scheme}, ${viewport.width} px)`, async () => {
+      const { context, page, requests } = await open(scheme, viewport);
+      await signIn(page, studio.keys.read);
+      await page.goto(`${studio.url}/dashboard/#/library/lower-third`);
+      await page.locator(`a[href="#/renders/${ids.mov}"]`).getByText('MOV · alpha').waitFor();
+      await page.locator(`a[href="#/renders/${ids.gif}"]`).getByText(/^GIF · 480/).waitFor();
+      expect(await page.locator(`a[href="#/renders/${ids.mov}"] .thumb.alpha`).count()).toBe(1);
+      expect(await axe(page), `library, ${scheme}`).toEqual([]);
+
+      await page.goto(`${studio.url}/dashboard/#/renders/${ids.mov}`);
+      await page.getByText('Alpha channel present').waitFor();
+      await page.getByText('MOV · ProRes 4444 · alpha').waitFor();
+      await page.getByText('ProRes plays in editing apps, not in browsers. This is the middle frame').waitFor();
+      // No <video> for ProRes (browsers do not decode it): the poster as a still, over the checkerboard.
+      expect(await page.locator('.player video').count()).toBe(0);
+      await page.waitForFunction(() => {
+        const img = document.querySelector<HTMLImageElement>('.player.alpha img');
+        return Boolean(img && img.complete && img.naturalWidth > 0);
+      });
+      expect(await page.getByRole('link', { name: 'Download MOV' }).getAttribute('download')).toBe(`${ids.mov}.mov`);
+      expect(await axe(page), `MOV render, ${scheme}`).toEqual([]);
+
+      await page.goto(`${studio.url}/dashboard/#/renders/${ids.gif}`);
+      await page.getByText('Within the GIF size limit').waitFor();
+      await page.waitForFunction(() => {
+        const img = document.querySelector<HTMLImageElement>('.player img');
+        return Boolean(img && img.complete && img.naturalWidth === 480);
+      });
+      await page.getByRole('link', { name: 'Download GIF' }).waitFor();
+      expect(await axe(page), `GIF render, ${scheme}`).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await checkClean(page, context, requests);
+      await context.close();
+    }, 60_000);
+  }
 
   it('a wrong key is refused with a message, and a 360 px screen has no axe violations', async () => {
     const { context, page } = await open('light', { width: 360, height: 740 });

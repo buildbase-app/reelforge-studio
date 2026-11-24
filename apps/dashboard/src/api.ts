@@ -51,6 +51,13 @@ export interface RenderSummary {
   width: number;
   height: number;
   fps: number;
+  /** Output format (#302); absent on renders made before it (MP4). */
+  format?: string;
+  codec?: string;
+  alpha?: boolean;
+  file?: string;
+  /** Absent for audio-only renders. */
+  posterUrl?: string;
   files: string[];
   downloadUrl: string;
   downloadUrlExpiresAt: string;

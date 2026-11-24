@@ -81,6 +81,59 @@ export function scopeText(scopes: string[]): string {
   return scopes.join(', ');
 }
 
+const CODEC_LABEL: Record<string, string> = {
+  h264: 'H.264',
+  'prores-422-hq': 'ProRes 422 HQ',
+  'prores-4444': 'ProRes 4444',
+  vp9: 'VP9',
+  av1: 'AV1',
+  gif: 'GIF',
+  aac: 'AAC',
+  'pcm-s16le': 'PCM',
+};
+
+/** "MP4 · H.264", "MOV · ProRes 4444 · alpha", "PNG sequence · PNG frames · alpha" (#302; renders before it are MP4). */
+export function outputFormat(r: { format?: string; codec?: string; alpha?: boolean }): string {
+  const format = r.format ?? 'mp4';
+  const name = format === 'png-sequence' ? 'PNG sequence' : format === 'webm' ? 'WebM' : format.toUpperCase();
+  const codec = CODEC_LABEL[r.codec ?? 'h264'] ?? r.codec ?? '';
+  // GIF and PNG sequences have one codec each: naming it again says nothing.
+  const sameAsFormat = format === 'gif' || format === 'png-sequence';
+  return [name, sameAsFormat ? '' : codec, r.alpha ? 'alpha' : ''].filter(Boolean).join(' · ');
+}
+
+/** The container alone, for cards: "MP4", "MOV · alpha", "PNG frames". */
+export function outputShort(r: { format?: string; alpha?: boolean }): string {
+  const format = r.format ?? 'mp4';
+  const name = format === 'png-sequence' ? 'PNG frames' : format === 'webm' ? 'WebM' : format.toUpperCase();
+  return r.alpha ? `${name} · alpha` : name;
+}
+
+/**
+ * How the render page shows a format's file: a video player (MP4, WebM), the
+ * GIF itself, an audio player, or the first frame as a still where a browser
+ * cannot play the file (ProRes MOV) or there is no single file to play (PNG zip).
+ */
+export function playerKind(format: string | undefined): 'video' | 'image' | 'audio' | 'still' {
+  if (format === 'gif') return 'image';
+  if (format === 'm4a' || format === 'wav') return 'audio';
+  if (format === 'png-sequence' || format === 'mov') return 'still';
+  return 'video';
+}
+
+/** The caption under a still. */
+export function stillNote(format: string | undefined): string | null {
+  if (format === 'mov') return 'ProRes plays in editing apps, not in browsers. This is the middle frame';
+  if (format === 'png-sequence') return 'Every frame is a PNG in the zip. This is the middle one';
+  return null;
+}
+
+/** The download button: "Download MP4", "Download frames (ZIP)". */
+export function downloadLabel(file: string): string {
+  const ext = file.slice(file.lastIndexOf('.') + 1).toUpperCase();
+  return ext === 'ZIP' ? 'Download frames (ZIP)' : `Download ${ext === 'WEBM' ? 'WebM' : ext}`;
+}
+
 /** 0.925 -> "92.5 %"; null (nothing to divide) -> "–". */
 export function rate(r: number | null | undefined): string {
   if (r === null || r === undefined || !Number.isFinite(r)) return '–';

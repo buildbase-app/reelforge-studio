@@ -2792,6 +2792,69 @@ the key's scopes as the server reads them (admin implies the others, owner all, 
 anything else. One-time secrets (a new or rotated key, a rotated webhook secret) are shown once in the page and never
 stored.
 
+## AC. Output formats (2026-11-24, issue #302)
+
+### D-123 --- Output formats: MOV/ProRes, WebM (VP9, AV1), GIF, PNG sequences and audio only from one manifest field; alpha from the html and HyperFrames engines; no HEVC
+
+(2026-11-24, issue #302; merged with #346, #349, #376, #375 and #373 on 2026-11-24.) `output.format` (`mp4`, `mov`, `webm`, `gif`,
+`png-sequence`, `m4a`, `wav`), `output.codec` (default per format: `h264`, `prores-422-hq`, `vp9`,
+`gif`, `png`, `aac`, `pcm-s16le`; also `prores-4444` and `av1`) and `output.alpha`, overridable per
+variant (D-109). Combinations that can never work (a codec of another format, alpha without an alpha
+codec, alpha on audio only) are schema errors on the field (`invalid_manifest`). What depends on the
+server is checked before a job is queued and refused with `422 unsupported_output` (`details.issues`
+with path, variant, engine): an engine that does not declare `EngineCapabilities.output.alpha`, an
+encoder the FFmpeg lacks (`ffmpeg -encoders`, asked once per binary without blocking), audio only
+without audio or with burned captions, a GIF over `render.formats.gifMaxSeconds`, a PNG sequence over
+65,535 frames. `validate_project` lists the same problems. **Pipeline:** H.264 MP4 keeps its path
+untouched (`h264Args()`, D-117's encoder settings, fan-out stream copy). Other formats assemble once with
+the format's encoder (`formatPlan()`) in D-116's two passes (video only with `-an`, then the audio muxed
+with the video stream copied, which FFmpeg 5.1 needs): MOV and WebM directly (ProRes via `prores_ks`
+with PCM 24-bit; VP9/AV1 with Opus; `-movflags +faststart` for MP4 and MOV only, since the WebM muxer
+refuses it), GIF and PNG sequences through a lossless FFV1 master (no audio pass) that a second step turns
+into a two-pass palette GIF or a stored zip of PNG frames. **Audio per container** (D-116): MOV and WebM
+carry the render's one normalised PCM mix, checked after the final encode for loudness and for A/V sync
+within one frame; a muted render carries a silent track or, with `render.audio.mutedTrack: "none"`, no
+audio stream (the format check then expects none). GIF and PNG sequences have no audio: nothing is mixed,
+and the manifest and `get_render_output` say `track: "none"` with the reason and the A/V-sync and loudness
+checks `skipped`. Audio only (m4a, wav) has no video pass at all: the same mix and loudness
+normalisation, encoded to AAC or 16-bit PCM, its loudness checked, A/V sync `skipped`; a muted audio-only
+render with `mutedTrack: "none"` fails (nothing to write). *Why PCM in MOV, not AAC:* editors expect
+uncompressed audio next to ProRes, and it adds no generation loss to the normalised mix. **Encoder
+memory** (D-117): `render.encoderThreads` reaches every video encoder (`-threads` for prores_ks, libvpx,
+libaom, SVT-AV1 and the FFV1 master) and `render.encoderLookahead` libvpx and libaom as
+`-lag-in-frames` (at most 25, libvpx's maximum); SVT-AV1's look-ahead is left to SVT, because its option
+is `la_depth` on FFmpeg 5.1 (removed in 7) or a version-dependent `svtav1-params` key. **Exact rates**
+(D-119): MOV and WebM are checked for `r_frame_rate` exactly the manifest's (30000/1001); a GIF keeps the
+project's exact rate up to `render.formats.gifFps` (frame count from the exact rates, so 29.97 does not
+drift), and a PNG sequence has one file per timeline frame with the rate in `frameRate`. Captions burn into the assembled file with
+the same encoder (libass `alpha=1` for transparent renders, so captions show over transparency);
+sidecars are written for every format. Audio only renders no scene. Per-format QA after encoding: ffprobe codec, profile, pixel format, alpha plane
+(decoded with `alphaextract`; VP9 also by its `alpha_mode` tag and the libvpx decoder), frame count,
+duration, audio present or absent, GIF bytes, zip entries and PNG headers, then a full decode.
+**Alpha:** an engine that declares `output.alpha` gets `EngineRenderContext.alpha` and writes a
+ProRes 4444 clip with alpha: the html engine screenshots with `omitBackground` on a page without
+background; HyperFrames renders `--format mov` (ProRes 4444; `--end` is MP4-only, so the
+composition's own duration is rendered and assembly trims to the scene's frames). Remotion and Motion
+Canvas do not declare it yet. **Posters** of other formats are the middle frame at 540 px (VP9 alpha decoded
+with libvpx so the poster keeps its transparency); MP4 keeps its first-frame poster. **Dashboard:** a format
+label on cards and the render page; MP4 and WebM play in `<video>`, a GIF shows as itself, audio in `<audio>`,
+and MOV (browsers do not decode ProRes) and PNG sequences show the poster as a still with a caption saying
+so; transparency sits on a dark checkerboard in the screen's tone, the convention editors use. **Previews** stay H.264 MP4; non-MP4 renders do not fan out. **Settings:**
+`render.formats.*` (VP9/AV1 quality and speed, GIF fps, size, dither and limits, AAC and Opus
+bitrates), runtime, applied process-wide like #349's encoder settings. `EngineCapabilities.output`
+(D-119's frame rates and sizes) also carries `alpha`: one interface in output-support.ts. *Why ProRes 4444 clips for alpha:* the only alpha codec both engines can write
+(HyperFrames' MOV output is ProRes 4444), decoded at 12 bits by FFmpeg, and the same codec as the
+MOV delivery, so a transparent ProRes render adds one ProRes generation and no chroma loss. *Why a stored zip
+written by hand:* PNGs are already compressed, and a new dependency would need a licence review;
+CRC32 comes from `node:zlib`. *HEVC/H.265 left out:* the image's FFmpeg has `libx265`, but HEVC
+patent pools license "HEVC products sold to end users" per unit (Via LA, read 2026-11-24;
+research/SOURCES.md) and ReelForge is sold; neither #10 nor #117 clears it. *Rejected:* transcoding
+the finished MP4 into each format (a second lossy generation and no alpha); burning captions after
+packaging (GIF and PNG would need their own burn); an alpha GIF (1-bit transparency with fringes).
+*Known limits:* non-alpha clips are still H.264 (CRF 18) before a ProRes or VP9 encode; Remotion and
+Motion Canvas alpha; ZIP64 for PNG sequences over 65,535 frames or 4 GiB. Debian bookworm's FFmpeg
+5.1.9 (the image's package) has every encoder used and libass `alpha`, and the media-pipeline format tests pass on it.
+
 ### D-124 --- Workspaces: routing repositories, an instance-level owner scope, and 404 across workspaces
 
 **Status:** DECIDED (reversible).

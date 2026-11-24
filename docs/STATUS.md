@@ -744,6 +744,33 @@ JS + CSS 25.4 KB gzip. Tests: `packages/core/test/analytics.test.ts`, `apps/serv
 `apps/dashboard/test/admin.e2e.test.ts` (axe 0 violations, light, dark, 360 px; a read key cannot edit). Not yet:
 brand kits in settings, workspace-scoped views (#304).
 
+### Output formats: MOV/ProRes, WebM, GIF, PNG sequences, audio only (2026-11-24, issue #302)
+
+Built (D-123, [formats](public/manifest/formats.md#output-formats)): `output.format` / `codec` /
+`alpha` and per-variant overrides; `mov` (ProRes 422 HQ, ProRes 4444 with alpha), `webm` (VP9 with
+alpha, AV1 with SVT-AV1 or libaom), `gif` (palette, size and length limits), `png-sequence`
+(`frames.zip`, RGBA with alpha), `m4a` and `wav` (no scene rendered); transparent capture in the
+html and HyperFrames engines (`EngineCapabilities.output.alpha`); `422 unsupported_output` before
+queueing for engines without alpha, missing encoders, audio only without audio or with burned
+captions, GIF over its limit; burned captions (into alpha too) and sidecars per format; per-format
+ffprobe QA; content types, `get_render_output` / summaries with `format`, `codec`, `alpha`, `file`,
+`contentType`; the dashboard's library and render page show the format and use a matching player
+(video, GIF image, audio, or the poster of a PNG zip); `get_capabilities` `outputFormats` and per-engine `alpha`; settings
+`render.formats.*`. Tests: schema combinations and variant overrides (project-schema); every
+format's master, GIF, zip, audio mix and alpha caption burn (media-pipeline); every format through
+the service with ffprobe and 422 refusals (core, fake engines); html and HyperFrames alpha to MOV and
+WebM over REST with signed downloads (server, real engines). Not yet: HEVC (licence, D-123),
+Remotion/Motion Canvas alpha, lossless intermediates for opaque non-MP4 renders, ZIP64, fan-out for
+non-MP4 formats, new dashboard screenshots. Before the merge with main the media-pipeline format
+tests also passed on Debian bookworm's FFmpeg 5.1.9 (the image's package); the service and engine
+tests ran on 6.1.1. Merged with main (2026-11-24): MOV and WebM use #346's two-pass assemble and
+audio pipeline (PCM in MOV, Opus in WebM, loudness and A/V sync checked on the file; Opus pre-skip
+is not counted as an offset), GIF and PNG sequences skip the audio pass and its checks
+(`get_render_output` `audio.track: "none"`, `checks` skipped), audio-only renders normalise and check
+loudness with no video pass; #349's thread cap on every video encoder (look-ahead on libvpx and
+libaom); #376's exact rates for MOV/WebM (`r_frame_rate` checked), GIF and PNG `frameRate`. After the
+merge the tests ran on FFmpeg 6.1.1 only; re-running the format tests on 5.1.9 is still to do (VERIFY).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |
