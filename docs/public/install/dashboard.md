@@ -91,7 +91,7 @@ the page out.
   served by the studio. It loads no fonts, scripts or images from anywhere
   else and makes no request to another host.
 - **Strict Content-Security-Policy** on every dashboard response:
-  `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
+  `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
   No inline script or style. Also `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`.
 - **No session of its own.** There is no login cookie and no server-side

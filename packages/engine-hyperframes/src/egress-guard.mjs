@@ -48,7 +48,7 @@ if (typeof realFetch === 'function' && !realFetch.reelforgeGuarded) {
     } catch {
       // stderr closed: still refuse
     }
-    const cause = Object.assign(new Error(`connect ECONNREFUSED ${host}: ReelForge renders have no network access`), { code: 'ECONNREFUSED' });
+    const cause = Object.assign(new Error(`connect ECONNREFUSED ${host}: RenderWeld renders have no network access`), { code: 'ECONNREFUSED' });
     return Promise.reject(new TypeError('fetch failed', { cause }));
   };
   Object.defineProperty(guarded, 'reelforgeGuarded', { value: true });

@@ -64,7 +64,7 @@ export class StructuredLogger {
     const traced = span && span.traceId !== '00000000000000000000000000000000' ? { trace_id: span.traceId, span_id: span.spanId } : {};
     if (this.exporter === 'pretty') {
       const extra = safe ? Object.entries(safe).map(([k, v]) => ` ${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join('') : '';
-      this.write(level, `[reelforge] ${level === 'info' ? '' : `${level}: `}${text}${extra}`);
+      this.write(level, `[renderweld] ${level === 'info' ? '' : `${level}: `}${text}${extra}`);
     } else {
       this.write(level, JSON.stringify({ time: new Date().toISOString(), level, msg: text, service: this.service, ...safe, ...traced }));
     }

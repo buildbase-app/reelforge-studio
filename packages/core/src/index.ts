@@ -1,4 +1,5 @@
 export * from './errors';
+export * from './product';
 export * from './fsutil';
 export * from './mergePatch';
 export * from './plugins';

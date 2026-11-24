@@ -9,6 +9,7 @@ import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { BlockList, isIP, type LookupFunction } from 'node:net';
 import { ApiError, notFound } from './errors';
+import { userAgent } from './product';
 import type { PageRequest } from './paging';
 import type { PutAssetInput, StoredAsset } from './plugins';
 import type { AssetRecord, AssetRepository } from './repositories';
@@ -329,7 +330,7 @@ function getOnce(u: URL, limits: FetchLimits): Promise<IncomingMessage> {
       {
         method: 'GET',
         lookup: limits.allowInsecureForTests ? undefined : publicOnlyLookup,
-        headers: { 'user-agent': 'reelforge-studio-asset-fetch', accept: '*/*' },
+        headers: { 'user-agent': userAgent('Asset-Fetch'), accept: '*/*' },
         timeout: limits.timeoutMs,
       },
       resolve

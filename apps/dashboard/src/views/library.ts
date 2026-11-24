@@ -257,7 +257,7 @@ export const renderView: View = (ctx, main, renderId) => {
     ]);
     const projectTitle = m.project?.title || r.projectId;
     title.textContent = projectTitle;
-    document.title = `${projectTitle} · ReelForge Studio`;
+    document.title = `${projectTitle} · RenderWeld`;
     crumbs.append(h('a', { href: `#/library/${r.projectId}` }, projectTitle), h('span', { 'aria-current': 'page', class: 'mono' }, id));
     fill(sub, `${kindLabel(r.kind)} `, h('span', { class: 'mono' }, id), ` · ${dateTime(r.createdAt)}`);
 

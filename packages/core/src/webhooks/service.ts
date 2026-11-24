@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { SpanKind, type Counter, type Histogram, type Meter } from '@opentelemetry/api';
 import { z } from 'zod';
 import { redactSecrets } from '../audit';
+import { PRODUCT_NAME } from '../product';
 import { SECRET_KEY_HELP } from '../config/crypto';
 import type { RuntimeConfig } from '../config/runtime';
 import { ApiError, badRequest, notFound } from '../errors';
@@ -496,7 +497,7 @@ export class WebhookService {
     const ep = await this.repo.getEndpoint(id);
     if (!ep) throw notFound('webhook', id);
     const wait = Math.max(0, Math.min(30, Number(opts.waitSeconds ?? 0) || 0));
-    const event = this.envelope('webhook.test', { webhookId: id, name: ep.name, message: 'This is a test event from ReelForge Studio.' });
+    const event = this.envelope('webhook.test', { webhookId: id, name: ep.name, message: `This is a test event from ${PRODUCT_NAME}.` });
     const d = this.delivery(id, event);
     await this.repo.enqueue([d]);
     await this.audit(actor, 'webhook.test', id, { deliveryId: d.id });

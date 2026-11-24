@@ -2891,3 +2891,28 @@ with the docs in phase 6), the HPA's `reelforge_jobs_queued` external metric (na
 `apps/server/test/rename.test.ts`, `apps/server/test/observability.test.ts` (OBS-18, OBS-07, OBS-09),
 `apps/server/test/mcp.test.ts`, `apps/server/test/parity.test.ts`, `scripts/docs/cloud-docs.test.mjs`. Reference:
 [RENAMED.md](RENAMED.md).
+
+### D-129 --- Public surfaces say RenderWeld; old names stay as aliases (server name, OAuth scopes, user agents, image label)
+
+**Status:** DECIDED (reversible), issue #413 (phase 4 of the rename epic #408). Number assigned at merge.\
+**Decision:** one module, `packages/core/src/product.ts`, holds the public names: `PRODUCT_NAME` (RenderWeld),
+`SERVER_NAME` (`renderweld`, title RenderWeld) and `OLD_SERVER_NAMES` (`reelforge-studio`), and `userAgent()`.
+The MCP `initialize` answer, `/.well-known/mcp.json` and `get_capabilities` use the new name and list the old one
+under `aliases`. **User agents** put the RenderWeld product token first and the old token after it
+(`RenderWeld-Webhooks/1 ReelForge-Studio-Webhooks/1`; RFC 9110 allows several product tokens), so a receiver's
+filter on the old value keeps matching; licence checks and ElevenLabs calls, which sent Node's default before,
+now send `RenderWeld-Licence/1` and `RenderWeld-Providers/1` (a User-Agent is not a credential; the licence
+request still carries only the key and the instance id). **OAuth** accepts `renderweld:*` and `reelforge:*`
+scopes; the `insufficient_scope` challenge still names `reelforge:read`, the scope identity providers have
+configured today. **Image:** OCI `title`, `description`, `url` and `vendor` name RenderWeld;
+`app.renderweld.edition` is set next to `app.reelforge.edition`, which the e2e and image scripts read. **Dashboard:**
+the kit's mark and icons, and a web app manifest (CSP `manifest-src 'self'`). *Rejected:* replacing the old
+user-agent token outright (silently breaks allowlists); a second MCP server name in `initialize` (the protocol
+has one). **Not in this step:** the `REELFORGE_*` names that messages suggest (both work; switching the schema's
+primary names is its own change), the OpenTelemetry `service.name` default (`reelforge-studio`: changing it
+splits every operator's dashboards; a setting already), the HTTP auth realms, the image name and `source` URL
+(GitHub rename, #409), and the old names' removal (#416). Proof: `packages/core/test/product.test.ts`,
+`packages/core/test/webhooks.test.ts`, `packages/core/test/assets.test.ts`, `packages/core/test/licence.test.ts`,
+`apps/server/test/mcp.test.ts`, `apps/server/test/rest.test.ts`, `apps/server/test/mcp-oauth.test.ts`,
+`apps/server/test/rename.test.ts`, `apps/server/test/dashboard.test.ts`, `apps/dashboard/test/unit.test.ts`.
+Reference: [RENAMED.md](RENAMED.md).

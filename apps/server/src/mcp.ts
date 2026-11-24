@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { ApiError, PRIORITIES, ReelforgeService, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
+import { ApiError, OLD_SERVER_NAMES, PRIORITIES, PRODUCT_NAME, ReelforgeService, SERVER_NAME, SERVER_TITLE, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
 import { auditAction, auditTarget } from './audit';
 import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag, renderAudioOptions } from '@reelforge/project-schema';
 import { z } from 'zod';
@@ -116,7 +116,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_capabilities',
     title: 'Get server capabilities',
     description:
-      'Start here. Returns what this ReelForge server can do right now: installed engines (and whether each can render on this machine), templates, themes, media providers (configured or not, with cost notes), render backends, limits (fps, max duration, upload size) and tool versions. Never guess an engine, template or provider: use what this returns.',
+      'Start here. Returns what this RenderWeld server can do right now: installed engines (and whether each can render on this machine), templates, themes, media providers (configured or not, with cost notes), render backends, limits (fps, max duration, upload size) and tool versions. Never guess an engine, template or provider: use what this returns.',
     scope: 'read',
     input: {},
     annotations: { readOnlyHint: true },
@@ -762,7 +762,7 @@ export const TOOLS: ToolDef[] = [
     description:
       'Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the admin scope.',
     scope: 'admin',
-    input: { key: z.string().optional().describe('The licence key from the ReelForge purchase, e.g. "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2". Omit to re-check the configured key.') },
+    input: { key: z.string().optional().describe('The licence key from the RenderWeld purchase, e.g. "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2". Omit to re-check the configured key.') },
     annotations: { openWorldHint: true, idempotentHint: true },
     run: async (a, { service, auth }) => service.activateLicence(a.key, { actorType: 'api_key', actorId: auth.keyId }),
   },
@@ -1059,7 +1059,7 @@ export const RESOURCES = [
 export type ResourcePath = (typeof RESOURCES)[number]['path'];
 
 /** Served as the resource renderweld://guide/workflow (and reelforge://guide/workflow) and inside the make_reel prompt. */
-export const WORKFLOW_GUIDE = `# ReelForge Studio: making a reel with MCP tools only
+export const WORKFLOW_GUIDE = `# RenderWeld: making a video with MCP tools only
 
 You decide the scenes; the server validates, renders and checks. Everything is
 done with tools; there is no UI.
@@ -1157,10 +1157,10 @@ const DELIVERY_CHECKLIST = [
 
 function buildServer(service: ReelforgeService, auth: AuthContext, config: ServerConfig): McpServer {
   const server = new McpServer(
-    { name: 'reelforge-studio', version: service.serverVersion },
+    { name: SERVER_NAME, title: SERVER_TITLE, version: service.serverVersion },
     {
       instructions:
-        'ReelForge Studio renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ' +
+        `${PRODUCT_NAME} renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ` +
         'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
         'With captions, call get_captions and ask the user to approve them (update_captions approve: true) before render_project; never assume approval. ' +
         `Full guide with a minimal manifest: resource ${resourceUri('guide/workflow')} or prompt make_reel. ` +
@@ -1194,7 +1194,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
             if (e instanceof ApiError) error = e;
             const err = e instanceof ApiError ? e.toJSON() : { code: 'internal', message: e instanceof Error ? e.message : String(e) };
             failure = { code: err.code, message: err.message };
-            if (!(e instanceof ApiError)) console.error(`[reelforge] tool ${t.name} failed`, e);
+            if (!(e instanceof ApiError)) console.error(`[renderweld] tool ${t.name} failed`, e);
             return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: err }, null, 2) }] };
           } finally {
             // One audit entry per admin or write call (D-055), unless the service wrote a detailed one.
@@ -1210,7 +1210,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
                   result: !failure ? 'success' : error?.status === 401 || error?.status === 403 ? 'denied' : 'failure',
                   data: { ...data, ...(failure ? { error: failure.code } : {}), ...(call.idempotentReplay ? { idempotentReplay: true } : {}) },
                 })
-                .catch((e) => console.error('[reelforge] audit write failed', (e as Error).message));
+                .catch((e) => console.error('[renderweld] audit write failed', (e as Error).message));
             }
           }
         });
@@ -1285,7 +1285,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
           role: 'user',
           content: {
             type: 'text',
-            text: `Make a short video about: ${topic}\n\nUse the size the user asked for (vertical 1080x1920 if they did not say). Follow this guide exactly, using only the ReelForge tools. Show me the scene list with timings before rendering. If the reel has captions, show me them (get_captions) and ask me to approve or change them before the final render; do not assume I approve. Give me the downloadUrl at the end.\n\n${WORKFLOW_GUIDE}`,
+            text: `Make a short video about: ${topic}\n\nUse the size the user asked for (vertical 1080x1920 if they did not say). Follow this guide exactly, using only the RenderWeld tools. Show me the scene list with timings before rendering. If the reel has captions, show me them (get_captions) and ask me to approve or change them before the final render; do not assume I approve. Give me the downloadUrl at the end.\n\n${WORKFLOW_GUIDE}`,
           },
         },
       ],
@@ -1296,7 +1296,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
     'plan_reel',
     {
       title: 'Plan a reel from a brief',
-      description: 'Turns a brief into a ReelForge manifest using the templates installed on this server.',
+      description: 'Turns a brief into a RenderWeld manifest using the templates installed on this server.',
       argsSchema: {
         brief: z.string().describe('What the video is about, for whom, and the call to action.'),
         targetSeconds: z.string().optional().describe('Target length in seconds (default 15).'),
@@ -1313,7 +1313,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
             content: {
               type: 'text',
               text:
-                `Plan a short video for ReelForge Studio.\n\nBrief: ${brief}\nTarget length: ${targetSeconds ?? '15'} seconds\nPlatform: ${platform ?? 'instagram-reels'}\n\n` +
+                `Plan a short video for RenderWeld.\n\nBrief: ${brief}\nTarget length: ${targetSeconds ?? '15'} seconds\nPlatform: ${platform ?? 'instagram-reels'}\n\n` +
                 `Installed templates:\n${templates}\n\nThemes:\n${themes}\n\n` +
                 'Steps:\n1. Call list_templates to read each template\'s props schema.\n' +
                 '2. Write a manifest with schemaVersion "0.2", output sized for the platform at 30 fps (1080x1920 for instagram-reels, tiktok and youtube-shorts; 1920x1080 for youtube or the web; 1080x1080 or 1080x1350 for feed posts; any size the user asks for), a brief with that platform, a theme, and 3-6 scenes that add up to the target length. Use durationSeconds within each template\'s range. Open with a hook; keep on-screen text short (about 3 words per second).\n' +
@@ -1343,7 +1343,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
             content: {
               type: 'text',
               text:
-                `Review this ReelForge project against the checklist. For each item answer pass / fail / unknown with a one-line reason, then list concrete fixes as tool calls (update_scene, set_theme, ...).\n\n` +
+                `Review this RenderWeld project against the checklist. For each item answer pass / fail / unknown with a one-line reason, then list concrete fixes as tool calls (update_scene, set_theme, ...).\n\n` +
                 `Checklist:\n${DELIVERY_CHECKLIST.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n` +
                 `Validation report:\n${JSON.stringify(report, null, 2)}\n\nManifest (version ${p.meta.version}):\n${JSON.stringify(p.manifest, null, 2)}`,
             },
@@ -1373,10 +1373,12 @@ export async function handleMcp(req: Request, auth: AuthContext, service: Reelfo
 export function serverCard(service: ReelforgeService, config: ServerConfig) {
   const base = config.publicUrl ?? `http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${config.port}`;
   return {
-    name: 'reelforge-studio',
-    title: 'ReelForge Studio',
+    name: SERVER_NAME,
+    title: SERVER_TITLE,
+    // The old server name (#413): still listed until phase 7, so a client that matched on it finds this server.
+    aliases: [...OLD_SERVER_NAMES],
     version: service.serverVersion,
-    description: 'Self-hosted short-form video studio. Agents create and edit projects; the server renders and validates MP4s.',
+    description: 'Self-hosted video rendering for AI agents. Agents create and edit projects; the server renders and validates the video.',
     endpoint: `${base}/mcp`,
     transport: { type: 'streamable-http', stateless: true, jsonResponse: true },
     authentication: {

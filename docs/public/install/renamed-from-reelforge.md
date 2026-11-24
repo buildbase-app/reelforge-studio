@@ -1,6 +1,6 @@
 ---
 title: "Renamed from ReelForge"
-description: "ReelForge Studio is now RenderWeld: every old name (environment variables, config file, CLI, MCP URIs, metrics, trace attributes, headers) next to its new one, and how long the old names keep working."
+description: "ReelForge Studio is now RenderWeld: every old name (environment variables, config file, CLI, MCP URIs and server name, OAuth scopes, metrics, trace attributes, headers, user agents, image labels) next to its new one, and how long the old names keep working."
 folder: install
 slug: renamed-from-reelforge
 order: 9
@@ -141,9 +141,29 @@ Webhooks are signed with the Standard Webhooks headers (`webhook-id`,
 `webhook-timestamp`, `webhook-signature`), which carry no product name and do
 not change.
 
+## Server name, OAuth scopes, user agents and image labels
+
+| Old | New | Where |
+| --- | --- | --- |
+| `reelforge-studio` | `renderweld` (title `RenderWeld`) | MCP `initialize`, `/.well-known/mcp.json` and `get_capabilities` / `GET /v1/capabilities` `server.name`; the old name is listed under `aliases` |
+| `reelforge:read`, `reelforge:write`, `reelforge:render`, `reelforge:admin` | `renderweld:read`, `renderweld:write`, `renderweld:render`, `renderweld:admin` | OAuth access-token scopes on `/mcp`; both are accepted and listed in `scopes_supported` |
+| `ReelForge-Studio-Webhooks/1` | `RenderWeld-Webhooks/1 ReelForge-Studio-Webhooks/1` | `User-Agent` of webhook and chat deliveries |
+| `ReelForge-Studio-Notifications/1` | `RenderWeld-Notifications/1 ReelForge-Studio-Notifications/1` | `User-Agent` of email API calls (Resend, Postmark, SendGrid, SES) |
+| `reelforge-studio-asset-fetch` | `RenderWeld-Asset-Fetch/1 reelforge-studio-asset-fetch` | `User-Agent` of `add_asset_from_url` downloads |
+| (Node's default) | `RenderWeld-Licence/1`, `RenderWeld-Providers/1` | `User-Agent` of licence checks and ElevenLabs calls |
+| `org.opencontainers.image.title=ReelForge Studio` | `RenderWeld`, plus `url` and `vendor` | Docker image labels |
+| `app.reelforge.edition` | `app.renderweld.edition` | Docker image label; both are set |
+
+User agents carry the old product token after the new one, so a filter that
+matches the old value keeps matching. Messages, the dashboard, notification
+titles (`RenderWeld: render ... is ready`) and `[renderweld]` log lines in the
+`pretty` format say RenderWeld.
+
 ## Not renamed in this step
 
 Data stays where it is: no table, column, storage key, data directory or
-default SQLite file name (`reelforge.db`) changes. Package names, the MCP server
-name, the image name and the product text change in later releases, each with
-its own alias where something could break.
+default SQLite file name (`reelforge.db`) changes, and neither does the
+OpenTelemetry `service.name` default (`reelforge-studio`, a setting). Package
+names, the image name (it follows the repository rename), alert names and the
+`REELFORGE_*` names that some messages still suggest change in later steps,
+each with its own alias where something could break.

@@ -80,6 +80,9 @@ describe('health and discovery', () => {
     const card = (await (await req('GET', '/.well-known/mcp.json', { key: null })).json()) as any;
     expect(card.endpoint).toBe('https://studio.example.com/mcp');
     expect(card.tools.map((t: any) => t.name)).toContain('render_project');
+    // The server card says RenderWeld and still lists the old name (#413).
+    expect(card).toMatchObject({ name: 'renderweld', title: 'RenderWeld', aliases: ['reelforge-studio'] });
+    expect(card.description).toMatch(/^Self-hosted video rendering for AI agents\./);
   });
 
   it('answers unknown routes with a JSON error', async () => {
@@ -142,6 +145,8 @@ describe('REST v1', () => {
   it('reports capabilities, schema and templates', async () => {
     const caps = (await (await req('GET', '/v1/capabilities')).json()) as any;
     expect(caps.engines.map((e: any) => e.id)).toEqual(['remotion', 'motion-canvas']);
+    // The product name (#413): RenderWeld, with the old server name as an alias.
+    expect(caps.server).toMatchObject({ name: 'renderweld', title: 'RenderWeld', aliases: ['reelforge-studio'], mcpToolsStatus: 'experimental' });
     const schema = (await (await req('GET', '/v1/schema/project')).json()) as any;
     expect(schema.type).toBe('object');
     const t = (await (await req('GET', '/v1/templates?engine=remotion')).json()) as any;

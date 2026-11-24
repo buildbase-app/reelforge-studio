@@ -489,7 +489,7 @@ export const webhookView: View = (ctx, main, id) => {
     const log = await page();
     const w = log.webhook;
     title.textContent = w.name;
-    document.title = `${w.name} · ReelForge Studio`;
+    document.title = `${w.name} · RenderWeld`;
     const sm = log.summary;
     fill(
       head,

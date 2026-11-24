@@ -75,6 +75,7 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
     const client = await connect(adminKey);
     const caps = json(await client.callTool({ name: 'get_capabilities', arguments: {} }));
     expect(caps.schemaVersion).toBe('0.2');
+    expect(caps.server).toMatchObject({ name: 'renderweld', title: 'RenderWeld', aliases: ['reelforge-studio'] });
     const created = json(await client.callTool({ name: 'create_project', arguments: { manifest: sample } }));
     expect(created.migratedFrom).toBe('0.1');
     expect(created.timing.map((t: any) => t.durationFrames)).toEqual([90, 120]);
@@ -187,4 +188,20 @@ describe('output variants over MCP (#287)', () => {
     await client.callTool({ name: 'delete_project', arguments: { projectId: 'mcp-variants' } });
     await client.close();
   }, 120_000);
+});
+
+// After the tests above, so sample-reel exists for review_reel.
+describe('MCP server names (#413)', () => {
+  it('introduces itself as RenderWeld in initialize, its instructions and its prompts (#413)', async () => {
+    const client = await connect(adminKey);
+    expect(client.getServerVersion()).toMatchObject({ name: 'renderweld', title: 'RenderWeld' });
+    expect(client.getInstructions()).toMatch(/^RenderWeld renders short videos/);
+    for (const [name, args] of [['make_reel', { topic: 'hooks' }], ['plan_reel', { brief: 'hooks' }], ['review_reel', { projectId: 'sample-reel' }]] as const) {
+      const text = JSON.stringify((await client.getPrompt({ name, arguments: args })).messages);
+      expect(text, name).toContain('RenderWeld');
+      // review_reel quotes the project, whose sample title still says ReelForge (examples move in the docs sweep, #415).
+      if (name !== 'review_reel') expect(text, name).not.toContain('ReelForge');
+    }
+    expect(WORKFLOW_GUIDE).toMatch(/^# RenderWeld: /);
+  });
 });

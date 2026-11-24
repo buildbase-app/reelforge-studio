@@ -142,7 +142,7 @@ export class Database {
   async assertMigrated(): Promise<void> {
     const s = await this.status();
     if (s.pending.length) {
-      throw new Error(`the database schema is behind: ${s.pending.length} migration(s) pending (${s.pending.join(', ')}); run \`reelforge migrate\` (or start with REELFORGE_MIGRATE_ON_START=1)`);
+      throw new Error(`the database schema is behind: ${s.pending.length} migration(s) pending (${s.pending.join(', ')}); run \`renderweld migrate\` (or start with REELFORGE_MIGRATE_ON_START=1)`);
     }
   }
 
