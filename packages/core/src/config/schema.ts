@@ -1,5 +1,6 @@
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
+import { isLanguageTag } from '@reelforge/project-schema';
 import { weakKeyReason } from '../keyStrength';
 
 /**
@@ -1068,6 +1069,90 @@ export const ConfigSchema = z.object({
         secret: true,
         providerEnv: 'ELEVENLABS_API_KEY',
         description: 'Enables the ElevenLabs TTS provider. Same setting as `configure_provider` / `PUT /v1/providers/elevenlabs/config`; stored encrypted when set at runtime.',
+      }),
+    }),
+  }),
+  captions: z.object({
+    defaultMode: setting(z.enum(['off', 'burned', 'sidecar', 'both']), {
+      kind: 'enum',
+      scope: 'runtime',
+      env: 'REELFORGE_CAPTIONS_DEFAULT_MODE',
+      default: 'off',
+      description:
+        'Captions for projects that do not set `captions.mode` (docs/CAPTIONS.md): `off` (the default; projects render as before), `burned` into the video, `sidecar` files (SRT, WebVTT, ASS) next to final.mp4, or `both`. A project\'s `captions.mode` and render_project\'s `captions` override it.',
+    }),
+    stt: z.object({
+      provider: setting(z.string().min(1).max(64).regex(/^[a-z0-9-]+$/, 'a provider id such as faster-whisper'), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_PROVIDER',
+        default: 'faster-whisper',
+        description: 'Speech-to-text provider used by `transcribe_captions` (get_capabilities `captions.stt` lists the installed ones and whether each can run here).',
+      }),
+      command: setting(
+        z
+          .string()
+          .min(1)
+          .max(1024)
+          .refine((v) => /^[A-Za-z0-9._+-]+$/.test(v) || (v.startsWith('/') && !v.includes('\0') && !/[\r\n]/.test(v)), 'a command name on PATH (letters, digits, . _ + -) or an absolute path'),
+        {
+          kind: 'path',
+          scope: 'runtime',
+          env: 'REELFORGE_STT_COMMAND',
+          default: 'reelforge-whisper',
+          description:
+            'The local speech-to-text program: a name looked up on PATH or an absolute path. It is started directly (never through a shell) with a fixed argument list and no network access is needed (deployment/stt/README.md). The default `reelforge-whisper` is installed by the optional speech-to-text image layer; without it speech-to-text is off and get_capabilities says so. Admin-only like every setting, and audit-logged.',
+        }
+      ),
+      model: setting(z.string().min(1).max(200).regex(/^[A-Za-z0-9._/-]+$/, 'a model name such as small or a directory path'), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_MODEL',
+        default: 'small',
+        description:
+          'Whisper model: a name (tiny, base, small, medium, large-v3, distil-large-v3, ... and the .en variants) that must already be downloaded into `captions.stt.modelDir`, or the path of a converted model directory. Models are never downloaded at run time.',
+      }),
+      modelDir: setting(nonEmpty().max(1024).optional(), {
+        kind: 'path',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_MODEL_DIR',
+        defaultText: '(the Hugging Face cache of the server user)',
+        description: 'Directory the models were pre-downloaded into (the image layer uses `/opt/reelforge/whisper-models`).',
+      }),
+      language: setting(
+        z
+          .string()
+          .min(2)
+          .max(35)
+          .refine((v) => v === 'auto' || isLanguageTag(v), '"auto" or a BCP 47 language tag such as en or pt-BR'),
+        {
+          kind: 'string',
+          scope: 'runtime',
+          env: 'REELFORGE_STT_LANGUAGE',
+          default: 'auto',
+          description: 'Spoken language of voice-overs: `auto` detects it, or a BCP 47 tag (its primary subtag is passed to Whisper, e.g. `pt` for `pt-BR`). `transcribe_captions` can pass one per call.',
+        }
+      ),
+      computeType: setting(z.enum(['default', 'auto', 'int8', 'int8_float32', 'int8_float16', 'int8_bfloat16', 'int16', 'float16', 'bfloat16', 'float32']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_COMPUTE_TYPE',
+        default: 'int8',
+        description: 'CTranslate2 compute type: `int8` is fast on a CPU; `float16` needs a GPU.',
+      }),
+      device: setting(z.enum(['cpu', 'cuda', 'auto']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_DEVICE',
+        default: 'cpu',
+        description: '`cpu`, `cuda` (an NVIDIA GPU with CUDA libraries in the image) or `auto`.',
+      }),
+      timeoutSeconds: setting(z.number().int().min(10).max(3600), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_TIMEOUT_SECONDS',
+        default: 600,
+        description: 'Longest one transcription may run (10 to 3600 seconds); the process is killed after it.',
       }),
     }),
   }),

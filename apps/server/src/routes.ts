@@ -39,6 +39,9 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'PUT', path: '/v1/projects/:id/theme', scope: 'write', tool: 'set_theme' },
   { method: 'PATCH', path: '/v1/projects/:id/audio', scope: 'write', tool: 'set_audio' },
   { method: 'POST', path: '/v1/projects/:id/captions/import', scope: 'write', tool: 'import_captions' },
+  { method: 'GET', path: '/v1/projects/:id/captions', scope: 'read', tool: 'get_captions' },
+  { method: 'PATCH', path: '/v1/projects/:id/captions', scope: 'write', tool: 'update_captions', note: 'REST takes the etag in the body or as If-Match; expectedVersion in the body or query.' },
+  { method: 'POST', path: '/v1/projects/:id/captions/transcribe', scope: 'render', tool: 'transcribe_captions' },
   { method: 'POST', path: '/v1/projects/:id/preview', scope: 'render', tool: 'preview_scene' },
   { method: 'POST', path: '/v1/projects/:id/renders', scope: 'render', tool: 'render_project' },
   { method: 'GET', path: '/v1/projects/:id/renders', scope: 'read', tool: 'list_renders' },
@@ -49,6 +52,7 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'GET', path: '/v1/jobs/:id/logs', scope: 'read', tool: 'get_job_logs' },
   { method: 'GET', path: '/v1/jobs/:id/events', scope: 'read', tool: 'get_job', note: 'SSE stream in REST; MCP clients call get_job with waitSeconds (long-poll).' },
   { method: 'GET', path: '/v1/renders/:id', scope: 'read', tool: 'get_render_output' },
+  { method: 'GET', path: '/v1/renders/:id/captions', scope: 'read', tool: 'get_captions', note: 'MCP: get_captions with renderId.' },
   {
     method: 'GET',
     path: '/v1/renders/:id/output',
