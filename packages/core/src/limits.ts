@@ -1,4 +1,9 @@
-import { sceneFrames, type Project } from '@reelforge/project-schema';
+import {
+  fpsValue,
+  framesToSeconds,
+  sceneFrames,
+  type Project,
+} from '@reelforge/project-schema';
 import type { ResolvedConfig } from './config/load';
 
 /**
@@ -39,7 +44,7 @@ export function renderLimitViolations(p: Project, limits: LimitSettings, opts: {
   const scenes = opts.sceneIds ? p.scenes.filter((s) => opts.sceneIds!.includes(s.id)) : p.scenes;
   const fps = p.output.fps;
   const frames = scenes.reduce((n, s) => n + sceneFrames(s, fps), 0);
-  const seconds = frames / fps;
+  const seconds = framesToSeconds(frames, fps);
   const scale = opts.scale ?? 1;
   const longest = Math.round(Math.max(p.output.width, p.output.height) * scale);
   const out: RenderLimitViolation[] = [];
@@ -50,7 +55,7 @@ export function renderLimitViolations(p: Project, limits: LimitSettings, opts: {
   check('maxRenderSeconds', limits.maxRenderSeconds, Math.ceil(seconds * 100) / 100, 'the duration in seconds');
   check('maxRenderFrames', limits.maxRenderFrames, frames, 'the number of frames');
   check('maxRenderDimension', limits.maxRenderDimension, longest, 'the longest output side in pixels');
-  check('maxRenderFps', limits.maxRenderFps, fps, 'the frame rate');
+  check('maxRenderFps', limits.maxRenderFps, Math.round(fpsValue(fps) * 1000) / 1000, 'the frame rate');
   return out;
 }
 

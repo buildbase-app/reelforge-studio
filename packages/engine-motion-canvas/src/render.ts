@@ -21,7 +21,15 @@ import {
   type StagedSceneAssets,
 } from '@reelforge/core';
 import type { Tools } from '@reelforge/media-pipeline';
-import { TEMPLATES, type OutputSettings, type RenderScene, type ThemeTokens } from '@reelforge/project-schema';
+import {
+  TEMPLATES,
+  fpsArg,
+  fpsValue,
+  framesToSeconds,
+  type OutputSettings,
+  type RenderScene,
+  type ThemeTokens,
+} from '@reelforge/project-schema';
 import { chromium, type Browser } from 'playwright-core';
 import type { Plugin } from 'vite';
 import type {} from './protocol';
@@ -273,7 +281,7 @@ export async function renderMotionCanvasScene(
   const server = await serve(bundle, staged ? { staged, token } : undefined);
   const port = (server.address() as AddressInfo).port;
   let browser: Browser | undefined;
-  const encoder = startPngEncoder(opts.ffmpeg, opts.out, output.fps, `render:${scene.id}`);
+  const encoder = startPngEncoder(opts.ffmpeg, opts.out, fpsArg(output.fps), `render:${scene.id}`);
   const consoleErrors: string[] = [];
   let nextFrame = 0;
 
@@ -327,14 +335,14 @@ export async function renderMotionCanvasScene(
         template: scene.template ?? '',
         variables: {
           ...props,
-          durationSeconds: scene.durationFrames / output.fps,
+          durationSeconds: framesToSeconds(scene.durationFrames, output.fps),
           ...(opts.theme ? { theme: opts.theme } : {}),
           ...(opts.platform ? { platform: opts.platform } : {}),
           ...(staged ? { assets: staged.media(`http://127.0.0.1:${port}/${token}/`) } : {}),
         },
         width: output.width,
         height: output.height,
-        fps: output.fps,
+        fps: fpsValue(output.fps),
         frames: scene.durationFrames,
         background: (props.background as string | undefined) ?? opts.theme?.colors.background ?? null,
       }

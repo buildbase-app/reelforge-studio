@@ -8,7 +8,7 @@
 # Fails when the runtime image carries the repository's tests, docs, e2e or
 # tooling, source maps, build-only dependencies (bundlers, test runner) or
 # package managers; or misses the licence files, the pre-built engine bundles,
-# tini, Chrome or the release build's build-info.json. Prints the size.
+# the built dashboard, tini, Chrome or the release build's build-info.json. Prints the size.
 set -euo pipefail
 IMAGE=${1:?usage: check-contents.sh IMAGE}
 # Uncompressed size of the image (what `docker image inspect` reports), in MB.
@@ -45,6 +45,8 @@ check_present "NOTICE in the image" '^app/NOTICE$'
 check_present "LICENSES/THIRD_PARTY.md in the image" '^app/LICENSES/THIRD_PARTY\.md$'
 check_present "pre-built Remotion bundle" '^app/packages/engine-remotion/\.prebuilt/remotion/\.source-hash$'
 check_present "pre-built Motion Canvas bundle" '^app/packages/engine-motion-canvas/\.prebuilt/motion-canvas/\.source-hash$'
+check_present "built dashboard (D-115)" '^app/apps/dashboard/dist/index\.html$'
+check_absent "no dashboard sources or build script (only dist/)" '^app/apps/dashboard/(src|scripts)/|^app/apps/dashboard/build\.ts$'
 check_present "Chrome Headless Shell" '^opt/chrome-headless-shell/chrome-headless-shell$'
 check_present "tini" '^usr/bin/tini$'
 check_present "ffmpeg and ffprobe" '^usr/bin/ffprobe$'

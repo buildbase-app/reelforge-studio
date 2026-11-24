@@ -500,6 +500,56 @@ implementation or licensing decisions.
   **Kubernetes NetworkPolicy**: https://kubernetes.io/docs/concepts/services-networking/network-policies/
   (default deny with an empty `podSelector`; policies match addresses, not DNS names); the manifests
   pass kubeconform 0.7.0 -strict against the Kubernetes 1.31 schemas (`e2e/k8s/kubeconform.sh`).
+- **Webhook operations references (2026-11-23, issue #306).** HeyGen webhooks
+  (https://developers.heygen.com/docs/webhooks.md, read 2026-11-23): HMAC-SHA256 of the raw body, retries with
+  exponential backoff for up to 24 h, receivers must answer 2xx within 10 s, a rotate-secret endpoint that invalidates
+  the old secret at once, receivers deduplicate on a stable field. Remotion Lambda webhooks
+  (https://www.remotion.dev/docs/lambda/webhooks, read 2026-11-23): one of `success`, `error` (with `errors`) or
+  `timeout` per render, `costs` and `timeToFinish` on success, HMAC-SHA512 signature. ReelForge keeps Standard Webhooks
+  signatures (D-072) and takes from these the 24 h window, the 10 s timeout, a terminal timeout event and costs; its
+  rotation keeps an overlap instead of invalidating at once (D-113).
+
+- **faster-whisper for local speech-to-text (2026-11-23, issue #300, D-114).** faster-whisper
+  1.2.1 (PyPI, MIT, https://github.com/SYSTRAN/faster-whisper), read from the wheel's source on
+  2026-11-23: `WhisperModel(model_size_or_path, device, compute_type, download_root,
+  local_files_only)` (a name is resolved through `download_model`, a directory is loaded as is),
+  `transcribe(audio, language=None, word_timestamps=True, vad_filter=True, ...)` returning segments
+  with `words` (`word`, `start`, `end`, `probability`) and `TranscriptionInfo.language` /
+  `language_probability` / `duration`; `download_model(size_or_id, cache_dir=...)`; model names
+  map to `Systran/faster-whisper-*` repositories. Requires ctranslate2 4.x, huggingface-hub,
+  tokenizers, onnxruntime (Silero VAD, bundled in the wheel) and av. Measured: with PyAV 19.0.2
+  `transcribe` fails with `open() got an unexpected keyword argument 'metadata_errors'`; PyAV
+  15.1.0 to 18.0.0 work (Python 3.13, ctranslate2 4.9.1, onnxruntime 1.32.0). The `tiny` model
+  transcribed an FFmpeg `flite` sentence offline (`HF_HUB_OFFLINE=1`) in about 9 s on the
+  sandbox CPU, language `en`, word timings within the 4.5 s clip. Hugging Face's Xet download
+  host was blocked by the sandbox proxy; `HF_HUB_DISABLE_XET=1` downloads over plain HTTPS.
+  WebVTT `Kind:` / `Language:` header lines follow the form YouTube and other players write;
+  they are metadata lines in the WebVTT header block (W3C WebVTT, "file header"), not cue
+  settings. BCP 47 well-formedness is checked with `Intl.getCanonicalLocales` (ECMA-402).
+- **Loudness and A/V sync (2026-11-23, issue #301).** Read 2026-11-23. *EBU R 128-2023*
+  (https://tech.ebu.ch/docs/r/r128.pdf, November 2023): Programme Loudness normalised to −23.0 LUFS,
+  ±1.0 LU where the target "is not achievable practically (for example, live programmes)", ±0.2 LU QC
+  measurement tolerance; true peak "shall not exceed −1 dBTP"; footnote 2: "For programmes shorter than
+  1 minute, the use of the measure Loudness Range is not recommended". *EBU R 128 s2-2023*
+  (https://tech.ebu.ch/docs/r/r128s2.pdf): stream at −23.0 LUFS, or a Distribution Loudness Level in
+  the range −20.0 to −16.0 LUFS for mobile listening. *ATSC A/85:2013*: −24 LKFS (±2 dB measurement
+  tolerance), true peak −2 dBTP, taken from the summary table of ITU-R Report BS.2434-0 (2018,
+  https://www.itu.int/dms_pub/itu-r/opb/rep/R-REP-BS.2434-2018-PDF-E.pdf), which also cites AES TD1004
+  (−16 to −20 LKFS for audio streaming) and AES71-2018; atsc.org refused the download here (HTTP 403),
+  and a search shows an A/85 revision dated July 2026 (VERIFY its numbers before broadcast delivery).
+  *Apple Podcasts audio requirements* (https://podcasters.apple.com/support/audio-requirements): "around
+  -16 dB LKFS", "+/- 1 dB tolerance", true peak not above "-1 dB FS", BS.1770-5, before encoding.
+  *Spotify loudness normalization* (https://support.spotify.com/us/artists/article/loudness-normalization/):
+  default playback −14 LUFS; masters below −1 dBTP, below −2 dBTP when louder than −14 LUFS. YouTube,
+  TikTok, Instagram and the other video platforms publish no loudness target (searched 2026-11-23;
+  −14 LUFS for them is a convention from secondary sources). *ITU-R BT.1359-1* (1998,
+  https://www.itu.int/rec/R-REC-BT.1359): detectability thresholds "about +45 ms to –125 ms" and
+  acceptability "+90 ms to –185 ms", positive = sound advanced. *FFmpeg filters*
+  (https://ffmpeg.org/ffmpeg-filters.html, `loudnorm`, `ebur128`, `silencedetect`, `volume`): behaviour
+  checked locally with FFmpeg 6.1.1 (Ubuntu `6.1.1-3ubuntu5`): loudnorm 6.1 ranges I −70..−5, LRA 1..50,
+  TP −9..0; linear mode needs every `measured_*` value with `measured_LRA` ≠ 0 and the measured LRA at or
+  under the LRA target (else dynamic mode); ebur128 `peak=true` reports true peak. Used in
+  `packages/project-schema/src/audio.ts` and `packages/media-pipeline/src/audio.ts` (D-116).
 - **Assets in engines (2026-11-24, issue #299).** Read from the installed packages (no network):
   HyperFrames 0.9.77 `dist/chunk-ZXZVZTKA.js` `parseVideoElements` (every `<video src>` in a
   composition is extracted frame by frame by its own FFmpeg pass; `data-start`, `data-duration`,

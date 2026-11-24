@@ -564,6 +564,29 @@ Nothing broke [^s]. Specifically:
 
 PgBouncer config used: `scripts/load/run.ts` (`startPgBouncer`).
 
+## Queue depth, encoder memory and backpressure (#307)
+
+The Track B live test (issue #285, 2026-11-23) found three hot spots at scale: the fair claim's
+`GROUP BY` over every queued job (queue wait p95 43.9 s and 3.5 % failed CRUD calls at 5,000 queued jobs),
+about 640 MB of x264 memory per render, and no bound on requests waiting for the database. What changed
+(D-117), and every measured number before and after, with the conditions of each table:
+[SCALE.md](SCALE.md). Raw results: `docs/performance/2026-11-23-shared-sandbox-307-*.json`. In short, on
+the shared host (lower bounds):
+
+- **Claim cost** at 20,000 queued jobs, 20 keys: PostgreSQL 17 29.5 → 2.9 ms of database time per claim,
+  flat from 5,000 to 20,000; MySQL 8.4 658 → 36 ms (200 keys: 531 → 31 ms). Claims per second with 10
+  workers rose from 103 to 173 (PostgreSQL) and from 9 to 46 (MySQL). With 200 keys queueing at once,
+  PostgreSQL costs about what it did before (33.8 → 34.2 ms).
+- **Render memory**, 1080x1920: 1,012 → 772 MB per render, of which FFmpeg 607 → 354 MB; 3840x2160:
+  2,516 → 1,643 MB. SSIM against the source frames 0.99972 → 0.99965.
+- **Backpressure** (5,000 renders in 30 s, 200 workers, two api instances on the 4-vCPU host): CRUD
+  errors 3.1–3.3 % → 0 (timeouts and 500s from a 10 s wait for a pool connection, per the api logs), CRUD
+  p95 7.5–8.1 → 5.1 s, queue wait p95 6.8–9.5 → 1.2 s; instead, 503s with `Retry-After`, and CRUD
+  throughput about 20 % lower on the overloaded host.
+
+Reproduce: `pnpm load:depth`, `pnpm load:encode`, and the burst with `pnpm load` (commands in
+[SCALE.md](SCALE.md#reproduce)).
+
 ## Dedicated run (not yet measured)
 
 The acceptance criteria of #151 ask for named, dedicated hardware; this sandbox is not that. The

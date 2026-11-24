@@ -12,9 +12,8 @@ import { builtinMediaRefs, templateMediaProps, type PropAssetRef } from './asset
  * the engines installed on a server) through `parseProject(input, { catalog })`.
  */
 
-export const hexColor = z
-  .string()
-  .regex(/^#[0-9a-fA-F]{6}$/, 'must be a 6-digit hex colour such as #ff3366');
+import { hexColor } from './common';
+import { layoutMediaRefs, layoutSceneProps } from './layouts';
 
 export const kineticTitleProps = z
   .object({
@@ -109,6 +108,13 @@ const COMMON_TOKENS = [
   'headingWeight',
 ] as const satisfies readonly ThemeTokenName[];
 
+const LAYOUT_TOKENS = ['colors.background', 'colors.surface', 'colors.text', 'colors.mutedText', 'colors.accent', 'fontFamily', 'headingWeight'] as const satisfies readonly ThemeTokenName[];
+
+const LAYOUT_DESCRIPTION =
+  'Layout of panes: full frame, split screen (2-4 panes, side by side or stacked, with ratios), picture-in-picture (corner, width and margin in units from the safe area) or grid (n x m, or chosen per frame). ' +
+  'Each pane holds an image or video asset with a fit mode (contain, cover, blur-fill), a colour, a label, a headline and body text; an optional lower third (name, title, brand colours) sits in the safe area. ' +
+  'Sizes are in layout units (1 % of the shorter side), so the scene reflows for every output size and variant. 0.5-60 s.';
+
 export const TEMPLATES = {
   'kinetic-title': {
     engine: 'remotion',
@@ -139,6 +145,24 @@ export const TEMPLATES = {
     maxSeconds: 12,
     themeTokens: [...COMMON_TOKENS, 'colors.surface', 'motionSpeed'],
     mediaAssets: builtinMediaRefs,
+  },
+  'html-layout': {
+    engine: 'html',
+    description: LAYOUT_DESCRIPTION,
+    props: layoutSceneProps,
+    minSeconds: 0.5,
+    maxSeconds: 60,
+    themeTokens: LAYOUT_TOKENS,
+    mediaAssets: layoutMediaRefs,
+  },
+  'hyperframes-layout': {
+    engine: 'hyperframes',
+    description: LAYOUT_DESCRIPTION,
+    props: layoutSceneProps,
+    minSeconds: 0.5,
+    maxSeconds: 60,
+    themeTokens: LAYOUT_TOKENS,
+    mediaAssets: layoutMediaRefs,
   },
   'hyperframes-title': {
     engine: 'hyperframes',

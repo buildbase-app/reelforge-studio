@@ -1,4 +1,5 @@
 export * from './app';
+export { DASHBOARD_CSP, DEFAULT_DASHBOARD_DIR, mountDashboard } from './dashboard';
 export * from './config';
 export * from './mcp';
 export * from './registry';
