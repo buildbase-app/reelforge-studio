@@ -1,6 +1,7 @@
 import { mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PipelineError, run } from './ffmpeg';
+import { rateArg, type Rate } from './rate';
 
 /**
  * Untrusted media for engines (#299): probe a user's image or video, and turn
@@ -11,8 +12,8 @@ import { PipelineError, run } from './ffmpeg';
  * limit, never inside the server process.
  */
 
-/** A frame rate as a number (30, 29.97) or as FFmpeg writes it ("30000/1001"). */
-export type FrameRate = number | string;
+/** A frame rate as a number (30, 29.97) or as FFmpeg writes it ("30000/1001"): the pipeline's `Rate` (rate.ts, #302). */
+export type FrameRate = Rate;
 
 const NTSC: Record<string, [number, number]> = {
   '23.976': [24000, 1001],
@@ -23,9 +24,10 @@ const NTSC: Record<string, [number, number]> = {
 };
 
 /**
- * A frame rate as an exact fraction. Whole numbers stay whole; the NTSC rates
- * (23.976, 29.97, 59.94, ...) become n*1000/1001, so frame times do not drift
- * over a long clip; "n/d" strings are taken as written.
+ * A frame rate as an exact fraction. Whole numbers stay whole; the supported
+ * rates, as labels (29.97) or as fpsValue() decimals, become the fraction
+ * rateArg() gives FFmpeg (30000/1001), and other NTSC rates n*1000/1001, so
+ * frame times do not drift over a long clip; "n/d" strings are taken as written.
  */
 export function frameRateFraction(fps: FrameRate): { num: number; den: number } {
   if (typeof fps === 'string') {
@@ -35,6 +37,9 @@ export function frameRateFraction(fps: FrameRate): { num: number; den: number } 
   }
   if (!Number.isFinite(fps) || fps <= 0) throw new PipelineError('fps', `not a frame rate: ${fps}`);
   if (Number.isInteger(fps)) return { num: fps, den: 1 };
+  // A supported rate, also as the decimal fpsValue() gives (29.97002997...): its exact fraction (rateArg, D-119).
+  const exact = /^(\d+)\/(\d+)$/.exec(rateArg(fps));
+  if (exact) return { num: Number(exact[1]), den: Number(exact[2]) };
   const ntsc = NTSC[(Math.round(fps * 1000) / 1000).toString()];
   if (ntsc) return { num: ntsc[0], den: ntsc[1] };
   return { num: Math.round(fps * 1000), den: 1000 };

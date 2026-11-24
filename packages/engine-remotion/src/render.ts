@@ -7,7 +7,7 @@ import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/rend
 import { PipelineError } from '@reelforge/media-pipeline';
 import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, type AssetServer, type ResolvedAsset } from '@reelforge/core';
 import type { Tools } from '@reelforge/media-pipeline';
-import { BUILTIN_THEMES, TEMPLATES, domThemeCss, layoutSceneDom, layoutSceneProps, mediaKey, mediaUrlAt, type OutputSettings, type RenderScene, type SceneMedia, type ThemeTokens } from '@reelforge/project-schema';
+import { BUILTIN_THEMES, TEMPLATES, domThemeCss, fpsValue, framesToSeconds, layoutSceneDom, layoutSceneProps, mediaKey, mediaUrlAt, type OutputSettings, type RenderScene, type SceneMedia, type ThemeTokens } from '@reelforge/project-schema';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const compositionsDir = resolve(here, '../compositions');
@@ -136,7 +136,7 @@ export function remotionLayoutInput(
   firstFrame = 0
 ): { html: string; css: string; rootCss: string } {
   const props = layoutSceneProps.parse(scene.props);
-  const seconds = scene.durationFrames / output.fps;
+  const seconds = framesToSeconds(scene.durationFrames, output.fps);
   const dom = layoutSceneDom({
     props,
     width: output.width,
@@ -206,7 +206,8 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
     __output: {
       width: output.width,
       height: output.height,
-      fps: output.fps,
+      // Remotion takes a number; 29.97002997 for 30000/1001 (the final file is normalised to the exact rate, #302).
+      fps: fpsValue(output.fps),
       durationInFrames: scene.durationFrames,
     },
   };
@@ -227,7 +228,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
     if (
       composition.width !== output.width ||
       composition.height !== output.height ||
-      composition.fps !== output.fps ||
+      Math.abs(composition.fps - fpsValue(output.fps)) > 1e-9 ||
       composition.durationInFrames !== scene.durationFrames
     ) {
       throw new PipelineError(stage, 'composition metadata does not match the manifest');

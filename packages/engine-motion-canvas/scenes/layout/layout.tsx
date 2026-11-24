@@ -116,6 +116,7 @@ export default makeScene2D(function* (view) {
   const spec = vars.get('spec', null)() as LayoutSpec | null;
   if (!props || !spec) throw new Error('motion-canvas-layout renders only through the ReelForge renderer (no props)');
   const duration = vars.get('durationSeconds', 2)() as number;
+  /** The exact rate as a number (fpsValue: 29.97 is 30000/1001); frame i shows time i / fps. */
   const fps = vars.get('fps', 30)() as number;
   const platform = (vars.get('platform', null)() as string | null) ?? undefined;
   const assets = (vars.get('assets', null)() as Record<string, SceneMedia> | null) ?? {};
@@ -133,7 +134,7 @@ export default makeScene2D(function* (view) {
     accent: props.accent ?? theme.colors.accent,
   };
   const font = theme.fontFamily;
-  const frames = Math.max(1, Math.round(duration * fps));
+  const frames = (vars.get('frames', null)() as number | null) ?? Math.max(1, Math.round(duration * fps));
 
   const lt = props.lowerThird;
   const ltBox = lt ? lowerThirdBox(l, lt.align) : null;

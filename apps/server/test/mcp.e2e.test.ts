@@ -221,7 +221,7 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
     }
 
     const out = await ok(agent, 'get_render_output', { jobId: job.id });
-    expect(out.data.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass' });
+    expect(out.data.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', avSync: 'pass', loudness: 'skipped' });
     expect(out.content.some((c) => c.type === 'image' && c.mimeType === 'image/png')).toBe(true);
     expect(out.data.versions.engines).toMatchObject({ remotion: '4.0.545', 'motion-canvas': '3.17.2', hyperframes: 'hyperframes 0.9.77' });
 

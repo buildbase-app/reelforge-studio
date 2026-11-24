@@ -22,7 +22,7 @@ import { SceneMarkupError } from './sceneMarkup';
 import { looksLikeSvg, sanitizeSvg, svgSize, SvgError } from './svg';
 
 /**
- * Assets in renders (#299, D-1XX). Every engine gets the project's assets as
+ * Assets in renders (#299, D-120). Every engine gets the project's assets as
  * local files (`EngineRenderContext.assets`, resolved by the service from the
  * project's own manifest only). Before a scene renders, its engine calls
  * `stageSceneAssets` with the assets the scene uses (template props, `asset:`

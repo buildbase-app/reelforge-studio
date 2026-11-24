@@ -8,7 +8,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { probe, resolveTools } from '@reelforge/media-pipeline';
+import { checkTimestamps, probe, resolveTools } from '@reelforge/media-pipeline';
 import type { RenderScene } from '@reelforge/project-schema';
 import { JOIN_JOB_TYPE, PluginRegistry, ReelforgeService, UNIT_JOB_TYPE, createMemoryRepositories, type EnginePlugin, type JobRecord, type Repositories } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
@@ -108,7 +108,7 @@ describe('render fan-out in the service (fake engine)', () => {
     expect(m.scenes.map((s: { file: string }) => s.file)).toEqual(['clips/01-a.mp4', 'clips/02-b.mp4', 'clips/03-c.mp4', 'clips/04-d.mp4']);
     // Joined by stream copy (units normalised to the final encoding), with the extra checks of the join.
     expect(m.join).toEqual({ method: 'concat demuxer, video stream copy', clips: 4 });
-    expect(m.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', timestamps: 'pass', avDuration: 'pass' });
+    expect(m.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', timestamps: 'pass', avDuration: 'pass', avSync: 'pass', loudness: 'skipped' });
     expect(m.ffmpegAssembleArgs).toEqual(expect.arrayContaining(['concat', 'copy']));
     expect(existsSync(join(rendersDir, `.tmp-${runId}`))).toBe(false);
     const fanned = await probe(resolveTools().ffprobe, join(rendersDir, runId, 'final.mp4'));
@@ -123,6 +123,45 @@ describe('render fan-out in the service (fake engine)', () => {
     await workers[0]!.updateConfig({ 'render.fanOut': 'scenes' });
     for (const s of [api, ...workers]) await s.settings.refresh();
   }, 90_000);
+
+  it('FAN-16 NTSC 29.97 (30000/1001, #302): the fanned-out join and the single-worker render have the exact rate, frame count and timestamps', async () => {
+    const m = {
+      schemaVersion: '0.2',
+      projectId: 'fan-ntsc',
+      title: 'fan-out at 29.97',
+      output: { width: 360, height: 640, fps: '30000/1001', format: 'mp4' },
+      captions: { mode: 'sidecar' },
+      scenes: manifest('x').scenes.map((sc) => ({ ...sc, captions: { text: `Scene ${sc.id}` } })),
+    };
+    await api.createProject(m);
+    const rendersDir = join(dir, 'data', 'projects', 'fan-ntsc', 'renders');
+    const results = [];
+    for (const fanOut of ['scenes', 'off'] as const) {
+      await workers[0]!.updateConfig({ 'render.fanOut': fanOut });
+      for (const s of [api, ...workers]) await s.settings.refresh();
+      const job = await api.startRender('fan-ntsc');
+      const done = await api.waitForJob(job.id, 60);
+      expect(done.status, JSON.stringify(done.error)).toBe('succeeded');
+      expect(done.result).toMatchObject({ frames: TOTAL, frameRate: '30000/1001' });
+      const runId = (job.params as { runId: string }).runId;
+      const rm = JSON.parse(readFileSync(join(rendersDir, runId, 'render-manifest.json'), 'utf8'));
+      if (fanOut === 'scenes') expect(rm.join).toEqual({ method: 'concat demuxer, video stream copy', clips: 4 });
+      expect(rm.checks).toMatchObject({ metadata: 'pass', decode: 'pass', duration: 'pass' });
+      const file = join(rendersDir, runId, 'final.mp4');
+      const info = await probe(resolveTools().ffprobe, file);
+      expect(info.frameRate).toBe('30000/1001');
+      expect(info.frames).toBe(TOTAL);
+      expect(Math.abs(info.durationSeconds - (TOTAL * 1001) / 30000)).toBeLessThan(0.002);
+      expect(await checkTimestamps(resolveTools().ffprobe, file, TOTAL, '30000/1001')).toEqual([]);
+      // Captions follow the exact timeline: the second scene's cue starts at frame 45 = 1.5015 s.
+      const srt = readFileSync(join(rendersDir, runId, 'captions.srt'), 'utf8');
+      expect(srt).toContain('00:00:01,502 -->');
+      results.push(info);
+    }
+    expect({ ...results[0] }).toEqual({ ...results[1] });
+    await workers[0]!.updateConfig({ 'render.fanOut': 'scenes' });
+    for (const s of [api, ...workers]) await s.settings.refresh();
+  }, 120_000);
 
   it('FAN-11 previews and one-scene renders never fan out', async () => {
     await api.createProject({ ...manifest('one'), scenes: [scene('solo', 'remotion', 45)] });

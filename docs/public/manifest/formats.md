@@ -1,6 +1,6 @@
 ---
 title: "Formats and layouts"
-description: "Any output size and aspect ratio in ReelForge Studio: the layout unit, safe areas with their sources, fit-to-box text, how built-in templates reflow, layout primitives (split screen, picture-in-picture, lower thirds, grids), media fit modes, and the contact sheets that prove it."
+description: "Any output size, aspect ratio and frame rate in ReelForge Studio: exact NTSC rates, the sizes each engine renders, the layout unit, safe areas with their sources, fit-to-box text, how built-in templates reflow, layout primitives (split screen, picture-in-picture, lower thirds, grids), media fit modes, and the contact sheets that prove it."
 folder: "manifest"
 slug: "formats"
 order: 3
@@ -23,11 +23,64 @@ the same scenes work at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K.
 | Cinema-style banners | 2560x1080 (21:9) |
 
 Width and height must be even (H.264 with yuv420p needs it), and a server can
-set lower limits (`limits.maxRenderDimension`, see `get_capabilities`).
+set lower limits (`limits.maxRenderDimension`, see `get_capabilities`). The
+frame rate is any of 23.976, 24, 25, 29.97, 30, 48, 50, 59.94 and 60
+([Frame rates](#frame-rates)).
 
 To render several of these sizes from one project in one call, list them as
 `variants` in the manifest: `render_project` then starts one render per
 variant, laid out again for each size ([Output variants](/docs/manifest/v0-2#output-variants)).
+
+## Frame rates
+
+`output.fps` takes these rates. Every engine renders each of them, and the
+final MP4 has exactly that rate: ffprobe reports `r_frame_rate` as
+`30000/1001`, not a rounded `2997/100`.
+
+| Rate | Give it as | Stored as | Typical use |
+| --- | --- | --- | --- |
+| 23.976 | `"24000/1001"`, `{ "num": 24000, "den": 1001 }` or `23.976` | `"24000/1001"` | Film transferred to NTSC video |
+| 24 | `24` | `24` | Film, cinematic web video |
+| 25 | `25` | `25` | PAL broadcast (Europe, much of Asia and Africa) |
+| 29.97 | `"30000/1001"`, `{ "num": 30000, "den": 1001 }` or `29.97` | `"30000/1001"` | NTSC broadcast (Americas, Japan) |
+| 30 | `30` | `30` | Social and web video (the default) |
+| 48 | `48` | `48` | High-frame-rate film |
+| 50 | `50` | `50` | PAL broadcast at full motion, sport |
+| 59.94 | `"60000/1001"`, `{ "num": 60000, "den": 1001 }` or `59.94` | `"60000/1001"` | NTSC broadcast at full motion |
+| 60 | `60` | `60` | Screen recordings, gaming, smooth motion |
+
+The decimals `23.976` (or `23.98`), `29.97` and `59.94` are read as the NTSC
+fractions; a fraction you write out is never rounded (`"2997/100"` is
+refused). Integer rates stay plain numbers, so manifests that say `"fps": 30`
+are unchanged. Any other rate is refused with the list above.
+
+At NTSC rates a second is not a whole number of frames, so durations are
+counted in frames: `durationSeconds: 10` at 29.97 is 299.7 frames, rounded to
+300, which last 10.01 s. Scene starts, captions, voice and sound effects use
+the same exact timeline (frame `n` starts at `n x 1001 / 30000` s).
+`validate_project` warns when `durationSeconds` does not land on a frame.
+
+`get_capabilities` lists the rates under `limits.supportedFps` and, per
+engine, `frameRates`; `limits.maxRenderFps` (default 60) can lower the highest
+rate a server renders.
+
+## Sizes and rates each engine renders
+
+Before a render or preview is queued, its size and frame rate are checked
+against every engine the project uses, for `output` and for each variant:
+
+- **Every engine** writes H.264 with 4:2:0 chroma (yuv420p): width and height
+  must be even, a frame may have at most 139,264 macroblocks (about 35.6
+  megapixels, H.264 level 6.2) and a side at most 16,880 pixels;
+- **an engine plugin** can declare its own frame rates and largest size
+  (`EngineCapabilities.output`). The four built-in engines render every rate
+  above at every size the manifest allows (up to 4096 pixels on a side).
+
+A render outside them is refused with `422 unsupported_output`, naming the
+engine, the variant and the reason, and nothing is queued;
+`validate_project` reports the same problems as errors. The manifest itself
+already requires even sizes from 16 to 4096 pixels, and a server can set lower
+limits (`limits.maxRenderDimension`).
 
 ## The layout unit
 
@@ -334,6 +387,13 @@ engine's and inside the content safe area; every text pixel in a pane is inside
 that pane's text box (so inside the safe area, never clipped). It also renders a
 clip that shows its own frame number in two panes with different in-points and
 checks the number at each frame, on a whole render and on a frame range.
+
+`apps/server/test/fps.test.ts` renders each engine at 23.976, 29.97, 48, 50
+and 59.94 fps (exact frame counts, and the exact rate and one-frame timestamp
+steps after normalisation) and a four-engine project at 29.97 end to end
+(`r_frame_rate` 30000/1001, frames and duration). The fan-out test renders a
+29.97 project on three workers and on one: the stream-copy join and the
+single render have the same exact rate, frames, timestamps and caption times.
 
 `pnpm formats:prove` renders the template matrix at the real sizes, and
 `pnpm formats:prove-layouts` the layout sheets.

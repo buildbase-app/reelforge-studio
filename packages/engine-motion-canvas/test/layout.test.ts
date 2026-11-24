@@ -14,6 +14,8 @@ describe('motion-canvas-layout variables', () => {
     expect(props.panes[0]!.media).toEqual({ asset: 'a', fit: 'cover', startSeconds: 0 });
     expect(props.lowerThird.align).toBe('left');
     expect(v.fps).toBe(30);
+    expect(v.frames).toBe(60);
+    expect(sceneVariables(scene({ layout: { type: 'full' }, panes: [{}] }), { ...output, fps: '30000/1001' }).fps).toBeCloseTo(30000 / 1001, 12);
   });
 
   it('refuses props the schema refuses', () => {

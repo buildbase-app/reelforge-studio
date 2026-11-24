@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ResolvedAsset } from '@reelforge/core';
-import { resolveTools, type Tools } from '@reelforge/media-pipeline';
+import { probe, resolveTools, type Tools } from '@reelforge/media-pipeline';
 import { builtinTheme, frameLayout, type OutputSettings } from '@reelforge/project-schema';
 import { renderHtmlScene } from '../src/index';
 import { QUAD, colorDistance, makeNumberedClip, makeQuadImage, meanColor, readBars, readPicture } from '../../media-pipeline/test/media-fixtures';
@@ -95,6 +95,22 @@ describe.skipIf(!hasBrowser)('ASSET-HTML html engine renders the project\'s imag
     // Video: 320x180 contained in 320x320 sits at y 70..250; read its bars below the headline.
     expect(readBars(p, { x: 0, y: 200, width: 320, height: 40 })).toBe(12);
   }, 180_000);
+
+  it('a 29.97 fps clip in a 29.97 fps scene (exact 30000/1001 output, D-119): picture k at frame k, from an in-point, no drift over 10 s', async () => {
+    const ntsc = join(dir, 'ntsc.mp4');
+    await makeNumberedClip(tools.ffmpeg, ntsc, { fps: '30000/1001', frames: 400 });
+    const out29: OutputSettings = { ...output, fps: '30000/1001' };
+    const res = await render(
+      'ntsc',
+      { durationFrames: 300, html: '<video src="asset:ntsc" data-media-start="2.002" style="position:absolute;left:0;top:0;width:320px;height:180px;object-fit:fill"></video>' },
+      { output: out29, assets: new Map([...assets, ['ntsc', { id: 'ntsc', file: ntsc, mediaType: 'video' }]]) }
+    );
+    const info = await probe(tools.ffprobe, res.out);
+    expect(info.frames).toBe(300);
+    expect(info.frameRate).toBe('30000/1001');
+    // 2.002 s is exactly 60 frames at 30000/1001.
+    for (const k of [0, 1, 150, 299]) expect(readBars(await readPicture(tools.ffmpeg, res.out, k, out29), { x: 0, y: 60, width: 320, height: 40 }), `frame ${k}`).toBe(60 + k);
+  }, 300_000);
 
   it('refuses another project\'s asset, store ids, paths, audio and document elements; file: URLs are blocked', async () => {
     await expect(render('x1', { html: '<img src="asset:not-mine">' })).rejects.toThrow(/not one of this project's assets/);

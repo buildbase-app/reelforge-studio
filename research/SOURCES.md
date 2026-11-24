@@ -526,6 +526,30 @@ implementation or licensing decisions.
   WebVTT `Kind:` / `Language:` header lines follow the form YouTube and other players write;
   they are metadata lines in the WebVTT header block (W3C WebVTT, "file header"), not cue
   settings. BCP 47 well-formedness is checked with `Intl.getCanonicalLocales` (ECMA-402).
+- **Loudness and A/V sync (2026-11-23, issue #301).** Read 2026-11-23. *EBU R 128-2023*
+  (https://tech.ebu.ch/docs/r/r128.pdf, November 2023): Programme Loudness normalised to −23.0 LUFS,
+  ±1.0 LU where the target "is not achievable practically (for example, live programmes)", ±0.2 LU QC
+  measurement tolerance; true peak "shall not exceed −1 dBTP"; footnote 2: "For programmes shorter than
+  1 minute, the use of the measure Loudness Range is not recommended". *EBU R 128 s2-2023*
+  (https://tech.ebu.ch/docs/r/r128s2.pdf): stream at −23.0 LUFS, or a Distribution Loudness Level in
+  the range −20.0 to −16.0 LUFS for mobile listening. *ATSC A/85:2013*: −24 LKFS (±2 dB measurement
+  tolerance), true peak −2 dBTP, taken from the summary table of ITU-R Report BS.2434-0 (2018,
+  https://www.itu.int/dms_pub/itu-r/opb/rep/R-REP-BS.2434-2018-PDF-E.pdf), which also cites AES TD1004
+  (−16 to −20 LKFS for audio streaming) and AES71-2018; atsc.org refused the download here (HTTP 403),
+  and a search shows an A/85 revision dated July 2026 (VERIFY its numbers before broadcast delivery).
+  *Apple Podcasts audio requirements* (https://podcasters.apple.com/support/audio-requirements): "around
+  -16 dB LKFS", "+/- 1 dB tolerance", true peak not above "-1 dB FS", BS.1770-5, before encoding.
+  *Spotify loudness normalization* (https://support.spotify.com/us/artists/article/loudness-normalization/):
+  default playback −14 LUFS; masters below −1 dBTP, below −2 dBTP when louder than −14 LUFS. YouTube,
+  TikTok, Instagram and the other video platforms publish no loudness target (searched 2026-11-23;
+  −14 LUFS for them is a convention from secondary sources). *ITU-R BT.1359-1* (1998,
+  https://www.itu.int/rec/R-REC-BT.1359): detectability thresholds "about +45 ms to –125 ms" and
+  acceptability "+90 ms to –185 ms", positive = sound advanced. *FFmpeg filters*
+  (https://ffmpeg.org/ffmpeg-filters.html, `loudnorm`, `ebur128`, `silencedetect`, `volume`): behaviour
+  checked locally with FFmpeg 6.1.1 (Ubuntu `6.1.1-3ubuntu5`): loudnorm 6.1 ranges I −70..−5, LRA 1..50,
+  TP −9..0; linear mode needs every `measured_*` value with `measured_LRA` ≠ 0 and the measured LRA at or
+  under the LRA target (else dynamic mode); ebur128 `peak=true` reports true peak. Used in
+  `packages/project-schema/src/audio.ts` and `packages/media-pipeline/src/audio.ts` (D-116).
 - **Assets in engines (2026-11-24, issue #299).** Read from the installed packages (no network):
   HyperFrames 0.9.77 `dist/chunk-ZXZVZTKA.js` `parseVideoElements` (every `<video src>` in a
   composition is extracted frame by frame by its own FFmpeg pass; `data-start`, `data-duration`,

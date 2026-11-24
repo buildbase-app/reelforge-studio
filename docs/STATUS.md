@@ -90,7 +90,13 @@ frame, each with an image or video asset (`contain`, `cover`, `blur-fill`), text
 layout units and safe areas so they reflow per size and variant; pane geometry and text checked in the browser at six
 sizes on both engines and on rendered pixels, contact sheets in `docs/proofs/layouts/`
 ([Formats and layouts](public/manifest/formats.md#layouts-split-screen-picture-in-picture-lower-thirds-grids)).
-**Assets in every engine (#299, D-1XX, 2026-11-24):** uploaded images (PNG, JPEG, WebP, GIF, sanitised SVG) and
+**Frame rates and output checks (#302, #287, D-119, 2026-11-24):** `output.fps` takes 23.976, 24, 25, 29.97, 30, 48,
+50, 59.94 and 60, NTSC rates stored as exact fractions (`"30000/1001"`); every engine renders each one and the final
+MP4's `r_frame_rate` is exact (ffprobe-checked, also through the fan-out join and captions). Sizes and rates an engine
+cannot render are refused with `422 unsupported_output` before queueing; `preview_scene` takes a `variant`; the
+manifest's 180 s and 50-scene caps became config bounds (defaults unchanged)
+([Frame rates](public/manifest/formats.md#frame-rates)).
+**Assets in every engine (#299, D-120, 2026-11-24):** uploaded images (PNG, JPEG, WebP, GIF, sanitised SVG) and
 video clips reach Remotion, Motion Canvas, html and HyperFrames: template props `media` (fit `cover` / `contain` /
 `blur-fill`) and `logo`, and `asset:<id>` in html scenes. Video is one picture per output frame on an exact
 frame-rate grid (no drift at 23.976 or 29.97; HyperFrames seeks it itself), and the audio bed is the existing
@@ -100,7 +106,7 @@ and Remotion, the composition folder for HyperFrames). Uploads with a `projectId
 four-engine render with an image, a clip, an SVG logo and an audio bed checked by pixels and loudness, under
 `strace` with 0 connections outside loopback, plus per-engine pixel tests and refusal tests
 ([Images, video and audio in scenes](public/manifest/assets.md)). Fonts in themes follow in #303.
-**Layouts on Remotion and Motion Canvas (#287, D-1XX, 2026-11-24):** templates `remotion-layout` and
+**Layouts on Remotion and Motion Canvas (#287, D-121, 2026-11-24):** templates `remotion-layout` and
 `motion-canvas-layout` take the same props as `html-layout` and `hyperframes-layout`, so a layout scene moves between
 all four engines by changing its engine and template. Remotion draws the shared HTML/CSS builder's markup and seeks its
 animations per frame; Motion Canvas builds the scene from its own nodes, placed by the same geometry functions, type
@@ -661,6 +667,48 @@ driver and key prefix, signed download, manifest). New REST/MCP pair `GET /v1/me
 `RenderSummary.storage`. Tests: route and API (`apps/server/test/dashboard.test.ts`) and a Playwright
 journey with axe-core, 0 violations in light, dark and at 360 px (`apps/dashboard/test`). Not yet:
 analytics, settings and the audit log viewer (part 2 of #292).
+### Scale hot spots from the live load test (2026-11-23, issue #307, step 1)
+
+Built (D-117, [SCALE.md](SCALE.md)). **Claim plan:** migration `0013_claim_index` adds a claim index. On
+PostgreSQL the fair claim reads it with a skip scan (one index descent per key and class), falling back to
+the old grouping when that is cheaper. On MySQL it groups the covering index, with a lazy re-rank that
+keeps the order exact (PRI-10..12). Idle polls open no transaction. Exactly-once is unchanged (SCL, QUE,
+PRI suites on SQLite, PostgreSQL 17 and MySQL 8.4). **Encoder memory:** `render.encoderThreads` (2) and
+`render.encoderLookahead` (20) are runtime settings for every H.264 encode; fan-out clips still join by
+stream copy (ENC-02). **Backpressure:** `limits.maxInflightRequests` (64) per api instance, a wait of up to
+`limits.inflightWaitMs` (3 s) for a slot, then `503 overloaded` with `Retry-After`; database pool timeouts
+are 503 instead of 500 (OVL-01..05).
+**Harness:** `pnpm load:depth` (5k/10k/20k queued, PostgreSQL and MySQL), `pnpm load:encode` (memory, CPU
+and SSIM/PSNR per encoder setting), `LOAD_LOGS=1`, and a CI smoke in `pnpm test:load`. Measured on the
+shared host (lower bounds): at 20,000 queued jobs and 20 keys, PostgreSQL 29.5 → 2.9 ms and MySQL 658 →
+36 ms of database time per claim; render memory 1,012 → 772 MB (1080x1920) and 2,516 → 1,643 MB (4K); under a 5,000-render burst CRUD errors 3.1–3.3 % → 0
+(503s with `Retry-After` instead) and queue wait p95 6.8–9.5 → 1.2 s.
+Not yet: a dedicated run, PostgreSQL with hundreds of keys queueing at once (about as before), the
+captions encode (#332), and the rest of #307 (throttled state, layered timeouts, asset preflight, OOM
+reporting).
+### Audio: loudness, ducking, toggles (2026-11-23, issue #301, step 1)
+
+Built (D-116, [audio.md](public/manifest/audio.md)): the audio is mixed once over the whole timeline into
+48 kHz PCM (never per scene or fan-out chunk), then normalised with a two-pass FFmpeg `loudnorm`
+(`linear=true` where the true peak allows, else its dynamic mode, recorded) to a preset: `social`
+(default; -14 LUFS, -2 dBTP), `broadcast-ebu` (-23 LUFS, -1 dBTP), `broadcast-atsc` (-24 LKFS, -2 dBTP),
+`podcast` (-16 LUFS, -1 dBTP) or `off`; per render (`render_project` `audio.loudness`), per project
+(`audio.loudness`) or the server default (`render.audio.loudness`, runtime). The delivered file is measured
+again with `ebur128` after the AAC encode and caption burn-in (integrated, true peak, LRA in the render
+manifest and `get_render_output`); off target by more than 1 LU or over the ceiling is a QA warning, or a
+failure with `render.audio.loudnessQa: fail`. Ducking of music under the voice (volume automation from the
+voice's speech segments, depth 18 dB, attack 120 ms ending at the speech, release 400 ms), bus gains in dB,
+music fade-in/out, 5-10 ms edge fades on voice, sfx and the whole mix; voice/music/sfx/mute toggles per
+project (`audio.enabled`, `audio.mute`) and per render; a muted render carries a silent AAC track or none
+(`render.audio.mutedTrack`). Every render checks A/V sync (audio starts at 0, durations within one frame).
+Measured on a real render of the sample reel (Remotion + Motion Canvas, 7 s; loud synthetic music bed + voice + sfx,
+ebur128): before -9.1 LUFS, true peak +3.1 dBFS (clipping), LRA 0.8 LU; after -14.3 LUFS, -2.4 dBTP,
+LRA 3.5 LU. Tests: loudness within 1 LU and peak under the ceiling after the AAC encode for three presets,
+ducking depth in the speech windows, sample-step click checks at sfx/voice edges and scene joins (assemble
+and the fan-out concat), A/V sync and offsets, muted output (media-pipeline); service renders with presets,
+toggles, mute and the QA rule (core). Checked on FFmpeg 5.1.6 (built from source, standing in for the image's Debian 5.1) and 6.1.1: media-pipeline and core
+suites pass on both. Not yet (rest of #301): a voice with provider + text but no asset
+still renders silently (warning), scene timing from the voice, the per-render ducking amount of #298.
 
 ## 4. Infrastructure inventory (no secrets)
 
