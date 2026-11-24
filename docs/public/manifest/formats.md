@@ -226,27 +226,27 @@ own sources (a toned Mandelbrot still at 4:3 and two Game of Life clips at
 Split screen, two panes (a 16:9 clip with `cover` and a 9:16 clip with
 `blur-fill`):
 
-![Split screen contact sheet](../../proofs/layouts/split.png)
+![Split screen contact sheet](../../proofs/layouts/split.jpg)
 
 Split screen, three panes with ratios 2:1:1:
 
-![Three-pane split contact sheet](../../proofs/layouts/split-3.png)
+![Three-pane split contact sheet](../../proofs/layouts/split-3.jpg)
 
 Picture-in-picture, inset in the bottom-right corner:
 
-![Picture-in-picture contact sheet](../../proofs/layouts/pip.png)
+![Picture-in-picture contact sheet](../../proofs/layouts/pip.jpg)
 
 Lower third:
 
-![Lower third contact sheet](../../proofs/layouts/lower-third.png)
+![Lower third contact sheet](../../proofs/layouts/lower-third.jpg)
 
 Grid, six panes with columns and rows chosen per frame:
 
-![Grid contact sheet](../../proofs/layouts/grid.png)
+![Grid contact sheet](../../proofs/layouts/grid.jpg)
 
 Fit modes, the same 4:3 picture as `contain`, `cover` and `blur-fill`:
 
-![Fit modes contact sheet](../../proofs/layouts/fit.png)
+![Fit modes contact sheet](../../proofs/layouts/fit.jpg)
 
 Render times and probe results are in `docs/proofs/layouts/report.json`. To
 make them again:

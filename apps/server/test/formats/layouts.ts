@@ -220,5 +220,5 @@ export async function layoutSheet(rows: string[][], out: string): Promise<void> 
   });
   const stacked = rows.length > 1 ? `${rowLabels.join('')}vstack=inputs=${rows.length},` : `${rowLabels[0]}`;
   filters.push(`${stacked}pad=iw+12:ih+12:6:6:color=0x17171c[out]`);
-  await run('ffmpeg', ['-hide_banner', '-v', 'error', '-y', ...inputs, '-filter_complex', filters.join(';'), '-map', '[out]', '-frames:v', '1', '-update', '1', out]);
+  await run('ffmpeg', ['-hide_banner', '-v', 'error', '-y', ...inputs, '-filter_complex', filters.join(';'), '-map', '[out]', '-frames:v', '1', '-q:v', '4', '-update', '1', out]);
 }

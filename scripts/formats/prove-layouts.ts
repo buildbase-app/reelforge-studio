@@ -54,7 +54,7 @@ try {
       }
       rows.push(row);
     }
-    await layoutSheet(rows, join(outDir, `${s.id}.png`));
+    await layoutSheet(rows, join(outDir, `${s.id}.jpg`));
   }
   writeFileSync(
     join(outDir, 'report.json'),
