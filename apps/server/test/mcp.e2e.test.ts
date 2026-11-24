@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -146,7 +147,7 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
     const themes = (await ok(agent, 'list_themes', {})).data.themes.map((t: any) => t.id);
     expect(themes).toEqual(expect.arrayContaining(['default', 'midnight']));
     const templates = (await ok(agent, 'list_templates', {})).data.templates.map((t: any) => t.id);
-    expect(templates).toEqual(['kinetic-title', 'animated-explainer', 'html-title', 'hyperframes-title']);
+    expect(templates).toEqual(['kinetic-title', 'animated-explainer', 'html-title', 'html-layout', 'hyperframes-layout', 'hyperframes-title']);
 
     expect((await ok(agent, 'create_project', { manifest: sample })).data.migratedFrom).toBe('0.1');
     await ok(agent, 'set_theme', { projectId: 'sample-reel', theme: 'midnight' });
@@ -166,21 +167,47 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
     });
     await ok(agent, 'add_scene', { projectId: 'sample-reel', scene: { id: 'card', engine: 'html', template: 'html-title', durationFrames: 45, props: { headline: 'Four engines, one timeline', kicker: 'HTML' } } });
     await ok(agent, 'add_scene', { projectId: 'sample-reel', scene: { id: 'hf', engine: 'hyperframes', template: 'hyperframes-title', durationSeconds: 1.5, props: { headline: 'HyperFrames, rendered locally' } } });
+    // A layout scene (#287): picture-in-picture of an uploaded image and video, with a lower third.
+    const media = (name: string, args: string[]) => {
+      const f = join(dir, name);
+      execFileSync('ffmpeg', ['-hide_banner', '-v', 'error', '-y', ...args, f]);
+      return readFileSync(f).toString('base64');
+    };
+    const licence = { name: 'CC0-1.0', redistributable: true };
+    await ok(agent, 'upload_asset', { projectId: 'sample-reel', assetId: 'still', filename: 'still.png', license: licence, dataBase64: media('still.png', ['-f', 'lavfi', '-i', 'color=c=#3a6ea5:s=320x240', '-frames:v', '1']) });
+    await ok(agent, 'upload_asset', {
+      projectId: 'sample-reel',
+      assetId: 'clip',
+      filename: 'clip.mp4',
+      license: licence,
+      dataBase64: media('clip.mp4', ['-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=30:d=1', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p']),
+    });
+    await ok(agent, 'add_scene', {
+      projectId: 'sample-reel',
+      scene: {
+        id: 'pip',
+        engine: 'hyperframes',
+        template: 'hyperframes-layout',
+        durationSeconds: 1,
+        props: { layout: { type: 'pip', corner: 'top-right' }, panes: [{ media: { asset: 'clip', fit: 'blur-fill' } }, { media: { asset: 'still', fit: 'cover' } }], lowerThird: { name: 'Layouts', title: 'Picture-in-picture over MCP' } },
+      },
+    });
     // Per-scene timing edits: seconds on one scene, frames on another, and a reorder.
     await ok(agent, 'update_scene', { projectId: 'sample-reel', sceneId: 'outro', patch: { durationSeconds: 2, props: { subline: 'Self-hosted' } } });
     await ok(agent, 'update_scene', { projectId: 'sample-reel', sceneId: 'hook', patch: { durationFrames: 75 } });
-    const reordered = (await ok(agent, 'reorder_scenes', { projectId: 'sample-reel', order: ['hook', 'how-it-works', 'agent-html', 'card', 'hf', 'outro'] })).data;
+    const reordered = (await ok(agent, 'reorder_scenes', { projectId: 'sample-reel', order: ['hook', 'how-it-works', 'agent-html', 'card', 'hf', 'pip', 'outro'] })).data;
     expect(reordered.timing.map((t: any) => [t.id, t.startFrame, t.durationFrames])).toEqual([
       ['hook', 0, 75],
       ['how-it-works', 75, 120],
       ['agent-html', 195, 30],
       ['card', 225, 45],
       ['hf', 270, 45],
-      ['outro', 315, 60],
+      ['pip', 315, 30],
+      ['outro', 345, 60],
     ]);
     const report = (await ok(agent, 'validate_project', { projectId: 'sample-reel' })).data;
     expect(report.ok, JSON.stringify(report.errors)).toBe(true);
-    expect(report.summary.totalFrames).toBe(375);
+    expect(report.summary.totalFrames).toBe(405);
 
     const { job } = (await ok(agent, 'render_project', { projectId: 'sample-reel' })).data;
     let status = job;
@@ -205,10 +232,10 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
     writeFileSync(file, Buffer.from(await res.arrayBuffer()));
     const tools2 = resolveTools();
     const info = await probe(tools2.ffprobe, file);
-    expect(checkExpectation(info, { width: 1080, height: 1920, fps: 30, frames: 375, audio: true })).toEqual([]);
+    expect(checkExpectation(info, { width: 1080, height: 1920, fps: 30, frames: 405, audio: true })).toEqual([]);
     expect(info.videoCodec).toBe('h264');
     expect(info.audioCodec).toBe('aac');
-    expect(info.durationSeconds).toBeCloseTo(12.5, 1);
+    expect(info.durationSeconds).toBeCloseTo(13.5, 1);
     await assertDecodable(tools2.ffmpeg, file);
     const first = await frameStats(tools2.ffmpeg, file, 0);
     expect(first.yMax - first.yMin).toBeGreaterThan(40); // non-empty thumbnail frame

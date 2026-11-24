@@ -346,6 +346,13 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
         add(['scenes', i, 'props', ...issue.path.map((k) => k as string | number)], issue.message);
       }
     }
+    // Media a template places (layout panes, #287): images or videos listed in the manifest's assets.
+    for (const ref of template.mediaAssets?.(s.props) ?? []) {
+      const a = assetById.get(ref.asset);
+      const path = ['scenes', i, 'props', ...ref.path];
+      if (!a) add(path, `unknown asset id "${ref.asset}"; add it to the manifest's assets first`);
+      else if (a.mediaType !== 'image' && a.mediaType !== 'video') add(path, `asset "${ref.asset}" is ${a.mediaType}; panes show images or videos`);
+    }
   });
 
   p.audio.sfx.forEach((s, i) => {

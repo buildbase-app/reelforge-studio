@@ -33,7 +33,8 @@
     "load": "node --import tsx scripts/load/run.ts",
     "load:smoke": "LOAD_PROFILE=smoke node --import tsx scripts/load/run.ts",
     "test:load": "vitest run --dir scripts/load",
-    "formats:prove": "tsx scripts/formats/prove.ts"
+    "formats:prove": "tsx scripts/formats/prove.ts",
+    "formats:prove-layouts": "tsx scripts/formats/prove-layouts.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

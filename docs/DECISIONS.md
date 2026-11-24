@@ -2370,3 +2370,35 @@ endpoint never got is queued for it), `rotate_webhook_secret` (`POST .../rotate-
 summary and the retry policy). `list_webhook_deliveries` (payloads) and everything else stay admin.
 *Rejected:* a separate secrets table: the endpoint already holds the current and the previous secret (sealed), and
 Standard Webhooks needs no more than that for an overlap.
+
+### D-1XX --- Layout primitives as one layout template per DOM engine on shared geometry; media fit with CSS object-fit; video as per-frame pictures in the html engine
+
+**Status:** DECIDED (reversible), issue #287. The number is assigned at merge.\
+Users ask for split screens, picture-in-picture, lower thirds, grids and media in any box, at any size. One
+template per engine, `html-layout` and `hyperframes-layout`, takes the same props (`layoutSceneProps`,
+`packages/project-schema/src/layouts.ts`): a `layout` (`full`, `split` with 2-4 panes, a direction and ratios,
+`pip` with corner, width, aspect and margin, `grid` with columns and rows or none, then picked per frame for cells
+closest to square), `panes` (media asset + fit mode + focus + start offset, colour, label, headline, body) and an
+optional `lowerThird` (name, title, alignment, brand colours). The geometry is pure functions in
+`@reelforge/project-schema/layout` (`layoutPanes`, `pipInset`, `lowerThirdBox`, `clearOfLowerThird`, `fitMedia`):
+every size is in layout units (D-108), and the inset, the lower third and pane text are placed from the safe areas,
+so a scene reflows for each output size and variant (D-109). Pane text stays in the content safe area; a pane that
+lies wholly in a tall frame's app-overlay zone (a bottom grid row on 9:16) keeps its text in title safe and says so
+(`textSafe`). One HTML/CSS builder (`layoutSceneDom`) serves both DOM engines, so their pixels match; an engine only
+supplies how a picture reaches the page. Fit modes are CSS `object-fit`/`object-position`; `blur-fill` is a second,
+blurred (3 units), darkened and slightly enlarged `cover` copy behind a `contain` picture. The html engine's page may
+load nothing but `data:` URLs (D-085), so images are inlined after their type is sniffed from the bytes, and a
+video becomes one JPEG per output frame (`extractVideoFrames`: resampled to the scene's rate from `startSeconds`,
+holding its last frame), put into the page before each screenshot: frame-exact, and no codec is needed in the
+browser. HyperFrames gets the files hard-linked into the scene folder (the renderer serves only that folder) and
+plays a video as a timed, muted `<video>` clip (`data-media-start`). Media referenced by a template are checked by
+the project schema (`TemplateDefinition.mediaAssets`): they must be image or video assets in the manifest. The html
+engine's default timeout grows with the frame area (1 s per frame per 1920x1080 worth of pixels), since a 4K
+screenshot is four times the work. *Rejected:* one template per primitive and engine (8-12 templates with the same
+props); compositing media with FFmpeg after the engine (layouts would not be an engine scene and text could not wrap
+around panes); a loopback media server for the html engine (a network path out of the sandboxed page); video
+`<video>` elements in the html engine (Chrome Headless Shell has no H.264 decoder, and seeking is not frame-exact).
+**Not yet:** Remotion and Motion Canvas layout templates (Remotion would need a loopback media server for
+`<OffthreadVideo>`/`<Img>`; Motion Canvas has no DOM). Proof: `apps/server/test/formats.test.ts` (pane geometry and
+text measured in the browser at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K on both engines; fit modes, video start offsets
+and frame-by-frame video checked on rendered pixels) and the contact sheets in `docs/proofs/layouts/`.
