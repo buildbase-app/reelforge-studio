@@ -10,6 +10,8 @@ export interface RenderRequest {
   fps: number;
   frames: number;
   background: string | null;
+  /** Font faces to load before the first frame (#303): project font assets and bundled fonts on the bundle server. */
+  fonts?: Array<{ family: string; url: string; format: 'woff2' | 'woff' | 'truetype' | 'opentype'; weight: string; style: 'normal' | 'italic'; stretch?: string; unicodeRange?: string }>;
 }
 
 export interface RenderResponse {

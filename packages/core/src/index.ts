@@ -42,5 +42,6 @@ export * from './output-support';
 export * from './priority';
 export * from './svg';
 export * from './sceneAssets';
+export * from './fonts';
 export * from './workspace';
 export * from './workspace-admin';
