@@ -46,7 +46,7 @@ export function fill(el: Element, ...children: Child[]): void {
   append(el, children);
 }
 
-/** The ReelForge mark: a 9:16 reel frame with the tally light (docs/brand/reelforge-mark.svg). */
+/** The ReelForge mark: a 9:16 reel frame with the tally light (replaced by the RenderWeld mark, docs/brand/src/, in #413). */
 export function mark(size = 20): SVGElement {
   return s(
     'svg',

@@ -1,0 +1,15 @@
+{
+  "name": "renderweld-brand-kit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RenderWeld brand kit generator (#410): rebuilds every asset from src/ and the Geist fonts",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "geist": "1.9.2",
+    "opentype.js": "1.3.4"
+  }
+}
