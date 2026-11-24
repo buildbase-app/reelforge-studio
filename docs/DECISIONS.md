@@ -2495,3 +2495,9 @@ transients and misses the target on short clips); normalising each scene (scene 
 would need crossfades); an `alimiter` after a plain gain (sample-peak, not true-peak, without oversampling).
 Proof: `packages/media-pipeline/test/audio.test.ts` (AUD-1..7) and `packages/core/test/audio.test.ts`
 (AUD-10..15); a real render of the sample reel went from -9.1 LUFS / +3.1 dBTP to -14.3 LUFS / -2.4 dBTP.
+**FFmpeg 5.1 (release image):** assemble() encodes the video without audio, then muxes the audio in a second pass
+with the video copied and no frame limit, because FFmpeg 5.1 ends every stream of an output once one reaches its
+`-frames` limit (the audio came out about one encoder delay short and failed the A/V sync check; 6.x does not do
+this). Only filter options present in 5.1 are used (`ebur128 framelog=verbose`, not `quiet`), and
+`assertAudioSupport()` tries each audio filter with the pipeline's options once per FFmpeg binary before the first
+mix, failing with the missing one named.

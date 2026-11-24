@@ -657,7 +657,8 @@ ebur128): before -9.1 LUFS, true peak +3.1 dBFS (clipping), LRA 0.8 LU; after -1
 LRA 3.5 LU. Tests: loudness within 1 LU and peak under the ceiling after the AAC encode for three presets,
 ducking depth in the speech windows, sample-step click checks at sfx/voice edges and scene joins (assemble
 and the fan-out concat), A/V sync and offsets, muted output (media-pipeline); service renders with presets,
-toggles, mute and the QA rule (core). Not yet (rest of #301): a voice with provider + text but no asset
+toggles, mute and the QA rule (core). Checked on FFmpeg 5.1.6 (built from source, standing in for the image's Debian 5.1) and 6.1.1: media-pipeline and core
+suites pass on both. Not yet (rest of #301): a voice with provider + text but no asset
 still renders silently (warning), scene timing from the voice, the per-render ducking amount of #298.
 
 ## 4. Infrastructure inventory (no secrets)

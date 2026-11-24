@@ -176,6 +176,15 @@ ITU-R BT.1359-1 puts the detectability of a sound/picture offset at about
 +45 ms (sound early) to -125 ms (sound late); one frame (33 ms at 30 fps) is
 inside it. A mismatch fails the render (`checks.avSync`).
 
+## FFmpeg versions
+
+The audio pipeline runs on FFmpeg 5.1 (Debian bookworm, the release image) and
+6.1; both are tested. Before the first mix a render checks, once per FFmpeg
+binary, that every filter and option it needs works, and fails with the missing
+one named if not. The video is encoded first and the audio muxed in a second
+pass with the video stream copied: FFmpeg 5.1 ends every stream of an output
+when one reaches its frame limit, which would cut the audio short.
+
 ## In the render manifest
 
 `audio` in `render-manifest.json` has the tracks that played, `toggles`,

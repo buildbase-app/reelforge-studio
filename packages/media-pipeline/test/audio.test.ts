@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   assemble,
+  assertAudioSupport,
   checkAvSync,
   concatClips,
   mergeWindows,
@@ -223,5 +224,35 @@ describe('A/V sync and muted output', () => {
     const out = join(dir, 'mute-out.mp4');
     await assemble({ ffmpeg: tools.ffmpeg, ffprobe: tools.ffprobe, clips: [{ sceneId: 's', file: v, frames: 30 }], out, width: 160, height: 284, fps: 30, noAudio: true });
     expect((await probe(tools.ffprobe, out)).hasAudio).toBe(false);
+  });
+});
+
+describe('FFmpeg versions (the release image has Debian bookworm FFmpeg 5.1)', () => {
+  it('AUD-8 assemble() muxes the audio in its own pass, without the video frame limit that cuts audio short on FFmpeg 5.1', async () => {
+    const v = await clip('v51.mp4', 60);
+    const tone = await wav('t51.wav', 'aevalsrc=0.5*sin(2*PI*440*t):s=48000:d=2');
+    const out = join(dir, 'v51-out.mp4');
+    const r = await assemble({ ffmpeg: tools.ffmpeg, ffprobe: tools.ffprobe, clips: [{ sceneId: 's', file: v, frames: 60 }], out, width: 160, height: 284, fps: 30, audioFile: tone });
+    const split = r.args.indexOf('&&');
+    expect(split).toBeGreaterThan(0);
+    const [video, mux] = [r.args.slice(0, split), r.args.slice(split + 1)];
+    expect(video).toContain('-an');
+    expect(video).toContain('-frames:v');
+    expect(mux).not.toContain('-frames:v');
+    expect(mux.join(' ')).toContain('-c:v copy');
+    const sync = await checkAvSync(tools.ffprobe, out, 30);
+    expect(sync.problems).toEqual([]);
+    expect(sync.audioDuration).toBeCloseTo(2, 3);
+  }, 60_000);
+
+  it('AUD-9 the audio capability probe passes on this FFmpeg and names what a build lacks, with the fix', async () => {
+    await expect(assertAudioSupport(tools.ffmpeg)).resolves.toBeUndefined();
+    // A stand-in FFmpeg without loudnorm and ebur128.
+    const fake = join(dir, 'ffmpeg-without-loudness');
+    writeFileSync(fake, '#!/bin/sh\nfor a in "$@"; do case "$a" in *loudnorm*|*ebur128*) echo "No such filter: \'$a\'" >&2; exit 1;; esac; done\nexit 0\n');
+    chmodSync(fake, 0o755);
+    const err = await assertAudioSupport(fake).then(() => null, (e: Error) => e);
+    expect(err?.message).toMatch(/cannot run the audio pipeline: loudnorm \(measure\).*loudnorm \(linear.*ebur128 true peak.*Install FFmpeg 5\.1 or newer/);
+    expect(err?.message).not.toMatch(/silencedetect|amix/);
   });
 });

@@ -226,7 +226,7 @@ const clampLra = (x: number) => Math.min(50, Math.max(1, x));
  * gate) and a -inf peak are null.
  */
 export async function measureEbur128(ffmpeg: string, file: string, signal?: AbortSignal): Promise<{ integrated: number | null; truePeak: number | null; lra: number | null }> {
-  const { stderr } = await run(ffmpeg, ['-hide_banner', '-nostats', '-i', file, '-map', '0:a:0', '-af', 'ebur128=peak=true:framelog=quiet', '-f', 'null', '-'], 'audio:measure', { ...(signal ? { signal } : {}) });
+  const { stderr } = await run(ffmpeg, ['-hide_banner', '-nostats', '-i', file, '-map', '0:a:0', '-af', 'ebur128=peak=true:framelog=verbose', '-f', 'null', '-'], 'audio:measure', { ...(signal ? { signal } : {}) });
   const sum = stderr.slice(stderr.lastIndexOf('Summary:'));
   const get = (re: RegExp) => num(re.exec(sum)?.[1]);
   const integrated = get(/I:\s+(-?[\d.]+) LUFS/);
@@ -265,7 +265,7 @@ export async function normaliseLoudness(o: {
   const filter =
     `loudnorm=I=${o.target.integrated}:TP=${f(tp)}:LRA=${f(lra)}:measured_I=${m.integrated}:measured_TP=${m.truePeak}:measured_LRA=${Math.max(m.lra, 0.01)}` +
     `:measured_thresh=${m.threshold}:offset=${m.targetOffset ?? 0}:linear=true:print_format=json,aresample=${SAMPLE_RATE}`;
-  const args = ['-hide_banner', '-nostats', '-y', '-i', o.input, '-map', '0:a:0', '-af', filter, '-c:a', 'pcm_f32le', '-ar', String(SAMPLE_RATE), o.out];
+  const args = ['-hide_banner', '-nostats', '-y', '-i', o.input, '-map', '0:a:0', '-af', filter, '-c:a', 'pcm_f32le', '-ar', String(SAMPLE_RATE), '-ac', '2', o.out];
   const { stderr } = await run(o.ffmpeg, args, 'audio:normalise', { ...(o.signal ? { signal: o.signal } : {}) });
   const s = loudnormStats(stderr, 'audio:normalise');
   return { out: o.out, type: s.normalization_type === 'linear' ? 'linear' : 'dynamic', gainDb: Number((o.target.integrated - m.integrated).toFixed(2)), args };
@@ -303,4 +303,51 @@ export async function checkAvSync(ffprobe: string, file: string, fps: number): P
   const diff = r.audioDuration - r.videoDuration;
   if (Math.abs(diff) > frame + 1e-6) r.problems.push(`audio is ${(diff * 1000).toFixed(1)} ms ${diff > 0 ? 'longer' : 'shorter'} than the video (allowed: one frame, ${(frame * 1000).toFixed(1)} ms)`);
   return r;
+}
+
+/**
+ * The FFmpeg audio features renders use, each tried on 0.1 s of silence with
+ * the exact options the pipeline passes (filter options differ between
+ * versions: `ebur128 framelog=quiet`, for one, is FFmpeg 6+; this pipeline
+ * uses `verbose`, which 5.1 has too).
+ */
+const AUDIO_PROBES: Array<{ what: string; graph: string; inputs?: number }> = [
+  { what: 'mix chain (aformat, atrim, apad whole_dur, afade, asetnsamples, volume eval=frame, adelay)', graph: "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=end=0.1,asetpts=PTS-STARTPTS,apad=whole_dur=0.2,afade=t=in:st=0:d=0.01,afade=t=out:st=0.19:d=0.01,asetnsamples=n=32:p=0,volume='pow(10,-6*min(1,clip(t,0,1))/20)':eval=frame,adelay=10|10" },
+  { what: 'amix normalize=0', graph: '[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=0:normalize=0', inputs: 2 },
+  { what: 'silencedetect', graph: 'aformat=channel_layouts=mono,silencedetect=n=-40dB:d=0.2' },
+  { what: 'loudnorm (measure)', graph: 'loudnorm=I=-14:TP=-2:LRA=11:print_format=json' },
+  { what: 'loudnorm (linear, with measured values)', graph: 'loudnorm=I=-14:TP=-2.5:LRA=11:measured_I=-20:measured_TP=-6:measured_LRA=3:measured_thresh=-30:offset=0:linear=true:print_format=json,aresample=48000' },
+  { what: 'ebur128 true peak', graph: 'ebur128=peak=true:framelog=verbose' },
+];
+const audioSupport = new Map<string, Promise<void>>();
+
+/**
+ * Fail fast, with the missing feature named, when this FFmpeg cannot run the
+ * audio pipeline (checked once per binary). FFmpeg 5.1 (Debian bookworm, the
+ * release image) and 6.1 pass.
+ */
+export function assertAudioSupport(ffmpeg: string): Promise<void> {
+  let p = audioSupport.get(ffmpeg);
+  if (!p) {
+    p = (async () => {
+      const missing: string[] = [];
+      for (const probe of AUDIO_PROBES) {
+        const inputs = Array.from({ length: probe.inputs ?? 1 }, () => ['-f', 'lavfi', '-t', '0.1', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000']).flat();
+        const filter = probe.inputs ? ['-filter_complex', probe.graph] : ['-af', probe.graph];
+        try {
+          // Output as the pipeline writes it (stereo float PCM): FFmpeg 5.1 cannot pick a layout for aresample into a bare null output.
+          await run(ffmpeg, ['-hide_banner', '-nostats', '-v', 'error', ...inputs, ...filter, '-ac', '2', '-c:a', 'pcm_f32le', '-f', 'null', '-'], 'audio:setup');
+        } catch (e) {
+          const log = e instanceof PipelineError ? e.log.trim().split('\n').slice(-3).join(' ') : String(e);
+          missing.push(`${probe.what}${log ? ` (${log})` : ''}`);
+        }
+      }
+      if (missing.length) {
+        throw new PipelineError('audio:setup', `${ffmpeg} cannot run the audio pipeline: ${missing.join('; ')}. Install FFmpeg 5.1 or newer with these filters (e.g. the Debian/Ubuntu ffmpeg package), or set FFMPEG_PATH to one`);
+      }
+    })();
+    audioSupport.set(ffmpeg, p);
+    p.catch(() => audioSupport.delete(ffmpeg));
+  }
+  return p;
 }

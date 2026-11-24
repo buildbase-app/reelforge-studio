@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   PipelineError,
+  assertAudioSupport,
   checkAvSync,
   measureEbur128,
   measureLoudness,
@@ -153,6 +154,7 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
     return { file: null, noAudio: true, manifest: { ...manifest, track: 'none', loudness: { ...manifest.loudness, reason: 'muted' } } };
   }
   await mkdir(i.workDir, { recursive: true });
+  await assertAudioSupport(tools.ffmpeg);
 
   let ducking: AudioManifest['ducking'] = null;
   const duck = resolveDucking(music?.ducking);

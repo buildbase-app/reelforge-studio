@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { mixGraph } from './audio';
 import { H264_ARGS, PipelineError, run } from './ffmpeg';
 import { probe } from './probe';
@@ -66,11 +66,13 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
 
   const totalFrames = clips.reduce((n, c) => n + c.frames, 0);
   const totalSeconds = totalFrames / fps;
+  // Video first, without audio; the audio is muxed in a second pass. FFmpeg 5.1 (the release image's Debian build)
+  // ends every stream of an output once one stream reaches its -frames limit, which cut the audio short by the
+  // video encoder's delay (a 2 s video got 1.962 s of audio); FFmpeg 6 does not. A separate mux works on both.
+  const withAudio = !opts.noAudio;
+  const videoOut = withAudio ? out.replace(/(\.[^./]+)?$/, '.video$1') : out;
   const args: string[] = ['-hide_banner', '-y'];
   for (const clip of clips) args.push('-i', clip.file);
-
-  const audio = audioInputs(opts, clips.length, totalSeconds);
-  args.push(...audio.inputs);
 
   const filters: string[] = clips.map(
     (clip, i) =>
@@ -79,27 +81,63 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
       `fps=${fps},format=yuv420p,trim=end_frame=${clip.frames},setpts=PTS-STARTPTS[v${i}]`
   );
   filters.push(`${clips.map((_, i) => `[v${i}]`).join('')}concat=n=${clips.length}:v=1:a=0[vout]`);
-  filters.push(...audio.filters);
 
   args.push(
     '-filter_complex',
     filters.join(';'),
     '-map',
     '[vout]',
-    ...audio.map,
     ...H264_ARGS,
     '-r',
     String(fps),
     '-frames:v',
     String(totalFrames),
-    ...audio.codec,
+    '-an',
     '-t',
     totalSeconds.toFixed(3),
-    out
+    videoOut
   );
 
   await run(ffmpeg, args, 'assemble', { signal: opts.signal });
-  return { out, totalFrames, args };
+  if (!withAudio) return { out, totalFrames, args };
+  try {
+    const muxArgs = await muxAudio({ ...opts, video: videoOut, totalSeconds });
+    // Both commands, for the render manifest.
+    return { out, totalFrames, args: [...args, '&&', ...muxArgs] };
+  } finally {
+    await rm(videoOut, { force: true });
+  }
+}
+
+/**
+ * Add the audio to a video-only file: the video stream copied, the audio (a
+ * finished track or the mix graph) encoded to AAC. No frame limit, so the
+ * audio keeps its full length on every FFmpeg version (`-t` only trims a
+ * longer track to the video); both streams start at 0.
+ */
+async function muxAudio(o: AudioOptions & { ffmpeg: string; video: string; out: string; totalSeconds: number; signal?: AbortSignal }): Promise<string[]> {
+  const audio = audioInputs(o, 1, o.totalSeconds);
+  const args = [
+    '-hide_banner',
+    '-y',
+    '-i',
+    o.video,
+    ...audio.inputs,
+    ...(audio.filters.length ? ['-filter_complex', audio.filters.join(';')] : []),
+    '-map',
+    '0:v',
+    ...audio.map,
+    '-c:v',
+    'copy',
+    ...audio.codec,
+    '-t',
+    o.totalSeconds.toFixed(3),
+    '-movflags',
+    '+faststart',
+    o.out,
+  ];
+  await run(o.ffmpeg, args, 'assemble:audio', { signal: o.signal });
+  return args;
 }
 
 export interface NormaliseOptions {
