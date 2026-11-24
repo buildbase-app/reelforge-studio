@@ -2503,5 +2503,5 @@ research/SOURCES.md) and ReelForge is sold; neither #10 nor #117 clears it. *Rej
 the finished MP4 into each format (a second lossy generation and no alpha); burning captions after
 packaging (GIF and PNG would need their own burn); an alpha GIF (1-bit transparency with fringes).
 *Known limits:* non-alpha clips are still H.264 (CRF 18) before a ProRes or VP9 encode; Remotion and
-Motion Canvas alpha; ZIP64 for PNG sequences over 65,535 frames or 4 GiB; the release image's
-FFmpeg 5.1 encoder list is not verified here.
+Motion Canvas alpha; ZIP64 for PNG sequences over 65,535 frames or 4 GiB. Debian bookworm's FFmpeg
+5.1.9 (the image's package) has every encoder used and libass `alpha`, and the media-pipeline format tests pass on it.

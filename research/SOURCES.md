@@ -541,6 +541,9 @@ implementation or licensing decisions.
   `6.1.1-3ubuntu5`, `--enable-gpl --enable-libx265 --enable-libvpx --enable-libaom --enable-libsvtav1
   --enable-librav1e --enable-libopus --enable-libass`) lists the encoders `prores_ks`, `libvpx-vp9`,
   `libsvtav1` (SVT-AV1 1.7.0), `libaom-av1`, `librav1e`, `libopus`, `gif`, `png`, `ffv1`, `aac`,
-  `pcm_s16le`/`pcm_s24le` and `libx265` (`ffmpeg -encoders`, 2026-11-24). The release image's Debian
-  bookworm FFmpeg 5.1 was not checked here (VERIFY: `docker run --rm <image> ffmpeg -encoders`);
-  formats whose encoder is missing are refused per server (`422 unsupported_output`).
+  `pcm_s16le`/`pcm_s24le` and `libx265` (`ffmpeg -encoders`, 2026-11-24). Debian bookworm's package,
+  the one the release image installs (`ffmpeg 5.1.9-0+deb12u1`, installed in `debian:bookworm-slim`
+  on 2026-11-24), lists the same encoders (`prores_ks`, `libvpx-vp9`, `libsvtav1`, `libaom-av1`,
+  `librav1e`, `libopus`, `gif`, `png`, `ffv1`, `aac`, `pcm_s16le`, `pcm_s24le`, `libx265`) and the
+  libass filter's `alpha` option, and `packages/media-pipeline/test/formats.test.ts` passes on it (13 of 13, in `node:22-bookworm-slim`); the service and engine tests ran with 6.1.1. A server whose
+  FFmpeg lacks an encoder refuses that format (`422 unsupported_output`).

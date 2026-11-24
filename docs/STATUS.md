@@ -654,7 +654,8 @@ format's master, GIF, zip, audio mix and alpha caption burn (media-pipeline); ev
 the service with ffprobe and 422 refusals (core, fake engines); html and HyperFrames alpha to MOV and
 WebM over REST with signed downloads (server, real engines). Not yet: HEVC (licence, D-1XX),
 Remotion/Motion Canvas alpha, lossless intermediates for opaque non-MP4 renders, ZIP64, fan-out for
-non-MP4 formats, the dashboard (not merged), the release image's FFmpeg 5.1 encoder list (VERIFY).
+non-MP4 formats, the dashboard (not merged). The media-pipeline format tests also pass on Debian
+bookworm's FFmpeg 5.1.9 (the image's package); the service and engine tests ran on 6.1.1.
 
 ## 4. Infrastructure inventory (no secrets)
 
