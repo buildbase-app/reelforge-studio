@@ -4,18 +4,29 @@ import { mkdir, open, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
 import { OUTPUT_FILES, type FormatSpec } from '@reelforge/project-schema';
-import { PipelineError, run } from './ffmpeg';
+import { encoderSettings, encoderThreadArgs, PipelineError, run } from './ffmpeg';
+import { rateArg, rateFraction, rateValue, type Rate } from './rate';
 
 /**
- * Output formats beyond H.264 MP4 (#302, D-1XX): the encoder of each format,
+ * Output formats beyond H.264 MP4 (#302, D-123): the encoder of each format,
  * what its file must probe as, and the packaging steps of GIF and PNG
- * sequences. H.264 MP4 keeps its own path (H264_ARGS, #349's settings) and
+ * sequences. H.264 MP4 keeps its own path (h264Args(), #349's settings) and
  * is not described here.
  *
  * A render assembles its clips once with the format's encoder ("the master"):
  * the final file for MOV and WebM, a lossless FFV1 master for GIF and PNG
  * sequences, which are then made from it (palette GIF; PNG frames in a zip).
  * Captions are burned into the master, so every format gets them.
+ *
+ * Audio (#301, D-116): MOV and WebM get the render's one normalised PCM mix in
+ * assemble()'s second pass (video stream copied): 24-bit PCM in MOV, Opus in
+ * WebM. GIF and PNG sequences have no audio (no mix, no A/V or loudness
+ * check); audio-only formats encode the mix with no video pass.
+ *
+ * Memory (#349, D-117): every video encoder gets render.encoderThreads
+ * (`-threads`), and libvpx and libaom also the look-ahead cap
+ * (render.encoderLookahead as `-lag-in-frames`, at most 25); SVT-AV1 keeps
+ * its own look-ahead (no option for it that works on FFmpeg 5.1 to 7).
  */
 
 /** Quality settings per format (runtime config `render.formats.*`; process-wide like setEncoderSettings, #349). */
@@ -104,8 +115,20 @@ export const OUTPUT_CONTENT_TYPES: Record<string, string> = {
 const AV1_ENCODERS = ['libsvtav1', 'libaom-av1'];
 const ffv1 = (alpha: boolean): Pick<MasterEncoding, 'pixFmt' | 'video'> => {
   const pixFmt = alpha ? 'yuva444p' : 'yuv444p';
-  return { pixFmt, video: ['-c:v', 'ffv1', '-level', '3', '-g', '1', '-pix_fmt', pixFmt] };
+  return { pixFmt, video: ['-c:v', 'ffv1', '-level', '3', '-g', '1', '-pix_fmt', pixFmt, ...encoderThreadArgs()] };
 };
+
+/** libvpx keeps at most 25 frames of look-ahead (MAX_LAG_BUFFERS); libaom's default is 35 (19 in realtime). */
+const LIBVPX_MAX_LAG = 25;
+/**
+ * render.encoderLookahead as `-lag-in-frames` (libvpx-vp9, libaom-av1; both
+ * FFmpeg 4+): the frames the encoder holds for its alt-ref and rate control.
+ * 0 keeps the encoder's own.
+ */
+function lagArgs(): string[] {
+  const l = encoderSettings().lookahead;
+  return l > 0 ? ['-lag-in-frames', String(Math.min(l, LIBVPX_MAX_LAG))] : [];
+}
 
 /**
  * The encoding plan of a format. `av1Encoder` picks the AV1 encoder this
@@ -121,7 +144,7 @@ export function formatPlan(spec: FormatSpec, opts: { av1Encoder?: string } = {})
     case 'prores-4444': {
       const hq = spec.codec === 'prores-422-hq';
       const pixFmt = hq ? 'yuv422p10le' : spec.alpha ? 'yuva444p10le' : 'yuv444p10le';
-      const video = ['-c:v', 'prores_ks', '-profile:v', hq ? '3' : '4', '-vendor', 'apl0', '-pix_fmt', pixFmt, ...(spec.alpha ? ['-alpha_bits', '16'] : [])];
+      const video = ['-c:v', 'prores_ks', '-profile:v', hq ? '3' : '4', '-vendor', 'apl0', '-pix_fmt', pixFmt, ...(spec.alpha ? ['-alpha_bits', '16'] : []), ...encoderThreadArgs()];
       return {
         spec, file, contentType, kind: 'video', audio: true,
         master: { file, pixFmt, padColor: pad, video, audio: ['-c:a', 'pcm_s24le', '-ar', '48000'], final: true },
@@ -132,7 +155,7 @@ export function formatPlan(spec: FormatSpec, opts: { av1Encoder?: string } = {})
     }
     case 'vp9': {
       const pixFmt = spec.alpha ? 'yuva420p' : 'yuv420p';
-      const video = ['-c:v', 'libvpx-vp9', '-pix_fmt', pixFmt, '-crf', String(s.vp9Crf), '-b:v', '0', '-deadline', 'good', '-cpu-used', String(s.vp9CpuUsed), '-row-mt', '1', ...(spec.alpha ? ['-auto-alt-ref', '0'] : [])];
+      const video = ['-c:v', 'libvpx-vp9', '-pix_fmt', pixFmt, '-crf', String(s.vp9Crf), '-b:v', '0', '-deadline', 'good', '-cpu-used', String(s.vp9CpuUsed), '-row-mt', '1', ...(spec.alpha ? ['-auto-alt-ref', '0'] : []), ...encoderThreadArgs(), ...lagArgs()];
       return {
         spec, file, contentType, kind: 'video', audio: true,
         master: { file, pixFmt, padColor: pad, video, audio: ['-c:a', 'libopus', '-b:a', `${s.opusKbps}k`, '-ar', '48000'], final: true },
@@ -145,8 +168,11 @@ export function formatPlan(spec: FormatSpec, opts: { av1Encoder?: string } = {})
       const enc = opts.av1Encoder ?? 'libsvtav1';
       const video =
         enc === 'libaom-av1'
-          ? ['-c:v', 'libaom-av1', '-pix_fmt', 'yuv420p', '-crf', String(s.av1Crf), '-b:v', '0', '-cpu-used', String(Math.min(s.av1Preset, 8)), '-row-mt', '1']
-          : ['-c:v', 'libsvtav1', '-pix_fmt', 'yuv420p', '-crf', String(s.av1Crf), '-preset', String(s.av1Preset)];
+          ? ['-c:v', 'libaom-av1', '-pix_fmt', 'yuv420p', '-crf', String(s.av1Crf), '-b:v', '0', '-cpu-used', String(Math.min(s.av1Preset, 8)), '-row-mt', '1', ...encoderThreadArgs(), ...lagArgs()]
+          : // SVT-AV1: the thread cap only. Its look-ahead option is `la_depth` on FFmpeg 5.1 (deprecated in 6, gone
+            // in 7) or `svtav1-params lookahead=` (depends on the SVT-AV1 version linked), so it is left to SVT. VERIFY
+            // that 5.1's wrapper passes -threads on (6.1 declares the threads capability; an encoder without it ignores it).
+            ['-c:v', 'libsvtav1', '-pix_fmt', 'yuv420p', '-crf', String(s.av1Crf), '-preset', String(s.av1Preset), ...encoderThreadArgs()];
       return {
         spec, file, contentType, kind: 'video', audio: true,
         master: { file, pixFmt: 'yuv420p', padColor: pad, video, audio: ['-c:a', 'libopus', '-b:a', `${s.opusKbps}k`, '-ar', '48000'], final: true },
@@ -173,7 +199,7 @@ export function formatPlan(spec: FormatSpec, opts: { av1Encoder?: string } = {})
     case 'pcm-s16le':
       return { spec, file, contentType, kind: 'audio', audio: true, master: null, encoders: [['pcm_s16le']], expect: { videoCodec: null, pixelFormats: [], audioCodec: 'pcm_s16le' } };
     case 'h264':
-      throw new PipelineError('setup', 'H.264 MP4 uses the default encode (H264_ARGS), not a format plan');
+      throw new PipelineError('setup', 'H.264 MP4 uses the default encode (h264Args()), not a format plan');
   }
 }
 
@@ -226,34 +252,45 @@ export function missingEncoders(plan: FormatPlan, encoders: Set<string>): string
   return plan.encoders.filter((group) => !group.some((e) => encoders.has(e))).map((g) => g.join(' or '));
 }
 
-/** GIF output size and frame rate for a master of `width`x`height` at `fps`. */
-export function gifGeometry(width: number, height: number, fps: number, s: FormatSettings = settings): { width: number; height: number; fps: number } {
+/**
+ * GIF output size and frame rate for a master of `width`x`height` at `fps`:
+ * the project's exact rate (e.g. "30000/1001") when it is not above
+ * render.formats.gifFps, else gifFps. `fps` is the rate as a number, `rate`
+ * the exact FFmpeg argument.
+ */
+export function gifGeometry(width: number, height: number, fps: Rate, s: FormatSettings = settings): { width: number; height: number; fps: number; rate: string } {
   const scale = Math.min(1, s.gifMaxSide / Math.max(width, height));
   const even = (n: number) => Math.max(2, Math.round((n * scale) / 2) * 2);
-  return { width: even(width), height: even(height), fps: Math.min(fps, s.gifFps) };
+  const keep = rateValue(fps) <= s.gifFps;
+  return { width: even(width), height: even(height), fps: keep ? rateValue(fps) : s.gifFps, rate: keep ? rateFraction(fps) : String(s.gifFps) };
 }
 
-/** Frames a GIF of `seconds` at `fps` has (FFmpeg's fps filter rounds to the nearest output frame). */
-export function gifFrames(seconds: number, fps: number): number {
-  return Math.round(seconds * fps);
+/**
+ * Frames a GIF of `frames` master frames at `fps` has at `gifRate`: the same
+ * frames when the rate is kept, else FFmpeg's fps filter's count (it rounds
+ * to the nearest output frame), from the exact rates, so 29.97 has no drift.
+ */
+export function gifFrames(frames: number, fps: Rate, gifRate: Rate): number {
+  if (rateFraction(gifRate) === rateFraction(fps)) return frames;
+  return Math.round((frames * rateValue(gifRate)) / rateValue(fps));
 }
 
 /**
  * GIF from the master: two-pass palette (palettegen with stats_mode=diff,
  * then paletteuse), at the GIF frame rate and size, looping forever.
  */
-export async function encodeGif(o: { ffmpeg: string; master: string; out: string; width: number; height: number; fps: number; seconds: number; signal?: AbortSignal }): Promise<{ args: string[]; frames: number }> {
+export async function encodeGif(o: { ffmpeg: string; master: string; out: string; width: number; height: number; fps: Rate; frames: number; seconds: number; signal?: AbortSignal }): Promise<{ args: string[]; frames: number }> {
   const s = settings;
   const g = gifGeometry(o.width, o.height, o.fps, s);
   const dither = s.gifDither === 'bayer' ? 'bayer:bayer_scale=3' : s.gifDither;
   const args = [
     '-hide_banner', '-v', 'error', '-y', '-i', o.master,
     '-filter_complex',
-    `[0:v]fps=${g.fps},scale=${g.width}:${g.height}:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=${dither}:diff_mode=rectangle`,
+    `[0:v]fps=${rateArg(g.rate)},scale=${g.width}:${g.height}:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=${dither}:diff_mode=rectangle`,
     '-loop', '0', '-t', o.seconds.toFixed(6), o.out,
   ];
   await run(o.ffmpeg, args, 'format:gif', { signal: o.signal });
-  return { args, frames: gifFrames(o.seconds, g.fps) };
+  return { args, frames: gifFrames(o.frames, o.fps, g.rate) };
 }
 
 /** Most entries a zip without ZIP64 holds. */

@@ -2,8 +2,12 @@ import { z } from 'zod';
 import {
   MAX_OUTPUT_VARIANTS,
   MAX_PROJECT_SECONDS,
+  MAX_SCENES,
   assetLicense,
+  fpsValue,
+  framesToSeconds,
   isSafeRelativePath,
+  type FrameRate,
   output,
   outputVariant,
   slugId,
@@ -20,6 +24,8 @@ import {
 } from './templates';
 import { themeId, themeTokensPatch } from './themes';
 import { MAX_CAPTION_LANGUAGES, captionWord, isLanguageTag, projectCaptions, sameLanguage, type CaptionCue } from './captions';
+import { audioBusGains, audioToggles, loudnessPreset, musicDucking } from './audio';
+import { assetRefsInMarkup } from './assetRefs';
 
 /**
  * Manifest v0.2: the agent-facing contract (docs/AGENT_PLATFORM.md §5).
@@ -152,8 +158,10 @@ export const musicTrack = z
     asset: id,
     /** Level relative to full scale, 0..1. */
     volume: z.number().min(0).max(1).default(0.8),
-    /** Lower the music under the voice. Stored; not applied by the v0.1 renderer (warning). */
-    ducking: z.boolean().default(false),
+    /** Lower the music under the voice: true (defaults), false, or { depthDb, attackMs, releaseMs, thresholdDb }. */
+    ducking: musicDucking.default(false),
+    /** Fade-in at the start of the video, seconds (unset: 0.25). */
+    fadeInSeconds: z.number().min(0).max(10).optional(),
     fadeOutSeconds: z.number().min(0).max(10).default(1),
   })
   .strict();
@@ -171,6 +179,14 @@ export const audio = z
     voice: voiceTrack.nullable().default(null),
     music: musicTrack.nullable().default(null),
     sfx: z.array(sfxCue).max(50).default([]),
+    /** Loudness preset of the finished video (unset: the server's render.audio.loudness). */
+    loudness: loudnessPreset.optional(),
+    /** Master mute: a silent track (or none, per render.audio.mutedTrack). */
+    mute: z.boolean().optional(),
+    /** Buses on or off (unset: on). */
+    enabled: audioToggles.optional(),
+    /** Per-bus gain in dB (unset: 0). */
+    gainDb: audioBusGains.optional(),
   })
   .strict();
 
@@ -225,7 +241,7 @@ const projectShape = z
     audio: audio.default({ voice: null, music: null, sfx: [] }),
     captions: projectCaptions.default({ enabled: false }),
     assets: z.array(asset).default([]),
-    scenes: z.array(scene).min(1).max(50),
+    scenes: z.array(scene).min(1).max(MAX_SCENES),
   })
   .strict();
 
@@ -236,9 +252,9 @@ function utf8Bytes(s: string | undefined): number {
 }
 
 /** Frames a scene occupies (seconds are rounded to the nearest frame). */
-export function sceneFrames(s: { durationFrames?: number; durationSeconds?: number }, fps: number): number {
+export function sceneFrames(s: { durationFrames?: number; durationSeconds?: number }, fps: FrameRate | number): number {
   if (s.durationFrames !== undefined) return s.durationFrames;
-  return Math.max(1, Math.round((s.durationSeconds ?? 0) * fps));
+  return Math.max(1, Math.round((s.durationSeconds ?? 0) * fpsValue(fps)));
 }
 
 /** Cross-field rules. The catalog decides which engines and templates exist. */
@@ -306,10 +322,20 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
       add(['scenes', i, 'html'], `engine "${s.engine}" does not accept html/css; use a template`);
       return;
     }
+    // asset:<id> in scene html/css (#299): only this manifest's images, videos and fonts.
+    const markup = assetRefsInMarkup(s.html, s.css);
+    for (const bad of [...new Set(markup.bad)]) {
+      add(['scenes', i, 'html'], `"${bad}" is not an asset reference: write asset:<id> with the id of an entry in this manifest's assets (store ids, paths and query strings are not allowed)`);
+    }
+    for (const ref of markup.refs) {
+      const a = assetById.get(ref.asset);
+      if (!a) add(['scenes', i, ref.where], `unknown asset id "${ref.asset}" in asset:${ref.asset}; add it to the manifest's assets first`);
+      else if (a.mediaType === 'audio') add(['scenes', i, ref.where], `asset "${ref.asset}" is audio; sound goes in audio.music, audio.voice or audio.sfx, not in scene markup`);
+    }
     if (utf8Bytes(s.html) + utf8Bytes(s.css) > MAX_SOURCE_BYTES) {
       add(['scenes', i, 'html'], `html + css is larger than ${MAX_SOURCE_BYTES} bytes`);
     }
-    const seconds = frames / p.output.fps;
+    const seconds = framesToSeconds(frames, p.output.fps);
 
     if (s.template === undefined) {
       if (!isSourceEngine || s.html === undefined) {
@@ -354,6 +380,14 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
         add(['scenes', i, 'props', ...issue.path.map((k) => k as string | number)], issue.message);
       }
     }
+    // Media a template places (#299): entries of this manifest's assets, of the right media type.
+    for (const ref of template.mediaAssets?.(s.props) ?? []) {
+      const a = assetById.get(ref.asset);
+      const path = ['scenes', i, 'props', ...ref.path];
+      const allowed = ref.mediaTypes ?? ['image', 'video'];
+      if (!a) add(path, `unknown asset id "${ref.asset}"; add it to the manifest's assets first`);
+      else if (!allowed.includes(a.mediaType)) add(path, `asset "${ref.asset}" is ${a.mediaType}; expected ${allowed.join(' or ')}`);
+    }
   });
 
   p.audio.sfx.forEach((s, i) => {
@@ -393,7 +427,7 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
     add(['captions', 'burnLanguage'], `"${burn}" is neither the primary language (${primary ?? 'not set'}) nor a key of captions.tracks`);
   }
 
-  const totalSeconds = cursor / p.output.fps;
+  const totalSeconds = framesToSeconds(cursor, p.output.fps);
   if (totalSeconds > MAX_PROJECT_SECONDS) {
     add(['scenes'], `project is ${totalSeconds.toFixed(1)}s; the limit is ${MAX_PROJECT_SECONDS}s`);
   }

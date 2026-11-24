@@ -5,8 +5,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer';
 import { PipelineError } from '@reelforge/media-pipeline';
-import { packageVersion, publishDirAtomically, stampMatches } from '@reelforge/core';
-import type { OutputSettings, RenderScene, ThemeTokens } from '@reelforge/project-schema';
+import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, type AssetServer, type ResolvedAsset } from '@reelforge/core';
+import type { Tools } from '@reelforge/media-pipeline';
+import { TEMPLATES, fpsValue, type OutputSettings, type RenderScene, type ThemeTokens } from '@reelforge/project-schema';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const compositionsDir = resolve(here, '../compositions');
@@ -45,6 +46,13 @@ export interface RemotionRenderOptions {
    * full duration, so frame n looks the same as in a whole render.
    */
   frameRange?: readonly [number, number];
+  /** The project's assets (EngineRenderContext.assets); the scene may use only these (#299). */
+  assets?: ReadonlyMap<string, ResolvedAsset>;
+  /** FFmpeg/ffprobe for staging assets. */
+  tools?: Tools;
+  /** Scratch directory (staged assets). Default: next to `out`. */
+  workDir?: string;
+  log?: (line: string) => void;
 }
 
 export interface RemotionRenderResult {
@@ -73,8 +81,9 @@ function sourceHash(): string {
     }
   };
   walk(compositionsDir);
-  // The compositions import the shared layout module (#287); a change to it must rebuild the bundle.
+  // The compositions import the shared layout and media modules (#287, #299); a change to them must rebuild the bundle.
   h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/layout')));
+  h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/media')));
   return h.digest('hex');
 }
 
@@ -124,14 +133,36 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
   const frames = range ? range[1] - range[0] + 1 : scene.durationFrames;
 
   if (!scene.template) throw new PipelineError(stage, 'Remotion scenes need a template');
+  // Assets (#299): the scene's files staged (video as one picture per frame of this range) and served on a
+  // loopback origin under a random token for the length of this render.
+  const uses = sceneAssetUses(scene, TEMPLATES[scene.template as keyof typeof TEMPLATES]);
+  let assetServer: AssetServer | undefined;
+  let media: Record<string, unknown> | undefined;
+  if (uses.length) {
+    const staged = await stageSceneAssets({
+      uses,
+      assets: opts.assets ?? new Map(),
+      dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
+      tools: opts.tools ?? { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe' },
+      output,
+      frames: { first: range ? range[0] : 0, count: frames },
+      video: 'frames',
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      ...(opts.log ? { log: opts.log } : {}),
+    });
+    assetServer = await startAssetServer(staged);
+    media = staged.media(assetServer.base);
+  }
   const inputProps = {
     ...(scene.props as Record<string, unknown>),
     ...(opts.theme ? { __theme: opts.theme } : {}),
     ...(opts.platform ? { __platform: opts.platform } : {}),
+    ...(media ? { __assets: media } : {}),
     __output: {
       width: output.width,
       height: output.height,
-      fps: output.fps,
+      // Remotion takes a number; 29.97002997 for 30000/1001 (the final file is normalised to the exact rate, #302).
+      fps: fpsValue(output.fps),
       durationInFrames: scene.durationFrames,
     },
   };
@@ -152,7 +183,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
     if (
       composition.width !== output.width ||
       composition.height !== output.height ||
-      composition.fps !== output.fps ||
+      Math.abs(composition.fps - fpsValue(output.fps)) > 1e-9 ||
       composition.durationInFrames !== scene.durationFrames
     ) {
       throw new PipelineError(stage, 'composition metadata does not match the manifest');
@@ -194,5 +225,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
     );
   } finally {
     opts.signal?.removeEventListener('abort', onAbort);
+    if (assetServer?.refused.length) opts.log?.(`remotion: the asset origin refused ${assetServer.refused.length} request(s): ${assetServer.refused.slice(0, 5).join(', ')}`);
+    await assetServer?.close();
   }
 }

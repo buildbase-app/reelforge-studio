@@ -10,7 +10,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { alphaStats, encodersOf, probe, probeAudio, resolveTools, zipEntries, zipPngHeader } from '@reelforge/media-pipeline';
+import { alphaStats, checkAvSync, encodersOf, measureEbur128, probe, probeAudio, resolveTools, zipEntries, zipPngHeader } from '@reelforge/media-pipeline';
 import { PluginRegistry, ReelforgeService, createMemoryRepositories } from '../src/index';
 import { fakeEngine, makeTone, tempDir } from './helpers';
 
@@ -65,8 +65,8 @@ async function create(m: ReturnType<typeof manifest>, music = true) {
   }
 }
 
-async function renderOk(projectId: string, opts: { variant?: string; captions?: string } = {}) {
-  const r = await svc.renderProject(projectId, { ...(opts.variant ? { variant: opts.variant } : {}), ...(opts.captions ? { captions: opts.captions } : {}) });
+async function renderOk(projectId: string, opts: { variant?: string; captions?: string; audio?: Record<string, unknown> } = {}) {
+  const r = await svc.renderProject(projectId, { ...(opts.variant ? { variant: opts.variant } : {}), ...(opts.captions ? { captions: opts.captions } : {}), ...(opts.audio ? { audio: opts.audio } : {}) });
   const done = await svc.waitForJob(r.job.id, 120);
   if (done.status !== 'succeeded') throw new Error(`render of ${projectId} ${done.status}: ${JSON.stringify(done.error)}`);
   return svc.getRender(done.result!.renderId as string);
@@ -139,6 +139,9 @@ describe('every output format through the service (#302)', () => {
     expect(m.captions.burned).toBe(true);
     expect(m.checks.size).toBe('pass');
     expect(m.output.bytes).toBeLessThan(1_000_000);
+    // No audio in a GIF: nothing mixed, and the audio checks say they were skipped (with the project's music set).
+    expect(r.audio).toMatchObject({ track: 'none', reason: 'gif has no audio', checks: { avSync: 'skipped', loudness: 'skipped' } });
+    expect(m.checks).toMatchObject({ avSync: 'skipped', loudness: 'skipped' });
     evidence.push(`| gif | gif | final.gif | ${info.videoCodec} | ${info.pixelFormat} | none | ${info.frames} (15 fps) | ${info.durationSeconds} | none |`);
   }, 180_000);
 
@@ -159,6 +162,8 @@ describe('every output format through the service (#302)', () => {
     expect(alpha!.min).toBeLessThan(5);
     expect(alpha!.max).toBeGreaterThan(250);
     expect(r.files).toEqual(expect.arrayContaining(['frames.zip', 'captions.srt']));
+    expect(r.audio).toMatchObject({ track: 'none', reason: 'png-sequence has no audio', checks: { avSync: 'skipped', loudness: 'skipped' } });
+    expect(r.frameRate).toBe('30/1');
     evidence.push(`| png-sequence | png + alpha | frames.zip | ${info.videoCodec} | ${info.pixelFormat} | ${alpha!.min}-${alpha!.max} | ${entries.length} entries | ${SECONDS.toFixed(6)} | none |`);
   }, 180_000);
 
@@ -185,9 +190,60 @@ describe('every output format through the service (#302)', () => {
       const a = await probeAudio(tools.ffprobe, f.path);
       expect(a).toMatchObject({ hasVideo: false, audioCodec: codec, sampleRate: 48000, channels: 2 });
       expect(Math.abs(a.durationSeconds - SECONDS)).toBeLessThan(0.05);
+      // The same mix and loudness normalisation as a video (social preset by default), checked on the file; no video to sync with.
+      expect(r.audio).toMatchObject({ track: 'mixed', preset: 'social', normalisation: 'linear', checks: { avSync: 'skipped', loudness: 'pass' } });
+      expect(Math.abs(r.audio!.measured!.integrated! - -14)).toBeLessThanOrEqual(1);
+      const got = await measureEbur128(tools.ffmpeg, f.path);
+      expect(Math.abs(got.integrated! - -14), `${got.integrated} LUFS`).toBeLessThanOrEqual(1);
+      expect(got.truePeak!).toBeLessThanOrEqual(-2);
       evidence.push(`| ${format} | ${r.codec} | final.${format} | (no video) | - | - | - | ${a.durationSeconds} | ${a.audioCodec} |`);
     }, 120_000);
   }
+
+  it('FMT webm at 29.97 with audio: r_frame_rate 30000/1001, A/V in sync within one frame, loudness on the social preset', async () => {
+    const m = manifest('webm-ntsc', { format: 'webm', fps: '30000/1001' }, { engines: ['remotion', 'html'] });
+    await create(m);
+    const r = await renderOk('webm-ntsc');
+    expect(r).toMatchObject({ file: 'final.webm', format: 'webm', frameRate: '30000/1001', frames: FRAMES });
+    const f = await svc.renderFile(r.renderId);
+    const info = await probe(tools.ffprobe, f.path);
+    expect([info.videoCodec, info.audioCodec, info.frameRate, info.frames]).toEqual(['vp9', 'opus', '30000/1001', FRAMES]);
+    const sync = await checkAvSync(tools.ffprobe, f.path, 30000 / 1001);
+    expect(sync.problems).toEqual([]);
+    expect(Math.abs(sync.audioDuration! - (FRAMES * 1001) / 30000)).toBeLessThanOrEqual(1001 / 30000);
+    expect(r.audio).toMatchObject({ track: 'mixed', preset: 'social', checks: { avSync: 'pass', loudness: 'pass' } });
+    const got = await measureEbur128(tools.ffmpeg, f.path);
+    expect(Math.abs(got.integrated! - -14), `${got.integrated} LUFS`).toBeLessThanOrEqual(1);
+    const man = (await svc.getRenderManifest(r.renderId)) as { checks: Record<string, string>; ffmpegAssembleArgs: string[] };
+    expect(man.checks).toMatchObject({ metadata: 'pass', avSync: 'pass', loudness: 'pass' });
+    // Two passes: VP9 video only, then Opus with the video copied.
+    expect(man.ffmpegAssembleArgs).toContain('&&');
+    expect(man.ffmpegAssembleArgs).toContain('libopus');
+  }, 180_000);
+
+  it('FMT muted ProRes MOV: a silent PCM track by default, no audio stream with render.audio.mutedTrack "none"', async () => {
+    await create(manifest('mov-muted', { format: 'mov' }, { engines: ['remotion'] }));
+    const silent = await renderOk('mov-muted', { audio: { mute: true } });
+    expect(silent.audio).toMatchObject({ track: 'silent', reason: 'muted', checks: { avSync: 'pass', loudness: 'skipped' } });
+    const s = await probe(tools.ffprobe, (await svc.renderFile(silent.renderId)).path);
+    expect([s.videoCodec, s.videoProfile, s.audioCodec]).toEqual(['prores', 'HQ', 'pcm_s24le']);
+    expect((await measureEbur128(tools.ffmpeg, (await svc.renderFile(silent.renderId)).path)).integrated).toBeNull();
+    await svc.updateConfig({ 'render.audio.mutedTrack': 'none' });
+    try {
+      const none = await renderOk('mov-muted', { audio: { mute: true } });
+      expect(none.audio).toMatchObject({ track: 'none', checks: { avSync: 'skipped', loudness: 'skipped' } });
+      const n = await probe(tools.ffprobe, (await svc.renderFile(none.renderId)).path);
+      expect([n.videoCodec, n.hasAudio, n.frames]).toEqual(['prores', false, 45]);
+      // An audio-only render has nothing to write without a track.
+      await create(manifest('m4a-muted', { format: 'm4a' }));
+      const job = await svc.renderProject('m4a-muted', { audio: { mute: true } });
+      const done = await svc.waitForJob(job.job.id, 60);
+      expect(done.status).toBe('failed');
+      expect(JSON.stringify(done.error)).toContain('nothing to write');
+    } finally {
+      await svc.updateConfig({ 'render.audio.mutedTrack': null });
+    }
+  }, 180_000);
 
   it('FMT mp4 is unchanged: H.264 yuv420p with AAC at final.mp4', async () => {
     await create(manifest('mp4', { format: 'mp4' }, { engines: ['remotion'] }), false);

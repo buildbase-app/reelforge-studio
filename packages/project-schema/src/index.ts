@@ -9,6 +9,7 @@ import {
   type Scene,
 } from './project';
 import { BUILTIN_CATALOG, type TemplateCatalog } from './templates';
+import { fpsLabel, fpsValue, framesToSeconds } from './common';
 import {
   CAPTION_RULES,
   isLanguageTag,
@@ -28,8 +29,13 @@ export * from './project';
 export * from './templates';
 export * from './themes';
 export * from './captions';
+export * from './audio';
 export * from './migrate';
 export * from './layout';
+export * from './layouts';
+export * from './layout-dom';
+export * from './media';
+export * from './assetRefs';
 export { projectV01, V01_SCHEMA_VERSION, type ProjectV01, type ProjectV01Input } from './v01';
 
 export interface ValidationIssue {
@@ -98,18 +104,18 @@ function collectWarnings(p: Project, captionsDefaultMode?: CaptionMode): Validat
   });
   p.scenes.forEach((s, i) => {
     if (s.durationSeconds !== undefined) {
-      const exact = s.durationSeconds * p.output.fps;
+      const exact = s.durationSeconds * fpsValue(p.output.fps);
       if (Math.abs(exact - Math.round(exact)) > 1e-6) {
         warnings.push({
           path: `scenes.${i}.durationSeconds`,
-          message: `${s.durationSeconds}s is ${exact.toFixed(3)} frames at ${p.output.fps} fps; rounded to ${Math.round(exact)}`,
+          message: `${s.durationSeconds}s is ${exact.toFixed(3)} frames at ${fpsLabel(p.output.fps)} fps; rounded to ${Math.round(exact)}`,
         });
       }
     }
   });
   warnings.push(...captionWarnings(p, captionsDefaultMode));
-  if (p.audio.music?.ducking) {
-    warnings.push({ path: 'audio.music.ducking', message: 'ducking is not applied by this server version yet' });
+  if (p.audio.music?.ducking && !p.audio.voice) {
+    warnings.push({ path: 'audio.music.ducking', message: 'ducking lowers the music under the voice, but there is no voice track' });
   }
   if (p.audio.voice && !p.audio.voice.asset) {
     warnings.push({
@@ -118,7 +124,7 @@ function collectWarnings(p: Project, captionsDefaultMode?: CaptionMode): Validat
     });
   }
   if (p.brief?.targetSeconds) {
-    const seconds = totalFrames(p) / p.output.fps;
+    const seconds = framesToSeconds(totalFrames(p), p.output.fps);
     if (Math.abs(seconds - p.brief.targetSeconds) > Math.max(1, p.brief.targetSeconds * 0.1)) {
       warnings.push({
         path: 'brief.targetSeconds',
@@ -209,8 +215,8 @@ export interface ResolvedCaptions {
  * `opts.defaultMode` (the server's captions.defaultMode), else off.
  */
 export function resolveCaptions(p: Project, opts: { mode?: CaptionMode; defaultMode?: CaptionMode } = {}): ResolvedCaptions {
-  const fps = p.output.fps;
-  const endSeconds = totalFrames(p) / fps;
+  const fps = fpsValue(p.output.fps);
+  const endSeconds = framesToSeconds(totalFrames(p), p.output.fps);
   const portrait = p.output.height > p.output.width;
   const maxLineChars = p.captions.maxLineChars ?? (portrait ? 32 : CAPTION_RULES.maxLineChars);
   const maxCharsPerCue = p.captions.maxCharsPerCue ?? maxLineChars * CAPTION_RULES.maxLines;

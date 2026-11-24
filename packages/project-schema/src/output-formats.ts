@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
 /**
- * Output containers and codecs (#302, D-1XX). `output.format` picks the
+ * Output containers and codecs (#302, D-123). `output.format` picks the
  * container, `output.codec` the codec inside it (default: the first one
  * listed), `output.alpha` a transparent background where the codec carries
  * one. Licence and encoder notes: docs/public/manifest/formats.md#output-formats.
  *
  * HEVC/H.265 is deliberately absent: its patent pools license encoders in
- * products that are sold, and ReelForge is sold (D-1XX).
+ * products that are sold, and ReelForge is sold (D-123).
  */
 export const OUTPUT_FORMATS = ['mp4', 'mov', 'webm', 'gif', 'png-sequence', 'm4a', 'wav'] as const;
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number];

@@ -20,6 +20,7 @@ import busboy from 'busboy';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
+import { isDatabaseOverload, overloadedResponse } from './overload';
 import type { ServerConfig } from './config';
 import { auditAction, auditTarget, matchRoute, restArgs, resultOf } from './audit';
 import { mountDashboard } from './dashboard';
@@ -154,6 +155,8 @@ export function createApp(deps: AppDeps) {
     }
     const status = (err as { status?: number }).status;
     if (status === 413) return c.json(errorBody('too_large', 'request body is too large'), 413);
+    // No database connection or transaction in time: the server is overloaded, nothing was written (#307).
+    if (isDatabaseOverload(err)) return overloadedResponse('the database is busy; retry after the Retry-After seconds');
     obs.logger.log('error', `unhandled error on ${c.req.method} ${c.req.path}`, { error: err, request_id: c.get('requestId') });
     return c.json(errorBody('internal', 'internal server error'), 500);
   });
@@ -517,13 +520,18 @@ export function createApp(deps: AppDeps) {
   v1.post('/projects/:id/preview', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const opts = { sceneId: typeof b.sceneId === 'string' ? b.sceneId : undefined, scale: typeof b.scale === 'number' ? b.scale : undefined, ...(b.priority !== undefined ? { priority: b.priority } : {}) };
+    const opts = {
+      sceneId: typeof b.sceneId === 'string' ? b.sceneId : undefined,
+      scale: typeof b.scale === 'number' ? b.scale : undefined,
+      ...(b.variant !== undefined ? { variant: b.variant } : {}),
+      ...(b.priority !== undefined ? { priority: b.priority } : {}),
+    };
     return c.json(await service.idempotent(idemKey(c), 'preview_scene', { projectId, ...opts }, async () => ({ job: await service.preview(projectId, opts) })), 202);
   });
   v1.post('/projects/:id/renders', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.variant !== undefined ? { variant: b.variant } : {}), ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}) };
+    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.variant !== undefined ? { variant: b.variant } : {}), ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}), ...(b.audio !== undefined ? { audio: b.audio } : {}) };
     return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, () => service.renderProject(projectId, opts)), 202);
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));

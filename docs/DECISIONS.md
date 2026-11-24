@@ -2464,11 +2464,233 @@ exists); one job's page follows `GET /v1/jobs/:id/events` and polls its fan-out 
 requests a minute per open page, well inside the default 300 per key. **Split:** part 1 is sign-in, jobs and the
 library; analytics (aggregates the API does not offer yet), settings and the audit log viewer come in part 2.
 
+## Scale hot spots from the live load test (2026-11-23, issue #307)
+
+Section letter and decision number are assigned at merge (D-110 is taken; D-111..D-114 are claimed by open pull requests).
+Measurements, sizing and how to scale: [SCALE.md](SCALE.md); the load-test results:
+[PERFORMANCE.md](PERFORMANCE.md#queue-depth-encoder-memory-and-backpressure-307).
+
+### D-117 --- The claim is planned from a claim index; encoder memory is bounded by default; an overloaded api answers 503 with Retry-After
+
+**Status:** DECIDED (reversible). Number assigned at merge.\
+**Claim plan.** The fair claim (D-090, D-103) used to run a `GROUP BY (apiKeyId, priority)` over every queued job
+on every claim, reading each row from the table. Its cost grew with the queue: on PostgreSQL 17 it was the most
+expensive statement of the Track B load test, and at 20,000 queued jobs it cost 27–43 ms of database time per
+claim; on MySQL 8.4, 520–680 ms (about 43,000–47,000 rows examined per claim). Migration `0013_claim_index` adds
+`Job_claim_idx(workspaceId, queue, status, apiKeyId, priority, createdAt)`. The plan becomes one statement, read
+outside the claim's transaction, and an empty plan (an idle poll) opens no transaction:
+
+- **PostgreSQL** has two exact plans and picks the cheaper one. The `GROUP BY` costs about 1.7 µs per queued job.
+  A recursive skip scan costs one index descent, 35–66 µs, per (key, class) with queued jobs. The `GROUP BY` also
+  counts the jobs, and the skip scan is used while the queue holds more than 32 jobs per (key, class). The choice
+  is checked again every 100 claims or 30 s.
+- **MySQL** cannot seek on an outer reference inside a recursive step (each step read the whole queue, measured),
+  and does not use a loose index scan for this `GROUP BY`, even with `GROUP_INDEX`. It groups the claim index
+  itself, which covers the query. `type` does not fit in that index (MySQL's 3,072-byte key limit), so the age
+  of a (key, class) is the age of its oldest job of any type, which is a lower bound. The lock step reads the
+  oldest job of the worker's types first and re-ranks that (key, class) when that job is younger (a lazy priority
+  queue), so the order stays exact (PRI-10, PRI-12).
+
+The lock step is unchanged (`FOR UPDATE SKIP LOCKED`, MySQL one candidate at a time by primary key, #168, #171),
+and so are leases, fencing and exactly-once (SCL-01..21, QUE-*, PRI-01..12 on SQLite, PostgreSQL 17 and
+MySQL 8.4). *Rejected:*
+
+- Materialised per-key counters or head rows: every path that queues, claims, cancels, re-queues or hands back a
+  job would have to keep them right, and one missed path starves a key (the reason D-090 rejected counter rows).
+  The index heals itself.
+- A per-tenant round-robin cursor: it would replace "fewest running jobs first", a semantic change to D-090.
+- Skip scan alone: with 200 keys and three classes it was slower than the old `GROUP BY` at 5,000, 10,000 and
+  20,000 queued jobs (measured, rep 1); with 20 keys it was 3 to 11 times faster.
+- `type` in the index: it does not fit on MySQL, and on PostgreSQL the lock step would lose its age order across
+  types.
+
+**Encoder memory.** x264 with automatic threads (1.5 per core) and the `medium` preset's 40-frame lookahead peaked
+at 607 MB for a 1080x1920 encode on 4 vCPU, and it grows with the node's core count, not with the video.
+`render.encoderThreads` (default 2) and `render.encoderLookahead` (default 20) are runtime settings, applied in the
+media pipeline to every H.264 encode of the process: the engines' PNG pipe, assembly, and fan-out normalising.
+Captions burn-in keeps the bounded defaults until #332 lands. The thread count does not change the encoded video
+(byte-identical output, measured). The lookahead lowered SSIM against the source frames from 0.99972 to 0.99965
+and PSNR from 58.8 to 57.6 dB, with 7 % smaller files (1080x1920). Neither setting changes the stream format, so
+fan-out clips still join by stream copy (ENC-02). The preset and `-tune` are not exposed: both change the stream
+parameters (references, B-frames), which would break stream-copy joins between workers with different values,
+and the preset trades quality for speed rather than memory. Frames stay PNG on the pipe: raw RGBA at 1080x1920 is
+8 MB a frame, about 100 times more pipe traffic, for no memory gain in FFmpeg.
+
+**Backpressure.** Under the Track B burst (5,000 renders in 30 s, 200 workers on the same host), each api instance
+queued every request behind its 10-connection database pool with no bound. 3.1–3.5 % of CRUD calls failed: client
+timeouts after 10 s, and 500s when Prisma could not start a transaction within its 10 s wait for a connection
+(the api logs: "Unable to start a transaction in the given time"). Each instance now:
+
+- keeps at most `limits.maxInflightRequests` (default 64, runtime) requests in progress. One more waits up to
+  `limits.inflightWaitMs` (3 s) for a slot, first come first served, then gets `503 overloaded` with
+  `Retry-After: 1`. Health, readiness, metrics, long-polls and event streams are not counted;
+- turns a pool or transaction-start timeout into the same 503 instead of a 500.
+
+The guard wraps the server's fetch callback (`apps/server/src/overload.ts`), outside the routes, so auth and rate
+limits are unchanged. *503, not 429:* 429 means "this key sent too many" (D-078); overload is the server's state,
+the same for every key. *Why a short wait, then 503:* refusing at once (the first version, cap 256) left
+requests waiting inside Prisma's pool queue anyway, and refused a well-behaved client's renders in a burst
+that a few seconds would have absorbed (measured: [SCALE.md](SCALE.md#backpressure-the-api-tier)). A small
+cap near the pool's capacity keeps the queue in front of the pool, where its wait is bounded. *Rejected:* a
+separate pool for enqueues. It would not have helped, because the burst was
+of enqueues, and it would add connections the pooler sizing of D-104 has to count.
+
+### D-116 --- Audio: one PCM mix per render, two-pass loudnorm to a preset (social -14 LUFS / -2 dBTP by default), checked after the AAC encode; ducking by volume automation from speech segments
+
+**Status:** DECIDED (reversible). Number assigned at merge (D-110 to D-114 are claimed by open pull requests).\
+Renders came out at about -10 LUFS with true peaks above 0 dBFS, which clips after platform transcoding, and
+`music.ducking` was stored but not applied (#301). Now the audio is mixed **once over the whole timeline** into
+48 kHz float PCM (music padded and faded, voice and sfx with 5-10 ms edge fades, bus gains in dB, a 10 ms master
+fade at both ends), never per scene or fan-out chunk, so joins and seams cannot click; assemble() and the fan-out
+join encode that one track. **Loudness:** FFmpeg `loudnorm` pass 1 measures the mix; pass 2 applies the measured
+values with `linear=true` (one gain) when the true peak allows it, else loudnorm's dynamic mode limits the peaks
+(recorded as `normalisation`). The true-peak target is 0.5 dB under the ceiling for the AAC encoder's overshoot;
+the LRA target is never below the measured range, so the range is not compressed to meet a guideline (EBU R 128
+does not recommend LRA under one minute). Presets: `social` -14 LUFS / -2 dBTP (default; -2 rather than -1 because
+platforms transcode again, and Spotify asks for -2 dBTP above -14 LUFS), `broadcast-ebu` -23 / -1 (EBU R 128),
+`broadcast-atsc` -24 / -2 (ATSC A/85), `podcast` -16 / -1 (Apple Podcasts), `off`; render option > manifest
+`audio.loudness` > `render.audio.loudness`. **Verification** is on the delivered file (after the caption burn-in)
+with the `ebur128` meter, not loudnorm's own figures: on short clips loudnorm's integrated value differed from
+ebur128 by up to 0.7 LU here. Off by more than 1 LU or over the ceiling is a QA warning, or a failure with
+`render.audio.loudnessQa: fail` (default `warn`, so a hard-to-normalise mix still delivers, with the numbers).
+A/V sync (audio starts at 0, durations within one frame; BT.1359 detectability is about +45/-125 ms) always fails
+the render. **Ducking:** a volume curve on the music from the voice's speech segments (`silencedetect` at
+`thresholdDb`, default -40 dBFS), depth 18 dB, attack 120 ms ending where speech starts, release 400 ms; segments
+closer than attack + release merge so the music does not pump; applied per 32-sample block so the ramps make no
+zipper noise. **Toggles:** `audio.enabled.{voice,music,sfx}` and `audio.mute` in the manifest, the same plus
+`loudness` as `render_project` `audio`; a muted render carries a silent AAC track (default) or none
+(`render.audio.mutedTrack: none`). *Rejected:* `sidechaincompress` keyed on the voice (its depth depends on the
+voice level and ratio rather than a number you set, and a live compressor reacts after the first syllable;
+offline we know the voice in advance); a single-pass `loudnorm` (dynamic mode on everything, which changes
+transients and misses the target on short clips); normalising each scene (scene levels would jump and joins
+would need crossfades); an `alimiter` after a plain gain (sample-peak, not true-peak, without oversampling).
+Proof: `packages/media-pipeline/test/audio.test.ts` (AUD-1..7) and `packages/core/test/audio.test.ts`
+(AUD-10..15); a real render of the sample reel went from -9.1 LUFS / +3.1 dBTP to -14.3 LUFS / -2.4 dBTP.
+**FFmpeg 5.1 (release image):** assemble() encodes the video without audio, then muxes the audio in a second pass
+with the video copied and no frame limit, because FFmpeg 5.1 ends every stream of an output once one reaches its
+`-frames` limit (the audio came out about one encoder delay short and failed the A/V sync check; 6.x does not do
+this). Only filter options present in 5.1 are used (`ebur128 framelog=verbose`, not `quiet`), and
+`assertAudioSupport()` tries each audio filter with the pipeline's options once per FFmpeg binary before the first
+mix, failing with the missing one named.
+
+### D-118 --- Layout primitives as one layout template per DOM engine on shared geometry; media fit with CSS object-fit; video as per-frame pictures in the html engine
+
+**Status:** DECIDED (reversible), issue #287. The number is assigned at merge.\
+Users ask for split screens, picture-in-picture, lower thirds, grids and media in any box, at any size. One
+template per engine, `html-layout` and `hyperframes-layout`, takes the same props (`layoutSceneProps`,
+`packages/project-schema/src/layouts.ts`): a `layout` (`full`, `split` with 2-4 panes, a direction and ratios,
+`pip` with corner, width, aspect and margin, `grid` with columns and rows or none, then picked per frame for cells
+closest to square), `panes` (media asset + fit mode + focus + start offset, colour, label, headline, body) and an
+optional `lowerThird` (name, title, alignment, brand colours). The geometry is pure functions in
+`@reelforge/project-schema/layout` (`layoutPanes`, `pipInset`, `lowerThirdBox`, `clearOfLowerThird`, `fitMedia`):
+every size is in layout units (D-108), and the inset, the lower third and pane text are placed from the safe areas,
+so a scene reflows for each output size and variant (D-109). Pane text stays in the content safe area; a pane that
+lies wholly in a tall frame's app-overlay zone (a bottom grid row on 9:16) keeps its text in title safe and says so
+(`textSafe`). One HTML/CSS builder (`layoutSceneDom`) serves both DOM engines, so their pixels match; an engine only
+supplies how a picture reaches the page. Fit modes are CSS `object-fit`/`object-position`; `blur-fill` is a second,
+blurred (3 units), darkened and slightly enlarged `cover` copy behind a `contain` picture. The html engine's page may
+load nothing but `data:` URLs (D-085), so images are inlined after their type is sniffed from the bytes, and a
+video becomes one JPEG per output frame (`extractVideoFrames`: resampled to the scene's rate from `startSeconds`,
+holding its last frame), put into the page before each screenshot: frame-exact, and no codec is needed in the
+browser. HyperFrames gets the files hard-linked into the scene folder (the renderer serves only that folder) and
+plays a video as a timed, muted `<video>` clip (`data-media-start`). Media referenced by a template are checked by
+the project schema (`TemplateDefinition.mediaAssets`): they must be image or video assets in the manifest. The html
+engine's default timeout grows with the frame area (1 s per frame per 1920x1080 worth of pixels), since a 4K
+screenshot is four times the work. *Rejected:* one template per primitive and engine (8-12 templates with the same
+props); compositing media with FFmpeg after the engine (layouts would not be an engine scene and text could not wrap
+around panes); a loopback media server for the html engine (a network path out of the sandboxed page); video
+`<video>` elements in the html engine (Chrome Headless Shell has no H.264 decoder, and seeking is not frame-exact).
+**Not yet:** Remotion and Motion Canvas layout templates (Remotion would need a loopback media server for
+`<OffthreadVideo>`/`<Img>`; Motion Canvas has no DOM). Proof: `apps/server/test/formats.test.ts` (pane geometry and
+text measured in the browser at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K on both engines; fit modes, video start offsets
+and frame-by-frame video checked on rendered pixels) and the contact sheets in `docs/proofs/layouts/`.
+
+### D-119 --- Exact rational frame rates (23.976, 29.97, 48, 50, 59.94); per-engine output checks before queueing; length and scene caps become config bounds
+
+**Status:** DECIDED (reversible), issues #302 and #287. The number is assigned at merge.\
+**Frame rates.** `output.fps` accepts 23.976, 24, 25, 29.97, 30, 48, 50, 59.94 and 60, given as a number, a
+`"num/den"` string or `{ num, den }`, and stores them canonically (`FRAME_RATES`, `packages/project-schema/src/common.ts`):
+integer rates as numbers, so every existing manifest (`"fps": 30`) is unchanged, and the NTSC rates as the exact
+fractions `"24000/1001"`, `"30000/1001"`, `"60000/1001"`. Decimal spellings (29.97, 23.98) are read as those
+fractions; a written fraction is never rounded (`"2997/100"` is refused). Arithmetic goes through `fpsValue()` and
+`framesToSeconds()` (frames x den / num); FFmpeg always gets the fraction (`fpsArg()`: `-framerate`, `-r` and the
+`fps` filter), so the final MP4's `r_frame_rate` is exactly `30000/1001`, checked by the output probe
+(`checkExpectation(..., { exactRate: true })`) and the stream-copy join's timestamp check. FFmpeg durations (`-t`,
+`atrim`) are written to the microsecond: an NTSC timeline does not end on a millisecond, and rounding made the audio
+up to 0.5 ms longer than the video, so the fanned-out and single-worker renders differed. Engines: html and Motion
+Canvas pipe frames at the exact rate; Remotion takes the rate as a number (its clip is normalised to the exact rate
+during assembly); HyperFrames takes the fraction, but its `--end` accepts only 24, 25, 30 and 60, so at other rates
+the render runs without `--end` and the root's `data-duration` is half a frame short of `frames / fps` (it renders
+ceil(duration x fps) frames, so this is exactly `frames` whatever the rounding); an agent's full document at those
+rates must declare a long enough root duration. Render results gain `frameRate` (ffprobe's `r_frame_rate`) next to
+the numeric `fps`. *Rejected:* storing every rate as `{ num, den }` (breaks every client that reads `fps` as a
+number); floats only (`29.97` reaches FFmpeg as 2997/100, a different rate from NTSC 30000/1001 that editors and broadcast checks reject); a separate `fpsRational` field (two
+sources of truth).
+**Per-engine output checks.** `outputSupportIssues()` (`packages/core/src/output-support.ts`) checks output and each
+variant against the H.264 4:2:0 rules every engine shares (even sides, level 6.2: at most 139,264 macroblocks a
+frame and 16,880 px a side) and against what each engine declares in `EngineCapabilities.output` (frame rates,
+largest side, largest frame). `render_project` and `preview_scene` refuse with `422 unsupported_output` (engine,
+variant, reason) before anything is queued, and `validate_project` lists the same problems; `get_capabilities`
+lists each engine's `frameRates`. The built-in engines render every rate at every size the manifest allows, so they
+declare nothing; the check matters for third-party engines and for sizes above the current 4096 px bound.
+**Caps (#302).** The manifest's structural bounds become generous (`MAX_PROJECT_SECONDS` 4 hours, `MAX_SCENES` 2000)
+and what a server renders is its runtime config: `limits.maxRenderSeconds` (default 180, up to 14,400),
+`limits.maxRenderFrames` (default 5,400, up to 864,000) and `limits.maxScenes` (default 50, up to 2,000). Defaults
+are unchanged, so nothing renders longer until an admin raises them. **Not yet:** other containers (MOV/ProRes,
+WebM, GIF, PNG sequence, audio only), a configurable scene source size (256 KB), a disk-space preflight and resume
+for long renders, and a limits page.
+**preview_scene takes `variant`** (#287): the preview renders at that variant's size (scaled) and platform, through
+the same `withVariant()` path as a variant render; an unknown variant is `404` with the list.
+
+## AB. Assets in every engine (2026-11-24, issue #299)
+
+Live testing found uploaded images, video and fonts ignored by every engine: `EngineRenderContext.assets` was
+filled and never read. Fonts are #303 (a separate record).
+
+### D-120 --- Scenes use assets by manifest id; each scene's files are staged, checked and served from a per-render origin; video becomes one picture per frame
+
+**Status:** DECIDED (reversible).\
+**References.** Template props `media` (`asset`, `fit` `cover` / `contain` / `blur-fill`, `focus`, `start`, `dim`)
+and `logo` (`asset`, `corner`, `size`) on every built-in template, through a `mediaAssets(props)` hook on the
+template definition (the same hook the layouts work #287 adds), and `asset:<id>` in html / hyperframes markup. An
+id must be an entry of the same manifest's `assets`; store ids (`asset://`), paths, query strings, audio in markup
+and references inside elements that open documents (`iframe`, `object`, `embed`, `a`, `link`, `script`) are
+refused at validation and again at render time. **Staging** (`packages/core/src/sceneAssets.ts`): before a scene
+renders, its engine calls `stageSceneAssets` with the scene's uses; each file comes from the project's resolved
+assets only, is followed to its real path, sniffed again against the manifest's media type, size-checked
+(16384 px / 100 MP images, 8192 px / 3 h video, 2 GiB) and copied into the scene's work directory under a made-up
+name; SVG is rewritten again. **Serving:** by exact name from a map of staged files, never by joining a request
+path: html answers `http://rf-assets.invalid/<token>/` by Playwright request interception (no socket; the page
+CSP allows only that base for images and fonts), Motion Canvas serves `/<token>/` from its loopback bundle server,
+Remotion gets a loopback server for the length of the render (its browser is not ours to intercept), HyperFrames
+reads `assets/` inside its composition folder (`--refuse-outside-files`, deny-all sink unchanged). Responses send
+`nosniff` and `script-src 'none'`. **Video:** `videoFramesAt` (media-pipeline) extracts the pictures of the scene's
+frames (or frame range) with FFmpeg's `fps` filter on a grid anchored at the in-point (`-copyts`, `start_time`),
+rates as exact fractions (29.97 = 30000/1001), rotation applied, last frame held; engines show picture k at frame k
+(Remotion frame-range chunks stay frame-pure). HyperFrames seeks `<video>` itself, which tested frame-exact.
+**SVG** is accepted only rewritten from an allowlist (parse5 foreign content, serialised as XML by our code): no
+scripts, handlers, `foreignObject`, animation, external references or loading styles; links are unwrapped; shown
+only as images. **Decoding:** FFmpeg/ffprobe as children without server secrets (D-086) and with time limits;
+pictures by the engine's Chromium. **Projects:** an upload, import or provider result attached with `projectId`
+records the project on the asset (`metadata.projects`); another project listing that store id is refused by
+`validate_project` and the render (`asset_not_in_project`). Uploads without a project stay usable by the whole
+workspace (a brand kit); existing assets have no projects recorded and keep working. Workspaces (#348) separate
+stores below this. **Audio** stays on the `audio` buses (#346's mix); clip sound is not used. **Fit:** `FitMode` / `fitMedia` are #287's (`layout.ts`); `packages/project-schema/src/media.ts` re-exports them for
+the engine bundles. **Frame rates:** video pictures sit on the exact grid of D-119's rates (`rateArg`, so 29.97 is
+30000/1001 also when given as `fpsValue()`'s decimal), and engines take frame times from `framesToSeconds`. *Rejected:* playing `<video>` in the browsers (not
+frame-exact headless, and Chrome Headless Shell builds may lack H.264); `data:` URLs for everything (inflates
+Remotion input props and pages, no streaming); `file:` URLs (open the whole filesystem to the page); copying the
+store path into the page; rasterising SVG at upload (needs a browser in the upload path); a per-project asset table
+(a schema migration across three databases for what the metadata field answers). Proof:
+`apps/server/test/assets.e2e.test.ts` (four engines, pixels, loudness, `strace` 0 egress, project isolation),
+per-engine `test/assets.test.ts`, `packages/media-pipeline/test/media.test.ts` (no drift), contact sheet
+`docs/proofs/assets/templates-with-media.jpg`.
+
 ## AC. Output formats (2026-11-24, issue #302)
 
-### D-1XX --- Output formats: MOV/ProRes, WebM (VP9, AV1), GIF, PNG sequences and audio only from one manifest field; alpha from the html and HyperFrames engines; no HEVC
+### D-123 --- Output formats: MOV/ProRes, WebM (VP9, AV1), GIF, PNG sequences and audio only from one manifest field; alpha from the html and HyperFrames engines; no HEVC
 
-*Number assigned at merge.* (2026-11-24, issue #302.) `output.format` (`mp4`, `mov`, `webm`, `gif`,
+(2026-11-24, issue #302; merged with #346, #349, #376, #375 and #373 on 2026-11-24.) `output.format` (`mp4`, `mov`, `webm`, `gif`,
 `png-sequence`, `m4a`, `wav`), `output.codec` (default per format: `h264`, `prores-422-hq`, `vp9`,
 `gif`, `png`, `aac`, `pcm-s16le`; also `prores-4444` and `av1`) and `output.alpha`, overridable per
 variant (D-109). Combinations that can never work (a codec of another format, alpha without an alpha
@@ -2478,13 +2700,29 @@ with path, variant, engine): an engine that does not declare `EngineCapabilities
 encoder the FFmpeg lacks (`ffmpeg -encoders`, asked once per binary without blocking), audio only
 without audio or with burned captions, a GIF over `render.formats.gifMaxSeconds`, a PNG sequence over
 65,535 frames. `validate_project` lists the same problems. **Pipeline:** H.264 MP4 keeps its path
-untouched (H264_ARGS, #349's encoder settings, fan-out stream copy). Other formats assemble once with
-the format's encoder (`formatPlan()`): MOV and WebM directly (ProRes via `prores_ks` with PCM 24-bit;
-VP9/AV1 with Opus), GIF and PNG sequences through a lossless FFV1 master that a second step turns
-into a two-pass palette GIF or a stored zip of PNG frames. Captions burn into the assembled file with
+untouched (`h264Args()`, D-117's encoder settings, fan-out stream copy). Other formats assemble once with
+the format's encoder (`formatPlan()`) in D-116's two passes (video only with `-an`, then the audio muxed
+with the video stream copied, which FFmpeg 5.1 needs): MOV and WebM directly (ProRes via `prores_ks`
+with PCM 24-bit; VP9/AV1 with Opus; `-movflags +faststart` for MP4 and MOV only, since the WebM muxer
+refuses it), GIF and PNG sequences through a lossless FFV1 master (no audio pass) that a second step turns
+into a two-pass palette GIF or a stored zip of PNG frames. **Audio per container** (D-116): MOV and WebM
+carry the render's one normalised PCM mix, checked after the final encode for loudness and for A/V sync
+within one frame; a muted render carries a silent track or, with `render.audio.mutedTrack: "none"`, no
+audio stream (the format check then expects none). GIF and PNG sequences have no audio: nothing is mixed,
+and the manifest and `get_render_output` say `track: "none"` with the reason and the A/V-sync and loudness
+checks `skipped`. Audio only (m4a, wav) has no video pass at all: the same mix and loudness
+normalisation, encoded to AAC or 16-bit PCM, its loudness checked, A/V sync `skipped`; a muted audio-only
+render with `mutedTrack: "none"` fails (nothing to write). *Why PCM in MOV, not AAC:* editors expect
+uncompressed audio next to ProRes, and it adds no generation loss to the normalised mix. **Encoder
+memory** (D-117): `render.encoderThreads` reaches every video encoder (`-threads` for prores_ks, libvpx,
+libaom, SVT-AV1 and the FFV1 master) and `render.encoderLookahead` libvpx and libaom as
+`-lag-in-frames` (at most 25, libvpx's maximum); SVT-AV1's look-ahead is left to SVT, because its option
+is `la_depth` on FFmpeg 5.1 (removed in 7) or a version-dependent `svtav1-params` key. **Exact rates**
+(D-119): MOV and WebM are checked for `r_frame_rate` exactly the manifest's (30000/1001); a GIF keeps the
+project's exact rate up to `render.formats.gifFps` (frame count from the exact rates, so 29.97 does not
+drift), and a PNG sequence has one file per timeline frame with the rate in `frameRate`. Captions burn into the assembled file with
 the same encoder (libass `alpha=1` for transparent renders, so captions show over transparency);
-sidecars are written for every format. Audio only renders no scene and mixes the same audio graph
-over the timeline. Per-format QA after encoding: ffprobe codec, profile, pixel format, alpha plane
+sidecars are written for every format. Audio only renders no scene. Per-format QA after encoding: ffprobe codec, profile, pixel format, alpha plane
 (decoded with `alphaextract`; VP9 also by its `alpha_mode` tag and the libvpx decoder), frame count,
 duration, audio present or absent, GIF bytes, zip entries and PNG headers, then a full decode.
 **Alpha:** an engine that declares `output.alpha` gets `EngineRenderContext.alpha` and writes a
@@ -2498,8 +2736,7 @@ and MOV (browsers do not decode ProRes) and PNG sequences show the poster as a s
 so; transparency sits on a dark checkerboard in the screen's tone, the convention editors use. **Previews** stay H.264 MP4; non-MP4 renders do not fan out. **Settings:**
 `render.formats.*` (VP9/AV1 quality and speed, GIF fps, size, dither and limits, AAC and Opus
 bitrates), runtime, applied process-wide like #349's encoder settings. `EngineCapabilities.output`
-is the field PR #376 adds for frame rates and sizes; this decision adds `alpha` to it (merge: one
-interface with both). *Why ProRes 4444 clips for alpha:* the only alpha codec both engines can write
+(D-119's frame rates and sizes) also carries `alpha`: one interface in output-support.ts. *Why ProRes 4444 clips for alpha:* the only alpha codec both engines can write
 (HyperFrames' MOV output is ProRes 4444), decoded at 12 bits by FFmpeg, and the same codec as the
 MOV delivery, so a transparent ProRes render adds one ProRes generation and no chroma loss. *Why a stored zip
 written by hand:* PNGs are already compressed, and a new dependency would need a licence review;

@@ -161,7 +161,10 @@ describe('REST v1', () => {
     expect(err.code).toBe('invalid_manifest');
     expect(err.details.issues.some((i: any) => i.path.startsWith('output.fps'))).toBe(true);
     // The message lists the supported frame rates (#322).
-    expect(err.details.issues.find((i: any) => i.path === 'output.fps')?.message).toBe('fps must be one of 24, 25, 30, 60 (got 29)');
+    expect(err.details.issues.find((i: any) => i.path === 'output.fps')?.message).toBe(`fps must be one of 23.976 ("24000/1001"), 24, 25, 29.97 ("30000/1001"), 30, 48, 50, 59.94 ("60000/1001"), 60; give NTSC rates as "30000/1001", { "num": 30000, "den": 1001 } or 29.97 (got 29)`);
+    const ntsc = await req('POST', '/v1/projects', { body: { ...sample, projectId: 'ntsc', output: { ...sample.output, fps: '24000/1001' } } });
+    expect(ntsc.status).toBe(201);
+    expect(((await ntsc.json()) as any).manifest.output.fps).toBe('24000/1001');
     expect((await req('POST', '/v1/projects', { body: 'not json' })).status).toBe(400);
   });
 
@@ -427,6 +430,11 @@ describe('output variants over REST (#287)', () => {
     const unknown = await req('POST', '/v1/projects/rest-variants/renders', { body: { variant: 'square' } });
     expect(unknown.status).toBe(404);
     expect(((await unknown.json()) as any).error.details.variants).toEqual(['vertical', 'wide']);
+    // preview_scene takes a variant too.
+    const preview = await req('POST', '/v1/projects/rest-variants/preview', { body: { variant: 'wide', scale: 0.5 } });
+    expect(preview.status).toBe(202);
+    expect(((await preview.json()) as any).job.params).toMatchObject({ variant: 'wide', scale: 0.5 });
+    expect((await req('POST', '/v1/projects/rest-variants/preview', { body: { variant: 'square' } })).status).toBe(404);
     expect((await req('DELETE', '/v1/projects/rest-variants')).status).toBe(204);
   }, 120_000);
 });

@@ -1,9 +1,13 @@
 import { PipelineError, run } from './ffmpeg';
+import { rateFraction, rateValue, type Rate } from './rate';
 
 export interface MediaInfo {
   width: number;
   height: number;
+  /** Average frame rate as a number. */
   fps: number;
+  /** The stream's r_frame_rate exactly as ffprobe reports it, e.g. "30000/1001". */
+  frameRate: string;
   frames: number;
   durationSeconds: number;
   videoCodec: string;
@@ -54,6 +58,7 @@ export async function probe(ffprobe: string, file: string): Promise<MediaInfo> {
     width: Number(video.width),
     height: Number(video.height),
     fps: parseRate(String(video.avg_frame_rate ?? video.r_frame_rate)),
+    frameRate: String(video.r_frame_rate ?? video.avg_frame_rate ?? ''),
     frames: Number(video.nb_read_frames),
     durationSeconds: Number(data.format?.duration ?? 0),
     videoCodec: String(video.codec_name),
@@ -97,12 +102,15 @@ export async function assertDecodable(ffmpeg: string, file: string): Promise<voi
 export interface Expectation {
   width: number;
   height: number;
-  fps: number;
+  /** A number or an exact "num/den" (e.g. "30000/1001"). */
+  fps: Rate;
   frames: number;
   audio?: boolean;
   /** Expected video codec (default h264) and pixel formats (default yuv420p), for other output formats (#302). */
   videoCodec?: string;
   pixelFormats?: readonly string[];
+  /** Also require r_frame_rate to be exactly this rate (the final output; engine clips are normalised later). */
+  exactRate?: boolean;
 }
 
 /** Compare probed metadata with what the manifest asked for. Returns problems. */
@@ -111,7 +119,8 @@ export function checkExpectation(info: MediaInfo, want: Expectation): string[] {
   if (info.width !== want.width || info.height !== want.height) {
     problems.push(`size is ${info.width}x${info.height}, expected ${want.width}x${want.height}`);
   }
-  if (Math.abs(info.fps - want.fps) > 0.01) problems.push(`fps is ${info.fps}, expected ${want.fps}`);
+  if (Math.abs(info.fps - rateValue(want.fps)) > 0.01) problems.push(`fps is ${info.fps}, expected ${want.fps}`);
+  if (want.exactRate && info.frameRate !== rateFraction(want.fps)) problems.push(`r_frame_rate is ${info.frameRate}, expected ${rateFraction(want.fps)}`);
   if (info.frames !== want.frames) problems.push(`frame count is ${info.frames}, expected ${want.frames}`);
   const codec = want.videoCodec ?? 'h264';
   const pixFmts = want.pixelFormats ?? ['yuv420p'];
@@ -201,12 +210,12 @@ export async function streamParams(ffprobe: string, file: string): Promise<Strea
  * frame, e.g. at a joined clip's boundary), the first at 0, and a key frame
  * first. Returns problems (empty: fine).
  */
-export async function checkTimestamps(ffprobe: string, file: string, frames: number, fps: number): Promise<string[]> {
+export async function checkTimestamps(ffprobe: string, file: string, frames: number, fps: Rate): Promise<string[]> {
   const { stdout } = await run(ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=time_base:packet=pts,flags', '-of', 'json', file], 'probe');
   const data = JSON.parse(stdout) as { packets?: Array<{ pts?: number; flags?: string }>; streams?: Array<{ time_base?: string }> };
   const packets = data.packets ?? [];
   const [num, den] = String(data.streams?.[0]?.time_base ?? '1/1').split('/').map(Number);
-  const step = den! / (num! * fps);
+  const step = den! / (num! * rateValue(fps));
   const problems: string[] = [];
   if (packets.length !== frames) problems.push(`${packets.length} video packets, expected ${frames}`);
   if (packets[0] && !String(packets[0].flags ?? '').startsWith('K')) problems.push('the first video packet is not a key frame');

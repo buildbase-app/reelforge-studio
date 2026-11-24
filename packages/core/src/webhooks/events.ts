@@ -70,7 +70,7 @@ export function eventMatches(filters: string[], type: string): boolean {
 }
 
 /** Render result fields safe to send (no signed download link: it is a bearer capability). */
-const RENDER_FIELDS = ['renderId', 'projectId', 'kind', 'createdAt', 'durationSeconds', 'frames', 'width', 'height', 'fps', 'files', 'outputUrl', 'posterUrl', 'manifestUrl'] as const;
+const RENDER_FIELDS = ['renderId', 'projectId', 'kind', 'createdAt', 'durationSeconds', 'frames', 'width', 'height', 'fps', 'frameRate', 'files', 'outputUrl', 'posterUrl', 'manifestUrl'] as const;
 
 export function renderSummary(result: Record<string, unknown> | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = {};

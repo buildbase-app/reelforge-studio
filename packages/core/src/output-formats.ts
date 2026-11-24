@@ -13,6 +13,7 @@ import {
   missingEncoders,
   probe,
   probeAudio,
+  rateFraction,
   zipEntries,
   zipPngHeader,
   type FormatPlan,
@@ -21,17 +22,20 @@ import {
 import {
   AUDIO_ONLY_FORMATS,
   formatSpec,
+  fpsValue,
+  framesToSeconds,
   resolveCaptions,
   totalFrames,
   withVariant,
   type CaptionMode,
   type FormatSpec,
+  type FrameRate,
   type Project,
 } from '@reelforge/project-schema';
 import type { PluginRegistry } from './registry';
 
 /**
- * Output formats beyond H.264 MP4 (#302, D-1XX): what a server can render
+ * Output formats beyond H.264 MP4 (#302, D-123): what a server can render
  * (refused with `422 unsupported_output` before a job is queued), and the
  * format half of a render (packaging and per-format QA) used by render.ts.
  */
@@ -111,7 +115,7 @@ export function outputFormatIssues(project: Project, registry: PluginRegistry, c
     }
     if (burns && spec.alpha && !ctx.assAlpha) add('alpha', "this server's FFmpeg cannot burn captions into an alpha channel (libass `alpha` option, FFmpeg 5 or newer); use captions mode \"sidecar\"");
     const frames = totalFrames(t.p);
-    const seconds = frames / t.p.output.fps;
+    const seconds = framesToSeconds(frames, t.p.output.fps);
     if (spec.format === 'gif' && seconds > ctx.gifMaxSeconds) add('format', `the video is ${seconds.toFixed(2)} s; GIF output is limited to ${ctx.gifMaxSeconds} s on this server (render.formats.gifMaxSeconds); use webm or mp4 for longer videos`);
     if (spec.format === 'png-sequence' && frames > MAX_ZIP_ENTRIES) add('format', `${frames} frames is more than one zip holds (${MAX_ZIP_ENTRIES}); render a shorter project or another format`);
   }
@@ -130,20 +134,21 @@ export interface PackageResult {
   args?: string[];
   /** GIF frames / zip entries the delivered file must hold. */
   frames: number;
-  /** GIF size. */
+  /** GIF size and rate (`rate`: exact, e.g. "30000/1001" when the project's is kept). */
   width?: number;
   height?: number;
   fps?: number;
+  rate?: string;
 }
 
 /** GIF and PNG sequences: make the delivered file from the master. MOV and WebM: the master is the file. */
-export async function packageFormat(o: { plan: FormatPlan; tools: Tools; master: string; dir: string; workDir: string; width: number; height: number; fps: number; frames: number; signal?: AbortSignal }): Promise<PackageResult> {
+export async function packageFormat(o: { plan: FormatPlan; tools: Tools; master: string; dir: string; workDir: string; width: number; height: number; fps: FrameRate; frames: number; signal?: AbortSignal }): Promise<PackageResult> {
   const file = join(o.dir, o.plan.file);
-  const seconds = o.frames / o.fps;
+  const seconds = framesToSeconds(o.frames, o.fps);
   if (o.plan.kind === 'animation') {
     const g = gifGeometry(o.width, o.height, o.fps);
-    const r = await encodeGif({ ffmpeg: o.tools.ffmpeg, master: o.master, out: file, width: o.width, height: o.height, fps: o.fps, seconds, ...(o.signal ? { signal: o.signal } : {}) });
-    return { file, args: r.args, frames: r.frames, ...g };
+    const r = await encodeGif({ ffmpeg: o.tools.ffmpeg, master: o.master, out: file, width: o.width, height: o.height, fps: o.fps, frames: o.frames, seconds, ...(o.signal ? { signal: o.signal } : {}) });
+    return { file, args: r.args, frames: r.frames, width: g.width, height: g.height, fps: g.fps, rate: g.rate };
   }
   if (o.plan.kind === 'image-sequence') {
     const r = await encodePngZip({ ffmpeg: o.tools.ffmpeg, master: o.master, out: file, workDir: join(o.workDir, 'frames'), alpha: o.plan.spec.alpha, frames: o.frames, ...(o.signal ? { signal: o.signal } : {}) });
@@ -154,7 +159,7 @@ export async function packageFormat(o: { plan: FormatPlan; tools: Tools; master:
 
 export interface FormatCheck {
   /** Probed facts for the render manifest's output. */
-  info: Record<string, unknown> & { width: number; height: number; fps: number; frames: number; durationSeconds: number };
+  info: Record<string, unknown> & { width: number; height: number; fps: number; frameRate: string; frames: number; durationSeconds: number };
   problems: string[];
   checks: Record<string, string>;
 }
@@ -164,10 +169,25 @@ export interface FormatCheck {
  * format, alpha plane, frame count, duration and audio present or absent;
  * GIF size limit; PNG zip entries and headers. Then a full decode.
  */
-export async function checkFormatOutput(o: { plan: FormatPlan; tools: Tools; pkg: PackageResult; workDir: string; width: number; height: number; fps: number; frames: number; gifMaxBytes: number }): Promise<FormatCheck> {
+export async function checkFormatOutput(o: {
+  plan: FormatPlan;
+  tools: Tools;
+  pkg: PackageResult;
+  workDir: string;
+  width: number;
+  height: number;
+  fps: FrameRate;
+  frames: number;
+  /** Whether the file carries audio: the format's (plan.audio), unless a muted render has no track (render.audio.mutedTrack "none"). */
+  audio?: boolean;
+  gifMaxBytes: number;
+}): Promise<FormatCheck> {
   const { plan, tools, pkg } = o;
   const { spec, expect } = plan;
-  const seconds = o.frames / o.fps;
+  const seconds = framesToSeconds(o.frames, o.fps);
+  const fps = fpsValue(o.fps);
+  const frameRate = rateFraction(o.fps);
+  const withAudio = plan.audio && o.audio !== false;
   const problems: string[] = [];
   const checks: Record<string, string> = {};
   const base = { format: spec.format, codec: spec.codec, alpha: spec.alpha, contentType: plan.contentType, bytes: (await stat(pkg.file)).size };
@@ -179,7 +199,8 @@ export async function checkFormatOutput(o: { plan: FormatPlan; tools: Tools; pkg
     if (Math.abs(a.durationSeconds - seconds) > 0.05) problems.push(`duration is ${a.durationSeconds}s, expected ${seconds}s`);
     await assertDecodable(tools.ffmpeg, pkg.file);
     Object.assign(checks, { metadata: 'pass', decode: 'pass', duration: 'pass', audio: 'pass' });
-    return { info: { ...base, width: 0, height: 0, fps: o.fps, frames: o.frames, durationSeconds: a.durationSeconds, hasAudio: true, audioCodec: a.audioCodec, audioSampleRate: a.sampleRate, audioChannels: a.channels, videoCodec: null }, problems, checks };
+    // The timeline's rate (there are no pictures): what the frame count is counted in.
+    return { info: { ...base, width: 0, height: 0, fps, frameRate, frames: o.frames, durationSeconds: a.durationSeconds, hasAudio: true, audioCodec: a.audioCodec, audioSampleRate: a.sampleRate, audioChannels: a.channels, videoCodec: null }, problems, checks };
   }
 
   if (plan.kind === 'image-sequence') {
@@ -215,19 +236,28 @@ export async function checkFormatOutput(o: { plan: FormatPlan; tools: Tools; pkg
       await rm(png, { force: true });
     }
     Object.assign(checks, { entries: 'pass', pngHeaders: 'pass', decode: 'pass', ...(spec.alpha ? { alpha: 'pass' } : {}) });
-    return { info: { ...base, width: o.width, height: o.height, fps: o.fps, frames: entries.length, durationSeconds: seconds, entries: entries.length, videoCodec: 'png', pixelFormat: first?.pixelFormat ?? null, hasAudio: false }, problems, checks };
+    // A PNG sequence has no timing of its own: the frames are the timeline's, at its exact rate.
+    return { info: { ...base, width: o.width, height: o.height, fps, frameRate, frames: entries.length, durationSeconds: seconds, entries: entries.length, videoCodec: 'png', pixelFormat: first?.pixelFormat ?? null, hasAudio: false }, problems, checks };
   }
 
   const info = await probe(tools.ffprobe, pkg.file);
-  const want = plan.kind === 'animation' ? { width: pkg.width!, height: pkg.height!, fps: pkg.fps!, frames: pkg.frames } : { width: o.width, height: o.height, fps: o.fps, frames: o.frames };
+  const animation = plan.kind === 'animation';
+  const want = animation ? { width: pkg.width!, height: pkg.height!, fps: pkg.rate ?? pkg.fps!, frames: pkg.frames } : { width: o.width, height: o.height, fps: o.fps, frames: o.frames };
   problems.push(
-    ...checkExpectation(info, { ...want, audio: plan.audio, videoCodec: expect.videoCodec!, pixelFormats: expect.pixelFormats })
+    ...checkExpectation(info, {
+      ...want,
+      audio: withAudio,
+      videoCodec: expect.videoCodec!,
+      pixelFormats: expect.pixelFormats,
+      // MOV and WebM: r_frame_rate exactly the manifest's rate (30000/1001; #302, #376).
+      exactRate: !animation,
+    })
       // GIF delays are whole centiseconds, so its stream rate is not the nominal one; frames and duration are checked.
-      .filter((p) => !(plan.kind === 'animation' && p.startsWith('fps')))
+      .filter((p) => !(animation && p.startsWith('fps')))
   );
-  const tolerance = plan.kind === 'animation' ? 1 / want.fps + 0.02 : 1 / o.fps + 0.001;
+  const tolerance = animation ? 1 / pkg.fps! + 0.02 : 1 / fps + 0.001;
   if (Math.abs(info.durationSeconds - seconds) > tolerance) problems.push(`duration is ${info.durationSeconds}s, expected ${seconds}s`);
-  if (plan.audio && info.audioCodec !== expect.audioCodec) problems.push(`audio codec is ${info.audioCodec}, expected ${expect.audioCodec}`);
+  if (withAudio && info.audioCodec !== expect.audioCodec) problems.push(`audio codec is ${info.audioCodec}, expected ${expect.audioCodec}`);
   if (expect.profile && info.videoProfile !== expect.profile) problems.push(`profile is ${info.videoProfile}, expected ${expect.profile}`);
   if (spec.codec === 'vp9') {
     if (spec.alpha && info.alphaMode !== true) problems.push('the VP9 stream has no alpha (alpha_mode tag missing)');
@@ -246,5 +276,5 @@ export async function checkFormatOutput(o: { plan: FormatPlan; tools: Tools; pkg
   await assertDecodable(tools.ffmpeg, pkg.file);
   Object.assign(checks, { metadata: 'pass', decode: 'pass', duration: 'pass' });
   // A GIF's stream rate is whole centiseconds per frame (15 fps reads as 16.67); report the rate it was made at.
-  return { info: { ...base, ...info, ...(plan.kind === 'animation' ? { fps: pkg.fps!, streamFps: info.fps } : {}) }, problems, checks };
+  return { info: { ...base, ...info, ...(animation ? { fps: pkg.fps!, frameRate: rateFraction(pkg.rate ?? pkg.fps!), streamFps: info.fps, streamFrameRate: info.frameRate } : {}) }, problems, checks };
 }

@@ -86,7 +86,7 @@ Lists projects on this server with title, version, scene count and duration (no 
 
 **Create a project**. Scope: `write`. REST: `POST /v1/projects`.
 
-Creates a project from a manifest. Minimal manifest: { schemaVersion: "0.2", projectId, title, output: { width: 1080, height: 1920, fps: 30, format: "mp4" }, scenes: [{ id, engine, template, durationSeconds, props }] }. output can be any even size from 16 to 4096 px, e.g. 1920x1080 (16:9), 1080x1080 (1:1), 1080x1350 (4:5), 1080x1920 (9:16, the usual default) or 3840x2160 (4K); built-in templates lay themselves out for the aspect ratio and keep text inside the safe area. Optional: brief (brief.platform sets the safe area for app overlays), theme, audio, assets, captions. The manifest is validated against installed engines and templates; on failure you get every problem with its path. v0.1 manifests are migrated automatically.
+Creates a project from a manifest. Minimal manifest: { schemaVersion: "0.2", projectId, title, output: { width: 1080, height: 1920, fps: 30, format: "mp4" }, scenes: [{ id, engine, template, durationSeconds, props }] }. output can be any even size from 16 to 4096 px, e.g. 1920x1080 (16:9), 1080x1080 (1:1), 1080x1350 (4:5), 1080x1920 (9:16, the usual default) or 3840x2160 (4K); built-in templates lay themselves out for the aspect ratio and keep text inside the safe area. Optional: brief (brief.platform sets the safe area for app overlays), theme, audio, assets (scenes use them by id: template props media and logo, or asset:<id> in html), captions. The manifest is validated against installed engines and templates; on failure you get every problem with its path. v0.1 manifests are migrated automatically.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -281,7 +281,7 @@ Music, voice, sound effects, images and fonts, with licence metadata.
 
 **Import an asset from a URL**. Scope: `write`. REST: `POST /v1/assets`.
 
-Downloads an image, audio, video or font from a public https URL into the server asset store (size-limited, private networks refused, type checked from the bytes) and, with projectId, adds it to the project as assetId. Only use files you have the rights to; pass license metadata.
+Downloads an image, audio, video or font from a public https URL into the server asset store (size-limited, private networks refused, type checked from the bytes) and, with projectId, adds it to the project as assetId. Only use files you have the rights to; pass license metadata. Use it in scenes by its manifest id: template props media: { asset, fit: cover\|contain\|blur-fill, start (video in-point, s), dim } and logo: { asset, corner, size }, or asset:<id> in html scenes (<img src="asset:logo">, <video src="asset:clip">, url(asset:hero)). Video is frame-accurate at any frame rate; SVG is stored sanitised (no scripts, handlers or remote references). With projectId the asset belongs to that project; without, every project of the workspace may use it.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -295,14 +295,14 @@ Downloads an image, audio, video or font from a public https URL into the server
 
 **Upload an asset (base64)**. Scope: `write`. REST: `POST /v1/assets`.
 
-Uploads a small file you already have (image, audio, video, font) as base64, for example generated audio. The type is checked from the bytes. With projectId it is added to the project as assetId. MCP messages are limited to a few MB; for larger files use REST POST /v1/assets (multipart) or add_asset_from_url.
+Uploads a small file you already have (image incl. SVG, audio, video, font) as base64, for example a logo or generated audio. The type is checked from the bytes. With projectId it is added to the project as assetId. MCP messages are limited to a few MB; for larger files use REST POST /v1/assets (multipart) or add_asset_from_url. Use it in scenes by its manifest id: template props media: { asset, fit: cover\|contain\|blur-fill, start (video in-point, s), dim } and logo: { asset, corner, size }, or asset:<id> in html scenes (<img src="asset:logo">, <video src="asset:clip">, url(asset:hero)). Video is frame-accurate at any frame rate; SVG is stored sanitised (no scripts, handlers or remote references). With projectId the asset belongs to that project; without, every project of the workspace may use it.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `dataBase64` | string | yes | File content, base64. |
 | `filename` | string | no |  |
 | `projectId` | string | no | Project id (the manifest's projectId). |
-| `assetId` | string | no |  |
+| `assetId` | string | no | Id to use in the manifest, e.g. "logo". |
 | `license` | object | no | Licence metadata for the asset (recommended; missing licences produce a warning). |
 
 ### `list_assets`
@@ -466,13 +466,14 @@ Renders run as jobs: queued, running, then succeeded, failed or cancelled.
 
 **Render a quick preview**. Scope: `render`. REST: `POST /v1/projects/:id/preview`.
 
-Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted. Previews are queued at priority "interactive" (ahead of renders) by default. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image). When the server is busy it refuses with 429: too_many_jobs (your key has too many unfinished jobs), queue_full (the queue is full, or a new job would wait longer than limits.maxEstimatedWaitSeconds; details has the estimate and queued counts) or quota_exceeded. Wait details.retryAfterSeconds, then call again with the same idempotencyKey.
+Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted; with variant, at that output variant's size and platform (the layout reflowed for it). Previews are queued at priority "interactive" (ahead of renders) by default. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image). When the server is busy it refuses with 429: too_many_jobs (your key has too many unfinished jobs), queue_full (the queue is full, or a new job would wait longer than limits.maxEstimatedWaitSeconds; details has the estimate and queued counts) or quota_exceeded. Wait details.retryAfterSeconds, then call again with the same idempotencyKey.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `projectId` | string | yes | Project id (the manifest's projectId). |
 | `sceneId` | string | no |  |
 | `scale` | number | no |  |
+| `variant` | string | no | Preview at this output variant (an id from the manifest's variants). Omit for output. |
 | `priority` | "interactive" \| "standard" \| "batch" | no | Queue priority: jobs are started interactive first, then standard, then batch (fairly across API keys within a class). Default "interactive" for a preview. Use "batch" for work that can wait. A higher class than your key allows (get_capabilities limits.priority.maxForThisKey) is refused with priority_not_allowed. |
 | `idempotencyKey` | string | no | Optional idempotency key (e.g. a UUID you generate once per intended action): retrying the call with the same key and arguments returns the first result instead of doing it twice; the same key with different arguments fails with idempotency_conflict. Kept 24 h. |
 
@@ -489,6 +490,7 @@ Validates the project and starts the final render (every scene with its engine, 
 | `variant` | string | no | Render only this output variant (an id from the manifest's variants). Omit to render every variant, or output when the manifest has none. |
 | `priority` | "interactive" \| "standard" \| "batch" | no | Queue priority: jobs are started interactive first, then standard, then batch (fairly across API keys within a class). Default "standard" for a render. Use "batch" for work that can wait. A higher class than your key allows (get_capabilities limits.priority.maxForThisKey) is refused with priority_not_allowed. |
 | `captions` | "off" \| "burned" \| "sidecar" \| "both" | no | Captions for this render, overriding the manifest's captions.mode (and the server default captions.defaultMode): off, burned into the video, sidecar files (SRT, WebVTT, ASS per language) next to final.mp4, or both. |
+| `audio` | object | no | Audio for this render, overriding the manifest: mute (silence everything), voice / music / sfx (false leaves that track out), loudness (social -14 LUFS, broadcast-ebu -23, broadcast-atsc -24, podcast -16, off). E.g. { music: false } for a voice-only cut, { mute: true } for a silent autoplay version. |
 | `idempotencyKey` | string | no | Optional idempotency key (e.g. a UUID you generate once per intended action): retrying the call with the same key and arguments returns the first result instead of doing it twice; the same key with different arguments fails with idempotency_conflict. Kept 24 h. |
 
 ### `get_job`
