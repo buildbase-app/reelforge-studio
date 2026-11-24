@@ -84,9 +84,13 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
     expect(err.code).toBe('invalid_manifest');
     expect(err.details.issues[0].path).toBe('scenes.0.props.headline');
     // An unsupported frame rate names the supported ones (#322).
-    const fps = json(await client.callTool({ name: 'create_project', arguments: { manifest: { ...sample, projectId: 'bad-fps', output: { ...sample.output, fps: 50 } } } })).error;
+    const fps = json(await client.callTool({ name: 'create_project', arguments: { manifest: { ...sample, projectId: 'bad-fps', output: { ...sample.output, fps: 120 } } } })).error;
     expect(fps.code).toBe('invalid_manifest');
-    expect(fps.details.issues.find((i: any) => i.path === 'output.fps')?.message).toBe('fps must be one of 24, 25, 30, 60 (got 50)');
+    expect(fps.details.issues.find((i: any) => i.path === 'output.fps')?.message).toBe(`fps must be one of 23.976 ("24000/1001"), 24, 25, 29.97 ("30000/1001"), 30, 48, 50, 59.94 ("60000/1001"), 60; give NTSC rates as "30000/1001", { "num": 30000, "den": 1001 } or 29.97 (got 120)`);
+    // NTSC rates are stored exactly (#302).
+    const ntsc = json(await client.callTool({ name: 'create_project', arguments: { manifest: { ...sample, projectId: 'ntsc-fps', output: { ...sample.output, fps: 29.97 } } } }));
+    expect(ntsc.manifest.output.fps).toBe('30000/1001');
+    await client.callTool({ name: 'delete_project', arguments: { projectId: 'ntsc-fps' } });
     const lambda = await client.callTool({ name: 'render_project', arguments: { projectId: 'sample-reel', backend: 'remotion-lambda' } });
     expect(json(lambda).error.code).toBe('backend_not_configured');
     await client.close();

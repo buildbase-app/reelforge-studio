@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parseProject, totalFrames, type Project } from '@reelforge/project-schema';
+import { framesToSeconds, parseProject, totalFrames, type Project } from '@reelforge/project-schema';
 import { createMemoryRepositories, readPage, parsePageQuery, type AssetRecord, type JobRecord, type PageAfter, type PageRequest, type Repositories } from '@reelforge/core';
 import { Database, availableTestDatabases, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
 
@@ -114,17 +114,17 @@ describe.each(targets)('keyset paging: $name', ({ kind }) => {
     await project(repos, 'ps-sum', at(9000), 2);
     const m = manifest('ps-sum', 2);
     const [first] = await repos.projects.page({ limit: 1 });
-    expect(first).toEqual({ id: 'ps-sum', version: 1, createdAt: at(9000), updatedAt: at(9000), title: 'T ps-sum', scenes: 2, durationSeconds: totalFrames(m) / m.output.fps });
+    expect(first).toEqual({ id: 'ps-sum', version: 1, createdAt: at(9000), updatedAt: at(9000), title: 'T ps-sum', scenes: 2, durationSeconds: framesToSeconds(totalFrames(m), m.output.fps) });
     const one = { ...manifest('ps-sum', 1), title: 'Renamed' };
     await repos.projects.saveVersion('ps-sum', 1, one, at(9001));
-    expect((await repos.projects.page({ limit: 1 }))[0]).toMatchObject({ version: 2, updatedAt: at(9001), title: 'Renamed', scenes: 1, durationSeconds: totalFrames(one) / one.output.fps });
+    expect((await repos.projects.page({ limit: 1 }))[0]).toMatchObject({ version: 2, updatedAt: at(9001), title: 'Renamed', scenes: 1, durationSeconds: framesToSeconds(totalFrames(one), one.output.fps) });
   });
 
   it.skipIf(kind === 'memory')('projects: rows saved before migration 0008 (no summary columns) still list, from their manifest', async () => {
     await project(repos, 'ps-legacy', at(9500), 2);
     await db!.prisma.project.updateMany({ where: { workspaceId: 'default', id: 'ps-legacy' }, data: { sceneCount: null, durationSeconds: null } });
     const m = manifest('ps-legacy', 2);
-    expect((await repos.projects.page({ limit: 1 }))[0]).toMatchObject({ id: 'ps-legacy', title: 'T ps-legacy', scenes: 2, durationSeconds: totalFrames(m) / m.output.fps });
+    expect((await repos.projects.page({ limit: 1 }))[0]).toMatchObject({ id: 'ps-legacy', title: 'T ps-legacy', scenes: 2, durationSeconds: framesToSeconds(totalFrames(m), m.output.fps) });
   });
 
   it('jobs: walks all and per project exactly once while jobs are inserted', async () => {

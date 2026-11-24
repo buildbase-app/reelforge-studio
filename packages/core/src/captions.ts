@@ -9,6 +9,7 @@ import {
   cueTokens,
   formatSrt,
   formatVtt,
+  fpsValue,
   resolveCaptions,
   type CaptionCue,
   type CaptionMode,
@@ -329,7 +330,7 @@ export async function captionPass(i: CaptionPassInput, finalFile: string): Promi
   const r = resolveCaptions(i.project, { ...(i.modeOverride ? { mode: i.modeOverride } : {}), ...(i.defaultMode ? { defaultMode: i.defaultMode } : {}) });
   if (r.mode === 'off') return null;
   const fit = (cs: readonly CaptionCue[]) =>
-    (i.subset ? mapCuesToClips(cs, i.subset, i.output.fps) : [...cs])
+    (i.subset ? mapCuesToClips(cs, i.subset, fpsValue(i.output.fps)) : [...cs])
       .filter((c) => c.start < i.durationSeconds)
       .map((c) => (c.end > i.durationSeconds ? { ...c, end: i.durationSeconds } : c));
   const sidecar = r.mode === 'sidecar' || r.mode === 'both';
@@ -343,7 +344,7 @@ export async function captionPass(i: CaptionPassInput, finalFile: string): Promi
       cues,
       descriptions: fit(t.descriptions).map(({ words: _w, ...c }) => ({ ...c, kind: 'description' as const })),
       files: {},
-      qa: checkCaptions(cues, { fps: i.output.fps, maxLineChars: r.maxLineChars, endSeconds: i.durationSeconds }),
+      qa: checkCaptions(cues, { fps: fpsValue(i.output.fps), maxLineChars: r.maxLineChars, endSeconds: i.durationSeconds }),
     };
   });
   const primary = tracks[0]!;

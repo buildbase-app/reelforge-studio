@@ -11,6 +11,8 @@
  * Also the queue wait (claim time minus enqueue time, first attempts, jobs created since `waitSince`) at p50/p95/p99.
  *
  *   DB_URL=postgresql://... node --import tsx scripts/load/check.ts [ids.json]
+ *   DB_URL=... CHECK_SINCE=2026-11-24T10:00:00Z node --import tsx scripts/load/check.ts ids.json   # only jobs created since then
+ *     (a run against a database that also holds earlier runs: scripts/load/real-render.ts writes since.txt)
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +33,7 @@ export interface ExactlyOnce {
   examples: string[];
 }
 
-export async function exactlyOnce(url: string, opts: { expectedIds?: string[]; types?: string[]; waitSince?: string } = {}): Promise<ExactlyOnce> {
+export async function exactlyOnce(url: string, opts: { expectedIds?: string[]; types?: string[]; waitSince?: string; createdSince?: string } = {}): Promise<ExactlyOnce> {
   const db = await Database.open({ url });
   const q = <T>(sql: string, ...a: unknown[]) => db.prisma.$queryRawUnsafe(sql, ...a) as Promise<T[]>;
   // Schema-qualified like the app's own raw SQL (#191).
@@ -43,9 +45,10 @@ export async function exactlyOnce(url: string, opts: { expectedIds?: string[]; t
               COUNT(e.id) FILTER (WHERE e.type = 'status' AND e.message = 'running') AS running,
               COUNT(e.id) FILTER (WHERE e.type = 'status' AND e.message = 'succeeded') AS succeeded
          FROM ${tbl('Job')} j LEFT JOIN ${tbl('JobEvent')} e ON e."jobId" = j.id
-        WHERE j.type = ANY($1)
+        WHERE j.type = ANY($1) AND j."createdAt" >= ($2::timestamptz AT TIME ZONE 'UTC')
         GROUP BY j.id, j.status, j.attempts`,
-      types
+      types,
+      opts.createdSince ?? '1970-01-01T00:00:00Z'
     );
     const byStatus: Record<string, number> = {};
     const examples: string[] = [];
@@ -109,7 +112,8 @@ export async function exactlyOnce(url: string, opts: { expectedIds?: string[]; t
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const ids = process.argv[2] ? (JSON.parse(readFileSync(process.argv[2], 'utf8')) as string[]) : undefined;
-  const r = await exactlyOnce(process.env.DB_URL!, { expectedIds: ids });
+  const since = process.env.CHECK_SINCE || undefined;
+  const r = await exactlyOnce(process.env.DB_URL!, { expectedIds: ids, createdSince: since, waitSince: since });
   console.log(JSON.stringify(r, null, 2));
   process.exit(r.ok ? 0 : 1);
 }
