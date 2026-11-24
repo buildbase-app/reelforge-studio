@@ -235,18 +235,52 @@ export async function measureEbur128(ffmpeg: string, file: string, signal?: Abor
 
 export interface NormaliseResult {
   out: string;
-  /** "linear": one gain for the whole mix; "dynamic": loudnorm's limiter/AGC had to act to meet the true peak. */
-  type: 'linear' | 'dynamic';
+  /**
+   * "linear": one gain for the whole mix (loudnorm pass 2). "limited": one gain
+   * plus a true-peak limiter, because that gain would have put the true peak
+   * over the ceiling (short loud sounds such as SFX transients); the gain was
+   * corrected after limiting so the integrated loudness still reaches the
+   * target. "dynamic" is no longer produced (loudnorm's own dynamic mode missed
+   * the target on sparse mixes, #449); kept for older render manifests.
+   */
+  type: 'linear' | 'limited' | 'dynamic';
   gainDb: number;
   args: string[];
+  /** With type "limited": the limiter's ceiling (dBTP), the passes it took and the limited mix as measured. */
+  limiter?: { ceilingDb: number; passes: number; measured: LoudnessMeasurement };
+}
+
+/** Oversampling for the limiter (4x of 48 kHz, as BS.1770 true-peak metering does), so it limits true peaks, not just samples. */
+const LIMIT_RATE = 4 * SAMPLE_RATE;
+/** The limiter ceiling sits this far under the true-peak target: going back to 48 kHz after limiting overshoots a little. */
+const LIMIT_MARGIN_DB = 0.3;
+/** Gain corrections after limiting: stop within this of the target, or after this many passes. */
+const LIMIT_TOLERANCE_LU = 0.2;
+const LIMIT_MAX_PASSES = 6;
+
+/**
+ * The limited chain (#449): the gain, then FFmpeg's alimiter at 4x
+ * oversampling with its delay compensated (`latency=1`, so the audio stays in
+ * sync and keeps its length) and auto level off (it would raise the output to
+ * the ceiling). Filters and options exist in FFmpeg 5.1 (the release image).
+ */
+export function limiterFilter(gainDb: number, ceilingDb: number): string {
+  return `volume=${f(gainDb)}dB,aresample=${LIMIT_RATE},alimiter=limit=${(10 ** (ceilingDb / 20)).toFixed(6)}:attack=5:release=50:level=0:latency=1,aresample=${SAMPLE_RATE}`;
 }
 
 /**
- * loudnorm pass 2 with the pass-1 measurements, linear=true: a single gain
- * when the true peak allows it (else FFmpeg falls back to its dynamic mode,
- * reported as `type`). The true-peak target keeps `headroomDb` below the
- * ceiling for the AAC encode's overshoot. The LRA target is never below the
- * measured range, so the range is not compressed to meet a guideline.
+ * Bring a mix to the target loudness under the true-peak ceiling.
+ *
+ * - When one gain keeps the true peak under the target (minus `headroomDb`):
+ *   loudnorm pass 2 with the pass-1 measurements, linear=true.
+ * - Otherwise (a quiet bed with short loud sounds, #449): the gain, then a
+ *   true-peak limiter at the target minus a small margin; limiting lowers the
+ *   integrated loudness, so the limited mix is measured again and the gain
+ *   corrected (secant steps) until it is within 0.2 LU of the target.
+ *
+ * The true-peak target keeps `headroomDb` below the ceiling for the AAC
+ * encode's overshoot. The LRA target is never below the measured range, so the
+ * range is not compressed to meet a guideline.
  */
 export async function normaliseLoudness(o: {
   ffmpeg: string;
@@ -260,15 +294,43 @@ export async function normaliseLoudness(o: {
   const m = o.measured;
   if (m.integrated === null || m.truePeak === null || m.lra === null || m.threshold === null) throw new PipelineError('audio:normalise', 'cannot normalise silence');
   const tp = Math.max(-9, o.target.truePeak - (o.headroomDb ?? 0.5));
-  const lra = clampLra(Math.max(o.target.lra, m.lra + 0.1));
-  // loudnorm treats measured_LRA=0 (a steady tone) as "not given" and refuses linear mode; 0.01 LU changes nothing else.
-  const filter =
-    `loudnorm=I=${o.target.integrated}:TP=${f(tp)}:LRA=${f(lra)}:measured_I=${m.integrated}:measured_TP=${m.truePeak}:measured_LRA=${Math.max(m.lra, 0.01)}` +
-    `:measured_thresh=${m.threshold}:offset=${m.targetOffset ?? 0}:linear=true:print_format=json,aresample=${SAMPLE_RATE}`;
-  const args = ['-hide_banner', '-nostats', '-y', '-i', o.input, '-map', '0:a:0', '-af', filter, '-c:a', 'pcm_f32le', '-ar', String(SAMPLE_RATE), '-ac', '2', o.out];
-  const { stderr } = await run(o.ffmpeg, args, 'audio:normalise', { ...(o.signal ? { signal: o.signal } : {}) });
-  const s = loudnormStats(stderr, 'audio:normalise');
-  return { out: o.out, type: s.normalization_type === 'linear' ? 'linear' : 'dynamic', gainDb: Number((o.target.integrated - m.integrated).toFixed(2)), args };
+  const gain = o.target.integrated - m.integrated;
+  const signal = o.signal ? { signal: o.signal } : {};
+  if (m.truePeak + gain <= tp) {
+    const lra = clampLra(Math.max(o.target.lra, m.lra + 0.1));
+    // loudnorm treats measured_LRA=0 (a steady tone) as "not given" and refuses linear mode; 0.01 LU changes nothing else.
+    const filter =
+      `loudnorm=I=${o.target.integrated}:TP=${f(tp)}:LRA=${f(lra)}:measured_I=${m.integrated}:measured_TP=${m.truePeak}:measured_LRA=${Math.max(m.lra, 0.01)}` +
+      `:measured_thresh=${m.threshold}:offset=${m.targetOffset ?? 0}:linear=true:print_format=json,aresample=${SAMPLE_RATE}`;
+    const args = ['-hide_banner', '-nostats', '-y', '-i', o.input, '-map', '0:a:0', '-af', filter, '-c:a', 'pcm_f32le', '-ar', String(SAMPLE_RATE), '-ac', '2', o.out];
+    const { stderr } = await run(o.ffmpeg, args, 'audio:normalise', signal);
+    const s = loudnormStats(stderr, 'audio:normalise');
+    // loudnorm decides linear mode itself; should it still fall back to its dynamic mode, limit instead.
+    if (s.normalization_type === 'linear') return { out: o.out, type: 'linear', gainDb: Number(gain.toFixed(2)), args };
+  }
+  return limitLoudness({ ...o, gain, ceiling: tp - LIMIT_MARGIN_DB, signal: o.signal });
+}
+
+async function limitLoudness(o: { ffmpeg: string; input: string; out: string; target: LoudnessTarget; gain: number; ceiling: number; signal?: AbortSignal | undefined }): Promise<NormaliseResult> {
+  const pass = async (g: number) => {
+    const args = ['-hide_banner', '-nostats', '-v', 'error', '-y', '-i', o.input, '-map', '0:a:0', '-af', limiterFilter(g, o.ceiling), '-c:a', 'pcm_f32le', '-ar', String(SAMPLE_RATE), '-ac', '2', o.out];
+    await run(o.ffmpeg, args, 'audio:normalise', o.signal ? { signal: o.signal } : {});
+    return { g, args, measured: await measureLoudness(o.ffmpeg, o.out, o.target, o.signal) };
+  };
+  const want = o.target.integrated;
+  let prev: Awaited<ReturnType<typeof pass>> | null = null;
+  let cur = await pass(o.gain);
+  let passes = 1;
+  while (passes < LIMIT_MAX_PASSES && cur.measured.integrated !== null && Math.abs(want - cur.measured.integrated) > LIMIT_TOLERANCE_LU) {
+    const miss = want - cur.measured.integrated;
+    // Limiting makes loudness grow slower than the gain: step by the measured slope (1 dB of loudness per 1-4 dB of gain).
+    const slope = prev && prev.measured.integrated !== null && cur.g !== prev.g ? (cur.measured.integrated - prev.measured.integrated) / (cur.g - prev.g) : 1;
+    const next = cur.g + miss / Math.min(1, Math.max(0.25, slope));
+    prev = cur;
+    cur = await pass(next);
+    passes++;
+  }
+  return { out: o.out, type: 'limited', gainDb: Number(cur.g.toFixed(2)), args: cur.args, limiter: { ceilingDb: Number(o.ceiling.toFixed(2)), passes, measured: cur.measured } };
 }
 
 export interface AvSync {
@@ -350,6 +412,7 @@ const AUDIO_PROBES: Array<{ what: string; graph: string; inputs?: number }> = [
   { what: 'silencedetect', graph: 'aformat=channel_layouts=mono,silencedetect=n=-40dB:d=0.2' },
   { what: 'loudnorm (measure)', graph: 'loudnorm=I=-14:TP=-2:LRA=11:print_format=json' },
   { what: 'loudnorm (linear, with measured values)', graph: 'loudnorm=I=-14:TP=-2.5:LRA=11:measured_I=-20:measured_TP=-6:measured_LRA=3:measured_thresh=-30:offset=0:linear=true:print_format=json,aresample=48000' },
+  { what: 'true-peak limiter (volume, aresample 192 kHz, alimiter level=0 latency=1)', graph: limiterFilter(3, -2.8) },
   { what: 'ebur128 true peak', graph: 'ebur128=peak=true:framelog=verbose' },
 ];
 const audioSupport = new Map<string, Promise<void>>();

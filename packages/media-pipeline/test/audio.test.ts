@@ -112,6 +112,72 @@ describe('loudness normalisation (two-pass loudnorm, verified after the AAC enco
     }
   }, 120_000);
 
+  // #449: a quiet bed with short loud sound effects. Their true peak leaves no room for the gain the target needs,
+  // and loudnorm's dynamic mode came out about 2 LU under the target; a denser bed came out over the ceiling.
+  const SFX_MIXES: Array<{ name: string; source: string }> = [
+    // A soft pad (three sines, about -31 dBFS) and an 8 ms 2 kHz click near full scale every 1.7 s, 40 s.
+    { name: 'pad-clicks', source: "aevalsrc='0.03*sin(2*PI*220*t)+0.02*sin(2*PI*277*t)+0.02*sin(2*PI*330*t)+if(lt(mod(t,1.7),0.008),0.95*sin(2*PI*2000*t),0)':s=48000:d=40" },
+    // A driving bed (a 110 Hz pulse and a chord) and a short 3 kHz hit near full scale every 0.6 s, 20 s.
+    { name: 'bed-hits', source: "aevalsrc='(0.12+0.08*gt(mod(t,0.5),0.25))*sin(2*PI*110*t)+0.06*sin(2*PI*440*t)+0.05*sin(2*PI*554*t)+if(lt(mod(t,0.6),0.004),0.9*sin(2*PI*3000*t),0)':s=48000:d=20" },
+  ];
+
+  it('AUD-16 a quiet bed with loud short clicks reaches every preset within 1 LU, true peak under the ceiling, after the AAC encode (true-peak limiter)', async () => {
+    const presets: Array<[string, LoudnessTarget]> = [
+      ['social', SOCIAL],
+      ['broadcast-ebu', { integrated: -23, truePeak: -1, lra: 20 }],
+      ['podcast', { integrated: -16, truePeak: -1, lra: 11 }],
+    ];
+    for (const fixture of SFX_MIXES) {
+      const mix = await wav(`${fixture.name}.wav`, fixture.source);
+      const before = await measureLoudness(tools.ffmpeg, mix);
+      const seconds = fixture.name === 'pad-clicks' ? 40 : 20;
+      const video = await clip(`${fixture.name}.mp4`, seconds * 30);
+      for (const [name, target] of presets) {
+        const where = `${fixture.name} -> ${name}`;
+        const norm = await normaliseLoudness({ ffmpeg: tools.ffmpeg, input: mix, out: join(dir, `lim-${fixture.name}-${name}.wav`), target, measured: before });
+        const out = join(dir, `lim-${fixture.name}-${name}.mp4`);
+        await assemble({ ffmpeg: tools.ffmpeg, ffprobe: tools.ffprobe, clips: [{ sceneId: 's', file: video, frames: seconds * 30 }], out, width: 160, height: 284, fps: 30, audioFile: norm.out });
+        const after = await measureEbur128(tools.ffmpeg, out);
+        expect(Math.abs(after.integrated! - target.integrated), `${where}: ${after.integrated} LUFS`).toBeLessThanOrEqual(1);
+        expect(after.truePeak!, `${where}: ${after.truePeak} dBTP`).toBeLessThanOrEqual(target.truePeak);
+        expect((await checkAvSync(tools.ffprobe, out, 30)).problems, where).toEqual([]);
+        if (before.truePeak! + (target.integrated - before.integrated!) > target.truePeak - 0.5) {
+          // One gain would break the ceiling: limited, the gain corrected after limiting.
+          expect(norm.type, where).toBe('limited');
+          expect(norm.limiter!.ceilingDb, where).toBeCloseTo(target.truePeak - 0.8, 5);
+          expect(norm.gainDb, where).toBeGreaterThan(target.integrated - before.integrated!);
+        }
+      }
+    }
+  }, 300_000);
+
+  it('AUD-17 the limiter keeps the audio in place and its length: no delay, no tail cut', async () => {
+    // A noise pad (a unique waveform, so its lag is unambiguous) with clicks at 1.0 s and 2.99 s, 3 s long.
+    const mix = await wav('clicks-at.wav', "anoisesrc=d=3:c=pink:a=0.03:seed=7", "volume='1+30*(between(t,1,1.004)+between(t,2.99,2.994))':eval=frame");
+    const before = await measureLoudness(tools.ffmpeg, mix);
+    const norm = await normaliseLoudness({ ffmpeg: tools.ffmpeg, input: mix, out: join(dir, 'clicks-at-lim.wav'), target: SOCIAL, measured: before });
+    expect(norm.type).toBe('limited');
+    const x = samples(norm.out);
+    const src = samples(mix);
+    expect(x.length).toBe(src.length);
+    // The lag that best lines the output up with the input, away from the clicks: 0 (the limiter's delay is compensated).
+    const from = Math.round(1.5 * SR);
+    const n = Math.round(0.5 * SR);
+    let best = { lag: NaN, c: -Infinity };
+    for (let lag = -400; lag <= 400; lag++) {
+      let c = 0;
+      for (let i = from; i < from + n; i++) c += src[i]! * x[i + lag]!;
+      if (c > best.c) best = { lag, c };
+    }
+    expect(best.lag).toBe(0);
+    // The click 10 ms before the end is still there, limited like the one at 1 s (never above the -2.8 dBTP ceiling, 0.72).
+    const peak = (a: Float32Array) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+    const first = peak(x.subarray(Math.round(0.99 * SR), Math.round(1.02 * SR))) / peak(src.subarray(Math.round(0.99 * SR), Math.round(1.02 * SR)));
+    const last = peak(x.subarray(Math.round(2.99 * SR))) / peak(src.subarray(Math.round(2.99 * SR)));
+    expect(last).toBeGreaterThan(first * 0.8);
+    expect(peak(x)).toBeLessThan(0.75);
+  }, 60_000);
+
   it('AUD-2 measures silence as null instead of failing', async () => {
     const silent = await wav('silent.wav', 'anullsrc=r=48000:cl=stereo', 'atrim=end=2');
     const m = await measureLoudness(tools.ffmpeg, silent);

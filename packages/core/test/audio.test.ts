@@ -99,6 +99,38 @@ describe('render audio', () => {
     }
   }, 240_000);
 
+  it('AUD-18 music bed plus loud short SFX, no voice (#449): social within 1 LU of -14 LUFS, true peak <= -2 dBTP, peak-limited and recorded', async () => {
+    await svc.createProject({ ...sample, projectId: 'sfx-mix' });
+    const lic = { name: 'CC0-1.0', redistributable: true };
+    // A soft pad (about -31 dBFS) and a 6 ms 2 kHz click near full scale: the click sets the true peak.
+    await svc.uploadAsset(await wav('pad.wav', 'aevalsrc=0.03*sin(2*PI*220*t)+0.02*sin(2*PI*277*t)+0.02*sin(2*PI*330*t):s=48000:d=8'), { filename: 'pad.wav', projectId: 'sfx-mix', assetId: 'pad', license: lic });
+    await svc.uploadAsset(await wav('click.wav', 'aevalsrc=0.95*sin(2*PI*2000*t):s=48000:d=0.006'), { filename: 'click.wav', projectId: 'sfx-mix', assetId: 'click', license: lic });
+    await svc.setAudio('sfx-mix', { music: { asset: 'pad', volume: 1 }, sfx: [15, 50, 85, 120, 155, 190].map((atFrame) => ({ asset: 'click', atFrame })) });
+    const job = await svc.startRender('sfx-mix');
+    const done = await svc.jobs.waitFor(job.id, 240_000);
+    expect(done.status, JSON.stringify(done.error)).toBe('succeeded');
+    const id = done.result!.renderId as string;
+    const file = (await svc.renderFile(id)).path;
+    const a = ((await svc.getRenderManifest(id)) as { audio: AudioManifest }).audio;
+    const got = await measureEbur128(tools.ffmpeg, file);
+    expect(Math.abs(got.integrated! + 14), `${got.integrated} LUFS`).toBeLessThanOrEqual(1);
+    expect(got.truePeak!, `${got.truePeak} dBTP`).toBeLessThanOrEqual(-2);
+    expect(a.loudness.normalisation).toBe('limited');
+    expect(a.loudness.limiter).toMatchObject({ ceilingDb: -2.8, passes: expect.any(Number) });
+    expect(a.qa).toMatchObject({ ok: true, issues: [] });
+    expect((await svc.getRender(id)).audio).toMatchObject({ normalisation: 'limited', checks: { loudness: 'pass', avSync: 'pass' } });
+  }, 240_000);
+
+  it('AUD-19 a peak-limited mix that still misses says why and what to change', async () => {
+    const { file } = await render();
+    const m: AudioManifest = {
+      music: null, voice: null, sfx: [], track: 'mixed', toggles: { mute: false, voice: true, music: true, sfx: true }, gainDb: { voice: 0, music: 0, sfx: 0 }, ducking: null,
+      loudness: { preset: 'broadcast-ebu', target: { integrated: -23, truePeak: -1, lra: 20, tolerance: 1, truePeakCeiling: -1 }, input: null, normalisation: 'limited', gainDb: 9.5 },
+    };
+    const r = await verifyAudio(tools, file, 30, m, 'warn');
+    expect(r.manifest.qa!.issues.find((i) => i.rule === 'loudness.integrated')!.message).toMatch(/peak-limited .*9\.5 dB of gain.*audio\.gainDb\.sfx/);
+  }, 240_000);
+
   it('AUD-14 refuses an invalid audio option before queueing', async () => {
     await expect(svc.startRender('mix', { audio: { loudness: 'loud' } })).rejects.toMatchObject({ status: 400 });
     await expect(svc.startRender('mix', { audio: { music: 'yes' } })).rejects.toMatchObject({ status: 400 });

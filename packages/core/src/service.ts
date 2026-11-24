@@ -288,7 +288,7 @@ export interface RenderAudio {
   checks: { avSync: 'pass' | 'skipped'; loudness: 'pass' | 'warn' | 'skipped' };
   preset: string;
   target: { integrated: number; truePeak: number } | null;
-  normalisation: 'linear' | 'dynamic' | 'none';
+  normalisation: 'linear' | 'limited' | 'dynamic' | 'none';
   measured: { integrated: number | null; truePeak: number | null; lra: number | null } | null;
   qa: { ok: boolean; issues: Array<{ rule: string; severity: 'warn' | 'fail'; message: string }> };
 }
