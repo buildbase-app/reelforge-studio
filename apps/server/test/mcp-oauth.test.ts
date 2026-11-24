@@ -95,7 +95,7 @@ describe('MCP OAuth 2.1 resource server', () => {
       expect(await r.json()).toMatchObject({
         resource: AUDIENCE,
         authorization_servers: [ISSUER],
-        scopes_supported: ['reelforge:read', 'reelforge:write', 'reelforge:render', 'reelforge:admin'],
+        scopes_supported: ['reelforge:read', 'reelforge:write', 'reelforge:render', 'reelforge:admin', 'reelforge:owner'],
         bearer_methods_supported: ['header'],
       });
     }
@@ -185,7 +185,7 @@ describe('MCP OAuth 2.1 resource server', () => {
       expect(r.isError, name).toBe(true);
       expect(JSON.parse(r.text).error.code, name).toBe('not_found');
     }
-    // reelforge:admin is a workspace admin: instance settings need the owner scope, which no token carries.
+    // reelforge:admin is a workspace admin: instance settings need the owner scope (reelforge:owner, OAUTH-10).
     const cfg = await call('get_config');
     expect(JSON.parse(cfg.text).error.code).toBe('forbidden');
     // What the token writes lands in the default workspace.
@@ -193,6 +193,30 @@ describe('MCP OAuth 2.1 resource server', () => {
     expect(await repos.forWorkspace('default').projects.get('oauth-made')).not.toBeNull();
     expect(await repos.forWorkspace('alpha').projects.get('oauth-made')).toBeNull();
     expect(await repos.forWorkspace('alpha').projects.get('alpha-only-oauth')).not.toBeNull();
+  });
+
+  it('OAUTH-10 reelforge:owner makes a token the instance owner; reelforge:admin alone does not (#304)', async () => {
+    const w = await setup({ REELFORGE_MCP_OAUTH_ISSUER: ISSUER }, issuer, createMemoryWorkspaceRepositories());
+    const call = async (token: string, name: string, args: Record<string, unknown> = {}) => {
+      const r = await w.mcp(token, 'tools/call', { name, arguments: args });
+      expect(r.status, name).toBe(200);
+      const body = (await r.json()) as { result: { isError?: boolean; content: Array<{ text: string }> } };
+      return { isError: body.result.isError, json: JSON.parse(body.result.content[0]!.text) };
+    };
+    const admin = issuer.token({ scope: 'reelforge:read reelforge:admin' });
+    const owner = issuer.token({ scope: 'reelforge:owner' });
+    for (const name of ['get_config', 'list_workspaces', 'get_storage']) {
+      expect((await call(admin, name)).json.error?.code, name).toBe('forbidden');
+      const r = await call(owner, name);
+      expect(r.isError, name).toBeFalsy();
+    }
+    // An owner can change a runtime setting and read it back; the change is audited under the token's subject.
+    const set = await call(owner, 'update_config', { settings: { 'limits.rateLimitPerMinute': 777 } });
+    expect(set.isError).toBeFalsy();
+    expect(JSON.stringify((await call(owner, 'get_config', { prefix: 'limits.rateLimitPerMinute' })).json)).toContain('777');
+    // The metadata advertises it.
+    const meta = (await (await w.app.request('/.well-known/oauth-protected-resource', { headers: { host: 'studio.example.com' } })).json()) as { scopes_supported: string[] };
+    expect(meta.scopes_supported).toContain('reelforge:owner');
   });
 
   it('OAUTH-06 scopes come from `scope` or `scp`; only reelforge:* values count', () => {
