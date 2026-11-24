@@ -1,14 +1,34 @@
 import { existsSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { browserVersion, chromiumSandbox as coreChromiumSandbox, packageVersion, renderChildEnv, sceneTimeoutCapMs, type EnginePlugin } from '@reelforge/core';
-import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
+import { join } from 'node:path';
+import {
+  assetHeaders,
+  assetToken,
+  browserVersion,
+  chromiumSandbox as coreChromiumSandbox,
+  lookupAsset,
+  packageVersion,
+  renderChildEnv,
+  rewriteSceneHtml,
+  sceneAssetUses,
+  sceneTimeoutCapMs,
+  stageSceneAssets,
+  type EnginePlugin,
+  type ResolvedAsset,
+  type StagedSceneAssets,
+} from '@reelforge/core';
+import { PipelineError, startPngEncoder, type Tools } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
   FIT_TEXT_SCRIPT,
   MAX_SOURCE_BYTES,
   TEMPLATES,
   htmlTitleProps,
+  mediaKey,
+  rewriteAssetRefs,
+  type DomLogo,
+  type DomMediaLayer,
   type OutputSettings,
   type RenderScene,
   type ThemeTokens,
@@ -29,7 +49,17 @@ export interface HtmlRenderOptions {
   onProgress?: (done: number, total: number) => void;
   /** Whole-render timeout. Default: 30 s + 1 s per frame, at most render.sceneTimeoutSeconds. */
   timeoutMs?: number;
+  /** The project's assets (EngineRenderContext.assets); the scene may use only these (#299). */
+  assets?: ReadonlyMap<string, ResolvedAsset>;
+  /** FFmpeg/ffprobe for staging assets (default: `ffmpeg` and `ffprobe` next to opts.ffmpeg). */
+  tools?: Tools;
+  /** Scratch directory (staged assets). Default: next to `out`. */
+  workDir?: string;
+  log?: (line: string) => void;
 }
+
+/** The origin html scenes load assets from: answered by request interception only (`.invalid` never resolves). */
+export const ASSET_ORIGIN = 'http://rf-assets.invalid';
 
 export interface HtmlRenderResult {
   out: string;
@@ -38,6 +68,8 @@ export interface HtmlRenderResult {
   browser: string;
   /** Requests the sandbox blocked (for logs). */
   blockedRequests: string[];
+  /** Asset files the page loaded (names under the asset base). */
+  assetRequests: string[];
 }
 
 export function htmlEngineVersion(): string {
@@ -53,10 +85,29 @@ export function resolveHtmlBrowser(explicit?: string): string {
   throw new PipelineError('setup', `No Chromium for the html engine: set REELFORGE_CHROMIUM_PATH (tried ${p ?? '(unset)'})`);
 }
 
-/** The html + css to render for a scene: agent source, or a built-in template. */
-export function sceneSource(scene: RenderScene, durationSeconds: number): { html: string; css: string } {
-  if (scene.html !== undefined) return { html: scene.html, css: scene.css ?? '' };
-  if (scene.template === 'html-title') return htmlTitle(htmlTitleProps.parse(scene.props), durationSeconds);
+/** The html + css to render for a scene: agent source, or a built-in template; `asset:` references point at `assetBase`. */
+export function sceneSource(scene: RenderScene, durationSeconds: number, staged?: StagedSceneAssets, assetBase = ''): { html: string; css: string } {
+  const url = (key: string) => {
+    const it = staged?.items.get(key);
+    return it ? assetBase + it.name : undefined;
+  };
+  if (scene.html !== undefined) {
+    if (!staged) return { html: scene.html, css: scene.css ?? '' };
+    const isVideo = (key: string) => staged.items.get(key)?.frames !== undefined;
+    return { html: rewriteSceneHtml(scene.html, url, { videoAsImage: true, isVideo }), css: rewriteAssetRefs(scene.css ?? '', url) };
+  }
+  if (scene.template === 'html-title') {
+    const props = htmlTitleProps.parse(scene.props);
+    const bgKey = props.media ? mediaKey(props.media.asset, props.media.start) : undefined;
+    const bgItem = bgKey ? staged?.items.get(bgKey) : undefined;
+    const bg: DomMediaLayer | undefined =
+      props.media && bgItem
+        ? { url: assetBase + bgItem.name, fit: props.media.fit, ...(props.media.focus ? { focus: props.media.focus } : {}), dim: props.media.dim, tag: 'img', ...(bgItem.frames ? { videoKey: bgItem.key } : {}) }
+        : undefined;
+    const logoItem = props.logo ? staged?.items.get(props.logo.asset) : undefined;
+    const logo: DomLogo | undefined = props.logo && logoItem ? { url: assetBase + logoItem.name, corner: props.logo.corner, size: props.logo.size } : undefined;
+    return htmlTitle(props, durationSeconds, { ...(bg ? { bg } : {}), ...(logo ? { logo } : {}) });
+  }
   throw new PipelineError(`render:${scene.id}`, `unknown html template "${scene.template}"`);
 }
 
@@ -76,13 +127,40 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
   const executable = resolveHtmlBrowser(opts.browserExecutable);
 
-  const source = sceneSource(scene, durationSeconds);
+  // Assets (#299): stage the files this scene uses (only the project's own), served under a per-render base.
+  let uses;
+  try {
+    uses = sceneAssetUses(scene, scene.template ? TEMPLATES[scene.template as keyof typeof TEMPLATES] : undefined);
+  } catch (e) {
+    throw new PipelineError(stage, (e as Error).message);
+  }
+  let staged: StagedSceneAssets | undefined;
+  const token = assetToken();
+  const assetBase = `${ASSET_ORIGIN}/${token}/`;
+  if (uses.length) {
+    const tools = opts.tools ?? { ffmpeg: opts.ffmpeg, ffprobe: opts.ffmpeg.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1') };
+    staged = await stageSceneAssets({
+      uses,
+      assets: opts.assets ?? new Map(),
+      dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
+      tools,
+      output,
+      frames: { first: 0, count: frames },
+      video: 'frames',
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      ...(opts.log ? { log: opts.log } : {}),
+    });
+  }
+  const videos: Record<string, string[]> = {};
+  for (const [k, it] of staged?.items ?? []) if (it.frames) videos[k] = it.frames.names.map((n) => assetBase + n);
+
+  const source = sceneSource(scene, durationSeconds, staged, assetBase);
   if (Buffer.byteLength(source.html) + Buffer.byteLength(source.css) > MAX_SOURCE_BYTES * 2) {
     throw new PipelineError(stage, `html scene is larger than ${MAX_SOURCE_BYTES * 2} bytes`);
   }
   let doc: string;
   try {
-    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds, ...(opts.platform ? { platform: opts.platform } : {}) });
+    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds, ...(opts.platform ? { platform: opts.platform } : {}), ...(staged ? { assetBase } : {}) });
   } catch (e) {
     throw new PipelineError(stage, (e as Error).message);
   }
@@ -98,6 +176,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     new PipelineError(stage, `the scene tried to navigate away from its document (${navigatedTo.slice(0, 120)}): scenes render without network access and must not navigate`);
   const encoder = startPngEncoder(opts.ffmpeg, opts.out, output.fps, stage);
   const blocked: string[] = [];
+  const assetRequests: string[] = [];
   let browser: Browser | undefined;
   const onAbort = () => {
     encoder.kill();
@@ -138,6 +217,14 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     await context.route('**/*', (route) => {
       const url = route.request().url();
       if (url.startsWith('data:') || url === 'about:blank') return route.continue();
+      // This render's assets: answered from the staged files (exact name lookup), never from the network.
+      if (staged && url.startsWith(assetBase) && route.request().method() === 'GET') {
+        const hit = lookupAsset(staged, token, new URL(url).pathname);
+        if (hit) {
+          if (assetRequests.length < 10_000) assetRequests.push(url.slice(assetBase.length));
+          return route.fulfill({ status: 200, path: hit.file, headers: assetHeaders(hit.contentType) });
+        }
+      }
       if (blocked.length < 50) blocked.push(url.slice(0, 200));
       return route.abort('blockedbyclient');
     });
@@ -154,8 +241,19 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     page.on('framenavigated', onNavigated);
     if (page.url() !== home) onNavigated(page.mainFrame());
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    if (staged) {
+      // Every asset picture must have loaded before the first frame (a missing one fails the render, not a blank frame).
+      const broken = await page.evaluate(async (base) => {
+        const imgs = [...document.images].filter((i) => i.src.startsWith(base));
+        await Promise.all(imgs.map((i) => i.decode().catch(() => undefined)));
+        return imgs.filter((i) => !i.complete || i.naturalWidth === 0).map((i) => i.src.slice(base.length));
+      }, assetBase);
+      if (broken.length) throw new PipelineError(stage, `asset picture(s) did not load: ${broken.slice(0, 5).join(', ')}`);
+    }
     // Fit-to-box (#287): elements marked data-rf-fit shrink until they fit their box.
     await page.evaluate(FIT_TEXT_SCRIPT);
+    const hasVideo = Object.keys(videos).length > 0;
+    if (hasVideo) await page.evaluate((v) => void ((window as unknown as { __rfVideos: unknown }).__rfVideos = v), videos);
 
     for (let f = 0; f < frames; f++) {
       if (signal.aborted) break;
@@ -166,6 +264,25 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
           a.currentTime = ms;
         }
       }, t);
+      if (hasVideo) {
+        // Video (#299): picture f of each clip, decoded before the screenshot (frame-exact, no codec in the browser).
+        const missing = await page.evaluate(async (frame) => {
+          const v = (window as unknown as { __rfVideos: Record<string, string[]> }).__rfVideos;
+          const els = [...document.querySelectorAll<HTMLImageElement>('img[data-rf-video]')];
+          await Promise.all(
+            els.map((el) => {
+              const urls = v[el.dataset.rfVideo ?? ''];
+              if (!urls) return undefined;
+              const next = urls[Math.min(frame, urls.length - 1)]!;
+              if (el.src === next) return undefined;
+              el.src = next;
+              return el.decode().catch(() => undefined);
+            })
+          );
+          return els.filter((el) => !el.complete || el.naturalWidth === 0).length;
+        }, f);
+        if (missing) throw new PipelineError(stage, `video picture for frame ${f} did not load`);
+      }
       const png = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: output.width, height: output.height }, caret: 'hide', animations: 'allow' });
       await encoder.write(png);
       opts.onProgress?.(f + 1, frames);
@@ -175,7 +292,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     if (signal.aborted) throw new PipelineError(stage, 'cancelled');
     await encoder.finish();
     const version = browser.version();
-    return { out: opts.out, frames, millis: Date.now() - started, browser: version, blockedRequests: blocked };
+    return { out: opts.out, frames, millis: Date.now() - started, browser: version, blockedRequests: blocked, assetRequests };
   } catch (e) {
     encoder.kill();
     if (navigation.signal.aborted) throw navigationError();
@@ -231,6 +348,10 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         signal: ctx.signal,
         onProgress: ctx.progress,
         timeoutMs: opts.timeoutMs,
+        assets: ctx.assets,
+        tools: ctx.tools,
+        workDir: ctx.workDir,
+        log: ctx.log,
       });
       if (res.blockedRequests.length) ctx.log(`html sandbox blocked ${res.blockedRequests.length} request(s): ${res.blockedRequests.slice(0, 5).join(', ')}`);
       return {

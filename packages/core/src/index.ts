@@ -36,3 +36,5 @@ export * from './telemetry';
 export * from './webhooks/index';
 export * from './limits';
 export * from './priority';
+export * from './svg';
+export * from './sceneAssets';

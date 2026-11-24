@@ -115,7 +115,9 @@ Extends v0.1 (`packages/project-schema`) with, all optional except where noted:
 - `audio`: `voice` track (provider + text + voice id, or an asset), `music`
   (asset, volume, ducking), `sfx[]` with `atFrame`.
 - `assets[]`: id, uri (`asset://`, `https://` fetched and hashed, or upload),
-  mediaType, licence metadata.
+  mediaType, licence metadata. Scenes use them by id: template props `media`
+  (fit `cover` / `contain` / `blur-fill`) and `logo`, or `asset:<id>` in html
+  scenes ([assets](public/manifest/assets.md)).
 - `render`: `backend` (`local` default), output presets (1080x1920@30 default).
 
 Migrations: `migrate(v0.1 → v0.2)` is automatic; the server always stores the
@@ -244,6 +246,7 @@ that was run; "partial" says what is missing.
 | §3 Engine: motion-canvas | done | `animated-explainer`, layout scales with size, text wraps; render tests + e2e |
 | §3 Engine: html | done | `html-title` + agent HTML/CSS; Web Animations seeked per frame; sandbox (CSP, all requests aborted, offline, timeout); tests incl. network blocking |
 | §3 Engine: hyperframes | done (v0.1 scope) | `hyperframes-title` + agent compositions via the local `hyperframes render` (0.9.77); CSP sandbox; no progress reporting during a scene; external scripts (e.g. GSAP CDN) rejected, GSAP not bundled |
+| Assets in engines (#299, D-1XX) | done (images, video, audio bed); fonts in #303 | Every engine renders uploaded images, sanitised SVG and video (frame-accurate, exact NTSC rates) from template props or `asset:<id>`; per-scene staging from the project's manifest, per-render origin without network; four-engine render checked by pixels, loudness and `strace` (0 egress) |
 | §3 Provider: tts/elevenlabs | partial | Implemented with word timestamps, cost acknowledgement, cache; tested with a mocked API only. **Live API untested** |
 | §3 Providers: avatar (HeyGen), stock, music | missing | Interfaces exist |
 | §3 Backend: local | done | renders on the instance that claimed the job: the in-process queue on one instance (concurrency 1 by default), or `worker` instances of the database queue (below) |

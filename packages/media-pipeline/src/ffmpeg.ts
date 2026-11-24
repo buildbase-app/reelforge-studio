@@ -85,17 +85,31 @@ export function run(
   bin: string,
   args: string[],
   stage: string,
-  opts: { signal?: AbortSignal; cwd?: string } = {}
+  opts: {
+    signal?: AbortSignal;
+    cwd?: string;
+    /** The child's whole environment (default: inherited). Untrusted media is decoded with a scrubbed one. */
+    env?: NodeJS.ProcessEnv;
+    /** Kill the tool after this many milliseconds (rejects with a timeout error). */
+    timeoutMs?: number;
+  } = {}
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], signal: opts.signal, ...(opts.cwd ? { cwd: opts.cwd } : {}) });
+    const child = spawn(bin, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      signal: opts.signal,
+      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      ...(opts.env ? { env: opts.env } : {}),
+      ...(opts.timeoutMs ? { timeout: opts.timeoutMs, killSignal: 'SIGKILL' as const } : {}),
+    });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
     child.on('error', (e) => reject(new PipelineError(stage, e.message, stderr)));
-    child.on('close', (code) => {
+    child.on('close', (code, sig) => {
       if (code === 0) resolve({ stdout, stderr });
+      else if (sig === 'SIGKILL' && opts.timeoutMs && !opts.signal?.aborted) reject(new PipelineError(stage, `${bin} did not finish within ${opts.timeoutMs} ms`, stderr.split('\n').slice(-30).join('\n')));
       else
         reject(
           new PipelineError(stage, `${bin} exited with code ${code}`, stderr.split('\n').slice(-30).join('\n'))

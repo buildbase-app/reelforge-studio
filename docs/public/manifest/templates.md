@@ -17,10 +17,10 @@ and `get_capabilities` for the engines that can render on your machine.
 
 | Template | Engine | Duration | What it draws |
 | --- | --- | --- | --- |
-| `kinetic-title` | `remotion` | 1.5-8 s | Bold animated headline (max 60 chars) that springs in word by word, an accent bar and an optional subline. Good as a hook. 1.5-8 s. |
-| `animated-explainer` | `motion-canvas` | 2-20 s | A title followed by 1-4 numbered points revealed one by one; long points wrap. Good for steps or lists. 2-20 s. |
-| `html-title` | `html` | 1-12 s | Headline card built from HTML/CSS with an optional kicker and subline, animated with CSS keyframes. 1-12 s. |
-| `hyperframes-title` | `hyperframes` | 1-12 s | Headline and subline as a HyperFrames composition (GSAP timeline), rendered locally by the HyperFrames renderer. 1-12 s. |
+| `kinetic-title` | `remotion` | 1.5-8 s | Bold animated headline (max 60 chars) that springs in word by word, an accent bar and an optional subline. Good as a hook. 1.5-8 s. Optional `media` (a background image or video asset, fit contain, cover or blur-fill, dimmed under the text) and `logo` (an image asset in a corner of the safe area). |
+| `animated-explainer` | `motion-canvas` | 2-20 s | A title followed by 1-4 numbered points revealed one by one; long points wrap. Good for steps or lists. 2-20 s. Optional `media` (a background image or video asset, fit contain, cover or blur-fill, dimmed under the text) and `logo` (an image asset in a corner of the safe area). |
+| `html-title` | `html` | 1-12 s | Headline card built from HTML/CSS with an optional kicker and subline, animated with CSS keyframes. 1-12 s. Optional `media` (a background image or video asset, fit contain, cover or blur-fill, dimmed under the text) and `logo` (an image asset in a corner of the safe area). |
+| `hyperframes-title` | `hyperframes` | 1-12 s | Headline and subline as a HyperFrames composition (GSAP timeline), rendered locally by the HyperFrames renderer. 1-12 s. Optional `media` (a background image or video asset, fit contain, cover or blur-fill, dimmed under the text) and `logo` (an image asset in a corner of the safe area). |
 
 Scenes with agent-written HTML (`html` or `hyperframes` engine, no `template`) can last 0.5 to 60 seconds and
 may hold up to 256 KB of HTML and CSS. They run with no network access: inline every image and font as a `data:` URL.

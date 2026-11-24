@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { resolveTools, toolPaths, toolVersionAsync, type Tools } from '@reelforge/media-pipeline';
 import {
@@ -25,7 +25,7 @@ import {
   type ValidationIssue,
   type ValidationWarning,
 } from '@reelforge/project-schema';
-import { AssetStore, stageStream } from './assets';
+import { AssetStore, assetUsableBy, stageStream } from './assets';
 import { LocalBackend } from './backends/local';
 import { ApiError, badRequest, invalidManifest, notFound } from './errors';
 import { newId, readJson, writeJsonAtomic } from './fsutil';
@@ -245,6 +245,9 @@ export interface RenderCaptions {
 const CAPTION_FILES = { srt: 'captions.srt', vtt: 'captions.vtt', ass: 'captions.ass' } as const;
 
 const DEFAULT_MAX_UPLOAD = 200 * 1024 * 1024;
+
+const ASSET_OF_OTHER_PROJECT = (id: string) =>
+  `asset "${id}" belongs to another project: upload or import it with this projectId (the same bytes are stored once), or upload it without a projectId to share it with every project`;
 
 /** Where an uploaded file goes (upload_asset, REST POST /v1/assets). */
 export interface UploadOptions {
@@ -959,8 +962,11 @@ export class ReelforgeService {
       if (a.uri.startsWith('https://')) {
         errors.push({ path: `assets.${i}.uri`, message: `asset "${a.id}" has not been imported; call add_asset_from_url with this URL` });
       } else if (a.uri.startsWith('asset://')) {
-        if (!(await this.assets.find(a.uri.slice('asset://'.length)))) {
+        const stored = await this.assets.find(a.uri.slice('asset://'.length));
+        if (!stored) {
           errors.push({ path: `assets.${i}.uri`, message: `asset "${a.id}" (${a.uri}) is not in the asset store` });
+        } else if (projectId !== null && !assetUsableBy(stored, projectId)) {
+          errors.push({ path: `assets.${i}.uri`, message: ASSET_OF_OTHER_PROJECT(a.id) });
         }
       } else if (a.uri.startsWith('project://')) {
         if (projectId === null) {
@@ -1457,9 +1463,19 @@ export class ReelforgeService {
     const map = new Map<string, ResolvedAsset>();
     for (const a of project.assets) {
       let file: string;
-      if (a.uri.startsWith('asset://')) file = await this.assets.file(a.uri.slice('asset://'.length));
-      else if (a.uri.startsWith('project://')) file = this.projectFile(projectId, a.uri);
-      else throw new ApiError('asset_not_imported', 422, `asset "${a.id}" is a remote URL; import it with add_asset_from_url first`);
+      if (a.uri.startsWith('asset://')) {
+        const storeId = a.uri.slice('asset://'.length);
+        // A project renders only its own assets and the workspace's shared ones (#299).
+        if (!assetUsableBy(await this.assets.get(storeId), projectId)) throw new ApiError('asset_not_in_project', 422, ASSET_OF_OTHER_PROJECT(a.id));
+        file = await this.assets.file(storeId);
+      }
+      else if (a.uri.startsWith('project://')) {
+        file = this.projectFile(projectId, a.uri);
+        // A symlink in the project's assets/ folder must not lead outside it (#299).
+        const base = await realpath(this.projects.assetsDir(projectId)).catch(() => null);
+        const real = await realpath(file).catch(() => null);
+        if (base && real && !real.startsWith(base + sep)) throw new ApiError('asset_outside_project', 422, `file for asset "${a.id}" is outside the project's assets/ folder`);
+      } else throw new ApiError('asset_not_imported', 422, `asset "${a.id}" is a remote URL; import it with add_asset_from_url first`);
       if (!existsSync(file)) throw new ApiError('asset_missing', 422, `file for asset "${a.id}" is missing`);
       map.set(a.id, { id: a.id, file, mediaType: a.mediaType, ...(a.contentType ? { contentType: a.contentType } : {}) });
     }
@@ -1748,6 +1764,7 @@ export class ReelforgeService {
       source: asset.source.slice(0, 2048),
       ...((license ?? asset.license) ? { license: license ?? asset.license } : {}),
     };
+    await this.assets.addProject(asset.id, projectId);
     await this.projects.update(projectId, (current) => {
       const assets = current.assets.filter((a) => a.id !== id);
       return this.parseOrThrow({ ...current, assets: [...assets, entry] }).project;
