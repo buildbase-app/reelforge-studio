@@ -15,6 +15,27 @@ import { builtinMediaRefs, templateMediaProps, type PropAssetRef } from './asset
 import { hexColor } from './common';
 import { layoutMediaRefs, layoutSceneProps } from './layouts';
 
+/**
+ * The shortest scene, in frames, for scenes that bring their own HTML source
+ * and for the layout templates (#450), so a scene can be a beat-length hard
+ * cut (3 frames is 0.1 s at 30 fps). Every engine renders a clip of exactly
+ * the scene's frames down to 1 frame; the floor comes from the render fan-out
+ * join (D-097), which joins H.264 clips by stream copy: x264 (preset medium,
+ * B-pyramid) starts a clip of 3 or more frames 2 frames of B-frame delay
+ * before its first picture, and a clip of 1 or 2 frames with none, so a
+ * 1-2 frame clip followed by a longer one makes non-increasing decode times
+ * that the MP4 muxer squeezes, and the joined video's duration comes out
+ * short (media-pipeline test ENC-03). Templates with a designed animation keep
+ * their own `minSeconds`.
+ */
+export const MIN_SCENE_FRAMES = 3;
+
+/** Below this a scene validates with a warning (an entry or caption cannot be read in that time). */
+export const SHORT_SCENE_WARN_SECONDS = 0.25;
+
+/** Duration limits for scenes that bring their own HTML source: at least MIN_SCENE_FRAMES frames, at most `max` seconds. */
+export const SOURCE_SCENE_SECONDS = { max: 60 } as const;
+
 export const kineticTitleProps = z
   .object({
     headline: z.string().min(1).max(60),
@@ -84,7 +105,7 @@ export interface TemplateDefinition {
   engine: string;
   description: string;
   props: z.ZodType;
-  /** Shortest and longest duration the template is designed for, in seconds. */
+  /** Shortest and longest duration the template is designed for, in seconds. 0: down to MIN_SCENE_FRAMES frames. */
   minSeconds: number;
   maxSeconds: number;
   /** Theme tokens the template reads (props such as `accent` override them). */
@@ -113,7 +134,8 @@ const LAYOUT_TOKENS = ['colors.background', 'colors.surface', 'colors.text', 'co
 const LAYOUT_DESCRIPTION =
   'Layout of panes: full frame, split screen (2-4 panes, side by side or stacked, with ratios), picture-in-picture (corner, width and margin in units from the safe area) or grid (n x m, or chosen per frame). ' +
   'Each pane holds an image or video asset with a fit mode (contain, cover, blur-fill), a colour, a label, a headline and body text; an optional lower third (name, title, brand colours) sits in the safe area. ' +
-  'Sizes are in layout units (1 % of the shorter side), so the scene reflows for every output size and variant. 0.5-60 s.';
+  'Sizes are in layout units (1 % of the shorter side), so the scene reflows for every output size and variant. ' +
+  `${MIN_SCENE_FRAMES} frames to 60 s.`;
 
 export const TEMPLATES = {
   'kinetic-title': {
@@ -150,7 +172,7 @@ export const TEMPLATES = {
     engine: 'remotion',
     description: LAYOUT_DESCRIPTION,
     props: layoutSceneProps,
-    minSeconds: 0.5,
+    minSeconds: 0,
     maxSeconds: 60,
     themeTokens: LAYOUT_TOKENS,
     mediaAssets: layoutMediaRefs,
@@ -159,7 +181,7 @@ export const TEMPLATES = {
     engine: 'motion-canvas',
     description: LAYOUT_DESCRIPTION,
     props: layoutSceneProps,
-    minSeconds: 0.5,
+    minSeconds: 0,
     maxSeconds: 60,
     themeTokens: LAYOUT_TOKENS,
     mediaAssets: layoutMediaRefs,
@@ -168,7 +190,7 @@ export const TEMPLATES = {
     engine: 'html',
     description: LAYOUT_DESCRIPTION,
     props: layoutSceneProps,
-    minSeconds: 0.5,
+    minSeconds: 0,
     maxSeconds: 60,
     themeTokens: LAYOUT_TOKENS,
     mediaAssets: layoutMediaRefs,
@@ -177,7 +199,7 @@ export const TEMPLATES = {
     engine: 'hyperframes',
     description: LAYOUT_DESCRIPTION,
     props: layoutSceneProps,
-    minSeconds: 0.5,
+    minSeconds: 0,
     maxSeconds: 60,
     themeTokens: LAYOUT_TOKENS,
     mediaAssets: layoutMediaRefs,
@@ -206,8 +228,10 @@ export type HyperframesTitleProps = z.infer<typeof hyperframesTitleProps>;
  */
 export const SOURCE_ENGINES = ['html', 'hyperframes'] as const;
 
-/** Duration limits for scenes that bring their own HTML source. */
-export const SOURCE_SCENE_SECONDS = { min: 0.5, max: 60 } as const;
+/** A template's duration range for people and agents: "1-12 s", or "2 frames to 60 s" when it has no seconds floor. */
+export function templateDurationLabel(t: { minSeconds: number; maxSeconds: number }): string {
+  return t.minSeconds > 0 ? `${t.minSeconds}-${t.maxSeconds} s` : `${MIN_SCENE_FRAMES} frames to ${t.maxSeconds} s`;
+}
 
 /** Upper bound for agent-supplied html + css, in bytes (UTF-8). */
 export const MAX_SOURCE_BYTES = 256 * 1024;

@@ -20,11 +20,19 @@ This page covers what you can set and why the defaults are what they are.
    seams of a fanned-out render) never cut the audio, so they cannot click.
 2. **Measure and normalise.** FFmpeg's `loudnorm` measures the mix (pass 1),
    then applies the gain that reaches the preset's integrated loudness using the
-   measured values (pass 2, `linear=true`). When one gain would push the true
-   peak over the ceiling, loudnorm limits the peaks instead (its dynamic mode);
-   the render manifest says which happened (`audio.loudness.normalisation`).
-   The true-peak target is 0.5 dB under the ceiling to leave room for the AAC
-   encoder's overshoot.
+   measured values (pass 2, `linear=true`): `normalisation: "linear"`.
+   When that gain would push the true peak over the ceiling (a quiet bed with
+   short loud sound effects, whose transients set the peak), the gain is
+   followed by a true-peak limiter instead: FFmpeg's `alimiter` at 4x
+   oversampling (192 kHz), with its look-ahead delay compensated so the audio
+   stays in sync, at 0.3 dB under the true-peak target. Limiting lowers the
+   integrated loudness, so the limited mix is measured again and the gain
+   corrected until it is within 0.2 LU of the target (a few passes over the
+   audio only): `normalisation: "limited"`, with `audio.loudness.limiter`
+   (`ceilingDb`, `passes`). Renders before this change could report
+   `"dynamic"` (loudnorm's own dynamic mode, which could miss the target by
+   about 2 LU on such mixes). The true-peak target is 0.5 dB under the ceiling
+   to leave room for the AAC encoder's overshoot.
 3. **Encode** to AAC, 192 kb/s, 48 kHz.
 4. **Verify** the delivered `final.mp4` (after the caption burn-in, if any) with
    FFmpeg's `ebur128` meter: integrated loudness, true peak and loudness range
@@ -48,6 +56,10 @@ or under the ceiling. By default a miss is a warning in the render manifest
 loudness range is only ever a warning and is never compressed to meet the
 guidance: EBU R 128 itself does not recommend LRA for programmes under one
 minute, which most reels are.
+
+If a peak-limited mix still misses, the QA message says so and what to change:
+lower the sound effects (`audio.gainDb.sfx` or an effect's `volume`) or raise
+the bed, then render again.
 
 **Why -2 dBTP for `social`.** Platforms transcode every upload again (AAC or
 Opus at their own bitrates), and lossy encoding raises true peaks. Spotify,
@@ -189,6 +201,6 @@ when one reaches its frame limit, which would cut the audio short.
 
 `audio` in `render-manifest.json` has the tracks that played, `toggles`,
 `gainDb`, `ducking` (with the speech windows), `loudness` (`preset`, `target`,
-`input` as measured before normalisation, `normalisation`, `gainDb`, `measured`
+`input` as measured before normalisation, `normalisation`, `gainDb`, `limiter`, `measured`
 after the final encode), `avSync` and `qa` (`ok`, `mode`, `issues`).
 `get_render_output` repeats the essentials as `audio`.
