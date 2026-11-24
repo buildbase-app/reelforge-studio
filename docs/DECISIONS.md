@@ -2992,8 +2992,8 @@ with the docs in phase 6), the HPA's `reelforge_jobs_queued` external metric (na
 
 ### D-128 --- Product name: RenderWeld (renderweld.com); the two-frame weld mark; one brand kit generated from master SVGs
 
-**Status:** DECIDED (founder, 2026-11-24, epic #408) for the name, domain and handles; the mark and kit are proposed in
-#410 and wait for the founder's approval. Number assigned at merge. Supersedes D-001's working name "ReelForge" and the
+**Status:** DECIDED (founder, 2026-11-24, epic #408) for the name, domain and handles; the mark and kit are approved
+(#410; the founder asked for it to be decided and to proceed). Number assigned at merge. Supersedes D-001's working name "ReelForge" and the
 vertical reel-frame mark proposed in #273.\
 **Decision:** the product is **RenderWeld**, one word with a capital R and W, never split, shortened ("Weld", "RW") or
 set in all caps. Main domain `renderweld.com`; `renderweld.dev` and the old `reelforge.buildbase.app` redirect to it path

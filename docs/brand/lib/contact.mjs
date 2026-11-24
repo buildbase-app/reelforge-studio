@@ -58,7 +58,7 @@ export function contactSheets(A, cacheDir) {
   const f = (name) => A.find((a) => a.file.endsWith(name));
 
   // ---- sheet 1: identity and icons ----
-  let s1 = `<h1>RenderWeld brand kit · sheet 1 of 2: identity and icons</h1><div class="sub">Draft for founder review. Every asset is shown at a reduced scale with its real pixel size; transparent assets sit on light and dark.</div>`;
+  let s1 = `<h1>RenderWeld brand kit · sheet 1 of 2: identity and icons</h1><div class="sub">Approved (#410). Every asset is shown at a reduced scale with its real pixel size; transparent assets sit on light and dark.</div>`;
   s1 += `<h2>Master SVGs (src/)</h2><div class="row">`;
   s1 += svgCard('lockup-horizontal-light.svg', 'l', 90) + svgCard('lockup-horizontal-dark.svg', 'd', 90);
   s1 += svgCard('lockup-stacked-light.svg', 'l', 170) + svgCard('lockup-stacked-dark.svg', 'd', 170);

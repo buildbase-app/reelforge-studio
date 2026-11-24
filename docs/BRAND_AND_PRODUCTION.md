@@ -21,11 +21,10 @@ These are ranked by what they cost us while we sell.
 | # | What | Who | Issue |
 | --- | --- | --- | --- |
 | 1 | Buy `renderweld.com` and `renderweld.dev`, claim the `renderweld` handles, run the trademark search, rename the GitHub org and repository | Founder | #409 |
-| 2 | Approve the RenderWeld mark and brand kit in `docs/brand/` | Founder | #410 |
-| 3 | DNSSEC, CAA, SPF/DKIM/DMARC, MTA-STS and the four mailboxes on the new zone (section 7) | Founder + agent, after #409 | #275 |
-| 4 | Move the site and store to `renderweld.com` with the kit's icons and share images, and 301 every old URL path for path | Agent | #411 |
-| 5 | HSTS is `max-age=0` on `reelforge.buildbase.app`: a Cloudflare zone setting on `buildbase.app` overrides the Worker's header. Our own zone ends this; fix it on the old host while it still serves pages | Founder (Cloudflare dashboard) | #272 |
-| 6 | Uptime and error alerts, status page, versioned releases with a changelog | Agent + founder | #271 |
+| 2 | DNSSEC, CAA, SPF/DKIM/DMARC, MTA-STS and the four mailboxes on the new zone (section 7) | Founder + agent, after #409 | #275 |
+| 3 | Move the site and store to `renderweld.com` with the kit's icons and share images, and 301 every old URL path for path | Agent | #411 |
+| 4 | HSTS is `max-age=0` on `reelforge.buildbase.app`: a Cloudflare zone setting on `buildbase.app` overrides the Worker's header. Our own zone ends this; fix it on the old host while it still serves pages | Founder (Cloudflare dashboard) | #272 |
+| 5 | Uptime and error alerts, status page, versioned releases with a changelog | Agent + founder | #271 |
 
 ## 2. Name
 
@@ -76,7 +75,7 @@ The two frames say "any format", the shared wall says "joined". It replaces the 
 | Never | Stretch, rotate, outline, shadow, glow, gradient, a photo behind it without a solid plate, another company's logo inside our assets |
 | Use by others | Governed by [`TRADEMARK.md`](../TRADEMARK.md) |
 
-Status: **name decided (#408); mark proposed, waiting for founder approval (#410).**
+Status: **name decided (#408); mark and kit approved (#410, 2026-11-24: the founder asked us to decide and proceed).**
 
 **Source of truth: [`docs/brand/`](brand/).** The master SVGs are hand-written in `brand/src/`; `brand/build.mjs` renders every other file from them and the Geist fonts (SIL OFL 1.1), checks sizes and safe zones, and zips the full kit. How to rebuild: [`brand/BRAND.md`](brand/BRAND.md), section 10.
 
@@ -199,6 +198,6 @@ What a buyer's security review asks, and where we stand.
 | Versioned releases, CHANGELOG, upgrade notes, `cosign verify` how-to | Missing | #271 |
 | Licence activation at scale, one activation per deployment | Done | D-098 (docs/DECISIONS.md), `apps/server/test/licence-scale.test.ts` |
 | Tests on SQLite, PostgreSQL and MySQL in CI | Done | `ci.yml` database jobs |
-| Brand mark, icons, metadata files | Kit in `docs/brand/`, mark waiting for approval | #410, #411, #413 |
+| Brand mark, icons, metadata files | Kit in `docs/brand/`, mark approved (#410) | #410, #411, #413 |
 
 Not planned now: SOC 2 and ISO 27001. RenderWeld is self-hosted, so the customer's data stays on the customer's servers. Say that in sales conversations, and point security reviewers to this page, `SECURITY.md` and the signed image.
