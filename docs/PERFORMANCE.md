@@ -569,7 +569,7 @@ PgBouncer config used: `scripts/load/run.ts` (`startPgBouncer`).
 The Track B live test (issue #285, 2026-11-23) found three hot spots at scale: the fair claim's
 `GROUP BY` over every queued job (queue wait p95 43.9 s and 3.5 % failed CRUD calls at 5,000 queued jobs),
 about 640 MB of x264 memory per render, and no bound on requests waiting for the database. What changed
-(D-1XX), and every measured number before and after, with the conditions of each table:
+(D-117), and every measured number before and after, with the conditions of each table:
 [SCALE.md](SCALE.md). Raw results: `docs/performance/2026-11-23-shared-sandbox-307-*.json`. In short, on
 the shared host (lower bounds):
 

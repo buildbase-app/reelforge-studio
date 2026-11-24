@@ -661,7 +661,7 @@ through to the next `(key, class)` when another transaction holds them all. An
 empty plan (an idle poll) opens no transaction.
 
 Until #307 the plan was a `GROUP BY` over every queued job, run on every claim,
-so its cost grew with the queue. Since migration `0013_claim_index` (D-1XX) it
+so its cost grew with the queue. Since migration `0013_claim_index` (D-117) it
 reads the claim index `Job_claim_idx(workspaceId, queue, status, apiKeyId,
 priority, createdAt)`:
 

@@ -105,7 +105,7 @@ export function run(
 }
 
 /**
- * x264 settings that bound an encode's memory (#307, D-1XX; render.encoderThreads, render.encoderLookahead).
+ * x264 settings that bound an encode's memory (#307, D-117; render.encoderThreads, render.encoderLookahead).
  * x264's memory grows with its frame threads (auto: 1.5 per CPU core, so it grows with the machine, not the
  * video) and with the frames its rate control looks ahead; each frame it holds is several full-size planes.
  * Neither changes the bitstream's format (profile, references, B-frames: the preset does), so clips encoded

@@ -1,5 +1,5 @@
 /**
- * Backpressure (#307, D-1XX): the in-flight cap answers 503 overloaded with Retry-After at once, never refuses
+ * Backpressure (#307, D-117): the in-flight cap answers 503 overloaded with Retry-After at once, never refuses
  * health, readiness, metrics, long-polls or event streams, follows the runtime limit, and database capacity
  * errors are told apart from other failures.
  */

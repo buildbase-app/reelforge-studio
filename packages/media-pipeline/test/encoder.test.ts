@@ -1,5 +1,5 @@
 /**
- * Encoder memory settings (#307, D-1XX): render.encoderThreads and render.encoderLookahead reach every H.264
+ * Encoder memory settings (#307, D-117): render.encoderThreads and render.encoderLookahead reach every H.264
  * encode, and they never change the format of the video, so clips encoded with different values (workers of
  * one render fan-out with different settings, or a change at runtime mid-render) still join by stream copy.
  */

@@ -518,3 +518,15 @@ describe('ReelforgeService configuration', () => {
     expect(s.listProviders()[0]!.settings[0]).toMatchObject({ set: true, source: 'env' });
   });
 });
+
+describe('number settings from the environment (#343 CodeQL)', () => {
+  it('parses plain decimals and refuses a long hostile digit string in linear time', async () => {
+    const { NUMBER_TEXT } = await import('../src/config/load');
+    for (const ok of ['1', '-1.5', '.5', '3.']) expect(NUMBER_TEXT.test(ok)).toBe(true);
+    for (const bad of ['1.2.3', 'abc', '-', '']) expect(NUMBER_TEXT.test(bad)).toBe(false);
+    const hostile = '9' + '99'.repeat(50_000) + 'x';
+    const t = performance.now();
+    expect(NUMBER_TEXT.test(hostile)).toBe(false);
+    expect(performance.now() - t).toBeLessThan(200);
+  });
+});

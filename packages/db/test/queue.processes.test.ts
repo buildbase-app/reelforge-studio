@@ -142,8 +142,14 @@ describe.each(kinds)('database queue with worker processes: %s', (kind) => {
     await sleep(3000);
     const lines = workers.map((w, i) => w.out().slice(mark[i]));
     for (const [i, w] of ['k1', 'k2', 'k3'].entries()) {
-      const recoveries = lines[i]!.split('\n').filter((l) => l === `housekeeping recover ${w}`).length;
-      const counts = lines[i]!.split('\n').filter((l) => l === `housekeeping count ${w}`).length;
+      // Each run prints "recover" then "count". The window is cut at arbitrary moments, so it can start or end
+      // between the two lines of one run (#345): drop a leading "count" and a trailing "recover" (a half run at
+      // either edge), then every run in the window must have done both.
+      const own = lines[i]!.split('\n').filter((l) => l === `housekeeping recover ${w}` || l === `housekeeping count ${w}`);
+      if (own[0] === `housekeeping count ${w}`) own.shift();
+      if (own.at(-1) === `housekeeping recover ${w}`) own.pop();
+      const recoveries = own.filter((l) => l === `housekeeping recover ${w}`).length;
+      const counts = own.filter((l) => l === `housekeeping count ${w}`).length;
       if (w === holder) {
         expect(recoveries).toBeGreaterThanOrEqual(4);
         expect(counts).toBe(recoveries);

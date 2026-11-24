@@ -406,6 +406,8 @@ model WebhookDelivery {
   messageId     String    @db.VarChar(191)
   eventId       String    @db.VarChar(191)
   eventType     String    @db.VarChar(191)
+  /// The envelope's dedupeKey (`render:<jobId>` on terminal render events, #306); resend_webhook looks outcomes up by it.
+  dedupeKey     String?   @db.VarChar(191)
   /// The event envelope as JSON text (what is sent).
   payload       String    @db.LongText
   /// "pending" | "delivering" | "succeeded" | "dead"
@@ -426,6 +428,8 @@ model WebhookDelivery {
   @@index([workspaceId, status, nextAttemptAt])
   @@index([workspaceId, endpointId, id])
   @@index([workspaceId, status, updatedAt])
+  @@index([workspaceId, eventId])
+  @@index([workspaceId, dedupeKey])
 }
 
 /// The delivery log (#66): one row per attempt, append-only (removed only by retention with its delivery).

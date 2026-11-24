@@ -381,7 +381,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
     }, lockingTx);
 
   /**
-   * The claim's plan on PostgreSQL and MySQL (#307, D-1XX): one row per (key, class) with queued jobs, with the
+   * The claim's plan on PostgreSQL and MySQL (#307, D-117): one row per (key, class) with queued jobs, with the
    * class (`p`), the time of its oldest queued job (`t`) and the key's running jobs (`n`; 0 without a key), in one
    * statement. Before, every claim grouped every queued job (a GROUP BY that read each row from the table: 10.7 ms
    * per claim at ~4 000 queued on PostgreSQL 17, growing with the queue). Both use the claim index (Job_claim_idx:
@@ -948,7 +948,7 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
             return take(tx, rows[0]?.id);
           }, lockingTx);
         }
-        // PostgreSQL and MySQL (#307, D-1XX). Plan with one plain read outside the transaction (claimPlan): every
+        // PostgreSQL and MySQL (#307, D-117). Plan with one plain read outside the transaction (claimPlan): every
         // (key, class) with queued jobs, its oldest job and the key's running jobs. Then lock one job of the best
         // (key, class) that no other transaction holds (SKIP LOCKED: a job another worker is claiming is skipped,
         // never waited for), falling through to the next when all of its jobs are held. An empty plan (an idle

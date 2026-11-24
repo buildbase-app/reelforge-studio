@@ -1,5 +1,5 @@
 /**
- * Backpressure for an api instance (#307, D-1XX). Under a burst every request used to queue inside the
+ * Backpressure for an api instance (#307, D-117). Under a burst every request used to queue inside the
  * process, behind the database pool (10 connections per api instance by default), with no bound: in the load
  * test 5 000 renders in 30 s left thousands of requests waiting, so CRUD calls answered after the client's
  * 10 s timeout or failed with 500 when the pool's own wait ran out ("timeout exceeded when trying to

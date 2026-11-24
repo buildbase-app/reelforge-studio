@@ -1,7 +1,7 @@
 # Capacity and sizing
 
 How many renders a worker node runs, how much memory one render needs, what the job queue's database
-must carry, and how to scale on Kubernetes (KEDA) and on plain Docker. Issue #307; decision D-1XX
+must carry, and how to scale on Kubernetes (KEDA) and on plain Docker. Issue #307; decision D-117
 (number assigned at merge). The load-test background is in [PERFORMANCE.md](PERFORMANCE.md), and the
 queue's design in [providers/queue-and-scaling.md](providers/queue-and-scaling.md).
 
@@ -133,7 +133,7 @@ database time. Raw runs, including the runs of earlier variants of the change th
 
 Every run: 0 errors, and exactly once (no job claimed or finished twice, none left running).
 
-**What changed** (D-1XX): the claim used to group every queued job on every claim. It now reads a claim
+**What changed** (D-117): the claim used to group every queued job on every claim. It now reads a claim
 index (`Job_claim_idx`, migration `0013_claim_index`).
 
 - **PostgreSQL** uses a skip scan of that index: one index descent per (key, class) with queued jobs.

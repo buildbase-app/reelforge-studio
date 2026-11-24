@@ -1,5 +1,7 @@
-import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 import { join, resolve, sep } from 'node:path';
 import { resolveTools, setEncoderSettings, toolPaths, toolVersionAsync, type Tools } from '@reelforge/media-pipeline';
 import {
@@ -18,6 +20,10 @@ import {
   CaptionParseError,
   captionMode,
   parseCaptions,
+  resolveCaptions,
+  isLanguageTag,
+  MAX_CAPTION_LANGUAGES,
+  splitCueKinds,
   type CaptionCue,
   type CaptionMode,
   withVariant,
@@ -26,6 +32,8 @@ import {
   type ValidationWarning,
 } from '@reelforge/project-schema';
 import { AssetStore, stageStream } from './assets';
+import { CAPTION_FILE_PATTERN, captionFileNames, captionsEtag, type CaptionManifest } from './captions';
+import { applyCaptionUpdate, getCaptionsInput, parseInput, projectCaptionsView, renderCaptionsView, transcribeInput, updateCaptionsInput, type ProjectCaptionsView, type RenderCaptionsView } from './captions-edit';
 import { LocalBackend } from './backends/local';
 import { ApiError, badRequest, invalidManifest, notFound } from './errors';
 import { newId, readJson, writeJsonAtomic } from './fsutil';
@@ -34,7 +42,7 @@ import { JOB_CAP_RETRY_SECONDS, renderLimitViolations, usageDay, usageKeys, type
 
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
-import { KeyStore, quotaWindows, type KeyOptions, type PublicKey, type Scope } from './keys';
+import { KeyStore, quotaWindows, type AuthContext, type KeyOptions, type PublicKey, type Scope } from './keys';
 import type { AuditEntryInput, AuditFilter, JobCaps, QuotaWindow, Repositories } from './repositories';
 import {
   AuditLog,
@@ -49,7 +57,7 @@ import {
 } from './audit';
 import { withIdempotency, type IdempotentOperation } from './idempotency';
 import { applyMergePatch, isPlainObject } from './mergePatch';
-import type { BackendContext, BackendEstimate, EstimateRequest, RenderOutcome, RenderRequest, ResolvedAsset, StoredAsset } from './plugins';
+import type { BackendContext, BackendEstimate, EstimateRequest, RenderOutcome, RenderRequest, ResolvedAsset, SttSettings, StoredAsset } from './plugins';
 import { PluginRegistry } from './registry';
 import { runRenderPipeline } from './render';
 import { JOIN_JOB_TYPE, UNIT_JOB_TYPE, joinUnits, planChunks, renderUnit, unitSpecs, type ChunkPolicy, type FanOutDeps, type RenderJobParams } from './render-fanout';
@@ -65,9 +73,9 @@ import { StorageManager, type CleanupReport, type RetentionPolicy } from './stor
 import { ThemeStore } from './themes';
 import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
 import { ClaimRate, DEFAULT_PRIORITY, PRIORITIES, defaultPriority, isPriority, lowerPriority, priorityRank, type JobPriority } from './priority';
-import { WebhookService, jobPayload, renderSummary, type NotificationProvider } from './webhooks/index';
+import { WebhookService, jobPayload, renderDedupeKey, renderOutcome, renderSummary, type NotificationProvider } from './webhooks/index';
 import type { AuditEntry } from './repositories';
-import type { JobEvent } from './jobs';
+import type { JobEvent, JobUsage } from './jobs';
 
 export interface ServiceConfig {
   /**
@@ -227,22 +235,31 @@ export interface RenderSummary {
   downloadVia: 'bucket' | 'server';
   /** Present when the render had captions on (#300): whether they were burned in, the sidecar files and the quality check. */
   captions?: RenderCaptions;
+  /** Where the files are: the storage driver and the render's key prefix in it (bucket and root: get_storage, admin). */
+  storage: { driver: string; prefix: string };
 }
 
 export interface RenderCaptions {
   mode: CaptionMode;
   burned: boolean;
+  /** The language burned in (null: none, or a primary language without a tag). */
+  burnLanguage: string | null;
+  /** Primary language: cue count, source and tag. */
   cues: number;
   source: string;
   language: string | null;
-  /** Sidecar files next to final.mp4 (modes sidecar and both). */
-  files: Array<{ format: 'srt' | 'vtt' | 'ass'; file: string; url: string; downloadUrl: string; downloadUrlExpiresAt: string }>;
-  /** Quality rules (docs/CAPTIONS.md#quality-rules): ok, and the problems found. */
+  /** Every language rendered, the primary one first. */
+  languages: Array<{ language: string | null; primary: boolean; burned: boolean; cues: number; descriptions: number; qaOk: boolean }>;
+  /** Whether the captions were approved (update_captions approve: true) in the state they were rendered. */
+  approved: boolean;
+  /**
+   * Sidecar files next to final.mp4: kind "captions" (SRT, WebVTT, ASS per language; modes sidecar and both) and
+   * kind "descriptions" (WebVTT for <track kind="descriptions">; every mode but off).
+   */
+  files: Array<{ format: 'srt' | 'vtt' | 'ass'; kind: 'captions' | 'descriptions'; language: string | null; file: string; url: string; downloadUrl: string; downloadUrlExpiresAt: string }>;
+  /** Quality rules of the primary language (docs/CAPTIONS.md#quality-rules): ok, and the problems found. */
   qa: { ok: boolean; maxCps: number; issues: Array<{ cue: number; rule: string; message: string }> };
 }
-
-/** Caption sidecar files a render can have. */
-const CAPTION_FILES = { srt: 'captions.srt', vtt: 'captions.vtt', ass: 'captions.ass' } as const;
 
 const DEFAULT_MAX_UPLOAD = 200 * 1024 * 1024;
 
@@ -413,6 +430,7 @@ export class ReelforgeService {
       maxRunningPerKey: () => this.settings.current.config.limits.maxRunningJobsPerKey,
       priorityAgingSeconds: () => this.settings.current.config.queue.priorityAgingSeconds,
       onClaim: () => this.claimRate.record(),
+      timeoutSeconds: () => this.settings.current.config.render.timeoutSeconds,
     });
     if (!registry.listBackends().some((b) => b.id === 'local')) {
       registry.registerBackend(
@@ -577,8 +595,83 @@ export class ReelforgeService {
     if (!type) return;
     this.webhooks.emit(type, { job: jobPayload(job) });
     if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled') this.progressBuckets.delete(job.id);
-    if (job.status === 'succeeded' && (job.type === 'render' || job.type === 'preview') && job.result) {
-      this.webhooks.emit('render.ready', { ...renderSummary(job.result), jobId: job.id, kind: job.type });
+    // One terminal render.* event per render or preview job, whatever the outcome (#306).
+    const outcome = job.type === 'render' || job.type === 'preview' ? renderOutcome(job) : null;
+    if (outcome) this.webhooks.emit(outcome, () => this.terminalPayload(job, e.usage), { dedupeKey: renderDedupeKey(job.id) });
+  }
+
+  /**
+   * The payload of a terminal render event (#306): the render summary (ready) or the typed error and the last lines
+   * of the job log (failed, timeout, qa_failed, blocked), timing, costs and links. Built only when an endpoint
+   * listens; a read that fails leaves its field out rather than the event.
+   */
+  private async terminalPayload(job: JobRecord, usage?: JobUsage): Promise<Record<string, unknown>> {
+    const seconds = (a?: string, b?: string) => (a && b ? Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 10) / 100) : undefined);
+    const runId = (job.result?.renderId as string | undefined) ?? ((job.params as { runId?: unknown } | undefined)?.runId as string | undefined);
+    const costs: Record<string, unknown> = {};
+    if (usage?.cpuSeconds !== undefined) costs.cpuSeconds = usage.cpuSeconds;
+    else costs.cpuUnavailable = usage?.cpuUnavailable ?? (job.pendingChildren !== undefined ? 'the render was split into units that ran on several workers (render.fanOut)' : 'the job did not run on a worker');
+    if (job.status === 'succeeded' && job.projectId && runId) {
+      try {
+        const files = await this.storage.driver.list(renderPrefix(job.projectId, runId));
+        costs.storageBytes = files.reduce((n, f) => n + f.bytes, 0);
+        const out = files.find((f) => f.key.endsWith('/final.mp4'));
+        if (out) costs.outputBytes = out.bytes;
+      } catch (err) {
+        this.config.log?.('warn', `render event of job ${job.id}: could not read the output size (${(err as Error).message})`);
+      }
+    }
+    let logExcerpt: string[] | undefined;
+    if (job.status === 'failed') {
+      logExcerpt = await this.jobs
+        .logs(job.id, 20)
+        .then((lines) => lines.map((l) => (l.length > 300 ? `${l.slice(0, 297)}...` : l)))
+        .catch(() => undefined);
+    }
+    const links = {
+      job: this.url(`/v1/jobs/${job.id}`),
+      logs: this.url(`/v1/jobs/${job.id}/logs`),
+      ...(job.status === 'succeeded' && job.result ? { output: job.result.outputUrl, poster: job.result.posterUrl, manifest: job.result.manifestUrl } : {}),
+    };
+    return {
+      ...(job.status === 'succeeded' ? renderSummary(job.result) : {}),
+      jobId: job.id,
+      kind: job.type,
+      ...(job.projectId ? { projectId: job.projectId } : {}),
+      ...(runId ? { renderId: runId } : {}),
+      status: job.status,
+      ...(job.error ? { error: job.error } : {}),
+      ...(logExcerpt?.length ? { logExcerpt } : {}),
+      timing: {
+        queuedAt: job.createdAt,
+        ...(job.startedAt ? { startedAt: job.startedAt } : {}),
+        ...(job.finishedAt ? { finishedAt: job.finishedAt } : {}),
+        ...(seconds(job.createdAt, job.startedAt) !== undefined ? { queueSeconds: seconds(job.createdAt, job.startedAt) } : {}),
+        ...(seconds(job.startedAt, job.finishedAt) !== undefined ? { renderSeconds: seconds(job.startedAt, job.finishedAt) } : {}),
+      },
+      costs,
+      links,
+    };
+  }
+
+  /** render.blocked for a render refused before it was queued (licence; moderation later), then the refusal is thrown on (#306). */
+  private async renderGate(kind: string, projectId?: string, jobId?: string): Promise<void> {
+    try {
+      await this.licence.assertRenderAllowed();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const lic = (err.details as { licence?: { status?: string; reason?: string } } | undefined)?.licence;
+        this.webhooks.emit('render.blocked', {
+          kind,
+          ...(projectId ? { projectId } : {}),
+          ...(jobId ? { retryOf: jobId } : {}),
+          status: 'blocked',
+          error: { code: err.code, message: err.message },
+          ...(lic ? { licence: { status: lic.status, ...(lic.reason ? { reason: lic.reason } : {}) } } : {}),
+          links: { licence: this.url('/v1/licence') },
+        });
+      }
+      throw err;
     }
   }
 
@@ -691,6 +784,7 @@ export class ReelforgeService {
         env: b.env,
         capabilities: b.capabilities(),
       })),
+      captions: this.captionCapabilities(),
       storage: [{ id: this.storage.driver.id, active: true, downloads: this.storage.downloads }],
       limits: this.limitsSummary(),
       licence: this.licence.summary(),
@@ -716,6 +810,7 @@ export class ReelforgeService {
         'list_templates and list_themes to see what exists',
         'create_project with a manifest (schemaVersion "0.2"; "0.1" is migrated)',
         'edit with add_scene / update_scene / set_theme / set_audio; validate_project after edits',
+        'captions (optional): transcribe_captions or generate_voice for timings, then get_captions, show the user, update_captions (approve: true) before render_project',
         'render_project, then get_job with waitSeconds: 45 until succeeded, then get_render_output',
         'renders need a valid licence: if licence.renderAllowed is false, get_licence says what the user must do',
       ],
@@ -808,7 +903,7 @@ export class ReelforgeService {
 
   /** Schema validation with the installed engines; throws invalid_manifest. */
   private parseOrThrow(input: unknown): { project: Project; warnings: ValidationWarning[]; migratedFrom: string | null } {
-    const r = parseProject(input, { catalog: this.registry.catalog() });
+    const r = parseProject(input, { catalog: this.registry.catalog(), captionsDefaultMode: this.settings.current.config.captions.defaultMode });
     if (!r.ok) throw invalidManifest(r.issues);
     return r;
   }
@@ -873,7 +968,7 @@ export class ReelforgeService {
 
   /** Validate an arbitrary manifest without storing it. */
   async validateManifest(input: unknown, projectId: string | null = null): Promise<ValidationReport> {
-    const r = parseProject(input, { catalog: this.registry.catalog() });
+    const r = parseProject(input, { catalog: this.registry.catalog(), captionsDefaultMode: this.settings.current.config.captions.defaultMode });
     if (!r.ok) return { ok: false, errors: r.issues, warnings: [], migratedFrom: null };
     const deep = await this.deepChecks(r.project, projectId);
     const errors = deep.errors;
@@ -1127,6 +1222,188 @@ export class ReelforgeService {
     return { ...r, imported: cues.length };
   }
 
+  // ---- caption approval and speech-to-text (#300, D-114) --------------------
+
+  /** The effective speech-to-text settings (captions.stt.*). */
+  sttSettings(): SttSettings & { provider: string } {
+    const s = this.settings.current.config.captions.stt;
+    return { provider: s.provider, command: s.command, model: s.model, ...(s.modelDir ? { modelDir: s.modelDir } : {}), language: s.language, computeType: s.computeType, device: s.device, timeoutSeconds: s.timeoutSeconds };
+  }
+
+  /** What get_capabilities says about captions: modes, the server default, languages, and whether speech-to-text can run here. */
+  captionCapabilities() {
+    const s = this.sttSettings();
+    const providers = this.registry.listStt().map((p) => {
+      const a = p.availability(s);
+      return { id: p.id, displayName: p.displayName, available: a.ok, ...(a.reason ? { reason: a.reason } : {}) };
+    });
+    const selected = providers.find((p) => p.id === s.provider);
+    return {
+      modes: [...CAPTION_MODES],
+      defaultMode: this.settings.current.config.captions.defaultMode,
+      maxLanguages: MAX_CAPTION_LANGUAGES,
+      languages: 'BCP 47 tags: the primary language (captions.cues) plus captions.tracks; one is burned (captions.burnLanguage), each gets sidecars',
+      descriptions: 'cues with kind "description": a WebVTT sidecar for <track kind="descriptions">, never burned',
+      stt: {
+        available: selected?.available ?? false,
+        provider: s.provider,
+        ...(selected ? (selected.available ? {} : { reason: selected.reason }) : { reason: `speech-to-text provider "${s.provider}" is not installed; installed: ${providers.map((p) => p.id).join(', ') || '(none)'}` }),
+        model: s.model,
+        language: s.language,
+        computeType: s.computeType,
+        device: s.device,
+        providers,
+      },
+    };
+  }
+
+  /**
+   * get_captions: the cues of every language (or one), their quality check,
+   * the etag update_captions needs and the approval state, for a project; for
+   * a render (renderId), the cues as they were rendered.
+   */
+  async getCaptions(input: { projectId: string; language?: string }): Promise<ProjectCaptionsView>;
+  async getCaptions(input: { renderId: string; language?: string }): Promise<RenderCaptionsView>;
+  async getCaptions(input: unknown): Promise<ProjectCaptionsView | RenderCaptionsView>;
+  async getCaptions(input: unknown): Promise<ProjectCaptionsView | RenderCaptionsView> {
+    const q = parseInput(getCaptionsInput, input, 'get_captions arguments');
+    if (q.renderId) {
+      const { projectId } = await this.findRender(q.renderId);
+      const m = await this.storage.renders.readManifest<{ captions?: CaptionManifest; project?: Project }>(projectId, q.renderId);
+      if (!m) throw notFound('render', q.renderId);
+      return renderCaptionsView(q.renderId, projectId, m, q.language);
+    }
+    const { manifest, meta } = await this.projects.get(q.projectId!);
+    return projectCaptionsView(manifest, meta.version, this.settings.current.config.captions.defaultMode, q.language);
+  }
+
+  /**
+   * update_captions: edit or replace the cues of one language, set the mode,
+   * burn language and highlight, and approve, refused with captions_conflict
+   * when the captions changed since get_captions (etag). The quality rules run
+   * again (returned), and the change is written to the audit log.
+   */
+  async updateCaptions(id: string, input: unknown, expectedVersion?: number) {
+    const u = parseInput(updateCaptionsInput, input, 'update_captions arguments');
+    const defaultMode = this.settings.current.config.captions.defaultMode;
+    let change: ReturnType<typeof applyCaptionUpdate> | undefined;
+    const stored = await this.projects.update(
+      id,
+      (current) => {
+        change = applyCaptionUpdate(current, u, defaultMode);
+        let next = this.parseOrThrow({ ...current, captions: change.captions }).project;
+        if (u.approve) {
+          const etag = captionsEtag(next, resolveCaptions(next, { defaultMode }));
+          next = this.parseOrThrow({ ...next, captions: { ...next.captions, approval: { etag, approvedAt: new Date(this.now()).toISOString() } } }).project;
+        }
+        return next;
+      },
+      expectedVersion
+    );
+    const view = projectCaptionsView(stored.manifest, stored.meta.version, defaultMode);
+    const auth = currentRequest()?.auth;
+    await this.audit({
+      actorType: auth ? 'api_key' : 'system',
+      ...(auth ? { actorId: auth.keyId } : {}),
+      action: u.approve ? 'captions.approve' : 'captions.update',
+      targetType: 'project',
+      targetId: id,
+      data: {
+        language: change!.language,
+        ...(change!.cues !== undefined ? { cues: change!.cues } : {}),
+        ...(u.edits?.length ? { edits: u.edits.length } : {}),
+        ...(u.mode ? { mode: u.mode } : {}),
+        ...(u.approve !== undefined ? { approved: u.approve } : {}),
+        etagBefore: change!.etagBefore,
+        etag: view.etag,
+        version: stored.meta.version,
+      },
+    });
+    return view;
+  }
+
+  private sttRunning = 0;
+
+  /**
+   * transcribe_captions: speech-to-text of the project's voice track with the
+   * configured local provider (captions.stt.*). The words are stored on
+   * audio.voice.words (relative to the voice start, like TTS timestamps), so
+   * the primary language's cues are built from them by buildCuesFromWords
+   * unless manual caption cues exist (replaceCues removes those). One
+   * transcription at a time per server process; results are cached by file
+   * content and settings.
+   */
+  async transcribeCaptions(id: string, input: unknown, expectedVersion?: number) {
+    const t = parseInput(transcribeInput, input, 'transcribe_captions arguments');
+    const s = this.sttSettings();
+    const plugin = this.registry.stt(t.provider ?? s.provider);
+    const available = plugin.availability(s);
+    if (!available.ok) throw new ApiError('stt_unavailable', 409, `speech-to-text is not available on this server: ${available.reason}`);
+    const { manifest } = await this.projects.get(id);
+    const voice = manifest.audio.voice;
+    if (!voice?.asset) {
+      throw new ApiError('no_voice_track', 409, 'the project has no voice track to transcribe: upload the voice-over (upload_asset with projectId and assetId "voice"), set_audio { voice: { asset: "voice" } }, then call again');
+    }
+    const asset = manifest.assets.find((a) => a.id === voice.asset);
+    // Only files of the asset store or the project's own folder, resolved the same way as for a render.
+    const file = (await this.resolveAssets({ ...manifest, assets: asset ? [asset] : [] }, id)).get(voice.asset)?.file;
+    if (!file) throw new ApiError('asset_missing', 422, `voice asset "${voice.asset}" is not in the project's assets`);
+    const language = t.language ?? s.language;
+    const hash = createHash('sha256');
+    await pipeline(createReadStream(file), hash);
+    const key = createHash('sha256').update(JSON.stringify([plugin.id, hash.digest('hex'), s.model, s.computeType, s.device, language])).digest('hex');
+    const cacheFile = join(this.cacheDir, 'stt', `${key}.json`);
+    type Cached = { language: string | null; words: Array<{ text: string; start: number; end: number }>; durationSeconds?: number; engine: Record<string, string> };
+    let result = existsSync(cacheFile) ? await readJson<Cached>(cacheFile).catch(() => null) : null;
+    const cached = result !== null;
+    if (!result) {
+      if (this.sttRunning >= 1) throw new ApiError('stt_busy', 429, 'another transcription is running on this server; retry in a minute', { retryAfterSeconds: 30 });
+      this.sttRunning++;
+      try {
+        const logs: string[] = [];
+        result = await withSpan(this.telemetry.tracer, `stt.transcribe ${plugin.id}`, { 'reelforge.stt.provider': plugin.id }, () =>
+          plugin.transcribe({ file, language, settings: s }, { signal: AbortSignal.timeout((s.timeoutSeconds + 5) * 1000), log: (l) => logs.push(l) })
+        );
+        await writeJsonAtomic(cacheFile, result);
+      } finally {
+        this.sttRunning--;
+      }
+    }
+    const words = voiceWords(result.words);
+    const detected = result.language && isLanguageTag(result.language) ? result.language : null;
+    let manualCues = 0;
+    const stored = await this.projects.update(
+      id,
+      (current) => {
+        if (current.audio.voice?.asset !== voice.asset) throw new ApiError('conflict', 409, 'the voice track changed while it was transcribed; call transcribe_captions again');
+        const captions: Record<string, unknown> = { ...current.captions };
+        const own = splitCueKinds(current.captions.cues ?? []);
+        if (t.replaceCues) {
+          if (own.descriptions.length) captions.cues = own.descriptions;
+          else delete captions.cues;
+        } else manualCues = own.captions.length;
+        if (!current.captions.language && (t.language && t.language !== 'auto' ? t.language : detected)) captions.language = t.language && t.language !== 'auto' ? t.language : detected;
+        const voiceTrack: Record<string, unknown> = { ...current.audio.voice };
+        if (words.length) voiceTrack.words = words;
+        else delete voiceTrack.words;
+        return this.parseOrThrow({ ...current, audio: { ...current.audio, voice: voiceTrack }, captions }).project;
+      },
+      expectedVersion
+    );
+    const view = projectCaptionsView(stored.manifest, stored.meta.version, this.settings.current.config.captions.defaultMode);
+    return {
+      provider: plugin.id,
+      engine: result.engine,
+      detectedLanguage: result.language,
+      words: words.length,
+      ...(result.durationSeconds !== undefined ? { durationSeconds: result.durationSeconds } : {}),
+      cached,
+      ...(manualCues ? { note: `captions.cues has ${manualCues} manual caption cue(s), which take precedence over the voice; call again with replaceCues: true to show the transcription` } : {}),
+      ...(words.length ? {} : { note: 'no speech was recognised in the voice track' }),
+      captions: view,
+    };
+  }
+
   // ---- renders --------------------------------------------------------------
 
   /** One render at `output`, or (with `variant`) at one of the project's output variants. */
@@ -1162,7 +1439,7 @@ export class ReelforgeService {
     // The same refusals as one render, before anything is queued: priority, licence, then every variant's limits.
     const captions = this.parseCaptionOverride(opts.captions);
     this.resolvePriority('render', opts.priority);
-    await this.licence.assertRenderAllowed();
+    await this.renderGate('render', id);
     const violations = variants.flatMap((v) =>
       renderLimitViolations(withVariant(manifest, v.id), this.settings.current.config.limits).map((x) => ({ ...x, message: `variant "${v.id}": ${x.message}` }))
     );
@@ -1218,7 +1495,7 @@ export class ReelforgeService {
   private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, extra: { captions?: CaptionMode; variant?: string; batchId?: string } = {}) {
     const { captions, variant, batchId } = extra;
     const priority = this.resolvePriority(kind, requestedPriority);
-    await this.licence.assertRenderAllowed();
+    await this.renderGate(kind, id);
     const { manifest: stored, meta } = await this.projects.get(id);
     if (variant !== undefined && !stored.variants?.some((v) => v.id === variant)) {
       throw notFound('variant', variant, { variants: (stored.variants ?? []).map((v) => v.id) });
@@ -1243,10 +1520,23 @@ export class ReelforgeService {
     const blocking = report.errors.filter((e) => !(backendOverride && e.path === 'render.backend') && !e.message.startsWith(RENDER_LIMIT_PREFIX));
     if (blocking.length) throw new ApiError('validation_failed', 422, 'fix these problems before rendering (see details.errors)', { errors: blocking, warnings: report.warnings });
     const runId = newId(kind === 'preview' ? 'prv' : 'run');
+    const captionsDefault = this.settings.current.config.captions.defaultMode;
     return this.withRenderQuota((apiKeyId, quota) =>
       this.jobs.submit(
         kind,
-        { projectId: id, version: meta.version, backend: backendId, runId, ...(sceneIds ? { sceneIds } : {}), ...(scale ? { scale } : {}), ...(captions ? { captions } : {}), ...(variant ? { variant } : {}), ...(batchId ? { batchId } : {}) },
+        {
+          projectId: id,
+          version: meta.version,
+          backend: backendId,
+          runId,
+          ...(sceneIds ? { sceneIds } : {}),
+          ...(scale ? { scale } : {}),
+          ...(captions ? { captions } : {}),
+          // The server default as it is now (captions.defaultMode), for projects without captions.mode.
+          ...(captionsDefault !== 'off' ? { captionsDefault } : {}),
+          ...(variant ? { variant } : {}),
+          ...(batchId ? { batchId } : {}),
+        },
         { projectId: id, priority, ...(apiKeyId ? { apiKeyId } : {}) },
         quota
       ), priority
@@ -1448,6 +1738,7 @@ export class ReelforgeService {
         sceneIds: p.sceneIds,
         scale: p.scale,
         ...(p.captions ? { captionsMode: p.captions } : {}),
+        ...(p.captionsDefault ? { captionsDefault: p.captionsDefault } : {}),
       },
       { signal: ctx.signal, log: ctx.log, progress: ctx.progress }
     );
@@ -1497,6 +1788,7 @@ export class ReelforgeService {
       progress: ctx.progress,
       telemetry: this.telemetry,
       ...(req.captionsMode ? { captionsMode: req.captionsMode } : {}),
+      ...(req.captionsDefault ? { captionsDefault: req.captionsDefault } : {}),
     });
     if (!local) {
       try {
@@ -1559,7 +1851,7 @@ export class ReelforgeService {
   async retryJob(id: string) {
     const job = await this.getJob(id);
     if (job.type === 'render' || job.type === 'preview') {
-      await this.licence.assertRenderAllowed();
+      await this.renderGate(job.type, job.projectId, job.id);
       // The retry keeps the job's class, lowered to what the retrying key may use (D-103).
       const priority = lowerPriority(job.priority ?? defaultPriority(job.type), this.maxPriorityFor(job.type));
       return this.withRenderQuota((apiKeyId, quota) => this.jobs.retry(id, { priority, ...(apiKeyId ? { apiKeyId } : {}) }, quota), priority);
@@ -1598,21 +1890,44 @@ export class ReelforgeService {
       createdAt: string;
       output: { durationSeconds: number; frames: number; width: number; height: number; fps: number };
       scenes: Array<{ file: string }>;
-      captions?: { mode: CaptionMode; burned: boolean; cues: number; source: string; language: string | null; files: Partial<Record<'srt' | 'vtt' | 'ass', string>>; qa: RenderCaptions['qa'] };
+      captions?: CaptionManifest;
     }>(projectId, runId);
     if (!m) throw notFound('render', runId);
     const base = `/v1/renders/${runId}/output`;
     let captions: RenderCaptions | undefined;
     if (m.captions) {
+      const c = m.captions;
+      // Renders before languages (#316) have only the primary language's files.
+      const tracks = c.tracks ?? [{ language: c.language, primary: true, burned: c.burned, source: c.source, cues: [], descriptions: [], files: c.files, qa: c.qa }];
       const files: RenderCaptions['files'] = [];
-      for (const format of ['srt', 'vtt', 'ass'] as const) {
-        const file = m.captions.files[format];
-        if (file !== CAPTION_FILES[format]) continue;
-        const { downloadUrl, downloadUrlExpiresAt } = await this.downloadLink(projectId, runId, file);
-        files.push({ format, file, url: this.url(`${base}?file=${file}`), downloadUrl, downloadUrlExpiresAt });
+      for (const t of tracks) {
+        const names = captionFileNames(t.language, t.primary);
+        const wanted = [
+          ['srt', 'captions', t.files.srt, names.srt],
+          ['vtt', 'captions', t.files.vtt, names.vtt],
+          ['ass', 'captions', t.files.ass, names.ass],
+          ['vtt', 'descriptions', t.files.descriptions, names.descriptions],
+        ] as const;
+        for (const [format, kind, file, expected] of wanted) {
+          // Only the names this server writes: the manifest is data, not a list of paths to serve.
+          if (!file || file !== expected || !CAPTION_FILE_PATTERN.test(file)) continue;
+          const { downloadUrl, downloadUrlExpiresAt } = await this.downloadLink(projectId, runId, file);
+          files.push({ format, kind, language: t.language, file, url: this.url(`${base}?file=${file}`), downloadUrl, downloadUrlExpiresAt });
+        }
       }
-      const { mode, burned, cues, source, language, qa } = m.captions;
-      captions = { mode, burned, cues, source, language, files, qa: { ok: qa.ok, maxCps: qa.maxCps, issues: qa.issues } };
+      const { mode, burned, cues, source, language, qa } = c;
+      captions = {
+        mode,
+        burned,
+        burnLanguage: c.burnLanguage ?? (burned ? language : null),
+        cues,
+        source,
+        language,
+        languages: tracks.map((t) => ({ language: t.language, primary: t.primary, burned: t.burned, cues: c.tracks ? t.cues.length : cues, descriptions: t.descriptions.length, qaOk: t.qa.ok })),
+        approved: c.approved ?? false,
+        files,
+        qa: { ok: qa.ok, maxCps: qa.maxCps, issues: qa.issues },
+      };
     }
     return {
       renderId: runId,
@@ -1630,6 +1945,7 @@ export class ReelforgeService {
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
       ...(await this.downloadLink(projectId, runId)),
       ...(captions ? { captions } : {}),
+      storage: { driver: this.storage.driver.id, prefix: renderPrefix(projectId, runId) },
     };
   }
 
@@ -1676,8 +1992,8 @@ export class ReelforgeService {
 
   /** A file of a render in storage (final.mp4 by default): its key, type and size, for streaming. */
   async renderObject(runId: string, file = 'final.mp4'): Promise<{ key: string; contentType: string; bytes: number }> {
-    if (!isSafeRelativePath(file) || !/^(final\.mp4|poster\.png|render-manifest\.json|captions\.(srt|vtt|ass)|clips\/[\w.-]+\.mp4)$/.test(file)) {
-      throw badRequest('file must be final.mp4, poster.png, render-manifest.json, captions.srt, captions.vtt, captions.ass or clips/<name>.mp4');
+    if (!isSafeRelativePath(file) || !(/^(final\.mp4|poster\.png|render-manifest\.json|clips\/[\w.-]+\.mp4)$/.test(file) || CAPTION_FILE_PATTERN.test(file))) {
+      throw badRequest('file must be final.mp4, poster.png, render-manifest.json, captions[.<language>].srt|vtt|ass, descriptions[.<language>].vtt or clips/<name>.mp4');
     }
     const { projectId } = await this.findRender(runId);
     const key = renderPrefix(projectId, runId) + file;
@@ -2108,6 +2424,18 @@ export class ReelforgeService {
   replayWebhookDelivery(id: string, deliveryId: string, actor?: Actor) {
     return this.webhooks.replay(id, deliveryId, actor);
   }
+  /** resend_webhook (#306): an event again, by deliveryId, eventId or dedupeKey. */
+  resendWebhook(id: string, input: unknown, actor?: Actor) {
+    return this.webhooks.resend(id, input, actor);
+  }
+  /** get_webhook_log (#306, read scope): status, latency and attempts per delivery, without payloads or targets. */
+  getWebhookLog(id: string, query: Record<string, unknown> = {}) {
+    return this.webhooks.log(id, query);
+  }
+  /** rotate_webhook_secret (#306): a new secret with an overlap window, or end the overlap. */
+  rotateWebhookSecret(id: string, input: unknown, actor?: Actor) {
+    return this.webhooks.rotateSecret(id, input, actor);
+  }
 
   /** A page of audit entries, newest first, filtered (list_audit_events / GET /v1/audit). */
   async listAuditEvents(query: Record<string, unknown> = {}) {
@@ -2165,6 +2493,15 @@ export class ReelforgeService {
 
   listKeys() {
     return this.keys.list();
+  }
+
+  /**
+   * The key making the call (get_me, GET /v1/me; any scope): id, name, scopes, limits and usage, never the
+   * secret. Clients such as the dashboard use it to check a key at sign-in and to offer only what its scopes allow.
+   */
+  async getMe(auth: AuthContext) {
+    const key = await this.getKey(auth.keyId);
+    return { ...key, ...(auth.previousSecret ? { usingPreviousSecret: true } : {}) };
   }
 
   /** A key with its render usage today and this month (UTC). */
