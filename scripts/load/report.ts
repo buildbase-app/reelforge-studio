@@ -16,8 +16,8 @@ export function renderMarkdown(doc: Any): string {
     const crudRows = Object.entries<Any>(r).filter(([k]) => k.startsWith('a:') || k.startsWith('b:'));
     if (crudRows.length) {
       out.push(
-        row(['Run', 'req/s (all)', '2xx/s', 'p50 ms', 'p95 ms', 'p99 ms', '429s', 'errors', 'error rate %', 'DB CPU % (mean/max, 100 = 1 vCPU)', 'DB conns (mean/max)', 'lock waits (max)', 'DB tx/s', 'statements per request', 'api CPU % per instance', 'client CPU %', 'host load avg (mean/max)']),
-        row(Array(17).fill('---'))
+        row(['Run', 'req/s (all)', '2xx/s', 'p50 ms', 'p95 ms', 'p99 ms', '429s', 'errors', 'error rate %', '503 overloaded (shed, retryable)', 'DB CPU % (mean/max, 100 = 1 vCPU)', 'DB conns (mean/max)', 'lock waits (max)', 'DB tx/s', 'statements per request', 'api CPU % per instance', 'client CPU %', 'host load avg (mean/max)']),
+        row(Array(18).fill('---'))
       );
       for (const [k, v] of crudRows) {
         const c = v.result.crud ?? v.result;
@@ -32,6 +32,7 @@ export function renderMarkdown(doc: Any): string {
             c.total.rateLimited,
             c.total.errors,
             c.total.errorRate,
+            c.total.shed ?? 'n/a',
             v.dbCpu ? `${v.dbCpu.meanPct} / ${v.dbCpu.maxPct}` : 'n/a',
             `${v.db.connections.mean} / ${v.db.connections.max}`,
             v.db.lockWaits.max,

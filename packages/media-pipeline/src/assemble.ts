@@ -1,6 +1,6 @@
 import { rm, writeFile } from 'node:fs/promises';
 import { mixGraph } from './audio';
-import { H264_ARGS, PipelineError, run } from './ffmpeg';
+import { filterThreadArgs, h264Args, inputThreadArgs, PipelineError, run } from './ffmpeg';
 import { probe } from './probe';
 
 export interface ClipInput {
@@ -71,8 +71,8 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
   // video encoder's delay (a 2 s video got 1.962 s of audio); FFmpeg 6 does not. A separate mux works on both.
   const withAudio = !opts.noAudio;
   const videoOut = withAudio ? out.replace(/(\.[^./]+)?$/, '.video$1') : out;
-  const args: string[] = ['-hide_banner', '-y'];
-  for (const clip of clips) args.push('-i', clip.file);
+  const args: string[] = ['-hide_banner', '-y', ...filterThreadArgs()];
+  for (const clip of clips) args.push(...inputThreadArgs(), '-i', clip.file);
 
   const filters: string[] = clips.map(
     (clip, i) =>
@@ -87,7 +87,7 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
     filters.join(';'),
     '-map',
     '[vout]',
-    ...H264_ARGS,
+    ...h264Args(),
     '-r',
     String(fps),
     '-frames:v',
@@ -157,7 +157,7 @@ export interface NormaliseOptions {
 /**
  * Encode one scene clip to the final encoding of a render (render fan-out,
  * D-097): the same scaling, padding, frame rate, pixel format and exact frame
- * count as assemble() applies to each clip, H264_ARGS (libx264 high, yuv420p:
+ * count as assemble() applies to each clip, h264Args() (libx264 high, yuv420p:
  * every run starts with an IDR frame and closes its last GOP), video only, and
  * the MP4 muxer's time base for that rate (the same as the single-worker
  * output). Clips encoded this way by the same FFmpeg build can be joined by
@@ -170,6 +170,8 @@ export async function normaliseClip(opts: NormaliseOptions): Promise<{ out: stri
   const args = [
     '-hide_banner',
     '-y',
+    ...filterThreadArgs(),
+    ...inputThreadArgs(),
     '-i',
     opts.input,
     '-vf',
@@ -178,7 +180,7 @@ export async function normaliseClip(opts: NormaliseOptions): Promise<{ out: stri
     '-an',
     '-map_metadata',
     '-1',
-    ...H264_ARGS,
+    ...h264Args(),
     '-r',
     String(fps),
     '-frames:v',

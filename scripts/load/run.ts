@@ -113,7 +113,7 @@ function docker(...args: string[]) {
 }
 
 async function startPostgres() {
-  sh('docker', ['rm', '-f', PG, BOUNCER], { allowFail: true });
+  sh('docker', ['rm', '-f', '-v', PG, BOUNCER], { allowFail: true });
   sh('docker', ['network', 'rm', NET], { allowFail: true });
   docker('network', 'create', NET);
   docker('run', '-d', '--name', PG, '--network', NET, '--network-alias', 'postgres', '-p', `127.0.0.1:${cfg.pgPort}:5432`, '--shm-size=1g',
@@ -130,7 +130,7 @@ async function startPostgres() {
 }
 
 function startPgBouncer(opts: { maxPreparedStatements: number }) {
-  sh('docker', ['rm', '-f', BOUNCER], { allowFail: true });
+  sh('docker', ['rm', '-f', '-v', BOUNCER], { allowFail: true });
   const dir = join(work, 'pgbouncer');
   mkdirSync(dir, { recursive: true });
   // Transaction mode (#152). The app's URL carries no search_path option (default schema), so no ignore_startup_parameters is needed for it.
@@ -258,7 +258,14 @@ function spawnNode(script: string, envs: Record<string, string>, name: string, o
   let out = '';
   c.stdout!.on('data', (d) => (out += d));
   c.stderr!.on('data', (d) => (out += d));
-  c.on('exit', () => children.delete(c));
+  c.on('exit', () => {
+    children.delete(c);
+    // LOAD_LOGS=1: keep each process's output (the last 256 KB), e.g. to see why requests failed.
+    if (env('LOAD_LOGS', '0') === '1') {
+      mkdirSync(join(cfg.out, 'logs'), { recursive: true });
+      writeFileSync(join(cfg.out, 'logs', `${name}-${c.pid}.log`), out.slice(-262_144));
+    }
+  });
   return { c, out: () => out, name };
 }
 
@@ -398,7 +405,8 @@ async function enqueueRenders(urls: string[], keys: string[], projectIds: string
             return;
           }
           retries++;
-          await sleep(r.status === 429 ? Number(r.headers.get('retry-after') ?? 1) * 1000 : 500);
+          // 429 (limits) and 503 (overloaded, #307) say when to come back.
+          await sleep(r.status === 429 || r.status === 503 ? Number(r.headers.get('retry-after') ?? 1) * 1000 : 500);
         } catch (e) {
           if ((e as Error).message.startsWith('idempotency')) throw e;
           retries++;
@@ -731,7 +739,7 @@ async function main() {
 async function cleanup() {
   await Promise.all([...children].map((c) => stopChild(c, 5000)));
   if (!cfg.keep) {
-    sh('docker', ['rm', '-f', PG, BOUNCER], { allowFail: true });
+    sh('docker', ['rm', '-f', '-v', PG, BOUNCER], { allowFail: true });
     sh('docker', ['network', 'rm', NET], { allowFail: true });
     rmSync(work, { recursive: true, force: true });
   }

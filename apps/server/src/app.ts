@@ -20,6 +20,7 @@ import busboy from 'busboy';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
+import { isDatabaseOverload, overloadedResponse } from './overload';
 import type { ServerConfig } from './config';
 import { auditAction, auditTarget, matchRoute, restArgs, resultOf } from './audit';
 import { mountDashboard } from './dashboard';
@@ -154,6 +155,8 @@ export function createApp(deps: AppDeps) {
     }
     const status = (err as { status?: number }).status;
     if (status === 413) return c.json(errorBody('too_large', 'request body is too large'), 413);
+    // No database connection or transaction in time: the server is overloaded, nothing was written (#307).
+    if (isDatabaseOverload(err)) return overloadedResponse('the database is busy; retry after the Retry-After seconds');
     obs.logger.log('error', `unhandled error on ${c.req.method} ${c.req.path}`, { error: err, request_id: c.get('requestId') });
     return c.json(errorBody('internal', 'internal server error'), 500);
   });

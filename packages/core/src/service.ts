@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { join, resolve, sep } from 'node:path';
-import { resolveTools, toolPaths, toolVersionAsync, type Tools } from '@reelforge/media-pipeline';
+import { resolveTools, setEncoderSettings, toolPaths, toolVersionAsync, type Tools } from '@reelforge/media-pipeline';
 import {
   DEFAULT_OUTPUT,
   MAX_PROJECT_SECONDS,
@@ -740,6 +740,10 @@ export class ReelforgeService {
     if (use('limits.renderConcurrency') && resolved.config.server.workerConcurrency === undefined) this.jobs.setConcurrency(resolved.config.limits.renderConcurrency);
     if (use('limits.maxUploadBytes')) this.assets.limits.maxBytes = resolved.config.limits.maxUploadBytes;
     if (keys?.includes('limits.maxRunningJobsPerKey')) this.jobs.wake();
+    // Encoder memory bounds (#307): process-wide in the media pipeline; from every source at start, so a file or
+    // environment value applies too, and each change at once (the next encode uses it).
+    if (keys === null || keys.includes('render.encoderThreads') || keys.includes('render.encoderLookahead'))
+      setEncoderSettings({ threads: resolved.config.render.encoderThreads, lookahead: resolved.config.render.encoderLookahead });
     for (const [name, v] of Object.entries(this.settings.providerEnvOverlay())) {
       if (v !== undefined) this.providerEnv[name] = v;
       else if (this.baseEnv[name] !== undefined) this.providerEnv[name] = this.baseEnv[name];
