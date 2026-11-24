@@ -500,3 +500,78 @@ implementation or licensing decisions.
   **Kubernetes NetworkPolicy**: https://kubernetes.io/docs/concepts/services-networking/network-policies/
   (default deny with an empty `podSelector`; policies match addresses, not DNS names); the manifests
   pass kubeconform 0.7.0 -strict against the Kubernetes 1.31 schemas (`e2e/k8s/kubeconform.sh`).
+
+## Platforms and changelogs review (2026-11-24, epic #285 track C)
+
+Read on **2026-11-24** for `docs/research/PLATFORMS-2026-11.md`. Dates in brackets are the
+vendor's own entry dates. **(secondary)** marks claims found only in third-party articles.
+Re-check before relying on any price, limit or date.
+
+- **Remotion:** releases v4.0.539-v4.0.546 [2026-10-26..2026-11-23], https://github.com/remotion-dev/remotion/releases;
+  pricing https://www.remotion.dev/docs/license/pricing; telemetry and licensing (mandatory for
+  Automators from 5.0) https://www.remotion.dev/docs/telemetry, https://www.remotion.dev/docs/licensing/;
+  OTIO export (not deterministic) https://www.remotion.dev/docs/opentimeline/export; Lambda
+  troubleshooting https://www.remotion.dev/docs/lambda/troubleshooting/rate-limit; showcase
+  https://www.remotion.dev/showcase; Player https://www.remotion.dev/docs/player; DPA
+  https://www.remotion.dev/docs/dpa; blog archive https://www.remotion.dev/blog/archive.
+- **Shotstack:** announcements [2026-09-15, 2026-10-05, 2026-11-09, 2026-11-19]
+  https://shotstack.io/learn/announcement/; pricing https://shotstack.io/pricing; billing FAQ
+  https://help.shotstack.io/en/articles/14050672-billing-faqs; terms [updated 2026-05-06]
+  https://shotstack.io/terms/; security FAQ https://help.shotstack.io/en/articles/16187587-security-compliance-faq-soc-2-iso-27001-data-handling;
+  sub-processors https://shotstack.io/sub-processors/; incident [2025-07-23]
+  https://status.shotstack.io/incidents/3; Studio SDK (PolyForm Shield) https://shotstack.io/docs/guide/studio-sdk/.
+- **Creatomate:** Preview SDK https://creatomate.com/docs/api/preview-sdk/what-is-the-preview-sdk;
+  hosted MCP and keyframe editor (secondary, checked 2026-11-15) https://orshot.com/blog/creatomate-api-alternative;
+  reviews https://www.capterra.com/p/268283/Creatomate/reviews/; privacy policy [2022-06-27]
+  https://creatomate.com/privacy-policy. creatomate.com/changelog returned 404.
+- **JSON2Video:** changelog [2026-05-12, 2026-09-28, 2026-09-29] https://json2video.com/docs/v2/reference/changelog.
+- **Plainly:** changelog [2025-09-02..2026-11-19] https://help.plainlyvideos.com/docs/changelog.
+- **Bannerbear:** changelog [2026-01-31..2026-11-17] https://www.bannerbear.com/changelog/.
+- **Mux:** Robots [2026-04-16] https://www.mux.com/blog/mux-robots; @mux/ai [2025-12-16]
+  https://www.mux.com/blog/video-ai-shouldn-t-be-hard-so-we-built-mux-ai; changelog [2026-11-04]
+  https://www.mux.com/docs/changelog/video-auto-generated-captions-skipped-status.
+- **Editframe** https://editframe.com/changelog/001 (2024 only); **Revideo** https://github.com/redotvideo/revideo;
+  **Motion Canvas** https://motioncanvas.io/blog; **Rendley** [2026-03-31..2026-04-18]
+  https://docs.rendleysdk.com/changelog; **IMG.LY CE.SDK** [v1.64 2025-11-21, v1.78]
+  https://img.ly/docs/cesdk/changelog/v1-64-0/, https://img.ly/docs/cesdk/changelog/v1-78-0/;
+  **VideoGen** https://videogen.io/llms.txt.
+- **Synthesia:** EU Art. 50 code, C2PA, labels [2026-07-29]
+  https://www.synthesia.io/post/synthesia-among-the-first-ai-video-companies-to-sign-the-eu-article-50-code-of-practice;
+  Interactive Avatar API [2026-09-14] https://www.synthesia.io/post/interactive-avatar-api-real-time-avatars;
+  security practices (Ireland) https://www.synthesia.io/legal/security-practices; SCIM
+  https://help.synthesia.io/en/articles/12951831-user-s-guide-to-scim; audit logs
+  https://www.synthesia.io/updates/analyze-workspace-activity-with-audit-logs; ISO 42001
+  https://www.synthesia.io/post/synthesia-world-first-iso-42001-compliant-ai-video-company.
+- **HeyGen:** developer changelog (entries Apr-Nov 2026, v1/v2 sunset 2026-10-31)
+  https://developers.heygen.com/changelog; security https://www.heygen.com/security; compliance
+  https://developers.heygen.com/docs/compliance.md; HyperFrames (Apache-2.0, April 2026)
+  https://github.com/heygen-com/hyperframes.
+- **D-ID** [2026-03-17] https://www.prnewswire.com/il/news-releases/d-id-launches-v4-expressive-visual-agents-for-real-time-llm-connected-interaction-at-enterprise-scale-302714463.html;
+  **Colossyan** https://www.colossyan.com/enterprise/.
+- **Runway:** API changelog [2026-02-10..2026-08-20] https://docs.dev.runwayml.com/api-details/api_changelog/.
+- **Luma** https://lumalabs.ai/news/introducing-ray-3-2; **Google Veo** (preview shut 2026-10-22)
+  https://ai.google.dev/gemini-api/docs/veo, Veo 3.1 Lite [2026-03-31] https://www.marktechpost.com/2026/03/31/google-ai-releases-veo-3-1-lite-giving-developers-low-cost-high-speed-video-generation-via-the-gemini-api/;
+  **OpenAI Sora** API removal [2026-09-24] (secondary) https://techjacksolutions.com/ai-brief/openai-videos-api-sora-2-deprecated-september-2026/;
+  **Kling**, **Pika**, **Higgsfield** API: secondary only; Higgsfield reviews https://www.trustpilot.com/review/higgsfield.ai;
+  **Hedra** https://www.hedra.com/develop/models/video/hedra-character-3.
+- **Captions/Mirage** https://captions.ai/help/docs/api/video-captions, https://captions.ai/help/whats-new;
+  **InVideo** reviews https://www.trustpilot.com/review/ai.invideo.io; **Pictory** [2026-05-13]
+  https://docs.pictory.ai/changelog; **OpusClip** https://www.opus.pro/api, https://www.opus.pro/llms.txt;
+  **Submagic** https://submagic.canny.io/changelog; **Descript** https://feedback.descript.com/changelog,
+  https://www.descript.com/blog/article/dont-ship-your-api-as-an-mcp [updated 2026-06-23];
+  **VEED** [2026-09-30, 2026-10-28] https://www.veed.io/newsroom/veed-is-now-api-self-serve,
+  https://www.veed.io/newsroom/dubbing-api-video-that-travels, https://changelog.veed.io;
+  **Kapwing** [2026-09-28] https://www.kapwing.com/help/release-notes-kapwing-mcp/;
+  **CapCut** terms [2026-04-15] https://www.capcut.com/clause/terms-of-service;
+  **Canva** https://www.canva.dev/docs/connect/changelog/.
+- **Cloudflare** [2026-03-18] https://developers.cloudflare.com/changelog/post/2026-03-18-media-transformations-workers-binding/;
+  **AWS MediaConvert** [2026-02-24] https://aws.amazon.com/about-aws/whats-new/2026/02/aws-mediaconvert-introduces-video-probe;
+  **Coconut** https://docs.coconut.co/; **Transloadit** https://transloadit.com/blog/2026/;
+  **AssemblyAI** [2026-03-03] https://assemblyai.com/blog/universal-3-pro-streaming;
+  **Rev.ai** https://docs.rev.ai/changelog; **ElevenLabs** [2026-04-01, 2026-04-20, 2026-10-26]
+  https://elevenlabs.io/docs/changelog/2026/10/26. Deepgram: nothing found (VERIFY).
+- **Regulation and platforms:** EU Code of Practice on marking and labelling [final 2026-06-10]
+  https://digital-strategy.ec.europa.eu/en/news/commission-publishes-code-practice-marking-and-labelling-ai-generated-content;
+  YouTube inauthentic-content clarification [2026-07-16] https://www.tubefilter.com/2026/07/13/youtube-inauthentic-content-monetization-policy-update/;
+  YouTube Data API `status.containsSyntheticMedia` https://developers.google.com/youtube/v3/docs/videos;
+  MCP Apps extension [2026-01-26] https://blog.modelcontextprotocol.io/posts/2026-01-26-mcp-apps/.
