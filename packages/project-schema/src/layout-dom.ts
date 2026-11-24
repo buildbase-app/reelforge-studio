@@ -1,5 +1,6 @@
-import { clearOfLowerThird, frameLayout, layoutPanes, lowerThirdBox, LAYOUT_DEFAULTS, type LayoutResult, type PaneBox } from './layout';
+import { clearOfLowerThird, frameLayout, layoutCssVars, layoutPanes, lowerThirdBox, LAYOUT_DEFAULTS, LAYOUT_STYLE, type LayoutResult, type PaneBox } from './layout';
 import { toLayoutSpec, type LayoutPane, type LayoutSceneProps } from './layouts';
+import type { ThemeTokens } from './themes';
 
 /**
  * The layout templates (#287) as HTML and CSS for the DOM engines (html and
@@ -39,8 +40,20 @@ export interface LayoutDom {
   layout: LayoutResult;
 }
 
-/** Font size of a pane's text card in units: its headline; the body is 0.58 of it. */
-const CARD_SIZE = 7.2;
+/**
+ * The page's CSS custom properties for DOM scenes: theme (--rf-bg, --rf-surface,
+ * --rf-text, --rf-muted, --rf-accent, --rf-font, ...) and layout (--rf-unit,
+ * --rf-safe-*, ...). The html engine's page and the Remotion layout
+ * composition both set these, so the same layout markup draws the same pixels.
+ */
+export function domThemeCss(theme: ThemeTokens, size: { width: number; height: number }, durationSeconds: number, platform?: string): string {
+  const c = theme.colors;
+  return `:root{--rf-bg:${c.background};--rf-surface:${c.surface};--rf-text:${c.text};--rf-muted:${c.mutedText};--rf-accent:${c.accent};--rf-accent2:${c.accent2};--rf-font:${theme.fontFamily};--rf-heading-weight:${theme.headingWeight};--rf-radius:${theme.radius};--rf-spacing:${theme.spacing};--rf-speed:${theme.motionSpeed};--rf-width:${size.width}px;--rf-height:${size.height}px;--rf-duration:${durationSeconds}s;${layoutCssVars(size.width, size.height, platform)}}`;
+}
+
+const S = LAYOUT_STYLE;
+const M = S.motion;
+const bez = (e: readonly number[]) => `cubic-bezier(${e.join(',')})`;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const px = (n: number) => `${Math.round(n * 100) / 100}px`;
@@ -54,7 +67,7 @@ function paneMarkup(o: LayoutDomOptions, p: PaneBox, pane: LayoutPane, unit: num
     if (m.fit === 'blur-fill') {
       const blur = (m.blur ?? LAYOUT_DEFAULTS.blur) * unit;
       // Scaled up so the blur's soft edge stays outside the pane; darkened so the picture in front reads first.
-      parts.push(o.picture({ pane: p.index, layer: 'bg', media: m, className: 'rfl-pic rfl-bg', style: `object-fit:cover;${pos};filter:blur(${px(blur)}) brightness(.62);transform:scale(1.12)` }));
+      parts.push(o.picture({ pane: p.index, layer: 'bg', media: m, className: 'rfl-pic rfl-bg', style: `object-fit:cover;${pos};filter:blur(${px(blur)}) brightness(${S.blurFill.brightness});transform:scale(${S.blurFill.scale})` }));
     }
     parts.push(o.picture({ pane: p.index, layer: 'fg', media: m, className: 'rfl-pic', style: `object-fit:${m.fit === 'cover' ? 'cover' : 'contain'};${pos}` }));
   }
@@ -63,13 +76,13 @@ function paneMarkup(o: LayoutDomOptions, p: PaneBox, pane: LayoutPane, unit: num
 }
 
 function textMarkup(p: PaneBox, pane: LayoutPane, top: boolean, onMedia: boolean, unit: number): string {
-  const minCard = CARD_SIZE * unit * 0.36;
+  const minCard = S.card.size * unit * S.card.minShare;
   if (!pane.headline && !pane.body && !pane.label) return '';
   const label = pane.label ? `<div class="rfl-label" data-rf-fit>${esc(pane.label)}</div>` : '';
   const card =
     pane.headline || pane.body
       ? // The whole card shrinks to fit (headline, body and padding are in em of the card).
-        `<div class="rfl-card${onMedia ? ' rfl-on-media' : ''}" data-rf-fit data-rf-fit-tol="0" data-rf-fit-min="${Math.floor(minCard)}">` +
+        `<div class="rfl-card${onMedia ? ' rfl-on-media' : ''}" data-rf-fit data-rf-fit-tol="${S.fitInk}" data-rf-fit-min="${Math.floor(minCard)}">` +
         (pane.headline ? `<h2>${esc(pane.headline)}</h2>` : '') +
         (pane.body ? `<p>${esc(pane.body)}</p>` : '') +
         '</div>'
@@ -84,23 +97,23 @@ function lowerThirdMarkup(o: LayoutDomOptions): { html: string; css: string } {
   const b = lowerThirdBox(l, lt.align);
   const vars = `${lt.accent ? `--rfl-lt-accent:${lt.accent};` : ''}${lt.background ? `--rfl-lt-bg:${lt.background};` : ''}${lt.text ? `--rfl-lt-text:${lt.text};` : ''}`;
   const side = lt.align === 'left' ? `left:${px(b.x)}` : `right:${px(o.width - b.x)}`;
-  const outAt = Math.max(0, o.durationSeconds - 0.45).toFixed(3);
+  const outAt = Math.max(0, o.durationSeconds - M.lowerThirdOut.lead).toFixed(3);
   const html =
     `<div class="rfl-lt rfl-lt-${lt.align}" style="${vars}${side};bottom:${px(o.height - b.bottom)};max-width:${px(b.maxWidth)};max-height:${px(b.height)}">` +
     // The text block shrinks as a whole (name, title and padding are in em of it) until it fits the band.
-    `<div class="rfl-lt-bar"></div><div class="rfl-lt-text" data-rf-fit data-rf-fit-tol="0" data-rf-fit-min="${Math.floor(b.nameSize * 0.45)}">` +
+    `<div class="rfl-lt-bar"></div><div class="rfl-lt-text" data-rf-fit data-rf-fit-tol="0" data-rf-fit-min="${Math.floor(b.nameSize * S.lowerThird.minShare)}">` +
     `<div class="rfl-lt-name">${esc(lt.name)}</div>` +
     (lt.title ? `<div class="rfl-lt-title">${esc(lt.title)}</div>` : '') +
     '</div></div>';
   const css =
-    `.rfl-lt{position:absolute;display:flex;align-items:stretch;background:var(--rfl-lt-bg,var(--rf-surface));color:var(--rfl-lt-text,var(--rf-text));border-radius:${px(0.8 * l.unit)};overflow:hidden;animation:rfl-lt-in .5s cubic-bezier(.2,.8,.2,1) .25s both,rfl-out .4s ease-in ${outAt}s both}` +
+    `.rfl-lt{position:absolute;display:flex;align-items:stretch;background:var(--rfl-lt-bg,var(--rf-surface));color:var(--rfl-lt-text,var(--rf-text));border-radius:${px(S.lowerThird.radius * l.unit)};overflow:hidden;animation:rfl-lt-in ${M.lowerThirdIn.duration}s ${bez(M.lowerThirdIn.ease)} ${M.lowerThirdIn.delay}s both,rfl-out ${M.lowerThirdOut.duration}s ${bez(M.lowerThirdOut.ease)} ${outAt}s both}` +
     `.rfl-lt-right{flex-direction:row-reverse}` +
     `.rfl-lt-bar{flex:0 0 ${px(b.bar)};background:var(--rfl-lt-accent,var(--rf-accent))}` +
-    `.rfl-lt-text{min-width:0;max-height:${px(b.height)};overflow:hidden;font-size:${px(b.nameSize)};padding:${(b.padding * 0.8) / b.nameSize}em ${b.padding / b.nameSize}em}` +
-    `.rfl-lt-name{font-weight:var(--rf-heading-weight);line-height:1.12}` +
-    `.rfl-lt-title{font-size:${b.titleSize / b.nameSize}em;line-height:1.3;opacity:.78;margin-top:.1em;text-wrap:pretty}` +
+    `.rfl-lt-text{min-width:0;max-height:${px(b.height)};overflow:hidden;font-size:${px(b.nameSize)};padding:${(b.padding * S.lowerThird.padYShare) / b.nameSize}em ${b.padding / b.nameSize}em}` +
+    `.rfl-lt-name{font-weight:var(--rf-heading-weight);line-height:${S.lowerThird.nameLineHeight}}` +
+    `.rfl-lt-title{font-size:${b.titleSize / b.nameSize}em;line-height:${S.lowerThird.titleLineHeight};opacity:${S.lowerThird.titleOpacity};margin-top:${S.lowerThird.titleGapEm}em;text-wrap:pretty}` +
     `.rfl-lt-right .rfl-lt-text{text-align:right}` +
-    `@keyframes rfl-lt-in{from{opacity:0;transform:translateX(${px((lt.align === 'left' ? -4 : 4) * l.unit)})}to{opacity:1;transform:none}}`;
+    `@keyframes rfl-lt-in{from{opacity:0;transform:translateX(${px((lt.align === 'left' ? -1 : 1) * M.lowerThirdIn.slide * l.unit)})}to{opacity:1;transform:none}}`;
   return { html, css };
 }
 
@@ -122,20 +135,20 @@ export function layoutSceneDom(o: LayoutDomOptions): LayoutDom {
     `.rfl-pane{position:absolute;overflow:hidden;background:var(--rf-surface)}` +
     `.rfl-pic{position:absolute;inset:0;width:100%;height:100%;display:block}` +
     (inset
-      ? `.rfl-inset{border-radius:${px(1.4 * u)};outline:${px(0.4 * u)} solid var(--rf-bg);animation:rfl-pop .55s cubic-bezier(.2,.8,.2,1) .15s both}`
+      ? `.rfl-inset{border-radius:${px(S.inset.radius * u)};outline:${px(S.inset.outline * u)} solid var(--rf-bg);animation:rfl-pop ${M.inset.duration}s ${bez(M.inset.ease)} ${M.inset.delay}s both}`
       : '') +
-    `.rfl-text{position:absolute;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;gap:${px(1.6 * u)}}` +
+    `.rfl-text{position:absolute;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;gap:${px(S.textGap * u)}}` +
     `.rfl-text.rfl-top{justify-content:flex-start}` +
-    `.rfl-label{flex-shrink:0;max-width:100%;white-space:nowrap;overflow:hidden;font-size:${px(3.4 * u)};font-weight:600;line-height:1.2;padding:.2em .42em;border-radius:.18em;background:var(--rf-bg);color:var(--rf-text);animation:rfl-in .5s ease-out both}` +
+    `.rfl-label{flex-shrink:0;max-width:100%;white-space:nowrap;overflow:hidden;font-size:${px(S.label.size * u)};font-weight:${S.label.weight};line-height:${S.label.lineHeight};padding:${S.label.padYEm}em ${S.label.padXEm}em;border-radius:${S.label.radiusEm}em;background:var(--rf-bg);color:var(--rf-text);animation:rfl-in ${M.label.duration}s ${bez(M.label.ease)} ${M.label.delay}s both}` +
     `.rfl-text:not(.rfl-top) .rfl-label{order:-1;margin-bottom:auto}` +
-    `.rfl-card{display:flex;flex-direction:column;min-height:0;max-height:100%;max-width:min(100%,${px(95 * u)});font-size:${px(CARD_SIZE * u)};animation:rfl-in .6s cubic-bezier(.2,.8,.2,1) .1s both}` +
-    `.rfl-card.rfl-on-media{background:var(--rf-bg);padding:.28em .36em;border-radius:.11em}` +
+    `.rfl-card{display:flex;flex-direction:column;min-height:0;max-height:100%;max-width:min(100%,${px(S.card.maxWidth * u)});font-size:${px(S.card.size * u)};animation:rfl-in ${M.card.duration}s ${bez(M.card.ease)} ${M.card.delay}s both}` +
+    `.rfl-card.rfl-on-media{background:var(--rf-bg);padding:${S.card.padYEm}em ${S.card.padXEm}em;border-radius:${S.card.radiusEm}em}` +
     `.rfl-card>*{flex-shrink:0}` +
-    `.rfl-card>h2{margin:0;font-size:1em;font-weight:var(--rf-heading-weight);line-height:1.08;letter-spacing:-.01em}` +
-    `.rfl-card>p{margin:0;font-size:.58em;line-height:1.32;color:var(--rf-muted);text-wrap:pretty}` +
-    `.rfl-card>h2+p{margin-top:.34em}` +
-    `@keyframes rfl-in{from{opacity:0;transform:translateY(${px(2.5 * u)})}to{opacity:1;transform:none}}` +
-    `@keyframes rfl-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}` +
+    `.rfl-card>h2{margin:0;font-size:1em;font-weight:var(--rf-heading-weight);line-height:${S.card.headlineLineHeight};letter-spacing:${S.card.letterSpacingEm}em}` +
+    `.rfl-card>p{margin:0;font-size:${S.card.bodyEm}em;line-height:${S.card.bodyLineHeight};color:var(--rf-muted);text-wrap:pretty}` +
+    `.rfl-card>h2+p{margin-top:${S.card.bodyGapEm}em}` +
+    `@keyframes rfl-in{from{opacity:0;transform:translateY(${px(M.card.rise * u)})}to{opacity:1;transform:none}}` +
+    `@keyframes rfl-pop{from{opacity:0;transform:scale(${M.inset.from})}to{opacity:1;transform:none}}` +
     `@keyframes rfl-out{to{opacity:0}}` +
     lt.css;
   return { html, css, layout };
