@@ -7,7 +7,7 @@ import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/rend
 import { PipelineError } from '@reelforge/media-pipeline';
 import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, type AssetServer, type ResolvedAsset } from '@reelforge/core';
 import type { Tools } from '@reelforge/media-pipeline';
-import { BUILTIN_THEMES, TEMPLATES, domThemeCss, fpsValue, framesToSeconds, layoutSceneDom, layoutSceneProps, mediaKey, mediaUrlAt, type OutputSettings, type RenderScene, type SceneMedia, type ThemeTokens } from '@reelforge/project-schema';
+import { BUILTIN_THEMES, TEMPLATES, domThemeCss, fpsRational, fpsValue, framesToSeconds, layoutSceneDom, layoutSceneProps, mediaKey, mediaUrlAt, type OutputSettings, type RenderScene, type SceneMedia, type ThemeTokens } from '@reelforge/project-schema';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const compositionsDir = resolve(here, '../compositions');
@@ -134,7 +134,7 @@ export function remotionLayoutInput(
   platform: string | undefined,
   media: Record<string, SceneMedia>,
   firstFrame = 0
-): { html: string; css: string; rootCss: string } {
+): { html: string; css: string; rootCss: string; rate: { num: number; den: number } } {
   const props = layoutSceneProps.parse(scene.props);
   const seconds = framesToSeconds(scene.durationFrames, output.fps);
   const dom = layoutSceneDom({
@@ -151,7 +151,8 @@ export function remotionLayoutInput(
       return `<img class="${className}" style="${style}" alt=""${video} src="${attr(mediaUrlAt(staged, firstFrame))}">`;
     },
   });
-  return { html: dom.html, css: dom.css, rootCss: domThemeCss(theme ?? BUILTIN_THEMES[0]!.tokens, output, seconds, platform) };
+  // The exact rate (D-119), so frame k's animation time is k * den / num seconds, not k / a rounded decimal.
+  return { html: dom.html, css: dom.css, rootCss: domThemeCss(theme ?? BUILTIN_THEMES[0]!.tokens, output, seconds, platform), rate: fpsRational(output.fps) };
 }
 
 /** Render one Remotion scene to an MP4 clip. */

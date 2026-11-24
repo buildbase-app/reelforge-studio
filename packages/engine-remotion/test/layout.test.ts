@@ -26,6 +26,8 @@ describe('remotion-layout markup', () => {
     expect(r.css).toContain('.rfl-pane');
     expect(r.rootCss).toContain('--rf-bg:');
     expect(r.rootCss).toContain('--rf-unit:10.8px');
+    expect(r.rate).toEqual({ num: 30, den: 1 });
+    expect(remotionLayoutInput(scene, { ...output, fps: '30000/1001' }, undefined, undefined, media, 10).rate).toEqual({ num: 30000, den: 1001 });
   });
 
   it('refuses a pane asset that was not staged', () => {

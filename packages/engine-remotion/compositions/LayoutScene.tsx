@@ -18,7 +18,7 @@ import { mediaUrlAt } from '@reelforge/project-schema/media';
  * - before the first frame: fonts loaded, every picture decoded, and the text
  *   shrunk to fit its box (`FIT_TEXT_SCRIPT`, the html engine's fit-to-box);
  * - on every frame: each CSS animation of the scene is paused at
- *   `frame / fps` (Web Animations `currentTime`) and its state baked into
+ *   frame k's exact time, k * den / num seconds (Web Animations `currentTime`) and its state baked into
  *   inline styles (`bakeAnimations`), and each video pane shows
  *   picture `frame` of its clip (staged by src/render.ts as one picture per
  *   output frame on the render's loopback asset origin). The frame waits
@@ -36,6 +36,8 @@ export interface LayoutSceneInput {
   css: string;
   /** Page-level CSS: theme and layout custom properties (`domThemeCss`). */
   rootCss: string;
+  /** The output frame rate as an exact fraction (`fpsRational`, D-119): frame k is at k * den / num seconds. */
+  rate: { num: number; den: number };
 }
 
 /** Same page rules as the html engine's document (engine-html/src/page.ts). */
@@ -88,9 +90,9 @@ async function decodePictures(root: HTMLElement): Promise<string[]> {
   return imgs.filter((i) => !i.complete || i.naturalWidth === 0).map((i) => i.src);
 }
 
-export const LayoutScene: React.FC<LayoutSceneInput & { assets: Record<string, SceneMedia> }> = ({ html, css, rootCss, assets }) => {
+export const LayoutScene: React.FC<LayoutSceneInput & { assets: Record<string, SceneMedia> }> = ({ html, css, rootCss, rate, assets }) => {
   const frame = useCurrentFrame();
-  const { fps, width, height } = useVideoConfig();
+  const { width, height } = useVideoConfig();
   const root = useRef<HTMLDivElement>(null);
   const prepared = useRef<Promise<void> | null>(null);
   // Held from the first render until the first frame is ready (fonts, pictures, text fit).
@@ -112,7 +114,7 @@ export const LayoutScene: React.FC<LayoutSceneInput & { assets: Record<string, S
       .then(async () => {
         // A newer frame took over this element; its own effect draws that frame.
         if (!live) return continueRender(handle);
-        bakeAnimations(el, (frame * 1000) / fps);
+        bakeAnimations(el, (frame * 1000 * rate.den) / rate.num);
         const loads: Array<Promise<void>> = [];
         for (const img of el.querySelectorAll<HTMLImageElement>('img[data-rf-video]')) {
           const m = assets[img.dataset.rfVideo ?? ''];
@@ -135,7 +137,7 @@ export const LayoutScene: React.FC<LayoutSceneInput & { assets: Record<string, S
     return () => {
       live = false;
     };
-  }, [frame, fps, assets, first]);
+  }, [frame, rate.num, rate.den, assets, first]);
 
   return (
     <>
