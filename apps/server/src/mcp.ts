@@ -350,7 +350,7 @@ export const TOOLS: ToolDef[] = [
     title: 'Import an asset from a URL',
     description:
       'Downloads an image, audio, video or font from a public https URL into the server asset store (size-limited, private networks refused, type checked from the bytes) and, with projectId, adds it to the project as assetId. Only use files you have the rights to; pass license metadata.' +
-      ' Use it in scenes by its manifest id: template props media: { asset, fit: cover|contain|blur-fill, start (video in-point, s), dim } and logo: { asset, corner, size }, or asset:<id> in html scenes (<img src="asset:logo">, <video src="asset:clip">, url(asset:hero)). Video is frame-accurate at any frame rate; SVG is stored sanitised (no scripts, handlers or remote references). With projectId the asset belongs to that project; without, every project of the workspace may use it.',
+      ' Use it in scenes by its manifest id: template props media: { asset, fit: cover|contain|blur-fill, start (video in-point, s), dim } and logo: { asset, corner, size }, or asset:<id> in html scenes (<img src="asset:logo">, <video src="asset:clip">, url(asset:hero)). Video is frame-accurate at any frame rate; SVG is stored sanitised (no scripts, handlers or remote references). A font is used by naming its family (metadata.font.family) in the theme fontFamily; Inter, Source Serif 4 and JetBrains Mono are bundled. With projectId the asset belongs to that project; without, every project of the workspace may use it.',
     scope: 'write',
     input: { url: z.string().url(), projectId: projectId.optional(), assetId: z.string().optional().describe('Id to use in the manifest, e.g. "music".'), license: licenseObj, idempotencyKey },
     annotations: { openWorldHint: true },
@@ -557,7 +557,7 @@ export const TOOLS: ToolDef[] = [
     title: 'Upload an asset (base64)',
     description:
       'Uploads a small file you already have (image incl. SVG, audio, video, font) as base64, for example a logo or generated audio. The type is checked from the bytes. With projectId it is added to the project as assetId. MCP messages are limited to a few MB; for larger files use REST POST /v1/assets (multipart) or add_asset_from_url.' +
-      ' Use it in scenes by its manifest id: template props media: { asset, fit: cover|contain|blur-fill, start (video in-point, s), dim } and logo: { asset, corner, size }, or asset:<id> in html scenes (<img src="asset:logo">, <video src="asset:clip">, url(asset:hero)). Video is frame-accurate at any frame rate; SVG is stored sanitised (no scripts, handlers or remote references). With projectId the asset belongs to that project; without, every project of the workspace may use it.',
+      ' Use it in scenes by its manifest id: template props media: { asset, fit: cover|contain|blur-fill, start (video in-point, s), dim } and logo: { asset, corner, size }, or asset:<id> in html scenes (<img src="asset:logo">, <video src="asset:clip">, url(asset:hero)). Video is frame-accurate at any frame rate; SVG is stored sanitised (no scripts, handlers or remote references). A font is used by naming its family (metadata.font.family) in the theme fontFamily; Inter, Source Serif 4 and JetBrains Mono are bundled. With projectId the asset belongs to that project; without, every project of the workspace may use it.',
     scope: 'write',
     input: {
       dataBase64: z.string().min(1).describe('File content, base64.'),

@@ -16,6 +16,7 @@ import type { StorageDriver } from './plugins';
 import { ASSETS_PREFIX } from './storage/keys';
 import { LocalStorageDriver } from './storage/local';
 import { MAX_SVG_BYTES, SvgError, looksLikeSvg, sanitizeSvg } from './svg';
+import { FontError, MAX_FONT_BYTES, readFontInfo, type FontInfo } from './fonts';
 
 /**
  * Content types the asset store accepts, decided from the file's bytes, not
@@ -455,6 +456,17 @@ export class AssetStore {
         { declaredContentType: input.declaredContentType }
       );
     }
+    // Fonts (#303): refused unless they parse; the family, style, weight, axes and licence note go into metadata.font.
+    let font: FontInfo | undefined;
+    if (sniffed.mediaType === 'font') {
+      if (file.bytes > MAX_FONT_BYTES) throw new ApiError('too_large', 413, `font files may be at most ${MAX_FONT_BYTES} bytes`);
+      try {
+        font = readFontInfo(await readAll());
+      } catch (e) {
+        if (e instanceof FontError) throw new ApiError('unsupported_media_type', 415, `the font file was refused: ${e.message}`);
+        throw e;
+      }
+    }
     const sha256 = file.sha256;
     const id = `ast-${sha256.slice(0, 16)}`;
     const existing = await this.find(id);
@@ -471,7 +483,7 @@ export class AssetStore {
       storageKey,
       ...(input.originalName ? { originalName: input.originalName.slice(0, 200) } : {}),
       ...(input.license ? { license: input.license } : {}),
-      ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(input.metadata || font ? { metadata: { ...(input.metadata ?? {}), ...(font ? { font } : {}) } } : {}),
     };
     // Bytes first: a row never points at a missing file.
     await write(ASSETS_PREFIX + storageKey, sniffed.contentType);

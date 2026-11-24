@@ -161,3 +161,20 @@ function runBinary(bin: string, args: string[]): Promise<{ stdout: Buffer }> {
       })
   );
 }
+
+/** Share of the pixels in `rect` (default: the whole picture) within `tolerance` of `color` per channel: how much text of that colour is drawn. */
+export function inkRatio(p: Picture, color: readonly number[], rect = { x: 0, y: 0, width: p.width, height: p.height }, tolerance = 60): number {
+  let hit = 0;
+  let n = 0;
+  for (let y = Math.round(rect.y); y < Math.round(rect.y + rect.height); y++) {
+    for (let x = Math.round(rect.x); x < Math.round(rect.x + rect.width); x++) {
+      const c = p.at(x, y);
+      n++;
+      if (Math.abs(c[0] - color[0]!) <= tolerance && Math.abs(c[1] - color[1]!) <= tolerance && Math.abs(c[2] - color[2]!) <= tolerance) hit++;
+    }
+  }
+  return n ? hit / n : 0;
+}
+
+/** The tiny test fonts (packages/core/test/fixtures/fonts, made by make-fonts.py): every glyph of "RF Block" is a solid box. */
+export const TEST_FONTS = new URL('../../core/test/fixtures/fonts/', import.meta.url).pathname;

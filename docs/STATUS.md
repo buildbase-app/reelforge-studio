@@ -92,7 +92,15 @@ from a per-render origin with no network (request interception for html, token p
 and Remotion, the composition folder for HyperFrames). Uploads with a `projectId` belong to that project. Tests: a
 four-engine render with an image, a clip, an SVG logo and an audio bed checked by pixels and loudness, under
 `strace` with 0 connections outside loopback, plus per-engine pixel tests and refusal tests
-([Images, video and audio in scenes](public/manifest/assets.md)). Fonts in themes follow in #303.
+([Images, video and audio in scenes](public/manifest/assets.md)).
+**Fonts (#303, D-1XX, 2026-11-24):** font assets (TTF, OTF, WOFF, WOFF2, variable included) are parsed on upload
+(family, style, weight, axes, licence note in `metadata.font`; files that do not parse are refused) and used by
+every engine when the theme or the scene names their family; a bundled OFL set (Inter, Source Serif 4, JetBrains
+Mono, from Fontsource) renders the same everywhere. Fonts load before the first frame (FontFace API in Remotion and
+Motion Canvas, `document.fonts` with a 15 s limit in html, HyperFrames' own wait), and a face that fails fails the
+render. Tests: glyph-shape pixel checks against the fallback on all four engines, refused fonts, the four-engine
+render with an uploaded font under `strace` (0 egress) ([Fonts](public/manifest/fonts.md)). Not yet: CJK/RTL
+fonts bundled, project fonts in burned captions, missing-glyph QA.
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,

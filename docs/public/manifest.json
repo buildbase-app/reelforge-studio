@@ -65,6 +65,7 @@
     "docs/public/manifest/templates.md",
     "docs/public/manifest/formats.md",
     "docs/public/manifest/assets.md",
+    "docs/public/manifest/fonts.md",
     "docs/public/cookbook/prompts.md",
     {
       "file": "docs/PRIVACY.md",
