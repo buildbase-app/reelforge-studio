@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./layout": "./src/layout.ts"
+    "./layout": "./src/layout.ts",
+    "./media": "./src/media.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

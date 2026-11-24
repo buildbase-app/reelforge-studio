@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { builtinMediaRefs, templateMediaProps, type PropAssetRef } from './assetRefs';
+
 /**
  * The template catalog: every scene names an engine and a template, and the
  * template decides which props are valid. A plan that names a template the
@@ -21,6 +23,8 @@ export const kineticTitleProps = z
     accent: hexColor.optional(),
     /** Overrides the theme background colour for this scene. */
     background: hexColor.optional(),
+    /** A background image or video (#299) and a logo, by manifest asset id. */
+    ...templateMediaProps,
   })
   .strict();
 
@@ -31,6 +35,8 @@ export const animatedExplainerProps = z
     points: z.array(z.string().min(1).max(90)).min(1).max(4),
     accent: hexColor.optional(),
     background: hexColor.optional(),
+    /** A background image or video (#299) and a logo, by manifest asset id. */
+    ...templateMediaProps,
   })
   .strict();
 
@@ -42,6 +48,8 @@ export const htmlTitleProps = z
     kicker: z.string().max(40).optional(),
     accent: hexColor.optional(),
     background: hexColor.optional(),
+    /** A background image or video (#299) and a logo, by manifest asset id. */
+    ...templateMediaProps,
   })
   .strict();
 
@@ -51,6 +59,8 @@ export const hyperframesTitleProps = z
     subline: z.string().max(120).optional(),
     accent: hexColor.optional(),
     background: hexColor.optional(),
+    /** A background image or video (#299) and a logo, by manifest asset id. */
+    ...templateMediaProps,
   })
   .strict();
 
@@ -80,12 +90,14 @@ export interface TemplateDefinition {
   /** Theme tokens the template reads (props such as `accent` override them). */
   themeTokens: readonly ThemeTokenName[];
   /**
-   * Asset ids the props refer to, with their paths inside `props`. The project
-   * schema checks each one is in the manifest's assets and is an image or a
-   * video (layout templates, #287).
+   * The assets the props place (#299). Validation checks that each one is in
+   * the manifest's assets and of an allowed media type; the renderer stages
+   * exactly these files for the scene.
    */
-  mediaAssets?: (props: unknown) => Array<{ path: (string | number)[]; asset: string }>;
+  mediaAssets?: (props: unknown) => PropAssetRef[];
 }
+
+const MEDIA_NOTE = ' Optional `media` (a background image or video asset, fit contain, cover or blur-fill, dimmed under the text) and `logo` (an image asset in a corner of the safe area).';
 
 const COMMON_TOKENS = [
   'colors.background',
@@ -107,29 +119,32 @@ export const TEMPLATES = {
   'kinetic-title': {
     engine: 'remotion',
     description:
-      'Bold animated headline (max 60 chars) that springs in word by word, an accent bar and an optional subline. Good as a hook. 1.5-8 s.',
+      'Bold animated headline (max 60 chars) that springs in word by word, an accent bar and an optional subline. Good as a hook. 1.5-8 s.' + MEDIA_NOTE,
     props: kineticTitleProps,
     minSeconds: 1.5,
     maxSeconds: 8,
     themeTokens: COMMON_TOKENS,
+    mediaAssets: builtinMediaRefs,
   },
   'animated-explainer': {
     engine: 'motion-canvas',
     description:
-      'A title followed by 1-4 numbered points revealed one by one; long points wrap. Good for steps or lists. 2-20 s.',
+      'A title followed by 1-4 numbered points revealed one by one; long points wrap. Good for steps or lists. 2-20 s.' + MEDIA_NOTE,
     props: animatedExplainerProps,
     minSeconds: 2,
     maxSeconds: 20,
     themeTokens: COMMON_TOKENS,
+    mediaAssets: builtinMediaRefs,
   },
   'html-title': {
     engine: 'html',
     description:
-      'Headline card built from HTML/CSS with an optional kicker and subline, animated with CSS keyframes. 1-12 s.',
+      'Headline card built from HTML/CSS with an optional kicker and subline, animated with CSS keyframes. 1-12 s.' + MEDIA_NOTE,
     props: htmlTitleProps,
     minSeconds: 1,
     maxSeconds: 12,
     themeTokens: [...COMMON_TOKENS, 'colors.surface', 'motionSpeed'],
+    mediaAssets: builtinMediaRefs,
   },
   'html-layout': {
     engine: 'html',
@@ -152,11 +167,12 @@ export const TEMPLATES = {
   'hyperframes-title': {
     engine: 'hyperframes',
     description:
-      'Headline and subline as a HyperFrames composition (GSAP timeline), rendered locally by the HyperFrames renderer. 1-12 s.',
+      'Headline and subline as a HyperFrames composition (GSAP timeline), rendered locally by the HyperFrames renderer. 1-12 s.' + MEDIA_NOTE,
     props: hyperframesTitleProps,
     minSeconds: 1,
     maxSeconds: 12,
     themeTokens: COMMON_TOKENS,
+    mediaAssets: builtinMediaRefs,
   },
 } as const satisfies Record<string, TemplateDefinition>;
 

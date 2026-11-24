@@ -2495,3 +2495,47 @@ around panes); a loopback media server for the html engine (a network path out o
 `<OffthreadVideo>`/`<Img>`; Motion Canvas has no DOM). Proof: `apps/server/test/formats.test.ts` (pane geometry and
 text measured in the browser at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K on both engines; fit modes, video start offsets
 and frame-by-frame video checked on rendered pixels) and the contact sheets in `docs/proofs/layouts/`.
+
+## AB. Assets in every engine (2026-11-24, issue #299)
+
+Live testing found uploaded images, video and fonts ignored by every engine: `EngineRenderContext.assets` was
+filled and never read. Fonts are #303 (a separate record).
+
+### D-1XX --- Scenes use assets by manifest id; each scene's files are staged, checked and served from a per-render origin; video becomes one picture per frame
+
+**Status:** DECIDED (reversible). Number assigned at merge.\
+**References.** Template props `media` (`asset`, `fit` `cover` / `contain` / `blur-fill`, `focus`, `start`, `dim`)
+and `logo` (`asset`, `corner`, `size`) on every built-in template, through a `mediaAssets(props)` hook on the
+template definition (the same hook the layouts work #287 adds), and `asset:<id>` in html / hyperframes markup. An
+id must be an entry of the same manifest's `assets`; store ids (`asset://`), paths, query strings, audio in markup
+and references inside elements that open documents (`iframe`, `object`, `embed`, `a`, `link`, `script`) are
+refused at validation and again at render time. **Staging** (`packages/core/src/sceneAssets.ts`): before a scene
+renders, its engine calls `stageSceneAssets` with the scene's uses; each file comes from the project's resolved
+assets only, is followed to its real path, sniffed again against the manifest's media type, size-checked
+(16384 px / 100 MP images, 8192 px / 3 h video, 2 GiB) and copied into the scene's work directory under a made-up
+name; SVG is rewritten again. **Serving:** by exact name from a map of staged files, never by joining a request
+path: html answers `http://rf-assets.invalid/<token>/` by Playwright request interception (no socket; the page
+CSP allows only that base for images and fonts), Motion Canvas serves `/<token>/` from its loopback bundle server,
+Remotion gets a loopback server for the length of the render (its browser is not ours to intercept), HyperFrames
+reads `assets/` inside its composition folder (`--refuse-outside-files`, deny-all sink unchanged). Responses send
+`nosniff` and `script-src 'none'`. **Video:** `videoFramesAt` (media-pipeline) extracts the pictures of the scene's
+frames (or frame range) with FFmpeg's `fps` filter on a grid anchored at the in-point (`-copyts`, `start_time`),
+rates as exact fractions (29.97 = 30000/1001), rotation applied, last frame held; engines show picture k at frame k
+(Remotion frame-range chunks stay frame-pure). HyperFrames seeks `<video>` itself, which tested frame-exact.
+**SVG** is accepted only rewritten from an allowlist (parse5 foreign content, serialised as XML by our code): no
+scripts, handlers, `foreignObject`, animation, external references or loading styles; links are unwrapped; shown
+only as images. **Decoding:** FFmpeg/ffprobe as children without server secrets (D-086) and with time limits;
+pictures by the engine's Chromium. **Projects:** an upload, import or provider result attached with `projectId`
+records the project on the asset (`metadata.projects`); another project listing that store id is refused by
+`validate_project` and the render (`asset_not_in_project`). Uploads without a project stay usable by the whole
+workspace (a brand kit); existing assets have no projects recorded and keep working. Workspaces (#348) separate
+stores below this. **Audio** stays on the `audio` buses (#346's mix); clip sound is not used. **Fit:**
+`packages/project-schema/src/media.ts` has `FitMode` / `fitMedia` with the same names and signature as #287's
+`layout.ts`, to be dropped for those when #287 lands. *Rejected:* playing `<video>` in the browsers (not
+frame-exact headless, and Chrome Headless Shell builds may lack H.264); `data:` URLs for everything (inflates
+Remotion input props and pages, no streaming); `file:` URLs (open the whole filesystem to the page); copying the
+store path into the page; rasterising SVG at upload (needs a browser in the upload path); a per-project asset table
+(a schema migration across three databases for what the metadata field answers). Proof:
+`apps/server/test/assets.e2e.test.ts` (four engines, pixels, loudness, `strace` 0 egress, project isolation),
+per-engine `test/assets.test.ts`, `packages/media-pipeline/test/media.test.ts` (no drift), contact sheet
+`docs/proofs/assets/templates-with-media.jpg`.

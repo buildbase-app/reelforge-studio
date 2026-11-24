@@ -90,6 +90,16 @@ frame, each with an image or video asset (`contain`, `cover`, `blur-fill`), text
 layout units and safe areas so they reflow per size and variant; pane geometry and text checked in the browser at six
 sizes on both engines and on rendered pixels, contact sheets in `docs/proofs/layouts/`
 ([Formats and layouts](public/manifest/formats.md#layouts-split-screen-picture-in-picture-lower-thirds-grids)).
+**Assets in every engine (#299, D-1XX, 2026-11-24):** uploaded images (PNG, JPEG, WebP, GIF, sanitised SVG) and
+video clips reach Remotion, Motion Canvas, html and HyperFrames: template props `media` (fit `cover` / `contain` /
+`blur-fill`) and `logo`, and `asset:<id>` in html scenes. Video is one picture per output frame on an exact
+frame-rate grid (no drift at 23.976 or 29.97; HyperFrames seeks it itself), and the audio bed is the existing
+`audio.music`. Files are staged per scene from the project's own manifest, re-sniffed and size-checked, and served
+from a per-render origin with no network (request interception for html, token paths on loopback for Motion Canvas
+and Remotion, the composition folder for HyperFrames). Uploads with a `projectId` belong to that project. Tests: a
+four-engine render with an image, a clip, an SVG logo and an audio bed checked by pixels and loudness, under
+`strace` with 0 connections outside loopback, plus per-engine pixel tests and refusal tests
+([Images, video and audio in scenes](public/manifest/assets.md)). Fonts in themes follow in #303.
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,

@@ -526,3 +526,17 @@ implementation or licensing decisions.
   WebVTT `Kind:` / `Language:` header lines follow the form YouTube and other players write;
   they are metadata lines in the WebVTT header block (W3C WebVTT, "file header"), not cue
   settings. BCP 47 well-formedness is checked with `Intl.getCanonicalLocales` (ECMA-402).
+- **Assets in engines (2026-11-24, issue #299).** Read from the installed packages (no network):
+  HyperFrames 0.9.77 `dist/chunk-ZXZVZTKA.js` `parseVideoElements` (every `<video src>` in a
+  composition is extracted frame by frame by its own FFmpeg pass; `data-start`, `data-duration`,
+  `data-media-start` for the in-point) and `chunk-RDPNPILW.js` `readMediaStart`; tested frame-exact at
+  30 and 29.97 fps (`packages/engine-hyperframes/test/assets.test.ts`). Motion Canvas 3.17.2
+  `@motion-canvas/2d` `Img` (pictures cached in a static `pool` per src; loading collected with
+  `DependencyContext.collectPromise` and awaited before each frame is drawn in
+  `GeneratorScene.render`), `@motion-canvas/core` `spawn` (a spawned thread first runs one frame late,
+  so the video thread reads `usePlayback().frame`). Remotion 4.0.545 `<Img>` (holds the frame with
+  `delayRender` until the picture loads). FFmpeg 6.1 `fps` filter: `start_time` anchors the output
+  grid and trims earlier frames; each output frame takes the last input frame whose timestamp rounds
+  to it (measured here: source frame within half an output frame, no drift over 12 s at 23.976 and
+  29.97; `packages/media-pipeline/test/media.test.ts`). Playwright (playwright-core 1.65.1) `route.fulfill` answers
+  requests in an `offline: true` context (checked here before relying on it).
