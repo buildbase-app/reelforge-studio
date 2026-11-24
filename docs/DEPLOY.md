@@ -621,6 +621,17 @@ Matrix, settings, autoscaling on the queue depth, connection pooling, read
 replicas, test cases and troubleshooting:
 [providers/queue-and-scaling.md](providers/queue-and-scaling.md).
 
+**How big:** a 1080x1920 render peaks at about 0.8 GB and keeps 1.1 to 1.5
+cores busy; a 3840x2160 one at about 1.7 GB. Set
+`REELFORGE_WORKER_CONCURRENCY` to about `vCPU / 1.5` (check memory for 4K),
+match it in the KEDA query, and keep the H.264 encoder's memory bounds
+(`render.encoderThreads`, `render.encoderLookahead`) at their defaults unless
+you measured otherwise. An api instance answers `503 overloaded` with
+`Retry-After` when more than `limits.maxInflightRequests` requests are in
+progress and a slot does not free up within `limits.inflightWaitMs`.
+Measured numbers, the sizing table and the KEDA and Docker recipes:
+[SCALE.md](SCALE.md).
+
 ## Database
 
 ReelForge picks the database from the `DATABASE_URL` scheme. Nothing to set up

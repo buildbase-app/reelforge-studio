@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream';
 import type { Tools } from '@reelforge/media-pipeline';
 import type {
   CaptionMode,
+  RenderAudioOptions,
   OutputSettings,
   Project,
   RenderScene,
@@ -240,6 +241,8 @@ export interface RenderRequest {
   scale?: number;
   /** Overrides the manifest's captions.mode for this render. */
   captionsMode?: CaptionMode;
+  /** Overrides the manifest's audio toggles and loudness preset for this render (render_project's `audio`). */
+  audio?: RenderAudioOptions;
   /** The server's captions.defaultMode when the job was queued (projects without captions.mode). */
   captionsDefault?: CaptionMode;
 }

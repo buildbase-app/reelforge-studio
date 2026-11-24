@@ -120,6 +120,21 @@ MySQL works the same with `--profile mysql`, `MYSQL_PASSWORD`,
 For a database server elsewhere, set only `DATABASE_URL`. Migrations run at every
 start (or with `reelforge migrate`).
 
+## Sizing
+
+One render at a time is the default. Each render needs, at its peak (measured with the html engine, 30 fps):
+
+| Video size | Memory | CPU |
+| --- | --- | --- |
+| 1080x1920 | about 0.8 GB | 1 to 1.5 cores while it runs |
+| 3840x2160 | about 1.7 GB | 1 to 1.5 cores, about 3 times as long |
+
+To render several at once, set `REELFORGE_RENDER_CONCURRENCY` to about the number of cores divided by 1.5,
+and check the memory for 4K. Renders are CPU-bound, so more than that only makes each render slower. The
+H.264 encoder keeps its memory low by default (`REELFORGE_RENDER_ENCODER_THREADS=2`,
+`REELFORGE_RENDER_ENCODER_LOOKAHEAD=20`). Sizing for many workers, and the measurements behind these numbers:
+[capacity and sizing](https://github.com/buildbase-app/reelforge-studio/blob/main/docs/SCALE.md).
+
 ## Backups
 
 Back up the database **and** the data volume (asset and render files are not in
