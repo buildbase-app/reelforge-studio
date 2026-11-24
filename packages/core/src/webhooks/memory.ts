@@ -45,7 +45,14 @@ export function createMemoryWebhookRepository(): WebhookRepository {
     },
     async listDeliveries(f = {}) {
       return [...deliveries.values()]
-        .filter((d) => (!f.endpointId || d.endpointId === f.endpointId) && (!f.status || d.status === f.status) && (!f.eventType || d.eventType === f.eventType) && (!f.before || d.id < f.before))
+        .filter(
+          (d) =>
+            (!f.endpointId || d.endpointId === f.endpointId) &&
+            (!f.status || d.status === f.status) && (!f.eventType || d.eventType === f.eventType) &&
+            (!f.eventId || d.eventId === f.eventId) &&
+            (!f.dedupeKey || d.dedupeKey === f.dedupeKey) &&
+            (!f.before || d.id < f.before)
+        )
         .sort((a, b) => b.id.localeCompare(a.id))
         .slice(0, f.limit ?? 50)
         .map(clone);
@@ -62,9 +69,10 @@ export function createMemoryWebhookRepository(): WebhookRepository {
       }
       return due.map(clone);
     },
-    async recordAttempt(a, patch) {
+    async recordAttempt(a, patch, lease) {
       const d = deliveries.get(a.deliveryId);
-      if (!d) return;
+      if (!d) return false;
+      if (lease !== undefined && (d.status !== 'delivering' || d.lockedUntil !== lease)) return false;
       attempts.push(clone(a));
       d.status = patch.status;
       d.attempts = patch.attempts;
@@ -76,6 +84,14 @@ export function createMemoryWebhookRepository(): WebhookRepository {
       if (patch.lastError === null) delete d.lastError;
       else if (patch.lastError !== undefined) d.lastError = patch.lastError;
       if (patch.deliveredAt) d.deliveredAt = patch.deliveredAt;
+      return true;
+    },
+    async reschedule(id, at) {
+      const d = deliveries.get(id);
+      if (!d || d.status !== 'pending') return false;
+      d.nextAttemptAt = at;
+      d.updatedAt = at;
+      return true;
     },
     async release(ids, at) {
       for (const id of ids) {

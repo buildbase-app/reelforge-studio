@@ -1,5 +1,6 @@
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
+import { isLanguageTag } from '@reelforge/project-schema';
 import { weakKeyReason } from '../keyStrength';
 
 /**
@@ -774,6 +775,30 @@ export const ConfigSchema = z.object({
           'First admin API key: `rf_` + at least 32 random URL-safe characters (`rf_$(openssl rand -hex 24)`); low-entropy values are refused. Stored hashed as key "bootstrap" on start if no key exists.',
       }
     ),
+    // MCP authorization (#305, D-112): OAuth 2.1 access tokens on /mcp next to API keys.
+    oauth: z.object({
+      issuer: setting(z.string().regex(/^https?:\/\/[^\s/]+(\/[^\s]*)?$/, 'must start with https:// (http:// only for a local test issuer)').optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_MCP_OAUTH_ISSUER',
+        example: 'https://auth.example.com/realms/studio',
+        description:
+          'Turns on OAuth for `/mcp`: the issuer identifier of your authorization server, exactly as in its tokens\' `iss` (trailing slash included). `/mcp` then also accepts its JWT access tokens (asymmetric signatures, keys from its JWKS) with `reelforge:read`, `reelforge:write`, `reelforge:render` or `reelforge:admin` in `scope`/`scp`, and serves `/.well-known/oauth-protected-resource`. API keys keep working. Unset: API keys only.',
+      }),
+      audience: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_MCP_OAUTH_AUDIENCE',
+        example: 'https://studio.example.com/mcp',
+        description: 'What a token\'s `aud` must contain: this server\'s MCP URL (RFC 8707 resource indicator). Default: `server.publicUrl` + `/mcp` (one of them is required with an issuer).',
+      }),
+      jwksUrl: setting(httpUrl().optional(), {
+        kind: 'url',
+        scope: 'startup',
+        env: 'REELFORGE_MCP_OAUTH_JWKS_URL',
+        description: 'The issuer\'s JWKS. Default: `jwks_uri` from its metadata (`/.well-known/oauth-authorization-server`, then OpenID discovery).',
+      }),
+    }),
   }),
   audit: z.object({
     retentionDays: setting(z.number().int().min(0).max(36500), {
@@ -838,15 +863,24 @@ export const ConfigSchema = z.object({
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_WEBHOOKS_TIMEOUT_SECONDS',
-      default: 15,
+      default: 10,
       description: 'Longest time one delivery attempt may take (connect, send, answer); then it counts as failed and is retried.',
     }),
     maxAttempts: setting(z.number().int().min(1).max(30), {
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_WEBHOOKS_MAX_ATTEMPTS',
-      default: 15,
-      description: 'Attempts per delivery before it becomes dead (dead letter; replayable). With the default backoff, 15 attempts span about 24 hours.',
+      default: 20,
+      description:
+        'Attempts per delivery before it becomes dead (failed for good; the dead letter queue, sent again with `resend_webhook`). With the default backoff the retry window ends first (about 15 attempts in 24 hours).',
+    }),
+    retryWindowHours: setting(z.number().int().min(1).max(168), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WEBHOOKS_RETRY_WINDOW_HOURS',
+      default: 24,
+      description:
+        'How long a delivery is retried after it was queued; the last attempt lands on the end of the window, then the delivery is dead (failed for good). A resend starts a new window.',
     }),
     retryBaseSeconds: setting(z.number().int().min(1).max(3600), {
       kind: 'integer',
@@ -954,6 +988,14 @@ export const ConfigSchema = z.object({
       description:
         'Hard limit for rendering one html or hyperframes scene, whatever its length (engines use their per-frame estimate when it is shorter). 30 to 3600 seconds.',
     }),
+    timeoutSeconds: setting(z.number().int().min(0).max(86400), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_RENDER_TIMEOUT_SECONDS',
+      default: 3600,
+      description:
+        'Longest time one render or preview job (or one unit or join of a fanned-out render) may run on a worker; then it is stopped and fails with `render_timeout` (the `render.timeout` event). `0`: no limit. Read when the job starts.',
+    }),
     fanOut: setting(z.enum(['off', 'scenes', 'scenes+chunks']), {
       kind: 'enum',
       scope: 'runtime',
@@ -1037,6 +1079,90 @@ export const ConfigSchema = z.object({
         secret: true,
         providerEnv: 'ELEVENLABS_API_KEY',
         description: 'Enables the ElevenLabs TTS provider. Same setting as `configure_provider` / `PUT /v1/providers/elevenlabs/config`; stored encrypted when set at runtime.',
+      }),
+    }),
+  }),
+  captions: z.object({
+    defaultMode: setting(z.enum(['off', 'burned', 'sidecar', 'both']), {
+      kind: 'enum',
+      scope: 'runtime',
+      env: 'REELFORGE_CAPTIONS_DEFAULT_MODE',
+      default: 'off',
+      description:
+        'Captions for projects that do not set `captions.mode` (docs/CAPTIONS.md): `off` (the default; projects render as before), `burned` into the video, `sidecar` files (SRT, WebVTT, ASS) next to final.mp4, or `both`. A project\'s `captions.mode` and render_project\'s `captions` override it.',
+    }),
+    stt: z.object({
+      provider: setting(z.string().min(1).max(64).regex(/^[a-z0-9-]+$/, 'a provider id such as faster-whisper'), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_PROVIDER',
+        default: 'faster-whisper',
+        description: 'Speech-to-text provider used by `transcribe_captions` (get_capabilities `captions.stt` lists the installed ones and whether each can run here).',
+      }),
+      command: setting(
+        z
+          .string()
+          .min(1)
+          .max(1024)
+          .refine((v) => /^[A-Za-z0-9._+-]+$/.test(v) || (v.startsWith('/') && !v.includes('\0') && !/[\r\n]/.test(v)), 'a command name on PATH (letters, digits, . _ + -) or an absolute path'),
+        {
+          kind: 'path',
+          scope: 'runtime',
+          env: 'REELFORGE_STT_COMMAND',
+          default: 'reelforge-whisper',
+          description:
+            'The local speech-to-text program: a name looked up on PATH or an absolute path. It is started directly (never through a shell) with a fixed argument list and no network access is needed (deployment/stt/README.md). The default `reelforge-whisper` is installed by the optional speech-to-text image layer; without it speech-to-text is off and get_capabilities says so. Admin-only like every setting, and audit-logged.',
+        }
+      ),
+      model: setting(z.string().min(1).max(200).regex(/^[A-Za-z0-9._/-]+$/, 'a model name such as small or a directory path'), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_MODEL',
+        default: 'small',
+        description:
+          'Whisper model: a name (tiny, base, small, medium, large-v3, distil-large-v3, ... and the .en variants) that must already be downloaded into `captions.stt.modelDir`, or the path of a converted model directory. Models are never downloaded at run time.',
+      }),
+      modelDir: setting(nonEmpty().max(1024).optional(), {
+        kind: 'path',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_MODEL_DIR',
+        defaultText: '(the Hugging Face cache of the server user)',
+        description: 'Directory the models were pre-downloaded into (the image layer uses `/opt/reelforge/whisper-models`).',
+      }),
+      language: setting(
+        z
+          .string()
+          .min(2)
+          .max(35)
+          .refine((v) => v === 'auto' || isLanguageTag(v), '"auto" or a BCP 47 language tag such as en or pt-BR'),
+        {
+          kind: 'string',
+          scope: 'runtime',
+          env: 'REELFORGE_STT_LANGUAGE',
+          default: 'auto',
+          description: 'Spoken language of voice-overs: `auto` detects it, or a BCP 47 tag (its primary subtag is passed to Whisper, e.g. `pt` for `pt-BR`). `transcribe_captions` can pass one per call.',
+        }
+      ),
+      computeType: setting(z.enum(['default', 'auto', 'int8', 'int8_float32', 'int8_float16', 'int8_bfloat16', 'int16', 'float16', 'bfloat16', 'float32']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_COMPUTE_TYPE',
+        default: 'int8',
+        description: 'CTranslate2 compute type: `int8` is fast on a CPU; `float16` needs a GPU.',
+      }),
+      device: setting(z.enum(['cpu', 'cuda', 'auto']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_DEVICE',
+        default: 'cpu',
+        description: '`cpu`, `cuda` (an NVIDIA GPU with CUDA libraries in the image) or `auto`.',
+      }),
+      timeoutSeconds: setting(z.number().int().min(10).max(3600), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_STT_TIMEOUT_SECONDS',
+        default: 600,
+        description: 'Longest one transcription may run (10 to 3600 seconds); the process is killed after it.',
       }),
     }),
   }),

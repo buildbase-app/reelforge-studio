@@ -52,8 +52,8 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   },
   {
     title: 'Captions',
-    intro: 'Caption cues: imported from SRT or WebVTT, written by hand, or built from the voice\'s word timestamps. Rendered when captions.mode is burned, sidecar or both.',
-    tools: ['import_captions'],
+    intro: 'Caption cues in one or more languages: imported from SRT or WebVTT, written by hand, built from the voice\'s word timestamps (TTS or local speech-to-text), reviewed and approved before the final render. Rendered when captions.mode (or the server default) is burned, sidecar or both.',
+    tools: ['import_captions', 'get_captions', 'update_captions', 'transcribe_captions'],
   },
   {
     title: 'Media providers',
@@ -91,7 +91,7 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   {
     title: 'Webhooks and notifications',
     intro:
-      'Signed webhook endpoints (Standard Webhooks), their delivery log and replays. Admin scope. Notification channels (Slack, Discord, Teams, email) are configured with update_config.',
+      'Signed webhook endpoints (Standard Webhooks), terminal render events, their delivery log, resends and secret rotation. Admin scope, except get_webhook_log (read). Notification channels (Slack, Discord, Teams, email) are configured with update_config.',
     tools: [
       'list_webhooks',
       'get_webhook',
@@ -101,6 +101,9 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
       'test_webhook',
       'list_webhook_deliveries',
       'replay_webhook_delivery',
+      'resend_webhook',
+      'rotate_webhook_secret',
+      'get_webhook_log',
     ],
   },
 ];

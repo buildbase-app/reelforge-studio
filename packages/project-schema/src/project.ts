@@ -16,7 +16,7 @@ import {
   type TemplateCatalog,
 } from './templates';
 import { themeId, themeTokensPatch } from './themes';
-import { captionWord, projectCaptions } from './captions';
+import { MAX_CAPTION_LANGUAGES, captionWord, isLanguageTag, projectCaptions, sameLanguage, type CaptionCue } from './captions';
 
 /**
  * Manifest v0.2: the agent-facing contract (docs/AGENT_PLATFORM.md §5).
@@ -355,14 +355,35 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
     add(['audio', 'voice', 'startFrame'], `startFrame is after the end of the video (${cursor} frames)`);
   }
 
-  (p.captions.cues ?? []).forEach((c, i) => {
-    if (c.end <= c.start) add(['captions', 'cues', i, 'end'], `the cue ends (${c.end}s) before it starts (${c.start}s)`);
-    const prev = p.captions.cues![i - 1];
-    if (prev && c.start < prev.start) add(['captions', 'cues', i, 'start'], 'cues must be in time order');
-    c.words?.forEach((w, j) => {
-      if (w.end < w.start) add(['captions', 'cues', i, 'words', j, 'end'], 'the word ends before it starts');
+  // Cues: end after start, words in order, and time order within each kind (captions and descriptions may overlap).
+  const checkCues = (cues: readonly CaptionCue[], at: Array<string | number>) => {
+    const last: Record<string, number> = {};
+    cues.forEach((c, i) => {
+      if (c.end <= c.start) add([...at, i, 'end'], `the cue ends (${c.end}s) before it starts (${c.start}s)`);
+      const kind = c.kind ?? 'caption';
+      if (last[kind] !== undefined && c.start < last[kind]!) add([...at, i, 'start'], `${kind} cues must be in time order`);
+      last[kind] = c.start;
+      c.words?.forEach((w, j) => {
+        if (w.end < w.start) add([...at, i, 'words', j, 'end'], 'the word ends before it starts');
+      });
     });
-  });
+  };
+  checkCues(p.captions.cues ?? [], ['captions', 'cues']);
+  // Languages (#300): tracks are other languages than the primary one, each once; burnLanguage is one of them.
+  const primary = p.captions.language ?? (p.brief?.language && isLanguageTag(p.brief.language) ? p.brief.language : undefined);
+  const tracks = Object.entries(p.captions.tracks ?? {});
+  if (tracks.length + 1 > MAX_CAPTION_LANGUAGES) add(['captions', 'tracks'], `at most ${MAX_CAPTION_LANGUAGES} languages (the primary one and ${MAX_CAPTION_LANGUAGES - 1} tracks)`);
+  const seen: string[] = [];
+  for (const [lang, t] of tracks) {
+    if (sameLanguage(lang, primary)) add(['captions', 'tracks', lang], `"${lang}" is the primary language (captions.language); put its cues in captions.cues`);
+    else if (seen.some((l) => sameLanguage(l, lang))) add(['captions', 'tracks', lang], `language "${lang}" appears twice`);
+    seen.push(lang);
+    checkCues(t.cues, ['captions', 'tracks', lang, 'cues']);
+  }
+  const burn = p.captions.burnLanguage;
+  if (burn && !sameLanguage(burn, primary) && !tracks.some(([l]) => sameLanguage(l, burn))) {
+    add(['captions', 'burnLanguage'], `"${burn}" is neither the primary language (${primary ?? 'not set'}) nor a key of captions.tracks`);
+  }
 
   const totalSeconds = cursor / p.output.fps;
   if (totalSeconds > MAX_PROJECT_SECONDS) {

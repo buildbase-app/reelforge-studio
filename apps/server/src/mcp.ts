@@ -4,9 +4,10 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { ApiError, PRIORITIES, ReelforgeService, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
 import { auditAction, auditTarget } from './audit';
-import { SCHEMA_VERSION } from '@reelforge/project-schema';
+import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag } from '@reelforge/project-schema';
 import { z } from 'zod';
 import type { ServerConfig } from './config';
+import { resourceMetadataUrl } from './oauth';
 
 /**
  * MCP tools are thin wrappers over ReelforgeService (the same methods the REST
@@ -326,10 +327,79 @@ export const TOOLS: ToolDef[] = [
       content: z.string().min(1).max(1_000_000).describe('The SRT or WebVTT file as text.'),
       format: z.enum(['srt', 'vtt']).optional(),
       mode: z.enum(['off', 'burned', 'sidecar', 'both']).optional(),
-      language: z.string().min(2).max(35).optional().describe('BCP 47 language tag, e.g. "en".'),
+      language: languageTag.optional().describe('BCP 47 language tag, e.g. "en".'),
       expectedVersion,
     },
     run: async (a, { service }) => service.importCaptions(a.projectId, { content: a.content, format: a.format, mode: a.mode, language: a.language }, a.expectedVersion),
+  },
+  {
+    name: 'get_captions',
+    title: 'Get captions for review',
+    description:
+      'Returns the captions of a project (projectId) or of a finished render (renderId): for every language (BCP 47; the primary one first) the caption cues ({ start, end, text } in seconds, with word timings when known), the audio-description cues, which language is burned in, and the quality check (qa: characters per line, lines, reading speed, durations, gaps). For a project also the effective mode (and whether it comes from the project, the server default or nowhere), an etag and whether the user approved these captions. Before the final render, show the user the cue texts and times (and any qa issues) and ask whether to approve or change them; do not assume approval.',
+    scope: 'read',
+    input: {
+      projectId: projectId.optional(),
+      renderId: z.string().optional().describe('A render id: the captions as they were rendered.'),
+      language: languageTag.optional().describe('Only this language.'),
+    },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => service.getCaptions({ projectId: a.projectId, renderId: a.renderId, language: a.language }),
+  },
+  {
+    name: 'update_captions',
+    title: 'Edit or approve captions',
+    description:
+      'Edits the captions of a project with an optimistic-concurrency check: pass the etag from get_captions (refused with captions_conflict if anything changed since; read again and show the user the new state). Either replace every cue of one language (cues; a new language tag adds a language, [] removes it) or change some by their get_captions index (edits: { index, text?, start?, end?, delete? }, kind "description" for audio-description cues). Cues built from the voice are saved as manual cues when edited. Also sets mode (off, burned, sidecar, both), burnLanguage (the one language burned in) and highlight. approve: true records that the user approved the captions as they are after this call (only when the user said so); any later change voids it. Returns the same view as get_captions with the quality check re-run. Audit-logged.',
+    scope: 'write',
+    input: {
+      projectId,
+      etag: z.string().min(1).max(100).describe('etag from get_captions.'),
+      language: languageTag.optional().describe('Language to edit; default the primary language.'),
+      cues: z.array(captionCue).max(2000).optional().describe('All cues of this language: { start, end, text, kind? ("description" for audio description) }.'),
+      edits: z
+        .array(
+          z
+            .object({
+              index: z.number().int().min(0).max(1999),
+              kind: z.enum(CUE_KINDS).optional(),
+              text: z.string().min(1).max(500).optional(),
+              start: z.number().min(0).optional(),
+              end: z.number().min(0).optional(),
+              delete: z.literal(true).optional(),
+            })
+            .strict()
+        )
+        .max(500)
+        .optional(),
+      mode: z.enum(['off', 'burned', 'sidecar', 'both']).optional(),
+      burnLanguage: languageTag.nullable().optional().describe('The language burned into the video; null: the primary language.'),
+      highlight: z.enum(['none', 'word']).optional(),
+      approve: z.boolean().optional().describe('true only after the user approved these captions; false withdraws an approval.'),
+      expectedVersion,
+    },
+    run: async (a, { service }) => {
+      const { projectId: id, expectedVersion: ev, ...rest } = a;
+      return service.updateCaptions(id, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)), ev);
+    },
+  },
+  {
+    name: 'transcribe_captions',
+    title: 'Transcribe the voice-over (speech-to-text)',
+    description:
+      'Runs the server\'s local speech-to-text (faster-whisper, when installed: get_capabilities captions.stt.available) on the project\'s voice track and stores the word timings on it; caption cues are then built from them (like generate_voice timestamps). No network and no cost, but it takes CPU time (seconds to minutes) and one runs at a time (stt_busy: retry later). Upload the voice-over first (upload_asset with projectId, then set_audio { voice: { asset } }). language: "auto" (default from the server) or the spoken language. Manual caption cues take precedence: replaceCues: true removes them. Then get_captions and ask the user to review.',
+    scope: 'render',
+    input: {
+      projectId,
+      language: z.string().min(2).max(35).optional().describe('"auto" or a BCP 47 tag such as "en" or "pt-BR".'),
+      provider: z.string().optional().describe('Speech-to-text provider id; default from the server (captions.stt.provider).'),
+      replaceCues: z.boolean().optional(),
+      expectedVersion,
+    },
+    run: async (a, { service }) => {
+      const { projectId: id, expectedVersion: ev, ...rest } = a;
+      return service.transcribeCaptions(id, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)), ev);
+    },
   },
   {
     name: 'generate_voice',
@@ -406,7 +476,7 @@ export const TOOLS: ToolDef[] = [
       captions: z
         .enum(['off', 'burned', 'sidecar', 'both'])
         .optional()
-        .describe('Captions for this render, overriding the manifest\'s captions.mode: off, burned into the video, sidecar files (SRT, WebVTT, ASS) next to final.mp4, or both.'),
+        .describe('Captions for this render, overriding the manifest\'s captions.mode (and the server default captions.defaultMode): off, burned into the video, sidecar files (SRT, WebVTT, ASS per language) next to final.mp4, or both.'),
       idempotencyKey,
     },
     run: async (a, { service }) => {
@@ -816,7 +886,7 @@ export const TOOLS: ToolDef[] = [
     name: 'create_webhook',
     title: 'Create a webhook or notification channel (admin)',
     description:
-      'Sends server events to an endpoint so automations (n8n, Zapier, Make, your backend) or people react without polling. type "webhook" (default): an HTTPS POST of {id, type, timestamp, data} signed per Standard Webhooks (webhook-id, webhook-timestamp, webhook-signature "v1,<base64 HMAC-SHA256>"); the signing secret (whsec_...) is returned ONCE: give it to the user to verify signatures. type "slack" / "discord" / "teams": the channel\'s incoming webhook URL. type "email": email { provider: smtp|resend|postmark|ses|sendgrid, to: [addresses] } (the provider is set up with update_config, notifications.email.*). events: event types or patterns: job.queued, job.started, job.progress, job.succeeded, job.failed, job.cancelled, render.ready, licence.state_changed, key.created, key.revoked, config.changed, audit.entry, "job.*", or "*" (all but job.progress and audit.entry). Deliveries are retried with backoff for about 24 h. Private and http:// URLs are refused unless the operator allowed them at start-up. Needs the admin scope.',
+      'Sends server events to an endpoint so automations (n8n, Zapier, Make, your backend) or people react without polling. type "webhook" (default): an HTTPS POST of {id, type, timestamp, data} signed per Standard Webhooks (webhook-id, webhook-timestamp, webhook-signature "v1,<base64 HMAC-SHA256>"); the signing secret (whsec_...) is returned ONCE: give it to the user to verify signatures. type "slack" / "discord" / "teams": the channel\'s incoming webhook URL. type "email": email { provider: smtp|resend|postmark|ses|sendgrid, to: [addresses] } (the provider is set up with update_config, notifications.email.*). events: event types or patterns: job.queued, job.started, job.progress, job.succeeded, job.failed, job.cancelled, render.ready, render.failed, render.cancelled, render.timeout, render.qa_failed, render.blocked (one terminal render.* event per render job), licence.state_changed, key.created, key.revoked, config.changed, audit.entry, "job.*", "render.*", or "*" (all but job.progress and audit.entry). Deliveries are retried with exponential backoff for up to 24 h (10 s timeout per attempt), then marked dead. Private and http:// URLs are refused unless the operator allowed them at start-up. Needs the admin scope.',
     scope: 'admin',
     input: {
       name: z.string().describe('A label, e.g. "n8n render pipeline".'),
@@ -895,6 +965,51 @@ export const TOOLS: ToolDef[] = [
     annotations: { openWorldHint: true },
     run: async (a, { service, auth }) => service.replayWebhookDelivery(a.webhookId, a.deliveryId, { actorType: 'api_key', actorId: auth.keyId }),
   },
+  {
+    name: 'resend_webhook',
+    title: 'Send an event to a webhook again (admin)',
+    description:
+      'Sends one event to an endpoint again, named by exactly one of: deliveryId (from get_webhook_log), eventId, or dedupeKey ("render:<jobId>": the terminal outcome of a render job). A delivery still waiting for its next retry is sent now ("rescheduled"); a finished one (succeeded or dead) is queued again with the same payload and webhook-id ("queued", with a fresh 24 h retry window); an event the endpoint never got (found at another endpoint) is queued for it. Receivers deduplicate on webhook-id. Needs the admin scope.',
+    scope: 'admin',
+    input: {
+      webhookId: z.string(),
+      deliveryId: z.string().optional(),
+      eventId: z.string().optional(),
+      dedupeKey: z.string().optional().describe('e.g. "render:job_..." for the render.* outcome of that job.'),
+    },
+    annotations: { openWorldHint: true },
+    run: async ({ webhookId, ...a }, { service, auth }) => service.resendWebhook(webhookId, a, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'rotate_webhook_secret',
+    title: 'Rotate a webhook signing secret (admin)',
+    description:
+      'Gives a webhook a new signing secret (returned once; or bring your own with secret: "whsec_..."). For overlapHours (default webhooks.secretRotationGraceHours, 24) every message is signed with the new and the previous secret (two v1 signatures in webhook-signature), so the receiver accepts both while it switches. endOverlap: true stops signing with the previous secret at once. Needs the admin scope.',
+    scope: 'admin',
+    input: {
+      webhookId: z.string(),
+      overlapHours: z.number().min(0).max(720).optional().describe('Hours both secrets sign (0: only the new one at once).'),
+      secret: z.string().optional().describe('Your own new secret: whsec_ + base64 of 24 to 64 bytes. Omit to get a generated one.'),
+      endOverlap: z.boolean().optional().describe('End the current overlap now (the receiver has switched).'),
+    },
+    run: async ({ webhookId, ...a }, { service, auth }) => service.rotateWebhookSecret(webhookId, a, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'get_webhook_log',
+    title: 'Read a webhook delivery log',
+    description:
+      'The delivery log of one endpoint, newest first, without payloads or the target URL: per delivery its event type, webhook-id, dedupeKey, status (pending, delivering, succeeded, dead = failed for good), attempts, latency (latencyMs of the last attempt, durationMs of each), last HTTP status and error, and giveUpAt while it is retried; a summary (success rate, p50/p95 latency) and the retry policy. Filter by status or eventType; page with cursor. Needs the read scope.',
+    scope: 'read',
+    input: {
+      webhookId: z.string(),
+      status: z.enum(['pending', 'delivering', 'succeeded', 'dead']).optional(),
+      eventType: z.string().optional(),
+      limit: z.number().int().min(1).max(500).optional().describe('Default 50.'),
+      cursor: z.string().optional().describe('nextCursor of the previous page.'),
+    },
+    annotations: { readOnlyHint: true },
+    run: async ({ webhookId, ...q }, { service }) => service.getWebhookLog(webhookId, q),
+  },
 ];
 
 /** Served as the resource reelforge://guide/workflow and inside the make_reel prompt. */
@@ -921,9 +1036,20 @@ done with tools; there is no UI.
 6. Sound (optional): add_asset_from_url or upload_asset (base64) with licence
    metadata, then set_audio { music: { asset, volume } }. generate_voice needs a
    configured TTS provider and acknowledgeCost: true after the user agreed.
-7. validate_project until ok: true (warnings are fine but read them).
-8. Optional quick look: preview_scene (low resolution), then get_render_output.
-9. render_project -> get_job with waitSeconds 45 (repeat while running) until succeeded/failed ->
+7. Captions (optional; get_capabilities captions): timings come from generate_voice,
+   from transcribe_captions (local speech-to-text of an uploaded voice-over, when
+   captions.stt.available), from import_captions (SRT/WebVTT) or from cues you write.
+   Turn them on with update_captions { mode: "burned" | "sidecar" | "both" }. More
+   languages: update_captions { language: "es", cues: [...] }; one is burned
+   (burnLanguage), each gets sidecar files. Audio description: cues with
+   kind "description" (a WebVTT sidecar, never burned).
+   Approval: before the final render call get_captions, show the user the cue
+   texts and times and any qa issues, and ASK whether to approve or change them.
+   Never assume approval. Apply changes with update_captions (etag from
+   get_captions); when the user approves, update_captions { approve: true }.
+8. validate_project until ok: true (warnings are fine but read them).
+9. Optional quick look: preview_scene (low resolution), then get_render_output.
+10. render_project -> get_job with waitSeconds 45 (repeat while running) until succeeded/failed ->
    get_render_output. Give the user downloadUrl (works without a key for ~1 h).
    If it failed: get_job_logs, fix, render again (or retry_job).
    An error licence_required / licence_invalid is not a manifest problem: tell
@@ -981,6 +1107,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
       instructions:
         'ReelForge Studio renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ' +
         'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
+        'With captions, call get_captions and ask the user to approve them (update_captions approve: true) before render_project; never assume approval. ' +
         'Full guide with a minimal manifest: resource reelforge://guide/workflow or prompt make_reel. ' +
         'Renders need a valid licence: get_capabilities.licence / get_licence say whether renders are allowed and, if not, what the user must do. ' +
         'Tools are experimental until v1.0.',
@@ -1098,7 +1225,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
           role: 'user',
           content: {
             type: 'text',
-            text: `Make a short video about: ${topic}\n\nUse the size the user asked for (vertical 1080x1920 if they did not say). Follow this guide exactly, using only the ReelForge tools. Show me the scene list with timings before rendering, and give me the downloadUrl at the end.\n\n${WORKFLOW_GUIDE}`,
+            text: `Make a short video about: ${topic}\n\nUse the size the user asked for (vertical 1080x1920 if they did not say). Follow this guide exactly, using only the ReelForge tools. Show me the scene list with timings before rendering. If the reel has captions, show me them (get_captions) and ask me to approve or change them before the final render; do not assume I approve. Give me the downloadUrl at the end.\n\n${WORKFLOW_GUIDE}`,
           },
         },
       ],
@@ -1192,7 +1319,16 @@ export function serverCard(service: ReelforgeService, config: ServerConfig) {
     description: 'Self-hosted short-form video studio. Agents create and edit projects; the server renders and validates MP4s.',
     endpoint: `${base}/mcp`,
     transport: { type: 'streamable-http', stateless: true, jsonResponse: true },
-    authentication: { type: 'bearer', header: 'Authorization', format: 'Bearer rf_<key>', howToGetAKey: 'the operator runs `pnpm keys:create` or POST /v1/keys' },
+    authentication: {
+      type: 'bearer',
+      header: 'Authorization',
+      format: 'Bearer rf_<key>',
+      howToGetAKey: 'the operator runs `pnpm keys:create` or POST /v1/keys',
+      // MCP OAuth (D-112): an access token of this issuer works too; discovery via the protected-resource metadata.
+      ...(config.resolved.config.security.oauth.issuer
+        ? { oauth: { issuer: config.resolved.config.security.oauth.issuer, resourceMetadata: resourceMetadataUrl(config.resolved.config.security.oauth.audience ?? `${base}/mcp`) } }
+        : {}),
+    },
     status: 'experimental',
     schemaVersion: SCHEMA_VERSION,
     tools: TOOLS.map((t) => ({ name: t.name, title: t.title, scope: t.scope, status: 'experimental' })),
