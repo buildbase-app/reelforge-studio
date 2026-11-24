@@ -53,7 +53,7 @@ export interface WorkspaceView extends WorkspaceRecord {
 }
 
 /**
- * Workspace management (#304, D-1XX): what the owner tools do (create, list, rename, change limits, suspend,
+ * Workspace management (#304, D-125): what the owner tools do (create, list, rename, change limits, suspend,
  * delete with a grace period, restore) plus the per-workspace limits the service enforces. Every action is audited
  * in the owner's workspace and in the workspace it changed.
  */

@@ -1,6 +1,10 @@
 import { rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { totalFrames, type Project } from '@reelforge/project-schema';
+import {
+  framesToSeconds,
+  totalFrames,
+  type Project,
+} from '@reelforge/project-schema';
 import { ApiError, notFound } from './errors';
 import { KeyedMutex } from './fsutil';
 import type { PageRequest } from './paging';
@@ -11,7 +15,7 @@ export type { ProjectMeta, StoredProject } from './repositories';
 
 /** The list fields of a manifest; the database stores them on the project row with each version (D-102). */
 export function projectStats(m: Project): { title: string; scenes: number; durationSeconds: number } {
-  return { title: m.title, scenes: m.scenes.length, durationSeconds: totalFrames(m) / m.output.fps };
+  return { title: m.title, scenes: m.scenes.length, durationSeconds: framesToSeconds(totalFrames(m), m.output.fps) };
 }
 
 export function summarizeProject(meta: ProjectMeta, m: Project): ProjectSummary {

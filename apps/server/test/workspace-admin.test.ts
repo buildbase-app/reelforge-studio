@@ -197,5 +197,6 @@ describe('workspace management (#304)', () => {
   });
 
   // #343 (MCP OAuth) has not landed: when it does, an access token's workspace claim scopes it like a key.
+  // OAuth tokens (D-112) act in the default workspace today (OAUTH-09 in mcp-oauth.test.ts); the claim mapping is next.
   it.todo('WSA-08 an MCP OAuth access token is scoped by its workspace claim (reelforge:workspace); a token for an unknown or suspended workspace is refused');
 });

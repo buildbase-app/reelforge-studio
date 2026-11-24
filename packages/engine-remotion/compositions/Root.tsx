@@ -1,6 +1,6 @@
 import React from 'react';
 import { Composition, registerRoot } from 'remotion';
-import type { KineticTitleProps, ThemeTokens } from '@reelforge/project-schema';
+import type { KineticTitleProps, SceneMedia, ThemeTokens } from '@reelforge/project-schema';
 import { KineticTitle } from './KineticTitle';
 
 /**
@@ -14,11 +14,12 @@ interface RenderInput {
 
 // Props are validated by @reelforge/project-schema before a render starts, so
 // the composition does not declare a Remotion (zod 3) schema of its own.
-const KineticTitleEntry: React.FC<Record<string, unknown>> = ({ __output: _ignored, __theme, __platform, ...props }) => (
+const KineticTitleEntry: React.FC<Record<string, unknown>> = ({ __output: _ignored, __theme, __platform, __assets, ...props }) => (
   <KineticTitle
     {...(props as unknown as KineticTitleProps)}
     theme={(__theme as ThemeTokens | undefined) ?? undefined}
     platform={typeof __platform === 'string' ? __platform : undefined}
+    assets={(__assets as Record<string, SceneMedia> | undefined) ?? {}}
   />
 );
 

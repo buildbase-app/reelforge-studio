@@ -1,5 +1,5 @@
 /**
- * Workspaces (#304): the workspace repository, the routing bundle and migration 0013 on every database.
+ * Workspaces (#304): the workspace repository, the routing bundle and migration 0015 on every database.
  *
  *   memory      always (createMemoryWorkspaceRepositories)
  *   sqlite      always
@@ -13,9 +13,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   createMemoryWorkspaceRepositories,
   newId,
+  newSequentialId,
   runInWorkspace,
   runAsSystem,
   type JobRecord,
+  type WebhookDeliveryRecord,
+  type WebhookEndpointRecord,
   type WorkspaceRouter,
 } from '@reelforge/core';
 import { parseProject, type Project } from '@reelforge/project-schema';
@@ -161,6 +164,65 @@ describe.each(targets)('workspaces contract: $name', ({ kind }) => {
     expect(await runAsSystem(() => r.jobs.listUnfinished())).toEqual([]);
   });
 
+  it('WSP-06 webhook operations (#342) and the claim plan (#349) stay in their workspace', async () => {
+    const now = Date.now();
+    const t = iso(now);
+    // ---- webhooks: lookups by eventId / dedupeKey, reschedule and the lease-fenced recordAttempt -------------------
+    const ep: WebhookEndpointRecord = {
+      id: newSequentialId('whk'), name: 'a hook', type: 'webhook', url: { value: 'v1.kid.iv.tag.url', scheme: 'aes-256-gcm' }, urlDisplay: 'https://a.example/…',
+      events: ['render.*'], enabled: true, secret: { value: 'v1.kid.iv.tag.secret', scheme: 'aes-256-gcm' }, createdAt: t, updatedAt: t,
+    };
+    const key = `render:${newId('job')}`;
+    const evt = newSequentialId('evt');
+    const d: WebhookDeliveryRecord = {
+      id: newSequentialId('dlv'), endpointId: ep.id, messageId: newSequentialId('msg'), eventId: evt, eventType: 'render.failed', dedupeKey: key,
+      payload: { id: evt, type: 'render.failed', timestamp: t, data: { jobId: key.slice(7) }, dedupeKey: key }, status: 'pending', attempts: 0, nextAttemptAt: iso(now + 3_600_000), createdAt: t, updatedAt: t,
+    };
+    await runInWorkspace('ws-a', async () => {
+      await r.webhooks.insertEndpoint(ep);
+      await r.webhooks.enqueue([d]);
+    });
+    const attempt = { id: newSequentialId('att'), deliveryId: d.id, endpointId: ep.id, attempt: 1, at: t, durationMs: 5, status: 200, outcome: 'success' as const };
+    const done = { status: 'succeeded' as const, attempts: 1, lockedUntil: null, lastStatus: 200, deliveredAt: t, updatedAt: t };
+    await runInWorkspace('ws-b', async () => {
+      expect(await r.webhooks.getEndpoint(ep.id)).toBeNull();
+      expect(await r.webhooks.getDelivery(d.id)).toBeNull();
+      expect(await r.webhooks.listDeliveries({ dedupeKey: key })).toEqual([]);
+      expect(await r.webhooks.listDeliveries({ eventId: evt })).toEqual([]);
+      expect(await r.webhooks.listDeliveries({})).toEqual([]);
+      expect(await r.webhooks.reschedule(d.id, t)).toBe(false);
+      expect(await r.webhooks.recordAttempt(attempt, done)).toBe(false);
+      expect(await r.webhooks.listAttempts(d.id)).toEqual([]);
+    });
+    await runInWorkspace('ws-a', async () => {
+      expect((await r.webhooks.listDeliveries({ dedupeKey: key })).map((x) => x.id)).toEqual([d.id]);
+      expect((await r.webhooks.getDelivery(d.id))!.nextAttemptAt).toBe(d.nextAttemptAt);
+      expect(await r.webhooks.reschedule(d.id, t)).toBe(true);
+    });
+    // The worker claims across workspaces and sends each delivery in its own: only there does its lease count.
+    const [claimed] = (await runAsSystem(() => r.webhooks.claim(iso(now + 1000), iso(now + 61_000), 100))).filter((x) => x.id === d.id);
+    expect(claimed?.workspaceId).toBe('ws-a');
+    expect(await runInWorkspace('ws-b', () => r.webhooks.recordAttempt(attempt, done, claimed!.lockedUntil))).toBe(false);
+    expect(await runInWorkspace('ws-a', () => r.webhooks.recordAttempt(attempt, done, claimed!.lockedUntil))).toBe(true);
+    expect(await runInWorkspace('ws-a', () => r.webhooks.listAttempts(d.id))).toHaveLength(1);
+
+    // ---- the claim plan (#349): the per-key running cap and the skip scan count one workspace's jobs only -------------
+    const a1 = queued({ apiKeyId: 'key_same' }), a2 = queued({ apiKeyId: 'key_same' }), b1 = queued({ apiKeyId: 'key_same' });
+    await runInWorkspace('ws-a', async () => {
+      await r.jobs.insert(a1, t);
+      await r.jobs.insert(a2, t);
+    });
+    await runInWorkspace('ws-b', () => r.jobs.insert(b1, t));
+    const claim = (w: string) => runAsSystem(() => r.jobs.claim({ workerId: w, types: ['render'], now: t, leaseUntil: iso(now + 60_000), maxRunningPerKey: 1 }));
+    const got = [await claim('p1'), await claim('p2'), await claim('p3')].map((j) => j && `${j.workspaceId}:${j.id}`);
+    // One of A's (the cap holds A's second back) and B's, whose cap does not count A's running job.
+    expect(got.slice(0, 2).sort()).toEqual([`ws-a:${a1.id}`, `ws-b:${b1.id}`].sort());
+    expect(got[2]).toBeNull();
+    // A claim by id never reaches across: B asking for A's job gets nothing.
+    expect(await runInWorkspace('ws-b', () => r.jobs.claim({ workerId: 'p4', types: ['render'], now: t, leaseUntil: iso(now + 60_000), id: a2.id }))).toBeNull();
+    for (const j of await runAsSystem(() => r.jobs.listUnfinished())) await r.jobs.transition({ ...j, status: 'cancelled', finishedAt: t }, t);
+  });
+
   it('WSP-04 purge removes the workspace and every row in it, and nothing of another workspace', async () => {
     const t = created();
     await r.workspaces.create({ id: 'ws-gone', name: 'gone', status: 'deleted', createdAt: t, deletedAt: t } as never);
@@ -185,17 +247,17 @@ describe.each(targets)('workspaces contract: $name', ({ kind }) => {
   });
 });
 
-describe.each(targets.filter((t) => t.kind !== 'memory'))('migration 0013: $name', ({ kind }) => {
+describe.each(targets.filter((t) => t.kind !== 'memory'))('migration 0015: $name', ({ kind }) => {
   it('WSP-05 existing rows stay in "default", workspaces become active, and admin keys gain the owner scope', async () => {
     const t = await createTestDatabase(kind as 'sqlite' | 'postgresql' | 'mysql', tmp);
     const db = await Database.open({ url: t.url });
     try {
       const all = MIGRATIONS[db.kind]!;
-      const i = all.findIndex((m) => m.id === '0013_workspaces');
+      const i = all.findIndex((m) => m.id === '0015_workspaces');
       expect(i).toBeGreaterThan(0);
       const raw = db.prisma as unknown as RawClient;
       await applyMigrations(raw, db.kind, all.slice(0, i), undefined, db.schema ?? undefined);
-      // The Workspace row as 0001..0012 knew it (the Prisma model already has 0013's columns).
+      // The Workspace row as 0001..0014 knew it (the Prisma model already has 0015's columns).
       const q = db.kind === 'mysql' ? '`' : '"';
       await raw.$executeRawUnsafe(`INSERT INTO ${q}Workspace${q} (${q}id${q}, ${q}name${q}) VALUES ('default', 'Default')`);
       const repos = db.repositories();

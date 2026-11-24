@@ -7,7 +7,10 @@
  *   pnpm test:load
  *   TEST_POSTGRES_URL=postgresql://... pnpm test:load
  */
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { newId, type JobRecord } from '@reelforge/core';
 import { createTestDatabase, prepareDatabase } from '@reelforge/db';
 import { describe, expect, it } from 'vitest';
@@ -71,9 +74,32 @@ describe.skipIf(!process.env.TEST_POSTGRES_URL)('exactly-once check (PostgreSQL)
       );
       const bad = await exactlyOnce(t.url, { expectedIds: ids });
       expect(bad).toMatchObject({ jobs: 5, lost: 1, unexpected: 1, duplicated: 1, runningEventsNotEqualAttempts: 1, ok: false });
+      // createdSince (CHECK_SINCE): only jobs created since then count, so earlier runs in the same database are not "unexpected".
+      expect((await exactlyOnce(t.url, { createdSince: '1970-01-01T00:00:00Z' })).jobs).toBe(5);
+      expect((await exactlyOnce(t.url, { createdSince: new Date(Date.now() + 60_000).toISOString() })).jobs).toBe(0);
     } finally {
       await db.close();
       await t.drop();
     }
   });
+});
+
+describe.skipIf(!process.env.TEST_POSTGRES_URL)('queue depth smoke (#307, PostgreSQL)', () => {
+  it('runs the claim-depth profile end to end on a small queue: claims, no errors, exactly once', () => {
+    const out = mkdtempSync(join(tmpdir(), 'rf-depth-smoke-'));
+    try {
+      const r = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/load/queue-depth.ts'], {
+        cwd: resolve(import.meta.dirname, '../..'),
+        env: { ...process.env, LOAD_DEPTH_DBS: 'postgresql', LOAD_DEPTH_PG_URL: process.env.TEST_POSTGRES_URL, LOAD_DEPTHS: '300', LOAD_DEPTH_SECONDS: '2', LOAD_DEPTH_WORKERS: '2', LOAD_DEPTH_KEYS: '10', LOAD_OUT: out },
+        encoding: 'utf8',
+        timeout: 170_000,
+      });
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      const doc = JSON.parse(readFileSync(join(out, readdirSync(out).find((f) => f.endsWith('.json'))!), 'utf8'));
+      expect(doc.results[0]).toMatchObject({ kind: 'postgresql', depth: 300, errors: 0, exactlyOnce: { ok: true } });
+      expect(doc.results[0].claims).toBeGreaterThan(0);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  }, 180_000);
 });

@@ -16,7 +16,7 @@ import {
 import type { WebhookDeliveryRecord, WebhookRepository } from './webhooks/types';
 
 /**
- * Workspaces (#304, D-1XX): every project, version, render, asset, theme, job, key, webhook, audit entry and
+ * Workspaces (#304, D-124): every project, version, render, asset, theme, job, key, webhook, audit entry and
  * idempotency key belongs to one workspace, and a caller only ever sees its own.
  *
  * Which workspace a call is in comes from the call itself, never from its arguments:

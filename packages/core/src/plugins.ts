@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream';
 import type { Tools } from '@reelforge/media-pipeline';
 import type {
   CaptionMode,
+  RenderAudioOptions,
   OutputSettings,
   Project,
   RenderScene,
@@ -9,6 +10,7 @@ import type {
   ThemeTokens,
 } from '@reelforge/project-schema';
 import type { z } from 'zod';
+import type { EngineOutputSupport } from './output-support';
 
 /**
  * Plugin contracts (docs/AGENT_PLATFORM.md §4). Engines, providers, render
@@ -85,6 +87,13 @@ export interface EngineCapabilities {
    * chunks rendered by different workers.
    */
   frameRanges: boolean;
+  /**
+   * Sizes and frame rates the engine renders beyond the H.264 rules every
+   * engine shares (output-support.ts). A render or preview outside them is
+   * refused before it is queued (`422 unsupported_output`). Omitted: every
+   * supported rate, no size limit of its own.
+   */
+  output?: EngineOutputSupport;
 }
 
 export interface ClipResult {
@@ -176,6 +185,50 @@ export interface ProviderPlugin {
   run(params: unknown, ctx: ProviderRunContext): Promise<ProviderResult>;
 }
 
+/** Settings a speech-to-text provider runs with (config `captions.stt.*`, docs/CAPTIONS.md#speech-to-text). */
+export interface SttSettings {
+  /** Program to start: a name on PATH or an absolute path. */
+  command: string;
+  model: string;
+  modelDir?: string;
+  /** "auto" or a BCP 47 tag. */
+  language: string;
+  computeType: string;
+  device: string;
+  timeoutSeconds: number;
+}
+
+export interface SttRequest {
+  /** A local audio or video file from the asset store. */
+  file: string;
+  /** BCP 47 tag of the spoken language, or "auto" to detect it. */
+  language: string;
+  settings: SttSettings;
+}
+
+export interface SttResult {
+  /** Detected or given language (BCP 47 / ISO 639-1), when the provider reports it. */
+  language: string | null;
+  /** Words with times in seconds from the start of the file. */
+  words: Array<{ text: string; start: number; end: number }>;
+  durationSeconds?: number;
+  /** What produced it (name, version, model), for the response and the cache. */
+  engine: Record<string, string>;
+}
+
+/**
+ * Turns speech in an audio asset into timed words (#300). Runs locally: no
+ * network at run time, no cost note. Words become caption cues through
+ * buildCuesFromWords (the voice track's `words`).
+ */
+export interface SpeechToTextPlugin {
+  id: string;
+  displayName: string;
+  /** Whether it can run here with these settings (program installed, ...), and how to fix it when not. Cheap: no transcription. */
+  availability(settings: SttSettings): Availability;
+  transcribe(req: SttRequest, ctx: { signal: AbortSignal; log: Logger }): Promise<SttResult>;
+}
+
 export interface RenderRequest {
   jobId: string;
   runId: string;
@@ -188,6 +241,10 @@ export interface RenderRequest {
   scale?: number;
   /** Overrides the manifest's captions.mode for this render. */
   captionsMode?: CaptionMode;
+  /** Overrides the manifest's audio toggles and loudness preset for this render (render_project's `audio`). */
+  audio?: RenderAudioOptions;
+  /** The server's captions.defaultMode when the job was queued (projects without captions.mode). */
+  captionsDefault?: CaptionMode;
 }
 
 export interface RenderOutcome {

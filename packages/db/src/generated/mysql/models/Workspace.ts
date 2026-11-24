@@ -14,7 +14,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model Workspace
- * A tenant of the install (#304, D-1XX): every project, asset, theme, job, key, webhook and audit entry belongs to
+ * A tenant of the install (#304, D-124): every project, asset, theme, job, key, webhook and audit entry belongs to
  * one. "default" always exists; existing installs keep all their rows there.
  */
 export type WorkspaceModel = runtime.Types.Result.DefaultSelection<Prisma.$WorkspacePayload>

@@ -2,7 +2,7 @@
 
 One ReelForge Studio install can host several teams, clients or customers. Each one gets a **workspace**. Its
 projects, versions, renders, assets, themes, jobs, API keys, webhooks, deliveries, audit log and idempotency keys
-are invisible to every other workspace (#304, decision D-1XX in [DECISIONS.md](DECISIONS.md)).
+are invisible to every other workspace (#304, decisions D-124 and D-125 in [DECISIONS.md](DECISIONS.md)).
 
 An install that never creates a workspace has one, `default`, and works exactly as before.
 
@@ -16,7 +16,7 @@ An install that never creates a workspace has one, `default`, and works exactly 
 
 - An owner key lives in a workspace, normally `default`. It reads and writes that workspace's data like an admin
   key; it manages the other workspaces through the workspace tools, not by reading their projects.
-- Upgrading from an earlier version: admin keys that existed before gain `owner`, through migration 0013, and so
+- Upgrading from an earlier version: admin keys that existed before gain `owner`, through migration 0015, and so
   do admin keys imported from a v0.1 data directory. The bootstrap key (`REELFORGE_BOOTSTRAP_KEY`) is
   `admin` + `owner`.
 - Admin keys made from now on are workspace admins.
@@ -124,6 +124,7 @@ encryption key or network boundary needs one install per customer; each install 
   `runAsSystem`, as the job runner does.
 - A new REST route or MCP tool is probed by the denial suite automatically. If it takes a new path parameter or a
   new required argument, give the suite a probe value (`A_IDS`, `resourceArgs`, `filler`).
-- **MCP OAuth (#343):** when it lands, a token claim (default `reelforge:workspace`) must set the workspace in the
-  same way as a key; see the TODO at `authorize()` in `apps/server/src/app.ts` and the `it.todo` in
+- **MCP OAuth (#343, D-112):** access tokens act in `default` and are never owners (`reelforge:admin` is a
+  workspace admin; test OAUTH-09). A token claim (e.g. `reelforge:workspace`) that sets the workspace the same way
+  as a key is not built yet; see the TODO at `authorize()` in `apps/server/src/app.ts` and the `it.todo` in
   `test/workspace-admin.test.ts`.

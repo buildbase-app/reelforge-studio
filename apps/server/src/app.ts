@@ -22,12 +22,15 @@ import busboy from 'busboy';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
+import { isDatabaseOverload, overloadedResponse } from './overload';
 import type { ServerConfig } from './config';
 import { auditAction, auditTarget, matchRoute, restArgs, resultOf } from './audit';
+import { mountDashboard } from './dashboard';
 import { handleMcp, serverCard } from './mcp';
 import { httpTelemetry } from './observability/http';
 import { StructuredLogger } from './observability/logger';
 import { Observability, observabilitySettings } from './observability/telemetry';
+import { OAuthVerifier, looksLikeJwt, protectedResourceMetadata, resourceMetadataUrl } from './oauth';
 import { PreAuthGuard } from './authGuard';
 import { DatabaseRateLimiter, RateLimiter, rateLimitHeaders, type RateDecision } from './rateLimit';
 import { publicReadiness, readiness } from './readiness';
@@ -39,6 +42,8 @@ export interface AppDeps {
   config: ServerConfig;
   /** Logs, metrics and traces (startServer makes one from the observability settings; default: metrics only, no log output). */
   observability?: Observability;
+  /** HTTP client for the OAuth issuer's metadata and JWKS (tests: a local mock issuer). */
+  fetch?: typeof fetch;
 }
 
 export function errorBody(code: string, message: string, details?: unknown) {
@@ -103,7 +108,8 @@ export function originAllowed(origin: string, hostHeader: string | undefined, co
   return false;
 }
 
-export function createApp({ service, config, observability }: AppDeps) {
+export function createApp(deps: AppDeps) {
+  const { service, config, observability } = deps;
   const app = new Hono<Env>();
   const obs =
     observability ??
@@ -128,6 +134,20 @@ export function createApp({ service, config, observability }: AppDeps) {
     return { perMinute: l.preAuthPerMinute, failuresPerMinute: l.authFailuresPerMinute, lockoutSeconds: l.authLockoutSeconds, lockoutMaxSeconds: l.authLockoutMaxSeconds };
   });
 
+  // MCP OAuth (D-112): JWT access tokens of the configured issuer on /mcp, next to API keys.
+  const oauthCfg = config.resolved.config.security.oauth;
+  const oauth = oauthCfg.issuer
+    ? new OAuthVerifier({ issuer: oauthCfg.issuer, audience: oauthCfg.audience ?? `${config.publicUrl}/mcp`, ...(oauthCfg.jwksUrl ? { jwksUrl: oauthCfg.jwksUrl } : {}) }, deps.fetch)
+    : null;
+  /** The 401 challenge: with OAuth on, it points MCP clients at the protected-resource metadata (RFC 9728). */
+  const challenge = (c: Context, mcp: boolean, error?: { error: string; description: string; scope?: string }) => {
+    const parts = ['realm="reelforge"'];
+    if (oauth && mcp) parts.push(`resource_metadata="${resourceMetadataUrl(oauth.settings.audience)}"`);
+    if (error) parts.push(`error="${error.error}"`, `error_description="${error.description.replace(/["\\]/g, "'")}"`);
+    if (error?.scope) parts.push(`scope="${error.scope}"`);
+    c.header('WWW-Authenticate', `Bearer ${parts.join(', ')}`);
+  };
+
   app.onError((err, c) => {
     if (err instanceof ApiError) {
       // Limits that clear by themselves (job caps, quotas, provider caps) say when to come back.
@@ -137,6 +157,8 @@ export function createApp({ service, config, observability }: AppDeps) {
     }
     const status = (err as { status?: number }).status;
     if (status === 413) return c.json(errorBody('too_large', 'request body is too large'), 413);
+    // No database connection or transaction in time: the server is overloaded, nothing was written (#307).
+    if (isDatabaseOverload(err)) return overloadedResponse('the database is busy; retry after the Retry-After seconds');
     obs.logger.log('error', `unhandled error on ${c.req.method} ${c.req.path}`, { error: err, request_id: c.get('requestId') });
     return c.json(errorBody('internal', 'internal server error'), 500);
   });
@@ -171,20 +193,33 @@ export function createApp({ service, config, observability }: AppDeps) {
   };
 
   /**
-   * Check the client address budget, then the bearer key (expiry, revocation, IP allowlist), then the per-key rate limit.
+   * Check the client address budget, then the bearer key (expiry, revocation, IP allowlist) or, on /mcp with
+   * OAuth on, the access token; then the per-key (or per OAuth subject) rate limit and the workspace's budget.
    *
-   * TODO(#343, #304): MCP OAuth access tokens. When #343 lands, authorize() also accepts an OAuth access token on
-   * /mcp; map a token claim to the workspace there (default claim "reelforge:workspace", configurable), refuse a
-   * token without it unless it names the default workspace, and check that the workspace exists and is active
-   * (as KeyStore.authenticate does through workspaceStatus). The AuthContext then carries workspaceId like a key's,
-   * and every repository call is scoped by it. test/workspaces.test.ts has the matching it.todo.
+   * TODO(#304): OAuth access tokens (D-112) act in the default workspace, like keys made before workspaces. To give
+   * them other workspaces, map a token claim to the workspace in OAuthVerifier (e.g. "reelforge:workspace",
+   * configurable), refuse a token whose workspace does not exist or is not active (as KeyStore.authenticate does
+   * through workspaceStatus), and set AuthContext.workspaceId from it; every repository call is then scoped by it.
    */
-  const authorize = async (c: Context): Promise<{ auth: AuthContext } | { response: Response }> => {
+  const authorize = async (c: Context, opts: { oauth?: boolean } = {}): Promise<{ auth: AuthContext } | { response: Response }> => {
     const ctx = currentRequest();
     // Before any database work: a flood or a key-guessing run from one address stops here (#305).
     const pre = guard.check(ctx?.ip);
     if (!pre.allowed) return { response: limited(c, pre.scope, pre.decision) };
     const token = bearer(c);
+    if (opts.oauth && oauth && token && !token.startsWith('rf_') && looksLikeJwt(token)) {
+      const v = await oauth.verify(token);
+      if (!v.ok) {
+        // A refused token counts towards the address lockout like a wrong API key (#305).
+        if (v.error !== 'insufficient_scope') {
+          const lockout = guard.failure(ctx?.ip);
+          if (lockout) obs.logger.log('warn', `auth: ${ctx?.ip} locked out for ${lockout}s after repeated failed authentications`, { request_id: ctx?.requestId });
+        }
+        challenge(c, true, { error: v.error, description: v.description, ...(v.error === 'insufficient_scope' ? { scope: 'reelforge:read' } : {}) });
+        return { response: c.json(errorBody(v.error, `access token refused: ${v.description}`), v.error === 'insufficient_scope' ? 403 : 401) };
+      }
+      return limit(c, v.auth);
+    }
     const r = token ? await service.keys.authenticate(token, { ip: ctx?.ip }) : null;
     if (!r || !r.ok) {
       // ip_not_allowed is a real key used from the wrong place, not a guess: it does not count towards the lockout.
@@ -201,22 +236,28 @@ export function createApp({ service, config, observability }: AppDeps) {
       }
       if (r?.reason === 'ip_not_allowed') return { response: c.json(errorBody('ip_not_allowed', r.message), 403) };
       if (r?.reason === 'workspace_suspended') return { response: c.json(errorBody('workspace_suspended', r.message), 403) };
-      c.header('WWW-Authenticate', 'Bearer realm="reelforge"');
+      challenge(c, Boolean(opts.oauth));
       const message = r && r.reason !== 'unknown' ? `${r.message}; ask an admin for a new key` : 'missing or invalid API key: send "Authorization: Bearer rf_..."';
       return { response: c.json(errorBody(r?.reason === 'expired' ? 'key_expired' : r?.reason === 'revoked' ? 'key_revoked' : 'unauthorized', message), 401) };
     }
-    const d = await limiter.take(r.auth.keyId, r.auth.rateLimitPerMinute);
+    return limit(c, r.auth);
+  };
+
+  /** The per-key (or per OAuth subject) rate limit; every limited response carries the budget (draft-ietf-httpapi-ratelimit-headers). */
+  const limit = async (c: Context, auth: AuthContext): Promise<{ auth: AuthContext } | { response: Response }> => {
+    const d = await limiter.take(auth.keyId, auth.rateLimitPerMinute);
     if (!d.allowed) return { response: limited(c, 'key', d) };
     // The workspace's own budget across all its keys (optional; unlimited unless the owner sets one, #304).
-    const wsLimit = r.auth.workspaceId ? await service.workspaceAdmin?.rateLimitOf(r.auth.workspaceId) : undefined;
+    const wsLimit = auth.workspaceId ? await service.workspaceAdmin?.rateLimitOf(auth.workspaceId) : undefined;
     if (wsLimit) {
-      const w = await limiter.take(`workspace:${r.auth.workspaceId}`, wsLimit);
+      const w = await limiter.take(`workspace:${auth.workspaceId}`, wsLimit);
       if (!w.allowed) return { response: limited(c, 'workspace', w) };
     }
     // Every limited response carries the key's budget (draft-ietf-httpapi-ratelimit-headers).
     for (const [k, v] of Object.entries(rateLimitHeaders(d))) c.header(k, v);
-    if (ctx) ctx.auth = r.auth;
-    return { auth: r.auth };
+    const ctx = currentRequest();
+    if (ctx) ctx.auth = auth;
+    return { auth };
   };
 
   const authenticate: MiddlewareHandler<Env> = async (c, next) => {
@@ -379,6 +420,10 @@ export function createApp({ service, config, observability }: AppDeps) {
     return app;
   }
   app.get('/.well-known/mcp.json', (c) => c.json(serverCard(service, config)));
+  // RFC 9728 protected-resource metadata for /mcp (D-112): only with OAuth on. The path form names the resource.
+  const metadata = (c: Context) => (oauth ? c.json(protectedResourceMetadata(oauth.settings)) : c.json(errorBody('not_found', 'OAuth is not configured for /mcp (security.oauth.issuer); use an API key'), 404));
+  app.get('/.well-known/oauth-protected-resource', metadata);
+  app.get('/.well-known/oauth-protected-resource/mcp', metadata);
 
   // ---- MCP ------------------------------------------------------------------------
   app.all('/mcp', async (c) => {
@@ -391,7 +436,7 @@ export function createApp({ service, config, observability }: AppDeps) {
     if (origin && !originAllowed(origin, c.req.header('host'), config)) {
       return c.json(errorBody('forbidden_origin', `origin "${origin}" is not allowed`), 403);
     }
-    const a = await authorize(c);
+    const a = await authorize(c, { oauth: true });
     if ('response' in a) return a.response;
     const auth = a.auth;
     c.set('auth', auth); // access log key id (#64)
@@ -403,6 +448,7 @@ export function createApp({ service, config, observability }: AppDeps) {
   v1.use('*', authenticate);
 
   v1.get('/capabilities', need('read'), (c) => c.json(service.capabilities()));
+  v1.get('/me', need('read'), async (c) => c.json(await service.getMe(c.get('auth'))));
   v1.get('/schema/project', need('read'), (c) => c.json(service.projectSchema()));
   v1.get('/templates', need('read'), (c) => c.json({ templates: service.listTemplates(c.req.query('engine')) }));
 
@@ -477,17 +523,39 @@ export function createApp({ service, config, observability }: AppDeps) {
     const r = await service.importCaptions(c.req.param('id'), b, expectedVersion(c, b));
     return c.json({ ...project(r), imported: r.imported });
   });
+  v1.get('/projects/:id/captions', need('read'), async (c) => {
+    const language = c.req.query('language');
+    return c.json(await service.getCaptions({ projectId: c.req.param('id'), ...(language ? { language } : {}) }));
+  });
+  v1.patch('/projects/:id/captions', need('write'), json, async (c) => {
+    // The captions etag comes in the body or as If-Match (not a project version here); expectedVersion in the body or query.
+    const { expectedVersion: ev, ...b } = await body(c);
+    const etag = b.etag ?? c.req.header('if-match');
+    const v = ev ?? c.req.query('expectedVersion');
+    const version = v === undefined ? undefined : Number(v);
+    if (version !== undefined && (!Number.isInteger(version) || version < 1)) throw new ApiError('bad_request', 400, 'expectedVersion must be a positive integer');
+    return c.json(await service.updateCaptions(c.req.param('id'), { ...b, ...(etag !== undefined ? { etag } : {}) }, version));
+  });
+  v1.post('/projects/:id/captions/transcribe', need('render'), json, async (c) => {
+    const { expectedVersion: _ev, ...b } = await body(c);
+    return c.json(await service.transcribeCaptions(c.req.param('id'), b, expectedVersion(c, { expectedVersion: _ev })));
+  });
 
   v1.post('/projects/:id/preview', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const opts = { sceneId: typeof b.sceneId === 'string' ? b.sceneId : undefined, scale: typeof b.scale === 'number' ? b.scale : undefined, ...(b.priority !== undefined ? { priority: b.priority } : {}) };
+    const opts = {
+      sceneId: typeof b.sceneId === 'string' ? b.sceneId : undefined,
+      scale: typeof b.scale === 'number' ? b.scale : undefined,
+      ...(b.variant !== undefined ? { variant: b.variant } : {}),
+      ...(b.priority !== undefined ? { priority: b.priority } : {}),
+    };
     return c.json(await service.idempotent(idemKey(c), 'preview_scene', { projectId, ...opts }, async () => ({ job: await service.preview(projectId, opts) })), 202);
   });
   v1.post('/projects/:id/renders', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.variant !== undefined ? { variant: b.variant } : {}), ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}) };
+    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.variant !== undefined ? { variant: b.variant } : {}), ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}), ...(b.audio !== undefined ? { audio: b.audio } : {}) };
     return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, () => service.renderProject(projectId, opts)), 202);
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
@@ -532,6 +600,10 @@ export function createApp({ service, config, observability }: AppDeps) {
   });
 
   v1.get('/renders/:id', need('read'), async (c) => c.json(await service.getRender(c.req.param('id'))));
+  v1.get('/renders/:id/captions', need('read'), async (c) => {
+    const language = c.req.query('language');
+    return c.json(await service.getCaptions({ renderId: c.req.param('id'), ...(language ? { language } : {}) }));
+  });
   v1.get('/renders/:id/output', need('read'), async (c) => {
     const file = c.req.query('file') ?? 'final.mp4';
     const o = await service.renderObject(c.req.param('id'), file);
@@ -643,6 +715,10 @@ export function createApp({ service, config, observability }: AppDeps) {
   v1.post('/webhooks/:id/deliveries/:deliveryId/replay', need('admin'), async (c) =>
     c.json(await service.replayWebhookDelivery(c.req.param('id'), c.req.param('deliveryId'), actor(c)), 202)
   );
+  // Webhooks for operations (#306): resend, secret rotation with overlap, and the delivery log for read keys.
+  v1.post('/webhooks/:id/resend', need('admin'), json, async (c) => c.json(await service.resendWebhook(c.req.param('id'), await body(c), actor(c)), 202));
+  v1.post('/webhooks/:id/rotate-secret', need('admin'), json, async (c) => c.json(await service.rotateWebhookSecret(c.req.param('id'), await body(c), actor(c))));
+  v1.get('/webhooks/:id/log', need('read'), async (c) => c.json(await service.getWebhookLog(c.req.param('id'), c.req.query())));
 
   v1.get('/audit', need('admin'), async (c) => {
     const query = c.req.query();
@@ -669,6 +745,7 @@ export function createApp({ service, config, observability }: AppDeps) {
   });
 
   app.route('/v1', v1);
+  mountDashboard(app, service, config); // GET /dashboard (dashboard.enabled, D-115)
   return app;
 }
 

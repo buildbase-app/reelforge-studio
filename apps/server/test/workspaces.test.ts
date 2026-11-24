@@ -33,7 +33,7 @@ const keyA: Record<string, string> = {};
 let keyB: string;
 let owner: string;
 /** A's resources; every value is unique text, so finding one in a response to B is a leak. */
-const a = { project: 'alpha-only-reel', theme: 'alpha-only-theme', scene: 'hook', job: '', run: '', asset: '', key: '', keyName: 'alpha-only-extra-key', webhook: '', delivery: '' };
+const a = { project: 'alpha-only-reel', theme: 'alpha-only-theme', scene: 'hook', job: '', run: '', asset: '', key: '', keyName: 'alpha-only-extra-key', webhook: '', delivery: '', event: '', renderEvent: '' };
 
 async function rest(method: string, path: string, opts: { key?: string; body?: unknown } = {}) {
   const res = await fetch(`${server.url}${path}`, {
@@ -81,12 +81,25 @@ async function snapshotA(opts: { audit?: boolean } = {}) {
 
 /** Lists whose entries are B's own records of what B asked for (its audit trail names the ids it probed). */
 const OWN_RECORDS = new Set(['list_audit_events']);
-const ALL_A = () => [a.project, a.theme, a.job, a.run, a.asset, a.key, a.webhook, a.delivery].join(' ');
+const ALL_A = () => [a.project, a.theme, a.job, a.run, a.asset, a.key, a.webhook, a.delivery, a.event, a.renderEvent].join(' ');
 
 /** The first of A's resources the text mentions, ignoring those the request named itself (a 404 may echo its id). */
 function leaks(s: string, request = ''): string | null {
-  for (const v of [a.project, a.theme, a.job, a.run, a.asset, a.key, a.keyName, a.webhook, a.delivery]) if (v && s.includes(v) && !request.includes(v)) return v;
+  for (const v of [a.project, a.theme, a.job, a.run, a.asset, a.key, a.keyName, a.webhook, a.delivery, a.event, a.renderEvent]) if (v && s.includes(v) && !request.includes(v)) return v;
   return null;
+}
+
+/**
+ * A delivered event body (or a delivery with its payload) of B's: B's own audit entries (audit.entry, #66) name the
+ * ids B asked for in its probes, so they must be by one of B's keys; every other event must not mention A at all.
+ */
+function eventLeak(body: string): string | null {
+  const e = JSON.parse(body);
+  if (e.type === 'audit.entry') {
+    const by = e.data?.entry?.actorName as string | undefined;
+    return by === undefined || by.startsWith('beta') ? null : `audit entry by ${by}`;
+  }
+  return leaks(body);
 }
 
 beforeAll(async () => {
@@ -116,6 +129,8 @@ beforeAll(async () => {
         REELFORGE_SECRET_KEY: 'workspaces-test-secret-key-0123456789',
         REELFORGE_WEBHOOKS_ALLOW_HTTP: 'true',
         REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
+        // Every audit entry is also an audit.entry event (#66): B's endpoint must get only B's.
+        REELFORGE_AUDIT_SINKS: 'database,webhooks',
       },
       quiet: true,
     }
@@ -142,7 +157,8 @@ beforeAll(async () => {
   const up = await fetch(`${server.url}/v1/assets`, { method: 'POST', headers: { authorization: `Bearer ${keyA.admin}` }, body: form });
   expect(up.status).toBe(201);
   a.asset = (await up.json()).asset.id;
-  const hook = await rest('POST', '/v1/webhooks', { ...as, body: { name: 'alpha hook', url: `${rxUrl}/alpha`, events: ['job.*'] } });
+  // A's endpoint also takes the terminal render events (#342): their dedupeKey is render:<jobId>.
+  const hook = await rest('POST', '/v1/webhooks', { ...as, body: { name: 'alpha hook', url: `${rxUrl}/alpha`, events: ['job.*', 'render.*'] } });
   expect(hook.status).toBe(201);
   a.webhook = hook.json.webhook.id;
   const render = await rest('POST', `/v1/projects/${a.project}/renders`, { ...as, body: {} });
@@ -156,6 +172,17 @@ beforeAll(async () => {
   expect(a.delivery).toMatch(/^dlv_/);
   const k = await rest('POST', '/v1/keys', { ...as, body: { name: a.keyName, scopes: ['read'] } });
   a.key = k.json.record.id;
+  // A's event ids and the render's outcome (dedupeKey render:<job>), as A's delivery log has them.
+  const aRepo = repos.forWorkspace(A).webhooks;
+  a.event = (await aRepo.getDelivery(a.delivery))!.eventId;
+  let outcome: Awaited<ReturnType<typeof aRepo.listDeliveries>> = [];
+  for (let i = 0; i < 50 && !outcome.length; i++) {
+    await server.service.webhooks.flush();
+    outcome = await aRepo.listDeliveries({ dedupeKey: `render:${a.job}` });
+    if (!outcome.length) await new Promise((r) => setTimeout(r, 100));
+  }
+  expect(outcome.length).toBeGreaterThan(0);
+  a.renderEvent = outcome[0]!.eventId;
 }, 120_000);
 
 afterAll(async () => {
@@ -209,7 +236,11 @@ function bodyFor(method: string, path: string): unknown {
   if (path === '/v1/keys') return { name: 'beta-probe-key', scopes: ['read'] };
   if (path === '/v1/webhooks') return { name: 'beta probe', url: `${rxUrl}/beta-probe`, events: ['job.*'] };
   if (path === '/v1/assets') return { url: 'http://127.0.0.1:1/none.png', ...base };
-  if (path.startsWith('/v1/webhooks/')) return path.endsWith('/test') ? {} : { name: 'B was here' };
+  if (path.endsWith('/resend')) return { dedupeKey: `render:${a.job}` };
+  if (path.startsWith('/v1/webhooks/')) return path.endsWith('/test') || path.endsWith('/rotate-secret') ? {} : { name: 'B was here' };
+  // Valid bodies, so the probe reaches the project lookup rather than the input check.
+  if (method === 'PATCH' && path.endsWith('/captions')) return { etag: 'stale-etag', mode: 'off', approve: true };
+  if (path.endsWith('/captions/transcribe')) return {};
   if (path.endsWith('/run')) return { params: { text: 'hi', voiceId: 'v' }, acknowledgeCost: true, ...base };
   if (path.includes('scenes:reorder')) return { order: ['hook', 'steps'] };
   if (path.endsWith('/captions/import')) return { content: '1\n00:00:00,000 --> 00:00:01,000\nhi\n', format: 'srt' };
@@ -261,21 +292,26 @@ describe('workspaces: cross-workspace denial (#304)', () => {
       keyId: () => a.key,
       webhookId: () => a.webhook,
       deliveryId: () => a.delivery,
+      parentId: () => a.job,
       workspaceId: () => A,
     };
+    /** Tools that take one of several resource arguments: probed once with each. */
+    const ONE_OF: Record<string, string[]> = { get_captions: ['projectId', 'renderId'] };
     const filler: Record<string, unknown> = {
       id: 'beta-probe-theme', name: 'beta probe', tokens: THEME_TOKENS, manifest: { ...sample, projectId: 'beta-probe-reel-mcp' }, patch: { title: 'B' }, scene: { id: 'x', engine: 'html', html: '<p>x</p>', durationSeconds: 1 },
       order: ['hook', 'steps'], theme: 'default', audio: {}, content: '1\n00:00:00,000 --> 00:00:01,000\nhi\n', text: 'hi', voiceId: 'v', url: 'http://127.0.0.1:1/none.png',
-      dataBase64: Buffer.from('not media').toString('base64'), values: {}, settings: {}, params: { text: 'hi', voiceId: 'v' }, scopes: ['read'], events: ['job.*'], providerId: 'elevenlabs',
+      dataBase64: Buffer.from('not media').toString('base64'), etag: 'stale-etag', values: {}, settings: {}, params: { text: 'hi', voiceId: 'v' }, scopes: ['read'], events: ['job.*'], providerId: 'elevenlabs',
     };
     const listFilters = new Set(['list_assets', 'list_jobs']);
     let probed = 0;
     let denied = 0;
-    for (const t of TOOLS) {
+    const probes = TOOLS.flatMap((t) => (ONE_OF[t.name] ?? [undefined]).map((only) => ({ t, skip: new Set((ONE_OF[t.name] ?? []).filter((k) => k !== only)) })));
+    for (const { t, skip } of probes) {
       const shape = t.input as Record<string, { isOptional?: () => boolean }>;
       const args: Record<string, unknown> = {};
       let targetsA = false;
       for (const [k, s] of Object.entries(shape)) {
+        if (skip.has(k)) continue;
         if (resourceArgs[k]) {
           args[k] = resourceArgs[k]!();
           targetsA = true;
@@ -305,7 +341,8 @@ describe('workspaces: cross-workspace denial (#304)', () => {
       }
     }
     console.log(`[workspaces] MCP: ${probed} tools probed, ${denied} refused with not_found/forbidden`);
-    expect(probed).toBe(TOOLS.length);
+    expect(probed).toBe(probes.length);
+    expect(probes.length).toBeGreaterThanOrEqual(TOOLS.length);
     expect(denied).toBeGreaterThan(40);
     // Resources and prompts read through the same scoped service.
     const listed = await client.listResources();
@@ -316,6 +353,118 @@ describe('workspaces: cross-workspace denial (#304)', () => {
     expect(await snapshotA()).toBe(before);
   }, 120_000);
 
+  it('webhook operations (#342): B\'s own endpoint cannot resend, replay or read A\'s deliveries, events or render outcomes', async () => {
+    const before = await snapshotA();
+    const bHook = (await rest('GET', '/v1/webhooks')).json.webhooks.find((w: any) => w.name === 'beta hook').id as string;
+    // Every way resend_webhook names an event: A's delivery, A's event ids, A's render outcome.
+    const names = [{ deliveryId: a.delivery }, { eventId: a.event }, { eventId: a.renderEvent }, { dedupeKey: `render:${a.job}` }];
+    const client = await connect(keyB);
+    try {
+      for (const body of names) {
+        const r = await rest('POST', `/v1/webhooks/${bHook}/resend`, { body });
+        expect(r.status, `${JSON.stringify(body)} -> ${r.text.slice(0, 200)}`).toBe(404);
+        expect(leaks(r.text, JSON.stringify(body))).toBeNull();
+        const m: any = await client.callTool({ name: 'resend_webhook', arguments: { webhookId: bHook, ...body } });
+        expect(m.isError, JSON.stringify(body)).toBe(true);
+        expect(JSON.parse(text(m)).error.code).toBe('not_found');
+        expect(leaks(text(m), JSON.stringify(body))).toBeNull();
+      }
+      // Replay names a delivery under B's own endpoint: still not found.
+      const replay = await rest('POST', `/v1/webhooks/${bHook}/deliveries/${a.delivery}/replay`, { body: {} });
+      expect(replay.status).toBe(404);
+      const m: any = await client.callTool({ name: 'replay_webhook_delivery', arguments: { webhookId: bHook, deliveryId: a.delivery } });
+      expect(JSON.parse(text(m)).error.code).toBe('not_found');
+      // B's delivery log and deliveries (with payloads): only B's.
+      const log = await rest('GET', `/v1/webhooks/${bHook}/log?limit=500`);
+      expect(log.status).toBe(200);
+      expect(leaks(log.text)).toBeNull();
+      const withPayload = await rest('GET', `/v1/webhooks/${bHook}/deliveries?limit=500&includePayload=true`);
+      expect(withPayload.status).toBe(200);
+      expect(withPayload.json.deliveries.length).toBeGreaterThan(0);
+      for (const d of withPayload.json.deliveries) {
+        expect(eventLeak(JSON.stringify(d.payload)), JSON.stringify(d).slice(0, 200)).toBeNull();
+        expect(leaks(JSON.stringify({ ...d, payload: null })), d.id).toBeNull();
+      }
+      for (const name of ['get_webhook_log', 'list_webhook_deliveries']) {
+        const r: any = await client.callTool({ name, arguments: { webhookId: bHook, limit: 500 } });
+        expect(r.isError, name).toBeFalsy();
+        for (const d of JSON.parse(text(r)).deliveries) {
+          if (d.payload) expect(eventLeak(JSON.stringify(d.payload)), name).toBeNull();
+          expect(leaks(JSON.stringify({ ...d, payload: null })), name).toBeNull();
+        }
+      }
+      // Rotating B's own secret leaves A's endpoint alone.
+      expect((await rest('POST', `/v1/webhooks/${bHook}/rotate-secret`, { body: {} })).status).toBe(200);
+    } finally {
+      await client.close();
+    }
+    // Nothing of A's was queued for B, and A's rows are as they were.
+    expect(await repos.forWorkspace(B).webhooks.listDeliveries({ dedupeKey: `render:${a.job}` })).toEqual([]);
+    expect(await repos.forWorkspace(B).webhooks.listDeliveries({ eventId: a.event })).toEqual([]);
+    expect(await snapshotA()).toBe(before);
+  }, 60_000);
+
+  it('dashboard reads (#344) and list filters see only the caller\'s workspace', async () => {
+    const meB = await rest('GET', '/v1/me');
+    expect(meB.status).toBe(200);
+    expect(meB.json.name).toBe('beta-admin');
+    expect(leaks(meB.text)).toBeNull();
+    expect((await rest('GET', '/v1/me', { key: keyA.admin })).json.name).toBe('alpha-admin');
+    // The jobs view (parentId: a render's units) and the library (projects, renders) filtered by A's ids: empty.
+    for (const path of [`/v1/jobs?parentId=${a.job}&limit=200`, `/v1/jobs?projectId=${a.project}`, '/v1/jobs?limit=200', '/v1/projects?limit=50', '/v1/assets?limit=200']) {
+      const r = await rest('GET', path);
+      expect(r.status, path).toBe(200);
+      expect(leaks(r.text, path), path).toBeNull();
+    }
+    const client = await connect(keyB);
+    try {
+      const r: any = await client.callTool({ name: 'list_jobs', arguments: { parentId: a.job } });
+      expect(JSON.parse(text(r)).jobs).toEqual([]);
+    } finally {
+      await client.close();
+    }
+    // The library's storage location is instance-level: an owner key's, not a workspace admin's.
+    expect((await rest('GET', '/v1/storage')).status).toBe(403);
+    // The live job view: A's job stream, logs and output are not found for B.
+    for (const path of [`/v1/jobs/${a.job}/events`, `/v1/jobs/${a.job}/logs?tail=300`, `/v1/renders/${a.run}/output?file=poster.png`, `/v1/renders/${a.run}/captions`]) {
+      expect((await rest('GET', path)).status, path).toBe(404);
+    }
+  });
+
+  it('staged assets (#373) and audio (#346): B\'s manifest cannot name A\'s stored asset', async () => {
+    const before = await snapshotA();
+    // A v0.2 manifest of B's own (the sample is v0.1, which has no asset:// references), naming A's stored asset.
+    expect((await rest('POST', '/v1/projects', { body: { manifest: { ...sample, projectId: 'beta-borrows-later' } } })).status).toBe(201);
+    const own = (await rest('GET', '/v1/projects/beta-borrows-later')).json.manifest;
+    const borrowed = [{ id: 'borrowed', uri: `asset://${a.asset}`, mediaType: 'audio' }];
+    const manifest = { ...own, projectId: 'beta-borrows-asset', assets: borrowed };
+    // Saving is allowed (drafts may name assets still to come); validating, previewing and rendering are not.
+    expect((await rest('POST', '/v1/projects', { body: { manifest } })).status).toBe(201);
+    const v = await rest('POST', '/v1/projects/beta-borrows-asset/validate', { body: {} });
+    expect(v.text).toContain('is not in the asset store');
+    for (const [path, body] of [['/v1/projects/beta-borrows-asset/renders', {}], ['/v1/projects/beta-borrows-asset/preview', { sceneId: own.scenes[0].id }]] as const) {
+      const r = await rest('POST', path, { body });
+      expect(r.status, `${path} -> ${r.text.slice(0, 300)}`).toBeGreaterThanOrEqual(400);
+      expect(r.status, path).toBeLessThan(500);
+      expect(r.text, path).toContain('is not in the asset store');
+    }
+    const client = await connect(keyB);
+    try {
+      for (const name of ['validate_project', 'render_project']) {
+        const r: any = await client.callTool({ name, arguments: { projectId: 'beta-borrows-asset' } });
+        expect(text(r), name).toContain('is not in the asset store');
+      }
+      // Background music (#346) is a project asset: one that is not in the project is refused.
+      const audio = await rest('PATCH', '/v1/projects/beta-borrows-later/audio', { body: { music: { asset: a.asset } } });
+      expect(audio.status, audio.text.slice(0, 300)).toBeGreaterThanOrEqual(400);
+      expect(audio.status).toBeLessThan(500);
+    } finally {
+      await client.close();
+    }
+    expect((await repos.forWorkspace(B).jobs.list({ projectId: 'beta-borrows-asset' })).length).toBe(0);
+    expect(await snapshotA()).toBe(before);
+  });
+
   it('events, audit and keys stay in their workspace', async () => {
     // B's endpoint subscribed to everything: none of A's job events, deliveries or audit entries reached it.
     // Something of B's own for its endpoint: a new key (key.created).
@@ -323,7 +472,7 @@ describe('workspaces: cross-workspace denial (#304)', () => {
     for (let i = 0; i < 50 && !received.some((x) => x.path.startsWith('/beta')); i++) await new Promise((r) => setTimeout(r, 100));
     const toB = received.filter((x) => x.path.startsWith('/beta'));
     expect(toB.length).toBeGreaterThan(0);
-    for (const x of toB) expect(leaks(x.body), x.body.slice(0, 200)).toBeNull();
+    for (const x of toB) expect(eventLeak(x.body), x.body.slice(0, 200)).toBeNull();
     expect(received.some((x) => x.path.startsWith('/alpha') && x.body.includes(a.job))).toBe(true);
     // Audit: B sees its own entries only; A's list holds A's.
     const auditB = await rest('GET', '/v1/audit?limit=500');

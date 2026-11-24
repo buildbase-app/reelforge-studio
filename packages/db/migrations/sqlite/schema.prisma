@@ -10,7 +10,7 @@ datasource db {
   provider = "sqlite"
 }
 
-/// A tenant of the install (#304, D-1XX): every project, asset, theme, job, key, webhook and audit entry belongs to
+/// A tenant of the install (#304, D-124): every project, asset, theme, job, key, webhook and audit entry belongs to
 /// one. "default" always exists; existing installs keep all their rows there.
 model Workspace {
   id        String   @id
@@ -173,6 +173,10 @@ model Job {
   @@index([workspaceId, queue, status, createdAt])
   /// The claim order (D-103) and the admission count: queued jobs of one queue by class, oldest first.
   @@index([workspaceId, queue, status, priority, createdAt])
+  /// The claim plan's skip scan (#307, D-1XX): the distinct keys with queued jobs, each (key, class)'s oldest job,
+  /// a key's running jobs, and the lock of one job of a (key, class) in age order, all without reading every queued job.
+  /// No id column: MySQL's 3 072-byte key limit (four 191-character keys fill it), and InnoDB appends the primary key anyway.
+  @@index([workspaceId, queue, status, apiKeyId, priority, createdAt], map: "Job_claim_idx")
   @@index([status, leaseExpiresAt])
   @@index([parentId])
   @@index([workspaceId, runId])
@@ -414,6 +418,8 @@ model WebhookDelivery {
   messageId     String
   eventId       String
   eventType     String
+  /// The envelope's dedupeKey (`render:<jobId>` on terminal render events, #306); resend_webhook looks outcomes up by it.
+  dedupeKey     String?
   /// The event envelope as JSON text (what is sent).
   payload       String
   /// "pending" | "delivering" | "succeeded" | "dead"
@@ -434,6 +440,8 @@ model WebhookDelivery {
   @@index([workspaceId, status, nextAttemptAt])
   @@index([workspaceId, endpointId, id])
   @@index([workspaceId, status, updatedAt])
+  @@index([workspaceId, eventId])
+  @@index([workspaceId, dedupeKey])
 }
 
 /// The delivery log (#66): one row per attempt, append-only (removed only by retention with its delivery).
