@@ -58,13 +58,15 @@ import { outputSupportIssues } from './output-support';
 export const MAX_JOB_WAIT_SECONDS = 50;
 import { KeyStore, hasScope, quotaWindows, type AuthContext, type KeyOptions, type PublicKey, type Scope } from './keys';
 import { DEFAULT_WORKSPACE_ID, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories } from './repositories';
-import { WORKSPACE_ID, currentWorkspaceId, isWorkspaceRouter, workspaceKeyPrefix, type WorkspaceRouter } from './workspace';
+import { WORKSPACE_ID, currentWorkspaceId, isWorkspaceRouter, mergeAuditPages, runInWorkspace, workspaceKeyPrefix, type WorkspaceRouter } from './workspace';
+import { WorkspaceAdmin } from './workspace-admin';
 import {
   AuditLog,
   MAX_AUDIT_EXPORT,
   OtlpLogsAuditSink,
   StdoutAuditSink,
   auditToCsv,
+  auditCursor,
   auditToJsonl,
   currentRequest,
   parseAuditQuery,
@@ -377,6 +379,8 @@ export class ReelforgeService {
   readonly auditLog: AuditLog;
   /** Outbound events: signed webhooks, chat and email channels, the outbox and its worker (#66). */
   readonly webhooks: WebhookService;
+  /** Workspace management and per-workspace limits (#304); null when the repositories are bound to one workspace. */
+  readonly workspaceAdmin: WorkspaceAdmin | null;
   private progressBuckets = new Map<string, number>();
   private licenceSeen: { status: string; reason: string | null } | null = null;
   private licenceTimer: NodeJS.Timeout | null = null;
@@ -442,6 +446,9 @@ export class ReelforgeService {
       audit: (e) => this.audit(e),
       rotationGraceHours: () => this.settings.current.config.keys.rotationGraceHours,
     });
+    this.workspaceAdmin = router
+      ? new WorkspaceAdmin({ repos: router, keys: this.keys, settings: this.settings, storage: this.storage, dataDir: this.dataDir, audit: (e) => this.audit(e), now: this.now, log: config.log })
+      : null;
     this.serverVersion = config.serverVersion ?? '0.1.0';
     this.publicUrl = (config.publicUrl ?? '').replace(/\/+$/, '');
     this.fetchImpl = config.fetch ?? fetch;
@@ -640,10 +647,12 @@ export class ReelforgeService {
       if (st && st.mtimeMs < now - 86_400_000) await rm(p, { force: true });
     }
     const webhookDeliveriesDeleted = await this.webhooks.sweep(now);
+    // Deleted workspaces whose grace period is over (#304).
+    const workspacesPurged = (await this.workspaceAdmin?.purgeExpired()) ?? [];
     if (auditDeleted) {
       await this.audit({ actorType: 'system', action: 'audit.sweep', data: { deleted: auditDeleted, retentionDays: this.settings.current.config.audit.retentionDays } });
     }
-    return { auditDeleted, idempotencyDeleted, webhookDeliveriesDeleted };
+    return { auditDeleted, idempotencyDeleted, webhookDeliveriesDeleted, workspacesPurged };
   }
 
   /** Stop timers and flush the audit sinks (server shutdown). */
@@ -1762,6 +1771,17 @@ export class ReelforgeService {
     submit: (apiKeyId?: string, quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps) => Promise<JobRecord>,
     priority: JobPriority
   ): Promise<JobRecord> {
+    // Workspace limits (#304, optional, unlimited by default): storage, then renders per day / month.
+    const admin = this.workspaceAdmin;
+    if (!admin) return this.withKeyRenderQuota(submit, priority);
+    await admin.checkStorage();
+    return admin.withRenderLimit(() => this.withKeyRenderQuota(submit, priority));
+  }
+
+  private async withKeyRenderQuota(
+    submit: (apiKeyId?: string, quota?: { types: string[]; windows: QuotaWindow[] } & JobCaps) => Promise<JobRecord>,
+    priority: JobPriority
+  ): Promise<JobRecord> {
     const auth = currentRequest()?.auth;
     const l = this.settings.current.config.limits;
     // Admission by estimated wait (D-103): the measured claim throughput is read before the transaction (a cached
@@ -2390,6 +2410,7 @@ export class ReelforgeService {
 
   /** Count and audit an upload or import refused for its size. */
   private async limitedUpload<T>(fn: () => Promise<T>): Promise<T> {
+    await this.workspaceAdmin?.checkStorage();
     try {
       return await fn();
     } catch (e) {
@@ -2725,9 +2746,49 @@ export class ReelforgeService {
 
   /** A page of audit entries, newest first, filtered (list_audit_events / GET /v1/audit). */
   async listAuditEvents(query: Record<string, unknown> = {}) {
-    const filter = parseAuditQuery(query);
-    const r = await this.auditLog.list(filter);
-    return { ...r, retentionDays: this.settings.current.config.audit.retentionDays, sinks: this.auditLog.activeSinks() };
+    const { workspaceId, ...rest } = query;
+    const filter = parseAuditQuery(rest);
+    const extra = { retentionDays: this.settings.current.config.audit.retentionDays, sinks: this.auditLog.activeSinks() };
+    if (workspaceId === undefined || workspaceId === '' || workspaceId === currentWorkspaceId()) return { ...(await this.auditLog.list(filter)), ...extra };
+    // Another workspace's trail, or every workspace's ("*"): the instance owner only (#304).
+    const auth = currentRequest()?.auth;
+    if (auth && !hasScope(auth, 'owner')) throw new ApiError('forbidden', 403, 'workspaceId needs the owner scope; an admin key reads its own workspace\'s audit log');
+    const router = isWorkspaceRouter(this.repos) ? this.repos : null;
+    if (!router) throw badRequest('this server has one workspace');
+    if (typeof workspaceId !== 'string') throw badRequest('workspaceId must be a workspace id or "*"');
+    const ids = workspaceId === '*' ? await router.workspaceIds() : [workspaceId];
+    if (workspaceId !== '*' && !(await router.workspaces.get(workspaceId))) throw notFound('workspace', workspaceId);
+    const limit = filter.limit ?? 100;
+    const pages = [];
+    for (const ws of ids) pages.push({ workspaceId: ws, entries: (await runInWorkspace(ws, () => this.auditLog.list({ ...filter, limit }))).events });
+    const events = mergeAuditPages(pages, limit);
+    return { events, nextCursor: events.length === limit ? auditCursor(events[events.length - 1]!) : null, ...extra };
+  }
+
+  // ---- workspaces (#304) ------------------------------------------------------
+
+  private admin(): WorkspaceAdmin {
+    if (!this.workspaceAdmin) throw new ApiError('not_supported', 501, 'this server runs with repositories bound to one workspace');
+    return this.workspaceAdmin;
+  }
+  /** The caller's workspace: limits in force and usage (any key). */
+  getWorkspace() {
+    return this.admin().current();
+  }
+  listWorkspaces() {
+    return this.admin().list();
+  }
+  createWorkspace(input: Record<string, unknown>, actor?: Actor) {
+    return this.admin().create(input, actor);
+  }
+  updateWorkspace(id: string, input: Record<string, unknown>, actor?: Actor) {
+    return this.admin().update(id, input, actor);
+  }
+  deleteWorkspace(id: string, actor?: Actor) {
+    return this.admin().delete(id, actor);
+  }
+  restoreWorkspace(id: string, actor?: Actor) {
+    return this.admin().restore(id, actor);
   }
 
   /**
@@ -2737,6 +2798,7 @@ export class ReelforgeService {
    */
   streamAuditEvents(query: Record<string, unknown> = {}, format: unknown = 'jsonl'): { format: 'jsonl' | 'csv'; contentType: string; filename: string; chunks: AsyncGenerator<string> } {
     if (format !== 'jsonl' && format !== 'csv') throw badRequest('format must be jsonl or csv');
+    if (query.workspaceId !== undefined && query.workspaceId !== '' && query.workspaceId !== currentWorkspaceId()) throw badRequest('exports cover the key\'s own workspace; for another workspace use the json pages with workspaceId (owner)');
     const { cursor: _c, limit, format: _f, ...rest } = query;
     const filter: AuditFilter = parseAuditQuery(rest);
     const max = limit === undefined || limit === null || limit === '' ? MAX_AUDIT_EXPORT : Number(limit);
