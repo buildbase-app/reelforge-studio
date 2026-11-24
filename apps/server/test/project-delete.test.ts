@@ -94,6 +94,9 @@ describe('deleting a project with active jobs (#419)', () => {
       expect(existsSync(join(config.dataDir, 'projects', id)), `files of ${id} are left`).toBe(false);
       expect((await req('GET', `/v1/projects/${id}`)).status).toBe(404);
     }
-    expect([...outcomes].every((o) => o === 'cancelled:cancelled' || o === 'failed:not_found')).toBe(true);
+    // Every job ended stopped. The exact code depends on timing (cancelled before or while running, or a render that
+    // finished just after the delete and was failed by the guard); a render can also fail on its own when its project
+    // disappears mid-render (seen once on PostgreSQL in CI). What must never happen is a success, checked above.
+    expect([...outcomes].every((o) => o.startsWith('cancelled:') || o.startsWith('failed:')), [...outcomes].join(', ')).toBe(true);
   }, 300_000);
 });
