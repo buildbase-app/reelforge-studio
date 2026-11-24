@@ -2686,7 +2686,7 @@ store path into the page; rasterising SVG at upload (needs a browser in the uplo
 per-engine `test/assets.test.ts`, `packages/media-pipeline/test/media.test.ts` (no drift), contact sheet
 `docs/proofs/assets/templates-with-media.jpg`.
 
-### D-1XX --- Fonts: font assets register under the family inside the file; a bundled OFL set; fonts load before the first frame and a failed face fails the render
+### D-122 --- Fonts: font assets register under the family inside the file; a bundled OFL set; fonts load before the first frame and a failed face fails the render
 
 **Status:** DECIDED (reversible), issue #303. Number assigned at merge.\
 **Upload:** a font is parsed by `packages/core/src/fonts.ts` (no font library): sfnt, WOFF (zlib tables) and WOFF2
