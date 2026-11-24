@@ -2,8 +2,12 @@ import { z } from 'zod';
 import {
   MAX_OUTPUT_VARIANTS,
   MAX_PROJECT_SECONDS,
+  MAX_SCENES,
   assetLicense,
+  fpsValue,
+  framesToSeconds,
   isSafeRelativePath,
+  type FrameRate,
   output,
   outputVariant,
   slugId,
@@ -221,7 +225,7 @@ const projectShape = z
     audio: audio.default({ voice: null, music: null, sfx: [] }),
     captions: projectCaptions.default({ enabled: false }),
     assets: z.array(asset).default([]),
-    scenes: z.array(scene).min(1).max(50),
+    scenes: z.array(scene).min(1).max(MAX_SCENES),
   })
   .strict();
 
@@ -232,9 +236,9 @@ function utf8Bytes(s: string | undefined): number {
 }
 
 /** Frames a scene occupies (seconds are rounded to the nearest frame). */
-export function sceneFrames(s: { durationFrames?: number; durationSeconds?: number }, fps: number): number {
+export function sceneFrames(s: { durationFrames?: number; durationSeconds?: number }, fps: FrameRate | number): number {
   if (s.durationFrames !== undefined) return s.durationFrames;
-  return Math.max(1, Math.round((s.durationSeconds ?? 0) * fps));
+  return Math.max(1, Math.round((s.durationSeconds ?? 0) * fpsValue(fps)));
 }
 
 /** Cross-field rules. The catalog decides which engines and templates exist. */
@@ -301,7 +305,7 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
     if (utf8Bytes(s.html) + utf8Bytes(s.css) > MAX_SOURCE_BYTES) {
       add(['scenes', i, 'html'], `html + css is larger than ${MAX_SOURCE_BYTES} bytes`);
     }
-    const seconds = frames / p.output.fps;
+    const seconds = framesToSeconds(frames, p.output.fps);
 
     if (s.template === undefined) {
       if (!isSourceEngine || s.html === undefined) {
@@ -364,7 +368,7 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
     });
   });
 
-  const totalSeconds = cursor / p.output.fps;
+  const totalSeconds = framesToSeconds(cursor, p.output.fps);
   if (totalSeconds > MAX_PROJECT_SECONDS) {
     add(['scenes'], `project is ${totalSeconds.toFixed(1)}s; the limit is ${MAX_PROJECT_SECONDS}s`);
   }

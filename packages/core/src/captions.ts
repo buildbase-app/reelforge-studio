@@ -8,6 +8,7 @@ import {
   cueTokens,
   formatSrt,
   formatVtt,
+  fpsValue,
   resolveCaptions,
   type CaptionCue,
   type CaptionMode,
@@ -274,10 +275,10 @@ export async function captionPass(i: CaptionPassInput, finalFile: string): Promi
   const r = resolveCaptions(i.project, i.modeOverride ? { mode: i.modeOverride } : {});
   if (r.mode === 'off') return null;
   const base = { mode: r.mode, source: r.source, language: r.language ?? null, highlight: r.highlight } as const;
-  const cues = (i.subset ? mapCuesToClips(r.cues, i.subset, i.output.fps) : r.cues)
+  const cues = (i.subset ? mapCuesToClips(r.cues, i.subset, fpsValue(i.output.fps)) : r.cues)
     .filter((c) => c.start < i.durationSeconds)
     .map((c) => (c.end > i.durationSeconds ? { ...c, end: i.durationSeconds } : c));
-  const qa = checkCaptions(cues, { fps: i.output.fps, maxLineChars: r.maxLineChars, endSeconds: i.durationSeconds });
+  const qa = checkCaptions(cues, { fps: fpsValue(i.output.fps), maxLineChars: r.maxLineChars, endSeconds: i.durationSeconds });
   if (!cues.length) {
     i.log(`captions: mode "${r.mode}" but no cues; nothing to render`);
     return { ...base, cues: 0, burned: false, files: {}, style: null, qa };

@@ -7,7 +7,14 @@ import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
 import { chromiumSandbox, packageVersion, publishDirAtomically, renderChildEnv, stampMatches } from '@reelforge/core';
-import type { OutputSettings, RenderScene, ThemeTokens } from '@reelforge/project-schema';
+import {
+  fpsArg,
+  fpsValue,
+  framesToSeconds,
+  type OutputSettings,
+  type RenderScene,
+  type ThemeTokens,
+} from '@reelforge/project-schema';
 import { chromium, type Browser } from 'playwright-core';
 import type { Plugin } from 'vite';
 import type {} from './protocol';
@@ -224,7 +231,7 @@ export async function renderMotionCanvasScene(
   const server = await serve(bundle);
   const port = (server.address() as AddressInfo).port;
   let browser: Browser | undefined;
-  const encoder = startPngEncoder(opts.ffmpeg, opts.out, output.fps, `render:${scene.id}`);
+  const encoder = startPngEncoder(opts.ffmpeg, opts.out, fpsArg(output.fps), `render:${scene.id}`);
   const consoleErrors: string[] = [];
   let nextFrame = 0;
 
@@ -278,13 +285,13 @@ export async function renderMotionCanvasScene(
         template: scene.template ?? '',
         variables: {
           ...props,
-          durationSeconds: scene.durationFrames / output.fps,
+          durationSeconds: framesToSeconds(scene.durationFrames, output.fps),
           ...(opts.theme ? { theme: opts.theme } : {}),
           ...(opts.platform ? { platform: opts.platform } : {}),
         },
         width: output.width,
         height: output.height,
-        fps: output.fps,
+        fps: fpsValue(output.fps),
         frames: scene.durationFrames,
         background: (props.background as string | undefined) ?? opts.theme?.colors.background ?? null,
       }

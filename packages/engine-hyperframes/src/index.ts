@@ -19,15 +19,20 @@ import { PipelineError } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
   FIT_TEXT_SCRIPT,
-  MAX_SOURCE_BYTES,
+  fpsArg,
+  fpsLabel,
+  fpsValue,
   frameLayout,
-  layoutCssVars,
-  TEMPLATES,
+  framesToSeconds,
   hyperframesTitleProps,
+  layoutCssVars,
+  MAX_SOURCE_BYTES,
+  TEMPLATES,
   type HyperframesTitleProps,
   type OutputSettings,
   type RenderScene,
   type ThemeTokens,
+  type FrameRate,
 } from '@reelforge/project-schema';
 import { EGRESS_REFUSED_LINE, FONT_REFUSED_LINE, REFUSED_LINE, nodeEgressEnv, startNetworkSink } from './network';
 import { killRenderNow, reapRender } from './processes';
@@ -123,12 +128,29 @@ ${props.subline ? `<p id="hf-sub">${escapeHtml(props.subline)}</p>` : ''}
 }
 
 /**
+ * Frame rates HyperFrames' `--end` accepts ("a whole frame rate in 24, 25, 30,
+ * 60"). At any other rate (48, 50 and the NTSC rates, #302) the render runs
+ * without `--end` and its length comes from the root's `data-duration`, of
+ * which HyperFrames renders ceil(duration x fps) frames.
+ */
+export const HF_END_RATES: readonly FrameRate[] = [24, 25, 30, 60];
+
+/**
+ * The root duration for an exact frame count without `--end`: half a frame
+ * short of `frames / fps`, so ceil(duration x fps) is exactly `frames` whatever
+ * the floating-point rounding (the last frame, at (frames - 1) / fps, is inside).
+ */
+export function rootSeconds(frames: number, fps: FrameRate): number {
+  return HF_END_RATES.includes(fps) ? framesToSeconds(frames, fps) : framesToSeconds(frames - 0.5, fps);
+}
+
+/**
  * The composition document for a scene. Agent source can be a fragment
  * (wrapped in a root composition of the right size and duration) or a full
  * HyperFrames document (must declare data-composition-id with the output size).
  */
 export function buildComposition(scene: RenderScene, output: OutputSettings, theme: ThemeTokens, platform?: string): string {
-  const seconds = scene.durationFrames / output.fps;
+  const seconds = framesToSeconds(scene.durationFrames, output.fps);
   const stage = `render:${scene.id}`;
   let body: string;
   if (scene.html !== undefined) {
@@ -154,7 +176,7 @@ export function buildComposition(scene: RenderScene, output: OutputSettings, the
   const doc = isDocument
     ? body
     : '<!doctype html><html lang="en"><head></head><body>' +
-      `<div id="root" data-composition-id="main" data-start="0" data-duration="${seconds}" data-width="${output.width}" data-height="${output.height}" style="position:relative;width:${output.width}px;height:${output.height}px;overflow:hidden">` +
+      `<div id="root" data-composition-id="main" data-start="0" data-duration="${rootSeconds(scene.durationFrames, output.fps)}" data-width="${output.width}" data-height="${output.height}" style="position:relative;width:${output.width}px;height:${output.height}px;overflow:hidden">` +
       body +
       '</div></body></html>';
   let prepared;
@@ -177,6 +199,16 @@ export function buildComposition(scene: RenderScene, output: OutputSettings, the
     const h = /^\s*(\d+)/.exec(root['data-height'] ?? '')?.[1];
     if (Number(w) !== output.width || Number(h) !== output.height) {
       throw new PipelineError(stage, `the composition root must declare data-width="${output.width}" data-height="${output.height}" (got ${w ?? '?'}x${h ?? '?'})`);
+    }
+    // Without --end (rates other than 24/25/30/60) the document's own duration sets the length.
+    if (!HF_END_RATES.includes(output.fps)) {
+      const d = Number(root['data-duration']);
+      if (!(Math.ceil(d * fpsValue(output.fps) - 1e-6) >= scene.durationFrames)) {
+        throw new PipelineError(
+          stage,
+          `at ${fpsLabel(output.fps)} fps the composition root's data-duration sets the length: it must be at least ${rootSeconds(scene.durationFrames, output.fps).toFixed(4)} s for ${scene.durationFrames} frames (got ${root['data-duration'] ?? 'none'})`
+        );
+      }
     }
   }
   return prepared.html;
@@ -260,7 +292,7 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   await writeFile(join(project, 'index.html'), doc);
   await mkdir(dirname(opts.out), { recursive: true });
 
-  const seconds = scene.durationFrames / output.fps;
+  const seconds = framesToSeconds(scene.durationFrames, output.fps);
   const args = [
     hyperframesBin(),
     'render',
@@ -268,9 +300,10 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
     '-o',
     opts.out,
     '--fps',
-    String(output.fps),
-    '--end',
-    String(seconds),
+    // Exact: HyperFrames takes FFmpeg-style rationals (30000/1001), #302.
+    fpsArg(output.fps),
+    // --end only at whole rates; otherwise the root's data-duration gives the frames (rootSeconds).
+    ...(HF_END_RATES.includes(output.fps) ? ['--end', String(seconds)] : []),
     '--workers',
     '1',
     '--refuse-outside-files',

@@ -83,6 +83,12 @@ test on rendered pixels at 16:9, 1:1, 4:5, 9:16 and 4K and by contact sheets in 
 **Output variants (#287, D-109, 2026-11-23):** a manifest may list `variants` (extra sizes); one `render_project`
 call (REST or MCP) starts one render per variant, each its own job and run id, grouped by a `batchId`
 ([manifest](public/manifest/v0-2.md#output-variants)).
+**Frame rates and output checks (#302, #287, D-1XX, 2026-11-24):** `output.fps` takes 23.976, 24, 25, 29.97, 30, 48,
+50, 59.94 and 60, NTSC rates stored as exact fractions (`"30000/1001"`); every engine renders each one and the final
+MP4's `r_frame_rate` is exact (ffprobe-checked, also through the fan-out join and captions). Sizes and rates an engine
+cannot render are refused with `422 unsupported_output` before queueing; `preview_scene` takes a `variant`; the
+manifest's 180 s and 50-scene caps became config bounds (defaults unchanged)
+([Frame rates](public/manifest/formats.md#frame-rates)).
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,

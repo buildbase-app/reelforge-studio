@@ -3,7 +3,13 @@ import { copyFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { PipelineError, normaliseClip, streamParams, toolVersion, type StreamParams, type Tools } from '@reelforge/media-pipeline';
-import { timeline, type CaptionMode, type Project, type ThemeTokens } from '@reelforge/project-schema';
+import {
+  timeline,
+  type CaptionMode,
+  type Project,
+  type ThemeTokens,
+  type FrameRate,
+} from '@reelforge/project-schema';
 import { describeUnit, JOIN_JOB_TYPE, UNIT_JOB_TYPE, type ChildSpec } from './fanout';
 import type { JobContext } from './jobs';
 import type { ResolvedAsset } from './plugins';
@@ -99,7 +105,7 @@ interface UnitManifest {
   frames: number;
   /** A chunk's frame range within the scene (absent: the whole scene). */
   range?: [number, number];
-  output: { width: number; height: number; fps: number };
+  output: { width: number; height: number; fps: FrameRate };
   clip: Omit<SceneClip, 'file'>;
   /** The normalised clip's stream parameters and the FFmpeg that encoded it: every unit of a join must agree. */
   stream: StreamParams;

@@ -118,6 +118,22 @@ describe('output variants (#287)', () => {
     for (const j of [...r.jobs!, one.job]) await svc.waitForJob(j.id, 60);
   }, 120_000);
 
+  it('VAR-06 preview_scene takes a variant: the preview renders at that variant\'s size (scaled) and platform', async () => {
+    seen.length = 0;
+    const job = await svc.preview('multi', { variant: 'wide', scale: 0.5 });
+    expect(job.params).toMatchObject({ variant: 'wide', scale: 0.5 });
+    const done = await svc.waitForJob(job.id, 60);
+    expect(done.status).toBe('succeeded');
+    expect(done.result).toMatchObject({ width: 192, height: 108, frames: 45 });
+    expect(seen.map((x) => [x.width, x.height])).toEqual([[192, 108]]);
+    // Without a variant the preview is of output, as before.
+    const plain = await svc.preview('multi', { scale: 0.5 });
+    expect(plain.params).not.toHaveProperty('variant');
+    expect((await svc.waitForJob(plain.id, 60)).result).toMatchObject({ width: 108, height: 192 });
+    await expect(svc.preview('multi', { variant: 'cinema' })).rejects.toMatchObject({ code: 'not_found', status: 404, details: { variants: ['vertical', 'wide', 'square'] } });
+    await expect(svc.preview('multi', { variant: 3 })).rejects.toMatchObject({ status: 400 });
+  }, 120_000);
+
   it('VAR-04 fan-out units carry the variant, so every unit and the join render at its size', () => {
     const r = parseProject(manifest('fan', VARIANTS));
     if (!r.ok) throw new Error('invalid');

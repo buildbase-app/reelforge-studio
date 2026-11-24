@@ -9,6 +9,7 @@ import {
   type Scene,
 } from './project';
 import { BUILTIN_CATALOG, type TemplateCatalog } from './templates';
+import { fpsLabel, fpsValue, framesToSeconds } from './common';
 import {
   CAPTION_RULES,
   buildCuesFromText,
@@ -92,11 +93,11 @@ function collectWarnings(p: Project): ValidationWarning[] {
   });
   p.scenes.forEach((s, i) => {
     if (s.durationSeconds !== undefined) {
-      const exact = s.durationSeconds * p.output.fps;
+      const exact = s.durationSeconds * fpsValue(p.output.fps);
       if (Math.abs(exact - Math.round(exact)) > 1e-6) {
         warnings.push({
           path: `scenes.${i}.durationSeconds`,
-          message: `${s.durationSeconds}s is ${exact.toFixed(3)} frames at ${p.output.fps} fps; rounded to ${Math.round(exact)}`,
+          message: `${s.durationSeconds}s is ${exact.toFixed(3)} frames at ${fpsLabel(p.output.fps)} fps; rounded to ${Math.round(exact)}`,
         });
       }
     }
@@ -112,7 +113,7 @@ function collectWarnings(p: Project): ValidationWarning[] {
     });
   }
   if (p.brief?.targetSeconds) {
-    const seconds = totalFrames(p) / p.output.fps;
+    const seconds = framesToSeconds(totalFrames(p), p.output.fps);
     if (Math.abs(seconds - p.brief.targetSeconds) > Math.max(1, p.brief.targetSeconds * 0.1)) {
       warnings.push({
         path: 'brief.targetSeconds',
@@ -167,8 +168,8 @@ export interface ResolvedCaptions {
  * overrides `captions.mode` (render_project's `captions` option).
  */
 export function resolveCaptions(p: Project, opts: { mode?: CaptionMode } = {}): ResolvedCaptions {
-  const fps = p.output.fps;
-  const endSeconds = totalFrames(p) / fps;
+  const fps = fpsValue(p.output.fps);
+  const endSeconds = framesToSeconds(totalFrames(p), p.output.fps);
   const portrait = p.output.height > p.output.width;
   const maxLineChars = p.captions.maxLineChars ?? (portrait ? 32 : CAPTION_RULES.maxLineChars);
   const maxCharsPerCue = p.captions.maxCharsPerCue ?? maxLineChars * CAPTION_RULES.maxLines;

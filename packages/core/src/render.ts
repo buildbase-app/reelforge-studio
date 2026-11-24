@@ -14,10 +14,12 @@ import {
   type Tools,
 } from '@reelforge/media-pipeline';
 import {
+  fpsValue,
+  framesToSeconds,
   SCHEMA_VERSION,
   timeline,
-  type CaptionMode,
   toRenderScene,
+  type CaptionMode,
   type OutputSettings,
   type Project,
   type ThemeTokens,
@@ -63,7 +65,10 @@ export interface RenderPipelineResult {
   frames: number;
   width: number;
   height: number;
+  /** Frames per second as a number (29.97002997 for NTSC 29.97). */
   fps: number;
+  /** The exact rate ffprobe reports (r_frame_rate), e.g. "30000/1001". */
+  frameRate: string;
 }
 
 /** One rendered scene clip, as recorded in the render manifest. */
@@ -129,7 +134,7 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
       'reelforge.scene.frames': frames,
       'reelforge.output.width': output.width,
       'reelforge.output.height': output.height,
-      'reelforge.output.fps': output.fps,
+      'reelforge.output.fps': fpsValue(output.fps),
     },
     () =>
       engine.render(toRenderScene(scene), {
@@ -282,10 +287,10 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
   const music = fullTimeline && a.music ? { file: audioFile(a.music.asset)!, volume: a.music.volume, fadeOutSeconds: a.music.fadeOutSeconds } : null;
   const voice =
     fullTimeline && a.voice?.asset
-      ? { file: audioFile(a.voice.asset)!, volume: a.voice.volume, startSeconds: a.voice.startFrame / output.fps }
+      ? { file: audioFile(a.voice.asset)!, volume: a.voice.volume, startSeconds: framesToSeconds(a.voice.startFrame, output.fps) }
       : null;
   const sfx = fullTimeline
-    ? a.sfx.map((s) => ({ file: audioFile(s.asset)!, volume: s.volume, atSeconds: s.atFrame / output.fps }))
+    ? a.sfx.map((s) => ({ file: audioFile(s.asset)!, volume: s.volume, atSeconds: framesToSeconds(s.atFrame, output.fps) }))
     : [];
 
   input.progress('assemble', 0.87);
@@ -317,7 +322,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
         output,
         ...(input.captionsMode ? { modeOverride: input.captionsMode } : {}),
         ...(fullTimeline ? {} : { subset: clips }),
-        durationSeconds: assembled.totalFrames / output.fps,
+        durationSeconds: framesToSeconds(assembled.totalFrames, output.fps),
         dir: tmp,
         workDir: join(tmp, 'work', 'captions'),
         tools,
@@ -336,9 +341,11 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     fps: output.fps,
     frames: assembled.totalFrames,
     audio: true,
+    // r_frame_rate exactly the manifest's rate (30000/1001, not 2997/100; #302).
+    exactRate: true,
   });
-  const expectedSeconds = assembled.totalFrames / output.fps;
-  if (Math.abs(info.durationSeconds - expectedSeconds) > 1 / output.fps + 0.001) {
+  const expectedSeconds = framesToSeconds(assembled.totalFrames, output.fps);
+  if (Math.abs(info.durationSeconds - expectedSeconds) > 1 / fpsValue(output.fps) + 0.001) {
     problems.push(`duration is ${info.durationSeconds}s, expected ${expectedSeconds}s`);
   }
   if (info.audioCodec !== 'aac') problems.push(`audio codec is ${info.audioCodec}, expected aac`);
@@ -415,5 +422,6 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     width: info.width,
     height: info.height,
     fps: info.fps,
+    frameRate: info.frameRate,
   };
 }

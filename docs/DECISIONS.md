@@ -2370,3 +2370,40 @@ endpoint never got is queued for it), `rotate_webhook_secret` (`POST .../rotate-
 summary and the retry policy). `list_webhook_deliveries` (payloads) and everything else stay admin.
 *Rejected:* a separate secrets table: the endpoint already holds the current and the previous secret (sealed), and
 Standard Webhooks needs no more than that for an overlap.
+
+### D-1XX --- Exact rational frame rates (23.976, 29.97, 48, 50, 59.94); per-engine output checks before queueing; length and scene caps become config bounds
+
+**Status:** DECIDED (reversible), issues #302 and #287. The number is assigned at merge.\
+**Frame rates.** `output.fps` accepts 23.976, 24, 25, 29.97, 30, 48, 50, 59.94 and 60, given as a number, a
+`"num/den"` string or `{ num, den }`, and stores them canonically (`FRAME_RATES`, `packages/project-schema/src/common.ts`):
+integer rates as numbers, so every existing manifest (`"fps": 30`) is unchanged, and the NTSC rates as the exact
+fractions `"24000/1001"`, `"30000/1001"`, `"60000/1001"`. Decimal spellings (29.97, 23.98) are read as those
+fractions; a written fraction is never rounded (`"2997/100"` is refused). Arithmetic goes through `fpsValue()` and
+`framesToSeconds()` (frames x den / num); FFmpeg always gets the fraction (`fpsArg()`: `-framerate`, `-r` and the
+`fps` filter), so the final MP4's `r_frame_rate` is exactly `30000/1001`, checked by the output probe
+(`checkExpectation(..., { exactRate: true })`) and the stream-copy join's timestamp check. FFmpeg durations (`-t`,
+`atrim`) are written to the microsecond: an NTSC timeline does not end on a millisecond, and rounding made the audio
+up to 0.5 ms longer than the video, so the fanned-out and single-worker renders differed. Engines: html and Motion
+Canvas pipe frames at the exact rate; Remotion takes the rate as a number (its clip is normalised to the exact rate
+during assembly); HyperFrames takes the fraction, but its `--end` accepts only 24, 25, 30 and 60, so at other rates
+the render runs without `--end` and the root's `data-duration` is half a frame short of `frames / fps` (it renders
+ceil(duration x fps) frames, so this is exactly `frames` whatever the rounding); an agent's full document at those
+rates must declare a long enough root duration. Render results gain `frameRate` (ffprobe's `r_frame_rate`) next to
+the numeric `fps`. *Rejected:* storing every rate as `{ num, den }` (breaks every client that reads `fps` as a
+number); floats only (`29.97` reaches FFmpeg as 2997/100, a different rate from NTSC 30000/1001 that editors and broadcast checks reject); a separate `fpsRational` field (two
+sources of truth).
+**Per-engine output checks.** `outputSupportIssues()` (`packages/core/src/output-support.ts`) checks output and each
+variant against the H.264 4:2:0 rules every engine shares (even sides, level 6.2: at most 139,264 macroblocks a
+frame and 16,880 px a side) and against what each engine declares in `EngineCapabilities.output` (frame rates,
+largest side, largest frame). `render_project` and `preview_scene` refuse with `422 unsupported_output` (engine,
+variant, reason) before anything is queued, and `validate_project` lists the same problems; `get_capabilities`
+lists each engine's `frameRates`. The built-in engines render every rate at every size the manifest allows, so they
+declare nothing; the check matters for third-party engines and for sizes above the current 4096 px bound.
+**Caps (#302).** The manifest's structural bounds become generous (`MAX_PROJECT_SECONDS` 4 hours, `MAX_SCENES` 2000)
+and what a server renders is its runtime config: `limits.maxRenderSeconds` (default 180, up to 14,400),
+`limits.maxRenderFrames` (default 5,400, up to 864,000) and `limits.maxScenes` (default 50, up to 2,000). Defaults
+are unchanged, so nothing renders longer until an admin raises them. **Not yet:** other containers (MOV/ProRes,
+WebM, GIF, PNG sequence, audio only), a configurable scene source size (256 KB), a disk-space preflight and resume
+for long renders, and a limits page.
+**preview_scene takes `variant`** (#287): the preview renders at that variant's size (scaled) and platform, through
+the same `withVariant()` path as a variant render; an unknown variant is `404` with the list.
