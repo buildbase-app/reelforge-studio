@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { ApiError } from './errors';
+import { userAgent } from './product';
 import type { RuntimeConfig } from './config/runtime';
 import type { LicenceRepository, LicenceStateRecord, Repositories } from './repositories';
 
@@ -105,8 +106,8 @@ export interface BuildBaseLicenceClientOptions {
 /**
  * The BuildBase licence API over HTTP: the same requests `LicensesApi` of
  * `@buildbase/sdk` 1.8.0 makes (D-035 says why the SDK is not a runtime
- * dependency). Sends `{ key, instance }` and nothing else: no credentials, no
- * custom headers.
+ * dependency). Sends `{ key, instance }` and nothing else: no credentials, and
+ * no custom header beyond the product User-Agent (#413).
  */
 export class BuildBaseLicenceClient implements LicenceApi {
   private readonly base: string;
@@ -137,7 +138,7 @@ export class BuildBaseLicenceClient implements LicenceApi {
     try {
       res = await this.fetchImpl(`${this.base}/${op}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        headers: { 'content-type': 'application/json', accept: 'application/json', 'user-agent': userAgent('Licence') },
         body: JSON.stringify(body),
         redirect: this.redirect,
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
@@ -252,27 +253,27 @@ interface Explained {
   fix?: string;
 }
 
-const ACTIVATE_HOW = 'activate_licence (MCP), POST /v1/licence {"key": "..."} (REST) or `reelforge licence activate <key>`';
+const ACTIVATE_HOW = 'activate_licence (MCP), POST /v1/licence {"key": "..."} (REST) or `renderweld licence activate <key>`';
 
 function explain(reason: string, ctx: { host: string; graceDays: number; lastSuccessAt?: string; error?: string }): Explained {
   switch (reason) {
     case 'no_key':
       return {
         message: 'No licence key is set.',
-        fix: `Set the key from your ReelForge purchase with ${ACTIVATE_HOW} (stored encrypted; needs REELFORGE_SECRET_KEY), or REELFORGE_LICENCE_KEY / REELFORGE_LICENCE_KEY_FILE and restart.`,
+        fix: `Set the key from your RenderWeld purchase with ${ACTIVATE_HOW} (stored encrypted; needs REELFORGE_SECRET_KEY), or REELFORGE_LICENCE_KEY / REELFORGE_LICENCE_KEY_FILE and restart.`,
       };
     case 'not_found':
-      return { message: 'The licence server does not know this licence key.', fix: `Check the key in your ReelForge purchase (store account, orders) and set it again with ${ACTIVATE_HOW}.` };
+      return { message: 'The licence server does not know this licence key.', fix: `Check the key in your RenderWeld purchase (store account, orders) and set it again with ${ACTIVATE_HOW}.` };
     case 'revoked':
-      return { message: 'The licence key has been revoked.', fix: 'A refunded or disabled purchase revokes its key. Contact ReelForge support, or activate another key.' };
+      return { message: 'The licence key has been revoked.', fix: 'A refunded or disabled purchase revokes its key. Contact RenderWeld support, or activate another key.' };
     case 'expired':
       return { message: 'The licence has expired.', fix: `Renew the licence or buy a new one, then activate the new key with ${ACTIVATE_HOW}.` };
     case 'not_yet':
-      return { message: 'The licence is not valid yet (its start date is in the future).', fix: 'Wait until the start date, or contact ReelForge support.' };
+      return { message: 'The licence is not valid yet (its start date is in the future).', fix: 'Wait until the start date, or contact RenderWeld support.' };
     case 'limit_reached':
       return {
         message: 'The licence key is already active on as many servers as it allows.',
-        fix: `Free an activation: run deactivate_licence (DELETE /v1/licence, \`reelforge licence deactivate\`) on the server that holds it, or release it in your store account; then activate again here with ${ACTIVATE_HOW}.`,
+        fix: `Free an activation: run deactivate_licence (DELETE /v1/licence, \`renderweld licence deactivate\`) on the server that holds it, or release it in your store account; then activate again here with ${ACTIVATE_HOW}.`,
       };
     case 'not_activated':
       return { message: 'This server holds no activation of the licence key.', fix: `Activate it with ${ACTIVATE_HOW}.` };
@@ -296,7 +297,7 @@ function explain(reason: string, ctx: { host: string; graceDays: number; lastSuc
     case 'state_untrusted':
       return {
         message:
-          'The stored licence state failed its integrity check (it was changed outside ReelForge, REELFORGE_SECRET_KEY changed, or it was written by an older version), so the offline grace period does not apply until the licence server confirms the licence.',
+          'The stored licence state failed its integrity check (it was changed outside RenderWeld, REELFORGE_SECRET_KEY changed, or it was written by an older version), so the offline grace period does not apply until the licence server confirms the licence.',
         fix: `Allow outbound HTTPS to ${ctx.host}; the next successful check restores normal operation (POST /v1/licence or activate_licence checks at once).`,
       };
     case 'not_checked':
@@ -308,7 +309,7 @@ function explain(reason: string, ctx: { host: string; graceDays: number; lastSuc
         fix: `Start an api instance on the same database with the licence key, or activate it there with ${ACTIVATE_HOW}. This worker starts claiming render jobs within a minute of a successful check.`,
       };
     default:
-      return { message: `The licence server refused the licence key (${reason}).`, fix: 'Contact ReelForge support with this reason.' };
+      return { message: `The licence server refused the licence key (${reason}).`, fix: 'Contact RenderWeld support with this reason.' };
   }
 }
 
@@ -511,8 +512,8 @@ export class LicenceManager {
       this.log(
         'error',
         this.readOnly
-          ? 'licence: the stored licence state failed its integrity check (changed outside ReelForge, or this worker has a different REELFORGE_SECRET_KEY than the api instances); this worker claims no render jobs until it reads a valid state.'
-          : 'licence: the stored licence state failed its integrity check (changed outside ReelForge, REELFORGE_SECRET_KEY changed, or written by an older version); an online licence check is needed before renders are allowed again.'
+          ? 'licence: the stored licence state failed its integrity check (changed outside RenderWeld, or this worker has a different REELFORGE_SECRET_KEY than the api instances); this worker claims no render jobs until it reads a valid state.'
+          : 'licence: the stored licence state failed its integrity check (changed outside RenderWeld, REELFORGE_SECRET_KEY changed, or written by an older version); an online licence check is needed before renders are allowed again.'
       );
     }
     // Untrusted until a trusted state with an answer is read: this instance's or another instance's check (D-098).

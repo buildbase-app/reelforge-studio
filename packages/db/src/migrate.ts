@@ -116,7 +116,7 @@ function verify(migrations: Migration[], applied: Array<{ id: string; checksum: 
     const m = known.get(row.id);
     if (!m) {
       throw new Error(
-        `the database has migration ${row.id}, which this version of ReelForge does not know: it was migrated by a newer version. Run that version (or newer), or restore a backup taken before the upgrade.`
+        `the database has migration ${row.id}, which this version of RenderWeld does not know: it was migrated by a newer version. Run that version (or newer), or restore a backup taken before the upgrade.`
       );
     }
     if (checksum(m.sql) !== row.checksum) {

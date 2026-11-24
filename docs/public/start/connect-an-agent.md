@@ -35,8 +35,8 @@ claude mcp add --transport http reelforge https://studio.example.com/mcp \
   --header "Authorization: Bearer rf_..."
 ```
 
-The `plan_reel` and `review_reel` prompts appear as slash commands in clients
-that support MCP prompts.
+The `brief_intake`, `make_reel`, `plan_reel` and `review_reel` prompts appear as
+slash commands in clients that support MCP prompts.
 
 ## OpenAI Codex
 

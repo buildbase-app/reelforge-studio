@@ -3,6 +3,7 @@ import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
 import { isPrivateAddress, publicOnlyLookup } from '../assets';
 import { ApiError } from '../errors';
+import { userAgent } from '../product';
 
 /**
  * Outbound HTTP for webhooks and chat channels with the SSRF guard (D-072):
@@ -81,7 +82,7 @@ export function postOnce(
         headers: {
           'content-type': 'application/json',
           'content-length': String(Buffer.byteLength(body)),
-          'user-agent': opts.userAgent ?? 'ReelForge-Studio-Webhooks/1',
+          'user-agent': opts.userAgent ?? userAgent('Webhooks'),
           ...headers,
         },
         signal: opts.signal,

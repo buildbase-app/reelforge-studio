@@ -23,9 +23,11 @@ let app: ReturnType<typeof createApp>;
 beforeAll(async () => {
   // A stand-in for the built dashboard: the route serves whatever the build wrote.
   mkdirSync(join(assets, 'assets'), { recursive: true });
-  writeFileSync(join(assets, 'index.html'), '<!doctype html><title>ReelForge Studio</title><script type="module" src="assets/app-0123456789.js"></script>');
+  writeFileSync(join(assets, 'index.html'), '<!doctype html><title>RenderWeld</title><script type="module" src="assets/app-0123456789.js"></script>');
   writeFileSync(join(assets, 'assets', 'app-0123456789.js'), 'export {};');
   writeFileSync(join(assets, 'assets', 'app-0123456789.css'), 'body{}');
+  writeFileSync(join(assets, 'assets', 'icon-192-0123456789.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+  writeFileSync(join(assets, 'assets', 'manifest-0123456789.webmanifest'), '{"name":"RenderWeld"}');
   config = { ...loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data') }), dashboardAssetsDir: assets };
   db = (await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir })).db;
   service = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('html', { delayPerFrameMs: 50 })), {
@@ -105,6 +107,15 @@ describe('dashboard route', () => {
     expect(js.headers.get('cache-control')).toContain('immutable');
     expect(js.headers.get('content-security-policy')).toBe(DASHBOARD_CSP);
     expect((await req('GET', '/dashboard/assets/app-0123456789.css', { key: null })).headers.get('content-type')).toBe('text/css; charset=utf-8');
+    // The kit's app icons and the web app manifest (#413), same-origin only.
+    expect(csp).toContain("manifest-src 'self'");
+    const png = await req('GET', '/dashboard/assets/icon-192-0123456789.png', { key: null });
+    expect(png.status).toBe(200);
+    expect(png.headers.get('content-type')).toBe('image/png');
+    const manifest = await req('GET', '/dashboard/assets/manifest-0123456789.webmanifest', { key: null });
+    expect(manifest.status).toBe(200);
+    expect(manifest.headers.get('content-type')).toBe('application/manifest+json');
+    expect(manifest.headers.get('content-security-policy')).toBe(DASHBOARD_CSP);
   });
 
   it('serves only the built files: no traversal, no other names', async () => {
