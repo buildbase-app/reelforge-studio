@@ -28,12 +28,13 @@ import {
   renderPrefix,
   streamToBuffer,
   type StorageDriver,
+  envValue,
 } from '../src/index';
 import { tempDir } from './helpers';
 
 const tmp = tempDir('reelforge-storage-');
 afterAll(() => tmp.cleanup());
-const required = (process.env.REELFORGE_REQUIRE_STORAGE ?? '').split(',').filter(Boolean);
+const required = (envValue('REELFORGE_REQUIRE_STORAGE') ?? '').split(',').filter(Boolean);
 const run = randomBytes(4).toString('hex');
 const MiB = 1024 * 1024;
 const SECRETS: string[] = [];

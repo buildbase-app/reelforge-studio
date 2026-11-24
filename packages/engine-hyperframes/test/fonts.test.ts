@@ -7,9 +7,10 @@ import { resolveTools } from '@reelforge/media-pipeline';
 import { builtinTheme, type OutputSettings } from '@reelforge/project-schema';
 import { renderHyperframesScene } from '../src/index';
 import { TEST_FONTS, inkRatio, readPicture } from '../../media-pipeline/test/media-fixtures';
+import { envValue } from '@reelforge/core';
 
 /** #303: the theme's project font is declared from the composition folder and used; no font is fetched from the network. */
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-hf-fonts-'));
 afterAll(() => {

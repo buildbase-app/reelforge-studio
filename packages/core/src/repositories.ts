@@ -12,7 +12,9 @@ import type { WebhookRepository } from './webhooks/types';
  *   - createMemoryRepositories() in this package (tests, ephemeral use)
  *
  * A `Repositories` object is bound to one workspace: every row it reads or
- * writes carries that workspaceId. There is one workspace ("default") today.
+ * writes carries that workspaceId (#304). The service gets a routing bundle
+ * (createWorkspaceRouter in ./workspace) that picks the bound bundle of the
+ * caller's workspace on every call, so no route can forget the filter.
  * Binary files (assets, renders) are never stored here: they stay in the
  * storage driver, and the asset row only records where (`storageKey`).
  *
@@ -85,11 +87,17 @@ export interface ProjectRepository {
 
 // ---- API keys ---------------------------------------------------------------
 
-export const SCOPES = ['read', 'write', 'render', 'admin'] as const;
+/**
+ * `admin` manages its own workspace (keys, webhooks, audit). `owner` is instance-level (#304): workspaces, runtime
+ * configuration, the licence, provider credentials and storage; it implies `admin` in its own workspace.
+ */
+export const SCOPES = ['read', 'write', 'render', 'admin', 'owner'] as const;
 export type Scope = (typeof SCOPES)[number];
 
 export interface ApiKeyRecord {
   id: string;
+  /** The workspace the key belongs to; set on records read across workspaces (authentication). */
+  workspaceId?: string;
   name: string;
   scopes: Scope[];
   /** First characters of the key, for recognising it in lists. Not secret on its own. */
@@ -168,6 +176,8 @@ export interface JobProgress {
 
 export interface JobRecord {
   id: string;
+  /** The workspace the job belongs to (#304); set by the routing repositories and on new jobs. */
+  workspaceId?: string;
   type: string;
   status: JobStatus;
   projectId?: string;
@@ -406,6 +416,8 @@ export interface JobRepository {
   countQueued(before?: { createdAt: string; id: string; priority?: JobPriority }): Promise<number>;
   /** How many jobs of these types `apiKeyId` started at or after `since` (render quotas). */
   countByApiKey(apiKeyId: string, since: string, types: string[]): Promise<number>;
+  /** How many jobs of these types the workspace started at or after `since` (workspace render limits, #304). */
+  countSince(since: string, types: string[]): Promise<number>;
   appendLog(jobId: string, at: string, line: string): Promise<void>;
   /** Log lines as "<iso time> <line>", oldest first; the last `tail` if given. */
   logs(jobId: string, tail?: number): Promise<string[]>;
@@ -566,6 +578,8 @@ export interface AuditEntry extends AuditEntryInput {
   id: string;
   at: string;
   result: AuditResult;
+  /** Set when an owner lists the entries of every workspace (#304). */
+  workspaceId?: string;
 }
 
 export interface AuditFilter {
@@ -655,6 +669,8 @@ export interface RateLimitRepository {
 /** One job id waiting to be published to an external dispatch broker (D-105). */
 export interface DispatchOutboxRow {
   id: string;
+  /** The job's workspace; set by the routing repositories (#304). */
+  workspaceId?: string;
   jobId: string;
   /** Failed publishes so far. */
   attempts: number;
@@ -682,8 +698,62 @@ export interface DispatchOutboxRepository {
 
 // ---- the bundle -------------------------------------------------------------
 
+// ---- workspaces (#304) ------------------------------------------------------
+
+/** "active"; "suspended": its keys are refused and its queued jobs wait; "deleted": soft-deleted until purgeAfter. */
+export type WorkspaceStatus = 'active' | 'suspended' | 'deleted';
+export const WORKSPACE_STATUSES: readonly WorkspaceStatus[] = ['active', 'suspended', 'deleted'];
+
+/** Optional per-workspace limits; unset means the workspaces.defaultLimits setting, which is unlimited by default. */
+export interface WorkspaceLimits {
+  /** Render and preview jobs per UTC day / calendar month, across every key of the workspace. */
+  rendersPerDay?: number;
+  rendersPerMonth?: number;
+  /** Requests per minute across every key of the workspace (each key's own limit still applies). */
+  rateLimitPerMinute?: number;
+  /** Bytes of assets and renders the workspace may store; uploads and renders are refused above it. */
+  storageBytes?: number;
+}
+
+export interface WorkspaceRecord {
+  id: string;
+  name: string;
+  status: WorkspaceStatus;
+  createdAt: string;
+  updatedAt?: string;
+  suspendedAt?: string;
+  deletedAt?: string;
+  /** Soft-deleted: rows and files are purged after this time. */
+  purgeAfter?: string;
+  limits?: WorkspaceLimits;
+}
+
+export interface WorkspacePatch {
+  name?: string;
+  status?: WorkspaceStatus;
+  suspendedAt?: string | null;
+  deletedAt?: string | null;
+  purgeAfter?: string | null;
+  limits?: WorkspaceLimits | null;
+  updatedAt: string;
+}
+
+/** Instance-level: the same rows whichever workspace a bundle is bound to. */
+export interface WorkspaceRepository {
+  /** Every workspace that has not been purged, oldest first. */
+  list(): Promise<WorkspaceRecord[]>;
+  get(id: string): Promise<WorkspaceRecord | null>;
+  /** Insert; false when the id is taken. */
+  create(record: WorkspaceRecord): Promise<boolean>;
+  update(id: string, patch: WorkspacePatch): Promise<WorkspaceRecord | null>;
+  /** Hard delete: the workspace and every row in it (projects, jobs, keys, assets, audit, ...). */
+  purge(id: string): Promise<boolean>;
+}
+
 export interface Repositories {
   readonly workspaceId: string;
+  /** Workspaces of the install (instance-level, #304). */
+  readonly workspaces: WorkspaceRepository;
   readonly projects: ProjectRepository;
   readonly keys: ApiKeyRepository;
   readonly jobs: JobRepository;

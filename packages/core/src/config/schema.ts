@@ -11,8 +11,8 @@ import { weakKeyReason } from '../keyStrength';
  * Sources, lowest to highest precedence (docs/DECISIONS.md D-029):
  *   1. defaults (below)
  *   2. the config file (REELFORGE_CONFIG: YAML or JSON, same nesting as here)
- *   3. environment variables (REELFORGE_*, aliases such as DATABASE_URL; every
- *      secret also as <NAME>_FILE)
+ *   3. environment variables (RENDERWELD_*, then the old REELFORGE_* names and
+ *      aliases such as DATABASE_URL; every secret also as <NAME>_FILE)
  *   4. runtime settings set over REST/MCP (PATCH /v1/config, update_config),
  *      stored in the database; only keys with scope "runtime"
  *
@@ -851,6 +851,43 @@ export const ConfigSchema = z.object({
       description: 'After `rotate_key`, the old secret keeps working this many hours so clients can switch. `0` ends it at once; a rotation may pass its own `graceHours`.',
     }),
   }),
+  workspaces: z.object({
+    deleteGraceDays: setting(z.number().int().min(0).max(365), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WORKSPACE_DELETE_GRACE_DAYS',
+      default: 30,
+      description: 'A deleted workspace (`delete_workspace`) can be restored this many days; then the hourly sweep purges its rows and files for good. `0` purges at the next sweep.',
+    }),
+    rendersPerDay: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WORKSPACE_RENDERS_PER_DAY',
+      default: 0,
+      description: 'Default render and preview jobs per UTC day for each workspace, across all its keys; a workspace\'s own `limits.rendersPerDay` wins. `0`: unlimited (the default: users are limited only by the licence).',
+    }),
+    rendersPerMonth: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WORKSPACE_RENDERS_PER_MONTH',
+      default: 0,
+      description: 'Default render and preview jobs per calendar month (UTC) for each workspace; a workspace\'s own `limits.rendersPerMonth` wins. `0`: unlimited.',
+    }),
+    rateLimitPerMinute: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WORKSPACE_RATE_LIMIT_PER_MINUTE',
+      default: 0,
+      description: 'Default requests per minute for each workspace, across all its keys (each key\'s own limit applies too); a workspace\'s own `limits.rateLimitPerMinute` wins. `0`: unlimited.',
+    }),
+    storageBytes: setting(nonNegative(), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WORKSPACE_STORAGE_BYTES',
+      default: 0,
+      description: 'Default bytes of assets and renders each workspace may store; uploads and renders are refused (507) once it is reached. Usage is measured at most a minute earlier. `0`: unlimited.',
+    }),
+  }),
   idempotency: z.object({
     ttlHours: setting(z.number().int().min(1).max(168), {
       kind: 'integer',
@@ -1503,9 +1540,26 @@ function collect(obj: z.ZodObject, prefix: string, out: SettingDef[]): SettingDe
 export const SETTINGS: readonly SettingDef[] = Object.freeze(collect(ConfigSchema, '', []));
 export const SETTINGS_BY_KEY: ReadonlyMap<string, SettingDef> = new Map(SETTINGS.map((s) => [s.key, s]));
 
-/** The env variable names a setting is read from, in precedence order (secrets: each also as _FILE). */
+/**
+ * ReelForge is renamed RenderWeld (#408, docs/RENAMED.md): every `REELFORGE_*`
+ * name is also read as `RENDERWELD_*`, which wins. The schema keeps the old
+ * names; the new ones are derived here, so no setting needs its own alias.
+ */
+export const LEGACY_ENV_PREFIX = 'REELFORGE_';
+export const ENV_PREFIX = 'RENDERWELD_';
+
+/** `REELFORGE_X` -> `RENDERWELD_X` (also for `_FILE` names); undefined for any other name. */
+export function renamedEnvName(name: string): string | undefined {
+  return name.startsWith(LEGACY_ENV_PREFIX) ? `${ENV_PREFIX}${name.slice(LEGACY_ENV_PREFIX.length)}` : undefined;
+}
+
+/**
+ * The env variable names a setting is read from, in precedence order (secrets: each also as _FILE):
+ * the `RENDERWELD_*` names first, then the schema's own (`REELFORGE_*`, then older aliases such as DATABASE_URL).
+ */
 export function envNames(def: SettingDef): string[] {
-  return [def.env, ...(def.aliases ?? [])];
+  const own = [def.env, ...(def.aliases ?? [])];
+  return [...own.flatMap((n) => renamedEnvName(n) ?? []), ...own];
 }
 
 /** The config file schema: the same nesting, every key optional, unknown keys refused (typos). */

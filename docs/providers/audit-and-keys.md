@@ -48,6 +48,18 @@ server:
 All of these are runtime settings: `update_config` / `PATCH /v1/config` changes
 them without a restart (and that change is itself audited as `config.update`).
 
+## Workspaces and scopes (#304)
+
+- **Audit log.** Every workspace has its own audit log; `list_audit_events` and `GET /v1/audit` return the key's
+  workspace's entries.
+- **Owner keys.** An owner key may pass `workspaceId=<id>` for another workspace, or `workspaceId=*` for all of
+  them merged newest first, each entry naming its `workspaceId`. This works for json pages; exports cover the
+  key's own workspace.
+- **Admin keys.** An `admin` key manages its own workspace's keys and webhooks.
+- **The owner scope.** The instance-level `owner` scope (configuration, licence, provider credentials, storage,
+  workspaces) is needed to create or change an owner key.
+- **Where it is explained.** See [WORKSPACES.md](../WORKSPACES.md).
+
 ## What is logged, what never is
 
 **One entry per call** for every admin-scope call (including admin reads:

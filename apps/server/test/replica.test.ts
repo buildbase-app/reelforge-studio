@@ -97,7 +97,7 @@ describe.skipIf(!kind)(`read replica and worker pool on ${kind}`, () => {
     });
     expect(s.db.readDisplayUrl).toBeTruthy();
     expect(logs.some((l) => l.includes('database read replica:') && l.includes('lists only: projects.page'))).toBe(true);
-    const admin = (await s.service.keys.create('admin', ['admin'])).key;
+    const admin = (await s.service.keys.create('admin', ['admin', 'owner'])).key;
     const rest = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}, key = admin) => {
       const res = await fetch(`${s.url}${path}`, {
         method,

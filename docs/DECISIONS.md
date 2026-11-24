@@ -2854,3 +2854,138 @@ packaging (GIF and PNG would need their own burn); an alpha GIF (1-bit transpare
 *Known limits:* non-alpha clips are still H.264 (CRF 18) before a ProRes or VP9 encode; Remotion and
 Motion Canvas alpha; ZIP64 for PNG sequences over 65,535 frames or 4 GiB. Debian bookworm's FFmpeg
 5.1.9 (the image's package) has every encoder used and libass `alpha`, and the media-pipeline format tests pass on it.
+
+### D-124 --- Workspaces: routing repositories, an instance-level owner scope, and 404 across workspaces
+
+**Status:** DECIDED (reversible).
+
+**Problem (#304, #326/#328 AI-10 and AI-12, #330 DATA-03 and DATA-08).** Every row already carried
+`workspaceId`, and every Prisma repository bundle was bound to one workspace, but the service held a single bundle
+for `default`. So every key read and could delete every project of the install.
+
+**Decision.**
+
+1. **Routing repositories.** The service gets a routing `Repositories` that resolves the caller's workspace on
+   every call:
+   - an explicit `runInWorkspace` (a job, a webhook delivery, a sweep);
+   - else the authenticated key in the request context;
+   - else, in system context, `default`.
+   The service never takes a workspace from request arguments, and no route can forget the filter because routes
+   never see it. Repository methods added later (webhook `reschedule`, the lease-fenced `recordAttempt` and the
+   lookups by `eventId` / `dedupeKey` of #342) are routed the same way without changes to the router.
+2. **Instance-level and cross-workspace state.** Runtime settings, provider settings, the licence, rate-limit
+   windows and instance leases stay in `default`. These operations are written out in the router as
+   cross-workspace: key lookup by prefix (authentication), the queue claim, heartbeat and lease recovery, the
+   webhook and dispatch outboxes, and the retention sweeps.
+3. **The claim runs per workspace.** The claim plan of D-117 (the claim index, whose first column is
+   `workspaceId`) is unchanged; the router calls each active workspace's claim in turn, starting after the workspace
+   served last. That is fairness between workspaces without touching the claim SQL, at the cost of up to N queries
+   for an empty poll with N workspaces. The per-key running cap counts one workspace's jobs. A distinct-workspaces
+   query can replace the loop if installs grow to many workspaces.
+4. **Keys and the owner scope.** Keys belong to one workspace. `admin` manages that workspace. A new
+   instance-level `owner` scope manages runtime configuration, the licence, provider credentials and storage, and
+   implies `admin` in its own workspace. Migration `0015_workspaces` gives `owner` to every admin key that existed
+   before, and v0.1 imports and the bootstrap key get it too, so an upgraded install behaves exactly as before.
+   Only an owner key (or the CLI) creates or changes an owner key. OAuth access tokens on `/mcp` (D-112) act in
+   `default` and never carry `owner`: `reelforge:admin` is a workspace admin.
+5. **Another workspace's resources answer 404, not 403**, so a probe cannot tell that they exist. 403 stays for
+   missing scopes, owner-only routes and suspended workspaces. This covers every route and tool, including those
+   added since: captions and their approval (D-114), resend, rotation and the delivery log of webhooks (D-113), and
+   the dashboard's reads (D-115, D-126), which go through the same REST routes. Analytics (D-126) are computed
+   per workspace, with per-workspace caches and the workspace's own storage usage. A manifest naming another
+   workspace's stored asset (`asset://`, D-120) fails validation, preview and render with "not in the asset store".
+6. **Files.**
+   - Every workspace but `default` keeps its files under `workspaces/<id>/` in the storage driver, the data
+     directory and the local caches; `default` keeps the old layout, so no files move.
+   - Signed download links sign `ws:<id>` with the run and file. Links for `default` keep the old format, so links
+     already handed out stay valid.
+
+**Tests.**
+
+- A denial suite (`apps/server/test/workspaces.test.ts`) iterates the REST route table and the MCP tool list, so
+  new routes and tools are probed automatically, plus targeted cases for webhook resend by delivery, event id and
+  `render:<jobId>`, list filters, staged assets and `audit.entry` events.
+- Contract tests run the router, the claim plan, the webhook operations and migration 0015 on SQLite, PostgreSQL
+  and MySQL (`packages/db/test/workspaces.contract.test.ts`).
+
+**Rejected:**
+
+- *Threading a workspace argument through every service method.* Large, and easy to get wrong in one place.
+- *One service instance per workspace.* It would duplicate the job runner, workers and caches.
+- *Database row-level security now.* It does not fit Prisma's connection pooling on three databases, and it would
+  not protect files. It can be revisited for multi-team installs.
+- *403 for other workspaces' ids.* It reveals that the resource exists.
+- *Making admin keys of `default` implicitly owners.* An implicit rule nobody can see in the key's scopes.
+- *Mapping OAuth tokens to workspaces by a claim in this step.* Every token acts in `default` until a mapping is
+  designed.
+
+### D-125 --- Workspaces: owner tools, soft delete with a grace period, optional per-workspace limits
+
+**Status:** DECIDED (reversible). Builds on D-124 (#304, part 2).
+
+**Problem.** D-124 scopes every row and file to a workspace, but an operator still needs a way to create
+workspaces, hand out their first admin key, pause or remove one, read every workspace's audit trail, and, where
+teams share one install, keep one from using all of it.
+
+**Decision.**
+
+1. **Owner tools.** `owner` keys create (optionally with a first admin key, shown once), list, rename, change the
+   limits of, suspend, delete and restore workspaces over REST (`/v1/workspaces`) and MCP. Any key reads its own
+   workspace with `get_workspace` (`GET /v1/workspace`): its limits in force and usage. Every action is audited in
+   the owner's workspace and in the workspace it changed. `list_audit_events` takes `workspaceId` (one workspace,
+   or `*` for all, merged newest first) for owner keys only; exports stay per workspace.
+2. **Workspace lifecycle.**
+   - Suspension refuses the workspace's keys (403 `workspace_suspended`) and pauses its queued jobs.
+   - Deletion is soft: keys stop and jobs are not claimed at once. After `workspaces.deleteGraceDays` (default 30)
+     the hourly sweep purges the workspace: the database's cascading foreign keys remove every row, then its files
+     are deleted. `restore_workspace` undoes a deletion within the grace period.
+   - `default` cannot be suspended or deleted.
+3. **Optional limits per workspace.** Renders per day and month, requests per minute (one budget for all of the
+   workspace's keys, after the per-key limit) and storage bytes, from the `workspaces.*` settings or the
+   workspace's own `limits`. They are unlimited by default, following the founder's rule that users are limited
+   only by the licence.
+4. **OAuth tokens (D-112)** have no workspace claim yet: they act in `default`, are never owners, and so never
+   reach the owner tools.
+
+**Rejected:**
+
+- *Hard delete at once.* A mistaken delete would lose every render with no way back.
+- *Per-workspace provider credentials and licences in this step.* The licence is per install by product decision.
+- *Limits on by default.* Contradicts the founder decision above; operators who host other teams turn them on.
+
+### D-127 --- Rename compatibility layer: RENDERWELD_* names first, every REELFORGE_* name still accepted; one alias table derived from the schema
+
+**Status:** DECIDED (reversible), issue #412 (phase 3 of the rename epic #408). Number assigned at merge.\
+**Settings:** the schema keeps its `REELFORGE_*` names; `envNames()` derives a `RENDERWELD_*` twin for each (so the
+181 settings and their 183 `REELFORGE_*` names need no edit), ranked new name, old name, other aliases
+(`DATABASE_URL`, `OTEL_*`, ...), and `_FILE` for secrets under both. Rules in the environment layer: the new name
+alone is used; the old name alone is used and adds one start-up warning per variable naming the new one; both with
+the same value is fine; both with different values is a `ConfigError` naming both, never the values. The few names
+read outside the schema (`REELFORGE_CONFIG`, `REELFORGE_LICENCE_KEY_INPUT` and the test switches) are listed in
+`OTHER_RENAMED_ENV` (`packages/core/src/config/rename.ts`, with the full table `RENAMED_ENV`); engines and tests
+read their few variables through `envValue()`; the server exports `processEnv` settings under both names so every
+reader agrees. The server logs configuration warnings once (the service no longer repeats them). **Image:** the
+Docker image's defaults move to `RENDERWELD_*` and are listed in `RENDERWELD_IMAGE_DEFAULTS`; such a value ranks
+below any operator value, so `-e REELFORGE_PORT=8080` replaces the image's port (with the warning) instead of
+clashing with it. **Config file:** `RENDERWELD_CONFIG` (old `REELFORGE_CONFIG`) names the file; there is no
+built-in file name, so `renderweld.yaml` and `reelforge.yaml` both work; two variables naming different files
+fail. **CLI:** `renderweld` (`apps/server/src/cli.ts`) and the old `reelforge` (`src/reelforge.ts`, same stdout,
+one deprecation line on stderr). **MCP:** every resource is registered under `renderweld://` and `reelforge://`
+(both listed, the old ones marked; projects enumerated once), tool and prompt names unchanged; the server card
+lists the new URIs and `resourceAliases`. **Telemetry:** at export time (`apps/server/src/observability/rename.ts`):
+collected metrics get a `renderweld.*` copy of every `reelforge.*` metric (Prometheus and OTLP push) and every
+`reelforge.*` attribute gets a `renderweld.*` twin on data points and spans (a span processor that runs before
+the batch processor); the resource carries `renderweld.edition`. Grafana dashboard and alert rules use the new
+names. **Headers:** webhooks use the Standard Webhooks headers (no product name); notification email sends
+`X-Renderweld-Message-Id` and `X-Reelforge-Message-Id`. The old names work until a removal date announced in the
+release notes, at least 90 days after the rename ships (phase 7). *Rejected:* adding `RENDERWELD_*` aliases to
+each setting by hand (217 edits that drift); switching the schema's primary names now (every error message and
+`GET /v1/config` `env` field would change before the public rename, phase 4); letting the new name silently win
+over a different old value (an install would change behaviour without notice); renaming instruments at the
+source (two instruments per metric, callbacks run twice, values could differ between the names). **Not in this
+step:** the compose files and Kubernetes manifests still set `REELFORGE_*` names (they work, with warnings; switched
+with the docs in phase 6), the HPA's `reelforge_jobs_queued` external metric (named by the operator's adapter),
+`scripts/`, `examples/` and the e2e scripts' own variables. Proof: `packages/core/test/rename.test.ts`,
+`apps/server/test/rename.test.ts`, `apps/server/test/observability.test.ts` (OBS-18, OBS-07, OBS-09),
+`apps/server/test/mcp.test.ts`, `apps/server/test/parity.test.ts`, `scripts/docs/cloud-docs.test.mjs`. Reference:
+[RENAMED.md](RENAMED.md).

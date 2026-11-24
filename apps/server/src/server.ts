@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
-import { OutboxRelay, ReelforgeService, chromiumSandbox, createBrokerDispatch, effectiveQueueMode, isBrokerDispatch, secretKeyProblem, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
+import { OutboxRelay, ReelforgeService, chromiumSandbox, createBrokerDispatch, effectiveQueueMode, isBrokerDispatch, secretKeyProblem, envValue, type PluginRegistry, type ServiceConfig } from '@reelforge/core';
 import { createNotifyListener, defaultDatabaseUrl, notifyChannel, pooledSchemaWarning, prepareDatabase, READ_REPLICA_READS, type Database } from '@reelforge/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
@@ -75,7 +75,7 @@ export async function startServer(
   if (!chromiumSandbox()) {
     logger.log(
       'warn',
-      process.env.REELFORGE_CHROMIUM_NO_SANDBOX === '1'
+      envValue('REELFORGE_CHROMIUM_NO_SANDBOX') === '1'
         ? "REELFORGE_CHROMIUM_NO_SANDBOX=1: Chromium's own sandbox is OFF for every engine (explicit opt-out). Agent-supplied scenes then run in a renderer with the server's privileges; see docs/security/HARDENING.md"
         : "Chromium's own sandbox is OFF because the server runs as root; run as a non-root user (docs/security/HARDENING.md)"
     );
@@ -107,7 +107,8 @@ export async function startServer(
     ...(notify ? { readySignal: { kind: 'notify' as const, channel: notifyChannel(config.databaseUrl), announceClaimsWithinMs: Math.max(2000, queueCfg.notifyJitterMs * 4) } } : {}),
     ...(broker ? { readySignal: { kind: 'outbox' as const } } : {}),
   });
-  const repositories = db.repositories();
+  // Every call goes to the caller's workspace (#304); the outbox relay and the job queue work across workspaces.
+  const repositories = db.workspaceRepositories();
   const relay = broker
     ? new OutboxRelay({ repo: repositories.dispatchOutbox, publisher: broker.publisher, sweepMs: queueCfg.dispatchFallbackSeconds * 1000, telemetry: obs.telemetry, log: (level, line) => logger.log(level, line) })
     : undefined;
@@ -147,6 +148,7 @@ export async function startServer(
       publicUrl: config.publicUrl,
       maxUploadBytes: config.maxUploadBytes,
       configSources: config.sources,
+      loggedConfigWarnings: config.resolved.warnings,
       licence: opts.licence,
       storage: opts.storage,
       auditSinks: opts.auditSinks,

@@ -228,7 +228,7 @@ if [ "$HARDENED" = 1 ]; then
   docker exec $NAME sh -c 'touch /etc/rf 2>/dev/null' && { echo "✘ the root filesystem is writable"; exit 1; } || echo "✔ the root filesystem is read-only; /tmp and /data are writable: $(docker exec $NAME sh -c 'touch /tmp/rf /data/.rf && rm /tmp/rf /data/.rf && echo yes')"
   [ "$(docker exec $NAME sh -c 'grep CapEff /proc/1/status' | awk '{print $2}')" = 0000000000000000 ] && echo "✔ no effective capabilities" || { echo "✘ capabilities present"; exit 1; }
   docker exec $NAME sh -c 'grep -q "NoNewPrivs:[[:space:]]*1" /proc/1/status' && echo "✔ NoNewPrivs is set" || { echo "✘ NoNewPrivs not set"; exit 1; }
-  [ "$(docker exec $NAME printenv REELFORGE_CHROMIUM_NO_SANDBOX)" = 0 ] && echo "✔ the image default is REELFORGE_CHROMIUM_NO_SANDBOX=0 (no override in this run)" || { echo "✘ the image does not default to the sandbox"; exit 1; }
+  [ "$(docker exec $NAME printenv RENDERWELD_CHROMIUM_NO_SANDBOX)" = 0 ] && echo "✔ the image default is RENDERWELD_CHROMIUM_NO_SANDBOX=0 (no override in this run)" || { echo "✘ the image does not default to the sandbox"; exit 1; }
   probe=$(docker exec -i $NAME node --input-type=module < e2e/docker/sandbox-probe.mjs)
   echo "$probe" | grep '"sandboxed":true' >/dev/null && echo "✔ Chromium's own sandbox runs (renderers in a nested PID namespace): $probe" || { echo "✘ Chromium sandbox not active: $probe"; exit 1; }
 fi
@@ -303,7 +303,7 @@ api /readyz | grep -q '"freeBytes":.*"chromiumSandbox":{' && echo "✔ /readyz w
 curl -s -D "$WORK/metrics.h" -H "Authorization: Bearer $METRICS_TOKEN" "http://127.0.0.1:$PORT/metrics" > "$WORK/metrics.txt"
 grep -qi '^content-type: text/plain; version=0.0.4' "$WORK/metrics.h" && docker run --rm -i --entrypoint promtool "$PROM_IMAGE" check metrics < "$WORK/metrics.txt" \
   && echo "✔ GET /metrics passes promtool check metrics ($(grep -c '^[a-z]' "$WORK/metrics.txt") samples)" || { echo "✘ /metrics is not valid Prometheus text"; head -20 "$WORK/metrics.txt"; exit 1; }
-for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'reelforge_jobs_finished_total{.*reelforge_job_status="succeeded"' 'reelforge_render_frames_total{.*reelforge_engine="html"' 'reelforge_licence_state{reelforge_licence_state="valid"} 1' 'reelforge_jobs_queued 0'; do
+for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'reelforge_jobs_finished_total{.*reelforge_job_status="succeeded"' 'reelforge_render_frames_total{.*reelforge_engine="html"' 'reelforge_licence_state{reelforge_licence_state="valid",renderweld_licence_state="valid"} 1' 'renderweld_licence_state{reelforge_licence_state="valid",renderweld_licence_state="valid"} 1' 'reelforge_jobs_queued 0'; do
   grep -q "^$m" "$WORK/metrics.txt" || { echo "✘ /metrics lacks $m"; exit 1; }; done; echo "✔ /metrics has HTTP, job, render, licence and queue metrics"
 # Queue-wait SLO (#155, D-103): the histogram is exported with type and priority labels, and the shipped alert
 # rules load and pass their unit test.

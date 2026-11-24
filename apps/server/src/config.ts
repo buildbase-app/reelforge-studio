@@ -1,11 +1,11 @@
 import { resolve } from 'node:path';
-import { loadConfigFile, resolveConfig, type ConfigSources, type ResolvedConfig } from '@reelforge/core';
+import { loadConfigFile, renamedEnvName, resolveConfig, type ConfigSources, type ResolvedConfig } from '@reelforge/core';
 import { StructuredLogger, secretValues, type StructuredLoggerOptions } from './observability/logger';
 
 /**
  * The server's view of the configuration. Every value comes from the one
  * schema in @reelforge/core (packages/core/src/config/schema.ts; reference:
- * docs/CONFIG.md): defaults < config file (REELFORGE_CONFIG) < environment.
+ * docs/CONFIG.md): defaults < config file (RENDERWELD_CONFIG / REELFORGE_CONFIG) < environment.
  * Runtime settings from the database are applied on top once the database is
  * open (applyServerSettings).
  */
@@ -116,14 +116,18 @@ export function applyServerSettings(config: ServerConfig, resolved: ResolvedConf
 
 /**
  * Engines and the media pipeline read a few settings from process.env
- * (REELFORGE_CHROMIUM_PATH, FFMPEG_PATH, ...). Values from the config file or a
- * REELFORGE_* name are exported under the name that code reads.
+ * (REELFORGE_CHROMIUM_PATH, FFMPEG_PATH, ...). Values from the config file or
+ * any of the setting's names are exported under the name that code reads, and
+ * its RENDERWELD_* twin (#412), so every reader sees the effective value.
  */
 export function exportProcessEnv(resolved: ResolvedConfig, target: NodeJS.ProcessEnv = process.env): void {
   for (const s of resolved.settings.values()) {
     const name = s.def.processEnv;
     if (!name || s.source === 'default' || s.value === undefined) continue;
-    target[name] = typeof s.value === 'boolean' ? (s.value ? '1' : '0') : String(s.value);
+    const text = typeof s.value === 'boolean' ? (s.value ? '1' : '0') : String(s.value);
+    target[name] = text;
+    const twin = renamedEnvName(name);
+    if (twin) target[twin] = text;
   }
 }
 
