@@ -12,22 +12,24 @@ import { buildDashboard } from '../build';
  * engines, an admin, a read and a render key. For the browser test and the
  * screenshot script.
  */
-export async function startStudio(engines: EnginePlugin[], opts: { dashboard?: boolean } = {}) {
+export async function startStudio(engines: EnginePlugin[], opts: { dashboard?: boolean; env?: Record<string, string>; register?: (r: PluginRegistry) => void } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'reelforge-dashboard-'));
   const assets = join(dir, 'dashboard');
   const built = await buildDashboard(assets);
-  const env = { REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_DASHBOARD_ENABLED: String(opts.dashboard ?? true) };
+  const env = { REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_DASHBOARD_ENABLED: String(opts.dashboard ?? true), ...opts.env };
   const config = { ...loadConfig(env), dashboardAssetsDir: assets };
   const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir });
   const registry = new PluginRegistry();
   for (const e of engines) registry.registerEngine(e);
+  opts.register?.(registry);
   const service = await ReelforgeService.create(registry, {
     repositories: db.repositories(),
     dataDir: config.dataDir,
     configSources: { env: { ...env, REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', REELFORGE_LICENCE_MODE: 'off' } },
   });
   const keys = {
-    admin: (await service.keys.create('ops-admin', ['admin'])).key,
+    // Upgraded installs give admin keys the owner scope (#304); runtime settings and storage need it.
+    admin: (await service.keys.create('ops-admin', ['admin', 'owner'])).key,
     read: (await service.keys.create('ops-viewer', ['read'])).key,
     render: (await service.keys.create('render-agent', ['read', 'write', 'render'])).key,
   };

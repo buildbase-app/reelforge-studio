@@ -84,6 +84,7 @@ import { ClaimRate, DEFAULT_PRIORITY, PRIORITIES, defaultPriority, isPriority, l
 import { WebhookService, jobPayload, renderDedupeKey, renderOutcome, renderSummary, type NotificationProvider } from './webhooks/index';
 import type { AuditEntry } from './repositories';
 import type { JobEvent, JobUsage } from './jobs';
+import { Analytics, type AnalyticsSummary } from './analytics';
 
 export interface ServiceConfig {
   /**
@@ -2120,6 +2121,33 @@ export class ReelforgeService {
   /** Driver, where the bytes go (no secrets), health, usage, retention policy and the last sweep. */
   getStorage() {
     return this.storage.status();
+  }
+
+  // ---- analytics (#292) ---------------------------------------------------------
+
+  /** One per workspace (#304): its caches (storage usage, render manifests) never serve another workspace. */
+  private analytics = new Map<string, Analytics>();
+
+  /**
+   * get_analytics_summary (GET /v1/analytics/summary, read): renders per day by status, success and failure rates,
+   * render time (per engine from the manifests), queue wait, minutes rendered, storage used, top error codes and
+   * webhook delivery health, for a bounded range (at most 90 days by day, 7 by hour). See analytics.ts.
+   */
+  analyticsSummary(query: Record<string, unknown> = {}): Promise<AnalyticsSummary> {
+    const ws = currentWorkspaceId();
+    let analytics = this.analytics.get(ws);
+    if (!analytics) {
+      analytics = new Analytics({
+        jobs: this.jobs, // the runner's page: live state of jobs running in this process, like list_jobs
+        webhooks: this.repos.webhooks,
+        // The caller's workspace only: storage.usage() adds up every workspace of the install (get_storage, owner).
+        storageUsage: () => this.storage.workspaceUsage(),
+        readManifest: async (projectId, runId) => (await this.storage.renders.readManifest<{ scenes?: Array<{ engine?: unknown; millis?: unknown }> }>(projectId, runId)) ?? null,
+        now: () => this.now(),
+      });
+      this.analytics.set(ws, analytics);
+    }
+    return analytics.summary(query);
   }
 
   /**
