@@ -8,7 +8,9 @@ else.
 
 Below is every network connection the software can make, when, and how to
 avoid it. Checked against the code and dependencies on 2026-11-21. If you
-find another one, it is a bug: please report it.
+find another one, it is a bug: please report it. Why one installation never
+talks to another, running offline and checking the egress with network
+policies: [ISOLATION.md](ISOLATION.md).
 
 ## At install / build time
 

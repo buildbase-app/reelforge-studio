@@ -12,8 +12,10 @@ instance per data directory**: jobs run in-process and renders are local files.
 image built and run on Linux x64 (Docker 29.10, health check healthy, a
 four-engine 1080x1920 render through REST, MCP `tools/list`); `docker compose`
 up with the built image; the Caddyfile passes `caddy validate`. **Not tested:**
-the VPS, AWS, GCP and Fly recipes below (written from the platforms' documented
-behaviour, marked VERIFY), macOS, Windows, ARM.
+the VPS recipe below and the cloud guides in [cloud/](cloud/overview.md)
+(written from the platforms' documented behaviour, marked VERIFY), macOS,
+Windows. In CI the arm64 image is built, checked and runs the Docker e2e on
+SQLite; amd64 runs it on SQLite, PostgreSQL and MySQL.
 
 ## Configuration
 
@@ -388,6 +390,16 @@ PostgreSQL, MinIO on port 9000 and a licence server in the namespace.
   CNI (Cilium `toFQDNs`, Calico DNS policy) or an egress gateway.
 - Kubelet probes come from the node and most CNIs allow them whatever the
   policy says; host-network pods are not covered.
+- The file allows no SMTP port: an SMTP email channel needs an egress rule for
+  your mail server's port (587 or 465) on the api **and** worker pods (every
+  instance except `worker --once` delivers notifications).
+- The "public addresses" rules exclude link-local addresses, which blocks the
+  cloud identity endpoints some platforms use: EKS Pod Identity
+  (`169.254.170.23:80`) and the GKE metadata server for workload identity
+  (`169.254.169.252` ports 988/987, or `169.254.169.254` ports 80/8080 with
+  Dataplane V2). The rules to add are in [cloud/aws.md](cloud/aws.md#network-egress)
+  and [cloud/google-cloud.md](cloud/google-cloud.md#network-egress). IRSA and AKS
+  Workload ID use HTTPS and need nothing extra.
 - Scene isolation inside the worker (no network for scenes, D-086) stays the
   first line of defence; the policy limits what the worker process itself can reach.
 
@@ -478,60 +490,27 @@ not run yet.)
 Back up the `reelforge-data` volume (projects, keys, renders). VERIFY: tested
 only as far as `docker compose --profile tls config` and `caddy validate`.
 
-## 4. AWS ECS on Fargate (VERIFY: untested)
+## 4. Cloud platforms (AWS, Google Cloud, Azure, others)
 
-- Push the image to ECR. Task: 4 vCPU / 8-16 GB, one task (`desiredCount: 1`),
-  `REELFORGE_HOST=0.0.0.0`, `REELFORGE_PUBLIC_URL=https://<your domain>`.
-- Persistent data: an **EFS** access point mounted at `/data` (uid/gid 10001).
-  Renders write many temporary files; EFS works but is slower than local disk.
-  Set `REELFORGE_CACHE_DIR=/tmp/reelforge-cache` to keep bundle caches on the
-  task's ephemeral storage (raise ephemeral storage to 50 GB).
-- Fargate does not support `--shm-size`; the engines start Chromium with
-  `--disable-dev-shm-usage` where they control the flags (Motion Canvas, html).
-  Remotion manages its own flags: VERIFY a render on Fargate.
-- Put an ALB with an ACM certificate in front; health check `GET /healthz`.
-  Keep the idle timeout above 120 s for `/v1/jobs/:id/events` (SSE).
-- Secrets (`REELFORGE_BOOTSTRAP_KEY`, `ELEVENLABS_API_KEY`) from Secrets
-  Manager as task environment.
+Per-cloud guides, each with a reference architecture, least-privilege IAM,
+the egress list, secrets, scaling, backups and cost notes, and an honest
+tested / untested statement, are in [cloud/](cloud/overview.md):
 
-## 5. Google Cloud Run (VERIFY: untested)
+- [AWS](cloud/aws.md): ECS on Fargate or EKS, RDS for PostgreSQL, S3 with a
+  task role or IRSA, SQS dispatch, Secrets Manager, CloudWatch or OTLP.
+- [Google Cloud](cloud/google-cloud.md): GKE or Cloud Run, Cloud SQL, Cloud
+  Storage with workload identity, Secret Manager (Pub/Sub is not a dispatch
+  option).
+- [Azure](cloud/azure.md): Container Apps or AKS, Azure Database for
+  PostgreSQL, Blob Storage with a managed identity, Key Vault.
+- [Other platforms](cloud/other-platforms.md): DigitalOcean, Hetzner, Fly.io,
+  Railway, bare metal with docker compose, any Kubernetes with kustomize, and
+  S3-compatible stores (R2, MinIO, B2, Wasabi).
 
-Cloud Run fits only with care, because renders run in the background after
-the request returns and state is on disk:
-
-- `--max-instances=1 --min-instances=1 --no-cpu-throttling` (CPU always
-  allocated, one instance owns the data), `--cpu=4 --memory=8Gi`,
-  `--timeout=3600`.
-- Data: mount a **Filestore** (NFS) share or a Cloud Storage FUSE volume at
-  `/data`. GCS FUSE does not support atomic rename semantics the store relies
-  on for crash safety: prefer Filestore. VERIFY.
-- `REELFORGE_PUBLIC_URL` = the service URL (or your domain).
-- If any of that is unacceptable, use a Compute Engine VM with the VPS recipe.
-
-## 6. Fly.io (VERIFY: untested)
-
-```toml
-# fly.toml (sketch)
-app = "reelforge-studio"
-[build]
-  dockerfile = "Dockerfile"
-[env]
-  REELFORGE_PUBLIC_URL = "https://reelforge-studio.fly.dev"
-[mounts]
-  source = "reelforge_data"
-  destination = "/data"
-[http_service]
-  internal_port = 4321
-  force_https = true
-  auto_stop_machines = "off"   # renders run in the background
-  min_machines_running = 1
-[[vm]]
-  size = "performance-4x"
-```
-
-`fly volumes create reelforge_data --size 50`, `fly secrets set
-REELFORGE_BOOTSTRAP_KEY=rf_...`, `fly deploy`. One machine only (the volume
-attaches to one machine).
+None of them has run on a real cloud account yet; they are written from the
+platforms' documentation (checked 2026-11-24) and mark what to check with
+VERIFY. What happens to a render on any of them: [HOW_IT_WORKS.md](HOW_IT_WORKS.md);
+what leaves the server: [ISOLATION.md](ISOLATION.md).
 
 ## Observability
 
