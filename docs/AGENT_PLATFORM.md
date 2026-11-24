@@ -195,7 +195,9 @@ Create and render tools take an optional `idempotencyKey` (D-057). Resource
 agent with no other docs.
 
 Resources: `reelforge://schema/project`, `reelforge://templates`,
-`reelforge://projects/{id}`. Prompts: `plan_reel` (turn a brief into a
+`reelforge://projects/{id}`. Prompts: `brief_intake` (ask the user what the
+request leaves open before planning, #313), `make_reel` (the whole workflow),
+`plan_reel` (turn a brief into a
 manifest using installed templates), `review_reel` (check a manifest against
 the delivery checklist).
 
@@ -284,7 +286,7 @@ that was run; "partial" says what is missing.
 | §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->70<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->70<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->70<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
-| §7 Resources and prompts `plan_reel`, `review_reel` | done | MCP tests |
+| §7 Resources and prompts `brief_intake`, `make_reel`, `plan_reel`, `review_reel` | done | MCP tests |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |
 | §8 API keys: random 32 bytes, hashed, scopes, CLI, admin API, bootstrap key | done | `REELFORGE_BOOTSTRAP_KEY` or `_FILE`; CLI `pnpm keys:create` / `reelforge keys create` in Docker (picked up without restart); admin tools create/list/revoke |
