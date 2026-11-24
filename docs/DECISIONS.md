@@ -2463,3 +2463,40 @@ larger bundle to audit under the CSP); Preact (small, but not needed at this siz
 exists); one job's page follows `GET /v1/jobs/:id/events` and polls its fan-out units (`?parentId=`). About 20
 requests a minute per open page, well inside the default 300 per key. **Split:** part 1 is sign-in, jobs and the
 library; analytics (aggregates the API does not offer yet), settings and the audit log viewer come in part 2.
+
+### D-1XX --- Dashboard part 2: analytics from the job table and manifests through one bounded read-scope summary; settings and audit through the existing tools
+
+*(Number assigned at merge.)*
+
+**Status:** DECIDED (reversible).\
+**Analytics endpoint.** `GET /v1/analytics/summary` / MCP `get_analytics_summary` (read scope, in the shared route
+table, so the parity test covers it). One call returns, for a range: render and preview jobs per UTC day or hour by
+status, success and failure rates (`failed / (succeeded + failed)`: a cancelled job is neither), job render time and
+queue wait (p50, p95; nearest rank), scene render time per engine (p50, p95 from each manifest scene's `millis`),
+minutes rendered (`result.durationSeconds` of successful jobs), storage used, the top 10 error codes, and webhook
+deliveries per status and endpoint. **Where the numbers come from.** The durable records, not the metrics exporter:
+the OpenTelemetry instruments (`reelforge.job.duration`, `reelforge.job.queue_wait`, ...) are per instance, start
+at zero on every restart and exist only when an exporter is configured, so they cannot answer "renders per day for
+the last month". The Job table can: the summary walks it newest first from `to` with the existing keyset page query
+(index `workspaceId, createdAt, id`, D-102) and stops at `from`. Render time per engine needs the manifest; the newest
+200 successful renders of the range are read (eight at a time), and each manifest's scene timings are cached in
+memory by render id (a manifest never changes; an unreadable one is not cached). Storage used is the `get_storage`
+usage walk, cached for 5 minutes. Webhook health is `countByStatus` per endpoint (at most 50), over every delivery
+still in the outbox retention, not only the range. No schema change and no new repository method, so the
+workspace work (#304) and the three databases are untouched. **Bounds.** The range is at most 90 days by day and 7
+by hour (400 otherwise), and one call reads at most 20 000 jobs (units and joins of fanned-out renders count);
+past that the answer says `scan.truncated` and which part of the range it covers. *Rejected:* SQL aggregates
+(percentiles differ across SQLite, PostgreSQL and MySQL, and a new repository method would collide with #304's
+scoping); a rollup table (a second source of truth to keep in step for a page an operator opens now and then);
+reading the in-process metrics (above). **Scope.** Read: the summary holds counts, durations and sizes, never a
+path or a bucket (D-088), and webhook endpoints by id, name and type only, as `get_webhook_log` (read) already shows
+them. **Config entries say their type.** `get_config` rows gain `kind`, enum `options`, number `min`/`max` and
+`locked` (fixed by the image), read from the setting's Zod schema, so a client offers the right input and checks a
+value before `update_config`, which still validates everything. **Settings and audit pages** use only existing tools:
+`get_config`/`update_config` (runtime keys, admin), `list_keys`/`create_key`/`rotate_key`/`revoke_key`,
+`list_webhooks`/`get_webhook_log`/`test_webhook`/`resend_webhook`/`rotate_webhook_secret` (D-113),
+`list_providers`, `get_licence`, `list_audit_events` with keyset pages, and the REST audit export, which the page
+fetches with the key and saves as a blob: an export link would have to carry the key in its URL. Edit controls follow
+the key's scopes as the server reads them (admin implies the others, owner all, ready for #304); the server refuses
+anything else. One-time secrets (a new or rotated key, a rotated webhook secret) are shown once in the page and never
+stored.

@@ -638,6 +638,19 @@ driver and key prefix, signed download, manifest). New REST/MCP pair `GET /v1/me
 journey with axe-core, 0 violations in light, dark and at 360 px (`apps/dashboard/test`). Not yet:
 analytics, settings and the audit log viewer (part 2 of #292).
 
+### Self-hosted web dashboard, part 2 (2026-11-24, issue #292)
+
+Built (D-1XX): analytics (renders per day by outcome, rates, render time per engine, queue wait, minutes, storage,
+top errors, webhook health) from the new read-scope `GET /v1/analytics/summary` / `get_analytics_summary` (job table
+walked with the keyset index, at most 90 days and 20 000 jobs per call; manifests and storage usage cached);
+settings (every config key grouped with its source, secrets masked, runtime keys edited with type checks from the
+new `kind`/`options`/`min`/`max`/`locked` fields of `get_config`; API keys with a one-time secret; webhooks with the
+delivery log, test, resend and secret rotation; providers and licence); the audit log viewer (filters, keyset pages,
+CSV/JSONL export fetched with the key); caption tracks and, when present, loudness results on the render page.
+JS + CSS 25.4 KB gzip. Tests: `packages/core/test/analytics.test.ts`, `apps/server/test/analytics.test.ts`,
+`apps/dashboard/test/admin.e2e.test.ts` (axe 0 violations, light, dark, 360 px; a read key cannot edit). Not yet:
+brand kits in settings, workspace-scoped views (#304).
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |
