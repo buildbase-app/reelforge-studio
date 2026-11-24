@@ -90,6 +90,12 @@ frame, each with an image or video asset (`contain`, `cover`, `blur-fill`), text
 layout units and safe areas so they reflow per size and variant; pane geometry and text checked in the browser at six
 sizes on both engines and on rendered pixels, contact sheets in `docs/proofs/layouts/`
 ([Formats and layouts](public/manifest/formats.md#layouts-split-screen-picture-in-picture-lower-thirds-grids)).
+**Frame rates and output checks (#302, #287, D-119, 2026-11-24):** `output.fps` takes 23.976, 24, 25, 29.97, 30, 48,
+50, 59.94 and 60, NTSC rates stored as exact fractions (`"30000/1001"`); every engine renders each one and the final
+MP4's `r_frame_rate` is exact (ffprobe-checked, also through the fan-out join and captions). Sizes and rates an engine
+cannot render are refused with `422 unsupported_output` before queueing; `preview_scene` takes a `variant`; the
+manifest's 180 s and 50-scene caps became config bounds (defaults unchanged)
+([Frame rates](public/manifest/formats.md#frame-rates)).
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,

@@ -7,9 +7,11 @@ import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
   FIT_TEXT_SCRIPT,
+  fpsArg,
+  framesToSeconds,
+  htmlTitleProps,
   MAX_SOURCE_BYTES,
   TEMPLATES,
-  htmlTitleProps,
   type OutputSettings,
   type RenderScene,
   type ThemeTokens,
@@ -78,7 +80,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   const { scene, output } = opts;
   const stage = `render:${scene.id}`;
   const frames = scene.durationFrames;
-  const durationSeconds = frames / output.fps;
+  const durationSeconds = framesToSeconds(frames, output.fps);
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
   const executable = resolveHtmlBrowser(opts.browserExecutable);
 
@@ -128,7 +130,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   const signal = AbortSignal.any([timeout, navigation.signal, ...(opts.signal ? [opts.signal] : [])]);
   const navigationError = () =>
     new PipelineError(stage, `the scene tried to navigate away from its document (${navigatedTo.slice(0, 120)}): scenes render without network access and must not navigate`);
-  const encoder = startPngEncoder(opts.ffmpeg, opts.out, output.fps, stage);
+  const encoder = startPngEncoder(opts.ffmpeg, opts.out, fpsArg(output.fps), stage);
   const blocked: string[] = [];
   let browser: Browser | undefined;
   const onAbort = () => {
@@ -191,7 +193,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
 
     for (let f = 0; f < frames; f++) {
       if (signal.aborted) break;
-      const t = (f * 1000) / output.fps;
+      const t = framesToSeconds(f, output.fps) * 1000;
       // Video in layout panes: this frame's picture of each video, decoded before the screenshot.
       const pictures: Array<[string, string]> = [];
       for (const [key, files] of videos) pictures.push([key, await frameDataUrl(files[f]!)]);

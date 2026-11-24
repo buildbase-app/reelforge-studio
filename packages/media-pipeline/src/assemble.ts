@@ -2,6 +2,14 @@ import { rm, writeFile } from 'node:fs/promises';
 import { mixGraph } from './audio';
 import { filterThreadArgs, h264Args, inputThreadArgs, PipelineError, run } from './ffmpeg';
 import { probe } from './probe';
+import { rateArg, rateValue, type Rate } from './rate';
+
+/**
+ * A duration for FFmpeg's -t and atrim, to the microsecond: NTSC timelines
+ * (frames x 1001 / 30000) do not end on a millisecond, and rounding to one
+ * made the audio up to half a millisecond longer than the video (#302).
+ */
+const exactSeconds = (s: number) => s.toFixed(6);
 
 export interface ClipInput {
   sceneId: string;
@@ -17,7 +25,8 @@ export interface AssembleOptions {
   out: string;
   width: number;
   height: number;
-  fps: number;
+  /** Frame rate: a number or an exact "num/den" (e.g. "30000/1001"). */
+  fps: Rate;
   /** Optional music file the user has rights to use. Trimmed and faded to fit. */
   music?: { file: string; volume: number; fadeOutSeconds?: number } | null;
   /** Optional voice-over, mixed on top of the music, starting at `startSeconds`. */
@@ -65,7 +74,7 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
   }
 
   const totalFrames = clips.reduce((n, c) => n + c.frames, 0);
-  const totalSeconds = totalFrames / fps;
+  const totalSeconds = totalFrames / rateValue(fps);
   // Video first, without audio; the audio is muxed in a second pass. FFmpeg 5.1 (the release image's Debian build)
   // ends every stream of an output once one stream reaches its -frames limit, which cut the audio short by the
   // video encoder's delay (a 2 s video got 1.962 s of audio); FFmpeg 6 does not. A separate mux works on both.
@@ -78,7 +87,7 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
     (clip, i) =>
       `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
       `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,` +
-      `fps=${fps},format=yuv420p,trim=end_frame=${clip.frames},setpts=PTS-STARTPTS[v${i}]`
+      `fps=${rateArg(fps)},format=yuv420p,trim=end_frame=${clip.frames},setpts=PTS-STARTPTS[v${i}]`
   );
   filters.push(`${clips.map((_, i) => `[v${i}]`).join('')}concat=n=${clips.length}:v=1:a=0[vout]`);
 
@@ -89,12 +98,12 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
     '[vout]',
     ...h264Args(),
     '-r',
-    String(fps),
+    rateArg(fps),
     '-frames:v',
     String(totalFrames),
     '-an',
     '-t',
-    totalSeconds.toFixed(3),
+    exactSeconds(totalSeconds),
     videoOut
   );
 
@@ -131,7 +140,7 @@ async function muxAudio(o: AudioOptions & { ffmpeg: string; video: string; out: 
     'copy',
     ...audio.codec,
     '-t',
-    o.totalSeconds.toFixed(3),
+    exactSeconds(o.totalSeconds),
     '-movflags',
     '+faststart',
     o.out,
@@ -148,7 +157,7 @@ export interface NormaliseOptions {
   out: string;
   width: number;
   height: number;
-  fps: number;
+  fps: Rate;
   /** Exact frames the scene occupies. */
   frames: number;
   signal?: AbortSignal;
@@ -176,13 +185,13 @@ export async function normaliseClip(opts: NormaliseOptions): Promise<{ out: stri
     opts.input,
     '-vf',
     `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,` +
-      `fps=${fps},format=yuv420p,trim=end_frame=${frames},setpts=PTS-STARTPTS`,
+      `fps=${rateArg(fps)},format=yuv420p,trim=end_frame=${frames},setpts=PTS-STARTPTS`,
     '-an',
     '-map_metadata',
     '-1',
     ...h264Args(),
     '-r',
-    String(fps),
+    rateArg(fps),
     '-frames:v',
     String(frames),
     opts.out,
@@ -196,7 +205,7 @@ export interface ConcatOptions extends AudioOptions {
   /** Normalised clips (normaliseClip) in timeline order, with their exact frame counts. */
   clips: Array<{ file: string; frames: number }>;
   out: string;
-  fps: number;
+  fps: Rate;
   /** Where to write the concat demuxer's list. */
   listFile: string;
   signal?: AbortSignal;
@@ -212,7 +221,7 @@ export interface ConcatOptions extends AudioOptions {
 export async function concatClips(opts: ConcatOptions): Promise<AssembleResult> {
   if (opts.clips.length === 0) throw new PipelineError('join', 'no clips to join');
   const totalFrames = opts.clips.reduce((n, c) => n + c.frames, 0);
-  const totalSeconds = totalFrames / opts.fps;
+  const totalSeconds = totalFrames / rateValue(opts.fps);
   await writeFile(opts.listFile, opts.clips.map((c) => `file '${c.file.replace(/'/g, "'\\''")}'\n`).join(''));
   const audio = audioInputs(opts, 1, totalSeconds);
   const args = [
@@ -233,7 +242,7 @@ export async function concatClips(opts: ConcatOptions): Promise<AssembleResult> 
     'copy',
     ...audio.codec,
     '-t',
-    totalSeconds.toFixed(3),
+    exactSeconds(totalSeconds),
     '-movflags',
     '+faststart',
     opts.out,

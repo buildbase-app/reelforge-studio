@@ -520,7 +520,12 @@ export function createApp(deps: AppDeps) {
   v1.post('/projects/:id/preview', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const opts = { sceneId: typeof b.sceneId === 'string' ? b.sceneId : undefined, scale: typeof b.scale === 'number' ? b.scale : undefined, ...(b.priority !== undefined ? { priority: b.priority } : {}) };
+    const opts = {
+      sceneId: typeof b.sceneId === 'string' ? b.sceneId : undefined,
+      scale: typeof b.scale === 'number' ? b.scale : undefined,
+      ...(b.variant !== undefined ? { variant: b.variant } : {}),
+      ...(b.priority !== undefined ? { priority: b.priority } : {}),
+    };
     return c.json(await service.idempotent(idemKey(c), 'preview_scene', { projectId, ...opts }, async () => ({ job: await service.preview(projectId, opts) })), 202);
   });
   v1.post('/projects/:id/renders', need('render'), json, async (c) => {

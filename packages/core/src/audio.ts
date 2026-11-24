@@ -14,6 +14,7 @@ import {
   type Tools,
 } from '@reelforge/media-pipeline';
 import {
+  framesToSeconds,
   LOUDNESS_TARGETS,
   resolveDucking,
   type DuckingSettings,
@@ -140,7 +141,7 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
   const target = plan.loudness === 'off' ? null : LOUDNESS_TARGETS[plan.loudness];
   const manifest: AudioManifest = {
     music: music ? { asset: music.asset, volume: music.volume } : null,
-    voice: voice ? { asset: voice.asset, volume: voice.volume, startSeconds: voice.startFrame / fps } : null,
+    voice: voice ? { asset: voice.asset, volume: voice.volume, startSeconds: framesToSeconds(voice.startFrame, fps) } : null,
     sfx,
     ...(i.fullTimeline ? {} : { note: 'preview of a scene subset: audio replaced by silence' }),
     track: 'mixed',
@@ -159,7 +160,7 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
   let ducking: AudioManifest['ducking'] = null;
   const duck = resolveDucking(music?.ducking);
   if (music && voice && duck && duck.depthDb > 0) {
-    const offset = voice.startFrame / fps;
+    const offset = framesToSeconds(voice.startFrame, fps);
     const speech = await speechSegments(tools.ffmpeg, file(voice.asset), { thresholdDb: duck.thresholdDb, signal });
     const windows = speech.map(([s, e]) => [r2(s + offset), r2(Math.min(e + offset, i.totalSeconds))] as [number, number]).filter(([s, e]) => e > s);
     ducking = { ...duck, windows };
@@ -174,8 +175,8 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
     out: mixFile,
     totalSeconds: i.totalSeconds,
     music: music ? { file: file(music.asset), volume: music.volume, ...(music.fadeInSeconds !== undefined ? { fadeInSeconds: music.fadeInSeconds } : {}), fadeOutSeconds: music.fadeOutSeconds } : null,
-    voice: voice ? { file: file(voice.asset), volume: voice.volume, startSeconds: voice.startFrame / fps } : null,
-    sfx: sfx.map((s) => ({ file: file(s.asset), volume: s.volume, atSeconds: s.atFrame / fps })),
+    voice: voice ? { file: file(voice.asset), volume: voice.volume, startSeconds: framesToSeconds(voice.startFrame, fps) } : null,
+    sfx: sfx.map((s) => ({ file: file(s.asset), volume: s.volume, atSeconds: framesToSeconds(s.atFrame, fps) })),
     gainDb,
     ducking: ducking ? { depthDb: ducking.depthDb, attackMs: ducking.attackMs, releaseMs: ducking.releaseMs, windows: ducking.windows } : null,
     signal,
