@@ -91,7 +91,7 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   {
     title: 'Webhooks and notifications',
     intro:
-      'Signed webhook endpoints (Standard Webhooks), their delivery log and replays. Admin scope. Notification channels (Slack, Discord, Teams, email) are configured with update_config.',
+      'Signed webhook endpoints (Standard Webhooks), terminal render events, their delivery log, resends and secret rotation. Admin scope, except get_webhook_log (read). Notification channels (Slack, Discord, Teams, email) are configured with update_config.',
     tools: [
       'list_webhooks',
       'get_webhook',
@@ -101,6 +101,9 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
       'test_webhook',
       'list_webhook_deliveries',
       'replay_webhook_delivery',
+      'resend_webhook',
+      'rotate_webhook_secret',
+      'get_webhook_log',
     ],
   },
 ];

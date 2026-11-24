@@ -2323,6 +2323,54 @@ workspaces (every token maps to the default workspace, like keys today), DPoP / 
 `get_capabilities` field for it, and an interoperability run against a real authorization server (Keycloak, Entra
 ID) and a real OAuth-only MCP client (VERIFY).
 
+## AB. Webhooks for operations (2026-11-23, issue #306)
+
+Terminal events for every render outcome, the retry window, the dedupe key, the delivery log for read keys, resend
+and rotation with an overlap. Reference and test cases:
+[docs/providers/webhooks-and-notifications.md](providers/webhooks-and-notifications.md#terminal-render-events).
+D-110 to D-112 went to #341, #324 and #343, merged first; this entry is D-113.
+
+### D-113 --- One terminal `render.*` event per render job; a derived webhook-id as the dedupe key; a 24 h retry window; resend, rotation and a read-scope log on top of the D-071 outbox
+
+**Status:** DECIDED (reversible; event names are part of the experimental API, D-070).\
+**Events.** Every render or preview job ends with exactly one of `render.ready`, `render.failed`, `render.timeout`,
+`render.cancelled`, `render.qa_failed` or `render.blocked`, chosen from the job's status and error code (pure
+function `renderOutcome`: `render_timeout` → timeout, `qa_*` → qa_failed, `licence_required|licence_invalid|content_blocked`
+→ blocked, other failures → failed). They come from the same `JobRunner.onEvent` listener as `job.*` (D-070), on the
+instance that finished the job; `job.*` events are unchanged. `render.blocked` is also emitted when the licence gate
+refuses `render_project`, `preview_scene` or `retry_job` before a job exists (the caller still gets its 403; the
+event is for automations that never see that answer). `render.qa_failed` is reserved for #294; moderation for later.
+*Rejected:* a `job.timeout` status: a new `JobStatus` would touch every reader of jobs; a timeout is a `failed` job
+with the typed code `render_timeout`. **Timeout:** `render.timeoutSeconds` (runtime, 3600, `0` = none), read when a
+job starts, aborts the handler's signal with a reason of its own; units and joins of a fanned-out render each get the
+limit. The engines' own scene timeouts (`render.sceneTimeoutSeconds`, D-087) stay `render.failed`.
+**Payload.** The render summary (ready), the typed error and the last 20 job log lines (failed and its kinds),
+`timing` (queued/started/finished, queue and render seconds), `costs` and API `links`; never signed download links
+(D-070). `costs.cpuSeconds` is `process.cpuUsage()` plus the reaped children's `cutime + cstime` from `/proc/self/stat`
+over the run, reported only when no other job ran on that instance meanwhile (the figure is per process), else
+`cpuUnavailable` with the reason; a browser kept alive between renders is not counted. `outputBytes`/`storageBytes`
+come from one storage listing of the render. The payload is built lazily, only when an endpoint subscribes.
+**Dedupe key.** Terminal events carry `dedupeKey: "render:<jobId>"` in the envelope and a `dedupeKey` column (migration
+`0013_webhook_operations`, with indexes on `eventId` and `dedupeKey`). `webhook-id` is now
+`msg_` + the first 32 hex characters of `sha256(endpointId + "\n" + (dedupeKey ?? eventId))` instead of a random id,
+so a retry, replay, resend or a second emit of the same outcome (e.g. a worker that lost its lease after emitting)
+reaches an endpoint under one webhook-id, which is what Standard Webhooks receivers deduplicate on.
+**Retries.** `webhooks.retryWindowHours` (24): attempts are scheduled with the D-071 backoff but never after
+`createdAt + window`; the last one lands on the end of the window, then the delivery is `dead` (the "failed" state;
+the status name is kept for compatibility) with `lastError` naming the limit. `maxAttempts` default 15 → 20 so the
+window is what ends retries; `timeoutSeconds` default 15 → 10 s. **Exactly once per attempt:** the claim was already a
+compare-and-set (D-071); `recordAttempt` is now fenced by the claim's lease (`status = delivering AND lockedUntil =
+<lease>`), delivery update first and the attempt row only when it matched, so a worker that outlived its lease writes
+nothing and each attempt number is logged once (WHK-DB-07 on SQLite, PostgreSQL, MySQL).
+**Tools** (REST/MCP parity): `resend_webhook` (`POST /v1/webhooks/:id/resend`, admin: by `deliveryId`, `eventId` or
+`dedupeKey`; a pending delivery is made due now, a finished one is queued again with a fresh window, an event the
+endpoint never got is queued for it), `rotate_webhook_secret` (`POST .../rotate-secret`, admin: `overlapHours`, own
+`secret`, `endOverlap`; the D-072 two-secret overlap, now a tool of its own), `get_webhook_log` (`GET .../log`,
+**read**: the delivery log without payloads, URL or secrets: status, attempts, per-attempt latency, `giveUpAt`, a
+summary and the retry policy). `list_webhook_deliveries` (payloads) and everything else stay admin.
+*Rejected:* a separate secrets table: the endpoint already holds the current and the previous secret (sealed), and
+Standard Webhooks needs no more than that for an overlap.
+
 ## AB. Captions step 2: speech-to-text, approval, languages, audio description (2026-11-23, issue #300)
 
 How they work: [docs/CAPTIONS.md](CAPTIONS.md) (sections "Speech-to-text", "Review and approval",

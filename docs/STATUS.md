@@ -31,7 +31,7 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->65<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->68<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -581,6 +581,29 @@ run on all three); `RateLimit-*` fields on every keyed response, `Retry-After` a
 a default-deny `NetworkPolicy` with an allowlist (kubeconform). Not yet: MCP OAuth 2.1 (step 2), a
 scheduled workflow for the weekly snapshot bump (maintainer, `.github/`), the kind e2e and the
 Docker e2e with these changes (heavy tier).
+### Webhooks for operations (2026-11-23, issue #306)
+
+Built (D-113, docs/providers/webhooks-and-notifications.md): every render or preview job ends with exactly one
+terminal event, `render.ready`, `render.failed` (typed code, stage, the last 20 log lines), `render.timeout` (new
+runtime setting `render.timeoutSeconds`, 3600), `render.cancelled`, `render.qa_failed` (reserved for #294) or
+`render.blocked` (the licence gate refused the render; moderation later), each with timing, costs (CPU seconds when
+the job ran alone on its instance, output and storage bytes) and API links. `dedupeKey` `render:<jobId>`, and the
+`webhook-id` is derived from the endpoint and that key, so every resend of an outcome has one id. Retries for up to
+`webhooks.retryWindowHours` (24) with a 10 s timeout, then dead; each attempt is recorded once (the write is fenced by
+the claim's lease). New tools: `resend_webhook`, `rotate_webhook_secret` (admin; two valid secrets during the overlap)
+and `get_webhook_log` (read scope: status, attempts, latency, no payloads). Migration `0013_webhook_operations` on
+SQLite, PostgreSQL 17 and MySQL 8.4.
+
+| Check | Result |
+| --- | --- |
+| Unit (core: WHK-40..45, JOB-TMO-01..02) | 8 new cases passed |
+| Contract `webhooks-contract.test.ts` (WHK-DB-01..07) on memory, SQLite, PostgreSQL 17, MySQL 8.4 | 28 passed |
+| Server `webhooks-ops.test.ts` (OPS-01..07: blocked, ready after a 503 and a retry, failed, timeout, cancelled, resend, rotation) | 7 passed on SQLite |
+| Server `webhooks.test.ts` + `webhooks-ops.test.ts` with `REELFORGE_TEST_DB=postgres` and `mysql` | 20 passed on each |
+| `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` | typecheck passed; workspace run (`--no-bail`) on the shared machine (load average 15-33): project-schema 86, media-pipeline 14, core 413 (+44 skipped), db 216 (+23 skipped), engines html 11, motion-canvas 7, remotion 5, docs 31, capture 25, load 2 passed; hyperframes (5), gallery (1) and server (6: licence render, KEY-09 CLI, IDM-01/02, REST journey) failed with `hyperframes render exited with code 1`, timeouts and `ECONNRESET`; each of those files passed when re-run on its own (hyperframes 18, gallery 31, licence 7, enterprise 22, rest.e2e 2), and licence/IDM fail the same way on unchanged `main` under that load |
+
+Not done: the Docker e2e was not re-run for this change; `render.qa_failed` has no producer until #294; no CLI
+command for resend or the read log yet; engine scene timeouts stay `render.failed`.
 ### Captions step 2: speech-to-text, approval, languages, audio description (2026-11-23, issue #300)
 
 Built (D-114, [CAPTIONS.md](CAPTIONS.md)): `transcribe_captions` runs a local speech-to-text

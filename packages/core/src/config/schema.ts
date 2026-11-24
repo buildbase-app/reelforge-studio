@@ -853,15 +853,24 @@ export const ConfigSchema = z.object({
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_WEBHOOKS_TIMEOUT_SECONDS',
-      default: 15,
+      default: 10,
       description: 'Longest time one delivery attempt may take (connect, send, answer); then it counts as failed and is retried.',
     }),
     maxAttempts: setting(z.number().int().min(1).max(30), {
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_WEBHOOKS_MAX_ATTEMPTS',
-      default: 15,
-      description: 'Attempts per delivery before it becomes dead (dead letter; replayable). With the default backoff, 15 attempts span about 24 hours.',
+      default: 20,
+      description:
+        'Attempts per delivery before it becomes dead (failed for good; the dead letter queue, sent again with `resend_webhook`). With the default backoff the retry window ends first (about 15 attempts in 24 hours).',
+    }),
+    retryWindowHours: setting(z.number().int().min(1).max(168), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_WEBHOOKS_RETRY_WINDOW_HOURS',
+      default: 24,
+      description:
+        'How long a delivery is retried after it was queued; the last attempt lands on the end of the window, then the delivery is dead (failed for good). A resend starts a new window.',
     }),
     retryBaseSeconds: setting(z.number().int().min(1).max(3600), {
       kind: 'integer',
@@ -968,6 +977,14 @@ export const ConfigSchema = z.object({
       default: 900,
       description:
         'Hard limit for rendering one html or hyperframes scene, whatever its length (engines use their per-frame estimate when it is shorter). 30 to 3600 seconds.',
+    }),
+    timeoutSeconds: setting(z.number().int().min(0).max(86400), {
+      kind: 'integer',
+      scope: 'runtime',
+      env: 'REELFORGE_RENDER_TIMEOUT_SECONDS',
+      default: 3600,
+      description:
+        'Longest time one render or preview job (or one unit or join of a fanned-out render) may run on a worker; then it is stopped and fails with `render_timeout` (the `render.timeout` event). `0`: no limit. Read when the job starts.',
     }),
     fanOut: setting(z.enum(['off', 'scenes', 'scenes+chunks']), {
       kind: 'enum',

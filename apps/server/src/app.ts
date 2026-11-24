@@ -670,6 +670,10 @@ export function createApp(deps: AppDeps) {
   v1.post('/webhooks/:id/deliveries/:deliveryId/replay', need('admin'), async (c) =>
     c.json(await service.replayWebhookDelivery(c.req.param('id'), c.req.param('deliveryId'), actor(c)), 202)
   );
+  // Webhooks for operations (#306): resend, secret rotation with overlap, and the delivery log for read keys.
+  v1.post('/webhooks/:id/resend', need('admin'), json, async (c) => c.json(await service.resendWebhook(c.req.param('id'), await body(c), actor(c)), 202));
+  v1.post('/webhooks/:id/rotate-secret', need('admin'), json, async (c) => c.json(await service.rotateWebhookSecret(c.req.param('id'), await body(c), actor(c))));
+  v1.get('/webhooks/:id/log', need('read'), async (c) => c.json(await service.getWebhookLog(c.req.param('id'), c.req.query())));
 
   v1.get('/audit', need('admin'), async (c) => {
     const query = c.req.query();

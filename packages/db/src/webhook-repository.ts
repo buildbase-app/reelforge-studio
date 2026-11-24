@@ -37,6 +37,7 @@ function toDelivery(r: DeliveryRow): WebhookDeliveryRecord {
     messageId: r.messageId,
     eventId: r.eventId,
     eventType: r.eventType,
+    ...(r.dedupeKey !== null ? { dedupeKey: r.dedupeKey } : {}),
     payload: JSON.parse(r.payload),
     status: r.status as DeliveryStatus,
     attempts: r.attempts,
@@ -139,6 +140,7 @@ export function createPrismaWebhookRepository(prisma: PrismaClient, workspaceId:
             messageId: d.messageId,
             eventId: d.eventId,
             eventType: d.eventType,
+            dedupeKey: d.dedupeKey ?? null,
             payload: JSON.stringify(d.payload),
             status: d.status,
             attempts: d.attempts,
@@ -165,6 +167,8 @@ export function createPrismaWebhookRepository(prisma: PrismaClient, workspaceId:
           ...(f.endpointId ? { endpointId: f.endpointId } : {}),
           ...(f.status ? { status: f.status } : {}),
           ...(f.eventType ? { eventType: f.eventType } : {}),
+          ...(f.eventId ? { eventId: f.eventId } : {}),
+          ...(f.dedupeKey ? { dedupeKey: f.dedupeKey } : {}),
           ...(f.before ? { id: { lt: f.before } } : {}),
         },
         orderBy: { id: 'desc' },
@@ -190,9 +194,24 @@ export function createPrismaWebhookRepository(prisma: PrismaClient, workspaceId:
       }
       return claimed;
     },
-    async recordAttempt(a, p) {
-      await prisma.$transaction(
+    async recordAttempt(a, p, lease) {
+      return prisma.$transaction(
         async (tx) => {
+          // The delivery first, fenced by the claim's lease when given: a worker that lost its lease writes nothing.
+          const n = await tx.webhookDelivery.updateMany({
+            where: { ...ws, id: a.deliveryId, ...(lease !== undefined ? { status: 'delivering', lockedUntil: new Date(lease) } : {}) },
+            data: {
+              status: p.status,
+              attempts: p.attempts,
+              updatedAt: new Date(p.updatedAt),
+              ...(p.nextAttemptAt ? { nextAttemptAt: new Date(p.nextAttemptAt) } : {}),
+              ...(p.lockedUntil === null ? { lockedUntil: null } : {}),
+              ...(p.lastStatus !== undefined ? { lastStatus: p.lastStatus } : {}),
+              ...(p.lastError !== undefined ? { lastError: p.lastError } : {}),
+              ...(p.deliveredAt ? { deliveredAt: new Date(p.deliveredAt) } : {}),
+            },
+          });
+          if (n.count !== 1) return false;
           await tx.webhookAttempt.create({
             data: {
               ...ws,
@@ -207,22 +226,13 @@ export function createPrismaWebhookRepository(prisma: PrismaClient, workspaceId:
               outcome: a.outcome,
             },
           });
-          await tx.webhookDelivery.updateMany({
-            where: { ...ws, id: a.deliveryId },
-            data: {
-              status: p.status,
-              attempts: p.attempts,
-              updatedAt: new Date(p.updatedAt),
-              ...(p.nextAttemptAt ? { nextAttemptAt: new Date(p.nextAttemptAt) } : {}),
-              ...(p.lockedUntil === null ? { lockedUntil: null } : {}),
-              ...(p.lastStatus !== undefined ? { lastStatus: p.lastStatus } : {}),
-              ...(p.lastError !== undefined ? { lastError: p.lastError } : {}),
-              ...(p.deliveredAt ? { deliveredAt: new Date(p.deliveredAt) } : {}),
-            },
-          });
+          return true;
         },
         TX
       );
+    },
+    async reschedule(id, at) {
+      return (await prisma.webhookDelivery.updateMany({ where: { ...ws, id, status: 'pending' }, data: { nextAttemptAt: new Date(at), updatedAt: new Date(at) } })).count === 1;
     },
     async release(ids, at) {
       if (!ids.length) return;

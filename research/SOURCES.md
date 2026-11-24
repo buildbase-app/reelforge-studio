@@ -500,6 +500,14 @@ implementation or licensing decisions.
   **Kubernetes NetworkPolicy**: https://kubernetes.io/docs/concepts/services-networking/network-policies/
   (default deny with an empty `podSelector`; policies match addresses, not DNS names); the manifests
   pass kubeconform 0.7.0 -strict against the Kubernetes 1.31 schemas (`e2e/k8s/kubeconform.sh`).
+- **Webhook operations references (2026-11-23, issue #306).** HeyGen webhooks
+  (https://developers.heygen.com/docs/webhooks.md, read 2026-11-23): HMAC-SHA256 of the raw body, retries with
+  exponential backoff for up to 24 h, receivers must answer 2xx within 10 s, a rotate-secret endpoint that invalidates
+  the old secret at once, receivers deduplicate on a stable field. Remotion Lambda webhooks
+  (https://www.remotion.dev/docs/lambda/webhooks, read 2026-11-23): one of `success`, `error` (with `errors`) or
+  `timeout` per render, `costs` and `timeToFinish` on success, HMAC-SHA512 signature. ReelForge keeps Standard Webhooks
+  signatures (D-072) and takes from these the 24 h window, the 10 s timeout, a terminal timeout event and costs; its
+  rotation keeps an overlap instead of invalidating at once (D-113).
 
 - **faster-whisper for local speech-to-text (2026-11-23, issue #300, D-114).** faster-whisper
   1.2.1 (PyPI, MIT, https://github.com/SYSTRAN/faster-whisper), read from the wheel's source on
