@@ -550,6 +550,115 @@ implementation or licensing decisions.
   TP −9..0; linear mode needs every `measured_*` value with `measured_LRA` ≠ 0 and the measured LRA at or
   under the LRA target (else dynamic mode); ebur128 `peak=true` reports true peak. Used in
   `packages/project-schema/src/audio.ts` and `packages/media-pipeline/src/audio.ts` (D-116).
+
+- **PentAGI for the pre-production pentest (2026-11-24, issue #325, docs/runbooks/PENTEST.md).**
+  Read on 2026-11-24: the repository README (https://github.com/vxcontrol/pentagi, raw `README.md`,
+  `.env.example` and `docker-compose.yml` on `main`), the worker node guide
+  (https://github.com/vxcontrol/pentagi/blob/main/examples/guides/worker_node.md), the releases page and
+  the v2.2.0 release notes (https://github.com/vxcontrol/pentagi/releases/tag/v2.2.0), and the Docker Hub
+  tags of `vxcontrol/pentagi` (`2.2.0` pushed 2026-10-05; `latest` rebuilt 2026-10-23). Findings used:
+  2.2.0 is the newest release; it closes CVE-2026-14784 / GHSA-7wx2-8pqj-q3gr (2.1.0 and earlier mounted
+  the host Docker socket into every sandbox when `DOCKER_INSIDE=true`), sets `DOCKER_INSIDE=false` by
+  default, needs `DOCKER_INSIDE_HOST` for nested Docker, refuses session cookies from older versions, and
+  runs eight migrations on start. Requirements: Docker and Compose, at least 2 vCPU, 4 GB RAM, 20 GB disk.
+  Manual install: `.env` from `.env.example`, the three example provider files, `docker compose up -d`;
+  web UI on `127.0.0.1:8443` by default (`PENTAGI_LISTEN_IP`); default login `admin@pentagi.com` /
+  `admin`, to be changed at first login. The stock compose file mounts
+  `${PENTAGI_DOCKER_SOCKET:-/var/run/docker.sock}` into the PentAGI container and runs it as root; the
+  worker node guide's two-node layout reaches the worker's Docker over TLS (`DOCKER_HOST=tcp://...:2376`,
+  `DOCKER_TLS_VERIFY`, `PENTAGI_DOCKER_CERT_PATH`) and gives sandboxes a hardened dind over TLS
+  (`DOCKER_INSIDE_HOST`, `DOCKER_INSIDE_TLS_VERIFY`, `DOCKER_INSIDE_CERT_PATH`,
+  `DOCKER_INSIDE_POLICY_TESTS`), with `DOCKER_SOCKET` empty. Each flow publishes two TCP ports from
+  `DOCKER_PORTS_BASE` (28000-29999) on `DOCKER_PUBLIC_IP`; Docker-published ports bypass `ufw`, so the
+  README says to filter them in front of the host or in the `DOCKER-USER` chain. LLM keys are `.env`
+  variables (`OPEN_AI_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, ...). Licence: MIT source plus an EULA
+  limited to lawful, authorised testing (#325).
+- **OWASP ZAP and nuclei for the non-AI baseline (2026-11-24, docs/runbooks/PENTEST.md).** ZAP API scan
+  usage (https://www.zaproxy.org/docs/docker/api-scan/, read 2026-11-24): `zap-api-scan.py -t <definition>
+  -f openapi|soap|graphql`, `-r`/`-J` reports. Header authentication
+  (https://www.zaproxy.org/docs/getting-further/authentication/handling-auth-yourself/, read 2026-11-24):
+  `ZAP_AUTH_HEADER_VALUE`, `ZAP_AUTH_HEADER` (default `Authorization`), `ZAP_AUTH_HEADER_SITE`, set before
+  ZAP starts. nuclei: Docker Hub `projectdiscovery/nuclei` tag `v3.11.1` (2026-08-08) is the newest.
+- **Cloud prices for the capacity test (2026-11-24, docs/runbooks/SCALE-TEST.md).** instances.vantage.sh:
+  `c7i.4xlarge` 16 vCPU / 32 GiB, $0.714 per hour on demand, about $0.352 spot; RDS `db.r7g.2xlarge`
+  8 vCPU / 64 GiB, $0.956 per hour (deployment option not shown; Multi-AZ assumed about twice).
+  gcloud-compute.com, us-central1: `c3d-highcpu-16` 16 vCPU / 32 GB, $0.5997 per hour on demand,
+  $0.1371 spot; `c3d-standard-16` $0.7264 / $0.1661. Other prices in the runbook are estimates marked
+  VERIFY.
+## Platforms and changelogs review (2026-11-24, epic #285 track C)
+
+Read on **2026-11-24** for `docs/research/PLATFORMS-2026-11.md`. Dates in brackets are the
+vendor's own entry dates. **(secondary)** marks claims found only in third-party articles.
+Re-check before relying on any price, limit or date.
+
+- **Remotion:** releases v4.0.539-v4.0.546 [2026-10-26..2026-11-23], https://github.com/remotion-dev/remotion/releases;
+  pricing https://www.remotion.dev/docs/license/pricing; telemetry and licensing (mandatory for
+  Automators from 5.0) https://www.remotion.dev/docs/telemetry, https://www.remotion.dev/docs/licensing/;
+  OTIO export (not deterministic) https://www.remotion.dev/docs/opentimeline/export; Lambda
+  troubleshooting https://www.remotion.dev/docs/lambda/troubleshooting/rate-limit; showcase
+  https://www.remotion.dev/showcase; Player https://www.remotion.dev/docs/player; DPA
+  https://www.remotion.dev/docs/dpa; blog archive https://www.remotion.dev/blog/archive.
+- **Shotstack:** announcements [2026-09-15, 2026-10-05, 2026-11-09, 2026-11-19]
+  https://shotstack.io/learn/announcement/; pricing https://shotstack.io/pricing; billing FAQ
+  https://help.shotstack.io/en/articles/14050672-billing-faqs; terms [updated 2026-05-06]
+  https://shotstack.io/terms/; security FAQ https://help.shotstack.io/en/articles/16187587-security-compliance-faq-soc-2-iso-27001-data-handling;
+  sub-processors https://shotstack.io/sub-processors/; incident [2025-07-23]
+  https://status.shotstack.io/incidents/3; Studio SDK (PolyForm Shield) https://shotstack.io/docs/guide/studio-sdk/.
+- **Creatomate:** Preview SDK https://creatomate.com/docs/api/preview-sdk/what-is-the-preview-sdk;
+  hosted MCP and keyframe editor (secondary, checked 2026-11-15) https://orshot.com/blog/creatomate-api-alternative;
+  reviews https://www.capterra.com/p/268283/Creatomate/reviews/; privacy policy [2022-06-27]
+  https://creatomate.com/privacy-policy. creatomate.com/changelog returned 404.
+- **JSON2Video:** changelog [2026-05-12, 2026-09-28, 2026-09-29] https://json2video.com/docs/v2/reference/changelog.
+- **Plainly:** changelog [2025-09-02..2026-11-19] https://help.plainlyvideos.com/docs/changelog.
+- **Bannerbear:** changelog [2026-01-31..2026-11-17] https://www.bannerbear.com/changelog/.
+- **Mux:** Robots [2026-04-16] https://www.mux.com/blog/mux-robots; @mux/ai [2025-12-16]
+  https://www.mux.com/blog/video-ai-shouldn-t-be-hard-so-we-built-mux-ai; changelog [2026-11-04]
+  https://www.mux.com/docs/changelog/video-auto-generated-captions-skipped-status.
+- **Editframe** https://editframe.com/changelog/001 (2024 only); **Revideo** https://github.com/redotvideo/revideo;
+  **Motion Canvas** https://motioncanvas.io/blog; **Rendley** [2026-03-31..2026-04-18]
+  https://docs.rendleysdk.com/changelog; **IMG.LY CE.SDK** [v1.64 2025-11-21, v1.78]
+  https://img.ly/docs/cesdk/changelog/v1-64-0/, https://img.ly/docs/cesdk/changelog/v1-78-0/;
+  **VideoGen** https://videogen.io/llms.txt.
+- **Synthesia:** EU Art. 50 code, C2PA, labels [2026-07-29]
+  https://www.synthesia.io/post/synthesia-among-the-first-ai-video-companies-to-sign-the-eu-article-50-code-of-practice;
+  Interactive Avatar API [2026-09-14] https://www.synthesia.io/post/interactive-avatar-api-real-time-avatars;
+  security practices (Ireland) https://www.synthesia.io/legal/security-practices; SCIM
+  https://help.synthesia.io/en/articles/12951831-user-s-guide-to-scim; audit logs
+  https://www.synthesia.io/updates/analyze-workspace-activity-with-audit-logs; ISO 42001
+  https://www.synthesia.io/post/synthesia-world-first-iso-42001-compliant-ai-video-company.
+- **HeyGen:** developer changelog (entries Apr-Nov 2026, v1/v2 sunset 2026-10-31)
+  https://developers.heygen.com/changelog; security https://www.heygen.com/security; compliance
+  https://developers.heygen.com/docs/compliance.md; HyperFrames (Apache-2.0, April 2026)
+  https://github.com/heygen-com/hyperframes.
+- **D-ID** [2026-03-17] https://www.prnewswire.com/il/news-releases/d-id-launches-v4-expressive-visual-agents-for-real-time-llm-connected-interaction-at-enterprise-scale-302714463.html;
+  **Colossyan** https://www.colossyan.com/enterprise/.
+- **Runway:** API changelog [2026-02-10..2026-08-20] https://docs.dev.runwayml.com/api-details/api_changelog/.
+- **Luma** https://lumalabs.ai/news/introducing-ray-3-2; **Google Veo** (preview shut 2026-10-22)
+  https://ai.google.dev/gemini-api/docs/veo, Veo 3.1 Lite [2026-03-31] https://www.marktechpost.com/2026/03/31/google-ai-releases-veo-3-1-lite-giving-developers-low-cost-high-speed-video-generation-via-the-gemini-api/;
+  **OpenAI Sora** API removal [2026-09-24] (secondary) https://techjacksolutions.com/ai-brief/openai-videos-api-sora-2-deprecated-september-2026/;
+  **Kling**, **Pika**, **Higgsfield** API: secondary only; Higgsfield reviews https://www.trustpilot.com/review/higgsfield.ai;
+  **Hedra** https://www.hedra.com/develop/models/video/hedra-character-3.
+- **Captions/Mirage** https://captions.ai/help/docs/api/video-captions, https://captions.ai/help/whats-new;
+  **InVideo** reviews https://www.trustpilot.com/review/ai.invideo.io; **Pictory** [2026-05-13]
+  https://docs.pictory.ai/changelog; **OpusClip** https://www.opus.pro/api, https://www.opus.pro/llms.txt;
+  **Submagic** https://submagic.canny.io/changelog; **Descript** https://feedback.descript.com/changelog,
+  https://www.descript.com/blog/article/dont-ship-your-api-as-an-mcp [updated 2026-06-23];
+  **VEED** [2026-09-30, 2026-10-28] https://www.veed.io/newsroom/veed-is-now-api-self-serve,
+  https://www.veed.io/newsroom/dubbing-api-video-that-travels, https://changelog.veed.io;
+  **Kapwing** [2026-09-28] https://www.kapwing.com/help/release-notes-kapwing-mcp/;
+  **CapCut** terms [2026-04-15] https://www.capcut.com/clause/terms-of-service;
+  **Canva** https://www.canva.dev/docs/connect/changelog/.
+- **Cloudflare** [2026-03-18] https://developers.cloudflare.com/changelog/post/2026-03-18-media-transformations-workers-binding/;
+  **AWS MediaConvert** [2026-02-24] https://aws.amazon.com/about-aws/whats-new/2026/02/aws-mediaconvert-introduces-video-probe;
+  **Coconut** https://docs.coconut.co/; **Transloadit** https://transloadit.com/blog/2026/;
+  **AssemblyAI** [2026-03-03] https://assemblyai.com/blog/universal-3-pro-streaming;
+  **Rev.ai** https://docs.rev.ai/changelog; **ElevenLabs** [2026-04-01, 2026-04-20, 2026-10-26]
+  https://elevenlabs.io/docs/changelog/2026/10/26. Deepgram: nothing found (VERIFY).
+- **Regulation and platforms:** EU Code of Practice on marking and labelling [final 2026-06-10]
+  https://digital-strategy.ec.europa.eu/en/news/commission-publishes-code-practice-marking-and-labelling-ai-generated-content;
+  YouTube inauthentic-content clarification [2026-07-16] https://www.tubefilter.com/2026/07/13/youtube-inauthentic-content-monetization-policy-update/;
+  YouTube Data API `status.containsSyntheticMedia` https://developers.google.com/youtube/v3/docs/videos;
+  MCP Apps extension [2026-01-26] https://blog.modelcontextprotocol.io/posts/2026-01-26-mcp-apps/.
 - **Assets in engines (2026-11-24, issue #299).** Read from the installed packages (no network):
   HyperFrames 0.9.77 `dist/chunk-ZXZVZTKA.js` `parseVideoElements` (every `<video src>` in a
   composition is extracted frame by frame by its own FFmpeg pass; `data-start`, `data-duration`,

@@ -702,6 +702,17 @@ toggles, mute and the QA rule (core). Checked on FFmpeg 5.1.6 (built from source
 suites pass on both. Not yet (rest of #301): a voice with provider + text but no asset
 still renders silently (warning), scene timing from the voice, the per-render ducking amount of #298.
 
+### Runbooks: capacity test and pre-production pentest (2026-11-24, issues #307, #325)
+
+Written, **not run** (they need a cloud account, a budget and LLM keys from the founder):
+[runbooks/SCALE-TEST.md](runbooks/SCALE-TEST.md) (EKS or GKE topology with sizes and cost, queue depth
+to 100,000 jobs, real renders ramping to 1,000 in flight, a 30-minute soak, failure injection, pass
+thresholds and a results template) and [runbooks/PENTEST.md](runbooks/PENTEST.md) (the #325 gate:
+written scope, an isolated PentAGI 2.2.0 runner without a Docker socket, the pre-prod target, ten flows
+with prompts, ZAP and nuclei baselines, private findings and the release gate). New tooling: the
+real-render driver `pnpm load:real` (`scripts/load/real-render.ts`, dry run tested against an in-memory
+fake server only) and `CHECK_SINCE` for the exactly-once check.
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |
