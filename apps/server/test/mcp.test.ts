@@ -105,6 +105,22 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
     await client.close();
   });
 
+  it('enforces the read scope on prompts and resources that read data (#426)', async () => {
+    const writer = await connect((await server.service.keys.create('writer-only', ['write'])).key);
+    // plan_reel lists templates and themes, like list_templates and list_themes: a key without read is refused.
+    await expect(writer.getPrompt({ name: 'plan_reel', arguments: { brief: 'x' } })).rejects.toThrow(/read/);
+    await expect(writer.getPrompt({ name: 'review_reel', arguments: { projectId: 'sample-reel' } })).rejects.toThrow(/read/);
+    for (const uri of ['renderweld://templates', 'renderweld://schema/project', 'renderweld://projects/sample-reel']) {
+      await expect(writer.readResource({ uri })).rejects.toThrow(/read/);
+    }
+    expect(json(await writer.callTool({ name: 'list_themes', arguments: {} })).error.code).toBe('forbidden');
+    // Static guidance needs no scope: it reads nothing of the workspace.
+    const make = await writer.getPrompt({ name: 'make_reel', arguments: { topic: 'a bakery opening' } });
+    expect((make.messages[0]!.content as any).text).toContain('a bakery opening');
+    expect((await writer.readResource({ uri: 'renderweld://guide/workflow' })).contents[0]).toMatchObject({ text: WORKFLOW_GUIDE });
+    await writer.close();
+  });
+
   it('exposes resources and prompts', async () => {
     const client = await connect(adminKey);
     const { resources } = await client.listResources();
