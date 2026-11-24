@@ -22,7 +22,7 @@ import {
   resolveTools,
   toolVersion,
 } from '@reelforge/media-pipeline';
-import { parseProject, timeline, totalFrames } from '@reelforge/project-schema';
+import { fpsValue, framesToSeconds, parseProject, timeline, totalFrames } from '@reelforge/project-schema';
 
 const manifestPath = resolve(process.argv[2] ?? 'examples/sample-reel.json');
 const cacheDir = resolve('.render-cache');
@@ -100,8 +100,8 @@ async function main() {
     frames: assembled.totalFrames,
     audio: true,
   });
-  const expectedSeconds = assembled.totalFrames / project.output.fps;
-  if (Math.abs(info.durationSeconds - expectedSeconds) > 1 / project.output.fps) {
+  const expectedSeconds = framesToSeconds(assembled.totalFrames, project.output.fps);
+  if (Math.abs(info.durationSeconds - expectedSeconds) > 1 / fpsValue(project.output.fps)) {
     problems.push(`duration is ${info.durationSeconds}s, expected ${expectedSeconds}s`);
   }
   await assertDecodable(tools.ffmpeg, final);

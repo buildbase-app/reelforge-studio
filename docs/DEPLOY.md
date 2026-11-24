@@ -309,7 +309,9 @@ licence terms plus updates and support for licensed keys only.
 ## Hardening
 
 The image is built for a locked-down runtime; `docker-compose.yml` uses all of
-this by default, and e2e/docker/run.sh runs the whole suite with it.
+this by default, and e2e/docker/run.sh runs the whole suite with it. Before a
+release, a pre-production deployment goes through the penetration test gate in
+[runbooks/PENTEST.md](runbooks/PENTEST.md) (#325).
 
 | Flag | Why |
 | --- | --- |
@@ -610,6 +612,11 @@ you measured otherwise. An api instance answers `503 overloaded` with
 progress and a slot does not free up within `limits.inflightWaitMs`.
 Measured numbers, the sizing table and the KEDA and Docker recipes:
 [SCALE.md](SCALE.md).
+
+**Capacity test on real infrastructure** (up to 1,000 renders in flight, a 30-minute soak and
+failure injection, with the topology, cost and pass thresholds): the runbook
+[runbooks/SCALE-TEST.md](runbooks/SCALE-TEST.md). Not run yet: the sizing numbers so far come
+from a shared host.
 
 ## Database
 

@@ -90,6 +90,12 @@ frame, each with an image or video asset (`contain`, `cover`, `blur-fill`), text
 layout units and safe areas so they reflow per size and variant; pane geometry and text checked in the browser at six
 sizes on both engines and on rendered pixels, contact sheets in `docs/proofs/layouts/`
 ([Formats and layouts](public/manifest/formats.md#layouts-split-screen-picture-in-picture-lower-thirds-grids)).
+**Frame rates and output checks (#302, #287, D-119, 2026-11-24):** `output.fps` takes 23.976, 24, 25, 29.97, 30, 48,
+50, 59.94 and 60, NTSC rates stored as exact fractions (`"30000/1001"`); every engine renders each one and the final
+MP4's `r_frame_rate` is exact (ffprobe-checked, also through the fan-out join and captions). Sizes and rates an engine
+cannot render are refused with `422 unsupported_output` before queueing; `preview_scene` takes a `variant`; the
+manifest's 180 s and 50-scene caps became config bounds (defaults unchanged)
+([Frame rates](public/manifest/formats.md#frame-rates)).
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,
@@ -685,6 +691,17 @@ and the fan-out concat), A/V sync and offsets, muted output (media-pipeline); se
 toggles, mute and the QA rule (core). Checked on FFmpeg 5.1.6 (built from source, standing in for the image's Debian 5.1) and 6.1.1: media-pipeline and core
 suites pass on both. Not yet (rest of #301): a voice with provider + text but no asset
 still renders silently (warning), scene timing from the voice, the per-render ducking amount of #298.
+
+### Runbooks: capacity test and pre-production pentest (2026-11-24, issues #307, #325)
+
+Written, **not run** (they need a cloud account, a budget and LLM keys from the founder):
+[runbooks/SCALE-TEST.md](runbooks/SCALE-TEST.md) (EKS or GKE topology with sizes and cost, queue depth
+to 100,000 jobs, real renders ramping to 1,000 in flight, a 30-minute soak, failure injection, pass
+thresholds and a results template) and [runbooks/PENTEST.md](runbooks/PENTEST.md) (the #325 gate:
+written scope, an isolated PentAGI 2.2.0 runner without a Docker socket, the pre-prod target, ten flows
+with prompts, ZAP and nuclei baselines, private findings and the release gate). New tooling: the
+real-render driver `pnpm load:real` (`scripts/load/real-render.ts`, dry run tested against an in-memory
+fake server only) and `CHECK_SINCE` for the exactly-once check.
 
 ## 4. Infrastructure inventory (no secrets)
 
