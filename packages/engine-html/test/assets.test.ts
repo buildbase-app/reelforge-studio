@@ -105,6 +105,7 @@ describe.skipIf(!hasBrowser)('ASSET-HTML html engine renders the project\'s imag
     const res = await render('x6', { html: '<img src="file:///etc/hostname"><img src="http://127.0.0.1:9/x.png">', durationFrames: 2 });
     // The page policy refuses both before a request is made; nothing reached the asset origin either.
     expect(res.blockedRequests).toEqual([]);
-    expect(res.assetRequests).toEqual([]);
+    // Only the theme's bundled font (#303) came from the asset origin; neither blocked URL did.
+    expect(res.assetRequests.filter((r) => !r.startsWith('fonts/bundled/'))).toEqual([]);
   }, 120_000);
 });
