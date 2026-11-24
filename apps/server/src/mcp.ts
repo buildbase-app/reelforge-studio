@@ -1097,6 +1097,13 @@ done with tools; there is no UI.
   TikTok and Shorts; 1920x1080 for YouTube and the web; 1080x1080 or 1080x1350
   for feed posts; 3840x2160 for 4K). Built-in templates reflow for the aspect
   ratio; on tall frames they keep clear of the app's buttons and captions.
+- Layouts (templates html-layout and hyperframes-layout): split screen (2-4
+  panes, side by side or stacked, ratios), picture-in-picture (corner, width
+  and margin in units), grid (n x m, or chosen per frame) or full frame, each
+  pane with an image or video asset placed with fit contain, cover or blur-fill
+  (blurred fill for a mismatched aspect ratio), text, and an optional lower
+  third. Upload the media as assets first; the layout reflows for every size
+  and variant.
 - Ask the user before anything that costs money (providers) or deletes data.
 `;
 

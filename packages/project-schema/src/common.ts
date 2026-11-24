@@ -114,6 +114,10 @@ export const MAX_PROJECT_SECONDS = 4 * 3600;
 /** The most scenes a manifest may hold (structural; the server's limit is `limits.maxScenes`, default 50). */
 export const MAX_SCENES = 2000;
 
+export const hexColor = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/, 'must be a 6-digit hex colour such as #ff3366');
+
 export const slugId = z
   .string()
   .regex(
