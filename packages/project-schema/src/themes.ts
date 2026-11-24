@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { hexColor } from './templates';
+import { hexColor } from './common';
 
 /**
  * Brand themes: named sets of design tokens that templates read. A project

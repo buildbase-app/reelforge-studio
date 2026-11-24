@@ -20,8 +20,10 @@ import busboy from 'busboy';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
+import { isDatabaseOverload, overloadedResponse } from './overload';
 import type { ServerConfig } from './config';
 import { auditAction, auditTarget, matchRoute, restArgs, resultOf } from './audit';
+import { mountDashboard } from './dashboard';
 import { handleMcp, serverCard } from './mcp';
 import { httpTelemetry } from './observability/http';
 import { StructuredLogger } from './observability/logger';
@@ -153,6 +155,8 @@ export function createApp(deps: AppDeps) {
     }
     const status = (err as { status?: number }).status;
     if (status === 413) return c.json(errorBody('too_large', 'request body is too large'), 413);
+    // No database connection or transaction in time: the server is overloaded, nothing was written (#307).
+    if (isDatabaseOverload(err)) return overloadedResponse('the database is busy; retry after the Retry-After seconds');
     obs.logger.log('error', `unhandled error on ${c.req.method} ${c.req.path}`, { error: err, request_id: c.get('requestId') });
     return c.json(errorBody('internal', 'internal server error'), 500);
   });
@@ -420,6 +424,7 @@ export function createApp(deps: AppDeps) {
   v1.use('*', authenticate);
 
   v1.get('/capabilities', need('read'), (c) => c.json(service.capabilities()));
+  v1.get('/me', need('read'), async (c) => c.json(await service.getMe(c.get('auth'))));
   v1.get('/schema/project', need('read'), (c) => c.json(service.projectSchema()));
   v1.get('/templates', need('read'), (c) => c.json({ templates: service.listTemplates(c.req.query('engine')) }));
 
@@ -494,6 +499,23 @@ export function createApp(deps: AppDeps) {
     const r = await service.importCaptions(c.req.param('id'), b, expectedVersion(c, b));
     return c.json({ ...project(r), imported: r.imported });
   });
+  v1.get('/projects/:id/captions', need('read'), async (c) => {
+    const language = c.req.query('language');
+    return c.json(await service.getCaptions({ projectId: c.req.param('id'), ...(language ? { language } : {}) }));
+  });
+  v1.patch('/projects/:id/captions', need('write'), json, async (c) => {
+    // The captions etag comes in the body or as If-Match (not a project version here); expectedVersion in the body or query.
+    const { expectedVersion: ev, ...b } = await body(c);
+    const etag = b.etag ?? c.req.header('if-match');
+    const v = ev ?? c.req.query('expectedVersion');
+    const version = v === undefined ? undefined : Number(v);
+    if (version !== undefined && (!Number.isInteger(version) || version < 1)) throw new ApiError('bad_request', 400, 'expectedVersion must be a positive integer');
+    return c.json(await service.updateCaptions(c.req.param('id'), { ...b, ...(etag !== undefined ? { etag } : {}) }, version));
+  });
+  v1.post('/projects/:id/captions/transcribe', need('render'), json, async (c) => {
+    const { expectedVersion: _ev, ...b } = await body(c);
+    return c.json(await service.transcribeCaptions(c.req.param('id'), b, expectedVersion(c, { expectedVersion: _ev })));
+  });
 
   v1.post('/projects/:id/preview', need('render'), json, async (c) => {
     const b = await body(c);
@@ -504,7 +526,7 @@ export function createApp(deps: AppDeps) {
   v1.post('/projects/:id/renders', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
-    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.variant !== undefined ? { variant: b.variant } : {}), ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}) };
+    const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.variant !== undefined ? { variant: b.variant } : {}), ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}), ...(b.audio !== undefined ? { audio: b.audio } : {}) };
     return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, () => service.renderProject(projectId, opts)), 202);
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
@@ -549,6 +571,10 @@ export function createApp(deps: AppDeps) {
   });
 
   v1.get('/renders/:id', need('read'), async (c) => c.json(await service.getRender(c.req.param('id'))));
+  v1.get('/renders/:id/captions', need('read'), async (c) => {
+    const language = c.req.query('language');
+    return c.json(await service.getCaptions({ renderId: c.req.param('id'), ...(language ? { language } : {}) }));
+  });
   v1.get('/renders/:id/output', need('read'), async (c) => {
     const file = c.req.query('file') ?? 'final.mp4';
     const o = await service.renderObject(c.req.param('id'), file);
@@ -649,6 +675,10 @@ export function createApp(deps: AppDeps) {
   v1.post('/webhooks/:id/deliveries/:deliveryId/replay', need('admin'), async (c) =>
     c.json(await service.replayWebhookDelivery(c.req.param('id'), c.req.param('deliveryId'), actor(c)), 202)
   );
+  // Webhooks for operations (#306): resend, secret rotation with overlap, and the delivery log for read keys.
+  v1.post('/webhooks/:id/resend', need('admin'), json, async (c) => c.json(await service.resendWebhook(c.req.param('id'), await body(c), actor(c)), 202));
+  v1.post('/webhooks/:id/rotate-secret', need('admin'), json, async (c) => c.json(await service.rotateWebhookSecret(c.req.param('id'), await body(c), actor(c))));
+  v1.get('/webhooks/:id/log', need('read'), async (c) => c.json(await service.getWebhookLog(c.req.param('id'), c.req.query())));
 
   v1.get('/audit', need('admin'), async (c) => {
     const query = c.req.query();
@@ -675,6 +705,7 @@ export function createApp(deps: AppDeps) {
   });
 
   app.route('/v1', v1);
+  mountDashboard(app, service, config); // GET /dashboard (dashboard.enabled, D-115)
   return app;
 }
 

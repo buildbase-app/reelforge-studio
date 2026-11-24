@@ -6,6 +6,10 @@ export const SUPPORTED_FPS = [24, 25, 30, 60] as const;
 /** Upper bound on a whole project, in seconds. Short-form first. */
 export const MAX_PROJECT_SECONDS = 180;
 
+export const hexColor = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/, 'must be a 6-digit hex colour such as #ff3366');
+
 export const slugId = z
   .string()
   .regex(

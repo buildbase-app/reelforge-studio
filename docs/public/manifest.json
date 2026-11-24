@@ -31,6 +31,7 @@
       "order": 4,
       "tags": ["install", "reference"]
     },
+    "docs/public/install/dashboard.md",
     "docs/public/install/buildbase-console-setup.md",
     "docs/public/api/rest-api.md",
     "docs/public/api/endpoints.md",
@@ -64,6 +65,7 @@
     "docs/public/manifest/v0-2.md",
     "docs/public/manifest/templates.md",
     "docs/public/manifest/formats.md",
+    "docs/public/manifest/audio.md",
     "docs/public/cookbook/prompts.md",
     {
       "file": "docs/PRIVACY.md",

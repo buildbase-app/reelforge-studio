@@ -44,6 +44,7 @@ export type WebhookDeliveryMinAggregateOutputType = {
   messageId: string | null
   eventId: string | null
   eventType: string | null
+  dedupeKey: string | null
   payload: string | null
   status: string | null
   attempts: number | null
@@ -64,6 +65,7 @@ export type WebhookDeliveryMaxAggregateOutputType = {
   messageId: string | null
   eventId: string | null
   eventType: string | null
+  dedupeKey: string | null
   payload: string | null
   status: string | null
   attempts: number | null
@@ -84,6 +86,7 @@ export type WebhookDeliveryCountAggregateOutputType = {
   messageId: number
   eventId: number
   eventType: number
+  dedupeKey: number
   payload: number
   status: number
   attempts: number
@@ -116,6 +119,7 @@ export type WebhookDeliveryMinAggregateInputType = {
   messageId?: true
   eventId?: true
   eventType?: true
+  dedupeKey?: true
   payload?: true
   status?: true
   attempts?: true
@@ -136,6 +140,7 @@ export type WebhookDeliveryMaxAggregateInputType = {
   messageId?: true
   eventId?: true
   eventType?: true
+  dedupeKey?: true
   payload?: true
   status?: true
   attempts?: true
@@ -156,6 +161,7 @@ export type WebhookDeliveryCountAggregateInputType = {
   messageId?: true
   eventId?: true
   eventType?: true
+  dedupeKey?: true
   payload?: true
   status?: true
   attempts?: true
@@ -263,6 +269,7 @@ export type WebhookDeliveryGroupByOutputType = {
   messageId: string
   eventId: string
   eventType: string
+  dedupeKey: string | null
   payload: string
   status: string
   attempts: number
@@ -306,6 +313,7 @@ export type WebhookDeliveryWhereInput = {
   messageId?: Prisma.StringFilter<"WebhookDelivery"> | string
   eventId?: Prisma.StringFilter<"WebhookDelivery"> | string
   eventType?: Prisma.StringFilter<"WebhookDelivery"> | string
+  dedupeKey?: Prisma.StringNullableFilter<"WebhookDelivery"> | string | null
   payload?: Prisma.StringFilter<"WebhookDelivery"> | string
   status?: Prisma.StringFilter<"WebhookDelivery"> | string
   attempts?: Prisma.IntFilter<"WebhookDelivery"> | number
@@ -327,6 +335,7 @@ export type WebhookDeliveryOrderByWithRelationInput = {
   messageId?: Prisma.SortOrder
   eventId?: Prisma.SortOrder
   eventType?: Prisma.SortOrder
+  dedupeKey?: Prisma.SortOrderInput | Prisma.SortOrder
   payload?: Prisma.SortOrder
   status?: Prisma.SortOrder
   attempts?: Prisma.SortOrder
@@ -351,6 +360,7 @@ export type WebhookDeliveryWhereUniqueInput = Prisma.AtLeast<{
   messageId?: Prisma.StringFilter<"WebhookDelivery"> | string
   eventId?: Prisma.StringFilter<"WebhookDelivery"> | string
   eventType?: Prisma.StringFilter<"WebhookDelivery"> | string
+  dedupeKey?: Prisma.StringNullableFilter<"WebhookDelivery"> | string | null
   payload?: Prisma.StringFilter<"WebhookDelivery"> | string
   status?: Prisma.StringFilter<"WebhookDelivery"> | string
   attempts?: Prisma.IntFilter<"WebhookDelivery"> | number
@@ -372,6 +382,7 @@ export type WebhookDeliveryOrderByWithAggregationInput = {
   messageId?: Prisma.SortOrder
   eventId?: Prisma.SortOrder
   eventType?: Prisma.SortOrder
+  dedupeKey?: Prisma.SortOrderInput | Prisma.SortOrder
   payload?: Prisma.SortOrder
   status?: Prisma.SortOrder
   attempts?: Prisma.SortOrder
@@ -400,6 +411,7 @@ export type WebhookDeliveryScalarWhereWithAggregatesInput = {
   messageId?: Prisma.StringWithAggregatesFilter<"WebhookDelivery"> | string
   eventId?: Prisma.StringWithAggregatesFilter<"WebhookDelivery"> | string
   eventType?: Prisma.StringWithAggregatesFilter<"WebhookDelivery"> | string
+  dedupeKey?: Prisma.StringNullableWithAggregatesFilter<"WebhookDelivery"> | string | null
   payload?: Prisma.StringWithAggregatesFilter<"WebhookDelivery"> | string
   status?: Prisma.StringWithAggregatesFilter<"WebhookDelivery"> | string
   attempts?: Prisma.IntWithAggregatesFilter<"WebhookDelivery"> | number
@@ -419,6 +431,7 @@ export type WebhookDeliveryCreateInput = {
   messageId: string
   eventId: string
   eventType: string
+  dedupeKey?: string | null
   payload: string
   status: string
   attempts?: number
@@ -440,6 +453,7 @@ export type WebhookDeliveryUncheckedCreateInput = {
   messageId: string
   eventId: string
   eventType: string
+  dedupeKey?: string | null
   payload: string
   status: string
   attempts?: number
@@ -459,6 +473,7 @@ export type WebhookDeliveryUpdateInput = {
   messageId?: Prisma.StringFieldUpdateOperationsInput | string
   eventId?: Prisma.StringFieldUpdateOperationsInput | string
   eventType?: Prisma.StringFieldUpdateOperationsInput | string
+  dedupeKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   payload?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
   attempts?: Prisma.IntFieldUpdateOperationsInput | number
@@ -480,6 +495,7 @@ export type WebhookDeliveryUncheckedUpdateInput = {
   messageId?: Prisma.StringFieldUpdateOperationsInput | string
   eventId?: Prisma.StringFieldUpdateOperationsInput | string
   eventType?: Prisma.StringFieldUpdateOperationsInput | string
+  dedupeKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   payload?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
   attempts?: Prisma.IntFieldUpdateOperationsInput | number
@@ -500,6 +516,7 @@ export type WebhookDeliveryCreateManyInput = {
   messageId: string
   eventId: string
   eventType: string
+  dedupeKey?: string | null
   payload: string
   status: string
   attempts?: number
@@ -519,6 +536,7 @@ export type WebhookDeliveryUpdateManyMutationInput = {
   messageId?: Prisma.StringFieldUpdateOperationsInput | string
   eventId?: Prisma.StringFieldUpdateOperationsInput | string
   eventType?: Prisma.StringFieldUpdateOperationsInput | string
+  dedupeKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   payload?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
   attempts?: Prisma.IntFieldUpdateOperationsInput | number
@@ -539,6 +557,7 @@ export type WebhookDeliveryUncheckedUpdateManyInput = {
   messageId?: Prisma.StringFieldUpdateOperationsInput | string
   eventId?: Prisma.StringFieldUpdateOperationsInput | string
   eventType?: Prisma.StringFieldUpdateOperationsInput | string
+  dedupeKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   payload?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
   attempts?: Prisma.IntFieldUpdateOperationsInput | number
@@ -569,6 +588,7 @@ export type WebhookDeliveryCountOrderByAggregateInput = {
   messageId?: Prisma.SortOrder
   eventId?: Prisma.SortOrder
   eventType?: Prisma.SortOrder
+  dedupeKey?: Prisma.SortOrder
   payload?: Prisma.SortOrder
   status?: Prisma.SortOrder
   attempts?: Prisma.SortOrder
@@ -594,6 +614,7 @@ export type WebhookDeliveryMaxOrderByAggregateInput = {
   messageId?: Prisma.SortOrder
   eventId?: Prisma.SortOrder
   eventType?: Prisma.SortOrder
+  dedupeKey?: Prisma.SortOrder
   payload?: Prisma.SortOrder
   status?: Prisma.SortOrder
   attempts?: Prisma.SortOrder
@@ -614,6 +635,7 @@ export type WebhookDeliveryMinOrderByAggregateInput = {
   messageId?: Prisma.SortOrder
   eventId?: Prisma.SortOrder
   eventType?: Prisma.SortOrder
+  dedupeKey?: Prisma.SortOrder
   payload?: Prisma.SortOrder
   status?: Prisma.SortOrder
   attempts?: Prisma.SortOrder
@@ -680,6 +702,7 @@ export type WebhookDeliveryCreateWithoutWorkspaceInput = {
   messageId: string
   eventId: string
   eventType: string
+  dedupeKey?: string | null
   payload: string
   status: string
   attempts?: number
@@ -699,6 +722,7 @@ export type WebhookDeliveryUncheckedCreateWithoutWorkspaceInput = {
   messageId: string
   eventId: string
   eventType: string
+  dedupeKey?: string | null
   payload: string
   status: string
   attempts?: number
@@ -747,6 +771,7 @@ export type WebhookDeliveryScalarWhereInput = {
   messageId?: Prisma.StringFilter<"WebhookDelivery"> | string
   eventId?: Prisma.StringFilter<"WebhookDelivery"> | string
   eventType?: Prisma.StringFilter<"WebhookDelivery"> | string
+  dedupeKey?: Prisma.StringNullableFilter<"WebhookDelivery"> | string | null
   payload?: Prisma.StringFilter<"WebhookDelivery"> | string
   status?: Prisma.StringFilter<"WebhookDelivery"> | string
   attempts?: Prisma.IntFilter<"WebhookDelivery"> | number
@@ -766,6 +791,7 @@ export type WebhookDeliveryCreateManyWorkspaceInput = {
   messageId: string
   eventId: string
   eventType: string
+  dedupeKey?: string | null
   payload: string
   status: string
   attempts?: number
@@ -785,6 +811,7 @@ export type WebhookDeliveryUpdateWithoutWorkspaceInput = {
   messageId?: Prisma.StringFieldUpdateOperationsInput | string
   eventId?: Prisma.StringFieldUpdateOperationsInput | string
   eventType?: Prisma.StringFieldUpdateOperationsInput | string
+  dedupeKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   payload?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
   attempts?: Prisma.IntFieldUpdateOperationsInput | number
@@ -804,6 +831,7 @@ export type WebhookDeliveryUncheckedUpdateWithoutWorkspaceInput = {
   messageId?: Prisma.StringFieldUpdateOperationsInput | string
   eventId?: Prisma.StringFieldUpdateOperationsInput | string
   eventType?: Prisma.StringFieldUpdateOperationsInput | string
+  dedupeKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   payload?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
   attempts?: Prisma.IntFieldUpdateOperationsInput | number
@@ -823,6 +851,7 @@ export type WebhookDeliveryUncheckedUpdateManyWithoutWorkspaceInput = {
   messageId?: Prisma.StringFieldUpdateOperationsInput | string
   eventId?: Prisma.StringFieldUpdateOperationsInput | string
   eventType?: Prisma.StringFieldUpdateOperationsInput | string
+  dedupeKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   payload?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
   attempts?: Prisma.IntFieldUpdateOperationsInput | number
@@ -845,6 +874,7 @@ export type WebhookDeliverySelect<ExtArgs extends runtime.Types.Extensions.Inter
   messageId?: boolean
   eventId?: boolean
   eventType?: boolean
+  dedupeKey?: boolean
   payload?: boolean
   status?: boolean
   attempts?: boolean
@@ -866,6 +896,7 @@ export type WebhookDeliverySelectCreateManyAndReturn<ExtArgs extends runtime.Typ
   messageId?: boolean
   eventId?: boolean
   eventType?: boolean
+  dedupeKey?: boolean
   payload?: boolean
   status?: boolean
   attempts?: boolean
@@ -887,6 +918,7 @@ export type WebhookDeliverySelectUpdateManyAndReturn<ExtArgs extends runtime.Typ
   messageId?: boolean
   eventId?: boolean
   eventType?: boolean
+  dedupeKey?: boolean
   payload?: boolean
   status?: boolean
   attempts?: boolean
@@ -908,6 +940,7 @@ export type WebhookDeliverySelectScalar = {
   messageId?: boolean
   eventId?: boolean
   eventType?: boolean
+  dedupeKey?: boolean
   payload?: boolean
   status?: boolean
   attempts?: boolean
@@ -921,7 +954,7 @@ export type WebhookDeliverySelectScalar = {
   updatedAt?: boolean
 }
 
-export type WebhookDeliveryOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "endpointId" | "messageId" | "eventId" | "eventType" | "payload" | "status" | "attempts" | "nextAttemptAt" | "lockedUntil" | "lastStatus" | "lastError" | "deliveredAt" | "replayOf" | "createdAt" | "updatedAt", ExtArgs["result"]["webhookDelivery"]>
+export type WebhookDeliveryOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "workspaceId" | "endpointId" | "messageId" | "eventId" | "eventType" | "dedupeKey" | "payload" | "status" | "attempts" | "nextAttemptAt" | "lockedUntil" | "lastStatus" | "lastError" | "deliveredAt" | "replayOf" | "createdAt" | "updatedAt", ExtArgs["result"]["webhookDelivery"]>
 export type WebhookDeliveryInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   workspace?: boolean | Prisma.WorkspaceDefaultArgs<ExtArgs>
 }
@@ -944,6 +977,10 @@ export type $WebhookDeliveryPayload<ExtArgs extends runtime.Types.Extensions.Int
     messageId: string
     eventId: string
     eventType: string
+    /**
+     * The envelope's dedupeKey (`render:<jobId>` on terminal render events, #306); resend_webhook looks outcomes up by it.
+     */
+    dedupeKey: string | null
     /**
      * The event envelope as JSON text (what is sent).
      */
@@ -1394,6 +1431,7 @@ export interface WebhookDeliveryFieldRefs {
   readonly messageId: Prisma.FieldRef<"WebhookDelivery", 'String'>
   readonly eventId: Prisma.FieldRef<"WebhookDelivery", 'String'>
   readonly eventType: Prisma.FieldRef<"WebhookDelivery", 'String'>
+  readonly dedupeKey: Prisma.FieldRef<"WebhookDelivery", 'String'>
   readonly payload: Prisma.FieldRef<"WebhookDelivery", 'String'>
   readonly status: Prisma.FieldRef<"WebhookDelivery", 'String'>
   readonly attempts: Prisma.FieldRef<"WebhookDelivery", 'Int'>
