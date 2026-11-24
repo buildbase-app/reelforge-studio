@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, link, mkdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, extname, join } from 'node:path';
 import {
   RENDER_ENV_ALLOWLIST,
   SceneMarkupError,
@@ -14,20 +14,29 @@ import {
   renderChildEnv,
   sceneTimeoutCapMs,
   type EnginePlugin,
+  type ResolvedAsset,
 } from '@reelforge/core';
 import { PipelineError } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
   FIT_TEXT_SCRIPT,
-  MAX_SOURCE_BYTES,
+  fpsArg,
+  fpsLabel,
+  fpsValue,
   frameLayout,
-  layoutCssVars,
-  TEMPLATES,
+  framesToSeconds,
   hyperframesTitleProps,
+  layoutCssVars,
+  MAX_SOURCE_BYTES,
+  TEMPLATES,
+  layoutSceneDom,
+  layoutSceneProps,
   type HyperframesTitleProps,
+  type PictureRequest,
   type OutputSettings,
   type RenderScene,
   type ThemeTokens,
+  type FrameRate,
 } from '@reelforge/project-schema';
 import { EGRESS_REFUSED_LINE, FONT_REFUSED_LINE, REFUSED_LINE, nodeEgressEnv, startNetworkSink } from './network';
 import { killRenderNow, reapRender } from './processes';
@@ -122,13 +131,65 @@ ${props.subline ? `<p id="hf-sub">${escapeHtml(props.subline)}</p>` : ''}
 <script>${FIT_TEXT_SCRIPT}</script>`;
 }
 
+/** A picture of a layout pane as the composition references it: a file in the scene folder. */
+export interface CompositionMedia {
+  kind: 'image' | 'video';
+  /** Path relative to the composition (e.g. `media/clip.mp4`). */
+  src: string;
+}
+
+/**
+ * Built-in template "hyperframes-layout" (#287): the shared layout markup
+ * (layoutSceneDom) with images as `<img>` and videos as timed, muted
+ * `<video>` clips that the HyperFrames runtime seeks frame by frame
+ * (`data-media-start` is the pane's start offset).
+ */
+export function hyperframesLayout(props: unknown, output: OutputSettings, seconds: number, media: (asset: string) => CompositionMedia, platform?: string): string {
+  const p = layoutSceneProps.parse(props);
+  const picture = (r: PictureRequest) => {
+    const m = media(r.media.asset);
+    const src = escapeHtml(m.src);
+    if (m.kind === 'image') return `<img class="${r.className}" style="${r.style}" alt="" src="${src}">`;
+    return (
+      `<video id="rfl-v${r.pane}-${r.layer}" class="clip ${r.className}" style="${r.style}" src="${src}" muted playsinline ` +
+      `data-start="0" data-duration="${seconds}" data-media-start="${r.media.startSeconds}" data-track-index="${r.pane * 2 + (r.layer === 'bg' ? 1 : 2)}"></video>`
+    );
+  };
+  const dom = layoutSceneDom({ props: p, width: output.width, height: output.height, ...(platform ? { platform } : {}), durationSeconds: seconds, picture });
+  return `<style>${dom.css}</style><div id="rfl-wrap" class="clip" data-start="0" data-duration="${seconds}" data-track-index="0" style="position:absolute;inset:0">${dom.html}</div><script>${FIT_TEXT_SCRIPT}</script>`;
+}
+
+/**
+ * Frame rates HyperFrames' `--end` accepts ("a whole frame rate in 24, 25, 30,
+ * 60"). At any other rate (48, 50 and the NTSC rates, #302) the render runs
+ * without `--end` and its length comes from the root's `data-duration`, of
+ * which HyperFrames renders ceil(duration x fps) frames.
+ */
+export const HF_END_RATES: readonly FrameRate[] = [24, 25, 30, 60];
+
+/**
+ * The root duration for an exact frame count without `--end`: half a frame
+ * short of `frames / fps`, so ceil(duration x fps) is exactly `frames` whatever
+ * the floating-point rounding (the last frame, at (frames - 1) / fps, is inside).
+ */
+export function rootSeconds(frames: number, fps: FrameRate): number {
+  return HF_END_RATES.includes(fps) ? framesToSeconds(frames, fps) : framesToSeconds(frames - 0.5, fps);
+}
+
 /**
  * The composition document for a scene. Agent source can be a fragment
  * (wrapped in a root composition of the right size and duration) or a full
  * HyperFrames document (must declare data-composition-id with the output size).
  */
-export function buildComposition(scene: RenderScene, output: OutputSettings, theme: ThemeTokens, platform?: string): string {
-  const seconds = scene.durationFrames / output.fps;
+export function buildComposition(
+  scene: RenderScene,
+  output: OutputSettings,
+  theme: ThemeTokens,
+  platform?: string,
+  /** Where the pictures of layout panes are (hyperframes-layout). */
+  media?: (asset: string) => CompositionMedia
+): string {
+  const seconds = framesToSeconds(scene.durationFrames, output.fps);
   const stage = `render:${scene.id}`;
   let body: string;
   if (scene.html !== undefined) {
@@ -139,6 +200,13 @@ export function buildComposition(scene: RenderScene, output: OutputSettings, the
     if (scene.css && /<\/style/i.test(scene.css)) throw new PipelineError(stage, 'css must not contain "</style"');
   } else if (scene.template === 'hyperframes-title') {
     body = hyperframesTitle(hyperframesTitleProps.parse(scene.props), output, seconds, platform);
+  } else if (scene.template === 'hyperframes-layout') {
+    const resolve =
+      media ??
+      ((asset: string): CompositionMedia => {
+        throw new PipelineError(stage, `asset "${asset}" is not available to the renderer`);
+      });
+    body = hyperframesLayout(scene.props, output, seconds, resolve, platform);
   } else {
     throw new PipelineError(stage, `unknown hyperframes template "${scene.template}"`);
   }
@@ -154,7 +222,7 @@ export function buildComposition(scene: RenderScene, output: OutputSettings, the
   const doc = isDocument
     ? body
     : '<!doctype html><html lang="en"><head></head><body>' +
-      `<div id="root" data-composition-id="main" data-start="0" data-duration="${seconds}" data-width="${output.width}" data-height="${output.height}" style="position:relative;width:${output.width}px;height:${output.height}px;overflow:hidden">` +
+      `<div id="root" data-composition-id="main" data-start="0" data-duration="${rootSeconds(scene.durationFrames, output.fps)}" data-width="${output.width}" data-height="${output.height}" style="position:relative;width:${output.width}px;height:${output.height}px;overflow:hidden">` +
       body +
       '</div></body></html>';
   let prepared;
@@ -178,6 +246,16 @@ export function buildComposition(scene: RenderScene, output: OutputSettings, the
     if (Number(w) !== output.width || Number(h) !== output.height) {
       throw new PipelineError(stage, `the composition root must declare data-width="${output.width}" data-height="${output.height}" (got ${w ?? '?'}x${h ?? '?'})`);
     }
+    // Without --end (rates other than 24/25/30/60) the document's own duration sets the length.
+    if (!HF_END_RATES.includes(output.fps)) {
+      const d = Number(root['data-duration']);
+      if (!(Math.ceil(d * fpsValue(output.fps) - 1e-6) >= scene.durationFrames)) {
+        throw new PipelineError(
+          stage,
+          `at ${fpsLabel(output.fps)} fps the composition root's data-duration sets the length: it must be at least ${rootSeconds(scene.durationFrames, output.fps).toFixed(4)} s for ${scene.durationFrames} frames (got ${root['data-duration'] ?? 'none'})`
+        );
+      }
+    }
   }
   return prepared.html;
 }
@@ -191,10 +269,41 @@ export interface HyperframesRenderOptions {
   out: string;
   workDir: string;
   cacheDir: string;
+  /** Project assets on local disk (pictures of hyperframes-layout panes). */
+  assets?: ReadonlyMap<string, ResolvedAsset>;
   browserExecutable?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
   log?: (line: string) => void;
+}
+
+/**
+ * Put the assets a layout scene shows into the scene folder (`media/`), hard
+ * linked where possible: the renderer serves only that folder
+ * (--refuse-outside-files).
+ */
+async function stageMedia(scene: RenderScene, project: string, assets: ReadonlyMap<string, ResolvedAsset>, stage: string): Promise<(asset: string) => CompositionMedia> {
+  const staged = new Map<string, CompositionMedia>();
+  const lookup = (asset: string): CompositionMedia => {
+    const m = staged.get(asset);
+    if (!m) throw new PipelineError(stage, `asset "${asset}" is not available to the renderer`);
+    return m;
+  };
+  if (scene.template !== 'hyperframes-layout' || scene.html !== undefined) return lookup;
+  const props = layoutSceneProps.parse(scene.props);
+  await mkdir(join(project, 'media'), { recursive: true });
+  for (const pane of props.panes) {
+    const id = pane.media?.asset;
+    if (!id || staged.has(id)) continue;
+    const a = assets.get(id);
+    if (!a) throw new PipelineError(stage, `asset "${id}" is not available to the renderer`);
+    if (a.mediaType !== 'image' && a.mediaType !== 'video') throw new PipelineError(stage, `asset "${id}" is ${a.mediaType}; panes show images or videos`);
+    const ext = (extname(a.file).toLowerCase().match(/^\.[a-z0-9]{1,5}$/) ?? [''])[0] || (a.mediaType === 'video' ? '.mp4' : '.img');
+    const name = `media/${id}${ext}`;
+    await link(a.file, join(project, name)).catch(() => copyFile(a.file, join(project, name)));
+    staged.set(id, { kind: a.mediaType, src: name });
+  }
+  return lookup;
 }
 
 /**
@@ -250,9 +359,10 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   const browser = opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH;
   if (!browser || !existsSync(browser)) throw new PipelineError('setup', 'no browser for HyperFrames: set REELFORGE_CHROMIUM_PATH');
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
-  const doc = buildComposition(scene, output, theme, opts.platform);
   const project = join(opts.workDir, 'hyperframes');
   await mkdir(project, { recursive: true });
+  const media = await stageMedia(scene, project, opts.assets ?? new Map(), stage);
+  const doc = buildComposition(scene, output, theme, opts.platform, media);
   // One temp directory per render: the CLI and its browser inherit it, which is how
   // every process of this render is found and killed when it ends (processes.ts).
   const tmpDir = join(opts.cacheDir, 'hyperframes', 'tmp', `r-${randomUUID()}`);
@@ -260,7 +370,7 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   await writeFile(join(project, 'index.html'), doc);
   await mkdir(dirname(opts.out), { recursive: true });
 
-  const seconds = scene.durationFrames / output.fps;
+  const seconds = framesToSeconds(scene.durationFrames, output.fps);
   const args = [
     hyperframesBin(),
     'render',
@@ -268,9 +378,10 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
     '-o',
     opts.out,
     '--fps',
-    String(output.fps),
-    '--end',
-    String(seconds),
+    // Exact: HyperFrames takes FFmpeg-style rationals (30000/1001), #302.
+    fpsArg(output.fps),
+    // --end only at whole rates; otherwise the root's data-duration gives the frames (rootSeconds).
+    ...(HF_END_RATES.includes(output.fps) ? ['--end', String(seconds)] : []),
     '--workers',
     '1',
     '--refuse-outside-files',
@@ -392,6 +503,7 @@ export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?
         out: ctx.out,
         workDir: ctx.workDir,
         cacheDir: ctx.cacheDir,
+        assets: ctx.assets,
         browserExecutable: browser(),
         signal: ctx.signal,
         timeoutMs: opts.timeoutMs,

@@ -4,7 +4,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { ApiError, PRIORITIES, ReelforgeService, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
 import { auditAction, auditTarget } from './audit';
-import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag } from '@reelforge/project-schema';
+import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag, renderAudioOptions } from '@reelforge/project-schema';
 import { z } from 'zod';
 import type { ServerConfig } from './config';
 import { resourceMetadataUrl } from './oauth';
@@ -451,12 +451,19 @@ export const TOOLS: ToolDef[] = [
     name: 'preview_scene',
     title: 'Render a quick preview',
     description:
-      'Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted. Previews are queued at priority "interactive" (ahead of renders) by default. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image).' +
+      'Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted; with variant, at that output variant\'s size and platform (the layout reflowed for it). Previews are queued at priority "interactive" (ahead of renders) by default. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image).' +
       QUEUE_REFUSALS,
     scope: 'render',
-    input: { projectId, sceneId: z.string().optional(), scale: z.number().gt(0).max(1).optional(), priority: priorityArg('preview', 'interactive'), idempotencyKey },
+    input: {
+      projectId,
+      sceneId: z.string().optional(),
+      scale: z.number().gt(0).max(1).optional(),
+      variant: z.string().optional().describe('Preview at this output variant (an id from the manifest\'s variants). Omit for output.'),
+      priority: priorityArg('preview', 'interactive'),
+      idempotencyKey,
+    },
     run: async (a, { service }) => {
-      const opts = { sceneId: a.sceneId, scale: a.scale, ...(a.priority ? { priority: a.priority } : {}) };
+      const opts = { sceneId: a.sceneId, scale: a.scale, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}) };
       return service.idempotent(a.idempotencyKey, 'preview_scene', { projectId: a.projectId, ...opts }, async () => ({ job: await service.preview(a.projectId, opts) }));
     },
   },
@@ -477,10 +484,15 @@ export const TOOLS: ToolDef[] = [
         .enum(['off', 'burned', 'sidecar', 'both'])
         .optional()
         .describe('Captions for this render, overriding the manifest\'s captions.mode (and the server default captions.defaultMode): off, burned into the video, sidecar files (SRT, WebVTT, ASS per language) next to final.mp4, or both.'),
+      audio: renderAudioOptions
+        .optional()
+        .describe(
+          'Audio for this render, overriding the manifest: mute (silence everything), voice / music / sfx (false leaves that track out), loudness (social -14 LUFS, broadcast-ebu -23, broadcast-atsc -24, podcast -16, off). E.g. { music: false } for a voice-only cut, { mute: true } for a silent autoplay version.'
+        ),
       idempotencyKey,
     },
     run: async (a, { service }) => {
-      const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}) };
+      const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}), ...(a.audio ? { audio: a.audio } : {}) };
       return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, opts));
     },
   },
@@ -1034,7 +1046,7 @@ done with tools; there is no UI.
 
 ## Steps
 1. get_capabilities: engines that can render here (available: true), templates,
-   themes, providers (configured? cost?), limits (fps 24/25/30/60, max 180 s),
+   themes, providers (configured? cost?), limits (supportedFps, maxProjectSeconds, maxScenes),
    licence (renderAllowed; if false, get_licence has the message and fix for the user).
 2. list_templates: props JSON Schema, duration range (seconds) and theme tokens
    of each template. list_themes: built-in "default", "midnight" and custom ones.
@@ -1099,6 +1111,13 @@ done with tools; there is no UI.
   TikTok and Shorts; 1920x1080 for YouTube and the web; 1080x1080 or 1080x1350
   for feed posts; 3840x2160 for 4K). Built-in templates reflow for the aspect
   ratio; on tall frames they keep clear of the app's buttons and captions.
+- Layouts (templates html-layout and hyperframes-layout): split screen (2-4
+  panes, side by side or stacked, ratios), picture-in-picture (corner, width
+  and margin in units), grid (n x m, or chosen per frame) or full frame, each
+  pane with an image or video asset placed with fit contain, cover or blur-fill
+  (blurred fill for a mismatched aspect ratio), text, and an optional lower
+  third. Upload the media as assets first; the layout reflows for every size
+  and variant.
 - Ask the user before anything that costs money (providers) or deletes data.
 `;
 

@@ -3,34 +3,40 @@ import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { join, resolve, sep } from 'node:path';
-import { resolveTools, toolPaths, toolVersionAsync, type Tools } from '@reelforge/media-pipeline';
+import { resolveTools, setEncoderSettings, toolPaths, toolVersionAsync, type Tools } from '@reelforge/media-pipeline';
 import {
+  CAPTION_MODES,
+  captionMode,
+  CaptionParseError,
   DEFAULT_OUTPUT,
+  fpsValue,
+  framesToSeconds,
+  isSafeRelativePath,
   MAX_PROJECT_SECONDS,
   MAX_SOURCE_BYTES,
-  SCHEMA_VERSION,
-  SUPPORTED_FPS,
-  SUPPORTED_SCHEMA_VERSIONS,
-  isSafeRelativePath,
+  parseCaptions,
   parseProject,
   projectJsonSchema,
   sceneFrames,
+  SCHEMA_VERSION,
+  SUPPORTED_FPS,
+  type FrameRate,
+  SUPPORTED_SCHEMA_VERSIONS,
   totalFrames,
-  CAPTION_MODES,
-  CaptionParseError,
-  captionMode,
-  parseCaptions,
+  withVariant,
+  renderAudioOptions,
+  type RenderAudioOptions,
   resolveCaptions,
   isLanguageTag,
   MAX_CAPTION_LANGUAGES,
   splitCueKinds,
   type CaptionCue,
   type CaptionMode,
-  withVariant,
   type Project,
   type ValidationIssue,
   type ValidationWarning,
 } from '@reelforge/project-schema';
+import type { AudioManifest } from './audio';
 import { AssetStore, stageStream } from './assets';
 import { CAPTION_FILE_PATTERN, captionFileNames, captionsEtag, type CaptionManifest } from './captions';
 import { applyCaptionUpdate, getCaptionsInput, parseInput, projectCaptionsView, renderCaptionsView, transcribeInput, updateCaptionsInput, type ProjectCaptionsView, type RenderCaptionsView } from './captions-edit';
@@ -39,6 +45,7 @@ import { ApiError, badRequest, invalidManifest, notFound } from './errors';
 import { newId, readJson, writeJsonAtomic } from './fsutil';
 import { JobCapReached, JobRunner, QuotaExceeded, defaultWorkerId, type DatabaseQueueOptions, type JobContext, type JobRecord, type QueueMode } from './jobs';
 import { JOB_CAP_RETRY_SECONDS, renderLimitViolations, usageDay, usageKeys, type LimitReason, type RenderLimitViolation } from './limits';
+import { outputSupportIssues } from './output-support';
 
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
@@ -174,6 +181,8 @@ export const MAX_MCP_EXPORT = 10_000;
 const QUOTA_JOB_TYPES = ['render', 'preview'];
 /** Validation errors for exceeded render limits start with this (a preview of some scenes is checked on its own). */
 const RENDER_LIMIT_PREFIX = 'render limit: ';
+/** Prefix of validation errors about sizes and frame rates an engine cannot render (#287, #302). */
+const UNSUPPORTED_OUTPUT_PREFIX = 'unsupported output: ';
 const SWEEP_INTERVAL_MS = 3_600_000;
 /** FFmpeg/ffprobe versions in get_capabilities are probed again this often (#319). */
 const TOOL_VERSIONS_REFRESH_MS = 600_000;
@@ -205,7 +214,8 @@ export interface ValidationReport {
     durationSeconds: number;
     width: number;
     height: number;
-    fps: number;
+    /** The manifest's rate: a number, or "30000/1001" style for NTSC rates (#302). */
+    fps: FrameRate;
     engines: string[];
     /** Output variants (#287): one render each from render_project. */
     variants?: Array<{ id: string; width: number; height: number }>;
@@ -223,7 +233,10 @@ export interface RenderSummary {
   frames: number;
   width: number;
   height: number;
+  /** Frames per second as a number (29.97002997 for 30000/1001). */
   fps: number;
+  /** The exact rate of the output (ffprobe r_frame_rate), e.g. "30000/1001". Absent for renders made before #302. */
+  frameRate?: string;
   files: string[];
   /** Needs `Authorization: Bearer <key>`. */
   outputUrl: string;
@@ -238,6 +251,17 @@ export interface RenderSummary {
   captions?: RenderCaptions;
   /** Where the files are: the storage driver and the render's key prefix in it (bucket and root: get_storage, admin). */
   storage: { driver: string; prefix: string };
+  /** The render's audio (#301): what the file carries, the loudness preset, what was measured after the final encode, QA. */
+  audio?: RenderAudio;
+}
+
+export interface RenderAudio {
+  track: 'mixed' | 'silent' | 'none';
+  preset: string;
+  target: { integrated: number; truePeak: number } | null;
+  normalisation: 'linear' | 'dynamic' | 'none';
+  measured: { integrated: number | null; truePeak: number | null; lra: number | null } | null;
+  qa: { ok: boolean; issues: Array<{ rule: string; severity: 'warn' | 'fail'; message: string }> };
 }
 
 export interface RenderCaptions {
@@ -260,6 +284,19 @@ export interface RenderCaptions {
   files: Array<{ format: 'srt' | 'vtt' | 'ass'; kind: 'captions' | 'descriptions'; language: string | null; file: string; url: string; downloadUrl: string; downloadUrlExpiresAt: string }>;
   /** Quality rules of the primary language (docs/CAPTIONS.md#quality-rules): ok, and the problems found. */
   qa: { ok: boolean; maxCps: number; issues: Array<{ cue: number; rule: string; message: string }> };
+}
+
+/** get_render_output's `audio` from the render manifest's (renders made before #301 have none). */
+function renderAudio(a: AudioManifest): RenderAudio {
+  const t = a.loudness.target;
+  return {
+    track: a.track,
+    preset: a.loudness.preset,
+    target: t ? { integrated: t.integrated, truePeak: t.truePeakCeiling } : null,
+    normalisation: a.loudness.normalisation,
+    measured: a.loudness.measured ?? null,
+    qa: { ok: a.qa?.ok ?? true, issues: a.qa?.issues ?? [] },
+  };
 }
 
 const DEFAULT_MAX_UPLOAD = 200 * 1024 * 1024;
@@ -714,6 +751,10 @@ export class ReelforgeService {
     if (use('limits.renderConcurrency') && resolved.config.server.workerConcurrency === undefined) this.jobs.setConcurrency(resolved.config.limits.renderConcurrency);
     if (use('limits.maxUploadBytes')) this.assets.limits.maxBytes = resolved.config.limits.maxUploadBytes;
     if (keys?.includes('limits.maxRunningJobsPerKey')) this.jobs.wake();
+    // Encoder memory bounds (#307): process-wide in the media pipeline; from every source at start, so a file or
+    // environment value applies too, and each change at once (the next encode uses it).
+    if (keys === null || keys.includes('render.encoderThreads') || keys.includes('render.encoderLookahead'))
+      setEncoderSettings({ threads: resolved.config.render.encoderThreads, lookahead: resolved.config.render.encoderLookahead });
     for (const [name, v] of Object.entries(this.settings.providerEnvOverlay())) {
       if (v !== undefined) this.providerEnv[name] = v;
       else if (this.baseEnv[name] !== undefined) this.providerEnv[name] = this.baseEnv[name];
@@ -766,6 +807,8 @@ export class ReelforgeService {
           acceptsSource: e.acceptsSource,
           // Whether a long scene of this engine can be split into frame ranges (render.fanOut: scenes+chunks).
           frameRanges: e.capabilities?.().frameRanges ?? false,
+          // Frame rates it renders (#302): numbers, or "30000/1001" style for NTSC rates.
+          frameRates: e.capabilities?.().output?.frameRates ?? SUPPORTED_FPS,
           templates: e.templates().map((t) => t.id),
         };
       }),
@@ -824,7 +867,7 @@ export class ReelforgeService {
       maxRenderFrames: l.maxRenderFrames,
       maxRenderDimension: l.maxRenderDimension,
       maxRenderFps: l.maxRenderFps,
-      supportedFps: SUPPORTED_FPS.filter((f) => f <= l.maxRenderFps),
+      supportedFps: SUPPORTED_FPS.filter((f) => fpsValue(f) <= l.maxRenderFps),
       defaultOutput: DEFAULT_OUTPUT,
       maxUploadBytes: this.assets.limits.maxBytes,
       maxHtmlBytes: MAX_SOURCE_BYTES,
@@ -977,6 +1020,8 @@ export class ReelforgeService {
         if (v.limit.endsWith('Dimension')) errors.push({ path: `variants.${i}`, message: RENDER_LIMIT_PREFIX + v.message });
       }
     });
+    // Sizes and frame rates the engines cannot render (codec rules, engine limits; #287, #302).
+    for (const o of outputSupportIssues(r.project, this.registry)) errors.push({ path: o.path, message: UNSUPPORTED_OUTPUT_PREFIX + o.message });
     const estimate = this.estimateOn(r.project.render.backend, { kind: 'render', project: r.project });
     return {
       ok: errors.length === 0,
@@ -986,7 +1031,7 @@ export class ReelforgeService {
       summary: {
         scenes: r.project.scenes.length,
         totalFrames: totalFrames(r.project),
-        durationSeconds: totalFrames(r.project) / r.project.output.fps,
+        durationSeconds: framesToSeconds(totalFrames(r.project), r.project.output.fps),
         width: r.project.output.width,
         height: r.project.output.height,
         fps: r.project.output.fps,
@@ -1031,7 +1076,7 @@ export class ReelforgeService {
         const cap = b.capabilities();
         p.scenes.forEach((s, i) => {
           if (!cap.engines.includes(s.engine)) errors.push({ path: `scenes.${i}.engine`, message: `backend "${b.id}" cannot render engine "${s.engine}" (it renders: ${cap.engines.join(', ') || 'none'})` });
-          const seconds = sceneFrames(s, p.output.fps) / p.output.fps;
+          const seconds = framesToSeconds(sceneFrames(s, p.output.fps), p.output.fps);
           if (cap.maxUnitSeconds !== null && !cap.frameRanges && seconds > cap.maxUnitSeconds) {
             errors.push({ path: `scenes.${i}`, message: `scene "${s.id}" is ${seconds} s; backend "${b.id}" renders at most ${cap.maxUnitSeconds} s per scene` });
           }
@@ -1404,9 +1449,18 @@ export class ReelforgeService {
   // ---- renders --------------------------------------------------------------
 
   /** One render at `output`, or (with `variant`) at one of the project's output variants. */
-  async startRender(id: string, opts: { backend?: string; priority?: unknown; captions?: unknown; variant?: string } = {}): Promise<JobRecord> {
+  async startRender(id: string, opts: { backend?: string; priority?: unknown; captions?: unknown; audio?: unknown; variant?: string } = {}): Promise<JobRecord> {
     const captions = this.parseCaptionOverride(opts.captions);
-    return this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, variant: opts.variant });
+    const audio = this.parseAudioOverride(opts.audio);
+    return this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: opts.variant });
+  }
+
+  /** render_project's `audio` override (#298, #301): { mute, voice, music, sfx, loudness }, validated before anything is queued. */
+  private parseAudioOverride(value: unknown): RenderAudioOptions | undefined {
+    if (value === undefined || value === null) return undefined;
+    const r = renderAudioOptions.safeParse(value);
+    if (!r.success) throw badRequest(`audio: ${r.error.issues.map((i) => `${i.path.join('.') || '(root)'} ${i.message}`).join('; ')}`);
+    return Object.keys(r.data).length ? r.data : undefined;
   }
 
   /** render_project's `captions` override, validated before anything is queued. */
@@ -1426,17 +1480,19 @@ export class ReelforgeService {
    * one of them (quota, queue caps), the jobs already queued for the batch are
    * cancelled and the refusal is returned.
    */
-  async renderProject(id: string, opts: { backend?: string; priority?: unknown; variant?: unknown; captions?: unknown } = {}): Promise<{ job: JobRecord; jobs?: JobRecord[]; batchId?: string }> {
+  async renderProject(id: string, opts: { backend?: string; priority?: unknown; variant?: unknown; captions?: unknown; audio?: unknown } = {}): Promise<{ job: JobRecord; jobs?: JobRecord[]; batchId?: string }> {
     if (opts.variant !== undefined && typeof opts.variant !== 'string') throw badRequest('variant must be the id of one of the project\'s variants');
     const { manifest } = await this.projects.get(id);
     const variants = manifest.variants ?? [];
     if (opts.variant !== undefined || variants.length === 0) {
-      return { job: await this.startRender(id, { backend: opts.backend, priority: opts.priority, captions: opts.captions, ...(opts.variant ? { variant: opts.variant } : {}) }) };
+      return { job: await this.startRender(id, { backend: opts.backend, priority: opts.priority, captions: opts.captions, audio: opts.audio, ...(opts.variant ? { variant: opts.variant } : {}) }) };
     }
     // The same refusals as one render, before anything is queued: priority, licence, then every variant's limits.
     const captions = this.parseCaptionOverride(opts.captions);
+    const audio = this.parseAudioOverride(opts.audio);
     this.resolvePriority('render', opts.priority);
     await this.renderGate('render', id);
+    this.refuseUnsupportedOutput(manifest);
     const violations = variants.flatMap((v) =>
       renderLimitViolations(withVariant(manifest, v.id), this.settings.current.config.limits).map((x) => ({ ...x, message: `variant "${v.id}": ${x.message}` }))
     );
@@ -1444,7 +1500,7 @@ export class ReelforgeService {
     const batchId = newId('bat');
     const jobs: JobRecord[] = [];
     try {
-      for (const v of variants) jobs.push(await this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, variant: v.id, batchId }));
+      for (const v of variants) jobs.push(await this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: v.id, batchId }));
     } catch (e) {
       for (const j of jobs) await this.jobs.cancel(j.id).catch(() => undefined);
       throw e;
@@ -1458,10 +1514,12 @@ export class ReelforgeService {
     return variant ? withVariant(project, variant) : project;
   }
 
-  async preview(id: string, opts: { sceneId?: string; scale?: number; priority?: unknown } = {}): Promise<JobRecord> {
+  /** A low-resolution preview of one scene (or all), at `output` or (with `variant`, #287) at one of the output variants. */
+  async preview(id: string, opts: { sceneId?: string; scale?: number; priority?: unknown; variant?: unknown } = {}): Promise<JobRecord> {
     const scale = opts.scale ?? 1 / 3;
     if (!(scale > 0 && scale <= 1)) throw badRequest('scale must be > 0 and <= 1');
-    return this.enqueueRender(id, 'preview', opts.priority, undefined, opts.sceneId ? [opts.sceneId] : undefined, scale);
+    if (opts.variant !== undefined && typeof opts.variant !== 'string') throw badRequest('variant must be the id of one of the project\'s variants');
+    return this.enqueueRender(id, 'preview', opts.priority, undefined, opts.sceneId ? [opts.sceneId] : undefined, scale, opts.variant ? { variant: opts.variant } : {});
   }
 
   /** The highest class the calling key may use for a job type: its maxPriority, else the type's default (D-103). */
@@ -1489,8 +1547,8 @@ export class ReelforgeService {
     return requested;
   }
 
-  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, extra: { captions?: CaptionMode; variant?: string; batchId?: string } = {}) {
-    const { captions, variant, batchId } = extra;
+  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, extra: { captions?: CaptionMode; audio?: RenderAudioOptions; variant?: string; batchId?: string } = {}) {
+    const { captions, audio, variant, batchId } = extra;
     const priority = this.resolvePriority(kind, requestedPriority);
     await this.renderGate(kind, id);
     const { manifest: stored, meta } = await this.projects.get(id);
@@ -1503,6 +1561,7 @@ export class ReelforgeService {
         if (!manifest.scenes.some((x) => x.id === s)) throw notFound('scene', s, { scenes: manifest.scenes.map((x) => x.id) });
       }
     }
+    this.refuseUnsupportedOutput(stored, variant ?? null);
     const violations = renderLimitViolations(manifest, this.settings.current.config.limits, { sceneIds, scale });
     if (violations.length) await this.refuseRenderLimits(violations, id);
     const report = await this.validateProject(id);
@@ -1514,7 +1573,8 @@ export class ReelforgeService {
     if (!backend.implemented) {
       throw new ApiError('not_implemented', 501, `render backend "${backendId}" is not implemented in v0.1; use backend "local"`);
     }
-    const blocking = report.errors.filter((e) => !(backendOverride && e.path === 'render.backend') && !e.message.startsWith(RENDER_LIMIT_PREFIX));
+    // Limits and output support were checked above for what this job renders (one variant may be fine while another is not).
+    const blocking = report.errors.filter((e) => !(backendOverride && e.path === 'render.backend') && !e.message.startsWith(RENDER_LIMIT_PREFIX) && !e.message.startsWith(UNSUPPORTED_OUTPUT_PREFIX));
     if (blocking.length) throw new ApiError('validation_failed', 422, 'fix these problems before rendering (see details.errors)', { errors: blocking, warnings: report.warnings });
     const runId = newId(kind === 'preview' ? 'prv' : 'run');
     const captionsDefault = this.settings.current.config.captions.defaultMode;
@@ -1533,6 +1593,7 @@ export class ReelforgeService {
           ...(captionsDefault !== 'off' ? { captionsDefault } : {}),
           ...(variant ? { variant } : {}),
           ...(batchId ? { batchId } : {}),
+          ...(audio ? { audio } : {}),
         },
         { projectId: id, priority, ...(apiKeyId ? { apiKeyId } : {}) },
         quota
@@ -1633,6 +1694,20 @@ export class ReelforgeService {
   }
 
   /** Refuse a render or preview that exceeds render limits (422, every exceeded limit named). */
+  /**
+   * Refuse, before anything is queued, a render whose size or frame rate an
+   * engine of the project cannot render (#287, #302): `422 unsupported_output`
+   * with each problem. `variant` checks only that variant (null: output);
+   * omitted: output and every variant.
+   */
+  private refuseUnsupportedOutput(project: Project, variant?: string | null): void {
+    const issues = outputSupportIssues(project, this.registry, variant === undefined ? {} : { variant });
+    if (!issues.length) return;
+    throw new ApiError('unsupported_output', 422, `this output cannot be rendered: ${issues.map((i) => i.message).join('; ')}. Choose another size or frame rate, or move the scenes to an engine that supports it.`, {
+      issues: issues.map(({ path, engine, variant: v, message }) => ({ path, engine, variant: v, message })),
+    });
+  }
+
   private async refuseRenderLimits(violations: RenderLimitViolation[], projectId: string): Promise<never> {
     await this.recordLimitRejection('render_limit', { projectId, limits: violations.map((v) => ({ limit: v.limit, max: v.max, actual: v.actual })) });
     throw new ApiError('render_limit_exceeded', 422, `this render exceeds the server's limits: ${violations.map((v) => v.message).join('; ')}. Shorten the project, use fewer scenes or a smaller output, or ask the operator to raise the limit.`, {
@@ -1664,6 +1739,7 @@ export class ReelforgeService {
       project: (pid, version, variant) => this.projectAsRendered(pid, version, variant),
       theme: (project) => this.themes.resolve(project.theme),
       assets: (project, pid) => this.resolveAssets(project, pid),
+      audioDefaults: () => this.settings.current.config.render.audio,
     };
   }
 
@@ -1712,7 +1788,7 @@ export class ReelforgeService {
     // only; everything else renders on this worker as before.
     const fanOut = this.settings.current.config.render.fanOut;
     if (ctx.fanOut && ctx.job.type === 'render' && p.backend === 'local' && !p.sceneIds?.length && fanOut !== 'off') {
-      const chunks = planChunks(project, fanOut === 'scenes+chunks' ? this.chunkPolicy(p.backend, project.output.fps) : null);
+      const chunks = planChunks(project, fanOut === 'scenes+chunks' ? this.chunkPolicy(p.backend, fpsValue(project.output.fps)) : null);
       const specs = unitSpecs(p, project, chunks);
       if (specs.length > 1) {
         // The plan goes onto the render job (and so to its join) in the same write as the units.
@@ -1735,6 +1811,7 @@ export class ReelforgeService {
         sceneIds: p.sceneIds,
         scale: p.scale,
         ...(p.captions ? { captionsMode: p.captions } : {}),
+        ...(p.audio ? { audio: p.audio } : {}),
         ...(p.captionsDefault ? { captionsDefault: p.captionsDefault } : {}),
       },
       { signal: ctx.signal, log: ctx.log, progress: ctx.progress }
@@ -1785,6 +1862,8 @@ export class ReelforgeService {
       progress: ctx.progress,
       telemetry: this.telemetry,
       ...(req.captionsMode ? { captionsMode: req.captionsMode } : {}),
+      ...(req.audio ? { audio: req.audio } : {}),
+      audioDefaults: this.settings.current.config.render.audio,
       ...(req.captionsDefault ? { captionsDefault: req.captionsDefault } : {}),
     });
     if (!local) {
@@ -1885,9 +1964,10 @@ export class ReelforgeService {
     const m = await this.storage.renders.readManifest<{
       kind: string;
       createdAt: string;
-      output: { durationSeconds: number; frames: number; width: number; height: number; fps: number };
+      output: { durationSeconds: number; frames: number; width: number; height: number; fps: number; frameRate?: string };
       scenes: Array<{ file: string }>;
       captions?: CaptionManifest;
+      audio?: Partial<AudioManifest>;
     }>(projectId, runId);
     if (!m) throw notFound('render', runId);
     const base = `/v1/renders/${runId}/output`;
@@ -1936,12 +2016,14 @@ export class ReelforgeService {
       width: m.output.width,
       height: m.output.height,
       fps: m.output.fps,
+      ...(m.output.frameRate ? { frameRate: m.output.frameRate } : {}),
       files: ['final.mp4', 'poster.png', 'render-manifest.json', ...(captions?.files.map((f) => f.file) ?? []), ...m.scenes.map((s) => s.file)],
       outputUrl: this.url(base),
       posterUrl: this.url(`${base}?file=poster.png`),
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
       ...(await this.downloadLink(projectId, runId)),
       ...(captions ? { captions } : {}),
+      ...(m.audio?.loudness && m.audio.track ? { audio: renderAudio(m.audio as AudioManifest) } : {}),
       storage: { driver: this.storage.driver.id, prefix: renderPrefix(projectId, runId) },
     };
   }
@@ -2555,7 +2637,7 @@ export class ReelforgeService {
     let cursor = 0;
     return p.scenes.map((s) => {
       const frames = sceneFrames(s, p.output.fps);
-      const t = { id: s.id, startFrame: cursor, durationFrames: frames, startSeconds: cursor / p.output.fps, durationSeconds: frames / p.output.fps };
+      const t = { id: s.id, startFrame: cursor, durationFrames: frames, startSeconds: framesToSeconds(cursor, p.output.fps), durationSeconds: framesToSeconds(frames, p.output.fps) };
       cursor += frames;
       return t;
     });

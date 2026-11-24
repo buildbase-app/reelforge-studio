@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream';
 import type { Tools } from '@reelforge/media-pipeline';
 import type {
   CaptionMode,
+  RenderAudioOptions,
   OutputSettings,
   Project,
   RenderScene,
@@ -9,6 +10,7 @@ import type {
   ThemeTokens,
 } from '@reelforge/project-schema';
 import type { z } from 'zod';
+import type { EngineOutputSupport } from './output-support';
 
 /**
  * Plugin contracts (docs/AGENT_PLATFORM.md §4). Engines, providers, render
@@ -85,6 +87,13 @@ export interface EngineCapabilities {
    * chunks rendered by different workers.
    */
   frameRanges: boolean;
+  /**
+   * Sizes and frame rates the engine renders beyond the H.264 rules every
+   * engine shares (output-support.ts). A render or preview outside them is
+   * refused before it is queued (`422 unsupported_output`). Omitted: every
+   * supported rate, no size limit of its own.
+   */
+  output?: EngineOutputSupport;
 }
 
 export interface ClipResult {
@@ -232,6 +241,8 @@ export interface RenderRequest {
   scale?: number;
   /** Overrides the manifest's captions.mode for this render. */
   captionsMode?: CaptionMode;
+  /** Overrides the manifest's audio toggles and loudness preset for this render (render_project's `audio`). */
+  audio?: RenderAudioOptions;
   /** The server's captions.defaultMode when the job was queued (projects without captions.mode). */
   captionsDefault?: CaptionMode;
 }

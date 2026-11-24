@@ -233,8 +233,296 @@ export function fitText(o: FitTextOptions): FitTextResult {
  * and `max-height` when set), never below `data-rf-fit-min` (px, default 40 %
  * of the CSS size). Height overflow counts from a quarter of a line (glyphs of
  * tight line heights stick out a little; a line that does not fit is a whole
- * line). Animations are switched off while measuring. Runs as an
+ * line), or from `data-rf-fit-tol` (a fraction of the font size) for blocks
+ * of several lines, such as a layout pane's text card. Animations are switched off while measuring. Runs as an
  * inline script (hyperframes) or through the renderer (html); returns how many
  * elements it shrank.
  */
-export const FIT_TEXT_SCRIPT = `(()=>{const els=[...document.querySelectorAll('[data-rf-fit]')];if(!els.length)return 0;const st=document.createElement('style');st.textContent='*,*::before,*::after{animation:none!important;transition:none!important}';document.head.appendChild(st);let n=0;for(const el of els){const max=parseFloat(getComputedStyle(el).fontSize);const min=Math.min(max,parseFloat(el.getAttribute('data-rf-fit-min')||'')||max*.4);const fits=()=>el.scrollHeight<=el.clientHeight+Math.max(1,parseFloat(el.style.fontSize||String(max))*.25)&&el.scrollWidth<=el.clientWidth+1;if(fits())continue;let lo=min,hi=max;for(let i=0;i<14;i++){const mid=(lo+hi)/2;el.style.fontSize=mid+'px';if(fits())lo=mid;else hi=mid}el.style.fontSize=(Math.floor(lo*10)/10)+'px';n++}st.remove();return n})()`;
+export const FIT_TEXT_SCRIPT = `(()=>{const els=[...document.querySelectorAll('[data-rf-fit]')];if(!els.length)return 0;const st=document.createElement('style');st.textContent='*,*::before,*::after{animation:none!important;transition:none!important}';document.head.appendChild(st);let n=0;for(const el of els){const max=parseFloat(getComputedStyle(el).fontSize);const min=Math.min(max,parseFloat(el.getAttribute('data-rf-fit-min')||'')||max*.4);const tol=parseFloat(el.getAttribute('data-rf-fit-tol')||'.25');const fits=()=>el.scrollHeight<=el.clientHeight+Math.max(1,parseFloat(el.style.fontSize||String(max))*tol)&&el.scrollWidth<=el.clientWidth+1;if(fits())continue;let lo=min,hi=max;for(let i=0;i<14;i++){const mid=(lo+hi)/2;el.style.fontSize=mid+'px';if(fits())lo=mid;else hi=mid}el.style.fontSize=(Math.floor(lo*10)/10)+'px';n++}st.remove();return n})()`;
+
+/* ------------------------------------------------------------------------- *
+ * Layout primitives (#287): split screen, picture-in-picture, grid, lower
+ * thirds and media fit modes. Every size and position is in layout units
+ * (`unit`, 1 % of the shorter side) or relative to the safe areas above, so a
+ * layout reflows for each output size and variant instead of being cropped.
+ * Pure geometry, the same numbers in every engine; the manifest schema for
+ * these props is in layouts.ts.
+ * ------------------------------------------------------------------------- */
+
+/** How media fills its box: `contain` letterboxes, `cover` crops, `blur-fill` letterboxes over a blurred, cropped copy of itself. */
+export type FitMode = 'contain' | 'cover' | 'blur-fill';
+export const FIT_MODES = ['contain', 'cover', 'blur-fill'] as const satisfies readonly FitMode[];
+
+/** Which safe area a layout keeps inside: `none` is the whole frame (media full bleed). */
+export type LayoutInset = 'none' | 'action' | 'title' | 'content';
+export type Corner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+/** `horizontal`: panes side by side; `vertical`: stacked; `auto`: side by side on 4:3 and wider, stacked otherwise. */
+export type SplitDirection = 'auto' | 'horizontal' | 'vertical';
+
+export type LayoutSpec =
+  | { type: 'full'; inset?: LayoutInset }
+  | { type: 'split'; direction?: SplitDirection; ratios?: readonly number[]; gap?: number; inset?: LayoutInset }
+  | { type: 'grid'; columns?: number; rows?: number; gap?: number; inset?: LayoutInset }
+  | { type: 'pip'; corner?: Corner; width?: number; aspect?: number; margin?: number; inset?: LayoutInset };
+
+/** Defaults of the layout primitives, in units unless said otherwise. */
+export const LAYOUT_DEFAULTS = {
+  splitGap: 0.6,
+  gridGap: 1,
+  /** Picture-in-picture: width of the inset in units, its margin from the content safe area in units. */
+  pipWidth: 36,
+  pipMargin: 2,
+  /** At the default width, an inset is no taller than this share of the safe box. */
+  pipMaxShare: 0.45,
+  /** Padding between a pane's edge and its text. */
+  panePadding: 3,
+  /** Blur radius of the `blur-fill` background, in units. */
+  blur: 3,
+  maxPanes: 16,
+  maxSplitPanes: 4,
+  maxGridSide: 4,
+} as const;
+
+export interface PaneBox extends Rect {
+  index: number;
+  /** `inset` is the picture-in-picture window; `main` the picture behind it. */
+  role: 'pane' | 'main' | 'inset';
+  /**
+   * Where text in this pane may go: the pane, less its padding, inside the
+   * content safe area. When a pane lies wholly in a tall frame's app-overlay
+   * zone (a bottom grid row on 9:16), the title-safe area is used instead and
+   * `textSafe` says so.
+   */
+  text: Rect;
+  textSafe: 'content' | 'title';
+}
+
+export interface LayoutResult {
+  frame: FrameLayout;
+  /** The area the panes share (the frame, or a safe area). */
+  area: Rect;
+  panes: PaneBox[];
+  /** Gap between panes in px. */
+  gap: number;
+}
+
+const insetsOf = (l: FrameLayout, inset: LayoutInset): Insets =>
+  inset === 'none' ? { top: 0, right: 0, bottom: 0, left: 0 } : inset === 'action' ? l.safe.action : inset === 'title' ? l.safe.title : l.safe.content;
+
+function areaOf(l: FrameLayout, inset: LayoutInset): Rect {
+  const i = insetsOf(l, inset);
+  return { x: i.left, y: i.top, width: l.width - i.left - i.right, height: l.height - i.top - i.bottom };
+}
+
+function intersect(a: Rect, b: Rect): Rect | null {
+  const x0 = Math.max(a.x, b.x);
+  const y0 = Math.max(a.y, b.y);
+  const x1 = Math.min(a.x + a.width, b.x + b.width);
+  const y1 = Math.min(a.y + a.height, b.y + b.height);
+  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null;
+}
+
+const shrink = (r: Rect, by: number): Rect => ({ x: r.x + by, y: r.y + by, width: Math.max(0, r.width - 2 * by), height: Math.max(0, r.height - 2 * by) });
+
+/** Split a length into parts by weight, with gaps, on whole pixels (neighbours share edges exactly). */
+function partition(start: number, length: number, weights: readonly number[], gap: number): Array<[number, number]> {
+  const n = weights.length;
+  const usable = Math.max(0, length - gap * (n - 1));
+  const total = weights.reduce((a, b) => a + b, 0);
+  const out: Array<[number, number]> = [];
+  let acc = 0;
+  for (let i = 0; i < n; i++) {
+    const from = Math.round(start + acc + gap * i);
+    acc += (usable * weights[i]!) / total;
+    const to = Math.round(start + acc + gap * i);
+    out.push([from, to - from]);
+  }
+  return out;
+}
+
+/** Columns and rows for `n` grid cells when not given: the split whose cells are closest to square. */
+export function autoGrid(n: number, aspect: number): { columns: number; rows: number } {
+  let best = { columns: n, rows: 1, score: Infinity };
+  for (let columns = 1; columns <= Math.min(n, LAYOUT_DEFAULTS.maxGridSide); columns++) {
+    const rows = Math.ceil(n / columns);
+    if (rows > LAYOUT_DEFAULTS.maxGridSide) continue;
+    const cell = (aspect * rows) / columns;
+    // Closest to square, then the fewest empty cells.
+    const score = Math.abs(Math.log(cell)) + (columns * rows - n) * 0.5;
+    if (score < best.score) best = { columns, rows, score };
+  }
+  return { columns: best.columns, rows: best.rows };
+}
+
+function paneText(l: FrameLayout, r: Rect): Pick<PaneBox, 'text' | 'textSafe'> {
+  const padded = shrink(r, LAYOUT_DEFAULTS.panePadding * l.unit);
+  const minSide = 12 * l.unit;
+  const inContent = intersect(padded, l.box);
+  if (inContent && inContent.width >= minSide && inContent.height >= minSide * 0.6) return { text: inContent, textSafe: 'content' };
+  const title = areaOf(l, 'title');
+  return { text: intersect(padded, title) ?? padded, textSafe: 'title' };
+}
+
+/** Width / height of the picture-in-picture inset from its `aspect`, defaulting to the frame's. */
+export function pipInset(l: FrameLayout, spec: Extract<LayoutSpec, { type: 'pip' }>): Rect {
+  const d = LAYOUT_DEFAULTS;
+  const safe = areaOf(l, spec.inset ?? 'content');
+  const margin = (spec.margin ?? d.pipMargin) * l.unit;
+  const aspect = spec.aspect ?? l.aspect;
+  let w = (spec.width ?? d.pipWidth) * l.unit;
+  let h = w / aspect;
+  // Always inside the safe box; at the default width also no taller than a share of it (a tall inset on a tall frame).
+  const maxW = Math.max(1, safe.width - 2 * margin);
+  const maxH = Math.max(1, (safe.height - 2 * margin) * (spec.width === undefined ? d.pipMaxShare : 1));
+  const k = Math.min(1, maxW / w, maxH / h);
+  w *= k;
+  h *= k;
+  const corner = spec.corner ?? 'bottom-right';
+  const x0 = corner.endsWith('left') ? safe.x + margin : safe.x + safe.width - margin - w;
+  const y0 = corner.startsWith('top') ? safe.y + margin : safe.y + safe.height - margin - h;
+  // Round the edges, not the size, so the inset keeps its exact distance from the safe area.
+  const x = Math.round(x0);
+  const y = Math.round(y0);
+  return { x, y, width: Math.round(x0 + w) - x, height: Math.round(y0 + h) - y };
+}
+
+/**
+ * Pane rectangles (px) of a layout at a frame size. `paneCount` is how many
+ * panes the scene has: 1 for `full`, 2 to 4 for `split`, 2 for `pip`
+ * (main, then inset), up to 16 for `grid`. Throws on a count the layout
+ * cannot hold (the manifest schema rejects those first).
+ */
+export function layoutPanes(l: FrameLayout, spec: LayoutSpec, paneCount: number): LayoutResult {
+  const d = LAYOUT_DEFAULTS;
+  const area = areaOf(l, spec.type === 'pip' ? 'none' : (spec.inset ?? 'none'));
+  const make = (r: Rect, index: number, role: PaneBox['role']): PaneBox => ({ ...r, index, role, ...paneText(l, r) });
+  switch (spec.type) {
+    case 'full': {
+      if (paneCount !== 1) throw new Error(`a full layout has 1 pane, got ${paneCount}`);
+      return { frame: l, area, gap: 0, panes: [make(area, 0, 'pane')] };
+    }
+    case 'split': {
+      if (paneCount < 2 || paneCount > d.maxSplitPanes) throw new Error(`a split has 2 to ${d.maxSplitPanes} panes, got ${paneCount}`);
+      const ratios = spec.ratios ?? Array.from({ length: paneCount }, () => 1);
+      if (ratios.length !== paneCount) throw new Error(`a split with ${paneCount} panes needs ${paneCount} ratios, got ${ratios.length}`);
+      const gap = (spec.gap ?? d.splitGap) * l.unit;
+      const dir = spec.direction ?? 'auto';
+      const side = dir === 'horizontal' || (dir === 'auto' && l.direction === 'row');
+      const parts = partition(side ? area.x : area.y, side ? area.width : area.height, ratios, gap);
+      return {
+        frame: l,
+        area,
+        gap,
+        panes: parts.map(([from, len], i) =>
+          make(side ? { x: from, y: area.y, width: len, height: area.height } : { x: area.x, y: from, width: area.width, height: len }, i, 'pane')
+        ),
+      };
+    }
+    case 'grid': {
+      if (paneCount < 1 || paneCount > d.maxPanes) throw new Error(`a grid has 1 to ${d.maxPanes} panes, got ${paneCount}`);
+      const auto = autoGrid(paneCount, area.width / area.height);
+      const columns = spec.columns ?? (spec.rows ? Math.ceil(paneCount / spec.rows) : auto.columns);
+      const rows = spec.rows ?? Math.ceil(paneCount / columns);
+      if (columns * rows < paneCount) throw new Error(`a ${columns}x${rows} grid holds ${columns * rows} panes, got ${paneCount}`);
+      const gap = (spec.gap ?? d.gridGap) * l.unit;
+      const cols = partition(area.x, area.width, Array.from({ length: columns }, () => 1), gap);
+      const rws = partition(area.y, area.height, Array.from({ length: rows }, () => 1), gap);
+      const panes: PaneBox[] = [];
+      for (let i = 0; i < paneCount; i++) {
+        const [x, width] = cols[i % columns]!;
+        const [y, height] = rws[Math.floor(i / columns)]!;
+        panes.push(make({ x, y, width, height }, i, 'pane'));
+      }
+      return { frame: l, area, gap, panes };
+    }
+    case 'pip': {
+      if (paneCount !== 2) throw new Error(`picture-in-picture has 2 panes (main, inset), got ${paneCount}`);
+      return { frame: l, area, gap: 0, panes: [make(area, 0, 'main'), make(pipInset(l, spec), 1, 'inset')] };
+    }
+  }
+}
+
+/**
+ * Keep pane text clear of a lower third: every text box that shares columns
+ * with the lower third's band (its maximum width, `lowerThirdBox().height`
+ * tall, plus a gap of 2 units) ends above that band. When less than 8 units
+ * would be left above it (the bottom pane of a stacked split on 9:16), the
+ * text goes below the band instead, inside the pane and the title-safe area
+ * (`textSafe: 'title'`). If neither fits, the box keeps its size (more text
+ * than the frame can hold; the overflow tests show it).
+ */
+export function clearOfLowerThird(r: LayoutResult, lt: LowerThirdBox): LayoutResult {
+  const l = r.frame;
+  const u = l.unit;
+  const x0 = lt.align === 'left' ? lt.x : lt.x - lt.maxWidth;
+  const x1 = x0 + lt.maxWidth;
+  const top = lt.bottom - lt.height - 2 * u;
+  const below = lt.bottom + 2 * u;
+  const titleBottom = l.height - l.safe.title.bottom;
+  const panes = r.panes.map((p): PaneBox => {
+    const t = p.text;
+    if (t.x >= x1 || t.x + t.width <= x0 || t.y + t.height <= top || t.y >= lt.bottom + 2 * u) return p;
+    if (top - t.y >= 8 * u) return { ...p, text: { ...t, height: top - t.y } };
+    const end = Math.min(p.y + p.height - LAYOUT_DEFAULTS.panePadding * u, titleBottom);
+    const y = Math.max(below, t.y);
+    if (end - y >= 8 * u) return { ...p, text: { ...t, y, height: end - y }, textSafe: 'title' };
+    return p;
+  });
+  return { ...r, panes };
+}
+
+export interface LowerThirdBox {
+  /** Left (align left) or right (align right) edge, and the bottom edge, in px. */
+  x: number;
+  bottom: number;
+  align: 'left' | 'right';
+  /** Widest and tallest the block may be (its text shrinks to fit). */
+  maxWidth: number;
+  height: number;
+  /** Font sizes, padding and accent bar width in px. */
+  nameSize: number;
+  titleSize: number;
+  padding: number;
+  bar: number;
+}
+
+/** Where a lower third sits: the bottom corner of the content safe area, sized in units. */
+export function lowerThirdBox(l: FrameLayout, align: 'left' | 'right' = 'left'): LowerThirdBox {
+  const u = l.unit;
+  return {
+    x: align === 'left' ? l.box.x : l.box.x + l.box.width,
+    bottom: l.box.y + l.box.height,
+    align,
+    maxWidth: Math.min(l.box.width, 110 * u),
+    // One line of name and two of title at full size.
+    height: 22 * u,
+    nameSize: 6 * u,
+    titleSize: 4.2 * u,
+    padding: 2.4 * u,
+    bar: 1 * u,
+  };
+}
+
+export interface FitResult {
+  /** Where the picture is drawn (may extend past the box for `cover`; clip to the box). */
+  fg: Rect;
+  /** `blur-fill` only: the blurred copy, covering the box. */
+  bg: Rect | null;
+}
+
+/**
+ * Where media of `mediaWidth` x `mediaHeight` lands in `box` for a fit mode.
+ * `focus` (0-100 per axis, default centre) is the point kept in view when
+ * `cover` crops, the same as CSS `object-position` in percent.
+ */
+export function fitMedia(box: Rect, mediaWidth: number, mediaHeight: number, mode: FitMode, focus: { x: number; y: number } = { x: 50, y: 50 }): FitResult {
+  const place = (scale: number): Rect => {
+    const w = mediaWidth * scale;
+    const h = mediaHeight * scale;
+    return { x: box.x + (box.width - w) * (focus.x / 100), y: box.y + (box.height - h) * (focus.y / 100), width: w, height: h };
+  };
+  const contain = Math.min(box.width / mediaWidth, box.height / mediaHeight);
+  const cover = Math.max(box.width / mediaWidth, box.height / mediaHeight);
+  if (mode === 'cover') return { fg: place(cover), bg: null };
+  return { fg: place(contain), bg: mode === 'blur-fill' ? place(cover) : null };
+}

@@ -7,7 +7,9 @@
  * the previous one is answered), so its latency is measured on its own.
  *
  * 429s (rate limits) are counted apart from errors: with one hot key they are
- * the expected answer, not a failure.
+ * the expected answer, not a failure. 503s with Retry-After (`overloaded`, the
+ * in-flight cap of #307) are counted apart too, as `shed`: a fast, retryable
+ * refusal rather than a timeout or a 500; the report shows them next to errors.
  */
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -59,6 +61,7 @@ function request(op: string, t: CrudTarget): { method: string; path: string; bod
 interface OpTally {
   ok: number[];
   limited: number[];
+  shed: number;
   errors: number;
   statuses: Record<string, number>;
 }
@@ -68,8 +71,8 @@ export interface CrudResult {
   connections: number;
   apiInstances: number;
   keys: number;
-  total: { requests: number; perSecond: number; ok: number; okPerSecond: number; rateLimited: number; errors: number; errorRate: number; latencyMs: ReturnType<typeof summary> };
-  ops: Record<string, { requests: number; perSecond: number; ok: number; rateLimited: number; errors: number; statuses: Record<string, number>; latencyMs: ReturnType<typeof summary>; rateLimitedLatencyMs: ReturnType<typeof summary> }>;
+  total: { requests: number; perSecond: number; ok: number; okPerSecond: number; rateLimited: number; shed: number; shedRate: number; errors: number; errorRate: number; latencyMs: ReturnType<typeof summary> };
+  ops: Record<string, { requests: number; perSecond: number; ok: number; rateLimited: number; shed: number; errors: number; statuses: Record<string, number>; latencyMs: ReturnType<typeof summary>; rateLimitedLatencyMs: ReturnType<typeof summary> }>;
 }
 
 export async function runCrud(t: CrudTarget, opts: { seconds: number; connections: number; mix?: Record<string, number> }): Promise<CrudResult> {
@@ -77,7 +80,7 @@ export async function runCrud(t: CrudTarget, opts: { seconds: number; connection
   const tallies = new Map<string, OpTally>();
   const runs: Array<Promise<unknown>> = [];
   for (const [op, share] of Object.entries(mix)) {
-    const tally: OpTally = { ok: [], limited: [], errors: 0, statuses: {} };
+    const tally: OpTally = { ok: [], limited: [], shed: 0, errors: 0, statuses: {} };
     tallies.set(op, tally);
     const perUrl = Math.max(1, Math.round((opts.connections * share) / t.urls.length));
     for (const url of t.urls) {
@@ -113,6 +116,7 @@ export async function runCrud(t: CrudTarget, opts: { seconds: number; connection
             tally.statuses[status] = (tally.statuses[status] ?? 0) + 1;
             if (status >= 200 && status < 300) tally.ok.push(ms);
             else if (status === 429) tally.limited.push(ms);
+            else if (status === 503) tally.shed++;
             else tally.errors++;
           });
         })
@@ -123,14 +127,16 @@ export async function runCrud(t: CrudTarget, opts: { seconds: number; connection
   const ops: CrudResult['ops'] = {};
   const allOk: number[] = [];
   let limited = 0;
+  let shed = 0;
   let errors = 0;
   for (const [op, x] of tallies) {
-    const requests = x.ok.length + x.limited.length + x.errors;
+    const requests = x.ok.length + x.limited.length + x.shed + x.errors;
     ops[op] = {
       requests,
       perSecond: round(requests / opts.seconds),
       ok: x.ok.length,
       rateLimited: x.limited.length,
+      shed: x.shed,
       errors: x.errors,
       statuses: x.statuses,
       latencyMs: summary(x.ok),
@@ -138,9 +144,10 @@ export async function runCrud(t: CrudTarget, opts: { seconds: number; connection
     };
     for (const v of x.ok) allOk.push(v);
     limited += x.limited.length;
+    shed += x.shed;
     errors += x.errors;
   }
-  const requests = allOk.length + limited + errors;
+  const requests = allOk.length + limited + shed + errors;
   return {
     seconds: opts.seconds,
     connections: opts.connections,
@@ -152,6 +159,8 @@ export async function runCrud(t: CrudTarget, opts: { seconds: number; connection
       ok: allOk.length,
       okPerSecond: round(allOk.length / opts.seconds),
       rateLimited: limited,
+      shed,
+      shedRate: round((shed / (requests || 1)) * 100, 3),
       errors,
       errorRate: round((errors / (requests || 1)) * 100, 3),
       latencyMs: summary(allOk),
