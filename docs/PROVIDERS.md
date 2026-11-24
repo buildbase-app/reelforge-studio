@@ -67,7 +67,7 @@ schema (a provider's own variables) are set with `configure_provider` /
 What is installed and configured right now: `get_capabilities`
 (`GET /v1/capabilities`: engines, providers, backends, storage, limits, licence),
 `list_providers` (`GET /v1/providers`), `get_storage` (`GET /v1/storage`),
-`/readyz` (with an admin key: database, storage, dispatch, FFmpeg, browser,
+`/readyz` (with an owner key: database, storage, dispatch, FFmpeg, browser,
 telemetry).
 
 ## Inventory
