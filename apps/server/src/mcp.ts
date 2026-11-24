@@ -604,7 +604,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'delete_project',
     title: 'Delete a project',
-    description: 'Deletes a project with all its versions and renders. Cannot be undone; confirm with the user first.',
+    description: 'Deletes a project with all its versions and renders, and cancels its queued and running renders and previews. Cannot be undone; confirm with the user first.',
     scope: 'write',
     input: { projectId },
     annotations: { destructiveHint: true },
@@ -1128,6 +1128,24 @@ export const RESOURCES = [
 export type ResourcePath = (typeof RESOURCES)[number]['path'];
 
 /** Served as the resource renderweld://guide/workflow (and reelforge://guide/workflow) and inside the make_reel prompt. */
+/**
+ * The essentials of a video brief (#313): what the brief_intake prompt has an agent ask when the request leaves
+ * them open, and where each answer goes. The studio asks; the user or agent decides.
+ */
+export const BRIEF_ESSENTIALS: ReadonlyArray<{ id: string; question: string; field: string }> = [
+  { id: 'goal', question: 'What should a viewer do or remember after watching (the goal and call to action)?', field: 'brief.goal, and the closing scene' },
+  { id: 'audience', question: 'Who is it for?', field: 'brief.audience' },
+  { id: 'platform', question: 'Where will it be published, at what size and aspect ratio (any size works)? One video or several formats?', field: 'brief.platform, output.width/height, variants' },
+  { id: 'length', question: 'How long should it be?', field: 'brief.targetSeconds and the scene durations' },
+  { id: 'language', question: 'Which language?', field: 'brief.language' },
+  { id: 'style', question: 'What tone and look (calm, energetic, playful, premium...)?', field: 'brief.style and the theme' },
+  { id: 'brand', question: 'Which brand colours, fonts and logo, if any? Upload the files or name an existing theme.', field: 'theme (create_theme), assets (upload_asset)' },
+  { id: 'captions', question: 'Captions: none, burned into the video, a separate subtitle file, or both?', field: 'captions' },
+  { id: 'voice', question: 'A voice-over? If so, whose voice or which provider voice?', field: 'audio.voice (generate_voice, or an uploaded recording)' },
+  { id: 'music', question: 'Background music or sound effects? Upload the track, or none.', field: 'audio.music, audio.sfx' },
+  { id: 'content', question: 'Are there facts, numbers, product names or images that must appear exactly as given?', field: 'scene props and assets' },
+];
+
 export const WORKFLOW_GUIDE = `# ReelForge Studio: making a reel with MCP tools only
 
 You decide the scenes; the server validates, renders and checks. Everything is
@@ -1342,6 +1360,32 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
   }
 
   server.registerPrompt(
+    'brief_intake',
+    {
+      title: 'Ask before assuming: complete the brief',
+      description: 'Lists the essentials of a video brief, says where each goes in the manifest, and has the agent ask only the ones the request leaves open.',
+      argsSchema: { request: z.string().describe('What the user asked for so far, in their words.') },
+    },
+    async ({ request }) => ({
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text:
+              `Before planning this video, make sure the brief is complete. The user asked:\n\n${request}\n\n` +
+              'Go through the essentials below. For each one the request already answers, use that answer. For each one it leaves open, ask the user; ' +
+              'ask all open questions in one short message, each with a sensible default they can accept ("vertical 1080x1920 unless you say otherwise"). ' +
+              'Do not invent answers. If the user says "you decide", use the defaults and say which ones you used.\n\n' +
+              `${BRIEF_ESSENTIALS.map((e, i) => `${i + 1}. ${e.question} Goes to: ${e.field}.`).join('\n')}\n\n` +
+              'Then write the answers into the manifest (create_project or update_project) and continue with plan_reel or make_reel.',
+          },
+        },
+      ],
+    })
+  );
+
+  server.registerPrompt(
     'make_reel',
     {
       title: 'Make a reel end to end',
@@ -1354,7 +1398,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
           role: 'user',
           content: {
             type: 'text',
-            text: `Make a short video about: ${topic}\n\nUse the size the user asked for (vertical 1080x1920 if they did not say). Follow this guide exactly, using only the ReelForge tools. Show me the scene list with timings before rendering. If the reel has captions, show me them (get_captions) and ask me to approve or change them before the final render; do not assume I approve. Give me the downloadUrl at the end.\n\n${WORKFLOW_GUIDE}`,
+            text: `Make a short video about: ${topic}\n\nUse the size the user asked for (vertical 1080x1920 if they did not say). Follow this guide exactly, using only the ReelForge tools. If the topic leaves essentials open (audience, platform and size, length, tone, brand, call to action, captions, voice, music), ask me those first, as the brief_intake prompt lists them; do not assume. Show me the scene list with timings before rendering. If the reel has captions, show me them (get_captions) and ask me to approve or change them before the final render; do not assume I approve. Give me the downloadUrl at the end.\n\n${WORKFLOW_GUIDE}`,
           },
         },
       ],
@@ -1466,7 +1510,7 @@ export function serverCard(service: ReelforgeService, config: ServerConfig) {
     resources: RESOURCES.map((r) => resourceUri(r.path)),
     // The old URIs (#412): still answered, not listed in new docs.
     resourceAliases: Object.fromEntries(RESOURCES.map((r) => [`reelforge://${r.path}`, resourceUri(r.path)])),
-    prompts: ['make_reel', 'plan_reel', 'review_reel'],
+    prompts: ['brief_intake', 'make_reel', 'plan_reel', 'review_reel'],
     rest: { base: `${base}/v1`, capabilities: `${base}/v1/capabilities` },
   };
 }
