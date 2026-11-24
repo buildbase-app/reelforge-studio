@@ -1,4 +1,5 @@
 import { execFile, spawn, spawnSync } from 'node:child_process';
+import { rateArg } from './rate';
 
 /** Raised when a pipeline stage fails. Carries the stage name and tool output. */
 export class PipelineError extends Error {
@@ -85,17 +86,31 @@ export function run(
   bin: string,
   args: string[],
   stage: string,
-  opts: { signal?: AbortSignal; cwd?: string } = {}
+  opts: {
+    signal?: AbortSignal;
+    cwd?: string;
+    /** The child's whole environment (default: inherited). Untrusted media is decoded with a scrubbed one. */
+    env?: NodeJS.ProcessEnv;
+    /** Kill the tool after this many milliseconds (rejects with a timeout error). */
+    timeoutMs?: number;
+  } = {}
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], signal: opts.signal, ...(opts.cwd ? { cwd: opts.cwd } : {}) });
+    const child = spawn(bin, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      signal: opts.signal,
+      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      ...(opts.env ? { env: opts.env } : {}),
+      ...(opts.timeoutMs ? { timeout: opts.timeoutMs, killSignal: 'SIGKILL' as const } : {}),
+    });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
     child.on('error', (e) => reject(new PipelineError(stage, e.message, stderr)));
-    child.on('close', (code) => {
+    child.on('close', (code, sig) => {
       if (code === 0) resolve({ stdout, stderr });
+      else if (sig === 'SIGKILL' && opts.timeoutMs && !opts.signal?.aborted) reject(new PipelineError(stage, `${bin} did not finish within ${opts.timeoutMs} ms`, stderr.split('\n').slice(-30).join('\n')));
       else
         reject(
           new PipelineError(stage, `${bin} exited with code ${code}`, stderr.split('\n').slice(-30).join('\n'))
@@ -104,21 +119,68 @@ export function run(
   });
 }
 
-/** Video encoding settings every clip is normalised to before assembly. */
-export const H264_ARGS = [
-  '-c:v',
-  'libx264',
-  '-preset',
-  'medium',
-  '-crf',
-  '18',
-  '-pix_fmt',
-  'yuv420p',
-  '-profile:v',
-  'high',
-  '-movflags',
-  '+faststart',
-];
+/**
+ * x264 settings that bound an encode's memory (#307, D-117; render.encoderThreads, render.encoderLookahead).
+ * x264's memory grows with its frame threads (auto: 1.5 per CPU core, so it grows with the machine, not the
+ * video) and with the frames its rate control looks ahead; each frame it holds is several full-size planes.
+ * Neither changes the bitstream's format (profile, references, B-frames: the preset does), so clips encoded
+ * by workers with different values still join by stream copy (render fan-out, D-097).
+ */
+export interface EncoderSettings {
+  /** x264 threads; 0 = x264's automatic choice (1.5 per core). Also caps the decoder and filter threads of the same ffmpeg. */
+  threads: number;
+  /** x264 rc-lookahead in frames; 0 = the preset's own (40 for `medium`). */
+  lookahead: number;
+}
+
+/** The defaults: measured in docs/SCALE.md (1080x1920 and 3840x2160, peak memory and SSIM/PSNR against the frames). */
+export const DEFAULT_ENCODER_SETTINGS: Readonly<EncoderSettings> = Object.freeze({ threads: 2, lookahead: 20 });
+let encoder: EncoderSettings = { ...DEFAULT_ENCODER_SETTINGS };
+
+/** Process-wide encoder settings (the server applies render.encoderThreads / render.encoderLookahead, also at runtime). */
+export function setEncoderSettings(s: Partial<EncoderSettings>): void {
+  encoder = { ...encoder, ...Object.fromEntries(Object.entries(s).filter(([, v]) => v !== undefined)) };
+}
+export function encoderSettings(): Readonly<EncoderSettings> {
+  return { ...encoder };
+}
+
+/**
+ * @deprecated The encoding arguments with the default settings, for callers not yet moved to h264Args() (the
+ * captions burn-in, #332): they get the bounded defaults but not runtime changes.
+ */
+export const H264_ARGS: readonly string[] = h264Args({ ...DEFAULT_ENCODER_SETTINGS });
+
+/** The decoder thread cap: goes before each `-i` (an input option applies to the next input only). */
+export function inputThreadArgs(s: EncoderSettings = encoder): string[] {
+  return s.threads > 0 ? ['-threads', String(s.threads)] : [];
+}
+
+/** The filter graph thread cap (global options: anywhere before the output). */
+export function filterThreadArgs(s: EncoderSettings = encoder): string[] {
+  return s.threads > 0 ? ['-filter_threads', String(s.threads), '-filter_complex_threads', String(s.threads)] : [];
+}
+
+/** Video encoding settings every clip is normalised to before assembly (libx264 high, yuv420p, CRF 18, medium). */
+export function h264Args(s: EncoderSettings = encoder): string[] {
+  const x264 = [...(s.lookahead > 0 ? [`rc-lookahead=${s.lookahead}`] : [])];
+  return [
+    '-c:v',
+    'libx264',
+    '-preset',
+    'medium',
+    '-crf',
+    '18',
+    '-pix_fmt',
+    'yuv420p',
+    '-profile:v',
+    'high',
+    ...(s.threads > 0 ? ['-threads', String(s.threads)] : []),
+    ...(x264.length ? ['-x264-params', x264.join(':')] : []),
+    '-movflags',
+    '+faststart',
+  ];
+}
 
 export interface FrameEncoder {
   /** Write one PNG frame. Resolves once FFmpeg has accepted it. */
@@ -137,7 +199,8 @@ export interface FrameEncoder {
 export function startPngEncoder(
   ffmpeg: string,
   out: string,
-  fps: number,
+  /** A number or an exact "num/den" such as "30000/1001" (#302). */
+  fps: number | string,
   stage = 'encode'
 ): FrameEncoder {
   const child = spawn(
@@ -145,17 +208,19 @@ export function startPngEncoder(
     [
       '-hide_banner',
       '-y',
+      ...filterThreadArgs(),
+      ...inputThreadArgs(),
       '-f',
       'image2pipe',
       '-framerate',
-      String(fps),
+      rateArg(fps),
       '-c:v',
       'png',
       '-i',
       '-',
-      ...H264_ARGS,
+      ...h264Args(),
       '-r',
-      String(fps),
+      rateArg(fps),
       '-an',
       out,
     ],

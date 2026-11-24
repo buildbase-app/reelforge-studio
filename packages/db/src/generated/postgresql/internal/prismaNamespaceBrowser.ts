@@ -356,6 +356,7 @@ export const WebhookDeliveryScalarFieldEnum = {
   messageId: 'messageId',
   eventId: 'eventId',
   eventType: 'eventType',
+  dedupeKey: 'dedupeKey',
   payload: 'payload',
   status: 'status',
   attempts: 'attempts',

@@ -1,0 +1,687 @@
+{
+  "generatedAt": "2026-11-24T05:18:39.785Z",
+  "command": "pnpm formats:prove-layouts",
+  "samples": [
+    {
+      "id": "split",
+      "title": "Split screen: 2 panes, side by side on wide frames, stacked on square and tall ones",
+      "props": {
+        "layout": {
+          "type": "split"
+        },
+        "panes": [
+          {
+            "media": {
+              "asset": "wide",
+              "fit": "cover"
+            },
+            "label": "Screen",
+            "headline": "Two sources, one frame",
+            "body": "Panes reflow per output size"
+          },
+          {
+            "media": {
+              "asset": "tall",
+              "fit": "blur-fill"
+            },
+            "label": "Camera"
+          }
+        ]
+      }
+    },
+    {
+      "id": "split-3",
+      "title": "Split screen: 3 panes with ratios 2:1:1",
+      "props": {
+        "layout": {
+          "type": "split",
+          "ratios": [
+            2,
+            1,
+            1
+          ],
+          "gap": 1
+        },
+        "panes": [
+          {
+            "media": {
+              "asset": "wide",
+              "fit": "cover"
+            },
+            "label": "Main"
+          },
+          {
+            "media": {
+              "asset": "still",
+              "fit": "cover",
+              "focus": {
+                "x": 30,
+                "y": 50
+              }
+            },
+            "label": "Detail"
+          },
+          {
+            "color": "#24303d",
+            "headline": "Ratios 2:1:1",
+            "body": "Sizes in layout units"
+          }
+        ]
+      }
+    },
+    {
+      "id": "pip",
+      "title": "Picture-in-picture: inset in the bottom-right corner, 2 units from the safe area",
+      "props": {
+        "layout": {
+          "type": "pip",
+          "corner": "bottom-right"
+        },
+        "panes": [
+          {
+            "media": {
+              "asset": "wide",
+              "fit": "blur-fill"
+            }
+          },
+          {
+            "media": {
+              "asset": "tall",
+              "fit": "cover"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "lower-third",
+      "title": "Lower third: name and title in brand colours, in the safe area",
+      "props": {
+        "layout": {
+          "type": "full"
+        },
+        "panes": [
+          {
+            "media": {
+              "asset": "wide",
+              "fit": "blur-fill"
+            }
+          }
+        ],
+        "lowerThird": {
+          "name": "Sam Rivera",
+          "title": "Product designer, sample lower third",
+          "accent": "#e8b04a",
+          "background": "#14181f",
+          "text": "#f4f1ea"
+        }
+      }
+    },
+    {
+      "id": "grid",
+      "title": "Grid: 6 panes, 3x2 on wide frames and 2x3 on tall ones (columns and rows chosen per frame)",
+      "props": {
+        "layout": {
+          "type": "grid"
+        },
+        "panes": [
+          {
+            "media": {
+              "asset": "wide",
+              "fit": "cover"
+            },
+            "label": "One"
+          },
+          {
+            "media": {
+              "asset": "still",
+              "fit": "cover"
+            },
+            "label": "Two"
+          },
+          {
+            "media": {
+              "asset": "tall",
+              "fit": "blur-fill"
+            },
+            "label": "Three"
+          },
+          {
+            "color": "#24303d",
+            "headline": "Grid",
+            "body": "n x m, or chosen per frame"
+          },
+          {
+            "media": {
+              "asset": "still",
+              "fit": "contain"
+            },
+            "label": "Five"
+          },
+          {
+            "media": {
+              "asset": "wide",
+              "fit": "contain"
+            },
+            "label": "Six"
+          }
+        ]
+      }
+    },
+    {
+      "id": "fit",
+      "title": "Fit modes: the same 4:3 picture as contain, cover and blur-fill",
+      "props": {
+        "layout": {
+          "type": "split",
+          "gap": 1
+        },
+        "panes": [
+          {
+            "media": {
+              "asset": "still",
+              "fit": "contain"
+            },
+            "label": "contain"
+          },
+          {
+            "media": {
+              "asset": "still",
+              "fit": "cover"
+            },
+            "label": "cover"
+          },
+          {
+            "media": {
+              "asset": "still",
+              "fit": "blur-fill"
+            },
+            "label": "blur-fill"
+          }
+        ]
+      }
+    }
+  ],
+  "results": [
+    {
+      "sample": "split",
+      "engine": "html",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 37668,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "html",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 22697,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "html",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 34636,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "html",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 127408,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "hyperframes",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 33138,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "hyperframes",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 33332,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "hyperframes",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 30616,
+      "problems": []
+    },
+    {
+      "sample": "split",
+      "engine": "hyperframes",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 93405,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "html",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 22607,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "html",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 17952,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "html",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 26077,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "html",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 66096,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "hyperframes",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 19321,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "hyperframes",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 17927,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "hyperframes",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 24534,
+      "problems": []
+    },
+    {
+      "sample": "split-3",
+      "engine": "hyperframes",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 49494,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "html",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 37039,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "html",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 23869,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "html",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 35625,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "html",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 143497,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "hyperframes",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 26917,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "hyperframes",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 22975,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "hyperframes",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 28060,
+      "problems": []
+    },
+    {
+      "sample": "pip",
+      "engine": "hyperframes",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 115865,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "html",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 37914,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "html",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 25963,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "html",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 37297,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "html",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 185043,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "hyperframes",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 39669,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "hyperframes",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 29024,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "hyperframes",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 36494,
+      "problems": []
+    },
+    {
+      "sample": "lower-third",
+      "engine": "hyperframes",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 137870,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "html",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 26761,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "html",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 18918,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "html",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 26653,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "html",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 80382,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "hyperframes",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 26081,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "hyperframes",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 21410,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "hyperframes",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 26763,
+      "problems": []
+    },
+    {
+      "sample": "grid",
+      "engine": "hyperframes",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 55452,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "html",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 16430,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "html",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 12592,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "html",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 20555,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "html",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 43622,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "hyperframes",
+      "format": "16x9",
+      "width": 1920,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 12665,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "hyperframes",
+      "format": "1x1",
+      "width": 1080,
+      "height": 1080,
+      "frames": 60,
+      "renderMillis": 10222,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "hyperframes",
+      "format": "9x16",
+      "width": 1080,
+      "height": 1920,
+      "frames": 60,
+      "renderMillis": 12295,
+      "problems": []
+    },
+    {
+      "sample": "fit",
+      "engine": "hyperframes",
+      "format": "4k",
+      "width": 3840,
+      "height": 2160,
+      "frames": 60,
+      "renderMillis": 22124,
+      "problems": []
+    }
+  ]
+}

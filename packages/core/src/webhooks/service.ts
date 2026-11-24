@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { SpanKind, type Counter, type Histogram, type Meter } from '@opentelemetry/api';
 import { z } from 'zod';
 import { redactSecrets } from '../audit';
@@ -108,6 +109,16 @@ const updateSchema = z.strictObject({
   rotateSecret: z.boolean().optional(),
   graceHours: z.number().min(0).max(720).optional(),
 });
+const rotateSchema = z.strictObject({
+  overlapHours: z.number().min(0).max(720).optional(),
+  secret: secretSchema.optional(),
+  endOverlap: z.boolean().optional(),
+});
+const resendSchema = z.strictObject({
+  deliveryId: z.string().min(1).max(100).optional(),
+  eventId: z.string().min(1).max(100).optional(),
+  dedupeKey: z.string().min(1).max(200).optional(),
+});
 
 function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const r = schema.safeParse(input ?? {});
@@ -117,6 +128,14 @@ function parse<T>(schema: z.ZodType<T>, input: unknown): T {
     });
   }
   return r.data;
+}
+
+/**
+ * The webhook-id of an event at an endpoint: derived from the endpoint and the event's dedupe key (its id when it
+ * has none), so retries, replays, resends and a second emit of the same outcome all carry the same webhook-id (#306).
+ */
+export function messageIdFor(endpointId: string, key: string): string {
+  return `msg_${createHash('sha256').update(`${endpointId}\n${key}`).digest('hex').slice(0, 32)}`;
 }
 
 /** `https://hooks.slack.com/services/…`: host and first path segment; tokens in the rest are hidden. */
@@ -349,18 +368,7 @@ export class WebhookService {
     }
     let secret: string | undefined;
     if (a.rotateSecret) {
-      if (current.type !== 'webhook') throw badRequest('only webhook endpoints have a signing secret');
-      secret = newSigningSecret();
-      const grace = a.graceHours ?? this.cfg.secretRotationGraceHours;
-      patch.secret = this.seal(`webhook:${id}:secret`, secret);
-      if (grace > 0 && current.secret) {
-        // The old secret, sealed again under its "previous" name, keeps signing next to the new one.
-        patch.prevSecret = this.seal(`webhook:${id}:prev-secret`, this.unseal(`webhook:${id}:secret`, current.secret));
-        patch.prevSecretExpiresAt = new Date(this.now() + grace * 3_600_000).toISOString();
-      } else {
-        patch.prevSecret = null;
-        patch.prevSecretExpiresAt = null;
-      }
+      secret = this.rotation(current, patch, a.graceHours);
       changed.push('secret');
     } else if (a.graceHours !== undefined) throw badRequest('graceHours only goes with rotateSecret: true');
     if (changed.length === 0) throw badRequest('nothing to change: send name, description, url, email, events, enabled or rotateSecret');
@@ -369,6 +377,63 @@ export class WebhookService {
     this.invalidate();
     await this.audit(actor, a.rotateSecret ? 'webhook.rotate_secret' : 'webhook.update', id, { changed, ...(patch.prevSecretExpiresAt ? { previousSecretValidUntil: patch.prevSecretExpiresAt } : {}) });
     return { webhook: this.toPublic(r), ...(secret ? { secret, note: 'store the new signing secret now; it is not shown again. Until webhook.signing.previousSecretValidUntil both secrets sign every message.' } : {}) };
+  }
+
+  /**
+   * A new signing secret into `patch`; the current one keeps signing next to it for `overlapHours` (default
+   * webhooks.secretRotationGraceHours), so the receiver has two valid secrets until it switched. A second rotation
+   * during the overlap drops the oldest: never more than two.
+   */
+  private rotation(current: WebhookEndpointRecord, patch: WebhookEndpointPatch, overlapHours?: number, given?: string): string {
+    if (current.type !== 'webhook') throw badRequest('only webhook endpoints have a signing secret');
+    const id = current.id;
+    const secret = given ?? newSigningSecret();
+    const grace = overlapHours ?? this.cfg.secretRotationGraceHours;
+    patch.secret = this.seal(`webhook:${id}:secret`, secret);
+    if (grace > 0 && current.secret) {
+      // The old secret, sealed again under its "previous" name, keeps signing next to the new one.
+      patch.prevSecret = this.seal(`webhook:${id}:prev-secret`, this.unseal(`webhook:${id}:secret`, current.secret));
+      patch.prevSecretExpiresAt = new Date(this.now() + grace * 3_600_000).toISOString();
+    } else {
+      patch.prevSecret = null;
+      patch.prevSecretExpiresAt = null;
+    }
+    return secret;
+  }
+
+  /**
+   * rotate_webhook_secret: a new secret (generated, or `secret` brought by the receiver) with an overlap window in
+   * which messages carry both signatures; or `endOverlap: true` to stop signing with the previous secret now, once
+   * the receiver has switched.
+   */
+  async rotateSecret(id: string, input: unknown, actor?: WebhookActor): Promise<{ webhook: PublicWebhook; secret?: string; note: string }> {
+    const a = parse(rotateSchema, input);
+    const current = await this.repo.getEndpoint(id);
+    if (!current) throw notFound('webhook', id);
+    if (current.type !== 'webhook') throw badRequest('only webhook endpoints have a signing secret');
+    const at = new Date(this.now()).toISOString();
+    const patch: WebhookEndpointPatch = { updatedAt: at };
+    if (a.endOverlap) {
+      if (a.secret || a.overlapHours !== undefined) throw badRequest('endOverlap ends the current overlap; it takes no secret or overlapHours');
+      patch.prevSecret = null;
+      patch.prevSecretExpiresAt = null;
+      const r = await this.repo.updateEndpoint(id, patch);
+      if (!r) throw notFound('webhook', id);
+      this.invalidate();
+      await this.audit(actor, 'webhook.rotate_secret', id, { endOverlap: true });
+      return { webhook: this.toPublic(r), note: 'only the current secret signs from now on' };
+    }
+    const secret = this.rotation(current, patch, a.overlapHours, a.secret);
+    const r = await this.repo.updateEndpoint(id, patch);
+    if (!r) throw notFound('webhook', id);
+    this.invalidate();
+    await this.audit(actor, 'webhook.rotate_secret', id, { changed: ['secret'], ...(patch.prevSecretExpiresAt ? { previousSecretValidUntil: patch.prevSecretExpiresAt } : {}) });
+    const overlap = patch.prevSecretExpiresAt ? `Until ${patch.prevSecretExpiresAt} every message carries signatures with the new and the previous secret; ` : 'Only the new secret signs from now on; ';
+    return {
+      webhook: this.toPublic(r),
+      ...(a.secret ? {} : { secret }),
+      note: `${a.secret ? 'the secret you sent is now the current one. ' : 'store the new signing secret now; it is not shown again. '}${overlap}a receiver accepts a message when any v1 signature matches one of its secrets (Standard Webhooks).`,
+    };
   }
 
   async delete(id: string, actor?: WebhookActor): Promise<{ deleted: string; abandoned: number }> {
@@ -388,9 +453,10 @@ export class WebhookService {
     return {
       id: newSequentialId('dlv'),
       endpointId,
-      messageId: newSequentialId('msg'),
+      messageId: messageIdFor(endpointId, event.dedupeKey ?? event.id),
       eventId: event.id,
       eventType: event.type,
+      ...(event.dedupeKey ? { dedupeKey: event.dedupeKey } : {}),
       payload: event,
       status: 'pending',
       attempts: 0,
@@ -401,8 +467,8 @@ export class WebhookService {
     };
   }
 
-  private envelope(type: string, data: Record<string, unknown>): EventEnvelope {
-    return { id: newSequentialId('evt'), type, timestamp: new Date(this.now()).toISOString(), data: redactSecrets(data) };
+  private envelope(type: string, data: Record<string, unknown>, dedupeKey?: string): EventEnvelope {
+    return { id: newSequentialId('evt'), type, timestamp: new Date(this.now()).toISOString(), data: redactSecrets(data), ...(dedupeKey ? { dedupeKey } : {}) };
   }
 
   /**
@@ -410,12 +476,13 @@ export class WebhookService {
    * once; the outbox insert runs in the background and a failure is logged,
    * never thrown at the caller (a job or request must not fail because of it).
    */
-  emit(type: string, data: Record<string, unknown>): void {
+  emit(type: string, data: Record<string, unknown> | (() => Promise<Record<string, unknown>>), opts: { dedupeKey?: string } = {}): void {
     const p = (async () => {
       const matching = (await this.endpoints()).filter((e) => e.enabled && eventMatches(e.events, type));
       if (!matching.length) return;
       instruments(this.telemetry.meter).events.add(1, { 'reelforge.event_type': type });
-      const event = this.envelope(type, data);
+      // A payload that costs reads (terminal render events: log excerpt, output size) is only built when someone listens.
+      const event = this.envelope(type, typeof data === 'function' ? await data() : data, opts.dedupeKey);
       await this.repo.enqueue(matching.map((e) => this.delivery(e.id, event)));
       this.wake();
     })().catch((e) => this.warn('emit', `outbound event ${type} could not be queued: ${(e as Error).message}`));
@@ -451,9 +518,15 @@ export class WebhookService {
     }
   }
 
+  /** When a delivery stops being retried: webhooks.retryWindowHours after it was queued. */
+  private giveUpAt(d: Pick<WebhookDeliveryRecord, 'createdAt'>): number {
+    return Date.parse(d.createdAt) + this.cfg.retryWindowHours * 3_600_000;
+  }
+
   private deliveryView(d: WebhookDeliveryRecord, includePayload = false) {
     const { payload, lockedUntil: _l, ...rest } = d;
-    return { ...rest, ...(includePayload ? { payload } : {}) };
+    const open = d.status === 'pending' || d.status === 'delivering';
+    return { ...rest, ...(open ? { giveUpAt: new Date(this.giveUpAt(d)).toISOString() } : {}), ...(includePayload ? { payload } : {}) };
   }
 
   async listDeliveries(id: string, q: { status?: unknown; eventType?: unknown; cursor?: unknown; limit?: unknown; includePayload?: unknown; includeAttempts?: unknown } = {}) {
@@ -488,6 +561,82 @@ export class WebhookService {
     await this.audit(actor, 'webhook.delivery.replay', id, { deliveryId: d.id, replayId: copy.id, eventType: d.eventType });
     this.wake();
     return { delivery: this.deliveryView(copy) };
+  }
+
+  /**
+   * resend_webhook (#306): send an event to an endpoint again, named by `deliveryId`, `eventId` or `dedupeKey`
+   * (`render:<jobId>`: the terminal event of a render). A delivery waiting for its next attempt is made due now
+   * (`rescheduled`); a finished one (succeeded or dead) is queued again with the same webhook-id and payload
+   * (`queued`, with a fresh retry window); an event this endpoint never got (e.g. one emitted before it existed, found
+   * by eventId or dedupeKey at another endpoint) is queued for it under its own webhook-id.
+   */
+  async resend(id: string, input: unknown, actor?: WebhookActor) {
+    const a = parse(resendSchema, input);
+    const given = (['deliveryId', 'eventId', 'dedupeKey'] as const).filter((k) => a[k] !== undefined);
+    if (given.length !== 1) throw badRequest('send exactly one of deliveryId, eventId or dedupeKey (e.g. "render:<jobId>" for the outcome of a render)');
+    const ep = await this.repo.getEndpoint(id);
+    if (!ep) throw notFound('webhook', id);
+    if (!ep.enabled) throw new ApiError('conflict', 409, `webhook ${id} is disabled${ep.disabledReason ? ` (${ep.disabledReason})` : ''}; enable it with update_webhook first`);
+    let source: WebhookDeliveryRecord | null = null;
+    if (a.deliveryId) {
+      source = await this.repo.getDelivery(a.deliveryId);
+      if (!source || source.endpointId !== id) throw notFound('delivery', a.deliveryId);
+    } else {
+      const filter = a.eventId ? { eventId: a.eventId } : { dedupeKey: a.dedupeKey! };
+      // This endpoint's own delivery first (newest), else the event as another endpoint got it.
+      source = (await this.repo.listDeliveries({ ...filter, endpointId: id, limit: 1 }))[0] ?? (await this.repo.listDeliveries({ ...filter, limit: 1 }))[0] ?? null;
+      if (!source) throw notFound('event', a.eventId ?? a.dedupeKey!, { hint: 'only events that were queued for some endpoint and are still in the delivery log (webhooks.deliveryRetentionDays) can be sent again' });
+    }
+    const at = new Date(this.now()).toISOString();
+    let action: 'rescheduled' | 'queued';
+    let delivery: WebhookDeliveryRecord;
+    if (source.endpointId === id && source.status === 'delivering') {
+      throw new ApiError('conflict', 409, `delivery ${source.id} is being sent right now; its outcome is in the delivery log in a moment`);
+    } else if (source.endpointId === id && source.status === 'pending') {
+      if (!(await this.repo.reschedule(source.id, at))) throw new ApiError('conflict', 409, `delivery ${source.id} changed state meanwhile; try again`);
+      action = 'rescheduled';
+      delivery = { ...source, nextAttemptAt: at, updatedAt: at };
+    } else {
+      // Same payload; the webhook-id follows the endpoint and the event's dedupe key, so it equals the original's.
+      delivery = this.delivery(id, source.payload, { ...(source.endpointId === id ? { replayOf: source.id } : {}) });
+      await this.repo.enqueue([delivery]);
+      action = 'queued';
+    }
+    await this.audit(actor, 'webhook.resend', id, { action, deliveryId: delivery.id, eventType: source.eventType, ...(source.endpointId !== id ? { fromEndpoint: source.endpointId } : {}) });
+    this.wake();
+    return { action, delivery: this.deliveryView(delivery) };
+  }
+
+  /**
+   * get_webhook_log (#306, read scope): one endpoint's delivery log without payloads or targets: per delivery its
+   * status, attempts, latency (each attempt's duration) and when it gives up; a summary over the page.
+   */
+  async log(id: string, q: { status?: unknown; eventType?: unknown; cursor?: unknown; limit?: unknown } = {}) {
+    const ep = await this.repo.getEndpoint(id);
+    if (!ep) throw notFound('webhook', id);
+    const page = await this.listDeliveries(id, { ...q, includePayload: false, includeAttempts: true });
+    const attempts = page.deliveries.flatMap((d) => (d as { attemptLog?: WebhookAttemptRecord[] }).attemptLog ?? []);
+    const latencies = attempts.map((x) => x.durationMs).sort((x, y) => x - y);
+    const pct = (p: number) => (latencies.length ? latencies[Math.min(latencies.length - 1, Math.ceil((p / 100) * latencies.length) - 1)]! : null);
+    const last = (outcome: (o: WebhookAttemptRecord['outcome']) => boolean) => attempts.filter((x) => outcome(x.outcome)).reduce<string | null>((m, x) => (!m || x.at > m ? x.at : m), null);
+    return {
+      webhook: { id: ep.id, name: ep.name, type: ep.type, enabled: ep.enabled, ...(ep.disabledReason ? { disabledReason: ep.disabledReason } : {}) },
+      deliveries: page.deliveries.map((d) => {
+        const log = (d as { attemptLog?: WebhookAttemptRecord[] }).attemptLog ?? [];
+        return { ...d, attemptLog: log.map(({ deliveryId: _d, endpointId: _e, ...x }) => x), ...(log.length ? { latencyMs: log[log.length - 1]!.durationMs } : {}) };
+      }),
+      nextCursor: page.nextCursor,
+      counts: page.counts,
+      summary: {
+        deliveries: page.deliveries.length,
+        attempts: attempts.length,
+        successRate: attempts.length ? Math.round((attempts.filter((x) => x.outcome === 'success').length / attempts.length) * 1000) / 1000 : null,
+        latencyMs: { p50: pct(50), p95: pct(95), max: latencies.length ? latencies[latencies.length - 1]! : null },
+        lastSuccessAt: last((o) => o === 'success'),
+        lastFailureAt: last((o) => o !== 'success'),
+      },
+      retry: { windowHours: this.cfg.retryWindowHours, maxAttempts: this.cfg.maxAttempts, timeoutSeconds: this.cfg.timeoutSeconds },
+    };
   }
 
   // ---- the worker -----------------------------------------------------------------
@@ -608,12 +757,18 @@ export class WebhookService {
     const error = result.error ? this.scrub(result.error, secrets) : undefined;
     let status: DeliveryStatus;
     let next: string | undefined;
+    let gaveUp: string | undefined;
+    const deadline = this.giveUpAt(d);
     if (result.outcome === 'success') status = 'succeeded';
-    else if (result.outcome === 'failed' || attemptNo >= this.cfg.maxAttempts) status = 'dead';
+    else if (result.outcome === 'failed') status = 'dead';
+    else if (attemptNo >= this.cfg.maxAttempts) (status = 'dead'), (gaveUp = `no more attempts: webhooks.maxAttempts (${this.cfg.maxAttempts}) reached`);
+    else if (finished >= deadline) (status = 'dead'), (gaveUp = `no more attempts: the retry window (webhooks.retryWindowHours, ${this.cfg.retryWindowHours} h) ended`);
     else {
       status = 'pending';
-      next = new Date(finished + this.backoffMs(attemptNo, result.retryAfterSeconds)).toISOString();
+      // The last attempt lands on the end of the retry window rather than after it.
+      next = new Date(Math.min(finished + this.backoffMs(attemptNo, result.retryAfterSeconds), deadline)).toISOString();
     }
+    const lastError = error && gaveUp ? `${error}; ${gaveUp}` : error;
     const attempt: WebhookAttemptRecord = {
       id: newSequentialId('att'),
       deliveryId: d.id,
@@ -630,17 +785,21 @@ export class WebhookService {
       attempts: attemptNo,
       lockedUntil: null,
       lastStatus: result.status ?? null,
-      lastError: error ?? null,
+      lastError: lastError ?? null,
       updatedAt: at,
       ...(next ? { nextAttemptAt: next } : {}),
       ...(status === 'succeeded' ? { deliveredAt: at } : {}),
     };
-    await this.repo.recordAttempt(attempt, patch);
+    // Fenced by this worker's lease: if it ran out and another worker claimed the row, that worker's attempt counts.
+    if (!(await this.repo.recordAttempt(attempt, patch, d.lockedUntil))) {
+      this.warn(`lease:${d.id}`, `webhook delivery ${d.id}: attempt ${attemptNo} took longer than its lease and was claimed again by another worker; this outcome is not recorded`);
+      return;
+    }
     const m = instruments(this.telemetry.meter);
     m.deliveries.add(1, { 'reelforge.channel': channel, 'reelforge.outcome': status === 'succeeded' ? 'success' : status === 'dead' ? 'dead' : 'retry' });
     m.duration.record(attempt.durationMs / 1000, { 'reelforge.channel': channel });
     if (status === 'dead' && ep) {
-      this.warn(`dead:${ep.id}`, `webhook ${ep.id} ("${ep.name}", ${ep.type}): delivery ${d.id} of ${d.eventType} failed for good after ${attemptNo} attempt(s): ${error ?? 'error'}; replay it with replay_webhook_delivery`);
+      this.warn(`dead:${ep.id}`, `webhook ${ep.id} ("${ep.name}", ${ep.type}): delivery ${d.id} of ${d.eventType} failed for good after ${attemptNo} attempt(s): ${lastError ?? 'error'}; send it again with resend_webhook`);
     }
     if (result.disable && ep) {
       await this.repo.updateEndpoint(ep.id, { enabled: false, disabledReason: result.disable, updatedAt: at });

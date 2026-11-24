@@ -6,8 +6,30 @@ import type { AddressInfo } from 'node:net';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
-import { chromiumSandbox, packageVersion, publishDirAtomically, renderChildEnv, stampMatches } from '@reelforge/core';
-import type { OutputSettings, RenderScene, ThemeTokens } from '@reelforge/project-schema';
+import {
+  assetHeaders,
+  assetToken,
+  chromiumSandbox,
+  lookupAsset,
+  packageVersion,
+  publishDirAtomically,
+  renderChildEnv,
+  sceneAssetUses,
+  stageSceneAssets,
+  stampMatches,
+  type ResolvedAsset,
+  type StagedSceneAssets,
+} from '@reelforge/core';
+import type { Tools } from '@reelforge/media-pipeline';
+import {
+  TEMPLATES,
+  fpsArg,
+  fpsValue,
+  framesToSeconds,
+  type OutputSettings,
+  type RenderScene,
+  type ThemeTokens,
+} from '@reelforge/project-schema';
 import { chromium, type Browser } from 'playwright-core';
 import type { Plugin } from 'vite';
 import type {} from './protocol';
@@ -39,6 +61,13 @@ export interface MotionCanvasRenderOptions {
   onProgress?: (framesDone: number, framesTotal: number) => void;
   /** Rebuild the browser bundle even if one exists. */
   rebuild?: boolean;
+  /** The project's assets (EngineRenderContext.assets); the scene may use only these (#299). */
+  assets?: ReadonlyMap<string, ResolvedAsset>;
+  /** FFmpeg/ffprobe for staging assets (default: opts.ffmpeg and ffprobe next to it). */
+  tools?: Tools;
+  /** Scratch directory (staged assets). Default: next to `out`. */
+  workDir?: string;
+  log?: (line: string) => void;
 }
 
 export interface MotionCanvasRenderResult {
@@ -177,8 +206,9 @@ function sourceHash(): string {
     }
   };
   walk(scenesDir);
-  // The scenes import the shared layout module (#287); a change to it must rebuild the bundle.
+  // The scenes import the shared layout and media modules (#287, #299); a change to them must rebuild the bundle.
   h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/layout')));
+  h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/media')));
   return h.digest('hex');
 }
 
@@ -191,11 +221,22 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
 };
 
-/** Serve the bundle on 127.0.0.1 only; module scripts cannot load from file://. */
-function serve(root: string): Promise<Server> {
+/**
+ * Serve the bundle on 127.0.0.1 only; module scripts cannot load from file://.
+ * With `assets`, `/<token>/<name>` answers this render's staged asset files
+ * (exact name lookup, #299).
+ */
+function serve(root: string, assets?: { staged: StagedSceneAssets; token: string }): Promise<Server> {
   const base = resolve(root) + sep;
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    if (assets && url.pathname.startsWith(`/${assets.token}/`)) {
+      const hit = req.method === 'GET' ? lookupAsset(assets.staged, assets.token, url.pathname) : undefined;
+      if (!hit) return void res.writeHead(404).end();
+      res.writeHead(200, assetHeaders(hit.contentType));
+      createReadStream(hit.file).on('error', () => res.destroy()).pipe(res);
+      return;
+    }
     const target = normalize(join(base, decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)));
     if (!target.startsWith(base) || !existsSync(target) || !statSync(target).isFile()) {
       res.writeHead(404).end();
@@ -221,10 +262,26 @@ export async function renderMotionCanvasScene(
   const bundle = await buildBundle(opts.cacheDir, opts.rebuild);
   mkdirSync(dirname(opts.out), { recursive: true });
 
-  const server = await serve(bundle);
+  // Assets (#299): the scene's files staged (video as one picture per frame), served by the bundle server under a random token.
+  const uses = sceneAssetUses(scene, scene.template ? TEMPLATES[scene.template as keyof typeof TEMPLATES] : undefined);
+  const staged = uses.length
+    ? await stageSceneAssets({
+        uses,
+        assets: opts.assets ?? new Map(),
+        dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
+        tools: opts.tools ?? { ffmpeg: opts.ffmpeg, ffprobe: opts.ffmpeg.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1') },
+        output,
+        frames: { first: 0, count: scene.durationFrames },
+        video: 'frames',
+        ...(opts.signal ? { signal: opts.signal } : {}),
+        ...(opts.log ? { log: opts.log } : {}),
+      })
+    : undefined;
+  const token = assetToken();
+  const server = await serve(bundle, staged ? { staged, token } : undefined);
   const port = (server.address() as AddressInfo).port;
   let browser: Browser | undefined;
-  const encoder = startPngEncoder(opts.ffmpeg, opts.out, output.fps, `render:${scene.id}`);
+  const encoder = startPngEncoder(opts.ffmpeg, opts.out, fpsArg(output.fps), `render:${scene.id}`);
   const consoleErrors: string[] = [];
   let nextFrame = 0;
 
@@ -278,13 +335,14 @@ export async function renderMotionCanvasScene(
         template: scene.template ?? '',
         variables: {
           ...props,
-          durationSeconds: scene.durationFrames / output.fps,
+          durationSeconds: framesToSeconds(scene.durationFrames, output.fps),
           ...(opts.theme ? { theme: opts.theme } : {}),
           ...(opts.platform ? { platform: opts.platform } : {}),
+          ...(staged ? { assets: staged.media(`http://127.0.0.1:${port}/${token}/`) } : {}),
         },
         width: output.width,
         height: output.height,
-        fps: output.fps,
+        fps: fpsValue(output.fps),
         frames: scene.durationFrames,
         background: (props.background as string | undefined) ?? opts.theme?.colors.background ?? null,
       }

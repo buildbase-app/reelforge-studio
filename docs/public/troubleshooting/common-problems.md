@@ -61,8 +61,11 @@ listed on the [REST API overview](/docs/api/rest-api#errors).
 | A job shows `failed` with `interrupted` after a restart | Jobs running when the server stopped are marked failed. `retry_job` |
 | `asset_not_imported` | An `https://` asset must be imported with `add_asset_from_url` first; renders never download |
 | A scene with your own HTML shows no images or fonts | Scenes render offline. Inline them as `data:` URLs |
-| Captions do not appear | `captions.mode` is `off` by default: set it to `burned`, `sidecar` or `both`, or pass `captions` to `render_project`. A burned render needs an FFmpeg with libass |
-| Music ducking does nothing | Stored but not applied yet; validation warns about it |
+| Captions do not appear | `captions.mode` is `off` by default: set it to `burned`, `sidecar` or `both`, or pass `captions` to `render_project` (an admin can change the default with `captions.defaultMode`). A burned render needs an FFmpeg with libass. Only `captions.burnLanguage` is burned; other languages are sidecars |
+| `transcribe_captions` answers `stt_unavailable` | Speech-to-text is an optional image layer: build `deployment/stt/Dockerfile` on top of the image (docs/CAPTIONS.md#speech-to-text); `get_capabilities` `captions.stt.reason` says what is missing |
+| `update_captions` answers `captions_conflict` | The captions changed since `get_captions`: read them again, show the user the current state, then retry with the new etag |
+| Music ducking does nothing | It needs a voice track with an asset; a very quiet voice file may sit under `ducking.thresholdDb` (-40 dBFS): lower it. The detected windows are in the render manifest (`audio.ducking.windows`) |
+| The render is quieter or louder than expected | Renders are normalised to `audio.loudness` (default `social`, -14 LUFS); the measured values are in `get_render_output` (`audio`). Use `off` to keep your own master |
 
 ## Storage and disk
 

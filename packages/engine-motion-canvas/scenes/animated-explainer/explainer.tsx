@@ -1,14 +1,17 @@
-import { Layout, Rect, Txt, makeScene2D } from '@motion-canvas/2d';
+import { Img, Layout, Rect, Txt, blur, makeScene2D } from '@motion-canvas/2d';
 import {
   all,
   createRef,
   easeInOutCubic,
   easeOutCubic,
   sequence,
+  spawn,
+  usePlayback,
   useScene,
   waitFor,
 } from '@motion-canvas/core';
 import { frameLayout } from '@reelforge/project-schema/layout';
+import { fitMedia, logoBox, mediaKey, mediaUrlAt, type FitMode, type LogoCorner, type MediaBox, type SceneMedia } from '@reelforge/project-schema/media';
 
 interface ThemeVars {
   colors: { background: string; text: string; mutedText: string; accent: string; accent2: string };
@@ -16,6 +19,22 @@ interface ThemeVars {
   headingWeight: number;
   motionSpeed: number;
 }
+
+interface MediaVar {
+  asset: string;
+  fit: FitMode;
+  focus?: { x: number; y: number };
+  start?: number;
+  dim: number;
+}
+interface LogoVar {
+  asset: string;
+  corner: LogoCorner;
+  size: number;
+}
+
+/** Img's shared picture cache (one entry per src); video pictures are dropped from it once shown. */
+const imgPool = (Img as unknown as { pool: Record<string, HTMLImageElement> }).pool;
 
 const FALLBACK: ThemeVars = {
   colors: { background: '#0b0b14', text: '#ffffff', mutedText: '#e8e8f0', accent: '#00d1b2', accent2: '#ff3d71' },
@@ -52,6 +71,9 @@ export default makeScene2D(function* (view) {
   const background = (vars.get('background', null)() as string | null) ?? theme.colors.background;
   const duration = vars.get('durationSeconds', 4)() as number;
   const platform = (vars.get('platform', null)() as string | null) ?? undefined;
+  const assets = (vars.get('assets', null)() as Record<string, SceneMedia> | null) ?? {};
+  const media = vars.get('media', null)() as MediaVar | null;
+  const logo = vars.get('logo', null)() as LogoVar | null;
 
   const size = scene.getSize();
   const width = size.x;
@@ -70,6 +92,35 @@ export default makeScene2D(function* (view) {
   const font = theme.fontFamily;
 
   view.fill(background);
+
+  // Background media (#299): fitted to the frame (contain / cover / blur-fill), dimmed with the background colour.
+  // A video is one picture per frame from the render's asset origin; a spawned thread shows picture k at frame k.
+  const node = (r: MediaBox) => ({ x: r.x + r.width / 2 - width / 2, y: r.y + r.height / 2 - height / 2, width: r.width, height: r.height });
+  const bgMedia = media ? assets[mediaKey(media.asset, media.start)] : undefined;
+  if (media && bgMedia) {
+    const fit = fitMedia({ x: 0, y: 0, width, height }, bgMedia.width, bgMedia.height, media.fit, media.focus);
+    const layers = [fit.bg ? createRef<Img>() : null, createRef<Img>()];
+    if (fit.bg) view.add(<Img ref={layers[0]!} src={bgMedia.url} {...node(fit.bg)} filters={[blur(3 * u)]} />);
+    view.add(<Img ref={layers[1]!} src={bgMedia.url} {...node(fit.fg)} />);
+    if (media.dim > 0) view.add(<Rect width={width} height={height} fill={background} opacity={media.dim} />);
+    const frames = bgMedia.frames;
+    if (frames && frames.urls.length > 1) {
+      // The thread reads the frame being rendered (a spawned thread starts a frame late, so counting yields would lag).
+      spawn(function* () {
+        let shown = bgMedia.url;
+        const end = frames.first + frames.urls.length;
+        while (usePlayback().frame < end) {
+          const next = mediaUrlAt(bgMedia, usePlayback().frame);
+          if (next !== shown) {
+            for (const ref of layers) ref?.().src(next);
+            delete imgPool[shown];
+            shown = next;
+          }
+          yield;
+        }
+      });
+    }
+  }
 
   const block = createRef<Layout>();
   const titleRef = createRef<Txt>();
@@ -138,6 +189,14 @@ export default makeScene2D(function* (view) {
       </Layout>
     </Layout>
   );
+
+  // Logo (#299): contained in a square of `size` units in a corner of the content safe area.
+  const logoMedia = logo ? assets[logo.asset] : undefined;
+  if (logo && logoMedia) {
+    const box = logoBox(l.box, u, logo.corner, logo.size);
+    const r = fitMedia(box, logoMedia.width, logoMedia.height, 'contain', { x: logo.corner.endsWith('left') ? 0 : 100, y: logo.corner.startsWith('top') ? 0 : 100 }).fg;
+    view.add(<Img src={logoMedia.url} {...node(r)} />);
+  }
 
   // Fit to the safe area: the laid-out block shrinks (never grows) when it is taller than the box.
   const laidOut = block().size();

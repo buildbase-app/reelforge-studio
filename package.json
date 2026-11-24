@@ -32,8 +32,12 @@
     "test:capture": "node --test scripts/capture/*.test.mjs",
     "load": "node --import tsx scripts/load/run.ts",
     "load:smoke": "LOAD_PROFILE=smoke node --import tsx scripts/load/run.ts",
+    "load:depth": "node --import tsx scripts/load/queue-depth.ts",
+    "load:encode": "node --import tsx scripts/load/encode.ts",
+    "load:real": "node --import tsx scripts/load/real-render.ts",
     "test:load": "vitest run --dir scripts/load",
-    "formats:prove": "tsx scripts/formats/prove.ts"
+    "formats:prove": "tsx scripts/formats/prove.ts",
+    "formats:prove-layouts": "tsx scripts/formats/prove-layouts.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

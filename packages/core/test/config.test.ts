@@ -18,6 +18,7 @@ import {
   resolveConfig,
   type ConfigIssue,
 } from '../src/index';
+import { DEFAULT_ENCODER_SETTINGS, encoderSettings, h264Args, setEncoderSettings } from '@reelforge/media-pipeline';
 import { fakeEngine, tempDir } from './helpers';
 
 const { dir, cleanup } = tempDir('reelforge-config-');
@@ -69,6 +70,9 @@ describe('config schema', () => {
       maxUploadBytes: 209715200,
       maxJsonBytes: 2097152,
       renderConcurrency: 1,
+      // Backpressure (#307): 503 overloaded past this many requests in progress per instance
+      maxInflightRequests: 64,
+      inflightWaitMs: 3000,
       // Resource limits (D-090, D-091)
       maxQueuedJobsPerKey: 100,
       maxQueuedJobs: 1000,
@@ -480,7 +484,23 @@ describe('ReelforgeService configuration', () => {
     // A new service on the same database starts with the runtime values.
     const again = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), { repositories: repos, dataDir: join(dir, 'svc'), configSources: { env: {} } });
     expect(again.jobs.concurrency).toBe(3);
-    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', ...Array(4).fill('default'), 'runtime', 'default', 'runtime', ...Array(11).fill('default')]);
+    expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', ...Array(4).fill('default'), 'runtime', 'default', 'runtime', ...Array(13).fill('default')]);
+  });
+
+  it('applies the encoder memory settings (#307) at start and at runtime, to every encode of the process', async () => {
+    const make = (env: NodeJS.ProcessEnv) =>
+      ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), { repositories: createMemoryRepositories(), dataDir: join(dir, 'svc-enc'), configSources: { env } });
+    try {
+      await make({});
+      expect(encoderSettings()).toEqual({ threads: 2, lookahead: 20 });
+      const s = await make({ REELFORGE_RENDER_ENCODER_THREADS: '0' });
+      expect(encoderSettings()).toEqual({ threads: 0, lookahead: 20 });
+      await s.updateConfig({ 'render.encoderThreads': 3, 'render.encoderLookahead': 12 });
+      expect(encoderSettings()).toEqual({ threads: 3, lookahead: 12 });
+      expect(h264Args().join(' ')).toContain('-threads 3');
+    } finally {
+      setEncoderSettings(DEFAULT_ENCODER_SETTINGS);
+    }
   });
 
   it('configure_provider stores encrypted values that providers see, and get_config shows the same key as runtime', async () => {
@@ -496,5 +516,17 @@ describe('ReelforgeService configuration', () => {
     await s.updateConfig({ 'providers.elevenlabs.apiKey': null });
     expect(providerEnv.ELEVENLABS_API_KEY).toBe('sk_from_env');
     expect(s.listProviders()[0]!.settings[0]).toMatchObject({ set: true, source: 'env' });
+  });
+});
+
+describe('number settings from the environment (#343 CodeQL)', () => {
+  it('parses plain decimals and refuses a long hostile digit string in linear time', async () => {
+    const { NUMBER_TEXT } = await import('../src/config/load');
+    for (const ok of ['1', '-1.5', '.5', '3.']) expect(NUMBER_TEXT.test(ok)).toBe(true);
+    for (const bad of ['1.2.3', 'abc', '-', '']) expect(NUMBER_TEXT.test(bad)).toBe(false);
+    const hostile = '9' + '99'.repeat(50_000) + 'x';
+    const t = performance.now();
+    expect(NUMBER_TEXT.test(hostile)).toBe(false);
+    expect(performance.now() - t).toBeLessThan(200);
   });
 });

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { SpanStatusCode, context, trace, type Context, type Span } from '@opentelemetry/api';
@@ -40,6 +41,35 @@ export interface JobEvent {
   line?: string;
   /** Read back from the database for a job running on another instance (database queue); onEvent never sees these. */
   remote?: true;
+  /** On the final status event of a job this instance ran: what it used here (#306). */
+  usage?: JobUsage;
+}
+
+/**
+ * What a job used on the instance that ran it (#306): CPU time of this server process plus the child processes
+ * (FFmpeg, engines) that finished meanwhile, when the job ran alone here, so the figure is the job's own.
+ */
+export interface JobUsage {
+  /** Wall-clock seconds of this run (its start to its end). */
+  runSeconds: number;
+  cpuSeconds?: number;
+  /** Why cpuSeconds is missing. */
+  cpuUnavailable?: string;
+}
+
+/** CPU microseconds of this process and of its reaped children (Linux /proc: USER_HZ is 100 on every Linux ABI). */
+function cpuNow(): { self: number; children?: number } {
+  const u = process.cpuUsage();
+  const self = u.user + u.system;
+  try {
+    const stat = readFileSync('/proc/self/stat', 'utf8');
+    const f = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    // Fields 16 and 17 (cutime, cstime) are at 13 and 14 after the command name.
+    const ticks = Number(f[13]) + Number(f[14]);
+    return Number.isFinite(ticks) ? { self, children: ticks * 10_000 } : { self };
+  } catch {
+    return { self };
+  }
 }
 
 export interface JobContext {
@@ -140,6 +170,8 @@ export interface JobRunnerOptions {
   priorityAgingSeconds?: () => number | undefined;
   /** Called for every job this instance claims (or starts, in-process): the shared claim throughput (ClaimRate, D-103). */
   onClaim?: (job: JobRecord) => void;
+  /** render.timeoutSeconds, read when a job starts: longer runs are stopped and fail with `render_timeout` (#306). 0 or unset: no limit. */
+  timeoutSeconds?: (job: JobRecord) => number | undefined;
 }
 
 /** What the database queue looks like from this instance (/readyz, metrics). */
@@ -178,7 +210,7 @@ export interface QueueStatus {
   };
 }
 
-type AbortReason = 'cancel' | 'lost' | 'release';
+type AbortReason = 'cancel' | 'lost' | 'release' | 'timeout';
 
 export function defaultWorkerId(): string {
   const host = hostname().toLowerCase().replace(/[^a-z0-9.-]/g, '-').slice(0, 60) || 'worker';
@@ -253,6 +285,9 @@ export class JobRunner {
   /** Database queue: the claim (fence) of each job this process runs. */
   private fences = new Map<string, JobLeaseFence>();
   private abortReasons = new Map<string, AbortReason>();
+  /** Running jobs' start (wall clock and CPU) and whether another job ran beside them (#306). */
+  private usageStart = new Map<string, { at: number; cpu: ReturnType<typeof cpuNow>; shared: boolean }>();
+  private readonly timeoutOf: (job: JobRecord) => number | undefined;
   private pollTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private claiming = false;
@@ -331,6 +366,7 @@ export class JobRunner {
       return n && n > 0 ? n : undefined;
     };
     this.onClaim = opts.onClaim ?? (() => undefined);
+    this.timeoutOf = opts.timeoutSeconds ?? (() => undefined);
     // Workspaces (#304): the claim, heartbeat and housekeeping loops work for every workspace, so they never run in
     // the workspace of whatever request or job happened to wake them (their timers would inherit it). Each job then
     // runs in its own workspace (start), and its events are emitted there (emit).
@@ -1359,6 +1395,10 @@ export class JobRunner {
   private async start(job: JobRecord) {
     const controller = new AbortController();
     this.running.set(job.id, controller);
+    // CPU is per process: a job that overlaps another one here gets no CPU figure (both are marked).
+    const alone = this.running.size === 1;
+    if (!alone) for (const u of this.usageStart.values()) u.shared = true;
+    this.usageStart.set(job.id, { at: Date.now(), cpu: cpuNow(), shared: !alone });
     const fence = this.mode === 'database' ? { workerId: this.workerId, attempts: job.attempts ?? 1 } : undefined;
     if (fence) {
       // Claimed: the row is already running (claim wrote it and its status event).
@@ -1400,6 +1440,12 @@ export class JobRunner {
       },
       ...(fence ? { fanOut: (children: ChildSpec[], params?: Record<string, unknown>) => this.fanOut(job, fence, controller, children, params) } : {}),
     };
+    const limit = this.timeoutOf(job);
+    const timer =
+      limit && limit > 0
+        ? setTimeout(() => this.abort(job.id, 'timeout', `it ran longer than render.timeoutSeconds (${limit} s)`), limit * 1000)
+        : undefined;
+    timer?.unref();
     try {
       const result = await context.with(trace.setSpan(parent, span), () => this.handlers[job.type]!(ctx));
       if (this.detached.delete(job.id)) {
@@ -1416,6 +1462,11 @@ export class JobRunner {
       if (controller.signal.aborted && reason === 'lost') {
         // Another worker owns the job now (or will): write nothing, forget it here.
         this.drop(job, 'lease lost');
+      } else if (controller.signal.aborted && reason === 'timeout') {
+        this.log(job, `error: stopped after render.timeoutSeconds (${limit} s)`);
+        this.finish(job, 'failed', {
+          error: { code: 'render_timeout', message: `the job ran longer than render.timeoutSeconds (${limit} s) and was stopped`, ...(job.progress?.stage ? { stage: job.progress.stage } : {}) },
+        });
       } else if (fence && (reason === 'release' || (this.stopping && reason !== 'cancel'))) {
         // Shutting down: whatever ended the job now (our abort, or a tool killed by the same signal) is not
         // the job's fault. Hand it back so another worker runs it, instead of failing it.
@@ -1442,6 +1493,8 @@ export class JobRunner {
         this.finish(job, 'failed', { error: { code, message: err.message, ...(err.stage ? { stage: err.stage } : {}) } });
       }
     } finally {
+      if (timer) clearTimeout(timer);
+      this.usageStart.delete(job.id);
       this.detached.delete(job.id);
       this.running.delete(job.id);
       this.abortReasons.delete(job.id);
@@ -1531,6 +1584,7 @@ export class JobRunner {
     if (status === 'succeeded') job.progress = { stage: 'done', fraction: 1 };
     Object.assign(job, extra);
     this.record(job);
+    const usage = this.usageOf(job.id);
     this.log(job, `finished: ${status}${extra.error ? ` (${extra.error.message})` : ''}`);
     const written = this.transition(job);
     // Readers fall back to the database once the final state is stored.
@@ -1539,7 +1593,18 @@ export class JobRunner {
       this.fences.delete(job.id);
       this.lastPersist.delete(job.id);
     });
-    this.emit({ jobId: job.id, type: 'status', job });
+    this.emit({ jobId: job.id, type: 'status', job, ...(usage ? { usage } : {}) });
+  }
+
+  /** What a job running here used so far (#306); undefined for one that never started here. */
+  private usageOf(id: string): JobUsage | undefined {
+    const u = this.usageStart.get(id);
+    if (!u) return undefined;
+    const runSeconds = Math.round((Date.now() - u.at) / 10) / 100;
+    if (u.shared) return { runSeconds, cpuUnavailable: 'another job ran on this instance at the same time' };
+    const now = cpuNow();
+    const micros = now.self - u.cpu.self + (now.children !== undefined && u.cpu.children !== undefined ? now.children - u.cpu.children : 0);
+    return { runSeconds, cpuSeconds: Math.round(micros / 10_000) / 100 };
   }
 
   /** Metrics and the job's span for a final state. */

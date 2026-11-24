@@ -161,7 +161,10 @@ describe('REST v1', () => {
     expect(err.code).toBe('invalid_manifest');
     expect(err.details.issues.some((i: any) => i.path.startsWith('output.fps'))).toBe(true);
     // The message lists the supported frame rates (#322).
-    expect(err.details.issues.find((i: any) => i.path === 'output.fps')?.message).toBe('fps must be one of 24, 25, 30, 60 (got 29)');
+    expect(err.details.issues.find((i: any) => i.path === 'output.fps')?.message).toBe(`fps must be one of 23.976 ("24000/1001"), 24, 25, 29.97 ("30000/1001"), 30, 48, 50, 59.94 ("60000/1001"), 60; give NTSC rates as "30000/1001", { "num": 30000, "den": 1001 } or 29.97 (got 29)`);
+    const ntsc = await req('POST', '/v1/projects', { body: { ...sample, projectId: 'ntsc', output: { ...sample.output, fps: '24000/1001' } } });
+    expect(ntsc.status).toBe(201);
+    expect(((await ntsc.json()) as any).manifest.output.fps).toBe('24000/1001');
     expect((await req('POST', '/v1/projects', { body: 'not json' })).status).toBe(400);
   });
 
@@ -291,6 +294,40 @@ describe('REST v1', () => {
     await service.updateProject('sample-reel', { captions: { cues: null, language: null } });
   }, 120_000);
 
+  it('reviews and approves captions over REST: read scope for get, write for update, etag as If-Match', async () => {
+    await service.updateProject('sample-reel', { captions: { cues: [{ start: 0.5, end: 2, text: 'Hello reels' }], language: 'en' } });
+    const got = await req('GET', '/v1/projects/sample-reel/captions', { key: reader });
+    expect(got.status).toBe(200);
+    const view = (await got.json()) as any;
+    expect(view).toMatchObject({ projectId: 'sample-reel', mode: 'off', approved: false, languages: [{ language: 'en', primary: true, cues: [{ text: 'Hello reels' }], qa: { ok: true } }] });
+    expect((await req('PATCH', '/v1/projects/sample-reel/captions', { key: reader, body: { etag: view.etag, approve: true } })).status).toBe(403);
+    expect((await req('POST', '/v1/projects/sample-reel/captions/transcribe', { key: reader, body: {} })).status).toBe(403);
+    const stale = await req('PATCH', '/v1/projects/sample-reel/captions', { body: { mode: 'sidecar' }, headers: { 'if-match': '"c-0000"' } });
+    expect(stale.status).toBe(409);
+    expect(((await stale.json()) as any).error).toMatchObject({ code: 'captions_conflict', details: { etag: view.etag } });
+    const ok = await req('PATCH', '/v1/projects/sample-reel/captions', {
+      body: { edits: [{ index: 0, text: 'Hello, reels' }], language: 'en', mode: 'sidecar', approve: true },
+      headers: { 'if-match': view.etag },
+    });
+    expect(ok.status).toBe(200);
+    const updated = (await ok.json()) as any;
+    expect(updated).toMatchObject({ mode: 'sidecar', approved: true, languages: [{ cues: [{ text: 'Hello, reels' }] }] });
+    expect((await req('PATCH', '/v1/projects/sample-reel/captions', { body: { etag: updated.etag, language: 'not a tag' } })).status).toBe(400);
+    expect((await req('GET', '/v1/projects/sample-reel/captions?language=fr')).status).toBe(404);
+    const audit = (await (await req('GET', '/v1/audit?action=captions.approve')).json()) as any;
+    expect(audit.events[0]).toMatchObject({ action: 'captions.approve', targetType: 'project', targetId: 'sample-reel', actorType: 'api_key', data: { approved: true, edits: 1 } });
+    // No speech-to-text provider on this server.
+    expect((await req('POST', '/v1/projects/sample-reel/captions/transcribe', { body: {} })).status).toBe(404);
+
+    const start = await req('POST', '/v1/projects/sample-reel/renders', { body: {} });
+    // Wait in-process: polling over REST would spend this key's per-minute rate limit that later tests share.
+    const done = await service.jobs.waitFor(((await start.json()) as any).job.id, 120_000);
+    expect(done.status, JSON.stringify(done.error)).toBe('succeeded');
+    const rendered = (await (await req('GET', `/v1/renders/${done.result!.renderId}/captions`, { key: reader })).json()) as any;
+    expect(rendered).toMatchObject({ mode: 'sidecar', burned: false, approved: true, languages: [{ language: 'en', cues: [{ text: 'Hello, reels' }], files: { vtt: 'captions.vtt' } }] });
+    await service.updateProject('sample-reel', { captions: { cues: null, language: null, mode: null, approval: null } });
+  }, 120_000);
+
   it('rejects renders on unconfigured backends and runs on unconfigured providers', async () => {
     const lambda = await req('POST', '/v1/projects/sample-reel/renders', { body: { backend: 'remotion-lambda' } });
     expect(lambda.status).toBe(409);
@@ -393,6 +430,11 @@ describe('output variants over REST (#287)', () => {
     const unknown = await req('POST', '/v1/projects/rest-variants/renders', { body: { variant: 'square' } });
     expect(unknown.status).toBe(404);
     expect(((await unknown.json()) as any).error.details.variants).toEqual(['vertical', 'wide']);
+    // preview_scene takes a variant too.
+    const preview = await req('POST', '/v1/projects/rest-variants/preview', { body: { variant: 'wide', scale: 0.5 } });
+    expect(preview.status).toBe(202);
+    expect(((await preview.json()) as any).job.params).toMatchObject({ variant: 'wide', scale: 0.5 });
+    expect((await req('POST', '/v1/projects/rest-variants/preview', { body: { variant: 'square' } })).status).toBe(404);
     expect((await req('DELETE', '/v1/projects/rest-variants')).status).toBe(204);
   }, 120_000);
 });
