@@ -40,7 +40,7 @@ beforeAll(async () => {
   const database = await testDatabase(dir);
   dropDb = database.drop;
   server = await startServer({ dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' }, { registry, env: { ...database.env, REELFORGE_LICENCE_MODE: 'off' }, quiet: true });
-  adminKey = (await server.service.keys.create('admin', ['admin'])).key;
+  adminKey = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   readKey = (await server.service.keys.create('reader', ['read'])).key;
 });
 afterAll(async () => {

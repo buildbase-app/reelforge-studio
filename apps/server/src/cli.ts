@@ -45,6 +45,7 @@ import {
   ConfigError,
   KeyStore,
   RuntimeConfig,
+  DEFAULT_WORKSPACE_ID,
   SCOPES,
   STORAGE_DRIVERS,
   StorageManager,
@@ -85,7 +86,7 @@ const USAGE = `usage:
   renderweld migrate [--status]
   renderweld import-v01 [--data-dir DIR]
   renderweld backup <file>   (SQLite; use pg_dump / mysqldump for the others)
-  renderweld keys create [--name NAME] [--scopes ${SCOPES.join(',')}] [LIMITS]
+  renderweld keys create [--name NAME] [--scopes ${SCOPES.join(',')}] [LIMITS]   (every keys command takes --workspace ID; default "default")
   renderweld keys list
   renderweld keys show <keyId>
   renderweld keys update <keyId> [--name NAME] [LIMITS]   ("none" clears a limit)
@@ -160,9 +161,11 @@ async function storage(cmd: string | undefined, argv: string[], config: ServerCo
       if (r.failed.length) process.exitCode = 1;
       return;
     }
-    const manager = new StorageManager({ factory: createStorageDriver, settings, dataDir: config.dataDir, cacheDir, activeRunIds: async () => {
+    // Every workspace's files (#304): the manager runs activeRunIds inside each workspace in turn.
+    const router = db.workspaceRepositories();
+    const manager = new StorageManager({ factory: createStorageDriver, settings, dataDir: config.dataDir, cacheDir, workspaces: () => router.workspaceIds(), activeRunIds: async () => {
       const ids = new Set<string>();
-      for (const status of ['queued', 'running'] as const) for (const j of await repos.jobs.list({ status })) {
+      for (const status of ['queued', 'running'] as const) for (const j of await router.jobs.list({ status })) {
         const runId = (j.params as { runId?: unknown } | undefined)?.runId;
         if (typeof runId === 'string') ids.add(runId);
       }
@@ -609,7 +612,15 @@ function describeKey(k: PublicKey): string {
 async function keys(cmd: string, rest: string[], config: ServerConfig): Promise<void> {
   const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds });
   try {
-    const repos = db.repositories();
+    // --workspace: keys of another workspace (#304); default: the default workspace.
+    const workspace = arg('workspace', rest) ?? DEFAULT_WORKSPACE_ID;
+    const ws = await db.repositories().workspaces.get(workspace);
+    if (!ws || ws.status === 'deleted') {
+      console.error(`no workspace "${workspace}"${ws ? ' (it is deleted)' : ''}; list them with GET /v1/workspaces (owner key)`);
+      process.exitCode = 1;
+      return;
+    }
+    const repos = db.repositories(workspace);
     const settings = new RuntimeConfig(repos, config.sources);
     await settings.load();
     const audit = cliAuditLog(repos);

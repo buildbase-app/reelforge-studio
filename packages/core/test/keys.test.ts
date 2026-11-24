@@ -51,13 +51,13 @@ describe('KeyStore', () => {
     expect(await keys.verify(key)).toBeNull();
   });
 
-  it('bootstraps an admin key only when no key exists', async () => {
+  it('bootstraps an owner key (admin + owner, #304) only when no key exists', async () => {
     const freshRepo = createMemoryRepositories().keys;
     {
       const store = new KeyStore(freshRepo);
       const boot = 'rf_bootstrap_key_for_tests_0123456789';
       expect(await store.bootstrap(boot)).toBe(true);
-      expect((await store.verify(boot))?.scopes).toEqual(['admin']);
+      expect((await store.verify(boot))?.scopes).toEqual(['admin', 'owner']);
       expect(await store.bootstrap('rf_another_bootstrap_key_0123456789')).toBe(false);
       expect(await store.bootstrap(undefined)).toBe(false);
       // A fresh instance reads the same repository.

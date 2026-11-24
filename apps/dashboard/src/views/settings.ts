@@ -103,7 +103,7 @@ export const configView: View = (ctx, main) => {
   const ac = new AbortController();
   const body = frame(main, 'config');
   fill(body, h('p', { class: 'meta' }, 'Loading'));
-  const editable = (e: ConfigEntry) => ctx.can('admin') && e.scope === 'runtime' && !e.locked;
+  const editable = (e: ConfigEntry) => ctx.can('owner') && e.scope === 'runtime' && !e.locked;
 
   const row = (entry: ConfigEntry): HTMLElement => {
     let e = entry;
@@ -210,7 +210,7 @@ export const configView: View = (ctx, main) => {
       report = await ctx.api.get<ConfigReport>('/v1/config', ac.signal);
     } catch (e) {
       if (e instanceof HttpError && e.status === 403) {
-        fill(body, notice('The configuration needs a key with the admin scope. This key can see analytics, jobs and renders.'));
+        fill(body, notice('The configuration needs a key with the owner scope. This key can see analytics, jobs and renders.'));
         return;
       }
       return failed(ctx, body, 'Configuration', e, ac.signal);
@@ -257,7 +257,7 @@ export const configView: View = (ctx, main) => {
         { class: 'filter-row' },
         h('label', { for: 'cfg-filter' }, 'Filter settings'),
         filter,
-        h('p', { class: 'help' }, ctx.can('admin') ? 'Settings that apply at runtime can be changed here; the change takes effect at once and is in the audit log. Start-up settings are set in the config file or the environment.' : 'This key can read the settings but not change them.')
+        h('p', { class: 'help' }, ctx.can('owner') ? 'Settings that apply at runtime can be changed here; the change takes effect at once and is in the audit log. Start-up settings are set in the config file or the environment.' : 'This key can read the settings but not change them.')
       ),
       h('div', { class: 'groups' }, sections.map((s) => s.det))
     );
@@ -601,7 +601,7 @@ export const providersView: View = (ctx, main) => {
                   )
                 )
               : h('p', { class: 'empty' }, 'No providers are installed.'),
-            h('p', { class: 'help' }, ctx.can('admin') ? 'Provider settings are secrets: set them with configure_provider or PUT /v1/providers/:id/config.' : 'Configuring a provider needs the admin scope.')
+            h('p', { class: 'help' }, ctx.can('owner') ? 'Provider settings are secrets: set them with configure_provider or PUT /v1/providers/:id/config.' : 'Configuring a provider needs the owner scope.')
           )
         )
       );

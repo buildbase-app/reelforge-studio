@@ -10,10 +10,22 @@ datasource db {
   provider = "sqlite"
 }
 
+/// A tenant of the install (#304, D-124): every project, asset, theme, job, key, webhook and audit entry belongs to
+/// one. "default" always exists; existing installs keep all their rows there.
 model Workspace {
   id        String   @id
   name      String
   createdAt DateTime @default(now())
+  /// "active" | "suspended" (keys are refused, queued jobs wait) | "deleted" (soft-deleted, purged after purgeAfter).
+  status      String    @default("active")
+  updatedAt   DateTime?
+  suspendedAt DateTime?
+  deletedAt   DateTime?
+  /// A soft-deleted workspace's rows and files are purged after this time (workspaces.deleteGraceDays).
+  purgeAfter  DateTime?
+  /// Per-workspace limits as JSON text (renders per day/month, requests per minute, storage bytes); null: the
+  /// workspaces.defaultLimits settings, which are unlimited unless the operator sets them.
+  limits      String?
 
   projects         Project[]
   apiKeys          ApiKey[]

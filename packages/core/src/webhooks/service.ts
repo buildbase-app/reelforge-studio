@@ -8,6 +8,7 @@ import type { RuntimeConfig } from '../config/runtime';
 import { ApiError, badRequest, notFound } from '../errors';
 import { newSequentialId } from '../fsutil';
 import type { AuditEntryInput } from '../repositories';
+import { currentWorkspaceId, runInWorkspace } from '../workspace';
 import { NOOP_TELEMETRY, withSpan, type Telemetry } from '../telemetry';
 import { EVENT_DESCRIPTIONS, EVENT_TYPES, eventMatches, validEventFilter } from './events';
 import { checkTargetUrl, type OutboundPolicy } from './http';
@@ -169,7 +170,8 @@ export class WebhookService {
   private readonly providers = new Map<string, NotificationProvider>();
   private readonly now: () => number;
   private readonly telemetry: Telemetry;
-  private cache: { at: number; list: WebhookEndpointRecord[] } | null = null;
+  /** Endpoints per workspace (#304), re-read every 15 s or after a change. */
+  private cache = new Map<string, { at: number; list: WebhookEndpointRecord[] }>();
   private timer: NodeJS.Timeout | null = null;
   private ticking = false;
   private wakePending = false;
@@ -262,14 +264,16 @@ export class WebhookService {
   }
 
   private async endpoints(): Promise<WebhookEndpointRecord[]> {
-    if (this.cache && this.now() - this.cache.at < 15_000) return this.cache.list;
+    const ws = currentWorkspaceId();
+    const hit = this.cache.get(ws);
+    if (hit && this.now() - hit.at < 15_000) return hit.list;
     const list = await this.repo.listEndpoints();
-    this.cache = { at: this.now(), list };
+    this.cache.set(ws, { at: this.now(), list });
     return list;
   }
 
   private invalidate() {
-    this.cache = null;
+    this.cache.clear();
   }
 
   private async audit(actor: WebhookActor | undefined, action: string, targetId: string, data?: Record<string, unknown>) {
@@ -670,7 +674,8 @@ export class WebhookService {
       full = rows.length === free;
       for (const d of rows) {
         const controller = new AbortController();
-        const done = this.deliver(d, controller.signal)
+        // Each delivery is sent in its own workspace (#304): its endpoint, attempts and audit entries are there.
+        const done = runInWorkspace(d.workspaceId, () => this.deliver(d, controller.signal))
           .catch((e) => this.warn('deliver', `webhook delivery ${d.id} crashed: ${(e as Error).message}`))
           .finally(() => {
             this.inflight.delete(d.id);

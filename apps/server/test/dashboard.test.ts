@@ -35,7 +35,7 @@ beforeAll(async () => {
     dataDir: config.dataDir,
     configSources: { env: { REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', REELFORGE_LICENCE_MODE: 'off' } },
   });
-  admin = (await service.keys.create('admin', ['admin'])).key;
+  admin = (await service.keys.create('admin', ['admin', 'owner'])).key;
   reader = (await service.keys.create('viewer', ['read'])).key;
   app = createApp({ service, config });
 });
