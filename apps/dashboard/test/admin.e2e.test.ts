@@ -278,7 +278,7 @@ describe.runIf(hasBrowser)('dashboard part 2 in a browser', () => {
     await context.close();
   }, 60_000);
 
-  it('the render page lists the caption tracks with their first cues (get_captions), and no audio panel without audio fields', async () => {
+  it('the render page lists the caption tracks with their first cues (get_captions) and shows the render audio from get_render_output (#346)', async () => {
     const { context, page, requests } = await open('dark');
     await signIn(page, studio.keys.read);
     await go(page, `renders/${captioned}`, 'Captioned teaser');
@@ -287,7 +287,11 @@ describe.runIf(hasBrowser)('dashboard part 2 in a browser', () => {
     expect(await panel.locator('.bar-name').textContent()).toBe('en · primary');
     await panel.getByText('Made on your own machine.').waitFor();
     expect(await panel.getByRole('list', { name: 'First cues, en' }).locator('li').count()).toBe(2);
-    expect(await page.getByRole('heading', { name: 'Audio' }).count()).toBe(0);
+    // Every render reports its audio since #346: the panel shows the track, the preset and the loudness check.
+    const audio = page.getByRole('region', { name: 'Audio' });
+    await audio.waitFor();
+    expect(await audio.locator('dt').allTextContents()).toEqual(['Track', 'Loudness preset', 'Target', 'Measured', 'Normalisation']);
+    expect(await audio.locator('ul.qa li').count()).toBeGreaterThan(0);
     expect(await axe(page), 'render with captions, dark').toEqual([]);
     await checkClean(page, context, requests);
     await context.close();

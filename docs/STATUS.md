@@ -31,8 +31,8 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> MCP tools, generated list in
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
 REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
 REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
