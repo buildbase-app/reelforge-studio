@@ -164,7 +164,7 @@ describe.skipIf(!kind)(`2 api + 3 worker servers on ${kind} (licence mode requir
     const started = await Promise.all([instance('api-1', 'api'), instance('api-2', 'api'), instance('worker-2', 'worker'), instance('worker-3', 'worker')]);
     apis.push(started[0], started[1]);
     workers.push(started[2], started[3]);
-    admin = (await apis[0]!.service.keys.create('admin', ['admin'])).key;
+    admin = (await apis[0]!.service.keys.create('admin', ['admin', 'owner'])).key;
   }, 120_000);
   afterAll(async () => {
     for (const s of [...workers, ...apis]) await s.close().catch(() => undefined);

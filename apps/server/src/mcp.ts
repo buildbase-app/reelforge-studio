@@ -680,10 +680,10 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'configure_provider',
-    title: 'Configure a media provider (admin)',
+    title: 'Configure a media provider (owner)',
     description:
-      'Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider\'s setting names). Values are stored encrypted in the server database (needs REELFORGE_SECRET_KEY on the server) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the admin scope. Only do this with a key the user gave you for this purpose.',
-    scope: 'admin',
+      'Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider\'s setting names). Values are stored encrypted in the server database (needs REELFORGE_SECRET_KEY on the server) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the owner scope (instance-level, #304). Only do this with a key the user gave you for this purpose.',
+    scope: 'owner',
     input: {
       providerId: z.string(),
       values: z.record(z.string(), z.string().nullable()).describe('Setting name -> value, or null to clear.'),
@@ -692,20 +692,20 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'get_config',
-    title: 'Get the server configuration (admin)',
+    title: 'Get the server configuration (owner)',
     description:
-      'Returns every server setting with its effective value and where it comes from: source "default", "file" (REELFORGE_CONFIG), "env" (origin names the variable) or "runtime" (set with update_config, stored in the database; wins over the others). scope "runtime" settings can be changed with update_config; scope "startup" ones only in the config file or environment, then a restart. Secrets are only "set" / "not set". Optional prefix filters keys, e.g. "limits". Needs the admin scope.',
-    scope: 'admin',
+      'Returns every server setting with its effective value and where it comes from: source "default", "file" (REELFORGE_CONFIG), "env" (origin names the variable) or "runtime" (set with update_config, stored in the database; wins over the others). scope "runtime" settings can be changed with update_config; scope "startup" ones only in the config file or environment, then a restart. Secrets are only "set" / "not set". Optional prefix filters keys, e.g. "limits". Needs the owner scope (instance-level, #304).',
+    scope: 'owner',
     input: { prefix: z.string().optional().describe('Only keys under this group, e.g. "limits" or "providers.elevenlabs".') },
     annotations: { readOnlyHint: true },
     run: async (a, { service }) => service.getConfig({ prefix: a.prefix }),
   },
   {
     name: 'update_config',
-    title: 'Change runtime settings (admin)',
+    title: 'Change runtime settings (owner)',
     description:
-      'Changes runtime settings at once and stores them in the database (they survive restarts and override the config file and environment). settings maps dotted keys from get_config to values, e.g. { "limits.rateLimitPerMinute": 120 }; null clears a runtime value (the file/env/default applies again). All or nothing: start-up-only keys (port, database URL, data directory, ...) are refused with where to set them. Secrets (provider keys, licence key) are stored encrypted and need REELFORGE_SECRET_KEY on the server. Every change is audit-logged. Needs the admin scope. Only change what the user asked for.',
-    scope: 'admin',
+      'Changes runtime settings at once and stores them in the database (they survive restarts and override the config file and environment). settings maps dotted keys from get_config to values, e.g. { "limits.rateLimitPerMinute": 120 }; null clears a runtime value (the file/env/default applies again). All or nothing: start-up-only keys (port, database URL, data directory, ...) are refused with where to set them. Secrets (provider keys, licence key) are stored encrypted and need REELFORGE_SECRET_KEY on the server. Every change is audit-logged. Needs the owner scope (instance-level, #304). Only change what the user asked for.',
+    scope: 'owner',
     input: {
       settings: z.record(z.string(), z.unknown()).describe('Dotted setting key -> new value (JSON type of the setting), or null to clear the runtime value.'),
     },
@@ -758,40 +758,40 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'activate_licence',
-    title: 'Set and activate the licence key (admin)',
+    title: 'Set and activate the licence key (owner)',
     description:
-      'Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the admin scope.',
-    scope: 'admin',
+      'Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the owner scope (instance-level, #304).',
+    scope: 'owner',
     input: { key: z.string().optional().describe('The licence key from the ReelForge purchase, e.g. "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2". Omit to re-check the configured key.') },
     annotations: { openWorldHint: true, idempotentHint: true },
     run: async (a, { service, auth }) => service.activateLicence(a.key, { actorType: 'api_key', actorId: auth.keyId }),
   },
   {
     name: 'deactivate_licence',
-    title: 'Give the licence activation back (admin)',
+    title: 'Give the licence activation back (owner)',
     description:
-      'Frees this server\'s activation of the licence key at the licence server, so the key can be activated on another server. Afterwards renders and previews are refused here until activate_licence is called again. Only do this when the user asks (e.g. moving to a new server). Needs the admin scope.',
-    scope: 'admin',
+      'Frees this server\'s activation of the licence key at the licence server, so the key can be activated on another server. Afterwards renders and previews are refused here until activate_licence is called again. Only do this when the user asks (e.g. moving to a new server). Needs the owner scope (instance-level, #304).',
+    scope: 'owner',
     input: {},
     annotations: { destructiveHint: true, openWorldHint: true },
     run: async (_a, { service, auth }) => service.deactivateLicence({ actorType: 'api_key', actorId: auth.keyId }),
   },
   {
     name: 'get_storage',
-    title: 'Get storage driver, usage and health (admin)',
+    title: 'Get storage driver, usage and health (owner)',
     description:
-      'Returns where asset and render files are stored: driver ("local", "s3", "azure", "gcs"), location (bucket/container, endpoint, prefix, credential source; never secrets), how download links are made (bucket-signed or through this server), health (can the store be reached), usage (assets, renders, unfinished uploads, local cache in objects and bytes), the retention policy (storage.retention.*, change it with update_config) and the last scheduled sweep. Needs the admin scope.',
-    scope: 'admin',
+      'Returns where asset and render files are stored: driver ("local", "s3", "azure", "gcs"), location (bucket/container, endpoint, prefix, credential source; never secrets), how download links are made (bucket-signed or through this server), health (can the store be reached), usage (assets, renders, unfinished uploads, local cache in objects and bytes), the retention policy (storage.retention.*, change it with update_config) and the last scheduled sweep. Needs the owner scope (instance-level, #304).',
+    scope: 'owner',
     input: {},
     annotations: { readOnlyHint: true },
     run: async (_a, { service }) => service.getStorage(),
   },
   {
     name: 'run_storage_cleanup',
-    title: 'Apply the storage retention policy now (admin)',
+    title: 'Apply the storage retention policy now (owner)',
     description:
-      'Deletes renders the retention policy no longer keeps (older than storage.retention.renderDays; the newest keepLastRendersPerProject of each project and renders of running jobs are always kept), unfinished uploads and stale staging directories older than tempHours, and local cached copies unused for cacheDays. Call with dryRun: true first and show the user what would be deleted; deleting renders cannot be undone. renderDays / keepLastRendersPerProject try another policy for this run only (to set the policy, use update_config). Returns every render removed with its size and reason. Audit-logged. Needs the admin scope.',
-    scope: 'admin',
+      'Deletes renders the retention policy no longer keeps (older than storage.retention.renderDays; the newest keepLastRendersPerProject of each project and renders of running jobs are always kept), unfinished uploads and stale staging directories older than tempHours, and local cached copies unused for cacheDays. Call with dryRun: true first and show the user what would be deleted; deleting renders cannot be undone. renderDays / keepLastRendersPerProject try another policy for this run only (to set the policy, use update_config). Returns every render removed with its size and reason. Audit-logged. Needs the owner scope (instance-level, #304).',
+    scope: 'owner',
     input: {
       dryRun: z.boolean().optional().describe('true: only report what would be deleted. Default false.'),
       renderDays: z.number().int().min(0).max(36500).optional().describe('Override storage.retention.renderDays for this run (0 = no age limit).'),
@@ -824,7 +824,7 @@ export const TOOLS: ToolDef[] = [
     name: 'create_key',
     title: 'Create an API key (admin)',
     description:
-      'Creates an API key with the given scopes (read, write, render, admin) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.',
+      'Creates an API key in this key\'s workspace with the given scopes (read, write, render, admin; owner only from an owner key) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.',
     scope: 'admin',
     input: { name: z.string(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).min(1), ...keyLimits },
     run: async (a, { service, auth }) => ({
@@ -880,16 +880,85 @@ export const TOOLS: ToolDef[] = [
     name: 'list_audit_events',
     title: 'Read the audit log (admin)',
     description:
-      'The audit trail, newest first: who (API key id and name), action (e.g. "key.rotate", "project.create", "config.update"), target, result (success, failure, denied), client IP, user agent, request id and time (UTC). Never contains secret values. Filter by time (from/to), actorId, action ("key.*" for a prefix), targetType/targetId and result; page with cursor (nextCursor). format "jsonl" or "csv" returns an export (up to 10 000 entries; the REST route GET /v1/audit?format= streams up to 100 000). Needs the admin scope.',
+      'The audit trail, newest first: who (API key id and name), action (e.g. "key.rotate", "project.create", "config.update"), target, result (success, failure, denied), client IP, user agent, request id and time (UTC), of this key\'s workspace (owner keys: any workspace with workspaceId). Never contains secret values. Filter by time (from/to), actorId, action ("key.*" for a prefix), targetType/targetId and result; page with cursor (nextCursor). format "jsonl" or "csv" returns an export (up to 10 000 entries; the REST route GET /v1/audit?format= streams up to 100 000). Needs the admin scope.',
     scope: 'admin',
     input: {
       ...auditFilter,
       limit: z.number().int().min(1).max(10_000).optional().describe('Page size (default 100, max 1000) or export size (max 10 000).'),
       cursor: z.string().optional().describe('nextCursor of the previous page.'),
       format: z.enum(['json', 'jsonl', 'csv']).optional().describe('json (default): a page of entries; jsonl / csv: an export as text.'),
+      workspaceId: z.string().optional().describe('Owner keys only: another workspace\'s trail, or "*" for every workspace merged newest first (json pages; each entry then names its workspaceId).'),
     },
     annotations: { readOnlyHint: true },
     run: async ({ format, ...q }, { service }) => (format === 'jsonl' || format === 'csv' ? service.exportAuditEvents(q, format) : service.listAuditEvents(q)),
+  },
+  {
+    name: 'get_workspace',
+    title: 'Get this key\'s workspace',
+    description:
+      'The workspace this API key belongs to (#304): id, name, status, the limits in force (renders per day/month, requests per minute, storage bytes; absent: unlimited) and its usage today, this month and in storage. Every project, asset, theme, job, render, key, webhook and audit entry you can see is in this workspace only.',
+    scope: 'read',
+    input: {},
+    annotations: { readOnlyHint: true },
+    run: async (_a, { service }) => service.getWorkspace(),
+  },
+  {
+    name: 'list_workspaces',
+    title: 'List workspaces (owner)',
+    description: 'Every workspace of this install with its status (active, suspended, deleted with purgeAfter), its own limits and the limits in force. Needs the owner scope (instance-level, #304).',
+    scope: 'owner',
+    input: {},
+    annotations: { readOnlyHint: true },
+    run: async (_a, { service }) => service.listWorkspaces(),
+  },
+  {
+    name: 'create_workspace',
+    title: 'Create a workspace (owner)',
+    description:
+      'Creates a workspace for a team or customer: its projects, assets, themes, jobs, renders, keys, webhooks and audit log are invisible to every other workspace. id: 1-40 lowercase letters, digits and hyphens. Optional limits (renders per day/month, requests per minute, storage bytes; default unlimited). adminKey: true (or { name, scopes }) also creates the workspace\'s first admin key and returns it ONCE: give it to the user. Needs the owner scope.',
+    scope: 'owner',
+    input: {
+      id: z.string(),
+      name: z.string().optional(),
+      limits: z.record(z.string(), z.number().int().nullable()).optional().describe('rendersPerDay, rendersPerMonth, rateLimitPerMinute, storageBytes; 0 or null: unlimited.'),
+      adminKey: z.union([z.boolean(), z.object({ name: z.string().optional(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).optional() })]).optional(),
+    },
+    annotations: { idempotentHint: false },
+    run: async (a, { service, auth }) => service.createWorkspace(a, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'update_workspace',
+    title: 'Rename, limit, suspend or resume a workspace (owner)',
+    description:
+      'Changes a workspace\'s name or limits (null clears them: the workspaces.* defaults apply), or suspends it (suspended: true: its keys are refused with workspace_suspended and its queued jobs wait; its data stays) and resumes it (false). The default workspace cannot be suspended. Confirm suspending with the user first. Needs the owner scope.',
+    scope: 'owner',
+    input: {
+      workspaceId: z.string(),
+      name: z.string().optional(),
+      limits: z.record(z.string(), z.number().int().nullable()).nullable().optional(),
+      suspended: z.boolean().optional(),
+    },
+    annotations: { idempotentHint: true },
+    run: async ({ workspaceId, ...a }, { service, auth }) => service.updateWorkspace(workspaceId, a, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'delete_workspace',
+    title: 'Delete a workspace (owner)',
+    description:
+      'Deletes a workspace: its keys stop working and its jobs are no longer run at once; its projects, renders, assets, keys, webhooks and audit log are purged for good after workspaces.deleteGraceDays (default 30; purgeAfter says when). restore_workspace undoes it until then. The default workspace cannot be deleted. Confirm with the user first. Needs the owner scope.',
+    scope: 'owner',
+    input: { workspaceId: z.string() },
+    annotations: { destructiveHint: true },
+    run: async (a, { service, auth }) => service.deleteWorkspace(a.workspaceId, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
+    name: 'restore_workspace',
+    title: 'Restore a deleted workspace (owner)',
+    description: 'Brings back a deleted workspace before its purge (see list_workspaces: purgeAfter): its keys work again and its jobs run. Needs the owner scope.',
+    scope: 'owner',
+    input: { workspaceId: z.string() },
+    annotations: { idempotentHint: true },
+    run: async (a, { service, auth }) => service.restoreWorkspace(a.workspaceId, { actorType: 'api_key', actorId: auth.keyId }),
   },
   {
     name: 'list_webhooks',

@@ -91,7 +91,7 @@ beforeAll(async () => {
     { dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' },
     { registry: (penv) => registry.registerProvider(new ElevenLabsTts(penv)), env, auditSinks: [captureSink, brokenSink], now: () => clock, logWrite: (_level, line) => keep(line) }
   );
-  admin = (await server.service.keys.create('admin', ['admin'])).key;
+  admin = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   secrets.push(admin);
 }, 60_000);
 

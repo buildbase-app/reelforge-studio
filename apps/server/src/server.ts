@@ -107,7 +107,8 @@ export async function startServer(
     ...(notify ? { readySignal: { kind: 'notify' as const, channel: notifyChannel(config.databaseUrl), announceClaimsWithinMs: Math.max(2000, queueCfg.notifyJitterMs * 4) } } : {}),
     ...(broker ? { readySignal: { kind: 'outbox' as const } } : {}),
   });
-  const repositories = db.repositories();
+  // Every call goes to the caller's workspace (#304); the outbox relay and the job queue work across workspaces.
+  const repositories = db.workspaceRepositories();
   const relay = broker
     ? new OutboxRelay({ repo: repositories.dispatchOutbox, publisher: broker.publisher, sweepMs: queueCfg.dispatchFallbackSeconds * 1000, telemetry: obs.telemetry, log: (level, line) => logger.log(level, line) })
     : undefined;

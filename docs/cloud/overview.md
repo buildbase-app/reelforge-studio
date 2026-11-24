@@ -146,7 +146,7 @@ Each one can be given three ways:
    store (ECS `secrets`, Container Apps `secretref:`, Cloud Run `--update-secrets
    NAME=secret:version`).
 3. For runtime settings only (provider keys, email credentials, storage keys,
-   the licence key): set by an admin agent with `update_config` /
+   the licence key): set by an agent with an owner key using `update_config` /
    `PATCH /v1/config`, stored AES-256-GCM encrypted with `REELFORGE_SECRET_KEY`.
 
 `get_config` shows only `set` / `not set` and where a secret came from, never

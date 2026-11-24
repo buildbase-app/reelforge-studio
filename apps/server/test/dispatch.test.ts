@@ -71,7 +71,7 @@ describe.skipIf(!process.env.TEST_POSTGRES_URL)('api + notify worker on PostgreS
     const opts = (name: string, role: string) => ({ registry, env: env(role), queue: { workerId: name, heartbeatMs: 500 }, logWrite: (_l: string, line: string) => void logs.push(line) });
     api = await startServer({ dataDir: data, port: 0, host: '127.0.0.1' }, opts('api-1', 'api'));
     worker = await startServer({ dataDir: data, port: 0, host: '127.0.0.1' }, opts('worker-n', 'worker'));
-    admin = (await api.service.keys.create('admin', ['admin'])).key;
+    admin = (await api.service.keys.create('admin', ['admin', 'owner'])).key;
     expect((await rest(api, 'POST', '/v1/projects', { manifest: { ...sample, projectId: 'dsp', title: 'Dispatch' } })).status).toBe(201);
   }, 120_000);
   afterAll(async () => {
