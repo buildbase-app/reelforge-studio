@@ -220,7 +220,7 @@ describe('layout scene props (#287)', () => {
     expect(parseProject(manifest([img, clip], 'clip')).ok).toBe(true);
     const bad = parseProject(manifest([img, song], 'song'));
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.issues).toContainEqual({ path: 'scenes.0.props.panes.0.media.asset', message: 'asset "song" is audio; panes show images or videos' });
+    if (!bad.ok) expect(bad.issues).toContainEqual({ path: 'scenes.0.props.panes.0.media.asset', message: 'asset "song" is audio; expected image or video' });
     const missing = parseProject(manifest([img], 'nope'));
     if (!missing.ok) expect(missing.issues[0]!.message).toMatch(/unknown asset id "nope"/);
     else throw new Error('expected an error');

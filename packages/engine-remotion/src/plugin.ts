@@ -49,6 +49,10 @@ export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
         signal: ctx.signal,
         onProgress: ctx.progress,
         ...(ctx.frameRange ? { frameRange: ctx.frameRange } : {}),
+        assets: ctx.assets,
+        tools: ctx.tools,
+        workDir: ctx.workDir,
+        log: ctx.log,
       });
       return { file: res.out, frames: res.frames, engineVersion: res.engineVersion, browserVersion: browserVersion(browser()), millis: res.millis };
     },

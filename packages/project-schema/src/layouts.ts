@@ -156,9 +156,13 @@ export type LayoutSceneProps = z.infer<typeof layoutSceneProps>;
 export type LayoutPane = z.infer<typeof layoutPane>;
 export type LowerThird = z.infer<typeof lowerThird>;
 
-/** Asset ids the panes use, with their manifest paths (the project schema checks they exist and are images or videos). */
-export function layoutMediaRefs(props: unknown): Array<{ path: (string | number)[]; asset: string }> {
+/** Asset ids the panes use, with their manifest paths and in-points (the project schema checks they exist and are images or videos; renderers stage exactly these). */
+export function layoutMediaRefs(props: unknown): Array<{ path: (string | number)[]; asset: string; mediaTypes: readonly ['image', 'video']; start?: number }> {
   const parsed = layoutSceneProps.safeParse(props);
   if (!parsed.success) return [];
-  return parsed.data.panes.flatMap((p, i) => (p.media ? [{ path: ['panes', i, 'media', 'asset'], asset: p.media.asset }] : []));
+  return parsed.data.panes.flatMap((p, i) =>
+    p.media
+      ? [{ path: ['panes', i, 'media', 'asset'], asset: p.media.asset, mediaTypes: ['image', 'video'] as const, ...(p.media.startSeconds ? { start: p.media.startSeconds } : {}) }]
+      : []
+  );
 }
