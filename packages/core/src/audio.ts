@@ -86,9 +86,12 @@ export interface AudioLoudness {
   target: (LoudnessTarget & { truePeakCeiling: number }) | null;
   /** The mix before normalisation. */
   input: LoudnessMeasurement | null;
-  normalisation: 'linear' | 'dynamic' | 'none';
+  /** linear: one gain; limited: one gain and a true-peak limiter (#449); dynamic: loudnorm's dynamic mode (renders before #449). */
+  normalisation: 'linear' | 'limited' | 'dynamic' | 'none';
   reason?: string;
   gainDb?: number;
+  /** With normalisation "limited": the limiter's ceiling (dBTP, under the preset's ceiling for the AAC overshoot) and the gain passes it took. */
+  limiter?: { ceilingDb: number; passes: number };
   /** Measured on the finished file, after the AAC encode (and caption burn-in). */
   measured?: { integrated: number | null; truePeak: number | null; lra: number | null };
 }
@@ -207,7 +210,8 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
   const norm = await normaliseLoudness({ ffmpeg: tools.ffmpeg, input: mixFile, out: join(i.workDir, 'audio.wav'), target, measured: input, signal });
   manifest.loudness.normalisation = norm.type;
   manifest.loudness.gainDb = norm.gainDb;
-  log(`audio: ${input.integrated} LUFS / ${input.truePeak} dBTP -> ${plan.loudness} (${target.integrated} LUFS, <= ${target.truePeak} dBTP), ${norm.type}`);
+  if (norm.limiter) manifest.loudness.limiter = { ceilingDb: norm.limiter.ceilingDb, passes: norm.limiter.passes };
+  log(`audio: ${input.integrated} LUFS / ${input.truePeak} dBTP -> ${plan.loudness} (${target.integrated} LUFS, <= ${target.truePeak} dBTP), ${norm.type}${norm.limiter ? ` (${norm.gainDb} dB gain, true-peak limiter at ${norm.limiter.ceilingDb} dBTP, ${norm.limiter.passes} passes)` : ''}`);
   return { file: norm.out, noAudio: false, manifest };
 }
 
@@ -240,11 +244,16 @@ export async function verifyAudio(
     if (m.track === 'mixed' && t && m.loudness.normalisation !== 'none') {
       const got = await measureEbur128(tools.ffmpeg, file, signal);
       m.loudness.measured = got;
+      // A peak-limited mix that still misses: say why and what the agent can change (#449).
+      const why =
+        m.loudness.normalisation === 'limited'
+          ? `; the mix is peak-limited (short loud sounds set the true peak, ${m.loudness.gainDb} dB of gain was needed): lower the sound effects (audio.gainDb.sfx or an sfx volume) or raise the bed, then render again`
+          : '';
       if (got.integrated === null || Math.abs(got.integrated - t.integrated) > t.tolerance) {
-        issues.push({ rule: 'loudness.integrated', severity: mode, message: `integrated loudness is ${got.integrated ?? '-inf'} LUFS, target ${t.integrated} ± ${t.tolerance} LU (${m.loudness.preset})` });
+        issues.push({ rule: 'loudness.integrated', severity: mode, message: `integrated loudness is ${got.integrated ?? '-inf'} LUFS, target ${t.integrated} ± ${t.tolerance} LU (${m.loudness.preset})${why}` });
       }
       if (got.truePeak !== null && got.truePeak > t.truePeakCeiling) {
-        issues.push({ rule: 'loudness.truePeak', severity: mode, message: `true peak is ${got.truePeak} dBTP, ceiling ${t.truePeakCeiling} dBTP (${m.loudness.preset})` });
+        issues.push({ rule: 'loudness.truePeak', severity: mode, message: `true peak is ${got.truePeak} dBTP, ceiling ${t.truePeakCeiling} dBTP (${m.loudness.preset})${why}` });
       }
       if (got.lra !== null && got.lra > t.lra) {
         issues.push({ rule: 'loudness.lra', severity: 'warn', message: `loudness range is ${got.lra} LU, guidance ${t.lra} LU (not enforced; EBU R 128 does not recommend LRA for programmes under a minute)` });
