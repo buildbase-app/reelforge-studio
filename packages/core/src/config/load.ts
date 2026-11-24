@@ -82,6 +82,9 @@ function validateLeaf(def: SettingDef, value: unknown, source: ConfigSource, ori
 }
 
 /** Turn an environment variable's text into a value of the setting's kind. */
+/** A decimal number as text. Each string matches in one way only, so a long hostile value can't blow up backtracking (CodeQL js/polynomial-redos). */
+export const NUMBER_TEXT = /^-?(?:\d+(?:\.\d*)?|\.\d+)$/;
+
 function fromEnvText(def: SettingDef, text: string, origin: string, issues: ConfigIssue[]): unknown {
   const shown = def.secret ? '' : ` (got "${text}")`;
   switch (def.kind) {
@@ -90,7 +93,7 @@ function fromEnvText(def: SettingDef, text: string, origin: string, issues: Conf
       issues.push({ key: def.key, source: 'env', origin, message: `must be an integer${shown}` });
       return undefined;
     case 'number':
-      if (/^-?(\d+\.?\d*|\.\d+)$/.test(text)) return Number(text);
+      if (NUMBER_TEXT.test(text)) return Number(text);
       issues.push({ key: def.key, source: 'env', origin, message: `must be a number${shown}` });
       return undefined;
     case 'boolean': {
