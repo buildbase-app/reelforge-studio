@@ -4,7 +4,9 @@ import { FIT_MODES, LAYOUT_DEFAULTS, type LayoutSpec } from './layout';
 
 /**
  * Manifest props of the layout templates (#287): `html-layout`,
- * `hyperframes-layout` and `remotion-layout` share them. A scene is a layout
+ * `hyperframes-layout`, `remotion-layout` and `motion-canvas-layout` share
+ * them, so a scene moves between engines by changing only its engine and
+ * template. A scene is a layout
  * (full frame, split screen, picture-in-picture or grid) of panes, each with
  * media (an image or video asset placed with a fit mode), a colour and
  * optional text, plus an optional lower third. Sizes are in layout units
