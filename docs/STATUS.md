@@ -648,13 +648,14 @@ html and HyperFrames engines (`EngineCapabilities.output.alpha`); `422 unsupport
 queueing for engines without alpha, missing encoders, audio only without audio or with burned
 captions, GIF over its limit; burned captions (into alpha too) and sidecars per format; per-format
 ffprobe QA; content types, `get_render_output` / summaries with `format`, `codec`, `alpha`, `file`,
-`contentType`; `get_capabilities` `outputFormats` and per-engine `alpha`; settings
+`contentType`; the dashboard's library and render page show the format and use a matching player
+(video, GIF image, audio, or the poster of a PNG zip); `get_capabilities` `outputFormats` and per-engine `alpha`; settings
 `render.formats.*`. Tests: schema combinations and variant overrides (project-schema); every
 format's master, GIF, zip, audio mix and alpha caption burn (media-pipeline); every format through
 the service with ffprobe and 422 refusals (core, fake engines); html and HyperFrames alpha to MOV and
 WebM over REST with signed downloads (server, real engines). Not yet: HEVC (licence, D-1XX),
 Remotion/Motion Canvas alpha, lossless intermediates for opaque non-MP4 renders, ZIP64, fan-out for
-non-MP4 formats, the dashboard (not merged). The media-pipeline format tests also pass on Debian
+non-MP4 formats, new dashboard screenshots. The media-pipeline format tests also pass on Debian
 bookworm's FFmpeg 5.1.9 (the image's package); the service and engine tests ran on 6.1.1.
 
 ## 4. Infrastructure inventory (no secrets)

@@ -635,6 +635,10 @@ progress.settled::-moz-progress-bar {
   margin-bottom: 16px;
   align-items: start;
 }
+.player audio {
+  align-self: center;
+  width: 100%;
+}
 .player {
   display: flex;
   justify-content: center;
@@ -642,7 +646,8 @@ progress.settled::-moz-progress-bar {
   background: var(--screen);
   border-radius: 16px;
 }
-.player video {
+.player video,
+.player img {
   display: block;
   max-width: 100%;
   max-height: 72vh;
@@ -766,7 +771,8 @@ progress.settled::-moz-progress-bar {
   .library {
     grid-template-columns: minmax(0, 1fr);
   }
-  .player video {
+  .player video,
+  .player img {
     max-height: 64vh;
   }
 }

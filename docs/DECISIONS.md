@@ -2464,6 +2464,8 @@ exists); one job's page follows `GET /v1/jobs/:id/events` and polls its fan-out 
 requests a minute per open page, well inside the default 300 per key. **Split:** part 1 is sign-in, jobs and the
 library; analytics (aggregates the API does not offer yet), settings and the audit log viewer come in part 2.
 
+## AC. Output formats (2026-11-24, issue #302)
+
 ### D-1XX --- Output formats: MOV/ProRes, WebM (VP9, AV1), GIF, PNG sequences and audio only from one manifest field; alpha from the html and HyperFrames engines; no HEVC
 
 *Number assigned at merge.* (2026-11-24, issue #302.) `output.format` (`mp4`, `mov`, `webm`, `gif`,

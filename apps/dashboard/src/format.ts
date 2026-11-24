@@ -80,3 +80,31 @@ export function scopeText(scopes: string[]): string {
   if (scopes.length === 1 && scopes[0] === 'read') return 'read only';
   return scopes.join(', ');
 }
+
+const CODEC_LABEL: Record<string, string> = {
+  h264: 'H.264',
+  'prores-422-hq': 'ProRes 422 HQ',
+  'prores-4444': 'ProRes 4444',
+  vp9: 'VP9',
+  av1: 'AV1',
+  gif: 'GIF',
+  png: 'PNG frames',
+  aac: 'AAC',
+  'pcm-s16le': 'PCM',
+};
+
+/** "MP4 · H.264", "MOV · ProRes 4444 · alpha", "PNG sequence · PNG frames · alpha" (#302; renders before it are MP4). */
+export function outputFormat(r: { format?: string; codec?: string; alpha?: boolean }): string {
+  const format = r.format ?? 'mp4';
+  const name = format === 'png-sequence' ? 'PNG sequence' : format === 'webm' ? 'WebM' : format.toUpperCase();
+  const codec = CODEC_LABEL[r.codec ?? 'h264'] ?? r.codec ?? '';
+  return [name, codec, r.alpha ? 'alpha' : ''].filter(Boolean).join(' · ');
+}
+
+/** How the render page shows a format's file: a video player, an image, an audio player, or none (a zip of frames). */
+export function playerKind(format: string | undefined): 'video' | 'image' | 'audio' | 'none' {
+  if (format === 'gif') return 'image';
+  if (format === 'm4a' || format === 'wav') return 'audio';
+  if (format === 'png-sequence') return 'none';
+  return 'video';
+}

@@ -1,6 +1,6 @@
 import { HttpError, sameOriginLink, type ProjectSummary, type RenderManifest, type RenderSummary } from '../api';
 import { fill, h, notice, tableWrap } from '../dom';
-import { ago, clock, dateTime, duration, size } from '../format';
+import { ago, clock, dateTime, duration, outputFormat, playerKind, size } from '../format';
 import type { Ctx, View } from '../main';
 
 const CHECK_LABEL: Record<string, string> = {
@@ -10,10 +10,16 @@ const CHECK_LABEL: Record<string, string> = {
   timestamps: 'Timestamps are continuous',
   avDuration: 'Audio and video end together',
   captions: 'Captions meet the reading rules',
+  alpha: 'Alpha channel present',
+  size: 'Within the GIF size limit',
+  entries: 'One PNG per frame in the zip',
+  pngHeaders: 'Frame size and colour type match',
+  audio: 'Audio codec and length match',
 };
 
-function format(r: Pick<RenderSummary, 'width' | 'height' | 'fps' | 'durationSeconds'>): string {
-  return `${size(r.width, r.height)} · ${r.fps} fps · ${r.durationSeconds.toFixed(1)} s`;
+function format(r: Pick<RenderSummary, 'width' | 'height' | 'fps' | 'durationSeconds' | 'format' | 'codec' | 'alpha'>): string {
+  if (playerKind(r.format) === 'audio') return `${outputFormat(r)} · ${r.durationSeconds.toFixed(1)} s`;
+  return `${outputFormat(r)} · ${size(r.width, r.height)} · ${r.fps} fps · ${r.durationSeconds.toFixed(1)} s`;
 }
 
 function kindLabel(kind: string): string {
@@ -108,8 +114,9 @@ export const libraryView: View = (ctx, main, projectId) => {
         'ul',
         { class: 'render-grid' },
         renders.map((r) => {
-          const img = h('img', { alt: `First frame of ${r.renderId}`, width: r.width, height: r.height, loading: 'lazy', decoding: 'async' });
-          poster(r.renderId, img);
+          const img = h('img', { alt: `First frame of ${r.renderId}`, width: r.width || 16, height: r.height || 9, loading: 'lazy', decoding: 'async' });
+          if (r.posterUrl !== undefined || r.format === undefined) poster(r.renderId, img);
+          else img.alt = `${outputFormat(r)}: no picture`;
           return h(
             'li',
             null,
@@ -183,22 +190,35 @@ export const renderView: View = (ctx, main, renderId) => {
     crumbs.append(h('a', { href: `#/library/${r.projectId}` }, projectTitle), h('span', { 'aria-current': 'page', class: 'mono' }, id));
     fill(sub, `${kindLabel(r.kind)} `, h('span', { class: 'mono' }, id), ` · ${dateTime(r.createdAt)}`);
 
-    const video = h('video', { controls: true, preload: 'metadata', playsinline: true, width: r.width, height: r.height, 'aria-label': `${kindLabel(r.kind)} of ${projectTitle}` });
-    const link = sameOriginLink(r);
-    ctx.api
-      .objectUrl(`/v1/renders/${enc}/output?file=poster.png`, ac.signal)
-      .then((u) => (urls.push(u), (video.poster = u)))
-      .catch(() => undefined);
+    // The player follows the format (#302): video (MP4, MOV, WebM), the GIF itself, audio, or the poster of a PNG zip.
+    const kind = playerKind(r.format);
+    const label = `${kindLabel(r.kind)} of ${projectTitle}`;
+    const video =
+      kind === 'audio'
+        ? h('audio', { controls: true, preload: 'metadata', 'aria-label': label })
+        : kind === 'video'
+          ? h('video', { controls: true, preload: 'metadata', playsinline: true, width: r.width, height: r.height, 'aria-label': label })
+          : h('img', { width: r.width, height: r.height, alt: kind === 'image' ? label : `First frame of ${projectTitle} (the frames are in the zip)` });
+    const link = kind === 'none' ? null : sameOriginLink(r);
+    if (kind !== 'audio')
+      ctx.api
+        .objectUrl(`/v1/renders/${enc}/output?file=poster.png`, ac.signal)
+        .then((u) => (urls.push(u), video instanceof HTMLVideoElement ? (video.poster = u) : kind === 'none' && video instanceof HTMLImageElement ? (video.src = u) : undefined))
+        .catch(() => undefined);
     // Sidecar captions play in the player from this server (a <track> needs the same origin).
     const vtt = r.captions?.files.find((f) => f.format === 'vtt');
     const vttLink = vtt ? sameOriginLink({ downloadUrl: vtt.downloadUrl, downloadVia: r.downloadVia }) : null;
-    if (vttLink && !r.captions?.burned) video.append(h('track', { kind: 'captions', src: vttLink, srclang: r.captions?.language ?? 'en', label: 'Captions', default: true }));
-    if (link) video.src = link;
+    if (vttLink && !r.captions?.burned && kind === 'video') video.append(h('track', { kind: 'captions', src: vttLink, srclang: r.captions?.language ?? 'en', label: 'Captions', default: true }));
+    if (kind === 'none') {
+      // A zip of PNG frames: the poster stands in for a player.
+    } else if (link) (video as HTMLMediaElement | HTMLImageElement).src = link;
     else
       ctx.api
         .objectUrl(`/v1/renders/${enc}/output`, ac.signal)
-        .then((u) => (urls.push(u), (video.src = u)))
+        .then((u) => (urls.push(u), ((video as HTMLMediaElement | HTMLImageElement).src = u)))
         .catch(() => undefined);
+    const file = r.file ?? 'final.mp4';
+    const ext = file.slice(file.lastIndexOf('.') + 1);
 
     const checks = Object.entries(m.checks ?? {});
     if (r.captions) checks.push(['captions', r.captions.qa.ok ? 'pass' : `${r.captions.qa.issues.length} issues`]);
@@ -219,7 +239,8 @@ export const renderView: View = (ctx, main, renderId) => {
         section(
           'Output',
           dl([
-            ['Size', size(r.width, r.height)],
+            ['Format', outputFormat(r)],
+            ['Size', kind === 'audio' ? '–' : size(r.width, r.height)],
             ['Frame rate', `${r.fps} fps`],
             ['Length', `${r.durationSeconds.toFixed(1)} s · ${r.frames} frames`],
             ['Render time', m.wallClockMillis !== undefined ? duration(m.wallClockMillis) : '–'],
@@ -229,7 +250,7 @@ export const renderView: View = (ctx, main, renderId) => {
           h(
             'div',
             { class: 'actions' },
-            h('a', { class: 'btn btn-primary', href: link ?? r.downloadUrl, download: `${id}.mp4`, rel: 'noreferrer' }, 'Download MP4'),
+            h('a', { class: 'btn btn-primary', href: sameOriginLink(r) ?? r.downloadUrl, download: `${id}.${ext}`, rel: 'noreferrer' }, `Download ${ext.toUpperCase()}`),
             h('button', { type: 'button', class: 'btn', onclick: () => downloadManifest(m) }, 'Download manifest'),
             (r.captions?.files ?? []).map((f) =>
               h('a', { class: 'btn btn-quiet', href: sameOriginLink({ downloadUrl: f.downloadUrl, downloadVia: r.downloadVia }) ?? f.downloadUrl, download: f.file, rel: 'noreferrer' }, `${f.format.toUpperCase()} captions`)

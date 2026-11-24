@@ -2,7 +2,20 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseEvent, sameOriginLink } from '../src/api';
-import { ago, between, bytes, duration, jobType, percent, scopeText, size } from '../src/format';
+import { ago, between, bytes, duration, jobType, outputFormat, percent, playerKind, scopeText, size } from '../src/format';
+
+describe('output formats (#302)', () => {
+  it('names the format, codec and alpha, MP4 for renders made before formats', () => {
+    expect(outputFormat({})).toBe('MP4 · H.264');
+    expect(outputFormat({ format: 'mov', codec: 'prores-4444', alpha: true })).toBe('MOV · ProRes 4444 · alpha');
+    expect(outputFormat({ format: 'webm', codec: 'av1', alpha: false })).toBe('WebM · AV1');
+    expect(outputFormat({ format: 'png-sequence', codec: 'png', alpha: true })).toBe('PNG sequence · PNG frames · alpha');
+    expect(outputFormat({ format: 'wav', codec: 'pcm-s16le' })).toBe('WAV · PCM');
+  });
+  it('picks the player for each format', () => {
+    expect([undefined, 'mp4', 'mov', 'webm', 'gif', 'png-sequence', 'm4a', 'wav'].map(playerKind)).toEqual(['video', 'video', 'video', 'video', 'image', 'none', 'audio', 'audio']);
+  });
+});
 
 describe('figures', () => {
   it('formats durations in one style', () => {
