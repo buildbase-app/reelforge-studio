@@ -9,6 +9,7 @@ import {
   ReelforgeService,
   assColor,
   assTime,
+  captionFontChoice,
   captionRenderStyle,
   captionSafeArea,
   createMemoryRepositories,
@@ -210,7 +211,8 @@ describe('captions in a render', () => {
     expect(manifest.captions).toMatchObject({ mode: 'both', burned: true, files: { srt: 'captions.srt', vtt: 'captions.vtt', ass: 'captions.ass' }, style: { position: 'bottom', fontPx: expect.any(Number) } });
     expect(manifest.captions.style.fontName).toEqual(expect.any(String));
     expect(manifest.captions.qa).toMatchObject({ ok: true, cues: 2, rules: { maxLineChars: 32, maxCharsPerSecond: 20 } });
-    expect(manifest.captions.burnArgs).toContain('ass=captions.ass');
+    // The theme font (Inter) is a bundled font: libass gets its files (#447).
+    expect(manifest.captions.burnArgs).toContain('ass=captions.ass:fontsdir=fonts');
     expect(JSON.stringify(manifest.captions.burnArgs)).not.toContain(dir);
     expect(manifest.checks).toMatchObject({ metadata: 'pass', decode: 'pass', duration: 'pass' });
   }, 180_000);
@@ -294,4 +296,62 @@ describe('caption sources', () => {
     await expect(svc.importCaptions('cap-reel', { content: 'x', format: 'ass' })).rejects.toMatchObject({ code: 'bad_request' });
     await expect(svc.importCaptions('cap-reel', { content: '1\n00:00:00,500 --> 00:00:02,000\nHi\n', mode: 'loud' })).rejects.toMatchObject({ code: 'invalid_manifest' });
   });
+});
+
+describe('caption fonts: uploaded and bundled fonts reach the burn pass (#447)', () => {
+  const region = { x: 40, y: 600, w: 460, h: 170 };
+  const rfBlock = () => readFileSync(new URL('./fixtures/fonts/rf-block.ttf', import.meta.url));
+  const renderBurned = async (projectId: string) => {
+    const done = await svc.jobs.waitFor((await svc.startRender(projectId)).id, 120_000);
+    expect(done.status, JSON.stringify(done.error)).toBe('succeeded');
+    const id = done.result!.renderId as string;
+    return { file: (await svc.renderFile(id)).path, manifest: (await svc.getRenderManifest(id)) as any };
+  };
+
+  it('picks the first family of the list that is a project font, a bundled font or installed; else names the fallback', () => {
+    expect(captionFontChoice('"RF Block", Inter, sans-serif', ['RF Block'])).toEqual({ family: 'RF Block', source: 'project', requested: 'RF Block' });
+    expect(captionFontChoice('"RF Block", Inter, sans-serif', [])).toEqual({ family: 'Inter', source: 'bundled', requested: 'RF Block' });
+    expect(captionFontChoice('"source serif 4", serif', [])).toMatchObject({ family: 'Source Serif 4', source: 'bundled' });
+    const missing = captionFontChoice('"Nope Sans", sans-serif', []);
+    expect(missing).toMatchObject({ source: 'fallback', requested: 'Nope Sans' });
+    expect(missing.family).not.toBe('Nope Sans');
+  });
+
+  it('a render with an uploaded font named in captionStyle.fontFamily burns the captions in that font (manifest and pixels)', async () => {
+    await svc.createProject({ ...sample, projectId: 'font-reel', output: { ...sample.output, width: 540, height: 960 } });
+    await svc.updateProject('font-reel', { captions: { mode: 'burned', language: 'en', cues } });
+    const before = await renderBurned('font-reel');
+    expect(before.manifest.captions.style).toMatchObject({ fontName: 'Inter', fontSource: 'bundled' });
+    expect(before.manifest.captions.burnArgs.join(' ')).toContain('fontsdir=fonts');
+
+    await svc.uploadAsset(rfBlock(), { filename: 'rf-block.ttf', projectId: 'font-reel', assetId: 'brand-font', license: { name: 'CC0-1.0', redistributable: true } });
+    await svc.updateProject('font-reel', { theme: { base: 'default', tokens: { captionStyle: { fontFamily: '"RF Block", Inter' } } } });
+    expect((await svc.validateProject('font-reel')).warnings.filter((w) => w.message.includes('burned captions'))).toEqual([]);
+    const after = await renderBurned('font-reel');
+    expect(after.manifest.captions.style).toMatchObject({ fontName: 'RF Block', fontSource: 'project' });
+    expect(after.manifest.captions.burnArgs).toContain('-vf');
+    expect(after.manifest.captions.burnArgs.join(' ')).toMatch(/ass=captions\.ass:fontsdir=fonts/);
+    expect(JSON.stringify(after.manifest.captions.burnArgs)).not.toContain(dir);
+    // RF Block draws every glyph as a solid box: the caption band is much brighter than the same cue in Inter (about 1.5x here).
+    const inter = await regionStats(before.file, 120, region);
+    const block = await regionStats(after.file, 120, region);
+    expect(inter.yMax).toBeGreaterThan(200);
+    expect(block.yAvg, `Inter ${inter.yAvg}, RF Block ${block.yAvg}`).toBeGreaterThan(inter.yAvg * 1.3);
+  }, 240_000);
+
+  it('validate_project warns when the caption font is none of them, naming the fallback; the manifest names it too', async () => {
+    await svc.updateProject('font-reel', { captions: { style: { fontFamily: '"Nope Sans", sans-serif' } } });
+    const w = (await svc.validateProject('font-reel')).warnings.filter((x) => x.message.includes('burned captions'));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatchObject({ path: 'captions.style.fontFamily' });
+    const fallback = captionFontChoice('"Nope Sans", sans-serif', []).family;
+    expect(w[0]!.message).toContain(`font "Nope Sans" is not a font asset of this project`);
+    expect(w[0]!.message).toContain(`they use "${fallback}" instead`);
+    const r = await renderBurned('font-reel');
+    expect(r.manifest.captions.style).toMatchObject({ fontName: fallback, fontSource: 'fallback' });
+    expect(r.manifest.captions.burnArgs.join(' ')).not.toContain('fontsdir');
+    // Sidecar only: no warning (nothing is burned).
+    await svc.updateProject('font-reel', { captions: { mode: 'sidecar' } });
+    expect((await svc.validateProject('font-reel')).warnings.filter((x) => x.message.includes('burned captions'))).toEqual([]);
+  }, 240_000);
 });

@@ -219,7 +219,7 @@ describe('several languages and audio description in a render', () => {
     expect(await read('captions.srt')).not.toContain('dark title card'); // descriptions are never captions
     expect(await read('captions.es.ass')).toContain('ScriptType: v4.00+\nLanguage: es\nPlayResX: 540');
     const manifest = (await svc.getRenderManifest(renderId)) as any;
-    expect(manifest.captions.burnArgs).toContain('ass=captions.es.ass');
+    expect(manifest.captions.burnArgs).toContain('ass=captions.es.ass:fontsdir=fonts'); // the bundled theme font goes to libass (#447)
     expect(manifest.captions).toMatchObject({ burnLanguage: 'es', modeSource: 'project', approved: true });
     // Pixels: Spanish (0.5-2.5 s) is on the video, English (3-5 s) is not, and no description is.
     const out = (await svc.renderFile(renderId)).path;

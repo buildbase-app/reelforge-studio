@@ -108,11 +108,21 @@ Only the families a scene names are staged and declared, not every font of
 the project. For the canvas engines, every face of a named family is loaded;
 variable files cover all weights in one file.
 
+## Burned captions
+
+Burned-in captions (libass) pick their font the same way: the first family of
+`captions.style.fontFamily` (else the theme's `captionStyle.fontFamily`, else the
+theme `fontFamily`) that is a font asset of the project, a bundled font, or
+installed on the server. Project and bundled font files are handed to libass for
+the burn pass (`ass` filter `fontsdir`). When none of the families is available,
+`validate_project` warns and names the installed family drawn instead. The
+render manifest records the font used in `captions.style.fontName` and where it
+came from in `fontSource` (`project`, `bundled`, `installed` or `fallback`).
+
 ## Not yet
 
 - No CJK, Arabic, Hebrew or Devanagari fonts are bundled. Upload a font for
   those scripts; the image's Noto core fonts cover some of them.
-- Burned-in captions (libass) use the installed fonts, not project fonts.
 - Font collections (`.ttc`) are refused.
 - Missing glyphs are not reported yet: a character that no font in the chain
   has shows as a fallback glyph or a box.

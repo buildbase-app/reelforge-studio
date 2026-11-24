@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { PipelineError, burnSubtitles, type Tools } from '@reelforge/media-pipeline';
 import {
   breakLines,
   captionColor,
+  fontFamilies,
   checkCaptions,
   cueTokens,
   formatSrt,
@@ -20,6 +21,8 @@ import {
   type Project,
   type ThemeTokens,
 } from '@reelforge/project-schema';
+import { BUNDLED_FONTS, bundledFontFaces, readFontInfo } from './fonts';
+import type { ResolvedAsset } from './plugins';
 
 /**
  * Captions in a render (issue #300, D-107, docs/CAPTIONS.md): the style from
@@ -63,6 +66,8 @@ export interface CaptionRenderStyle {
   position: 'top' | 'center' | 'bottom';
   safeArea: SafeArea;
   maxLineChars: number;
+  /** Where the burned font comes from (#447): a project font asset, the bundled set, the system, or fontconfig's closest match for a family that is none of these. */
+  fontSource?: CaptionFontSource;
 }
 
 /** Average advance of a character in em, for the "does a full line fit" estimate (bold sans fonts are about 0.5-0.55). */
@@ -94,6 +99,69 @@ export function installedFontFamily(list: string): string | null {
   const family = r.status === 0 && r.stdout.trim() && !/[,{}\\]/.test(r.stdout) ? r.stdout.trim() : null;
   installedFonts.set(list, family);
   return family;
+}
+
+/** The caption font-family list: captions.style, then the theme's caption tokens, then the theme font. */
+export function captionFontList(project: Project, theme: ThemeTokens): string {
+  return project.captions.style?.fontFamily ?? theme.captionStyle.fontFamily ?? theme.fontFamily;
+}
+
+export type CaptionFontSource = 'project' | 'bundled' | 'installed' | 'fallback';
+
+const GENERIC_FAMILIES = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'emoji', 'math', 'fangsong']);
+
+/**
+ * Which family burned captions use for a CSS font-family list (#447), the way
+ * the scene engines pick it: the first family of the list that is a font asset
+ * of the project (`projectFamilies`, by the family inside the file), one of the
+ * bundled fonts, or installed on this machine. None of them: fontconfig's
+ * closest installed family (`fallback`), named so the manifest and
+ * validate_project can say what is drawn instead.
+ */
+export function captionFontChoice(list: string, projectFamilies: Iterable<string>): { family: string; source: CaptionFontSource; requested: string } {
+  const families = fontFamilies(list);
+  const requested = families.find((f) => !GENERIC_FAMILIES.has(f.toLowerCase())) ?? firstFontFamily(list);
+  const project = new Map([...projectFamilies].map((f) => [f.toLowerCase(), f]));
+  const bundled = new Map(BUNDLED_FONTS.map((f) => [f.family.toLowerCase(), f.family as string]));
+  for (const f of families) {
+    const key = f.toLowerCase();
+    if (GENERIC_FAMILIES.has(key)) continue;
+    if (project.has(key)) return { family: project.get(key)!, source: 'project', requested };
+    if (bundled.has(key)) return { family: bundled.get(key)!, source: 'bundled', requested };
+    if (installedFontFamily(f)?.toLowerCase() === key) return { family: installedFontFamily(f)!, source: 'installed', requested };
+  }
+  return { family: installedFontFamily(list) ?? firstFontFamily(list), source: 'fallback', requested };
+}
+
+/** A name libass can take in an ASS Style line (fields are comma-separated). */
+const assSafeName = (name: string) => /^[^,\r\n{}\\]{1,200}$/.test(name);
+
+/**
+ * The font burned captions use and the files libass needs for it (#447): the
+ * project's font assets of that family, or the bundled faces of it (every
+ * weight, style and unicode subset; libass picks the face per glyph). Installed
+ * and fallback families need no files (fontconfig finds them).
+ */
+export async function captionFont(list: string, assets: ReadonlyMap<string, ResolvedAsset> = new Map()): Promise<{ family: string; source: CaptionFontSource; requested: string; files: string[] }> {
+  const project: Array<{ family: string; inFile: string; file: string }> = [];
+  for (const a of assets.values()) {
+    if (a.mediaType !== 'font') continue;
+    try {
+      const info = readFontInfo(await readFile(a.file));
+      project.push({ family: info.family, inFile: info.familyInFile, file: a.file });
+    } catch (e) {
+      throw new PipelineError('captions:font', `font asset "${a.id}" cannot be read: ${(e as Error).message}`);
+    }
+  }
+  const choice = captionFontChoice(list, project.map((p) => p.family));
+  if (choice.source === 'project') {
+    const faces = project.filter((p) => p.family.toLowerCase() === choice.family.toLowerCase());
+    // libass matches the family name inside the file; the CSS form only drops characters CSS lists cannot hold.
+    const inFile = faces[0]!.inFile;
+    return { ...choice, family: assSafeName(inFile) ? inFile : choice.family, files: faces.map((p) => p.file) };
+  }
+  if (choice.source === 'bundled') return { ...choice, files: bundledFontFaces().filter((f) => f.family === choice.family).map((f) => f.file) };
+  return { ...choice, files: [] };
 }
 
 export function captionRenderStyle(project: Project, theme: ThemeTokens, output: OutputSettings, maxLineChars: number): CaptionRenderStyle {
@@ -303,6 +371,8 @@ export interface CaptionManifest {
 
 export interface CaptionPassInput {
   project: Project;
+  /** The render's resolved assets: font assets of the project can be the caption font (#447). */
+  assets?: ReadonlyMap<string, ResolvedAsset>;
   theme: ThemeTokens;
   output: OutputSettings;
   modeOverride?: CaptionMode;
@@ -371,7 +441,11 @@ export async function captionPass(i: CaptionPassInput, finalFile: string): Promi
     return { ...base, cues: 0, burned: false, files: {}, style: null, qa: primary.qa, tracks };
   }
   const style = captionRenderStyle(i.project, i.theme, i.output, r.maxLineChars);
-  style.fontName = installedFontFamily(i.project.captions.style?.fontFamily ?? i.theme.captionStyle.fontFamily ?? i.theme.fontFamily) ?? style.fontName;
+  // The caption font (#447): a project font asset or a bundled font goes to libass with the burn pass; else an installed family.
+  const font = await captionFont(captionFontList(i.project, i.theme), i.assets);
+  style.fontName = font.family;
+  style.fontSource = font.source;
+  if (font.source === 'fallback') i.log(`captions: font "${font.requested}" is not a font asset of the project, a bundled font or installed; using "${font.family}"`);
   for (const t of tracks) {
     const names = captionFileNames(t.language, t.primary);
     const lang = t.language ? { language: t.language } : {};
@@ -393,17 +467,22 @@ export async function captionPass(i: CaptionPassInput, finalFile: string): Promi
     const names = captionFileNames(burn.language, burn.primary);
     let assFile = join(i.dir, names.ass);
     await mkdir(i.workDir, { recursive: true });
-    if (!burn.files.ass) {
+    // With font files the burn runs from workDir (fonts/ next to the ASS), never from the render's output folder.
+    if (!burn.files.ass || font.files.length) {
       assFile = join(i.workDir, names.ass);
       await writeFile(assFile, toAss(burn.cues, i.output, style, r.highlight, burn.language));
     }
+    if (font.files.length) {
+      await mkdir(join(i.workDir, 'fonts'), { recursive: true });
+      await Promise.all(font.files.map((f, n) => copyFile(f, join(i.workDir, 'fonts', `f${n}${extname(f).toLowerCase()}`))));
+    }
     i.log(
-      `captions: burning ${burn.cues.length} cue(s)${burn.language ? ` in ${burn.language}` : ''} (${burn.source}, ${style.fontName} ${style.fontPx}px, ${style.position}${r.highlight === 'word' && burn.cues.some((c) => c.words?.length) ? ', word highlight' : ''})`
+      `captions: burning ${burn.cues.length} cue(s)${burn.language ? ` in ${burn.language}` : ''} (${burn.source}, ${style.fontName} (${font.source}) ${style.fontPx}px, ${style.position}${r.highlight === 'word' && burn.cues.some((c) => c.words?.length) ? ', word highlight' : ''})`
     );
     if (i.encoding === null) throw new PipelineError('captions:burn', 'captions cannot be burned into an audio-only output; use captions mode "sidecar"');
     const assembled = join(i.workDir, `assembled${extname(finalFile)}`);
     await rename(finalFile, assembled);
-    const { args } = await burnSubtitles({ ffmpeg: i.tools.ffmpeg, input: assembled, assFile, out: finalFile, signal: i.signal, ...(i.encoding ? { video: i.encoding.video, alpha: i.encoding.alpha } : {}) });
+    const { args } = await burnSubtitles({ ffmpeg: i.tools.ffmpeg, input: assembled, assFile, out: finalFile, signal: i.signal, ...(font.files.length ? { fontsDir: 'fonts' } : {}), ...(i.encoding ? { video: i.encoding.video, alpha: i.encoding.alpha } : {}) });
     await rm(assembled, { force: true });
     burn.burned = true;
     manifest.burned = true;
