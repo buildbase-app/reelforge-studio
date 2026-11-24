@@ -24,7 +24,7 @@ beforeAll(async () => {
     dataDir: base.dataDir,
     configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
   });
-  admin = (await service.keys.create('admin', ['admin'])).key;
+  admin = (await service.keys.create('admin', ['admin', 'owner'])).key;
   agent = (await service.keys.create('agent', ['read', 'write', 'render'])).key;
   apps.default = createApp({ service, config: base });
   apps.anonymous = createApp({ service, config: loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_METRICS_ALLOW_ANONYMOUS: 'true' }) });

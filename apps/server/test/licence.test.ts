@@ -61,7 +61,7 @@ beforeAll(async () => {
   dropDb = database.drop;
   env = { ...database.env, REELFORGE_SECRET_KEY: 'licence-server-test-secret-0123456789ab', REELFORGE_LICENCE_SERVER_URL: mock.url, REELFORGE_LICENCE_ORG_ID: ORG };
   server = await start(join(dir, 'data'));
-  admin = (await server.service.keys.create('admin', ['admin'])).key;
+  admin = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   reader = (await server.service.keys.create('reader', ['read', 'write', 'render'])).key;
   await server.service.createProject(sample);
 }, 60_000);
@@ -131,7 +131,7 @@ describe('licence over REST and MCP (mock licence server)', () => {
     const db2 = await testDatabase(dir);
     const second = await start(join(dir, 'data-second'), db2.env);
     try {
-      const k2 = (await second.service.keys.create('admin2', ['admin'])).key;
+      const k2 = (await second.service.keys.create('admin2', ['admin', 'owner'])).key;
       const r = await api('POST', '/v1/licence', { key: k2, body: { key: KEY }, srv: second });
       expect(r.body).toMatchObject({ status: 'invalid', reason: 'limit_reached', renderAllowed: false });
       expect(r.body.fix).toMatch(/deactivate_licence/);

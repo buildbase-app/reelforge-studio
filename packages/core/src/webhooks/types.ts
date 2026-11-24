@@ -85,6 +85,8 @@ export interface EventEnvelope {
 export interface WebhookDeliveryRecord {
   /** `dlv_...` (sortable by creation time). */
   id: string;
+  /** Set on deliveries claimed across workspaces (#304): the worker sends each in its own workspace. */
+  workspaceId?: string;
   endpointId: string;
   /** Sent as `webhook-id`: the same on every retry and replay (receivers deduplicate on it). */
   messageId: string;

@@ -35,7 +35,7 @@ beforeAll(async () => {
     configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
     storage: { factory: async () => driver, sweep: false },
   });
-  admin = (await service.keys.create('admin', ['admin'])).key;
+  admin = (await service.keys.create('admin', ['admin', 'owner'])).key;
   reader = (await service.keys.create('reader', ['read', 'write', 'render'])).key;
   app = createApp({ service, config });
 });

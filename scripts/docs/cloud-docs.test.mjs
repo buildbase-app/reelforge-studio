@@ -179,8 +179,8 @@ describe('cloud and provider docs match the code', () => {
 
   it('runtime settings are settable over REST and MCP', () => {
     const routes = read('apps/server/src/routes.ts');
-    assert.match(routes, /method: 'GET', path: '\/v1\/config', scope: 'admin', tool: 'get_config'/);
-    assert.match(routes, /method: 'PATCH', path: '\/v1\/config', scope: 'admin', tool: 'update_config'/);
+    assert.match(routes, /method: 'GET', path: '\/v1\/config', scope: 'owner', tool: 'get_config'/);
+    assert.match(routes, /method: 'PATCH', path: '\/v1\/config', scope: 'owner', tool: 'update_config'/);
     const mcp = read('apps/server/src/mcp.ts');
     assert.match(mcp, /name: 'get_config'/);
     assert.match(mcp, /name: 'update_config'/);

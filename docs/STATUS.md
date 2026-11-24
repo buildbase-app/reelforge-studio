@@ -31,10 +31,10 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -770,6 +770,39 @@ is not counted as an offset), GIF and PNG sequences skip the audio pass and its 
 loudness with no video pass; #349's thread cap on every video encoder (look-ahead on libvpx and
 libaom); #376's exact rates for MOV/WebM (`r_frame_rate` checked), GIF and PNG `frameRate`. After the
 merge the tests ran on FFmpeg 6.1.1 only; re-running the format tests on 5.1.9 is still to do (VERIFY).
+
+### Workspaces and per-workspace authorization (2026-11-24, issue #304)
+
+Built (D-124, D-125, [WORKSPACES.md](WORKSPACES.md)). Every repository call goes to the workspace of the caller's
+key: a routing bundle resolves it from the request context, never from arguments. Instance-level state stays in
+`default`. The queue claim takes turns between workspaces, and suspended or deleted workspaces' jobs wait. Keys
+carry their workspace.
+
+- **Owner scope.** The new instance-level `owner` scope covers configuration, the licence, provider credentials,
+  storage and workspace management. Migration `0015_workspaces` gives it to existing admin keys, so existing
+  installs work unchanged.
+- **Files and links.** Files outside `default` live under `workspaces/<id>/`, and signed links sign their
+  workspace.
+- **Owner tools.** Create (with a first admin key), list, rename, limits, suspend, soft delete with a grace period
+  (`workspaces.deleteGraceDays`), restore, purge by the sweep, and every workspace's audit log
+  (`workspaceId=*`).
+- **Optional limits.** Renders per day and month, requests per minute and storage bytes, set as `workspaces.*`
+  defaults or per workspace; unlimited unless set.
+- **Tests.** The denial suite probes every REST route and MCP tool cross-workspace (404/403, no leaks, A's rows
+  and files unchanged; new routes and tools are probed automatically). Contract tests cover the router, the purge
+  cascade, the claim plan, the webhook operations of #342 and migration 0015 on SQLite, PostgreSQL and MySQL.
+  Targeted cases cover resend by another workspace's delivery, event id or `render:<jobId>`, caption approval,
+  the dashboard's reads and list filters, analytics (per-workspace figures and caches), and `asset://`
+  references to another workspace's stored asset.
+
+Not yet:
+
+- A workspace claim for MCP OAuth tokens (D-112): today every token acts in `default` and is never an owner
+  (TODO and `it.todo`).
+- The dashboard (#344) reads only through the scoped REST routes; its storage panel needs an owner key.
+- Database row-level security.
+- Per-workspace provider credentials.
+- The Docker e2e with these changes (heavy tier).
 
 ### Rename compatibility layer (2026-11-24, issue #412, phase 3 of #408)
 
