@@ -6,7 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer';
 import { PipelineError } from '@reelforge/media-pipeline';
 import { packageVersion, publishDirAtomically, stampMatches } from '@reelforge/core';
-import type { OutputSettings, RenderScene, ThemeTokens } from '@reelforge/project-schema';
+import {
+  fpsValue,
+  type OutputSettings,
+  type RenderScene,
+  type ThemeTokens,
+} from '@reelforge/project-schema';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const compositionsDir = resolve(here, '../compositions');
@@ -131,7 +136,8 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
     __output: {
       width: output.width,
       height: output.height,
-      fps: output.fps,
+      // Remotion takes a number; 29.97002997 for 30000/1001 (the final file is normalised to the exact rate, #302).
+      fps: fpsValue(output.fps),
       durationInFrames: scene.durationFrames,
     },
   };
@@ -152,7 +158,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
     if (
       composition.width !== output.width ||
       composition.height !== output.height ||
-      composition.fps !== output.fps ||
+      Math.abs(composition.fps - fpsValue(output.fps)) > 1e-9 ||
       composition.durationInFrames !== scene.durationFrames
     ) {
       throw new PipelineError(stage, 'composition metadata does not match the manifest');
