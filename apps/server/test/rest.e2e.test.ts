@@ -89,7 +89,7 @@ describe.skipIf(!hasBrowser)('agent journey over REST against a real server proc
     const caps = await api('GET', '/v1/capabilities');
     expect(caps.json.engines.map((e: any) => e.id)).toEqual(['remotion', 'motion-canvas', 'html', 'hyperframes']);
     expect((await api('GET', '/v1/themes')).json.themes.length).toBeGreaterThanOrEqual(2);
-    expect((await api('GET', '/v1/templates')).json.templates.length).toBe(6);
+    expect((await api('GET', '/v1/templates')).json.templates.length).toBe(8);
 
     expect((await api('POST', '/v1/projects', manifest)).status).toBe(201);
     expect((await api('POST', '/v1/projects/rest-reel/scenes', { scene: { id: 'card', engine: 'html', template: 'html-title', durationSeconds: 1, props: { headline: 'Over HTTP' } } })).status).toBe(201);

@@ -55,6 +55,8 @@ export interface HtmlRenderOptions {
   onProgress?: (done: number, total: number) => void;
   /** Whole-render timeout. Default: 30 s + 1 s per frame (per 1920x1080 worth of pixels), at most render.sceneTimeoutSeconds. */
   timeoutMs?: number;
+  /** Transparent background (#302): no page background, screenshots with alpha, ProRes 4444 clip (`out` ends in .mov). */
+  alpha?: boolean;
   /** The project's assets (EngineRenderContext.assets); the scene may use only these (#299). html-layout panes read them directly. */
   assets?: ReadonlyMap<string, ResolvedAsset>;
   /** FFmpeg/ffprobe for staging assets (default: `ffmpeg` and `ffprobe` next to opts.ffmpeg). */
@@ -210,7 +212,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   }
   let doc: string;
   try {
-    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds, ...(opts.platform ? { platform: opts.platform } : {}), ...(staged ? { assetBase } : {}), ...(fontCss ? { fontCss } : {}) });
+    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds, ...(opts.platform ? { platform: opts.platform } : {}), ...(staged ? { assetBase } : {}), ...(fontCss ? { fontCss } : {}), ...(opts.alpha ? { transparent: true } : {}) });
   } catch (e) {
     throw new PipelineError(stage, (e as Error).message);
   }
@@ -226,7 +228,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   const signal = AbortSignal.any([timeout, navigation.signal, ...(opts.signal ? [opts.signal] : [])]);
   const navigationError = () =>
     new PipelineError(stage, `the scene tried to navigate away from its document (${navigatedTo.slice(0, 120)}): scenes render without network access and must not navigate`);
-  const encoder = startPngEncoder(opts.ffmpeg, opts.out, fpsArg(output.fps), stage);
+  const encoder = startPngEncoder(opts.ffmpeg, opts.out, fpsArg(output.fps), stage, { alpha: opts.alpha === true });
   const blocked: string[] = [];
   const assetRequests: string[] = [];
   let browser: Browser | undefined;
@@ -357,7 +359,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
         }, f);
         if (missing) throw new PipelineError(stage, `video picture for frame ${f} did not load`);
       }
-      const png = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: output.width, height: output.height }, caret: 'hide', animations: 'allow' });
+      const png = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: output.width, height: output.height }, caret: 'hide', animations: 'allow', omitBackground: opts.alpha === true });
       await encoder.write(png);
       opts.onProgress?.(f + 1, frames);
     }
@@ -403,6 +405,8 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         .filter(([, t]) => t.engine === 'html')
         .map(([id, t]) => ({ ...t, id })),
     browserSandbox: () => chromiumSandbox(),
+    // Transparent backgrounds (#302): screenshots keep alpha when the page paints no background.
+    capabilities: () => ({ frameRanges: false, output: { alpha: true } }),
     availability() {
       try {
         resolveHtmlBrowser(opts.browserExecutable);
@@ -423,6 +427,7 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         signal: ctx.signal,
         onProgress: ctx.progress,
         timeoutMs: opts.timeoutMs,
+        ...(ctx.alpha ? { alpha: true } : {}),
         assets: ctx.assets,
         tools: ctx.tools,
         workDir: ctx.workDir,

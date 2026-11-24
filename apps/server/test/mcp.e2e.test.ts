@@ -148,7 +148,7 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
     const themes = (await ok(agent, 'list_themes', {})).data.themes.map((t: any) => t.id);
     expect(themes).toEqual(expect.arrayContaining(['default', 'midnight']));
     const templates = (await ok(agent, 'list_templates', {})).data.templates.map((t: any) => t.id);
-    expect(templates).toEqual(['kinetic-title', 'animated-explainer', 'html-title', 'html-layout', 'hyperframes-layout', 'hyperframes-title']);
+    expect(templates).toEqual(['kinetic-title', 'remotion-layout', 'animated-explainer', 'motion-canvas-layout', 'html-title', 'html-layout', 'hyperframes-layout', 'hyperframes-title']);
 
     expect((await ok(agent, 'create_project', { manifest: sample })).data.migratedFrom).toBe('0.1');
     await ok(agent, 'set_theme', { projectId: 'sample-reel', theme: 'midnight' });

@@ -107,9 +107,35 @@ describe('configuration over REST', () => {
   it('applies the JSON body limit and allowed hosts at runtime', async () => {
     const big = JSON.stringify({ name: 'x'.repeat(5000) });
     expect((await rest('POST', '/v1/keys', big)).status).not.toBe(413);
+    // The same limit on /mcp (#321): a declared Content-Length and a chunked body, before the MCP SDK's own 4 MiB cap.
+    const rpc = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_capabilities', arguments: { pad: 'x'.repeat(5000) } } });
+    const mcpPost = (body: BodyInit, extra: RequestInit = {}) =>
+      fetch(`${server.url}/mcp`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${admin}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+        body,
+        ...extra,
+      });
+    const chunked = () =>
+      new ReadableStream<Uint8Array>({
+        start(ctl) {
+          const bytes = new TextEncoder().encode(rpc);
+          for (let i = 0; i < bytes.length; i += 1000) ctl.enqueue(bytes.subarray(i, i + 1000));
+          ctl.close();
+        },
+      });
+    expect((await mcpPost(rpc)).status).not.toBe(413);
     await rest('PATCH', '/v1/config', { settings: { 'limits.maxJsonBytes': 4096 } });
     expect((await rest('POST', '/v1/keys', big)).status).toBe(413);
+    for (const res of [await mcpPost(rpc), await mcpPost(chunked(), { duplex: 'half' } as RequestInit)]) {
+      expect(res.status).toBe(413);
+      expect((await res.json()).error).toMatchObject({ code: 'too_large' });
+    }
+    // A small MCP call still works under the lowered limit.
+    const small = await mcpPost(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }));
+    expect(small.status).toBe(200);
     await rest('PATCH', '/v1/config', { settings: { 'limits.maxJsonBytes': null } });
+    expect((await mcpPost(rpc)).status).not.toBe(413);
 
     // fetch() does not let a caller set Host; node:http does.
     const viaHost = () =>

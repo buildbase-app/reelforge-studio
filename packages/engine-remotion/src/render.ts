@@ -7,7 +7,7 @@ import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/rend
 import { PipelineError } from '@reelforge/media-pipeline';
 import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, envValue, type AssetServer, type ResolvedAsset } from '@reelforge/core';
 import type { Tools } from '@reelforge/media-pipeline';
-import { TEMPLATES, fpsValue, type OutputSettings, type RenderScene, type ThemeTokens } from '@reelforge/project-schema';
+import { BUILTIN_THEMES, TEMPLATES, domThemeCss, fpsRational, fpsValue, framesToSeconds, layoutSceneDom, layoutSceneProps, mediaKey, mediaUrlAt, type OutputSettings, type RenderScene, type SceneMedia, type ThemeTokens } from '@reelforge/project-schema';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const compositionsDir = resolve(here, '../compositions');
@@ -119,6 +119,42 @@ async function buildCompositions(outDir: string, hash: string, opts: { sourceMap
   return outDir;
 }
 
+const attr = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
+/**
+ * The markup of a remotion-layout scene: `layoutSceneDom`, the html and
+ * HyperFrames engines' builder, with pictures from the render's asset origin.
+ * A video pane is an <img> with `data-rf-video` that LayoutScene.tsx points at
+ * picture k on frame k (`firstFrame` is a frame-range chunk's first frame).
+ */
+export function remotionLayoutInput(
+  scene: RenderScene,
+  output: OutputSettings,
+  theme: ThemeTokens | undefined,
+  platform: string | undefined,
+  media: Record<string, SceneMedia>,
+  firstFrame = 0
+): { html: string; css: string; rootCss: string; rate: { num: number; den: number } } {
+  const props = layoutSceneProps.parse(scene.props);
+  const seconds = framesToSeconds(scene.durationFrames, output.fps);
+  const dom = layoutSceneDom({
+    props,
+    width: output.width,
+    height: output.height,
+    ...(platform ? { platform } : {}),
+    durationSeconds: seconds,
+    picture: ({ media: m, className, style }) => {
+      const key = mediaKey(m.asset, m.startSeconds || undefined);
+      const staged = media[key];
+      if (!staged) throw new Error(`asset "${m.asset}" is not available to the renderer`);
+      const video = staged.frames ? ` data-rf-video="${attr(key)}"` : '';
+      return `<img class="${className}" style="${style}" alt=""${video} src="${attr(mediaUrlAt(staged, firstFrame))}">`;
+    },
+  });
+  // The exact rate (D-119), so frame k's animation time is k * den / num seconds, not k / a rounded decimal.
+  return { html: dom.html, css: dom.css, rootCss: domThemeCss(theme ?? BUILTIN_THEMES[0]!.tokens, output, seconds, platform), rate: fpsRational(output.fps) };
+}
+
 /** Render one Remotion scene to an MP4 clip. */
 export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<RemotionRenderResult> {
   const started = Date.now();
@@ -159,8 +195,18 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
       if (staged.fonts.length) fonts = staged.fontFaces(assetServer.base);
     }
   }
+  // remotion-layout (#287): the html and HyperFrames layout markup, built here from the same geometry.
+  let layout: Record<string, unknown> | undefined;
+  if (scene.template === 'remotion-layout') {
+    try {
+      layout = { __layout: remotionLayoutInput(scene, output, opts.theme, opts.platform, (media ?? {}) as Record<string, SceneMedia>, range ? range[0] : 0) };
+    } catch (e) {
+      await assetServer?.close();
+      throw new PipelineError(stage, (e as Error).message);
+    }
+  }
   const inputProps = {
-    ...(scene.props as Record<string, unknown>),
+    ...(layout ?? (scene.props as Record<string, unknown>)),
     ...(opts.theme ? { __theme: opts.theme } : {}),
     ...(opts.platform ? { __platform: opts.platform } : {}),
     ...(media ? { __assets: media } : {}),

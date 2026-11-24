@@ -24,6 +24,8 @@ export interface EngineOutputSupport {
   maxDimension?: number;
   /** Largest frame in pixels (width x height). */
   maxPixels?: number;
+  /** Renders a transparent background when EngineRenderContext.alpha is set (#302). */
+  alpha?: boolean;
 }
 
 /** Why an H.264 yuv420p encoder cannot write this size and rate. Empty when it can. */

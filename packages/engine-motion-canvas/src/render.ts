@@ -27,6 +27,8 @@ import {
   fpsArg,
   fpsValue,
   framesToSeconds,
+  layoutSceneProps,
+  toLayoutSpec,
   type OutputSettings,
   type RenderScene,
   type ThemeTokens,
@@ -69,6 +71,24 @@ export interface MotionCanvasRenderOptions {
   /** Scratch directory (staged assets). Default: next to `out`. */
   workDir?: string;
   log?: (line: string) => void;
+  /**
+   * Only these frames of the scene, first and last inclusive: the scene runs
+   * from frame 0 (Motion Canvas seeks without drawing) and the clip holds
+   * frames first..last. Used by the layout proofs and tests to take one
+   * settled frame; the engine does not declare frame ranges for fan-out.
+   */
+  frameRange?: readonly [number, number];
+}
+
+/**
+ * Variables of a scene: its props as given, or, for motion-canvas-layout
+ * (#287), the parsed props (defaults applied) and the geometry spec of their
+ * layout, so the scene calls the same layout functions as the DOM engines.
+ */
+export function sceneVariables(scene: RenderScene, output: OutputSettings): Record<string, unknown> {
+  if (scene.template !== 'motion-canvas-layout') return { ...(scene.props as Record<string, unknown>) };
+  const props = layoutSceneProps.parse(scene.props);
+  return { props, spec: toLayoutSpec(props.layout), fps: fpsValue(output.fps), frames: scene.durationFrames };
 }
 
 export interface MotionCanvasRenderResult {
@@ -260,6 +280,18 @@ export async function renderMotionCanvasScene(
   const started = Date.now();
   const { scene, output } = opts;
   const executable = resolveBrowser(opts.browserExecutable);
+  const range = opts.frameRange;
+  if (range && (range[0] < 0 || range[1] < range[0] || range[1] >= scene.durationFrames)) {
+    throw new PipelineError(`render:${scene.id}`, `frame range ${range[0]}-${range[1]} is not inside the scene's ${scene.durationFrames} frames`);
+  }
+  const first = range ? range[0] : 0;
+  const end = range ? range[1] + 1 : scene.durationFrames;
+  let variables: Record<string, unknown>;
+  try {
+    variables = sceneVariables(scene, output);
+  } catch (e) {
+    throw new PipelineError(`render:${scene.id}`, (e as Error).message);
+  }
   const bundle = await buildBundle(opts.cacheDir, opts.rebuild);
   mkdirSync(dirname(opts.out), { recursive: true });
 
@@ -271,7 +303,7 @@ export async function renderMotionCanvasScene(
     dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
     tools: opts.tools ?? { ffmpeg: opts.ffmpeg, ffprobe: opts.ffmpeg.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1') },
     output,
-    frames: { first: 0, count: scene.durationFrames },
+    frames: { first, count: end - first },
     video: 'frames',
     // Fonts (#303): the theme's families that are project font assets or bundled fonts, loaded before the first frame.
     ...(opts.theme ? { fonts: { family: opts.theme.fontFamily } } : {}),
@@ -285,7 +317,7 @@ export async function renderMotionCanvasScene(
   let browser: Browser | undefined;
   const encoder = startPngEncoder(opts.ffmpeg, opts.out, fpsArg(output.fps), `render:${scene.id}`);
   const consoleErrors: string[] = [];
-  let nextFrame = 0;
+  let nextFrame = first;
 
   const abort = () => {
     encoder.kill();
@@ -319,24 +351,27 @@ export async function renderMotionCanvasScene(
     page.on('pageerror', (e) => consoleErrors.push(e.message));
 
     await page.exposeBinding('__reelforgeFrame', async (_src, frame: number, png: string) => {
+      // A range's export can run one frame past its end; those frames are not part of the clip.
+      if (frame >= end) return;
       if (frame !== nextFrame) {
         throw new Error(`frame ${frame} arrived out of order (expected ${nextFrame})`);
       }
       nextFrame++;
       await encoder.write(Buffer.from(png, 'base64'));
-      opts.onProgress?.(nextFrame, scene.durationFrames);
+      opts.onProgress?.(nextFrame - first, end - first);
     });
 
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.waitForFunction(() => window.__reelforgeReady === true, null, { timeout: 30_000 });
 
     const props = scene.props as Record<string, unknown>;
+    const layoutBackground = scene.template === 'motion-canvas-layout' ? ((variables.props as { background?: string }).background ?? null) : null;
     const response = await page.evaluate(
       (req) => window.__reelforgeRender!(req),
       {
         template: scene.template ?? '',
         variables: {
-          ...props,
+          ...variables,
           durationSeconds: framesToSeconds(scene.durationFrames, output.fps),
           ...(opts.theme ? { theme: opts.theme } : {}),
           ...(opts.platform ? { platform: opts.platform } : {}),
@@ -345,8 +380,9 @@ export async function renderMotionCanvasScene(
         width: output.width,
         height: output.height,
         fps: fpsValue(output.fps),
-        frames: scene.durationFrames,
-        background: (props.background as string | undefined) ?? opts.theme?.colors.background ?? null,
+        frames: end,
+        ...(first ? { firstFrame: first } : {}),
+        background: layoutBackground ?? (props.background as string | undefined) ?? opts.theme?.colors.background ?? null,
         ...(staged?.fonts.length ? { fonts: staged.fontFaces(`http://127.0.0.1:${port}/${token}/`) } : {}),
       }
     );
@@ -359,10 +395,10 @@ export async function renderMotionCanvasScene(
         [...response.errors, ...consoleErrors].join('\n')
       );
     }
-    if (nextFrame !== scene.durationFrames) {
+    if (nextFrame !== end) {
       throw new PipelineError(
         `render:${scene.id}`,
-        `Motion Canvas produced ${nextFrame} frames, expected ${scene.durationFrames}. ` +
+        `Motion Canvas produced ${nextFrame - first} frames, expected ${end - first}. ` +
           'The scene code is probably shorter than the duration in the manifest.',
         consoleErrors.join('\n')
       );
@@ -371,7 +407,7 @@ export async function renderMotionCanvasScene(
     const browserVersion = browser.version();
     return {
       out: opts.out,
-      frames: nextFrame,
+      frames: nextFrame - first,
       engine: 'motion-canvas',
       engineVersion: motionCanvasVersion(),
       browser: browserVersion,

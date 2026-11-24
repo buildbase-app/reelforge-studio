@@ -2601,7 +2601,7 @@ props); compositing media with FFmpeg after the engine (layouts would not be an 
 around panes); a loopback media server for the html engine (a network path out of the sandboxed page); video
 `<video>` elements in the html engine (Chrome Headless Shell has no H.264 decoder, and seeking is not frame-exact).
 **Not yet:** Remotion and Motion Canvas layout templates (Remotion would need a loopback media server for
-`<OffthreadVideo>`/`<Img>`; Motion Canvas has no DOM). Proof: `apps/server/test/formats.test.ts` (pane geometry and
+`<OffthreadVideo>`/`<Img>`; Motion Canvas has no DOM). (Done since: D-121 in section AC.) Proof: `apps/server/test/formats.test.ts` (pane geometry and
 text measured in the browser at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K on both engines; fit modes, video start offsets
 and frame-by-frame video checked on rendered pixels) and the contact sheets in `docs/proofs/layouts/`.
 
@@ -2712,6 +2712,148 @@ project fonts in libass captions, CJK/RTL bundled fonts and shaping tests, missi
 `packages/engine-*/test/fonts.test.ts` (pixels of an all-box test font vs the fallback), `packages/core/test/fonts.test.ts`,
 `apps/server/test/assets.e2e.test.ts`, `docs/proofs/assets/bundled-font-four-engines.jpg`. Test fonts:
 `packages/core/test/fixtures/fonts/` (made by `make-fonts.py`, CC0, no third-party glyphs).
+
+## AC. Layouts on Remotion and Motion Canvas (2026-11-24, issue #287)
+
+### D-121 --- remotion-layout draws the shared layout markup and seeks its CSS animations per frame; motion-canvas-layout rebuilds the scene from nodes placed by the same geometry; media through #299's staging
+
+**Status:** DECIDED (reversible), issue #287. Builds on D-108, D-118, D-119 (exact frame rates: frame i is at
+`framesToSeconds(i, fps)`; Motion Canvas gets `fpsValue`) and D-120 (assets).\
+Layout scenes (`layoutSceneProps`) must move between engines: one manifest scene, the same panes, text boxes and
+lower third whichever engine renders it. **Remotion** renders React in Chromium, so `remotion-layout` does not
+re-implement the layout: `src/render.ts` builds the markup with `layoutSceneDom` (the html and HyperFrames builder)
+and the page variables with `domThemeCss` (now shared with the html engine's page), and the composition
+(`compositions/LayoutScene.tsx`) draws it. Before the first frame it waits for fonts and pictures and runs the html
+engine's fit-to-box (`FIT_TEXT_SCRIPT`); on every frame it pauses each CSS animation at `frame / fps` and writes the
+paused state into inline styles (`animation: none` plus the computed opacity and transform), because Remotion moves
+the composition's DOM into its own wrapper after the first frame is ready and a moved element restarts its CSS
+animations (observed: paused animations running again from 0 ms). A frame depends only on its number, so
+frame-range chunks keep `frameRanges: true`. **Motion Canvas** draws on a canvas, so `motion-canvas-layout`
+builds the scene from Motion Canvas nodes; everything that decides where things go comes from
+`@reelforge/project-schema/layout`: `layoutPanes`, `clearOfLowerThird`, `lowerThirdBox`, `fitMedia`, and the new
+`LAYOUT_STYLE` (type sizes, padding, radii, the blur-fill darkening and scale, animation delays, durations and
+cubic-bezier easings), which the DOM builder now reads too, so the two cannot drift. Text wraps in Motion Canvas's
+layout (the browser's flexbox and line breaking) and shrinks with the same binary search and minimum as the DOM
+fit-to-box. Motion Canvas draws a filtered node through a cache canvas clipped to the view, so the scene pads the
+view's cache by three blur radii; without it `blur-fill` faded to the pane colour at the frame's edges. Every frame
+is a function of its frame number (one `yield` per frame), so the engine also accepts a `frameRange` (it seeks
+without drawing); it does not declare frame ranges for fan-out. **Media** come from #299's staging: the files the
+panes use, checked and served from the render's own origin (Remotion's loopback server, Motion Canvas's token
+path), video as one picture per output frame, picture k at frame k from the pane's `startSeconds`.
+**Fit-to-box fix (all DOM engines):** a pane's text card had a fit tolerance of 0, and glyphs stick out of its
+1.08 line boxes by about 0.07 em, so on a plain pane (no padding) the card always counted as overflowing and shrank
+to its minimum even with room to spare (the longest-headline sample at 9:16 showed a 29 px headline in a box with
+room for 78 px). The card's tolerance is now 0.1 em (`LAYOUT_STYLE.fitInk`): a hidden line (at least 0.75 em) still
+counts. *Rejected:* drawing the DOM markup into Motion Canvas as an SVG `foreignObject` picture (Motion Canvas would
+only pass a picture through, not draw the scene; not tried); one geometry implementation per engine (the drift D-118 avoided);
+`<Img>`/`<OffthreadVideo>` in Remotion (the staged per-frame pictures are frame-exact and shared with the other
+engines); playing CSS animations in Remotion in real time (not deterministic). *Known difference:* the DOM engines
+balance the last lines of body text (`text-wrap: pretty`); Motion Canvas breaks lines greedily, so a paragraph can
+wrap differently inside the same box. Proof: `apps/server/test/layouts-engines.test.ts` (rendered pixels at 16:9,
+1:1, 9:16 and 4K: every pane and the lower third within 1 unit of the html engine's, all pane text inside its box;
+a numbered clip frame-exact in two panes with in-points, whole and frame range), the four-engine fit and video
+pixel tests in `apps/server/test/formats.test.ts`, the contact sheets (a row per engine) and `geometry.json` in
+`docs/proofs/layouts/`.
+
+### D-126 --- Dashboard part 2: analytics from the job table and manifests through one bounded read-scope summary; settings and audit through the existing tools
+
+*(Number assigned at merge.)*
+
+**Status:** DECIDED (reversible).\
+**Analytics endpoint.** `GET /v1/analytics/summary` / MCP `get_analytics_summary` (read scope, in the shared route
+table, so the parity test covers it). One call returns, for a range: render and preview jobs per UTC day or hour by
+status, success and failure rates (`failed / (succeeded + failed)`: a cancelled job is neither), job render time and
+queue wait (p50, p95; nearest rank), scene render time per engine (p50, p95 from each manifest scene's `millis`),
+minutes rendered (`result.durationSeconds` of successful jobs), storage used, the top 10 error codes, and webhook
+deliveries per status and endpoint. **Where the numbers come from.** The durable records, not the metrics exporter:
+the OpenTelemetry instruments (`reelforge.job.duration`, `reelforge.job.queue_wait`, ...) are per instance, start
+at zero on every restart and exist only when an exporter is configured, so they cannot answer "renders per day for
+the last month". The Job table can: the summary walks it newest first from `to` with the existing keyset page query
+(index `workspaceId, createdAt, id`, D-102) and stops at `from`. Render time per engine needs the manifest; the newest
+200 successful renders of the range are read (eight at a time), and each manifest's scene timings are cached in
+memory by render id (a manifest never changes; an unreadable one is not cached). Storage used is the `get_storage`
+usage walk, cached for 5 minutes. Webhook health is `countByStatus` per endpoint (at most 50), over every delivery
+still in the outbox retention, not only the range. No schema change and no new repository method, so the
+workspace work (#304) and the three databases are untouched. **Bounds.** The range is at most 90 days by day and 7
+by hour (400 otherwise), and one call reads at most 20 000 jobs (units and joins of fanned-out renders count);
+past that the answer says `scan.truncated` and which part of the range it covers. *Rejected:* SQL aggregates
+(percentiles differ across SQLite, PostgreSQL and MySQL, and a new repository method would collide with #304's
+scoping); a rollup table (a second source of truth to keep in step for a page an operator opens now and then);
+reading the in-process metrics (above). **Scope.** Read: the summary holds counts, durations and sizes, never a
+path or a bucket (D-088), and webhook endpoints by id, name and type only, as `get_webhook_log` (read) already shows
+them. **Config entries say their type.** `get_config` rows gain `kind`, enum `options`, number `min`/`max` and
+`locked` (fixed by the image), read from the setting's Zod schema, so a client offers the right input and checks a
+value before `update_config`, which still validates everything. **Settings and audit pages** use only existing tools:
+`get_config`/`update_config` (runtime keys, admin), `list_keys`/`create_key`/`rotate_key`/`revoke_key`,
+`list_webhooks`/`get_webhook_log`/`test_webhook`/`resend_webhook`/`rotate_webhook_secret` (D-113),
+`list_providers`, `get_licence`, `list_audit_events` with keyset pages, and the REST audit export, which the page
+fetches with the key and saves as a blob: an export link would have to carry the key in its URL. Edit controls follow
+the key's scopes as the server reads them (admin implies the others, owner all, ready for #304); the server refuses
+anything else. One-time secrets (a new or rotated key, a rotated webhook secret) are shown once in the page and never
+stored.
+
+## AC. Output formats (2026-11-24, issue #302)
+
+### D-123 --- Output formats: MOV/ProRes, WebM (VP9, AV1), GIF, PNG sequences and audio only from one manifest field; alpha from the html and HyperFrames engines; no HEVC
+
+(2026-11-24, issue #302; merged with #346, #349, #376, #375 and #373 on 2026-11-24.) `output.format` (`mp4`, `mov`, `webm`, `gif`,
+`png-sequence`, `m4a`, `wav`), `output.codec` (default per format: `h264`, `prores-422-hq`, `vp9`,
+`gif`, `png`, `aac`, `pcm-s16le`; also `prores-4444` and `av1`) and `output.alpha`, overridable per
+variant (D-109). Combinations that can never work (a codec of another format, alpha without an alpha
+codec, alpha on audio only) are schema errors on the field (`invalid_manifest`). What depends on the
+server is checked before a job is queued and refused with `422 unsupported_output` (`details.issues`
+with path, variant, engine): an engine that does not declare `EngineCapabilities.output.alpha`, an
+encoder the FFmpeg lacks (`ffmpeg -encoders`, asked once per binary without blocking), audio only
+without audio or with burned captions, a GIF over `render.formats.gifMaxSeconds`, a PNG sequence over
+65,535 frames. `validate_project` lists the same problems. **Pipeline:** H.264 MP4 keeps its path
+untouched (`h264Args()`, D-117's encoder settings, fan-out stream copy). Other formats assemble once with
+the format's encoder (`formatPlan()`) in D-116's two passes (video only with `-an`, then the audio muxed
+with the video stream copied, which FFmpeg 5.1 needs): MOV and WebM directly (ProRes via `prores_ks`
+with PCM 24-bit; VP9/AV1 with Opus; `-movflags +faststart` for MP4 and MOV only, since the WebM muxer
+refuses it), GIF and PNG sequences through a lossless FFV1 master (no audio pass) that a second step turns
+into a two-pass palette GIF or a stored zip of PNG frames. **Audio per container** (D-116): MOV and WebM
+carry the render's one normalised PCM mix, checked after the final encode for loudness and for A/V sync
+within one frame; a muted render carries a silent track or, with `render.audio.mutedTrack: "none"`, no
+audio stream (the format check then expects none). GIF and PNG sequences have no audio: nothing is mixed,
+and the manifest and `get_render_output` say `track: "none"` with the reason and the A/V-sync and loudness
+checks `skipped`. Audio only (m4a, wav) has no video pass at all: the same mix and loudness
+normalisation, encoded to AAC or 16-bit PCM, its loudness checked, A/V sync `skipped`; a muted audio-only
+render with `mutedTrack: "none"` fails (nothing to write). *Why PCM in MOV, not AAC:* editors expect
+uncompressed audio next to ProRes, and it adds no generation loss to the normalised mix. **Encoder
+memory** (D-117): `render.encoderThreads` reaches every video encoder (`-threads` for prores_ks, libvpx,
+libaom, SVT-AV1 and the FFV1 master) and `render.encoderLookahead` libvpx and libaom as
+`-lag-in-frames` (at most 25, libvpx's maximum); SVT-AV1's look-ahead is left to SVT, because its option
+is `la_depth` on FFmpeg 5.1 (removed in 7) or a version-dependent `svtav1-params` key. **Exact rates**
+(D-119): MOV and WebM are checked for `r_frame_rate` exactly the manifest's (30000/1001); a GIF keeps the
+project's exact rate up to `render.formats.gifFps` (frame count from the exact rates, so 29.97 does not
+drift), and a PNG sequence has one file per timeline frame with the rate in `frameRate`. Captions burn into the assembled file with
+the same encoder (libass `alpha=1` for transparent renders, so captions show over transparency);
+sidecars are written for every format. Audio only renders no scene. Per-format QA after encoding: ffprobe codec, profile, pixel format, alpha plane
+(decoded with `alphaextract`; VP9 also by its `alpha_mode` tag and the libvpx decoder), frame count,
+duration, audio present or absent, GIF bytes, zip entries and PNG headers, then a full decode.
+**Alpha:** an engine that declares `output.alpha` gets `EngineRenderContext.alpha` and writes a
+ProRes 4444 clip with alpha: the html engine screenshots with `omitBackground` on a page without
+background; HyperFrames renders `--format mov` (ProRes 4444; `--end` is MP4-only, so the
+composition's own duration is rendered and assembly trims to the scene's frames). Remotion and Motion
+Canvas do not declare it yet. **Posters** of other formats are the middle frame at 540 px (VP9 alpha decoded
+with libvpx so the poster keeps its transparency); MP4 keeps its first-frame poster. **Dashboard:** a format
+label on cards and the render page; MP4 and WebM play in `<video>`, a GIF shows as itself, audio in `<audio>`,
+and MOV (browsers do not decode ProRes) and PNG sequences show the poster as a still with a caption saying
+so; transparency sits on a dark checkerboard in the screen's tone, the convention editors use. **Previews** stay H.264 MP4; non-MP4 renders do not fan out. **Settings:**
+`render.formats.*` (VP9/AV1 quality and speed, GIF fps, size, dither and limits, AAC and Opus
+bitrates), runtime, applied process-wide like #349's encoder settings. `EngineCapabilities.output`
+(D-119's frame rates and sizes) also carries `alpha`: one interface in output-support.ts. *Why ProRes 4444 clips for alpha:* the only alpha codec both engines can write
+(HyperFrames' MOV output is ProRes 4444), decoded at 12 bits by FFmpeg, and the same codec as the
+MOV delivery, so a transparent ProRes render adds one ProRes generation and no chroma loss. *Why a stored zip
+written by hand:* PNGs are already compressed, and a new dependency would need a licence review;
+CRC32 comes from `node:zlib`. *HEVC/H.265 left out:* the image's FFmpeg has `libx265`, but HEVC
+patent pools license "HEVC products sold to end users" per unit (Via LA, read 2026-11-24;
+research/SOURCES.md) and ReelForge is sold; neither #10 nor #117 clears it. *Rejected:* transcoding
+the finished MP4 into each format (a second lossy generation and no alpha); burning captions after
+packaging (GIF and PNG would need their own burn); an alpha GIF (1-bit transparency with fringes).
+*Known limits:* non-alpha clips are still H.264 (CRF 18) before a ProRes or VP9 encode; Remotion and
+Motion Canvas alpha; ZIP64 for PNG sequences over 65,535 frames or 4 GiB. Debian bookworm's FFmpeg
+5.1.9 (the image's package) has every encoder used and libass `alpha`, and the media-pipeline format tests pass on it.
 
 ### D-1XX --- Rename compatibility layer: RENDERWELD_* names first, every REELFORGE_* name still accepted; one alias table derived from the schema
 

@@ -161,6 +161,14 @@ export function filterThreadArgs(s: EncoderSettings = encoder): string[] {
   return s.threads > 0 ? ['-filter_threads', String(s.threads), '-filter_complex_threads', String(s.threads)] : [];
 }
 
+/**
+ * The encoder thread cap (an output option) for encoders other than x264
+ * (#302: prores_ks, libvpx-vp9, libaom-av1, ffv1): the same render.encoderThreads.
+ */
+export function encoderThreadArgs(s: EncoderSettings = encoder): string[] {
+  return s.threads > 0 ? ['-threads', String(s.threads)] : [];
+}
+
 /** Video encoding settings every clip is normalised to before assembly (libx264 high, yuv420p, CRF 18, medium). */
 export function h264Args(s: EncoderSettings = encoder): string[] {
   const x264 = [...(s.lookahead > 0 ? [`rc-lookahead=${s.lookahead}`] : [])];
@@ -182,6 +190,12 @@ export function h264Args(s: EncoderSettings = encoder): string[] {
   ];
 }
 
+/**
+ * The clip an engine writes when a render keeps alpha (#302, EngineRenderContext.alpha):
+ * ProRes 4444 with a 16-bit alpha channel in a MOV (FFmpeg's prores_ks).
+ */
+export const ALPHA_CLIP_ARGS = ['-c:v', 'prores_ks', '-profile:v', '4', '-vendor', 'apl0', '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16'];
+
 export interface FrameEncoder {
   /** Write one PNG frame. Resolves once FFmpeg has accepted it. */
   write(png: Buffer): Promise<void>;
@@ -201,7 +215,9 @@ export function startPngEncoder(
   out: string,
   /** A number or an exact "num/den" such as "30000/1001" (#302). */
   fps: number | string,
-  stage = 'encode'
+  stage = 'encode',
+  /** alpha: keep the PNGs' alpha channel (ALPHA_CLIP_ARGS, `out` should end in .mov) instead of H.264. */
+  opts: { alpha?: boolean } = {}
 ): FrameEncoder {
   const child = spawn(
     ffmpeg,
@@ -218,7 +234,7 @@ export function startPngEncoder(
       'png',
       '-i',
       '-',
-      ...h264Args(),
+      ...(opts.alpha ? [...ALPHA_CLIP_ARGS, ...encoderThreadArgs()] : h264Args()),
       '-r',
       rateArg(fps),
       '-an',

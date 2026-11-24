@@ -3,7 +3,7 @@ import type { Repositories, StoredValue } from '../repositories';
 import { ENCRYPTED_SCHEME, PLAIN_SCHEME, SECRET_KEY_HELP, SecretCipher, SecretDecryptError } from './crypto';
 import type { BuildInfo } from './build';
 import { ConfigError, buildLockedMessage, formatIssue, parseSettingValue, resolveConfig, type ConfigFile, type ConfigSource, type ResolvedConfig, type ResolvedSetting } from './load';
-import { SETTINGS, SETTINGS_BY_KEY, envNames, type Config, type SettingDef, type SettingScope } from './schema';
+import { SETTINGS, SETTINGS_BY_KEY, envNames, type Config, type SettingDef, type SettingKind, type SettingScope } from './schema';
 
 /** Where configuration comes from besides the database. */
 export interface ConfigSources {
@@ -22,6 +22,15 @@ export interface ConfigEntry {
   origin?: string;
   scope: SettingScope;
   secret: boolean;
+  /** The value's type, so a client can offer the right input and check it before update_config (#292). */
+  kind: SettingKind;
+  /** Enum settings: the allowed values. */
+  options?: string[];
+  /** Number settings: the inclusive bounds the schema enforces. */
+  min?: number;
+  max?: number;
+  /** Fixed by the image build (release edition): update_config refuses it. */
+  locked?: true;
   env: string;
   aliases?: string[];
   description: string;
@@ -267,6 +276,8 @@ export class RuntimeConfig {
       ...(s.origin ? { origin: s.origin } : {}),
       scope: d.scope,
       secret: Boolean(d.secret),
+      ...valueType(d),
+      ...(Object.hasOwn(this.resolved.build.locked, d.key) ? { locked: true as const } : {}),
       env: d.env,
       ...(d.aliases?.length ? { aliases: d.aliases } : {}),
       description: d.description,
@@ -439,4 +450,17 @@ export class RuntimeConfig {
     this.emit(keys);
     return keys;
   }
+}
+
+/** kind, enum options and number bounds of a setting, read from its schema (optional and default wrappers unwrapped). */
+function valueType(d: SettingDef): Pick<ConfigEntry, 'kind' | 'options' | 'min' | 'max'> {
+  let s = d.schema as unknown as { def?: { type?: string; innerType?: unknown }; options?: unknown; minValue?: unknown; maxValue?: unknown };
+  for (let i = 0; i < 4 && s.def && (s.def.type === 'optional' || s.def.type === 'default' || s.def.type === 'nullable'); i++) s = s.def.innerType as typeof s;
+  const out: Pick<ConfigEntry, 'kind' | 'options' | 'min' | 'max'> = { kind: d.kind };
+  if (d.kind === 'enum' && Array.isArray(s.options)) out.options = s.options.map(String);
+  if (d.kind === 'integer' || d.kind === 'number') {
+    if (typeof s.minValue === 'number' && Math.abs(s.minValue) < Number.MAX_SAFE_INTEGER) out.min = s.minValue;
+    if (typeof s.maxValue === 'number' && Math.abs(s.maxValue) < Number.MAX_SAFE_INTEGER) out.max = s.maxValue;
+  }
+  return out;
 }

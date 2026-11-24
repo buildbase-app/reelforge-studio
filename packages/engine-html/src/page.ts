@@ -1,5 +1,5 @@
 import { assertSafeSceneFragment } from '@reelforge/core';
-import { frameLayout, layoutCssVars, mediaLayersHtml, type DomLogo, type DomMediaLayer, type HtmlTitleProps, type OutputSettings, type ThemeTokens } from '@reelforge/project-schema';
+import { domThemeCss, frameLayout, mediaLayersHtml, type DomLogo, type DomMediaLayer, type HtmlTitleProps, type OutputSettings, type ThemeTokens } from '@reelforge/project-schema';
 
 /**
  * Builds the sandboxed document an html scene is rendered from. Agent HTML and
@@ -36,8 +36,7 @@ export function escapeHtml(s: string): string {
  * --rf-content-w/h the box inside --rf-safe-*.
  */
 export function themeCss(theme: ThemeTokens, output: OutputSettings, durationSeconds: number, platform?: string): string {
-  const c = theme.colors;
-  return `:root{--rf-bg:${c.background};--rf-surface:${c.surface};--rf-text:${c.text};--rf-muted:${c.mutedText};--rf-accent:${c.accent};--rf-accent2:${c.accent2};--rf-font:${theme.fontFamily};--rf-heading-weight:${theme.headingWeight};--rf-radius:${theme.radius};--rf-spacing:${theme.spacing};--rf-speed:${theme.motionSpeed};--rf-width:${output.width}px;--rf-height:${output.height}px;--rf-duration:${durationSeconds}s;${layoutCssVars(output.width, output.height, platform)}}`;
+  return domThemeCss(theme, output, durationSeconds, platform);
 }
 
 export function buildDocument(opts: {
@@ -48,6 +47,8 @@ export function buildDocument(opts: {
   durationSeconds: number;
   /** brief.platform: decides the ui safe zone on tall frames. */
   platform?: string;
+  /** output.alpha (#302): the page paints no background, so what the scene leaves unpainted is transparent. */
+  transparent?: boolean;
   /** The render's asset base URL, allowed by the policy for images and fonts. */
   assetBase?: string;
   /** @font-face rules for the scene's fonts (#303), before the theme and scene styles. */
@@ -62,7 +63,7 @@ export function buildDocument(opts: {
     `<meta http-equiv="Content-Security-Policy" content="${cspFor(opts.assetBase)}">` +
     (opts.fontCss ? `<style>${opts.fontCss.replace(/<\/style/gi, '')}</style>` : '') +
     `<style>${themeCss(opts.theme, opts.output, opts.durationSeconds, opts.platform)}` +
-    `html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden;background:var(--rf-bg);color:var(--rf-text);font-family:var(--rf-font)}` +
+    `html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden;background:${opts.transparent ? 'transparent' : 'var(--rf-bg)'};color:var(--rf-text);font-family:var(--rf-font)}` +
     `#rf-root{position:relative;width:${width}px;height:${height}px;overflow:hidden;box-sizing:border-box}` +
     '*{box-sizing:border-box}</style>' +
     `<style>${opts.css}</style></head>` +

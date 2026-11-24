@@ -62,8 +62,8 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   },
   {
     title: 'Rendering and jobs',
-    intro: 'Renders run as jobs: queued, running, then succeeded, failed or cancelled.',
-    tools: ['preview_scene', 'render_project', 'get_job', 'list_jobs', 'get_job_logs', 'cancel_job', 'retry_job', 'get_render_output', 'list_renders'],
+    intro: 'Renders run as jobs: queued, running, then succeeded, failed or cancelled. get_analytics_summary aggregates them over a time range.',
+    tools: ['preview_scene', 'render_project', 'get_job', 'list_jobs', 'get_job_logs', 'cancel_job', 'retry_job', 'get_render_output', 'list_renders', 'get_analytics_summary'],
   },
   {
     title: 'Licence',

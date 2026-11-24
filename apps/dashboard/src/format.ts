@@ -80,3 +80,101 @@ export function scopeText(scopes: string[]): string {
   if (scopes.length === 1 && scopes[0] === 'read') return 'read only';
   return scopes.join(', ');
 }
+
+const CODEC_LABEL: Record<string, string> = {
+  h264: 'H.264',
+  'prores-422-hq': 'ProRes 422 HQ',
+  'prores-4444': 'ProRes 4444',
+  vp9: 'VP9',
+  av1: 'AV1',
+  gif: 'GIF',
+  aac: 'AAC',
+  'pcm-s16le': 'PCM',
+};
+
+/** "MP4 · H.264", "MOV · ProRes 4444 · alpha", "PNG sequence · PNG frames · alpha" (#302; renders before it are MP4). */
+export function outputFormat(r: { format?: string; codec?: string; alpha?: boolean }): string {
+  const format = r.format ?? 'mp4';
+  const name = format === 'png-sequence' ? 'PNG sequence' : format === 'webm' ? 'WebM' : format.toUpperCase();
+  const codec = CODEC_LABEL[r.codec ?? 'h264'] ?? r.codec ?? '';
+  // GIF and PNG sequences have one codec each: naming it again says nothing.
+  const sameAsFormat = format === 'gif' || format === 'png-sequence';
+  return [name, sameAsFormat ? '' : codec, r.alpha ? 'alpha' : ''].filter(Boolean).join(' · ');
+}
+
+/** The container alone, for cards: "MP4", "MOV · alpha", "PNG frames". */
+export function outputShort(r: { format?: string; alpha?: boolean }): string {
+  const format = r.format ?? 'mp4';
+  const name = format === 'png-sequence' ? 'PNG frames' : format === 'webm' ? 'WebM' : format.toUpperCase();
+  return r.alpha ? `${name} · alpha` : name;
+}
+
+/**
+ * How the render page shows a format's file: a video player (MP4, WebM), the
+ * GIF itself, an audio player, or the first frame as a still where a browser
+ * cannot play the file (ProRes MOV) or there is no single file to play (PNG zip).
+ */
+export function playerKind(format: string | undefined): 'video' | 'image' | 'audio' | 'still' {
+  if (format === 'gif') return 'image';
+  if (format === 'm4a' || format === 'wav') return 'audio';
+  if (format === 'png-sequence' || format === 'mov') return 'still';
+  return 'video';
+}
+
+/** The caption under a still. */
+export function stillNote(format: string | undefined): string | null {
+  if (format === 'mov') return 'ProRes plays in editing apps, not in browsers. This is the middle frame';
+  if (format === 'png-sequence') return 'Every frame is a PNG in the zip. This is the middle one';
+  return null;
+}
+
+/** The download button: "Download MP4", "Download frames (ZIP)". */
+export function downloadLabel(file: string): string {
+  const ext = file.slice(file.lastIndexOf('.') + 1).toUpperCase();
+  return ext === 'ZIP' ? 'Download frames (ZIP)' : `Download ${ext === 'WEBM' ? 'WebM' : ext}`;
+}
+
+/** 0.925 -> "92.5 %"; null (nothing to divide) -> "–". */
+export function rate(r: number | null | undefined): string {
+  if (r === null || r === undefined || !Number.isFinite(r)) return '–';
+  const p = r * 100;
+  return `${Math.abs(p - Math.round(p)) < 1e-9 ? p.toFixed(0) : p.toFixed(1)} %`;
+}
+
+/** Milliseconds or null -> a duration or "–". */
+export function ms(v: number | null | undefined): string {
+  return v === null || v === undefined ? '–' : duration(v);
+}
+
+/** 1234 -> "1,234". */
+export function count(n: number): string {
+  return n.toLocaleString('en-GB');
+}
+
+const UTC_DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const UTC_DAY_LONG = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const UTC_HOUR = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+
+/** A bucket start as an axis label: "24 Nov" (day) or "15:00" (hour), UTC like the buckets. */
+export function bucketLabel(iso: string, bucket: 'day' | 'hour'): string {
+  const d = new Date(iso);
+  return bucket === 'day' ? UTC_DAY.format(d) : UTC_HOUR.format(d);
+}
+
+/** A bucket start as a heading: "Tue, 24 Nov 2026" or "Tue, 24 Nov 2026, 15:00 UTC". */
+export function bucketTitle(iso: string, bucket: 'day' | 'hour'): string {
+  const d = new Date(iso);
+  return bucket === 'day' ? UTC_DAY_LONG.format(d) : `${UTC_DAY_LONG.format(d)}, ${UTC_HOUR.format(d)} UTC`;
+}
+
+/** "limits.rateLimitPerMinute" group "limits" -> "Limits"; "observability" -> "Observability". */
+export function groupTitle(group: string): string {
+  const words = group.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** A short latency: "12 ms" under a second, then like duration(). */
+export function latency(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return '–';
+  return v < 1000 ? `${Math.round(v)} ms` : duration(v);
+}

@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { join, resolve, sep } from 'node:path';
-import { resolveTools, setEncoderSettings, toolPaths, toolVersionAsync, type Tools } from '@reelforge/media-pipeline';
+import { MAX_ZIP_ENTRIES, assHasAlpha, encodersOf, missingEncoders, resolveTools, setEncoderSettings, setFormatSettings, toolPaths, toolVersionAsync, type Tools } from '@reelforge/media-pipeline';
 import {
   CAPTION_MODES,
   captionMode,
@@ -32,6 +32,12 @@ import {
   splitCueKinds,
   type CaptionCue,
   type CaptionMode,
+  ALPHA_CODECS,
+  FORMAT_CODECS,
+  OUTPUT_FILES,
+  OUTPUT_FORMATS,
+  type FormatSpec,
+  formatSpec,
   type Project,
   type ValidationIssue,
   type ValidationWarning,
@@ -42,6 +48,7 @@ import { CAPTION_FILE_PATTERN, captionFileNames, captionsEtag, type CaptionManif
 import { applyCaptionUpdate, getCaptionsInput, parseInput, projectCaptionsView, renderCaptionsView, transcribeInput, updateCaptionsInput, type ProjectCaptionsView, type RenderCaptionsView } from './captions-edit';
 import { LocalBackend } from './backends/local';
 import { ApiError, badRequest, invalidManifest, notFound } from './errors';
+import { OUTPUT_FILE_PATTERN, outputFormatIssues, planFor, type OutputFormatIssue } from './output-formats';
 import { newId, readJson, writeJsonAtomic } from './fsutil';
 import { JobCapReached, JobRunner, QuotaExceeded, defaultWorkerId, type DatabaseQueueOptions, type JobContext, type JobRecord, type QueueMode } from './jobs';
 import { JOB_CAP_RETRY_SECONDS, renderLimitViolations, usageDay, usageKeys, type LimitReason, type RenderLimitViolation } from './limits';
@@ -83,6 +90,7 @@ import { ClaimRate, DEFAULT_PRIORITY, PRIORITIES, defaultPriority, isPriority, l
 import { WebhookService, jobPayload, renderDedupeKey, renderOutcome, renderSummary, type NotificationProvider } from './webhooks/index';
 import type { AuditEntry } from './repositories';
 import type { JobEvent, JobUsage } from './jobs';
+import { Analytics, type AnalyticsSummary } from './analytics';
 
 export interface ServiceConfig {
   /**
@@ -182,6 +190,8 @@ export const MAX_MCP_EXPORT = 10_000;
 const QUOTA_JOB_TYPES = ['render', 'preview'];
 /** Validation errors for exceeded render limits start with this (a preview of some scenes is checked on its own). */
 const RENDER_LIMIT_PREFIX = 'render limit: ';
+/** validate_project errors about the output format (#302); a render checks its own target with unsupported_output instead. */
+const OUTPUT_FORMAT_PREFIX = 'output format: ';
 /** Prefix of validation errors about sizes and frame rates an engine cannot render (#287, #302). */
 const UNSUPPORTED_OUTPUT_PREFIX = 'unsupported output: ';
 const SWEEP_INTERVAL_MS = 3_600_000;
@@ -236,12 +246,19 @@ export interface RenderSummary {
   height: number;
   /** Frames per second as a number (29.97002997 for 30000/1001). */
   fps: number;
+  /** Output format (#302): container, codec, alpha, the delivered file and its content type. */
+  format: string;
+  codec: string;
+  alpha: boolean;
+  file: string;
+  contentType: string;
   /** The exact rate of the output (ffprobe r_frame_rate), e.g. "30000/1001". Absent for renders made before #302. */
   frameRate?: string;
   files: string[];
   /** Needs `Authorization: Bearer <key>`. */
   outputUrl: string;
-  posterUrl: string;
+  /** Absent for audio-only renders (no pictures). */
+  posterUrl?: string;
   manifestUrl: string;
   /** Works without a key until downloadUrlExpiresAt (signed, read-only, this file only). */
   downloadUrl: string;
@@ -258,6 +275,14 @@ export interface RenderSummary {
 
 export interface RenderAudio {
   track: 'mixed' | 'silent' | 'none';
+  /** Why there is no loudness normalisation or no audio at all, e.g. "muted", "gif has no audio" (#302). */
+  reason?: string;
+  /**
+   * Which audio checks ran on the delivered file: A/V sync is skipped without
+   * an audio stream (muted with mutedTrack "none", GIF, PNG sequence) and for
+   * audio-only files (no video); loudness is skipped when nothing was normalised.
+   */
+  checks: { avSync: 'pass' | 'skipped'; loudness: 'pass' | 'warn' | 'skipped' };
   preset: string;
   target: { integrated: number; truePeak: number } | null;
   normalisation: 'linear' | 'dynamic' | 'none';
@@ -292,6 +317,11 @@ function renderAudio(a: AudioManifest): RenderAudio {
   const t = a.loudness.target;
   return {
     track: a.track,
+    ...(a.loudness.reason ? { reason: a.loudness.reason } : {}),
+    checks: {
+      avSync: a.avSync ? 'pass' : 'skipped',
+      loudness: a.loudness.measured ? (a.qa?.issues.some((x) => x.rule !== 'loudness.lra') ? 'warn' : 'pass') : 'skipped',
+    },
     preset: a.loudness.preset,
     target: t ? { integrated: t.integrated, truePeak: t.truePeakCeiling } : null,
     normalisation: a.loudness.normalisation,
@@ -358,6 +388,8 @@ export class ReelforgeService {
   private toolVersions: { ffmpeg: string | null; ffprobe: string | null } = { ffmpeg: null, ffprobe: null };
   private toolVersionsProbe: Promise<{ ffmpeg: string | null; ffprobe: string | null }> | null = null;
   private toolVersionsTimer: NodeJS.Timeout | null = null;
+  /** FFmpeg's encoders, asked with the tool versions (get_capabilities' outputFormats, #302); null until then. */
+  private encoderSet: Set<string> | null = null;
   private activatingLicence = false;
   private renderIndex = new Map<string, string>();
   private readonly fetchImpl: typeof fetch;
@@ -658,7 +690,7 @@ export class ReelforgeService {
       try {
         const files = await this.storage.driver.list(renderPrefix(job.projectId, runId));
         costs.storageBytes = files.reduce((n, f) => n + f.bytes, 0);
-        const out = files.find((f) => f.key.endsWith('/final.mp4'));
+        const out = files.find((f) => OUTPUT_FILE_PATTERN.test(f.key.slice(f.key.lastIndexOf('/') + 1)));
         if (out) costs.outputBytes = out.bytes;
       } catch (err) {
         this.config.log?.('warn', `render event of job ${job.id}: could not read the output size (${(err as Error).message})`);
@@ -756,6 +788,11 @@ export class ReelforgeService {
     if (use('limits.renderConcurrency') && resolved.config.server.workerConcurrency === undefined) this.jobs.setConcurrency(resolved.config.limits.renderConcurrency);
     if (use('limits.maxUploadBytes')) this.assets.limits.maxBytes = resolved.config.limits.maxUploadBytes;
     if (keys?.includes('limits.maxRunningJobsPerKey')) this.jobs.wake();
+    // Output format quality (#302): process-wide in the media pipeline, from every source at start and on each change.
+    if (keys === null || keys.some((k) => k.startsWith('render.formats.'))) {
+      const { gifMaxSeconds: _s, gifMaxBytes: _b, ...quality } = resolved.config.render.formats;
+      setFormatSettings(quality);
+    }
     // Encoder memory bounds (#307): process-wide in the media pipeline; from every source at start, so a file or
     // environment value applies too, and each change at once (the next encode uses it).
     if (keys === null || keys.includes('render.encoderThreads') || keys.includes('render.encoderLookahead'))
@@ -782,7 +819,8 @@ export class ReelforgeService {
   refreshToolVersions(): Promise<{ ffmpeg: string | null; ffprobe: string | null }> {
     this.toolVersionsProbe ??= (async () => {
       const tools = this.toolsCache ?? toolPaths();
-      const [ffmpeg, ffprobe] = await Promise.all([toolVersionAsync(tools.ffmpeg), toolVersionAsync(tools.ffprobe)]);
+      const [ffmpeg, ffprobe, encoders] = await Promise.all([toolVersionAsync(tools.ffmpeg), toolVersionAsync(tools.ffprobe), encodersOf(tools.ffmpeg)]);
+      if (encoders.size) this.encoderSet = encoders;
       this.toolVersions = { ffmpeg, ffprobe };
       return this.toolVersions;
     })().finally(() => {
@@ -812,6 +850,8 @@ export class ReelforgeService {
           acceptsSource: e.acceptsSource,
           // Whether a long scene of this engine can be split into frame ranges (render.fanOut: scenes+chunks).
           frameRanges: e.capabilities?.().frameRanges ?? false,
+          // Whether it renders a transparent background (output.alpha, #302).
+          alpha: e.capabilities?.().output?.alpha ?? false,
           // Frame rates it renders (#302): numbers, or "30000/1001" style for NTSC rates.
           frameRates: e.capabilities?.().output?.frameRates ?? SUPPORTED_FPS,
           templates: e.templates().map((t) => t.id),
@@ -830,6 +870,7 @@ export class ReelforgeService {
         capabilities: b.capabilities(),
       })),
       captions: this.captionCapabilities(),
+      outputFormats: this.outputFormatCapabilities(),
       storage: [{ id: this.storage.driver.id, active: true, downloads: this.storage.downloads }],
       limits: this.limitsSummary(),
       licence: this.licence.summary(),
@@ -859,6 +900,29 @@ export class ReelforgeService {
         'render_project, then get_job with waitSeconds: 45 until succeeded, then get_render_output',
         'renders need a valid licence: if licence.renderAllowed is false, get_licence says what the user must do',
       ],
+    };
+  }
+
+  /**
+   * Output formats (#302): each format's codecs, whether this server's FFmpeg can encode them (null until the
+   * encoders have been probed, at start-up), which keep alpha, and the formats' limits.
+   */
+  outputFormatCapabilities() {
+    const enc = this.encoderSet;
+    const f = this.settings.current.config.render.formats;
+    return {
+      formats: OUTPUT_FORMATS.map((format) => ({
+        format,
+        file: OUTPUT_FILES[format],
+        codecs: FORMAT_CODECS[format].map((codec) => {
+          const spec = { format, codec, alpha: false } as FormatSpec;
+          const missing = enc && format !== 'mp4' ? missingEncoders(planFor(spec, enc), enc) : [];
+          return { codec, alpha: ALPHA_CODECS.includes(codec), available: format === 'mp4' ? true : enc ? missing.length === 0 : null, ...(missing.length ? { missing } : {}) };
+        }),
+      })),
+      notOffered: { hevc: 'HEVC/H.265 is not offered: its patent pools license encoders in products that are sold (D-123)' },
+      limits: { gifMaxSeconds: f.gifMaxSeconds, gifMaxBytes: f.gifMaxBytes, gifMaxSide: f.gifMaxSide, gifFps: f.gifFps, pngSequenceMaxFrames: MAX_ZIP_ENTRIES },
+      previews: 'previews are always H.264 MP4',
     };
   }
 
@@ -1025,6 +1089,8 @@ export class ReelforgeService {
         if (v.limit.endsWith('Dimension')) errors.push({ path: `variants.${i}`, message: RENDER_LIMIT_PREFIX + v.message });
       }
     });
+    // Output formats this server cannot render (#302): engines without alpha, missing encoders, audio-only without audio, ...
+    for (const issue of await this.formatIssues(r.project)) errors.push({ path: issue.path, message: OUTPUT_FORMAT_PREFIX + issue.message });
     // Sizes and frame rates the engines cannot render (codec rules, engine limits; #287, #302).
     for (const o of outputSupportIssues(r.project, this.registry)) errors.push({ path: o.path, message: UNSUPPORTED_OUTPUT_PREFIX + o.message });
     const estimate = this.estimateOn(r.project.render.backend, { kind: 'render', project: r.project });
@@ -1040,8 +1106,9 @@ export class ReelforgeService {
         width: r.project.output.width,
         height: r.project.output.height,
         fps: r.project.output.fps,
+        ...formatSpec(r.project.output),
         engines: [...new Set(r.project.scenes.map((s) => s.engine))],
-        ...(r.project.variants ? { variants: r.project.variants.map((v) => ({ id: v.id, width: v.width, height: v.height })) } : {}),
+        ...(r.project.variants ? { variants: r.project.variants.map((v) => ({ id: v.id, width: v.width, height: v.height, ...formatSpec(withVariant(r.project, v.id).output) })) } : {}),
       },
       ...(estimate ? { estimate } : {}),
     };
@@ -1505,6 +1572,9 @@ export class ReelforgeService {
       renderLimitViolations(withVariant(manifest, v.id), this.settings.current.config.limits).map((x) => ({ ...x, message: `variant "${v.id}": ${x.message}` }))
     );
     if (violations.length) await this.refuseRenderLimits(violations, id);
+    // Every variant's output format (#302), before any job is queued.
+    const formatProblems = (await this.formatIssues(manifest, { captions })).filter((i) => i.variant !== null);
+    if (formatProblems.length) this.refuseOutputFormat(formatProblems);
     const batchId = newId('bat');
     const jobs: JobRecord[] = [];
     try {
@@ -1514,6 +1584,30 @@ export class ReelforgeService {
       throw e;
     }
     return { job: jobs[0]!, jobs, batchId };
+  }
+
+  /**
+   * Why this server cannot render the project's output format (#302): engines without alpha, encoders its FFmpeg
+   * lacks, audio-only without audio or with burned captions, GIF and zip limits. Asks FFmpeg (once, cached) only
+   * when an output or variant is not MP4.
+   */
+  private async formatIssues(p: Project, opts: { variant?: string | null; captions?: CaptionMode } = {}): Promise<OutputFormatIssue[]> {
+    const outputs = [p.output.format, ...(p.variants ?? []).map((v) => v.format ?? p.output.format)];
+    if (outputs.every((f) => f === 'mp4')) return [];
+    const ffmpeg = (this.toolsCache ?? toolPaths()).ffmpeg;
+    const [encoders, assAlpha] = await Promise.all([encodersOf(ffmpeg), assHasAlpha(ffmpeg)]);
+    const c = this.settings.current.config;
+    return outputFormatIssues(
+      p,
+      this.registry,
+      { encoders, assAlpha, gifMaxSeconds: c.render.formats.gifMaxSeconds, ...(opts.captions ? { captionsMode: opts.captions } : {}), captionsDefault: c.captions.defaultMode },
+      opts.variant === undefined ? {} : { variant: opts.variant }
+    );
+  }
+
+  /** `422 unsupported_output`: the output format cannot be rendered here (details.issues: path, variant, engine, message). */
+  private refuseOutputFormat(issues: OutputFormatIssue[]): never {
+    throw new ApiError('unsupported_output', 422, `this output cannot be rendered on this server: ${issues.map((i) => i.message).join('; ')}`, { issues });
   }
 
   /** A stored project version as a render sees it: at a variant's size when `variant` is set. */
@@ -1581,9 +1675,16 @@ export class ReelforgeService {
     if (!backend.implemented) {
       throw new ApiError('not_implemented', 501, `render backend "${backendId}" is not implemented in v0.1; use backend "local"`);
     }
-    // Limits and output support were checked above for what this job renders (one variant may be fine while another is not).
-    const blocking = report.errors.filter((e) => !(backendOverride && e.path === 'render.backend') && !e.message.startsWith(RENDER_LIMIT_PREFIX) && !e.message.startsWith(UNSUPPORTED_OUTPUT_PREFIX));
+    // Limits, output support and the output format were checked above for what this job renders (one variant may be fine while another is not).
+    const blocking = report.errors.filter(
+      (e) => !(backendOverride && e.path === 'render.backend') && !e.message.startsWith(RENDER_LIMIT_PREFIX) && !e.message.startsWith(UNSUPPORTED_OUTPUT_PREFIX) && !e.message.startsWith(OUTPUT_FORMAT_PREFIX)
+    );
     if (blocking.length) throw new ApiError('validation_failed', 422, 'fix these problems before rendering (see details.errors)', { errors: blocking, warnings: report.warnings });
+    // The output format of this render (#302): output, or the one variant. Previews are always H.264 MP4.
+    if (kind === 'render') {
+      const formatProblems = await this.formatIssues(stored, { variant: variant ?? null, ...(captions ? { captions } : {}) });
+      if (formatProblems.length) this.refuseOutputFormat(formatProblems);
+    }
     const runId = newId(kind === 'preview' ? 'prv' : 'run');
     const captionsDefault = this.settings.current.config.captions.defaultMode;
     return this.withRenderQuota((apiKeyId, quota) =>
@@ -1795,7 +1896,8 @@ export class ReelforgeService {
     // frame ranges) on any worker, then one join. Database queue, local backend, full renders of two or more units
     // only; everything else renders on this worker as before.
     const fanOut = this.settings.current.config.render.fanOut;
-    if (ctx.fanOut && ctx.job.type === 'render' && p.backend === 'local' && !p.sceneIds?.length && fanOut !== 'off') {
+    // Other output formats (#302) render on one worker: the units' stream-copy join is H.264 MP4 only.
+    if (ctx.fanOut && ctx.job.type === 'render' && p.backend === 'local' && !p.sceneIds?.length && fanOut !== 'off' && formatSpec(project.output).format === 'mp4') {
       const chunks = planChunks(project, fanOut === 'scenes+chunks' ? this.chunkPolicy(p.backend, fpsValue(project.output.fps)) : null);
       const specs = unitSpecs(p, project, chunks);
       if (specs.length > 1) {
@@ -1883,6 +1985,7 @@ export class ReelforgeService {
       ...(req.audio ? { audio: req.audio } : {}),
       audioDefaults: this.settings.current.config.render.audio,
       ...(req.captionsDefault ? { captionsDefault: req.captionsDefault } : {}),
+      gifMaxBytes: this.settings.current.config.render.formats.gifMaxBytes,
     });
     if (!local) {
       try {
@@ -1982,13 +2085,16 @@ export class ReelforgeService {
     const m = await this.storage.renders.readManifest<{
       kind: string;
       createdAt: string;
-      output: { durationSeconds: number; frames: number; width: number; height: number; fps: number; frameRate?: string };
+      output: { durationSeconds: number; frames: number; width: number; height: number; fps: number; frameRate?: string; file?: string; poster?: string; format?: string; codec?: string; alpha?: boolean };
       scenes: Array<{ file: string }>;
       captions?: CaptionManifest;
       audio?: Partial<AudioManifest>;
     }>(projectId, runId);
     if (!m) throw notFound('render', runId);
     const base = `/v1/renders/${runId}/output`;
+    // The delivered file (#302); only names this server writes (the manifest is data, not a list of paths to serve).
+    const outFile = m.output.file && OUTPUT_FILE_PATTERN.test(m.output.file) ? m.output.file : 'final.mp4';
+    const poster = m.output.poster === undefined && outFile === 'final.mp4' ? 'poster.png' : m.output.poster === 'poster.png' ? 'poster.png' : null;
     let captions: RenderCaptions | undefined;
     if (m.captions) {
       const c = m.captions;
@@ -2034,12 +2140,17 @@ export class ReelforgeService {
       width: m.output.width,
       height: m.output.height,
       fps: m.output.fps,
+      format: m.output.format ?? 'mp4',
+      codec: m.output.codec ?? 'h264',
+      alpha: m.output.alpha ?? false,
+      file: outFile,
+      contentType: contentTypeFor(outFile),
       ...(m.output.frameRate ? { frameRate: m.output.frameRate } : {}),
-      files: ['final.mp4', 'poster.png', 'render-manifest.json', ...(captions?.files.map((f) => f.file) ?? []), ...m.scenes.map((s) => s.file)],
-      outputUrl: this.url(base),
-      posterUrl: this.url(`${base}?file=poster.png`),
+      files: [outFile, ...(poster ? [poster] : []), 'render-manifest.json', ...(captions?.files.map((f) => f.file) ?? []), ...m.scenes.map((s) => s.file)],
+      outputUrl: this.url(outFile === 'final.mp4' ? base : `${base}?file=${outFile}`),
+      ...(poster ? { posterUrl: this.url(`${base}?file=poster.png`) } : {}),
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
-      ...(await this.downloadLink(projectId, runId)),
+      ...(await this.downloadLink(projectId, runId, outFile)),
       ...(captions ? { captions } : {}),
       ...(m.audio?.loudness && m.audio.track ? { audio: renderAudio(m.audio as AudioManifest) } : {}),
       storage: { driver: this.storage.driver.id, prefix: renderPrefix(projectId, runId) },
@@ -2087,20 +2198,21 @@ export class ReelforgeService {
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  /** A file of a render in storage (final.mp4 by default): its key, type and size, for streaming. */
-  async renderObject(runId: string, file = 'final.mp4'): Promise<{ key: string; contentType: string; bytes: number }> {
-    if (!isSafeRelativePath(file) || !(/^(final\.mp4|poster\.png|render-manifest\.json|clips\/[\w.-]+\.mp4)$/.test(file) || CAPTION_FILE_PATTERN.test(file))) {
-      throw badRequest('file must be final.mp4, poster.png, render-manifest.json, captions[.<language>].srt|vtt|ass, descriptions[.<language>].vtt or clips/<name>.mp4');
+  /** A file of a render in storage (default: its output, final.mp4 or another format's file, #302): its key, type and size, for streaming. */
+  async renderObject(runId: string, fileArg?: string): Promise<{ key: string; contentType: string; bytes: number; file: string }> {
+    const file = fileArg ?? (await this.getRender(runId)).file;
+    if (!isSafeRelativePath(file) || !(/^(poster\.png|render-manifest\.json|clips\/[\w.-]+\.(mp4|mov))$/.test(file) || OUTPUT_FILE_PATTERN.test(file) || CAPTION_FILE_PATTERN.test(file))) {
+      throw badRequest('file must be the output (final.mp4|mov|webm|gif|m4a|wav or frames.zip), poster.png, render-manifest.json, captions[.<language>].srt|vtt|ass, descriptions[.<language>].vtt or clips/<name>.mp4|mov');
     }
     const { projectId } = await this.findRender(runId);
     const key = renderPrefix(projectId, runId) + file;
     const s = await this.storage.driver.stat(key);
     if (!s) throw notFound('render file', `${runId}/${file}`);
-    return { key, contentType: contentTypeFor(file), bytes: s.bytes };
+    return { key, contentType: contentTypeFor(file), bytes: s.bytes, file };
   }
 
   /** A local file with a render file's bytes (remote storage: a cached copy). */
-  async renderFile(runId: string, file = 'final.mp4'): Promise<{ path: string; contentType: string }> {
+  async renderFile(runId: string, file?: string): Promise<{ path: string; contentType: string }> {
     const o = await this.renderObject(runId, file);
     return { path: await this.storage.localFile(o.key, o.bytes), contentType: o.contentType };
   }
@@ -2110,6 +2222,26 @@ export class ReelforgeService {
   /** Driver, where the bytes go (no secrets), health, usage, retention policy and the last sweep. */
   getStorage() {
     return this.storage.status();
+  }
+
+  // ---- analytics (#292) ---------------------------------------------------------
+
+  private analytics: Analytics | null = null;
+
+  /**
+   * get_analytics_summary (GET /v1/analytics/summary, read): renders per day by status, success and failure rates,
+   * render time (per engine from the manifests), queue wait, minutes rendered, storage used, top error codes and
+   * webhook delivery health, for a bounded range (at most 90 days by day, 7 by hour). See analytics.ts.
+   */
+  analyticsSummary(query: Record<string, unknown> = {}): Promise<AnalyticsSummary> {
+    this.analytics ??= new Analytics({
+      jobs: this.jobs, // the runner's page: live state of jobs running in this process, like list_jobs
+      webhooks: this.repos.webhooks,
+      storageUsage: () => this.storage.usage(),
+      readManifest: async (projectId, runId) => (await this.storage.renders.readManifest<{ scenes?: Array<{ engine?: unknown; millis?: unknown }> }>(projectId, runId)) ?? null,
+      now: () => this.now(),
+    });
+    return this.analytics.summary(query);
   }
 
   /**

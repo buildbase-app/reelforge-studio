@@ -416,7 +416,15 @@ export function createApp(deps: AppDeps) {
     if ('response' in a) return a.response;
     const auth = a.auth;
     c.set('auth', auth); // access log key id (#64)
-    return handleMcp(c.req.raw, auth, service, config);
+    // The JSON body limit applies to /mcp exactly as to REST (limits.maxJsonBytes, runtime; #321): the MCP SDK's own
+    // 4 MiB cap would otherwise be the only bound. A declared Content-Length is checked at once; a chunked body is
+    // cut off while it streams. GET (SSE) and DELETE have no body.
+    if (c.req.method !== 'POST') return handleMcp(c.req.raw, auth, service, config);
+    let answered: Response | undefined;
+    const refused = await json(c, async () => {
+      answered = await handleMcp(c.req.raw, auth, service, config);
+    });
+    return answered ?? refused ?? c.res;
   });
 
   // ---- REST v1 ---------------------------------------------------------------------
@@ -581,9 +589,9 @@ export function createApp(deps: AppDeps) {
     return c.json(await service.getCaptions({ renderId: c.req.param('id'), ...(language ? { language } : {}) }));
   });
   v1.get('/renders/:id/output', need('read'), async (c) => {
-    const file = c.req.query('file') ?? 'final.mp4';
-    const o = await service.renderObject(c.req.param('id'), file);
-    return sendStored(c, service, o, file.split('/').pop()!);
+    // Without ?file= the render's output, in whatever format it was rendered (#302).
+    const o = await service.renderObject(c.req.param('id'), c.req.query('file'));
+    return sendStored(c, service, o, o.file.split('/').pop()!);
   });
 
   v1.get('/assets', need('read'), async (c) => c.json(await service.listAssets({ projectId: c.req.query('projectId') }, page(c))));
@@ -636,6 +644,8 @@ export function createApp(deps: AppDeps) {
   });
   v1.delete('/licence', need('admin'), async (c) => c.json(await service.deactivateLicence(actor(c))));
 
+  // Analytics (#292): aggregates over a bounded range, read from jobs, render manifests, storage usage and the webhook outbox.
+  v1.get('/analytics/summary', need('read'), async (c) => c.json(await service.analyticsSummary(c.req.query())));
   v1.get('/storage', need('admin'), async (c) => c.json(await service.getStorage()));
   v1.post('/storage/cleanup', need('admin'), json, async (c) => {
     const b = await body(c);

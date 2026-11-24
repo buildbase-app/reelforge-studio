@@ -1,6 +1,6 @@
 ---
 title: "Formats and layouts"
-description: "Any output size, aspect ratio and frame rate in ReelForge Studio: exact NTSC rates, the sizes each engine renders, the layout unit, safe areas with their sources, fit-to-box text, how built-in templates reflow, layout primitives (split screen, picture-in-picture, lower thirds, grids), media fit modes, and the contact sheets that prove it."
+description: "Any output size, aspect ratio, frame rate and file format in ReelForge Studio: MP4, ProRes MOV with alpha, WebM (VP9, AV1), GIF, PNG sequences and audio only; exact NTSC rates, the sizes each engine renders, the layout unit, safe areas with their sources, fit-to-box text, how built-in templates reflow, layout primitives (split screen, picture-in-picture, lower thirds, grids), media fit modes, and the contact sheets that prove it."
 folder: "manifest"
 slug: "formats"
 order: 3
@@ -22,7 +22,7 @@ the same scenes work at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K.
 | Portrait feed posts | 1080x1350 (4:5) |
 | Cinema-style banners | 2560x1080 (21:9) |
 
-Width and height must be even (H.264 with yuv420p needs it), and a server can
+Width and height must be even (H.264 and ProRes 4:2:2 need it), and a server can
 set lower limits (`limits.maxRenderDimension`, see `get_capabilities`). The
 frame rate is any of 23.976, 24, 25, 29.97, 30, 48, 50, 59.94 and 60
 ([Frame rates](#frame-rates)).
@@ -30,6 +30,89 @@ frame rate is any of 23.976, 24, 25, 29.97, 30, 48, 50, 59.94 and 60
 To render several of these sizes from one project in one call, list them as
 `variants` in the manifest: `render_project` then starts one render per
 variant, laid out again for each size ([Output variants](/docs/manifest/v0-2#output-variants)).
+
+## Output formats
+
+`output.format` picks the file a render delivers, `output.codec` the codec
+inside it (omit it for the format's default) and `output.alpha: true` a
+transparent background where the codec can carry one:
+
+```json
+"output": { "width": 1920, "height": 1080, "fps": 30, "format": "mov", "codec": "prores-4444", "alpha": true }
+```
+
+| `format` | `codec` (default first) | File | What it is for | Alpha | Audio | Captions | Size notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `mp4` | `h264` | `final.mp4` | Social apps, websites, players everywhere | No | AAC 192 kbit/s | Burned and sidecar | Smallest video; the default |
+| `mov` | `prores-422-hq`, `prores-4444` | `final.mov` | Hand-off to editors and NLEs (Premiere, Resolve, Final Cut) | `prores-4444` only (`alpha: true` picks it) | PCM 24-bit 48 kHz | Burned and sidecar | Very large: ProRes is an intermediate codec (Apple quotes about 220 Mbit/s for 422 HQ and 330 Mbit/s for 4444 at 1920x1080, 29.97 fps) |
+| `webm` | `vp9`, `av1` | `final.webm` | The web: `<video>` in browsers, overlays with transparency | `vp9` only | Opus 128 kbit/s | Burned and sidecar | Quality and speed: `render.formats.vp9*` / `av1*`. AV1 encodes more slowly and needs an FFmpeg with SVT-AV1 or libaom |
+| `gif` | `gif` | `final.gif` | Docs, pull requests, chat | No | None | Burned and sidecar | Two-pass palette; at most `render.formats.gifFps` (15) fps, `gifMaxSide` (480 px), `gifMaxSeconds` (30 s) and `gifMaxBytes` (50 MiB) |
+| `png-sequence` | `png` | `frames.zip` | Compositing (After Effects, Nuke, Fusion), frame-exact review | Yes (RGBA PNGs) | None | Burned and sidecar | One `frame_000001.png` per frame in a stored zip; at most 65,535 frames |
+| `m4a` | `aac` | `final.m4a` | The soundtrack alone (music, voice, sound effects) | - | AAC, `render.formats.aacKbps` (192) | Sidecar only | No scene is rendered; needs project audio |
+| `wav` | `pcm-s16le` | `final.wav` | The soundtrack, uncompressed, for audio editors | - | PCM 16-bit 48 kHz | Sidecar only | About 11.5 MB a minute (48 kHz stereo) |
+
+Every format gets the same captions sidecars (SRT, WebVTT and ASS per
+language) next to its file. Burned captions are drawn into the pictures,
+also into the alpha channel of transparent renders, so they show over a
+transparent background. GIF and PNG sequences have no sound, and audio-only
+formats have no pictures, so burned captions are refused for `m4a` and `wav`.
+
+**Transparency.** The `html` and `hyperframes` engines can render a
+transparent background (`get_capabilities` lists `alpha: true` per engine):
+the page paints no background, so whatever your scene leaves unpainted stays
+transparent. Built-in templates and scenes that paint a full-frame background
+stay opaque. Remotion and Motion Canvas scenes are refused in a render with
+`alpha: true`.
+
+**What is refused, and when.** A combination that can never work (a codec of
+another format, alpha on a codec without it, alpha on audio only) is an
+`invalid_manifest` error on the field when you save the project. What depends
+on the server (an engine without transparency, an encoder its FFmpeg lacks,
+audio only without audio, a GIF over its length limit) is a
+`422 unsupported_output` from `render_project` before anything is queued, with
+`details.issues` naming the path, the variant and the engine; `validate_project`
+lists the same problems. `get_capabilities` shows which formats and codecs
+this server can encode (`outputFormats`).
+
+**Variants.** A variant may set its own `format`, `codec` and `alpha`: one
+project can render a transparent ProRes for the editor, a WebM for the site
+and a GIF for the docs in one `render_project` call. A variant that sets
+`format` takes neither `codec` nor `alpha` from `output`; one that does not,
+inherits them unless it sets them.
+
+**Audio.** Every format with sound gets the same audio as an MP4
+([Audio](/docs/manifest/audio)): one mix of the whole timeline, normalised to
+the loudness preset, then checked on the delivered file (loudness, and A/V
+sync within one frame). MOV carries it as 24-bit PCM and WebM as Opus, muxed in
+a second pass after the video. A muted render carries a silent track, or no
+audio stream with `render.audio.mutedTrack: "none"`. GIF and PNG sequences
+have no sound: nothing is mixed, and `get_render_output` reports
+`audio.track: "none"`, the reason (`"gif has no audio"`) and the A/V-sync and
+loudness checks as `skipped`. `m4a` and `wav` are the normalised mix with no
+pictures (no video is rendered): their loudness is checked, A/V sync is
+`skipped`.
+
+**Frame rates.** MOV and WebM have exactly the project's rate (`r_frame_rate`
+`30000/1001` at 29.97). A GIF keeps the project's exact rate when it is not
+above `render.formats.gifFps`, else it is made at `gifFps` (its frame delays are
+whole hundredths of a second, so players show 29.97 as close to it). A PNG
+sequence is one file per timeline frame; `get_render_output` gives the rate as
+`frameRate`.
+
+**Posters.** An MP4's poster is its first frame, as before. Other formats take the middle frame (540 px wide, transparent where the render keeps alpha), because a first frame is often still empty and the dashboard shows MOV and PNG sequences as that still: browsers do not play ProRes.
+
+**Previews** (`preview_scene`) are always H.264 MP4, whatever the format.
+Renders in other formats run on one worker (render fan-out joins MP4 only).
+
+**Not offered: HEVC/H.265.** The FFmpeg in the image could encode it (x265),
+but HEVC's patent pools license encoders in products that are sold, and
+ReelForge is sold. Until that is cleared, ReelForge leaves HEVC out. AV1 and
+VP9 are royalty-free alternatives for small files.
+
+Quality settings per format are runtime settings (`render.formats.*`; change
+them with `update_config` / `PATCH /v1/config`, no restart): VP9 and AV1 quality and speed,
+GIF frame rate, size, dithering and limits, AAC and Opus bitrates. The H.264
+settings are unchanged.
 
 ## Frame rates
 
@@ -179,9 +262,11 @@ below `data-rf-fit-min` pixels (default: 40 % of its CSS size).
 
 ## Layouts: split screen, picture-in-picture, lower thirds, grids
 
-The templates `html-layout` (html engine) and `hyperframes-layout`
-(HyperFrames) arrange **panes**. Both take the same props and put every pane,
-text block and lower third on the same pixels. Each pane can hold an image or
+The templates `html-layout` (html engine), `hyperframes-layout`
+(HyperFrames), `remotion-layout` (Remotion) and `motion-canvas-layout` (Motion
+Canvas) arrange **panes**. All four take the same props and put every pane,
+text block and lower third in the same place, so a scene moves to another
+engine by changing only its `engine` and `template`. Each pane can hold an image or
 video asset, a colour, a short label, a headline and body text. Sizes are in
 layout units and positions follow the safe areas, so one scene reflows for
 every output size and every variant.
@@ -260,18 +345,24 @@ that band, or below it when there is no room above.
 
 ### Engines
 
-| Engine | Images | Video |
-| --- | --- | --- |
-| `html` | Inlined as `data:` URLs (PNG, JPEG, WebP, GIF, SVG; the type is read from the bytes) | Decoded by FFmpeg into one picture per output frame and shown frame by frame, so any format FFmpeg reads works |
-| `hyperframes` | Linked into the scene folder | A timed, muted `<video>` clip that HyperFrames seeks frame by frame |
+| Engine | Template | How it draws | Images | Video |
+| --- | --- | --- | --- | --- |
+| `html` | `html-layout` | The shared HTML/CSS builder | Inlined as `data:` URLs (PNG, JPEG, WebP, GIF, SVG; the type is read from the bytes) | Decoded by FFmpeg into one picture per output frame and shown frame by frame, so any format FFmpeg reads works |
+| `hyperframes` | `hyperframes-layout` | The shared HTML/CSS builder | Linked into the scene folder | A timed, muted `<video>` clip that HyperFrames seeks frame by frame |
+| `remotion` | `remotion-layout` | The shared HTML/CSS builder inside a Remotion composition; each frame seeks the CSS animations to its time | Staged and served on a loopback origin for the length of the render ([assets](assets.md)) | One picture per output frame, picture k at frame k, also in a frame-range chunk |
+| `motion-canvas` | `motion-canvas-layout` | Motion Canvas nodes placed by the same geometry functions, type sizes and timing; text wraps in Motion Canvas's layout (the browser's line breaking) and shrinks to fit the same way | Staged and served on the bundle server under a per-render token ([assets](assets.md)) | One picture per output frame, picture k at frame k |
 
-Remotion and Motion Canvas have no layout template yet.
+Every engine renders offline: pictures come only from the render's own staged
+files, and nothing is fetched from the network. Motion Canvas draws on a
+canvas, so its text can break lines differently where the DOM engines balance
+the last lines of a paragraph (`text-wrap: pretty`); boxes, panes and the lower
+third are in the same place.
 
 ### Proof: layout contact sheets
 
 Each sheet shows one primitive at 16:9 (1920x1080), 1:1 (1080x1080), 9:16
-(1080x1920) and 4K (3840x2160), left to right: the html engine on the top row,
-HyperFrames below it. The frames are rendered at full size and scaled down; the
+(1080x1920) and 4K (3840x2160), left to right, one row per engine from the top:
+html, HyperFrames, Remotion and Motion Canvas. The frames are rendered at full size and scaled down; the
 thin grey outline is the content safe area. The media are made with FFmpeg's
 own sources (a toned Mandelbrot still at 4:3 and two Game of Life clips at
 16:9 and 9:16), so the sheets show the layout and no third-party pictures.
@@ -301,12 +392,17 @@ Fit modes, the same 4:3 picture as `contain`, `cover` and `blur-fill`:
 
 ![Fit modes contact sheet](../../proofs/layouts/fit.jpg)
 
-Render times and probe results are in `docs/proofs/layouts/report.json`. To
-make them again:
+Render times and probe results are in `docs/proofs/layouts/report.json`.
+`docs/proofs/layouts/geometry.json` compares the engines: every sample (and the
+longest-text samples) with flat pane colours, rendered on html, Remotion and
+Motion Canvas at the four sizes, with each pane and the lower third found by
+colour on the frame and its distance from the geometry and from the html
+engine's, in pixels. To make them again:
 
 ```bash
 export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm formats:prove-layouts
+pnpm formats:prove-layouts --geometry
 ```
 
 ## Proof: contact sheets
@@ -355,15 +451,25 @@ pnpm formats:prove
 - one 3840x2160 smoke render.
 
 - every layout sample, plus the longest text the schema allows in a 6-pane
-  grid and in a lower third over a split, is measured in the browser on both
-  engines at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K: each pane is where the geometry
+  grid and in a lower third over a split, is measured in the browser on html
+  and HyperFrames at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K: each pane is where the geometry
   puts it (within a pixel), the inset is inside the safe area, no text
   overflows, pane text is inside its pane and the safe area, the lower third is
   inside the content safe area and no pane text is under it;
-- on rendered pixels, on both engines: `contain` shows the pane colour in the
-  letterbox, `cover` fills it, `blur-fill` fills it with the blurred picture,
-  the gap between panes shows the background, and a video pane plays frame by
-  frame from `startSeconds` and holds its last frame.
+- on rendered pixels, on all four engines: `contain` shows the pane colour in
+  the letterbox, `cover` fills it, `blur-fill` fills it with the blurred
+  picture, the gap between panes shows the background, and a video pane plays
+  frame by frame from `startSeconds` and holds its last frame.
+
+`apps/server/test/layouts-engines.test.ts` compares Remotion and Motion Canvas
+with the html engine on rendered pixels, at full size at 16:9, 1:1, 9:16 and
+4K, for every layout sample and the longest-text samples, with flat pane
+colours: each pane, found by its colour, is within 1 layout unit of the
+geometry and of the html engine's; the lower third is within 1 unit of the html
+engine's and inside the content safe area; every text pixel in a pane is inside
+that pane's text box (so inside the safe area, never clipped). It also renders a
+clip that shows its own frame number in two panes with different in-points and
+checks the number at each frame, on a whole render and on a frame range.
 
 `apps/server/test/fps.test.ts` renders each engine at 23.976, 29.97, 48, 50
 and 59.94 fps (exact frame counts, and the exact rate and one-frame timestamp

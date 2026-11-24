@@ -56,7 +56,7 @@ describe('output variants (#287)', () => {
   it('VAR-01 one render_project call: one render per variant, each its own job and run id, one batch id, each at its size', async () => {
     const v = await svc.validateManifest(manifest('multi', VARIANTS));
     expect(v.ok).toBe(true);
-    expect(v.summary?.variants).toEqual(VARIANTS.map(({ id, width, height }) => ({ id, width, height })));
+    expect(v.summary?.variants).toEqual(VARIANTS.map(({ id, width, height }) => ({ id, width, height, format: 'mp4', codec: 'h264', alpha: false })));
     await svc.createProject(manifest('multi', VARIANTS));
     const r = await svc.renderProject('multi');
     expect(r.jobs).toHaveLength(3);

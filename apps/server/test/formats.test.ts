@@ -21,7 +21,7 @@ import { buildComposition } from '@reelforge/engine-hyperframes';
 import { checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
 import type { ResolvedAsset } from '@reelforge/core';
 import { FIT_TEXT_SCRIPT, frameLayout, htmlTitleProps, layoutPanes, layoutSceneDom, layoutSceneProps, toLayoutSpec, type OutputSettings } from '@reelforge/project-schema';
-import { LAYOUT_ENGINES, LAYOUT_FORMATS, LAYOUT_SAMPLES, renderLayout, type LayoutSample } from './formats/layouts';
+import { LAYOUT_ENGINES, LAYOUT_FORMATS, LAYOUT_SAMPLES, LAYOUT_STRESS_SAMPLES, renderLayout, type LayoutSample } from './formats/layouts';
 import { FORMATS, FORMAT_4K, SAMPLES, THEME, checkOverflow, engines, frameRgb, renderSample, scaled, type Format } from './formats/matrix';
 import { envValue } from '@reelforge/core';
 
@@ -275,29 +275,7 @@ function expectLayoutFits(m: LayoutMeasure, sample: LayoutSample, f: Format, whe
 
 describe.skipIf(!hasBrowser)('layout primitives at real sizes: panes where the geometry says, text inside the safe area (#287)', () => {
   const sizes = [...LAYOUT_FORMATS, { id: '4x5', label: '4:5', width: 1080, height: 1350 }, { id: '21x9', label: '21:9', width: 2560, height: 1080 }];
-  // The longest text the schema allows in every pane of a 6-pane grid, and a lower third at its limits over a split.
-  const longText = {
-    layout: { type: 'grid' },
-    panes: Array.from({ length: 6 }, (_, i) => ({
-      media: { asset: i % 2 ? 'wide' : 'tall', fit: 'cover' },
-      label: 'A label of forty characters, at the cap',
-      headline: 'WWWW A headline at the eighty character limit that must shrink to fit its pane',
-      body: 'Body text of a realistic length that wraps onto two or three lines in a narrow pane and must stay inside the pane and the safe area too.',
-    })),
-  };
-  const longLowerThird = {
-    layout: { type: 'split' },
-    panes: [
-      { media: { asset: 'wide', fit: 'cover' }, label: 'A label of forty characters, at the cap', headline: 'WWWW A headline at the eighty character limit that must shrink to fit its pane' },
-      { media: { asset: 'tall', fit: 'blur-fill' }, body: 'Body text of a realistic length that wraps onto two or three lines in a narrow pane and must stay inside the pane and the safe area too.' },
-    ],
-    lowerThird: { name: 'A name at the sixty character limit for lower third names ok', title: 'And a title of eighty characters that wraps onto a second line in narrow frames.' },
-  };
-  const samples: LayoutSample[] = [
-    ...LAYOUT_SAMPLES,
-    { id: 'stress-grid', title: 'longest text', seconds: 2, settled: 0.8, props: longText },
-    { id: 'stress-lower-third', title: 'longest lower third', seconds: 2, settled: 0.8, props: longLowerThird },
-  ];
+  const samples: LayoutSample[] = [...LAYOUT_SAMPLES, ...LAYOUT_STRESS_SAMPLES];
   for (const f of sizes) {
     it(`every layout sample on html and hyperframes at ${f.width}x${f.height}`, async () => {
       const output: OutputSettings = { width: f.width, height: f.height, fps: 30, format: 'mp4' };
