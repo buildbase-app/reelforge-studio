@@ -607,8 +607,23 @@ pnpm load
 
 Suggested machine: 16+ vCPU, 64 GB RAM, local NVMe, Docker. Commit the generated `.md` tables
 into this page under a new dated heading and the `.json` next to it, and update RENDER_SCALE §10.
-The script runs everything on one host; a run with PostgreSQL on its own machine (the realistic
-production shape) needs an external-database option in `scripts/load/run.ts` (follow-up).
+By default the script runs everything on one host, PostgreSQL in a container. For the realistic
+production shape, PostgreSQL on its own machine (a managed database or a dedicated VM), point it at
+that server (#421). The role needs `CREATEDB`; the `rfload_*` databases are made there and dropped at
+the end:
+
+```bash
+LOAD_DATABASE_URL='postgresql://loadtest:<password>@db.internal:5432/postgres?sslmode=require' \
+LOAD_POOLER_URL='postgresql://loadtest:<password>@pooler.internal:6432/postgres?sslmode=require' \
+LOAD_POOLERS=direct,pgbouncer \
+LOAD_HARDWARE_NOTE="dedicated: app host <type>; database <provider> <type>, same region" \
+pnpm load   # with the settings above
+```
+
+`LOAD_POOLER_URL` (PgBouncer in transaction mode, RDS Proxy, ...) is optional; without it, leave
+`LOAD_POOLERS=direct`. The database's CPU is then not sampled (`n/a` in the tables): take it from the
+provider's monitoring for the run's time window. Statement counts need `pg_stat_statements` on that
+server. The results record the database host, never the credentials.
 
 | Number | Value |
 | --- | --- |
