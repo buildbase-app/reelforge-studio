@@ -156,7 +156,7 @@ onapi=$(psql_ "SELECT count(*) FROM \"Job\" WHERE \"workerId\" LIKE '$P-api%'")
 [ "$onapi" = 0 ] && echo "✔ no job was claimed by the api container" || fail "$onapi jobs claimed by the api"
 # /metrics needs its bearer token since #146 (D-088).
 curl -s -H "Authorization: Bearer $METRICS_TOKEN" "http://127.0.0.1:$PORT/metrics" > "$WORK/api-metrics.txt"
-grep -q '^reelforge_server_role{reelforge_role="api"} 1' "$WORK/api-metrics.txt" || fail "api role gauge"
+grep -q '^reelforge_server_role{reelforge_role="api",renderweld_role="api"} 1' "$WORK/api-metrics.txt" || fail "api role gauge"
 grep -Eq '^reelforge_(render_frames_total|jobs_finished_total)\{' "$WORK/api-metrics.txt" && fail "the api container rendered or finished jobs" || echo "✔ api /metrics: role api, no rendered frames, no finished jobs"
 # The whole output first (a `| head` would SIGPIPE docker under pipefail).
 if [ "$POOLER" = pgbouncer ]; then
@@ -237,7 +237,7 @@ echo "== metrics and logs (SCL-18)"
 : > "$WORK/w-metrics.txt"
 for w in $W1 $W2; do
   docker exec -e RF_TOKEN="$METRICS_TOKEN" $w node -e "fetch('http://127.0.0.1:4321/metrics',{headers:{authorization:'Bearer '+process.env.RF_TOKEN}}).then(r=>r.text()).then(t=>process.stdout.write(t))" > "$WORK/m-$w.txt"
-  grep -q '^reelforge_server_role{reelforge_role="worker"} 1' "$WORK/m-$w.txt" && grep -q '^reelforge_jobs_queued [0-9]' "$WORK/m-$w.txt" || { head -c 600 "$WORK/m-$w.txt"; fail "$w metrics: role gauge or queue depth missing"; }
+  grep -q '^reelforge_server_role{reelforge_role="worker",renderweld_role="worker"} 1' "$WORK/m-$w.txt" && grep -q '^reelforge_jobs_queued [0-9]' "$WORK/m-$w.txt" || { head -c 600 "$WORK/m-$w.txt"; fail "$w metrics: role gauge or queue depth missing"; }
   cat "$WORK/m-$w.txt" >> "$WORK/w-metrics.txt"
 done
 grep -q '^reelforge_jobs_finished_total{' "$WORK/w-metrics.txt" && echo "✔ worker /metrics: role worker and reelforge_jobs_queued on both, finished jobs counted" || fail "no finished jobs in the workers' metrics"
