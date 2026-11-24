@@ -1040,7 +1040,25 @@ export const TOOLS: ToolDef[] = [
   },
 ];
 
-/** Served as the resource reelforge://guide/workflow and inside the make_reel prompt. */
+/**
+ * MCP resource URIs (#412): `renderweld://` is the scheme; the old
+ * `reelforge://` answers every URI too until a removal date announced in the
+ * release notes (docs/RENAMED.md). Tool and prompt names do not change.
+ */
+export const RESOURCE_SCHEME = 'renderweld';
+export const RESOURCE_SCHEMES = ['renderweld', 'reelforge'] as const;
+export const resourceUri = (path: string) => `${RESOURCE_SCHEME}://${path}`;
+
+/** The resources, by path under either scheme. */
+export const RESOURCES = [
+  { name: 'workflow-guide', path: 'guide/workflow', title: 'How to make a reel with these tools', description: 'Step-by-step workflow, a minimal manifest and rules of thumb. Read this first if you have no other docs.', mimeType: 'text/markdown' },
+  { name: 'project-schema', path: 'schema/project', title: 'Project manifest JSON Schema', description: 'JSON Schema of the current manifest version.', mimeType: 'application/json' },
+  { name: 'templates', path: 'templates', title: 'Installed templates', description: 'Templates with engines, durations, theme tokens and props schemas.', mimeType: 'application/json' },
+  { name: 'project', path: 'projects/{id}', title: 'Project manifest', description: 'The current manifest of a project.', mimeType: 'application/json' },
+] as const;
+export type ResourcePath = (typeof RESOURCES)[number]['path'];
+
+/** Served as the resource renderweld://guide/workflow (and reelforge://guide/workflow) and inside the make_reel prompt. */
 export const WORKFLOW_GUIDE = `# ReelForge Studio: making a reel with MCP tools only
 
 You decide the scenes; the server validates, renders and checks. Everything is
@@ -1145,7 +1163,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
         'ReelForge Studio renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ' +
         'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
         'With captions, call get_captions and ask the user to approve them (update_captions approve: true) before render_project; never assume approval. ' +
-        'Full guide with a minimal manifest: resource reelforge://guide/workflow or prompt make_reel. ' +
+        `Full guide with a minimal manifest: resource ${resourceUri('guide/workflow')} or prompt make_reel. ` +
         'Renders need a valid licence: get_capabilities.licence / get_licence say whether renders are allowed and, if not, what the user must do. ' +
         'Tools are experimental until v1.0.',
     }
@@ -1204,50 +1222,55 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
     if (!hasScope(auth, 'read')) throw new ApiError('forbidden', 403, 'this API key lacks the "read" scope');
   };
 
-  server.registerResource(
-    'project-schema',
-    'reelforge://schema/project',
-    { title: 'Project manifest JSON Schema', description: 'JSON Schema of the current manifest version.', mimeType: 'application/json' },
-    async (uri) => {
+  // Every resource answers under renderweld:// (the name) and the old reelforge:// (#412, RESOURCES).
+  const read = {
+    'schema/project': async () => {
       requireRead();
-      return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(service.projectSchema(), null, 2) }] };
-    }
-  );
-  server.registerResource(
-    'templates',
-    'reelforge://templates',
-    { title: 'Installed templates', description: 'Templates with engines, durations, theme tokens and props schemas.', mimeType: 'application/json' },
-    async (uri) => {
+      return JSON.stringify(service.projectSchema(), null, 2);
+    },
+    templates: async () => {
       requireRead();
-      return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(service.listTemplates(), null, 2) }] };
+      return JSON.stringify(service.listTemplates(), null, 2);
+    },
+    'guide/workflow': async () => WORKFLOW_GUIDE,
+  } satisfies Record<Exclude<ResourcePath, 'projects/{id}'>, () => Promise<string>>;
+  for (const r of RESOURCES) {
+    for (const scheme of RESOURCE_SCHEMES) {
+      const legacy = scheme !== RESOURCE_SCHEME;
+      const name = legacy ? `${r.name}-${scheme}` : r.name;
+      const meta = {
+        title: legacy ? `${r.title} (old URI)` : r.title,
+        description: legacy ? `Same as ${resourceUri(r.path)}; the old ${scheme}:// URI keeps working until a removal date announced in the release notes (docs/RENAMED.md).` : r.description,
+        mimeType: r.mimeType,
+      };
+      if (r.path === 'projects/{id}') {
+        server.registerResource(
+          name,
+          new ResourceTemplate(`${scheme}://${r.path}`, {
+            // Listed once, under the new scheme; the old one still reads every project.
+            list: legacy
+              ? undefined
+              : async () => {
+                  requireRead();
+                  return {
+                    // The newest 200 (one page, D-102): this list callback gets no cursor; list_projects pages through all.
+                    resources: (await service.listProjects({ limit: 200 })).projects.map((p) => ({ uri: resourceUri(`projects/${p.id}`), name: p.title, mimeType: 'application/json' })),
+                  };
+                },
+          }),
+          meta,
+          async (uri, vars) => {
+            requireRead();
+            const p = await service.getProject(String(vars.id));
+            return { contents: [{ uri: uri.href, mimeType: r.mimeType, text: JSON.stringify(p, null, 2) }] };
+          }
+        );
+      } else {
+        const text = read[r.path];
+        server.registerResource(name, `${scheme}://${r.path}`, meta, async (uri) => ({ contents: [{ uri: uri.href, mimeType: r.mimeType, text: await text() }] }));
+      }
     }
-  );
-  server.registerResource(
-    'project',
-    new ResourceTemplate('reelforge://projects/{id}', {
-      list: async () => {
-        requireRead();
-        return {
-          // The newest 200 (one page, D-102): this list callback gets no cursor; list_projects pages through all.
-          resources: (await service.listProjects({ limit: 200 })).projects.map((p) => ({ uri: `reelforge://projects/${p.id}`, name: p.title, mimeType: 'application/json' })),
-        };
-      },
-    }),
-    { title: 'Project manifest', description: 'The current manifest of a project.', mimeType: 'application/json' },
-    async (uri, vars) => {
-      requireRead();
-      const id = String(vars.id);
-      const p = await service.getProject(id);
-      return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(p, null, 2) }] };
-    }
-  );
-
-  server.registerResource(
-    'workflow-guide',
-    'reelforge://guide/workflow',
-    { title: 'How to make a reel with these tools', description: 'Step-by-step workflow, a minimal manifest and rules of thumb. Read this first if you have no other docs.', mimeType: 'text/markdown' },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: 'text/markdown', text: WORKFLOW_GUIDE }] })
-  );
+  }
 
   server.registerPrompt(
     'make_reel',
@@ -1369,7 +1392,9 @@ export function serverCard(service: ReelforgeService, config: ServerConfig) {
     status: 'experimental',
     schemaVersion: SCHEMA_VERSION,
     tools: TOOLS.map((t) => ({ name: t.name, title: t.title, scope: t.scope, status: 'experimental' })),
-    resources: ['reelforge://guide/workflow', 'reelforge://schema/project', 'reelforge://templates', 'reelforge://projects/{id}'],
+    resources: RESOURCES.map((r) => resourceUri(r.path)),
+    // The old URIs (#412): still answered, not listed in new docs.
+    resourceAliases: Object.fromEntries(RESOURCES.map((r) => [`reelforge://${r.path}`, resourceUri(r.path)])),
     prompts: ['make_reel', 'plan_reel', 'review_reel'],
     rest: { base: `${base}/v1`, capabilities: `${base}/v1/capabilities` },
   };

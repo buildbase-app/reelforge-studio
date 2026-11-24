@@ -11,8 +11,8 @@ import { weakKeyReason } from '../keyStrength';
  * Sources, lowest to highest precedence (docs/DECISIONS.md D-029):
  *   1. defaults (below)
  *   2. the config file (REELFORGE_CONFIG: YAML or JSON, same nesting as here)
- *   3. environment variables (REELFORGE_*, aliases such as DATABASE_URL; every
- *      secret also as <NAME>_FILE)
+ *   3. environment variables (RENDERWELD_*, then the old REELFORGE_* names and
+ *      aliases such as DATABASE_URL; every secret also as <NAME>_FILE)
  *   4. runtime settings set over REST/MCP (PATCH /v1/config, update_config),
  *      stored in the database; only keys with scope "runtime"
  *
@@ -1503,9 +1503,26 @@ function collect(obj: z.ZodObject, prefix: string, out: SettingDef[]): SettingDe
 export const SETTINGS: readonly SettingDef[] = Object.freeze(collect(ConfigSchema, '', []));
 export const SETTINGS_BY_KEY: ReadonlyMap<string, SettingDef> = new Map(SETTINGS.map((s) => [s.key, s]));
 
-/** The env variable names a setting is read from, in precedence order (secrets: each also as _FILE). */
+/**
+ * ReelForge is renamed RenderWeld (#408, docs/RENAMED.md): every `REELFORGE_*`
+ * name is also read as `RENDERWELD_*`, which wins. The schema keeps the old
+ * names; the new ones are derived here, so no setting needs its own alias.
+ */
+export const LEGACY_ENV_PREFIX = 'REELFORGE_';
+export const ENV_PREFIX = 'RENDERWELD_';
+
+/** `REELFORGE_X` -> `RENDERWELD_X` (also for `_FILE` names); undefined for any other name. */
+export function renamedEnvName(name: string): string | undefined {
+  return name.startsWith(LEGACY_ENV_PREFIX) ? `${ENV_PREFIX}${name.slice(LEGACY_ENV_PREFIX.length)}` : undefined;
+}
+
+/**
+ * The env variable names a setting is read from, in precedence order (secrets: each also as _FILE):
+ * the `RENDERWELD_*` names first, then the schema's own (`REELFORGE_*`, then older aliases such as DATABASE_URL).
+ */
 export function envNames(def: SettingDef): string[] {
-  return [def.env, ...(def.aliases ?? [])];
+  const own = [def.env, ...(def.aliases ?? [])];
+  return [...own.flatMap((n) => renamedEnvName(n) ?? []), ...own];
 }
 
 /** The config file schema: the same nesting, every key optional, unknown keys refused (typos). */

@@ -191,6 +191,26 @@ describe('Prometheus metrics, JSON access logs and /readyz (default exporters)',
     expect(find('target_info', { service_name: 'reelforge-studio' }).length).toBe(1);
   });
 
+  it('OBS-18 rename (#412): every reelforge_* metric is also served as renderweld_* with identical labels and values', async () => {
+    const r = await api(s.server, 'GET', '/metrics', { key: METRICS });
+    const samples = parsePrometheus(r.text);
+    const id = (name: string, labels: Record<string, string>, value: number) => JSON.stringify([name, Object.entries(labels).sort(), value]);
+    const old = samples.filter((x) => x.name.startsWith('reelforge_'));
+    const fresh = samples.filter((x) => x.name.startsWith('renderweld_'));
+    expect(old.length).toBeGreaterThan(20);
+    expect(new Set(fresh.map((x) => id(x.name, x.labels, x.value)))).toEqual(new Set(old.map((x) => id(x.name.replace(/^reelforge_/, 'renderweld_'), x.labels, x.value))));
+    // Every reelforge_* label has its renderweld_* twin with the same value, on both names.
+    for (const x of [...old, ...fresh]) {
+      for (const [k, v] of Object.entries(x.labels)) if (k.startsWith('reelforge_')) expect(x.labels[k.replace(/^reelforge_/, 'renderweld_')], `${x.name} ${k}`).toBe(v);
+    }
+    const metrics = new Set(old.map((x) => x.name.replace(/_(bucket|count|sum)$/, '')));
+    expect(metrics.size).toBeGreaterThanOrEqual(10);
+    expect(samples.find((x) => x.name === 'renderweld_jobs_finished_total' && x.labels.renderweld_job_type === 'render' && x.labels.renderweld_job_status === 'succeeded')?.value).toBe(1);
+    expect(samples.find((x) => x.name === 'target_info')?.labels).toMatchObject({ reelforge_edition: 'dev', renderweld_edition: 'dev' });
+    // Metrics that are not ours keep one name.
+    expect(samples.some((x) => x.name.startsWith('renderweld_http'))).toBe(false);
+  });
+
   it('OBS-05 bounded cardinality: routes are templates (unknown paths are "unmatched"), no ids or keys in any label', async () => {
     for (let i = 0; i < 20; i++) await api(s.server, 'GET', `/random-${i}-${Math.random()}`);
     for (let i = 0; i < 5; i++) await api(s.server, 'GET', `/v1/jobs/job_doesnotexist${i}`);
@@ -301,7 +321,13 @@ describe('OTLP export to a receiver (traces, logs, metrics)', () => {
       expect(f.length, name).toBeGreaterThan(0);
       for (const x of f) expect(x.traceId).toBe(parentTrace);
     }
-    expect(rx.resourceAttributes()).toMatchObject({ 'service.name': 'studio-under-test', 'service.version': '0.1.0', 'reelforge.edition': 'dev' });
+    expect(rx.resourceAttributes()).toMatchObject({ 'service.name': 'studio-under-test', 'service.version': '0.1.0', 'reelforge.edition': 'dev', 'renderweld.edition': 'dev' });
+    // Rename (#412): every reelforge.* span attribute has a renderweld.* twin with the same value.
+    expect(http.attributes['renderweld.key_id']).toBe(http.attributes['reelforge.key_id']);
+    expect(job.attributes['renderweld.job.status']).toBe('succeeded');
+    for (const span of spans) {
+      for (const [k, v] of Object.entries(span.attributes)) if (k.startsWith('reelforge.')) expect(span.attributes[`renderweld.${k.slice(10)}`], `${span.name} ${k}`).toEqual(v);
+    }
   });
 
   it('OBS-08 logs over OTLP: records with severity, attributes and trace ids; still JSON on stdout', () => {
@@ -317,6 +343,9 @@ describe('OTLP export to a receiver (traces, logs, metrics)', () => {
   it('OBS-09 metrics pushed over OTLP (last push on shutdown)', () => {
     const names = rx.metricNames();
     expect(names).toEqual(expect.arrayContaining(['http.server.request.duration', 'reelforge.jobs.finished', 'reelforge.render.frames', 'reelforge.jobs.queued', 'reelforge.licence.state']));
+    // Rename (#412): pushed under both names.
+    for (const n of names.filter((x) => x.startsWith('reelforge.'))) expect(names, n).toContain(`renderweld.${n.slice(10)}`);
+    expect(names).toEqual(expect.arrayContaining(['renderweld.jobs.finished', 'renderweld.render.frames', 'renderweld.jobs.queued', 'renderweld.licence.state']));
   });
 
   it('OBS-14 OTLP: headers sent to the receiver, never logged; no secret in any exported payload', () => {

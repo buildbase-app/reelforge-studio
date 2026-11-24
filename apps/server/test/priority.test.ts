@@ -154,12 +154,17 @@ describe('priorities and admission over REST and MCP', () => {
     expect(text).toMatch(/# TYPE reelforge_job_queue_wait_seconds histogram/);
     const count = samples.find((s) => s.name === 'reelforge_job_queue_wait_seconds_count' && s.labels.reelforge_job_type === 'preview' && s.labels.reelforge_job_priority === 'interactive');
     expect(count?.value).toBeGreaterThanOrEqual(1);
-    // Bounded: no ids, keys, projects or workers; only these label names and values.
-    for (const s of samples) {
+    // Bounded: no ids, keys, projects or workers; only these label names and values (each with its renderweld_* twin, #412).
+    const fresh = parsePrometheus(text).filter((s) => s.name.startsWith('renderweld_job_queue_wait_seconds'));
+    expect(fresh.length).toBe(samples.length);
+    for (const s of [...samples, ...fresh]) {
       const names = Object.keys(s.labels).filter((l) => !l.startsWith('otel_scope_'));
-      expect(names.sort()).toEqual((s.name.endsWith('_bucket') ? ['le', 'reelforge_job_priority', 'reelforge_job_type'] : ['reelforge_job_priority', 'reelforge_job_type']).sort());
+      const labels = ['reelforge_job_priority', 'reelforge_job_type', 'renderweld_job_priority', 'renderweld_job_type'];
+      expect(names.sort()).toEqual((s.name.endsWith('_bucket') ? ['le', ...labels] : labels).sort());
       expect(['render', 'preview']).toContain(s.labels.reelforge_job_type);
       expect(['interactive', 'standard', 'batch']).toContain(s.labels.reelforge_job_priority);
+      expect(s.labels.renderweld_job_type).toBe(s.labels.reelforge_job_type);
+      expect(s.labels.renderweld_job_priority).toBe(s.labels.reelforge_job_priority);
     }
     // The SLO thresholds are bucket boundaries, so the alert's quantiles are exact at them.
     const les = new Set(samples.filter((s) => s.name.endsWith('_bucket')).map((s) => s.labels.le));
@@ -168,9 +173,12 @@ describe('priorities and admission over REST and MCP', () => {
     // deployment/observability: the panel and the alerts query this histogram by its labels.
     const dash = JSON.parse(repoFile('deployment/observability/grafana-dashboard.json'));
     const panel = dash.panels.find((p: any) => /queue wait/i.test(p.title));
-    expect(panel.targets.map((t: any) => t.expr).join('\n')).toMatch(/reelforge_job_queue_wait_seconds_bucket.*reelforge_job_type.*reelforge_job_priority/s);
+    expect(panel.targets.map((t: any) => t.expr).join('\n')).toMatch(/renderweld_job_queue_wait_seconds_bucket.*renderweld_job_type.*renderweld_job_priority/s);
     const alerts = repoFile('deployment/observability/alerts.yml');
-    expect(alerts).toMatch(/reelforge_job_queue_wait_seconds_bucket\{[^}]*reelforge_job_type="preview"[^}]*\}[\s\S]*> 60/);
-    expect(alerts).toMatch(/reelforge_job_queue_wait_seconds_bucket\{[^}]*reelforge_job_type="render"[^}]*\}[\s\S]*> 300/);
+    expect(alerts).toMatch(/renderweld_job_queue_wait_seconds_bucket\{[^}]*renderweld_job_type="preview"[^}]*\}[\s\S]*> 60/);
+    expect(alerts).toMatch(/renderweld_job_queue_wait_seconds_bucket\{[^}]*renderweld_job_type="render"[^}]*\}[\s\S]*> 300/);
+    // The dashboard and the alert rules use the new metric names only (#412; the old ones are still served).
+    expect(repoFile('deployment/observability/grafana-dashboard.json')).not.toMatch(/reelforge_/);
+    expect(alerts).not.toMatch(/reelforge_/);
   }, 60_000);
 });

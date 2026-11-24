@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { envValue } from '@reelforge/core';
 import { Database } from './database';
 import type { DatabaseKind } from './url';
 
@@ -22,7 +23,7 @@ export function availableTestDatabases(env: NodeJS.ProcessEnv = process.env): Da
 
 /** REELFORGE_TEST_DB=sqlite|postgres|mysql: which database the server tests use (default sqlite). */
 export function serverTestDatabaseKind(env: NodeJS.ProcessEnv = process.env): DatabaseKind {
-  const v = (env.REELFORGE_TEST_DB ?? 'sqlite').toLowerCase();
+  const v = (envValue('REELFORGE_TEST_DB', env) ?? 'sqlite').toLowerCase();
   if (v === 'postgres' || v === 'postgresql') return 'postgresql';
   if (v === 'mysql' || v === 'mariadb') return 'mysql';
   if (v === 'sqlite') return 'sqlite';

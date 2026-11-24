@@ -1,6 +1,6 @@
 import { constants, existsSync } from 'node:fs';
 import { access, statfs } from 'node:fs/promises';
-import { browserVersion, chromiumSandbox, type ReelforgeService } from '@reelforge/core';
+import { browserVersion, chromiumSandbox, envValue, type ReelforgeService } from '@reelforge/core';
 import { toolVersion } from '@reelforge/media-pipeline';
 import type { Observability } from './observability/telemetry';
 
@@ -130,7 +130,7 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
     }
   });
   dependencies.browser = await timed(async () => {
-    const path = process.env.REELFORGE_CHROMIUM_PATH;
+    const path = envValue('REELFORGE_CHROMIUM_PATH');
     if (!path) return { status: 'not_configured', required: false, detail: 'REELFORGE_CHROMIUM_PATH is not set; engines that need Chromium may not render (see engines)' };
     if (!existsSync(path)) return { status: 'error', required: false, path, detail: `REELFORGE_CHROMIUM_PATH does not exist: ${path}` };
     const version = browserVersion(path);
@@ -229,7 +229,7 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
   const warnings: string[] = [];
   if (!chromiumSandbox()) {
     warnings.push(
-      process.env.REELFORGE_CHROMIUM_NO_SANDBOX === '1'
+      envValue('REELFORGE_CHROMIUM_NO_SANDBOX') === '1'
         ? "REELFORGE_CHROMIUM_NO_SANDBOX=1: Chromium's own sandbox is off for every engine (explicit opt-out; docs/security/HARDENING.md)"
         : "Chromium's own sandbox is off because the server runs as root"
     );

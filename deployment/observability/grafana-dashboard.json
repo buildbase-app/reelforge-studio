@@ -28,7 +28,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(reelforge_build_info, job)",
+        "query": "label_values(renderweld_build_info, job)",
         "refresh": 2,
         "includeAll": true,
         "multi": true,
@@ -164,7 +164,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(reelforge_jobs_queued{job=~\"$job\"})",
+          "expr": "sum(renderweld_jobs_queued{job=~\"$job\"})",
           "legendFormat": "queued"
         },
         {
@@ -173,7 +173,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(reelforge_jobs_running{job=~\"$job\"})",
+          "expr": "sum(renderweld_jobs_running{job=~\"$job\"})",
           "legendFormat": "running"
         },
         {
@@ -182,7 +182,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(reelforge_jobs_concurrency{job=~\"$job\"})",
+          "expr": "sum(renderweld_jobs_concurrency{job=~\"$job\"})",
           "legendFormat": "slots"
         }
       ]
@@ -214,8 +214,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (reelforge_job_type, reelforge_job_status) (increase(reelforge_jobs_finished_total{job=~\"$job\"}[1h]))",
-          "legendFormat": "{{reelforge_job_type}} {{reelforge_job_status}}"
+          "expr": "sum by (renderweld_job_type, renderweld_job_status) (increase(renderweld_jobs_finished_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{renderweld_job_type}} {{renderweld_job_status}}"
         }
       ]
     },
@@ -246,8 +246,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.5, sum by (le, reelforge_job_type) (rate(reelforge_job_duration_seconds_bucket{job=~\"$job\"}[30m])))",
-          "legendFormat": "p50 {{reelforge_job_type}}"
+          "expr": "histogram_quantile(0.5, sum by (le, renderweld_job_type) (rate(renderweld_job_duration_seconds_bucket{job=~\"$job\"}[30m])))",
+          "legendFormat": "p50 {{renderweld_job_type}}"
         },
         {
           "refId": "B",
@@ -255,8 +255,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, reelforge_job_type) (rate(reelforge_job_duration_seconds_bucket{job=~\"$job\"}[30m])))",
-          "legendFormat": "p95 {{reelforge_job_type}}"
+          "expr": "histogram_quantile(0.95, sum by (le, renderweld_job_type) (rate(renderweld_job_duration_seconds_bucket{job=~\"$job\"}[30m])))",
+          "legendFormat": "p95 {{renderweld_job_type}}"
         }
       ]
     },
@@ -287,8 +287,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (reelforge_engine) (rate(reelforge_render_fps_sum{job=~\"$job\"}[30m])) / sum by (reelforge_engine) (rate(reelforge_render_fps_count{job=~\"$job\"}[30m]))",
-          "legendFormat": "{{reelforge_engine}}"
+          "expr": "sum by (renderweld_engine) (rate(renderweld_render_fps_sum{job=~\"$job\"}[30m])) / sum by (renderweld_engine) (rate(renderweld_render_fps_count{job=~\"$job\"}[30m]))",
+          "legendFormat": "{{renderweld_engine}}"
         }
       ]
     },
@@ -319,8 +319,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (reelforge_engine) (rate(reelforge_render_frames_total{job=~\"$job\"}[5m])) * 60",
-          "legendFormat": "{{reelforge_engine}}"
+          "expr": "sum by (renderweld_engine) (rate(renderweld_render_frames_total{job=~\"$job\"}[5m])) * 60",
+          "legendFormat": "{{renderweld_engine}}"
         }
       ]
     },
@@ -351,8 +351,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (reelforge_provider, reelforge_outcome) (increase(reelforge_provider_calls_total{job=~\"$job\"}[1h]))",
-          "legendFormat": "{{reelforge_provider}} {{reelforge_outcome}}"
+          "expr": "sum by (renderweld_provider, renderweld_outcome) (increase(renderweld_provider_calls_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{renderweld_provider}} {{renderweld_outcome}}"
         }
       ]
     },
@@ -383,8 +383,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (reelforge_licence_state) (reelforge_licence_state{job=~\"$job\"}) == 1",
-          "legendFormat": "{{reelforge_licence_state}}"
+          "expr": "max by (renderweld_licence_state) (renderweld_licence_state{job=~\"$job\"}) == 1",
+          "legendFormat": "{{renderweld_licence_state}}"
         }
       ],
       "options": {
@@ -424,8 +424,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (service_version, reelforge_edition) (reelforge_build_info{job=~\"$job\"})",
-          "legendFormat": "{{service_version}} ({{reelforge_edition}})"
+          "expr": "max by (service_version, renderweld_edition) (renderweld_build_info{job=~\"$job\"})",
+          "legendFormat": "{{service_version}} ({{renderweld_edition}})"
         }
       ],
       "options": {
@@ -440,7 +440,7 @@
     {
       "id": 12,
       "title": "Queue wait p95 by type and priority (SLO: previews 60 s, renders 300 s)",
-      "description": "reelforge_job_queue_wait_seconds: enqueue to first claim of render and preview jobs, summed over every instance that claims (D-103). Dashed lines: the SLO thresholds; alert rules in deployment/observability/alerts.yml.",
+      "description": "renderweld_job_queue_wait_seconds: enqueue to first claim of render and preview jobs, summed over every instance that claims (D-103). Dashed lines: the SLO thresholds; alert rules in deployment/observability/alerts.yml.",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -487,8 +487,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, reelforge_job_type, reelforge_job_priority) (rate(reelforge_job_queue_wait_seconds_bucket{job=~\"$job\"}[15m])))",
-          "legendFormat": "p95 {{reelforge_job_type}} ({{reelforge_job_priority}})"
+          "expr": "histogram_quantile(0.95, sum by (le, renderweld_job_type, renderweld_job_priority) (rate(renderweld_job_queue_wait_seconds_bucket{job=~\"$job\"}[15m])))",
+          "legendFormat": "p95 {{renderweld_job_type}} ({{renderweld_job_priority}})"
         },
         {
           "refId": "B",
@@ -496,8 +496,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "histogram_quantile(0.5, sum by (le, reelforge_job_type, reelforge_job_priority) (rate(reelforge_job_queue_wait_seconds_bucket{job=~\"$job\"}[15m])))",
-          "legendFormat": "p50 {{reelforge_job_type}} ({{reelforge_job_priority}})"
+          "expr": "histogram_quantile(0.5, sum by (le, renderweld_job_type, renderweld_job_priority) (rate(renderweld_job_queue_wait_seconds_bucket{job=~\"$job\"}[15m])))",
+          "legendFormat": "p50 {{renderweld_job_type}} ({{renderweld_job_priority}})"
         }
       ]
     }

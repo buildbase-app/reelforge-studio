@@ -8,7 +8,8 @@
     ".": "./src/index.ts"
   },
   "bin": {
-    "reelforge": "./src/cli.ts"
+    "renderweld": "./src/cli.ts",
+    "reelforge": "./src/reelforge.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

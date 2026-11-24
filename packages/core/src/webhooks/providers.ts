@@ -11,6 +11,16 @@ import type { AttemptOutcome, ChannelType, EmailProviderId, WebhookDeliveryRecor
  */
 
 /** Email settings (notifications.email.*); secrets are decrypted values. */
+
+/**
+ * The notification email's message id header, under the new name and the old
+ * one while the rename's aliases last (#412, docs/RENAMED.md): mail filters on
+ * X-Reelforge-Message-Id keep working.
+ */
+export function messageIdHeaders(messageId: string): Record<string, string> {
+  return { 'X-Renderweld-Message-Id': messageId, 'X-Reelforge-Message-Id': messageId };
+}
+
 export interface EmailSettings {
   from?: string;
   smtp: { host?: string; port: number; security: 'starttls' | 'tls' | 'none'; user?: string; password?: string };
@@ -199,7 +209,7 @@ export const resendProvider: NotificationProvider = {
   send(ctx) {
     const m = mail(ctx);
     // Resend deduplicates on Idempotency-Key for 24 h: a retried attempt is not sent twice.
-    return apiCall(ctx, `${ctx.email.resend.baseUrl}/emails`, { authorization: `Bearer ${ctx.email.resend.apiKey}`, 'idempotency-key': m.messageId }, { from: m.from, to: m.to, subject: m.subject, text: m.text, headers: { 'X-Reelforge-Message-Id': m.messageId } }, 'Resend', 'notifications.email.resend.apiKey');
+    return apiCall(ctx, `${ctx.email.resend.baseUrl}/emails`, { authorization: `Bearer ${ctx.email.resend.apiKey}`, 'idempotency-key': m.messageId }, { from: m.from, to: m.to, subject: m.subject, text: m.text, headers: messageIdHeaders(m.messageId) }, 'Resend', 'notifications.email.resend.apiKey');
   },
 };
 
@@ -214,7 +224,7 @@ export const postmarkProvider: NotificationProvider = {
       ctx,
       `${ctx.email.postmark.baseUrl}/email`,
       { 'x-postmark-server-token': ctx.email.postmark.serverToken! },
-      { From: m.from, To: m.to.join(','), Subject: m.subject, TextBody: m.text, MessageStream: ctx.email.postmark.messageStream, Headers: [{ Name: 'X-Reelforge-Message-Id', Value: m.messageId }] },
+      { From: m.from, To: m.to.join(','), Subject: m.subject, TextBody: m.text, MessageStream: ctx.email.postmark.messageStream, Headers: Object.entries(messageIdHeaders(m.messageId)).map(([Name, Value]) => ({ Name, Value })) },
       'Postmark',
       'notifications.email.postmark.serverToken'
     );
@@ -237,7 +247,7 @@ export const sendgridProvider: NotificationProvider = {
         from: { email: m.from },
         subject: m.subject,
         content: [{ type: 'text/plain', value: m.text }],
-        headers: { 'X-Reelforge-Message-Id': m.messageId },
+        headers: messageIdHeaders(m.messageId),
       },
       'SendGrid',
       'notifications.email.sendgrid.apiKey'
@@ -276,7 +286,7 @@ export const smtpProvider: NotificationProvider = {
     const abort = () => transport.close();
     ctx.signal.addEventListener('abort', abort, { once: true });
     try {
-      const info = await transport.sendMail({ from: m.from, to: m.to, subject: m.subject, text: m.text, messageId: `<${m.messageId}@reelforge.local>`, headers: { 'X-Reelforge-Message-Id': m.messageId } });
+      const info = await transport.sendMail({ from: m.from, to: m.to, subject: m.subject, text: m.text, messageId: `<${m.messageId}@reelforge.local>`, headers: messageIdHeaders(m.messageId) });
       const code = Number(/^(\d{3})/.exec(String(info.response ?? ''))?.[1] ?? 250);
       return { outcome: 'success', status: code };
     } catch (e) {
@@ -330,7 +340,7 @@ export const sesProvider: NotificationProvider = {
         new sdk.SendEmailCommand({
           FromEmailAddress: m.from,
           Destination: { ToAddresses: m.to },
-          Content: { Simple: { Subject: { Data: m.subject, Charset: 'UTF-8' }, Body: { Text: { Data: m.text, Charset: 'UTF-8' } }, Headers: [{ Name: 'X-Reelforge-Message-Id', Value: m.messageId }] } },
+          Content: { Simple: { Subject: { Data: m.subject, Charset: 'UTF-8' }, Body: { Text: { Data: m.text, Charset: 'UTF-8' } }, Headers: Object.entries(messageIdHeaders(m.messageId)).map(([Name, Value]) => ({ Name, Value })) } },
         }),
         { abortSignal: AbortSignal.any([ctx.signal, AbortSignal.timeout(ctx.timeoutMs)]) as never }
       );
