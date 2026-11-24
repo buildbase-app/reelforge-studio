@@ -2,12 +2,19 @@ import { z } from 'zod';
 import {
   MAX_OUTPUT_VARIANTS,
   MAX_PROJECT_SECONDS,
+  MAX_SCENES,
   assetLicense,
+  fpsValue,
+  framesToSeconds,
   isSafeRelativePath,
+  type FrameRate,
   output,
   outputVariant,
   slugId,
+  type OutputSettings,
+  type OutputVariant,
 } from './common';
+import { formatSpecIssues } from './output-formats';
 import {
   BUILTIN_CATALOG,
   MAX_SOURCE_BYTES,
@@ -18,6 +25,7 @@ import {
 import { themeId, themeTokensPatch } from './themes';
 import { MAX_CAPTION_LANGUAGES, captionWord, isLanguageTag, projectCaptions, sameLanguage, type CaptionCue } from './captions';
 import { audioBusGains, audioToggles, loudnessPreset, musicDucking } from './audio';
+import { assetRefsInMarkup } from './assetRefs';
 
 /**
  * Manifest v0.2: the agent-facing contract (docs/AGENT_PLATFORM.md §5).
@@ -225,14 +233,15 @@ const projectShape = z
     /**
      * Optional extra formats (#287): render_project renders one video per
      * variant (each its own job and render, grouped by a batch id) instead of
-     * one at `output`. Variants share output.fps and format.
+     * one at `output`. Variants share output.fps; format, codec and alpha
+     * may be overridden per variant (#302).
      */
     variants: z.array(outputVariant).min(1).max(MAX_OUTPUT_VARIANTS).optional(),
     render: renderSettings.default({ backend: 'local' }),
     audio: audio.default({ voice: null, music: null, sfx: [] }),
     captions: projectCaptions.default({ enabled: false }),
     assets: z.array(asset).default([]),
-    scenes: z.array(scene).min(1).max(50),
+    scenes: z.array(scene).min(1).max(MAX_SCENES),
   })
   .strict();
 
@@ -243,9 +252,9 @@ function utf8Bytes(s: string | undefined): number {
 }
 
 /** Frames a scene occupies (seconds are rounded to the nearest frame). */
-export function sceneFrames(s: { durationFrames?: number; durationSeconds?: number }, fps: number): number {
+export function sceneFrames(s: { durationFrames?: number; durationSeconds?: number }, fps: FrameRate | number): number {
   if (s.durationFrames !== undefined) return s.durationFrames;
-  return Math.max(1, Math.round((s.durationSeconds ?? 0) * fps));
+  return Math.max(1, Math.round((s.durationSeconds ?? 0) * fpsValue(fps)));
 }
 
 /** Cross-field rules. The catalog decides which engines and templates exist. */
@@ -275,6 +284,10 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
   p.variants?.forEach((v, i) => {
     if (variantIds.has(v.id)) add(['variants', i, 'id'], `duplicate variant id "${v.id}"`);
     variantIds.add(v.id);
+    // The combination as rendered (inherited from output where the variant does not set it).
+    if (v.format !== undefined || v.codec !== undefined || v.alpha !== undefined) {
+      for (const issue of formatSpecIssues(variantOutput(p.output, v))) add(['variants', i, issue.field], `variant "${v.id}": ${issue.message}`);
+    }
   });
 
   const sceneIds = new Set<string>();
@@ -309,10 +322,20 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
       add(['scenes', i, 'html'], `engine "${s.engine}" does not accept html/css; use a template`);
       return;
     }
+    // asset:<id> in scene html/css (#299): only this manifest's images, videos and fonts.
+    const markup = assetRefsInMarkup(s.html, s.css);
+    for (const bad of [...new Set(markup.bad)]) {
+      add(['scenes', i, 'html'], `"${bad}" is not an asset reference: write asset:<id> with the id of an entry in this manifest's assets (store ids, paths and query strings are not allowed)`);
+    }
+    for (const ref of markup.refs) {
+      const a = assetById.get(ref.asset);
+      if (!a) add(['scenes', i, ref.where], `unknown asset id "${ref.asset}" in asset:${ref.asset}; add it to the manifest's assets first`);
+      else if (a.mediaType === 'audio') add(['scenes', i, ref.where], `asset "${ref.asset}" is audio; sound goes in audio.music, audio.voice or audio.sfx, not in scene markup`);
+    }
     if (utf8Bytes(s.html) + utf8Bytes(s.css) > MAX_SOURCE_BYTES) {
       add(['scenes', i, 'html'], `html + css is larger than ${MAX_SOURCE_BYTES} bytes`);
     }
-    const seconds = frames / p.output.fps;
+    const seconds = framesToSeconds(frames, p.output.fps);
 
     if (s.template === undefined) {
       if (!isSourceEngine || s.html === undefined) {
@@ -357,12 +380,13 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
         add(['scenes', i, 'props', ...issue.path.map((k) => k as string | number)], issue.message);
       }
     }
-    // Media a template places (layout panes, #287): images or videos listed in the manifest's assets.
+    // Media a template places (#299): entries of this manifest's assets, of the right media type.
     for (const ref of template.mediaAssets?.(s.props) ?? []) {
       const a = assetById.get(ref.asset);
       const path = ['scenes', i, 'props', ...ref.path];
+      const allowed = ref.mediaTypes ?? ['image', 'video'];
       if (!a) add(path, `unknown asset id "${ref.asset}"; add it to the manifest's assets first`);
-      else if (a.mediaType !== 'image' && a.mediaType !== 'video') add(path, `asset "${ref.asset}" is ${a.mediaType}; panes show images or videos`);
+      else if (!allowed.includes(a.mediaType)) add(path, `asset "${ref.asset}" is ${a.mediaType}; expected ${allowed.join(' or ')}`);
     }
   });
 
@@ -403,7 +427,7 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
     add(['captions', 'burnLanguage'], `"${burn}" is neither the primary language (${primary ?? 'not set'}) nor a key of captions.tracks`);
   }
 
-  const totalSeconds = cursor / p.output.fps;
+  const totalSeconds = framesToSeconds(cursor, p.output.fps);
   if (totalSeconds > MAX_PROJECT_SECONDS) {
     add(['scenes'], `project is ${totalSeconds.toFixed(1)}s; the limit is ${MAX_PROJECT_SECONDS}s`);
   }
@@ -448,9 +472,22 @@ export function withVariant(p: Project, variantId: string): Project {
   if (!v) throw new Error(`unknown variant "${variantId}"; variants: ${(p.variants ?? []).map((x) => x.id).join(', ') || '(none)'}`);
   return {
     ...p,
-    output: { ...p.output, width: v.width, height: v.height },
+    output: variantOutput(p.output, v),
     ...(v.platform ? { brief: { ...(p.brief ?? {}), platform: v.platform } } : {}),
   };
+}
+
+/**
+ * `output` as a variant renders it: the variant's size, and its format, codec
+ * and alpha (#302). A variant that sets `format` takes neither codec nor alpha
+ * from output; otherwise it inherits each one it does not set.
+ */
+export function variantOutput(o: OutputSettings, v: OutputVariant): OutputSettings {
+  const { codec: _c, alpha: _a, ...base } = o;
+  const inherit = v.format === undefined;
+  const codec = v.codec ?? (inherit ? o.codec : undefined);
+  const alpha = v.alpha ?? (inherit ? o.alpha : undefined);
+  return { ...base, width: v.width, height: v.height, format: v.format ?? o.format, ...(codec !== undefined ? { codec } : {}), ...(alpha !== undefined ? { alpha } : {}) };
 }
 
 /**

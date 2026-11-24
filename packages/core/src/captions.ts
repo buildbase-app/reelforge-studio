@@ -1,14 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { burnSubtitles, type Tools } from '@reelforge/media-pipeline';
+import { extname, join } from 'node:path';
+import { PipelineError, burnSubtitles, type Tools } from '@reelforge/media-pipeline';
 import {
   breakLines,
   checkCaptions,
   cueTokens,
   formatSrt,
   formatVtt,
+  fpsValue,
   resolveCaptions,
   type CaptionCue,
   type CaptionMode,
@@ -313,6 +314,11 @@ export interface CaptionPassInput {
   dir: string;
   /** Scratch directory (the ASS for burn-only renders). */
   workDir: string;
+  /**
+   * Another output format (#302): the encoder to burn with and whether the video keeps alpha.
+   * null: the output has no pictures (audio only), so captions cannot be burned. Omitted: H.264.
+   */
+  encoding?: { video: string[]; alpha: boolean } | null;
   tools: Tools;
   signal: AbortSignal;
   log(line: string): void;
@@ -329,7 +335,7 @@ export async function captionPass(i: CaptionPassInput, finalFile: string): Promi
   const r = resolveCaptions(i.project, { ...(i.modeOverride ? { mode: i.modeOverride } : {}), ...(i.defaultMode ? { defaultMode: i.defaultMode } : {}) });
   if (r.mode === 'off') return null;
   const fit = (cs: readonly CaptionCue[]) =>
-    (i.subset ? mapCuesToClips(cs, i.subset, i.output.fps) : [...cs])
+    (i.subset ? mapCuesToClips(cs, i.subset, fpsValue(i.output.fps)) : [...cs])
       .filter((c) => c.start < i.durationSeconds)
       .map((c) => (c.end > i.durationSeconds ? { ...c, end: i.durationSeconds } : c));
   const sidecar = r.mode === 'sidecar' || r.mode === 'both';
@@ -343,7 +349,7 @@ export async function captionPass(i: CaptionPassInput, finalFile: string): Promi
       cues,
       descriptions: fit(t.descriptions).map(({ words: _w, ...c }) => ({ ...c, kind: 'description' as const })),
       files: {},
-      qa: checkCaptions(cues, { fps: i.output.fps, maxLineChars: r.maxLineChars, endSeconds: i.durationSeconds }),
+      qa: checkCaptions(cues, { fps: fpsValue(i.output.fps), maxLineChars: r.maxLineChars, endSeconds: i.durationSeconds }),
     };
   });
   const primary = tracks[0]!;
@@ -392,9 +398,10 @@ export async function captionPass(i: CaptionPassInput, finalFile: string): Promi
     i.log(
       `captions: burning ${burn.cues.length} cue(s)${burn.language ? ` in ${burn.language}` : ''} (${burn.source}, ${style.fontName} ${style.fontPx}px, ${style.position}${r.highlight === 'word' && burn.cues.some((c) => c.words?.length) ? ', word highlight' : ''})`
     );
-    const assembled = join(i.workDir, 'assembled.mp4');
+    if (i.encoding === null) throw new PipelineError('captions:burn', 'captions cannot be burned into an audio-only output; use captions mode "sidecar"');
+    const assembled = join(i.workDir, `assembled${extname(finalFile)}`);
     await rename(finalFile, assembled);
-    const { args } = await burnSubtitles({ ffmpeg: i.tools.ffmpeg, input: assembled, assFile, out: finalFile, signal: i.signal });
+    const { args } = await burnSubtitles({ ffmpeg: i.tools.ffmpeg, input: assembled, assFile, out: finalFile, signal: i.signal, ...(i.encoding ? { video: i.encoding.video, alpha: i.encoding.alpha } : {}) });
     await rm(assembled, { force: true });
     burn.burned = true;
     manifest.burned = true;

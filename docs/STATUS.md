@@ -31,8 +31,10 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> MCP tools, generated list in
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -90,6 +92,39 @@ frame, each with an image or video asset (`contain`, `cover`, `blur-fill`), text
 layout units and safe areas so they reflow per size and variant; pane geometry and text checked in the browser at six
 sizes on both engines and on rendered pixels, contact sheets in `docs/proofs/layouts/`
 ([Formats and layouts](public/manifest/formats.md#layouts-split-screen-picture-in-picture-lower-thirds-grids)).
+**Frame rates and output checks (#302, #287, D-119, 2026-11-24):** `output.fps` takes 23.976, 24, 25, 29.97, 30, 48,
+50, 59.94 and 60, NTSC rates stored as exact fractions (`"30000/1001"`); every engine renders each one and the final
+MP4's `r_frame_rate` is exact (ffprobe-checked, also through the fan-out join and captions). Sizes and rates an engine
+cannot render are refused with `422 unsupported_output` before queueing; `preview_scene` takes a `variant`; the
+manifest's 180 s and 50-scene caps became config bounds (defaults unchanged)
+([Frame rates](public/manifest/formats.md#frame-rates)).
+**Assets in every engine (#299, D-120, 2026-11-24):** uploaded images (PNG, JPEG, WebP, GIF, sanitised SVG) and
+video clips reach Remotion, Motion Canvas, html and HyperFrames: template props `media` (fit `cover` / `contain` /
+`blur-fill`) and `logo`, and `asset:<id>` in html scenes. Video is one picture per output frame on an exact
+frame-rate grid (no drift at 23.976 or 29.97; HyperFrames seeks it itself), and the audio bed is the existing
+`audio.music`. Files are staged per scene from the project's own manifest, re-sniffed and size-checked, and served
+from a per-render origin with no network (request interception for html, token paths on loopback for Motion Canvas
+and Remotion, the composition folder for HyperFrames). Uploads with a `projectId` belong to that project. Tests: a
+four-engine render with an image, a clip, an SVG logo and an audio bed checked by pixels and loudness, under
+`strace` with 0 connections outside loopback, plus per-engine pixel tests and refusal tests
+([Images, video and audio in scenes](public/manifest/assets.md)).
+**Fonts (#303, D-122, 2026-11-24):** font assets (TTF, OTF, WOFF, WOFF2, variable included) are parsed on upload
+(family, style, weight, axes, licence note in `metadata.font`; files that do not parse are refused) and used by
+every engine when the theme or the scene names their family; a bundled OFL set (Inter, Source Serif 4, JetBrains
+Mono, from Fontsource) renders the same everywhere. Fonts load before the first frame (FontFace API in Remotion and
+Motion Canvas, `document.fonts` with a 15 s limit in html, HyperFrames' own wait), and a face that fails fails the
+render. Tests: glyph-shape pixel checks against the fallback on all four engines, refused fonts, the four-engine
+render with an uploaded font under `strace` (0 egress) ([Fonts](public/manifest/fonts.md)). Not yet: CJK/RTL
+fonts bundled, project fonts in burned captions, missing-glyph QA.
+([Images, video and audio in scenes](public/manifest/assets.md)). Fonts in themes follow in #303.
+**Layouts on Remotion and Motion Canvas (#287, D-121, 2026-11-24):** templates `remotion-layout` and
+`motion-canvas-layout` take the same props as `html-layout` and `hyperframes-layout`, so a layout scene moves between
+all four engines by changing its engine and template. Remotion draws the shared HTML/CSS builder's markup and seeks its
+animations per frame; Motion Canvas builds the scene from its own nodes, placed by the same geometry functions, type
+sizes and timing. Media in panes come from #299's staging (loopback origin for Remotion, token path for Motion Canvas),
+video one picture per frame. Tests: on rendered pixels at 16:9, 1:1, 9:16 and 4K, every pane and the lower third within
+1 layout unit of the html engine's, and all pane text inside its box; a numbered clip frame-exact in panes with
+in-points, whole and frame range; contact sheets with a row per engine and `geometry.json` in `docs/proofs/layouts/`.
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,
@@ -685,6 +720,56 @@ and the fan-out concat), A/V sync and offsets, muted output (media-pipeline); se
 toggles, mute and the QA rule (core). Checked on FFmpeg 5.1.6 (built from source, standing in for the image's Debian 5.1) and 6.1.1: media-pipeline and core
 suites pass on both. Not yet (rest of #301): a voice with provider + text but no asset
 still renders silently (warning), scene timing from the voice, the per-render ducking amount of #298.
+
+### Runbooks: capacity test and pre-production pentest (2026-11-24, issues #307, #325)
+
+Written, **not run** (they need a cloud account, a budget and LLM keys from the founder):
+[runbooks/SCALE-TEST.md](runbooks/SCALE-TEST.md) (EKS or GKE topology with sizes and cost, queue depth
+to 100,000 jobs, real renders ramping to 1,000 in flight, a 30-minute soak, failure injection, pass
+thresholds and a results template) and [runbooks/PENTEST.md](runbooks/PENTEST.md) (the #325 gate:
+written scope, an isolated PentAGI 2.2.0 runner without a Docker socket, the pre-prod target, ten flows
+with prompts, ZAP and nuclei baselines, private findings and the release gate). New tooling: the
+real-render driver `pnpm load:real` (`scripts/load/real-render.ts`, dry run tested against an in-memory
+fake server only) and `CHECK_SINCE` for the exactly-once check.
+### Self-hosted web dashboard, part 2 (2026-11-24, issue #292)
+
+Built (D-126): analytics (renders per day by outcome, rates, render time per engine, queue wait, minutes, storage,
+top errors, webhook health) from the new read-scope `GET /v1/analytics/summary` / `get_analytics_summary` (job table
+walked with the keyset index, at most 90 days and 20 000 jobs per call; manifests and storage usage cached);
+settings (every config key grouped with its source, secrets masked, runtime keys edited with type checks from the
+new `kind`/`options`/`min`/`max`/`locked` fields of `get_config`; API keys with a one-time secret; webhooks with the
+delivery log, test, resend and secret rotation; providers and licence); the audit log viewer (filters, keyset pages,
+CSV/JSONL export fetched with the key); caption tracks and, when present, loudness results on the render page.
+JS + CSS 25.4 KB gzip. Tests: `packages/core/test/analytics.test.ts`, `apps/server/test/analytics.test.ts`,
+`apps/dashboard/test/admin.e2e.test.ts` (axe 0 violations, light, dark, 360 px; a read key cannot edit). Not yet:
+brand kits in settings, workspace-scoped views (#304).
+
+### Output formats: MOV/ProRes, WebM, GIF, PNG sequences, audio only (2026-11-24, issue #302)
+
+Built (D-123, [formats](public/manifest/formats.md#output-formats)): `output.format` / `codec` /
+`alpha` and per-variant overrides; `mov` (ProRes 422 HQ, ProRes 4444 with alpha), `webm` (VP9 with
+alpha, AV1 with SVT-AV1 or libaom), `gif` (palette, size and length limits), `png-sequence`
+(`frames.zip`, RGBA with alpha), `m4a` and `wav` (no scene rendered); transparent capture in the
+html and HyperFrames engines (`EngineCapabilities.output.alpha`); `422 unsupported_output` before
+queueing for engines without alpha, missing encoders, audio only without audio or with burned
+captions, GIF over its limit; burned captions (into alpha too) and sidecars per format; per-format
+ffprobe QA; content types, `get_render_output` / summaries with `format`, `codec`, `alpha`, `file`,
+`contentType`; the dashboard's library and render page show the format and use a matching player
+(video, GIF image, audio, or the poster of a PNG zip); `get_capabilities` `outputFormats` and per-engine `alpha`; settings
+`render.formats.*`. Tests: schema combinations and variant overrides (project-schema); every
+format's master, GIF, zip, audio mix and alpha caption burn (media-pipeline); every format through
+the service with ffprobe and 422 refusals (core, fake engines); html and HyperFrames alpha to MOV and
+WebM over REST with signed downloads (server, real engines). Not yet: HEVC (licence, D-123),
+Remotion/Motion Canvas alpha, lossless intermediates for opaque non-MP4 renders, ZIP64, fan-out for
+non-MP4 formats, new dashboard screenshots. Before the merge with main the media-pipeline format
+tests also passed on Debian bookworm's FFmpeg 5.1.9 (the image's package); the service and engine
+tests ran on 6.1.1. Merged with main (2026-11-24): MOV and WebM use #346's two-pass assemble and
+audio pipeline (PCM in MOV, Opus in WebM, loudness and A/V sync checked on the file; Opus pre-skip
+is not counted as an offset), GIF and PNG sequences skip the audio pass and its checks
+(`get_render_output` `audio.track: "none"`, `checks` skipped), audio-only renders normalise and check
+loudness with no video pass; #349's thread cap on every video encoder (look-ahead on libvpx and
+libaom); #376's exact rates for MOV/WebM (`r_frame_rate` checked), GIF and PNG `frameRate`. After the
+merge the tests ran on FFmpeg 6.1.1 only; re-running the format tests on 5.1.9 is still to do (VERIFY).
 
 ## 4. Infrastructure inventory (no secrets)
 

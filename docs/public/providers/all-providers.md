@@ -11,7 +11,9 @@ tags: [providers]
 
 ReelForge Studio is built from small plugins. `get_capabilities` (or
 `GET /v1/capabilities`) says which ones are installed and configured on your
-server, so an agent never has to guess.
+server, so an agent never has to guess. Every provider with its settings,
+credentials, runtime changes over REST and MCP and test status:
+[Providers reference](../../PROVIDERS.md).
 
 | Kind | What ships today | Status |
 | --- | --- | --- |

@@ -7,8 +7,9 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import type { KineticTitleProps, ThemeTokens } from '@reelforge/project-schema';
+import type { KineticTitleProps, SceneMedia, ThemeTokens } from '@reelforge/project-schema';
 import { fitText, frameLayout } from '@reelforge/project-schema/layout';
+import { BackgroundMedia, Logo } from './Media';
 
 type ThemeLike = Pick<ThemeTokens, 'colors' | 'fontFamily' | 'headingWeight'>;
 
@@ -43,8 +44,9 @@ const FALLBACK: ThemeLike = {
  * text metrics in the theme font, 4.5 to 10.5 units). On landscape frames the
  * line length is capped.
  *
- * Uses system font stacks on purpose: no font files are bundled until their
- * licenses are recorded (research/LICENSING_AND_COSTS.md §4).
+ * Optional `media` (#299): a background image or video under a dim layer of
+ * the background colour, fitted contain / cover / blur-fill; `logo`: an image
+ * in a corner of the content safe area (Media.tsx).
  */
 
 const LINE_HEIGHT = 1.05;
@@ -61,13 +63,16 @@ function canvasMeasure(fontFamily: string, weight: number): (s: string) => numbe
   return (s) => (ctx.measureText(s).width + LETTER_SPACING_EM * 100 * s.length) / 100;
 }
 
-export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike; platform?: string }> = ({
+export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike; platform?: string; assets?: Record<string, SceneMedia> }> = ({
   headline,
   subline,
   accent: accentProp,
   background: backgroundProp,
+  media,
+  logo,
   theme = FALLBACK,
   platform,
+  assets = {},
 }) => {
   const accent = accentProp ?? theme.colors.accent;
   const background = backgroundProp ?? theme.colors.background;
@@ -128,6 +133,12 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike; pla
         overflow: 'hidden',
       }}
     >
+      {media ? (
+        <>
+          <BackgroundMedia media={media} assets={assets} unit={u} />
+          {media.dim > 0 ? <AbsoluteFill style={{ backgroundColor: background, opacity: media.dim }} /> : null}
+        </>
+      ) : null}
       <div
         style={{
           position: 'relative',
@@ -192,6 +203,7 @@ export const KineticTitle: React.FC<KineticTitleProps & { theme?: ThemeLike; pla
           </p>
         ) : null}
       </div>
+      {logo ? <Logo logo={logo} assets={assets} unit={u} box={box} width={width} height={height} /> : null}
     </AbsoluteFill>
   );
 };

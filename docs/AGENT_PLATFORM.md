@@ -115,7 +115,9 @@ Extends v0.1 (`packages/project-schema`) with, all optional except where noted:
 - `audio`: `voice` track (provider + text + voice id, or an asset), `music`
   (asset, volume, ducking), `sfx[]` with `atFrame`.
 - `assets[]`: id, uri (`asset://`, `https://` fetched and hashed, or upload),
-  mediaType, licence metadata.
+  mediaType, licence metadata. Scenes use them by id: template props `media`
+  (fit `cover` / `contain` / `blur-fill`) and `logo`, or `asset:<id>` in html
+  scenes ([assets](public/manifest/assets.md)).
 - `render`: `backend` (`local` default), output presets (1080x1920@30 default).
 
 Migrations: `migrate(v0.1 → v0.2)` is automatic; the server always stores the
@@ -182,8 +184,10 @@ REST handlers, with descriptions written for agents:
 Implemented extras (v0.1), so every REST route has a tool: projects and versions,
 themes, renders and jobs (`list_jobs`, `retry_job`, `list_renders`), assets,
 providers, keys and their lifecycle, the audit log (#65), configuration, licence,
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->69<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->70<!-- /mcp-tool-count --> tools in total**; the grouped list with every
 tool's scope, arguments and REST equivalent is generated from the server's
 registry: [public/mcp/tools.md](public/mcp/tools.md) (`pnpm docs:reference`).
 Create and render tools take an optional `idempotencyKey` (D-057). Resource
@@ -245,6 +249,8 @@ that was run; "partial" says what is missing.
 | §3 Engine: motion-canvas | done | `animated-explainer`, layout scales with size, text wraps; render tests + e2e |
 | §3 Engine: html | done | `html-title` + agent HTML/CSS; Web Animations seeked per frame; sandbox (CSP, all requests aborted, offline, timeout); tests incl. network blocking |
 | §3 Engine: hyperframes | done (v0.1 scope) | `hyperframes-title` + agent compositions via the local `hyperframes render` (0.9.77); CSP sandbox; no progress reporting during a scene; external scripts (e.g. GSAP CDN) rejected, GSAP not bundled |
+| Assets in engines (#299, D-120) | done (images, video, audio bed); fonts in #303 | Every engine renders uploaded images, sanitised SVG and video (frame-accurate, exact NTSC rates) from template props or `asset:<id>`; per-scene staging from the project's manifest, per-render origin without network; four-engine render checked by pixels, loudness and `strace` (0 egress) |
+| Fonts (#303, D-122) | partial | Project font assets (parsed on upload) and a bundled OFL set used by theme `fontFamily` in every engine, loaded before the first frame, failures fail the render; glyph-shape tests on all four engines. No CJK/RTL bundled, captions use installed fonts, no missing-glyph QA |
 | §3 Provider: tts/elevenlabs | partial | Implemented with word timestamps, cost acknowledgement, cache; tested with a mocked API only. **Live API untested** |
 | §3 Providers: avatar (HeyGen), stock, music | missing | Interfaces exist |
 | §3 Backend: local | done | renders on the instance that claimed the job: the in-process queue on one instance (concurrency 1 by default), or `worker` instances of the database queue (below) |
@@ -274,8 +280,10 @@ that was run; "partial" says what is missing.
 | Licence activation (#25, D-028, D-035..D-038) | done | BuildBase licence API (key + instance id only), `LicenceState` table on all three databases, daily validate, 14-day offline grace, backoff, clock checks; renders/previews refused with `licence_required` / `licence_invalid` + fix; `get_licence` / `activate_licence` / `deactivate_licence`, `/v1/licence`, `reelforge licence`; unit tests (mock LicensesApi), server tests (mock licence server, injected clock), Docker e2e on SQLite and PostgreSQL, one live check against the dev environment. `licence.mode: trial` reserved |
 | Workflow guide for agents without docs | done | MCP resource `reelforge://guide/workflow` and prompt `make_reel`; the guide's manifest is validated by a test |
 | §6 Assets: upload or URL, licence, checksum | done | Content-addressed store, byte sniffing, https only, SSRF guard at connect time, size limit |
-| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->69<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
-| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->69<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->70<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->70<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->70<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->70<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 Resources and prompts `plan_reel`, `review_reel` | done | MCP tests |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |

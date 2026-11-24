@@ -9,6 +9,10 @@ export interface BurnOptions {
   /** An ASS file; burned with libass (FFmpeg's `ass` filter). */
   assFile: string;
   out: string;
+  /** Encoder of another output format (#302, formatPlan().master.video). Omitted: H.264 as in assembly. */
+  video?: string[];
+  /** The video has an alpha channel: libass draws into it too (`alpha=1`), so captions show over transparent areas. */
+  alpha?: boolean;
   signal?: AbortSignal;
 }
 
@@ -33,7 +37,7 @@ export async function burnSubtitles(o: BurnOptions): Promise<{ args: string[] }>
   }
   const name = basename(o.assFile);
   if (!/^[\w.-]+$/.test(name)) throw new PipelineError('captions:burn', `unsafe subtitle file name "${name}"`);
-  const args = ['-hide_banner', '-v', 'error', '-y', '-i', resolve(o.input), '-map', '0:v:0', '-map', '0:a?', '-vf', `ass=${name}`, ...H264_ARGS, '-c:a', 'copy', resolve(o.out)];
+  const args = ['-hide_banner', '-v', 'error', '-y', '-i', resolve(o.input), '-map', '0:v:0', '-map', '0:a?', '-vf', `ass=${name}${o.alpha ? ':alpha=1' : ''}`, ...(o.video ?? H264_ARGS), '-c:a', 'copy', resolve(o.out)];
   await run(o.ffmpeg, args, 'captions:burn', { signal: o.signal, cwd: dirname(resolve(o.assFile)) });
   return { args };
 }

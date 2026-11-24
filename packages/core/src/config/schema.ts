@@ -441,26 +441,27 @@ export const ConfigSchema = z.object({
       description:
         'Admission control (D-103): refuse a new render or preview with `429 queue_full`, `Retry-After` and `details` (queued jobs ahead, estimated wait) when its estimated queue wait is longer than this. The estimate is measured, not configured: the smaller of how long the oldest queued job of the same or a higher priority has waited and the jobs ahead divided by the claim throughput of the last minutes (shared by every instance through the database). Checked in the same statement as the job caps. `0`: off.',
     }),
-    maxRenderSeconds: setting(z.number().int().min(1).max(180), {
+    maxRenderSeconds: setting(z.number().int().min(1).max(14_400), {
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_MAX_RENDER_SECONDS',
       default: 180,
-      description: 'Longest render or preview, in seconds (the project schema allows at most 180). Longer projects are refused with `422 render_limit_exceeded`.',
+      description:
+        'Longest render or preview, in seconds. Longer projects are refused with `422 render_limit_exceeded`. Up to 14400 (4 hours, the most a manifest describes); long renders need disk for every clip and time per frame, so raise `maxRenderFrames` with it and consider `render.fanOut` (docs/CONFIG.md, #302).',
     }),
-    maxRenderFrames: setting(z.number().int().min(1).max(10_800), {
+    maxRenderFrames: setting(z.number().int().min(1).max(864_000), {
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_MAX_RENDER_FRAMES',
       default: 5400,
-      description: 'Most frames in one render or preview (duration × fps; 5400 is 180 s at 30 fps or 90 s at 60 fps). Refused with `422 render_limit_exceeded`.',
+      description: 'Most frames in one render or preview (duration × fps; 5400 is 180 s at 30 fps or 90 s at 60 fps; at most 864000, 4 hours at 60 fps). Refused with `422 render_limit_exceeded`.',
     }),
-    maxScenes: setting(z.number().int().min(1).max(50), {
+    maxScenes: setting(z.number().int().min(1).max(2000), {
       kind: 'integer',
       scope: 'runtime',
       env: 'REELFORGE_MAX_SCENES',
       default: 50,
-      description: 'Most scenes in one render (the project schema allows at most 50). Refused with `422 render_limit_exceeded`.',
+      description: 'Most scenes in one render (up to 2000, the most a manifest holds). Refused with `422 render_limit_exceeded`.',
     }),
     maxRenderDimension: setting(z.number().int().min(16).max(4096), {
       kind: 'integer',
@@ -474,7 +475,7 @@ export const ConfigSchema = z.object({
       scope: 'runtime',
       env: 'REELFORGE_MAX_RENDER_FPS',
       default: 60,
-      description: 'Highest output frame rate (supported: 24, 25, 30, 60). Refused with `422 render_limit_exceeded`.',
+      description: 'Highest output frame rate (supported: 23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60). Refused with `422 render_limit_exceeded`.',
     }),
     providerRunsPerKeyPerDay: setting(nonNegative(), {
       kind: 'integer',
@@ -1097,6 +1098,85 @@ export const ConfigSchema = z.object({
       default: 'ffprobe',
       defaultText: '`ffprobe` on PATH',
       description: 'ffprobe binary.',
+    }),
+    formats: z.object({
+      vp9Crf: setting(z.number().int().min(0).max(63), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_VP9_CRF',
+        default: 31,
+        description: 'WebM VP9 quality (`output.format: webm`, codec `vp9`; libvpx constant quality, 0 to 63, lower is better and larger). 31 is Google\'s suggested value for 1080p video on demand (developers.google.com/media/vp9). Read when the encode starts.',
+      }),
+      vp9CpuUsed: setting(z.number().int().min(0).max(8), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_VP9_CPU_USED',
+        default: 4,
+        description: 'WebM VP9 speed (`-deadline good -cpu-used`, 0 to 8): higher encodes faster at a small quality cost.',
+      }),
+      av1Crf: setting(z.number().int().min(0).max(63), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_AV1_CRF',
+        default: 35,
+        description: 'WebM AV1 quality (codec `av1`; SVT-AV1 or libaom constant quality, 0 to 63, lower is better).',
+      }),
+      av1Preset: setting(z.number().int().min(0).max(13), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_AV1_PRESET',
+        default: 8,
+        description: 'WebM AV1 speed: the SVT-AV1 preset (0 to 13, higher is faster); with libaom, `-cpu-used` of at most 8.',
+      }),
+      gifFps: setting(z.number().int().min(1).max(50), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_GIF_FPS',
+        default: 15,
+        description: 'GIF frame rate (`output.format: gif`), at most the project\'s. GIF delays are whole hundredths of a second, so rates that divide 100 (10, 20, 25, 50) play exactly; 15 keeps files small.',
+      }),
+      gifMaxSide: setting(z.number().int().min(16).max(4096), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_GIF_MAX_SIDE',
+        default: 480,
+        description: 'Longest side of a GIF in pixels: larger outputs are scaled down (never up), keeping the aspect ratio.',
+      }),
+      gifDither: setting(z.enum(['sierra2_4a', 'floyd_steinberg', 'bayer', 'none']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_GIF_DITHER',
+        default: 'sierra2_4a',
+        description: 'GIF dithering (FFmpeg `paletteuse`): error diffusion (`sierra2_4a`, `floyd_steinberg`) looks smoother, `bayer` and `none` give smaller files.',
+      }),
+      gifMaxSeconds: setting(z.number().min(1).max(600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_GIF_MAX_SECONDS',
+        default: 30,
+        description: 'Longest video rendered as a GIF (seconds). A longer one is refused before it is queued (`422 unsupported_output`): GIF is large and has no audio; use webm or mp4.',
+      }),
+      gifMaxBytes: setting(z.number().int().min(0).max(1_073_741_824), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_GIF_MAX_BYTES',
+        default: 52_428_800,
+        description: 'Largest GIF file (bytes; default 50 MiB, 0 = no limit). A larger GIF fails its check with a message naming the settings that shrink it.',
+      }),
+      aacKbps: setting(z.number().int().min(32).max(512), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_AAC_KBPS',
+        default: 192,
+        description: 'AAC bitrate of audio-only m4a output (kbit/s). The audio track of MP4 renders stays at 192.',
+      }),
+      opusKbps: setting(z.number().int().min(16).max(512), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_OPUS_KBPS',
+        default: 128,
+        description: 'Opus bitrate of the audio track of WebM renders (kbit/s).',
+      }),
     }),
     backends: z.object({
       remotionLambda: z.object({

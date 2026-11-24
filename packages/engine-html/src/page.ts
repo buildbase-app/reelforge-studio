@@ -1,5 +1,5 @@
 import { assertSafeSceneFragment } from '@reelforge/core';
-import { frameLayout, layoutCssVars, type HtmlTitleProps, type OutputSettings, type ThemeTokens } from '@reelforge/project-schema';
+import { domThemeCss, frameLayout, mediaLayersHtml, type DomLogo, type DomMediaLayer, type HtmlTitleProps, type OutputSettings, type ThemeTokens } from '@reelforge/project-schema';
 
 /**
  * Builds the sandboxed document an html scene is rendered from. Agent HTML and
@@ -14,6 +14,16 @@ import { frameLayout, layoutCssVars, type HtmlTitleProps, type OutputSettings, t
 export const CSP =
   "default-src 'none'; img-src data:; font-src data:; media-src data:; style-src 'unsafe-inline' data:; script-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'";
 
+/**
+ * The policy for a scene that uses assets (#299): images and fonts may also
+ * come from this render's own asset base (`http://rf-assets.invalid/<token>/`,
+ * answered by request interception in render.ts, never by the network).
+ */
+export function cspFor(assetBase?: string): string {
+  if (!assetBase) return CSP;
+  return CSP.replace('img-src data:', `img-src data: ${assetBase}`).replace('font-src data:', `font-src data: ${assetBase}`);
+}
+
 export function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
@@ -26,8 +36,7 @@ export function escapeHtml(s: string): string {
  * --rf-content-w/h the box inside --rf-safe-*.
  */
 export function themeCss(theme: ThemeTokens, output: OutputSettings, durationSeconds: number, platform?: string): string {
-  const c = theme.colors;
-  return `:root{--rf-bg:${c.background};--rf-surface:${c.surface};--rf-text:${c.text};--rf-muted:${c.mutedText};--rf-accent:${c.accent};--rf-accent2:${c.accent2};--rf-font:${theme.fontFamily};--rf-heading-weight:${theme.headingWeight};--rf-radius:${theme.radius};--rf-spacing:${theme.spacing};--rf-speed:${theme.motionSpeed};--rf-width:${output.width}px;--rf-height:${output.height}px;--rf-duration:${durationSeconds}s;${layoutCssVars(output.width, output.height, platform)}}`;
+  return domThemeCss(theme, output, durationSeconds, platform);
 }
 
 export function buildDocument(opts: {
@@ -38,6 +47,12 @@ export function buildDocument(opts: {
   durationSeconds: number;
   /** brief.platform: decides the ui safe zone on tall frames. */
   platform?: string;
+  /** output.alpha (#302): the page paints no background, so what the scene leaves unpainted is transparent. */
+  transparent?: boolean;
+  /** The render's asset base URL, allowed by the policy for images and fonts. */
+  assetBase?: string;
+  /** @font-face rules for the scene's fonts (#303), before the theme and scene styles. */
+  fontCss?: string;
 }): string {
   if (/<\/style/i.test(opts.css)) throw new Error('css must not contain "</style"');
   assertSafeSceneFragment(opts.html);
@@ -45,9 +60,10 @@ export function buildDocument(opts: {
   const l = frameLayout(width, height, opts.platform);
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
-    `<meta http-equiv="Content-Security-Policy" content="${CSP}">` +
+    `<meta http-equiv="Content-Security-Policy" content="${cspFor(opts.assetBase)}">` +
+    (opts.fontCss ? `<style>${opts.fontCss.replace(/<\/style/gi, '')}</style>` : '') +
     `<style>${themeCss(opts.theme, opts.output, opts.durationSeconds, opts.platform)}` +
-    `html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden;background:var(--rf-bg);color:var(--rf-text);font-family:var(--rf-font)}` +
+    `html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden;background:${opts.transparent ? 'transparent' : 'var(--rf-bg)'};color:var(--rf-text);font-family:var(--rf-font)}` +
     `#rf-root{position:relative;width:${width}px;height:${height}px;overflow:hidden;box-sizing:border-box}` +
     '*{box-sizing:border-box}</style>' +
     `<style>${opts.css}</style></head>` +
@@ -68,7 +84,8 @@ export function buildDocument(opts: {
  * below 40 % of its size). On landscape frames the line length is capped so a
  * headline does not run across the whole width.
  */
-export function htmlTitle(props: HtmlTitleProps, durationSeconds: number): { html: string; css: string } {
+export function htmlTitle(props: HtmlTitleProps, durationSeconds: number, media: { bg?: DomMediaLayer; logo?: DomLogo } = {}): { html: string; css: string } {
+  const layers = mediaLayersHtml(media.bg, media.logo);
   const words = props.headline.split(/\s+/).filter(Boolean);
   const exitAt = (durationSeconds * 0.88).toFixed(3);
   const exitLen = Math.max(0.15, durationSeconds * 0.12 - 0.02).toFixed(3);
@@ -76,15 +93,18 @@ export function htmlTitle(props: HtmlTitleProps, durationSeconds: number): { htm
   const background = props.background ? `--rf-bg:${props.background};` : '';
   const html =
     `<div class="rf-t" style="${accent}${background}">` +
+    layers.under +
     `<div class="rf-card">` +
     (props.kicker ? `<div class="rf-kicker">${escapeHtml(props.kicker)}</div>` : '') +
     `<h1 data-rf-fit>${words.map((w, i) => `<span style="animation-delay:calc(${(i * 0.08).toFixed(2)}s / var(--rf-speed))">${escapeHtml(w)}</span>`).join(' ')}</h1>` +
     '<div class="rf-bar"></div>' +
     (props.subline ? `<p>${escapeHtml(props.subline)}</p>` : '') +
-    '</div></div>';
+    '</div>' +
+    layers.over +
+    '</div>';
   const css = `
 .rf-t{position:absolute;inset:0;background:var(--rf-bg);display:flex;align-items:center;padding:var(--rf-safe-top) max(var(--rf-safe-right),calc(var(--rf-unit)*9*var(--rf-spacing))) var(--rf-safe-bottom) max(var(--rf-safe-left),calc(var(--rf-unit)*9*var(--rf-spacing)));overflow:hidden}
-.rf-card{position:relative;width:100%;max-height:100%;display:flex;flex-direction:column;align-items:flex-start;animation:rf-exit ${exitLen}s ease-in ${exitAt}s both}
+.rf-card{position:relative;z-index:1;width:100%;max-height:100%;display:flex;flex-direction:column;align-items:flex-start;animation:rf-exit ${exitLen}s ease-in ${exitAt}s both}
 [data-rf-direction=row] .rf-card{max-width:calc(var(--rf-unit)*150)}
 .rf-card>*{flex-shrink:0}
 .rf-kicker{display:inline-block;font-size:calc(var(--rf-unit)*4);font-weight:700;letter-spacing:.12em;color:var(--rf-bg);background:var(--rf-accent);padding:.35em .7em;border-radius:calc(var(--rf-radius)*.4em);margin-bottom:calc(var(--rf-unit)*4);animation:rf-fade calc(.5s / var(--rf-speed)) ease-out both}
@@ -96,6 +116,6 @@ p{margin:calc(var(--rf-unit)*4) 0 0;max-width:100%;text-wrap:pretty;font-size:ca
 @keyframes rf-fade{from{opacity:0;transform:translateY(.6em)}to{opacity:1;transform:none}}
 @keyframes rf-bar{from{transform:scaleX(.15)}to{transform:scaleX(1)}}
 @keyframes rf-exit{from{opacity:1;transform:none}to{opacity:0;transform:translateY(calc(var(--rf-unit)*-6))}}
-`;
+${layers.css}`;
   return { html, css };
 }

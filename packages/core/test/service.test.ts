@@ -53,7 +53,7 @@ describe('ReelforgeService', () => {
     const c = svc.capabilities();
     expect(c.schemaVersion).toBe('0.2');
     expect(c.engines.map((e) => e.id)).toEqual(['remotion', 'motion-canvas']);
-    expect(c.templates.map((t) => t.id)).toEqual(['kinetic-title', 'animated-explainer']);
+    expect(c.templates.map((t) => t.id)).toEqual(['kinetic-title', 'remotion-layout', 'animated-explainer', 'motion-canvas-layout']);
     expect(c.backends).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'local', configured: true, implemented: true }),

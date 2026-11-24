@@ -10,6 +10,7 @@ import type {
   ThemeTokens,
 } from '@reelforge/project-schema';
 import type { z } from 'zod';
+import type { EngineOutputSupport } from './output-support';
 
 /**
  * Plugin contracts (docs/AGENT_PLATFORM.md §4). Engines, providers, render
@@ -63,6 +64,10 @@ export interface EngineRenderContext {
   tools: Tools;
   /** Assets referenced by the project, already on local disk. */
   assets: ReadonlyMap<string, ResolvedAsset>;
+  /**
+   * Cancellation (job cancel, render timeout). It may already be aborted when render() is called: check
+   * `signal.aborted` first, then listen for 'abort'; pass it to child processes (spawn's `signal` option does both).
+   */
   signal: AbortSignal;
   progress(framesDone: number, framesTotal: number): void;
   log: Logger;
@@ -75,6 +80,14 @@ export interface EngineRenderContext {
    * Progress counts the range's frames.
    */
   frameRange?: readonly [number, number];
+  /**
+   * The render keeps a transparent background (#302: output.alpha). Set only
+   * for engines whose capabilities() declare `output.alpha`. The clip at `out`
+   * (ending in .mov) is then ProRes 4444 with an alpha channel
+   * (ALPHA_CLIP_ARGS), transparent wherever the scene paints nothing; the page
+   * background itself is not painted.
+   */
+  alpha?: boolean;
 }
 
 /** What an engine can do beyond rendering a whole scene. */
@@ -86,6 +99,14 @@ export interface EngineCapabilities {
    * chunks rendered by different workers.
    */
   frameRanges: boolean;
+  /**
+   * Output support beyond an opaque H.264 clip (#302: alpha), and sizes and
+   * frame rates the engine renders beyond the H.264 rules every engine shares
+   * (output-support.ts). A render or preview outside them is refused before
+   * it is queued (`422 unsupported_output`). Omitted: no alpha, every
+   * supported rate, no size limit of its own.
+   */
+  output?: EngineOutputSupport;
 }
 
 export interface ClipResult {

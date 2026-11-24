@@ -1,7 +1,16 @@
 import { rm, writeFile } from 'node:fs/promises';
 import { mixGraph } from './audio';
 import { filterThreadArgs, h264Args, inputThreadArgs, PipelineError, run } from './ffmpeg';
+import type { MasterEncoding } from './formats';
 import { probe } from './probe';
+import { rateArg, rateValue, type Rate } from './rate';
+
+/**
+ * A duration for FFmpeg's -t and atrim, to the microsecond: NTSC timelines
+ * (frames x 1001 / 30000) do not end on a millisecond, and rounding to one
+ * made the audio up to half a millisecond longer than the video (#302).
+ */
+const exactSeconds = (s: number) => s.toFixed(6);
 
 export interface ClipInput {
   sceneId: string;
@@ -17,7 +26,8 @@ export interface AssembleOptions {
   out: string;
   width: number;
   height: number;
-  fps: number;
+  /** Frame rate: a number or an exact "num/den" (e.g. "30000/1001"). */
+  fps: Rate;
   /** Optional music file the user has rights to use. Trimmed and faded to fit. */
   music?: { file: string; volume: number; fadeOutSeconds?: number } | null;
   /** Optional voice-over, mixed on top of the music, starting at `startSeconds`. */
@@ -32,6 +42,12 @@ export interface AssembleOptions {
   audioFile?: string | null;
   /** No audio stream at all (a muted render with render.audio.mutedTrack "none"). */
   noAudio?: boolean;
+  /**
+   * Another output format (#302, formatPlan().master): its video encoder,
+   * pixel format, pad colour and audio encoder (null: the format has no
+   * audio, as with noAudio). Omitted: H.264 (h264Args) + AAC.
+   */
+  encoding?: Pick<MasterEncoding, 'pixFmt' | 'padColor' | 'video' | 'audio'>;
   signal?: AbortSignal;
 }
 
@@ -44,8 +60,10 @@ export interface AssembleResult {
 
 /**
  * Normalise every scene clip (size, frame rate, pixel format, exact frame
- * count) and join them in order in a single FFmpeg pass, adding an AAC track:
- * the music if given, otherwise silence, so every export has audio.
+ * count) and join them in order: one FFmpeg pass for the video (H.264, or
+ * the format's encoder with `encoding`, #302), then a second that muxes the
+ * audio (the finished track, the mix, or silence) with the video copied. No
+ * second pass with `noAudio` or a format without audio (GIF, PNG masters).
  *
  * A clip shorter than its scene is an error, not something to pad silently
  * (ARCHITECTURE §2, "Detect missing media and fail clearly").
@@ -65,11 +83,13 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
   }
 
   const totalFrames = clips.reduce((n, c) => n + c.frames, 0);
-  const totalSeconds = totalFrames / fps;
+  const totalSeconds = totalFrames / rateValue(fps);
+  const enc = opts.encoding;
   // Video first, without audio; the audio is muxed in a second pass. FFmpeg 5.1 (the release image's Debian build)
   // ends every stream of an output once one stream reaches its -frames limit, which cut the audio short by the
-  // video encoder's delay (a 2 s video got 1.962 s of audio); FFmpeg 6 does not. A separate mux works on both.
-  const withAudio = !opts.noAudio;
+  // video encoder's delay (a 2 s video got 1.962 s of audio); FFmpeg 6 does not. A separate mux works on both,
+  // and for every container (#302: MOV with PCM, WebM with Opus). GIF and PNG masters have no audio pass.
+  const withAudio = !opts.noAudio && (!enc || enc.audio !== null);
   const videoOut = withAudio ? out.replace(/(\.[^./]+)?$/, '.video$1') : out;
   const args: string[] = ['-hide_banner', '-y', ...filterThreadArgs()];
   for (const clip of clips) args.push(...inputThreadArgs(), '-i', clip.file);
@@ -77,8 +97,8 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
   const filters: string[] = clips.map(
     (clip, i) =>
       `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,` +
-      `fps=${fps},format=yuv420p,trim=end_frame=${clip.frames},setpts=PTS-STARTPTS[v${i}]`
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=${enc?.padColor ?? 'black'},setsar=1,` +
+      `fps=${rateArg(fps)},format=${enc?.pixFmt ?? 'yuv420p'},trim=end_frame=${clip.frames},setpts=PTS-STARTPTS[v${i}]`
   );
   filters.push(`${clips.map((_, i) => `[v${i}]`).join('')}concat=n=${clips.length}:v=1:a=0[vout]`);
 
@@ -87,21 +107,21 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
     filters.join(';'),
     '-map',
     '[vout]',
-    ...h264Args(),
+    ...(enc ? enc.video : h264Args()),
     '-r',
-    String(fps),
+    rateArg(fps),
     '-frames:v',
     String(totalFrames),
     '-an',
     '-t',
-    totalSeconds.toFixed(3),
+    exactSeconds(totalSeconds),
     videoOut
   );
 
   await run(ffmpeg, args, 'assemble', { signal: opts.signal });
   if (!withAudio) return { out, totalFrames, args };
   try {
-    const muxArgs = await muxAudio({ ...opts, video: videoOut, totalSeconds });
+    const muxArgs = await muxAudio({ ...opts, video: videoOut, totalSeconds, ...(enc?.audio ? { codec: enc.audio } : {}) });
     // Both commands, for the render manifest.
     return { out, totalFrames, args: [...args, '&&', ...muxArgs] };
   } finally {
@@ -111,11 +131,12 @@ export async function assemble(opts: AssembleOptions): Promise<AssembleResult> {
 
 /**
  * Add the audio to a video-only file: the video stream copied, the audio (a
- * finished track or the mix graph) encoded to AAC. No frame limit, so the
- * audio keeps its full length on every FFmpeg version (`-t` only trims a
- * longer track to the video); both streams start at 0.
+ * finished track or the mix graph) encoded to AAC, or to `codec` for another
+ * container (#302: PCM in MOV, Opus in WebM). No frame limit, so the audio
+ * keeps its full length on every FFmpeg version (`-t` only trims a longer
+ * track to the video); both streams start at 0.
  */
-async function muxAudio(o: AudioOptions & { ffmpeg: string; video: string; out: string; totalSeconds: number; signal?: AbortSignal }): Promise<string[]> {
+async function muxAudio(o: AudioOptions & { ffmpeg: string; video: string; out: string; totalSeconds: number; codec?: string[]; signal?: AbortSignal }): Promise<string[]> {
   const audio = audioInputs(o, 1, o.totalSeconds);
   const args = [
     '-hide_banner',
@@ -129,16 +150,18 @@ async function muxAudio(o: AudioOptions & { ffmpeg: string; video: string; out: 
     ...audio.map,
     '-c:v',
     'copy',
-    ...audio.codec,
+    ...(o.codec ?? audio.codec),
     '-t',
-    o.totalSeconds.toFixed(3),
-    '-movflags',
-    '+faststart',
+    exactSeconds(o.totalSeconds),
+    // movflags is an option of the MP4/MOV muxers only; the WebM muxer refuses it.
+    ...(isMovFamily(o.out) ? ['-movflags', '+faststart'] : []),
     o.out,
   ];
   await run(o.ffmpeg, args, 'assemble:audio', { signal: o.signal });
   return args;
 }
+
+const isMovFamily = (file: string) => /\.(mp4|m4a|mov)$/i.test(file);
 
 export interface NormaliseOptions {
   ffmpeg: string;
@@ -148,7 +171,7 @@ export interface NormaliseOptions {
   out: string;
   width: number;
   height: number;
-  fps: number;
+  fps: Rate;
   /** Exact frames the scene occupies. */
   frames: number;
   signal?: AbortSignal;
@@ -176,13 +199,13 @@ export async function normaliseClip(opts: NormaliseOptions): Promise<{ out: stri
     opts.input,
     '-vf',
     `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,` +
-      `fps=${fps},format=yuv420p,trim=end_frame=${frames},setpts=PTS-STARTPTS`,
+      `fps=${rateArg(fps)},format=yuv420p,trim=end_frame=${frames},setpts=PTS-STARTPTS`,
     '-an',
     '-map_metadata',
     '-1',
     ...h264Args(),
     '-r',
-    String(fps),
+    rateArg(fps),
     '-frames:v',
     String(frames),
     opts.out,
@@ -196,7 +219,7 @@ export interface ConcatOptions extends AudioOptions {
   /** Normalised clips (normaliseClip) in timeline order, with their exact frame counts. */
   clips: Array<{ file: string; frames: number }>;
   out: string;
-  fps: number;
+  fps: Rate;
   /** Where to write the concat demuxer's list. */
   listFile: string;
   signal?: AbortSignal;
@@ -212,7 +235,7 @@ export interface ConcatOptions extends AudioOptions {
 export async function concatClips(opts: ConcatOptions): Promise<AssembleResult> {
   if (opts.clips.length === 0) throw new PipelineError('join', 'no clips to join');
   const totalFrames = opts.clips.reduce((n, c) => n + c.frames, 0);
-  const totalSeconds = totalFrames / opts.fps;
+  const totalSeconds = totalFrames / rateValue(opts.fps);
   await writeFile(opts.listFile, opts.clips.map((c) => `file '${c.file.replace(/'/g, "'\\''")}'\n`).join(''));
   const audio = audioInputs(opts, 1, totalSeconds);
   const args = [
@@ -233,7 +256,7 @@ export async function concatClips(opts: ConcatOptions): Promise<AssembleResult> 
     'copy',
     ...audio.codec,
     '-t',
-    totalSeconds.toFixed(3),
+    exactSeconds(totalSeconds),
     '-movflags',
     '+faststart',
     opts.out,
@@ -243,6 +266,44 @@ export async function concatClips(opts: ConcatOptions): Promise<AssembleResult> 
 }
 
 type AudioOptions = Pick<AssembleOptions, 'music' | 'voice' | 'sfx' | 'audioFile' | 'noAudio'>;
+
+export interface EncodeAudioOptions {
+  ffmpeg: string;
+  /** The finished track (the render's mixAudio + normaliseLoudness WAV). */
+  input: string;
+  out: string;
+  /** Length of the timeline in seconds (the file is exactly this long). */
+  seconds: number;
+  /** Audio encoder arguments, e.g. ['-c:a', 'aac', '-b:a', '192k']. */
+  codecArgs: string[];
+  signal?: AbortSignal;
+}
+
+/**
+ * Audio-only output (#302: m4a, wav): the render's finished track (the same
+ * mix and loudness normalisation as a video's audio, D-116) encoded without
+ * pictures. No video pass at all.
+ */
+export async function encodeAudioOnly(opts: EncodeAudioOptions): Promise<{ out: string; args: string[] }> {
+  const args = [
+    '-hide_banner',
+    '-y',
+    '-i',
+    opts.input,
+    '-map',
+    '0:a:0',
+    '-vn',
+    ...opts.codecArgs,
+    '-ar',
+    '48000',
+    '-t',
+    exactSeconds(opts.seconds),
+    ...(isMovFamily(opts.out) ? ['-movflags', '+faststart'] : []),
+    opts.out,
+  ];
+  await run(opts.ffmpeg, args, 'assemble:audio', { signal: opts.signal });
+  return { out: opts.out, args };
+}
 
 /**
  * The audio side of assemble() and the fan-out join (concatClips), inputs

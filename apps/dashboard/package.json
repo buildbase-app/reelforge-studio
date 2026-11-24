@@ -12,7 +12,9 @@
     "build": "tsx build.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "screenshots": "tsx scripts/screenshots.ts"
+    "screenshots": "tsx scripts/screenshots.ts",
+    "screenshots:formats": "tsx scripts/screenshots-formats.ts",
+    "screenshots:admin": "tsx scripts/screenshots-admin.ts"
   },
   "devDependencies": {
     "@hono/node-server": "2.1.11",

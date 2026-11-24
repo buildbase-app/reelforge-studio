@@ -57,8 +57,8 @@ export function mark(size = 20): SVGElement {
 }
 
 /** A status dot plus its word: the running dot is the mark's tally light. */
-export function status(st: string): HTMLElement {
-  const label = STATUS_LABEL[st] ?? st;
+export function status(st: string, text?: string): HTMLElement {
+  const label = text ?? STATUS_LABEL[st] ?? st;
   return h('span', { class: `status status-${st}` }, h('span', { class: 'dot', 'aria-hidden': 'true' }), label);
 }
 

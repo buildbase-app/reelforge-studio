@@ -526,3 +526,81 @@ export function fitMedia(box: Rect, mediaWidth: number, mediaHeight: number, mod
   if (mode === 'cover') return { fg: place(cover), bg: null };
   return { fg: place(contain), bg: mode === 'blur-fill' ? place(cover) : null };
 }
+
+/**
+ * Type, spacing and motion of the layout templates, shared by the DOM builder
+ * (layout-dom.ts: html, HyperFrames, Remotion) and the Motion Canvas layout
+ * scene, so every engine draws the same cards, labels and lower third with the
+ * same timing. Sizes are in layout units unless they say `Em` (a share of the
+ * element's own font size); times are seconds; easings are CSS cubic-bezier
+ * control points.
+ */
+export const LAYOUT_STYLE = {
+  /**
+   * Fit-to-box tolerance of a pane's text card, in em. The card has no
+   * padding of its own on a plain pane, so glyphs that stick out of its tight
+   * line boxes (line height 1.08, about 0.07 em) count as overflow in the DOM
+   * and the card would shrink to its minimum even when it has room. A hidden
+   * line is at least 0.75 em, so it still counts. (The lower third's text has
+   * padding around it and keeps a tolerance of 0.)
+   */
+  fitInk: 0.1,
+  /** Gap between a pane's label and its text card. */
+  textGap: 1.6,
+  label: { size: 3.4, weight: 600, lineHeight: 1.2, padYEm: 0.2, padXEm: 0.42, radiusEm: 0.18 },
+  /** The card's font size is its headline's; the body is `bodyEm` of it. The card shrinks to fit, to `minShare` of `size` at least. */
+  card: { size: 7.2, minShare: 0.36, maxWidth: 95, headlineLineHeight: 1.08, letterSpacingEm: -0.01, bodyEm: 0.58, bodyLineHeight: 1.32, bodyGapEm: 0.34, padYEm: 0.28, padXEm: 0.36, radiusEm: 0.11 },
+  inset: { radius: 1.4, outline: 0.4 },
+  /** `blur-fill`: the blurred copy is darkened and enlarged so its soft edge stays outside the pane. */
+  blurFill: { brightness: 0.62, scale: 1.12 },
+  lowerThird: { radius: 0.8, nameLineHeight: 1.12, titleLineHeight: 1.3, titleOpacity: 0.78, titleGapEm: 0.1, padYShare: 0.8, minShare: 0.45 },
+  motion: {
+    /** Pane text rises `rise` units and fades in. */
+    label: { delay: 0, duration: 0.5, ease: [0, 0, 0.58, 1], rise: 2.5 },
+    card: { delay: 0.1, duration: 0.6, ease: [0.2, 0.8, 0.2, 1], rise: 2.5 },
+    /** The picture-in-picture inset scales up from `from` and fades in. */
+    inset: { delay: 0.15, duration: 0.55, ease: [0.2, 0.8, 0.2, 1], from: 0.94 },
+    /** The lower third slides `slide` units in from its side, and fades out `lead` seconds before the end. */
+    lowerThirdIn: { delay: 0.25, duration: 0.5, ease: [0.2, 0.8, 0.2, 1], slide: 4 },
+    lowerThirdOut: { lead: 0.45, duration: 0.4, ease: [0.42, 0, 1, 1] },
+  },
+} as const;
+
+/** A CSS `cubic-bezier(x1, y1, x2, y2)` timing function (for engines that animate without CSS). */
+export function cubicBezier(x1: number, y1: number, x2: number, y2: number): (t: number) => number {
+  const a = (p1: number, p2: number) => 1 - 3 * p2 + 3 * p1;
+  const b = (p1: number, p2: number) => 3 * p2 - 6 * p1;
+  const c = (p1: number) => 3 * p1;
+  const at = (t: number, p1: number, p2: number) => ((a(p1, p2) * t + b(p1, p2)) * t + c(p1)) * t;
+  const slope = (t: number, p1: number, p2: number) => 3 * a(p1, p2) * t * t + 2 * b(p1, p2) * t + c(p1);
+  return (x: number) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    // Newton steps, then bisection if the slope is too flat.
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const d = at(t, x1, x2) - x;
+      if (Math.abs(d) < 1e-7) return at(t, y1, y2);
+      const s = slope(t, x1, x2);
+      if (Math.abs(s) < 1e-6) break;
+      t -= d / s;
+    }
+    let lo = 0;
+    let hi = 1;
+    t = x;
+    for (let i = 0; i < 40; i++) {
+      const v = at(t, x1, x2);
+      if (Math.abs(v - x) < 1e-7) break;
+      if (v < x) lo = t;
+      else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return at(t, y1, y2);
+  };
+}
+
+/** Progress (0-1) of a CSS-style animation with fill `both` at time `t`. */
+export function animationProgress(t: number, a: { delay: number; duration: number; ease: readonly number[] }): number {
+  const [x1, y1, x2, y2] = a.ease as readonly [number, number, number, number];
+  return cubicBezier(x1, y1, x2, y2)((t - a.delay) / a.duration);
+}

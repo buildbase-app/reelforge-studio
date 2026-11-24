@@ -12,26 +12,40 @@ import {
   packageVersion,
   prepareSceneDocument,
   renderChildEnv,
+  sceneAssetUses,
   sceneTimeoutCapMs,
+  stageSceneAssets,
   type EnginePlugin,
   type ResolvedAsset,
+  type StagedSceneAssets,
 } from '@reelforge/core';
-import { PipelineError } from '@reelforge/media-pipeline';
+import { PipelineError, type Tools } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
   FIT_TEXT_SCRIPT,
-  MAX_SOURCE_BYTES,
+  fpsArg,
+  fpsLabel,
+  fpsValue,
   frameLayout,
-  layoutCssVars,
-  TEMPLATES,
+  fontFaceCss,
+  framesToSeconds,
   hyperframesTitleProps,
+  layoutCssVars,
+  MAX_SOURCE_BYTES,
+  TEMPLATES,
   layoutSceneDom,
   layoutSceneProps,
+  mediaKey,
+  mediaLayersHtml,
+  rewriteAssetRefs,
+  type DomLogo,
+  type DomMediaLayer,
   type HyperframesTitleProps,
   type PictureRequest,
   type OutputSettings,
   type RenderScene,
   type ThemeTokens,
+  type FrameRate,
 } from '@reelforge/project-schema';
 import { EGRESS_REFUSED_LINE, FONT_REFUSED_LINE, REFUSED_LINE, nodeEgressEnv, startNetworkSink } from './network';
 import { killRenderNow, reapRender } from './processes';
@@ -96,7 +110,8 @@ function themeVars(theme: ThemeTokens, output: OutputSettings, platform?: string
  * headline shrinks to fit (an inline FIT_TEXT_SCRIPT, `data-rf-fit`), and on
  * landscape frames the line length is capped.
  */
-export function hyperframesTitle(props: HyperframesTitleProps, output: OutputSettings, seconds: number, platform?: string): string {
+export function hyperframesTitle(props: HyperframesTitleProps, output: OutputSettings, seconds: number, platform?: string, media: { bg?: DomMediaLayer; logo?: DomLogo } = {}): string {
+  const layers = mediaLayersHtml(media.bg, media.logo);
   const l = frameLayout(output.width, output.height, platform);
   const u = l.unit;
   const c = l.safe.content;
@@ -117,11 +132,16 @@ export function hyperframesTitle(props: HyperframesTitleProps, output: OutputSet
 @keyframes hf-grow{from{transform:scaleX(.15)}to{transform:scaleX(1)}}
 @keyframes hf-fade{from{opacity:0}to{opacity:1}}
 @keyframes hf-out{to{opacity:0}}
+#hf-wrap>.rf-media,#hf-wrap>.rf-logo{flex-shrink:initial;max-width:none}
+#hf-head,#hf-line,#hf-sub{position:relative;z-index:1}
+${layers.css}
 </style>
 <div id="hf-wrap" class="clip" data-start="0" data-duration="${seconds}">
+${layers.under}
 <h1 id="hf-head" data-rf-fit data-rf-fit-min="${Math.floor(l.type.displayMin)}">${escapeHtml(props.headline)}</h1>
 <div id="hf-line"></div>
 ${props.subline ? `<p id="hf-sub">${escapeHtml(props.subline)}</p>` : ''}
+${layers.over}
 </div>
 <script>${FIT_TEXT_SCRIPT}</script>`;
 }
@@ -155,6 +175,23 @@ export function hyperframesLayout(props: unknown, output: OutputSettings, second
 }
 
 /**
+ * Frame rates HyperFrames' `--end` accepts ("a whole frame rate in 24, 25, 30,
+ * 60"). At any other rate (48, 50 and the NTSC rates, #302) the render runs
+ * without `--end` and its length comes from the root's `data-duration`, of
+ * which HyperFrames renders ceil(duration x fps) frames.
+ */
+export const HF_END_RATES: readonly FrameRate[] = [24, 25, 30, 60];
+
+/**
+ * The root duration for an exact frame count without `--end`: half a frame
+ * short of `frames / fps`, so ceil(duration x fps) is exactly `frames` whatever
+ * the floating-point rounding (the last frame, at (frames - 1) / fps, is inside).
+ */
+export function rootSeconds(frames: number, fps: FrameRate): number {
+  return HF_END_RATES.includes(fps) ? framesToSeconds(frames, fps) : framesToSeconds(frames - 0.5, fps);
+}
+
+/**
  * The composition document for a scene. Agent source can be a fragment
  * (wrapped in a root composition of the right size and duration) or a full
  * HyperFrames document (must declare data-composition-id with the output size).
@@ -164,23 +201,42 @@ export function buildComposition(
   output: OutputSettings,
   theme: ThemeTokens,
   platform?: string,
-  /** Where the pictures of layout panes are (hyperframes-layout). */
-  media?: (asset: string) => CompositionMedia
+  /** Staged assets (#299), or, for hyperframes-layout, where the pictures of its panes are (#287). */
+  media?: StagedSceneAssets | ((asset: string) => CompositionMedia),
+  /** transparent (#302: output.alpha): the page paints no background. */
+  opts: { transparent?: boolean } = {}
 ): string {
-  const seconds = scene.durationFrames / output.fps;
+  const seconds = framesToSeconds(scene.durationFrames, output.fps);
+  const staged = typeof media === 'function' ? undefined : media;
+  const paneMedia = typeof media === 'function' ? media : undefined;
   const stage = `render:${scene.id}`;
+  // Assets (#299) are files in the composition folder (assets/<name>), served by HyperFrames' own file server.
+  const url = (key: string) => {
+    const it = staged?.items.get(key);
+    return it ? `assets/${it.name}` : undefined;
+  };
   let body: string;
+  let css = scene.css;
   if (scene.html !== undefined) {
-    body = scene.html;
+    body = staged ? rewriteAssetRefs(scene.html, url) : scene.html;
+    if (staged && css) css = rewriteAssetRefs(css, url);
     if (new TextEncoder().encode(body + (scene.css ?? '')).length > MAX_SOURCE_BYTES) {
       throw new PipelineError(stage, `composition is larger than ${MAX_SOURCE_BYTES} bytes`);
     }
     if (scene.css && /<\/style/i.test(scene.css)) throw new PipelineError(stage, 'css must not contain "</style"');
   } else if (scene.template === 'hyperframes-title') {
-    body = hyperframesTitle(hyperframesTitleProps.parse(scene.props), output, seconds, platform);
+    const props = hyperframesTitleProps.parse(scene.props);
+    const bgItem = props.media ? staged?.items.get(mediaKey(props.media.asset, props.media.start)) : undefined;
+    const bg: DomMediaLayer | undefined =
+      props.media && bgItem
+        ? { url: `assets/${bgItem.name}`, fit: props.media.fit, ...(props.media.focus ? { focus: props.media.focus } : {}), dim: props.media.dim, tag: bgItem.mediaType === 'video' ? 'video' : 'img', ...(props.media.start ? { start: props.media.start } : {}) }
+        : undefined;
+    const logoItem = props.logo ? staged?.items.get(props.logo.asset) : undefined;
+    const logo: DomLogo | undefined = props.logo && logoItem ? { url: `assets/${logoItem.name}`, corner: props.logo.corner, size: props.logo.size } : undefined;
+    body = hyperframesTitle(props, output, seconds, platform, { ...(bg ? { bg } : {}), ...(logo ? { logo } : {}) });
   } else if (scene.template === 'hyperframes-layout') {
     const resolve =
-      media ??
+      paneMedia ??
       ((asset: string): CompositionMedia => {
         throw new PipelineError(stage, `asset "${asset}" is not available to the renderer`);
       });
@@ -189,18 +245,21 @@ export function buildComposition(
     throw new PipelineError(stage, `unknown hyperframes template "${scene.template}"`);
   }
 
+  // Fonts (#303): @font-face for the staged faces, files in the composition folder ('self' in the policy).
+  const fonts = staged?.fonts.length ? `<style>${fontFaceCss(staged.fontFaces('assets/')).replace(/<\/style/gi, '')}</style>` : '';
   const head =
     `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${HF_CSP}">` +
     `<script>${HF_PAGE_GUARD}</script>` +
-    `<style>${themeVars(theme, output, platform)}html,body{margin:0;width:${output.width}px;height:${output.height}px;overflow:hidden;background:var(--rf-bg);color:var(--rf-text);font-family:var(--rf-font)}*{box-sizing:border-box}</style>` +
-    (scene.css ? `<style>${scene.css}</style>` : '');
+    fonts +
+    `<style>${themeVars(theme, output, platform)}html,body{margin:0;width:${output.width}px;height:${output.height}px;overflow:hidden;background:${opts.transparent ? 'transparent' : 'var(--rf-bg)'};color:var(--rf-text);font-family:var(--rf-font)}*{box-sizing:border-box}</style>` +
+    (css ? `<style>${css}</style>` : '');
 
   // A full document (agent's own <html>) or a fragment wrapped in a sized root composition.
   const isDocument = /<html[\s>]/i.test(body);
   const doc = isDocument
     ? body
     : '<!doctype html><html lang="en"><head></head><body>' +
-      `<div id="root" data-composition-id="main" data-start="0" data-duration="${seconds}" data-width="${output.width}" data-height="${output.height}" style="position:relative;width:${output.width}px;height:${output.height}px;overflow:hidden">` +
+      `<div id="root" data-composition-id="main" data-start="0" data-duration="${rootSeconds(scene.durationFrames, output.fps)}" data-width="${output.width}" data-height="${output.height}" style="position:relative;width:${output.width}px;height:${output.height}px;overflow:hidden">` +
       body +
       '</div></body></html>';
   let prepared;
@@ -224,6 +283,16 @@ export function buildComposition(
     if (Number(w) !== output.width || Number(h) !== output.height) {
       throw new PipelineError(stage, `the composition root must declare data-width="${output.width}" data-height="${output.height}" (got ${w ?? '?'}x${h ?? '?'})`);
     }
+    // Without --end (rates other than 24/25/30/60) the document's own duration sets the length.
+    if (!HF_END_RATES.includes(output.fps)) {
+      const d = Number(root['data-duration']);
+      if (!(Math.ceil(d * fpsValue(output.fps) - 1e-6) >= scene.durationFrames)) {
+        throw new PipelineError(
+          stage,
+          `at ${fpsLabel(output.fps)} fps the composition root's data-duration sets the length: it must be at least ${rootSeconds(scene.durationFrames, output.fps).toFixed(4)} s for ${scene.durationFrames} frames (got ${root['data-duration'] ?? 'none'})`
+        );
+      }
+    }
   }
   return prepared.html;
 }
@@ -237,12 +306,16 @@ export interface HyperframesRenderOptions {
   out: string;
   workDir: string;
   cacheDir: string;
-  /** Project assets on local disk (pictures of hyperframes-layout panes). */
-  assets?: ReadonlyMap<string, ResolvedAsset>;
   browserExecutable?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
   log?: (line: string) => void;
+  /** Transparent background (#302): HyperFrames' MOV output (ProRes 4444 with alpha), `out` ends in .mov. */
+  alpha?: boolean;
+  /** The project's assets (EngineRenderContext.assets); the scene may use only these (#299), including hyperframes-layout panes. */
+  assets?: ReadonlyMap<string, ResolvedAsset>;
+  /** ffprobe/ffmpeg for checking assets before the render. */
+  tools?: Tools;
 }
 
 /**
@@ -329,8 +402,33 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
   const project = join(opts.workDir, 'hyperframes');
   await mkdir(project, { recursive: true });
-  const media = await stageMedia(scene, project, opts.assets ?? new Map(), stage);
-  const doc = buildComposition(scene, output, theme, opts.platform, media);
+  let doc: string;
+  if (scene.html === undefined && scene.template === 'hyperframes-layout') {
+    // Layout panes (#287): files linked into media/, video played as a timed <video> that HyperFrames seeks.
+    doc = buildComposition(scene, output, theme, opts.platform, await stageMedia(scene, project, opts.assets ?? new Map(), stage), { transparent: opts.alpha === true });
+  } else {
+    let uses;
+    try {
+      uses = sceneAssetUses(scene, scene.template ? TEMPLATES[scene.template as keyof typeof TEMPLATES] : undefined);
+    } catch (e) {
+      throw new PipelineError(stage, (e as Error).message);
+    }
+    // Inside the composition folder, so --refuse-outside-files still holds; HyperFrames seeks video itself.
+    const staged = await stageSceneAssets({
+      uses,
+      assets: opts.assets ?? new Map(),
+      dir: join(project, 'assets'),
+      tools: opts.tools ?? { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe' },
+      output,
+      frames: { first: 0, count: scene.durationFrames },
+      video: 'file',
+      // Fonts (#303): project font assets and bundled fonts of the families the theme and the scene name.
+      fonts: { family: theme.fontFamily, markup: `${scene.html ?? ''}\n${scene.css ?? ''}` },
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      ...(opts.log ? { log: opts.log } : {}),
+    });
+    doc = buildComposition(scene, output, theme, opts.platform, staged, { transparent: opts.alpha === true });
+  }
   // One temp directory per render: the CLI and its browser inherit it, which is how
   // every process of this render is found and killed when it ends (processes.ts).
   const tmpDir = join(opts.cacheDir, 'hyperframes', 'tmp', `r-${randomUUID()}`);
@@ -338,7 +436,7 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   await writeFile(join(project, 'index.html'), doc);
   await mkdir(dirname(opts.out), { recursive: true });
 
-  const seconds = scene.durationFrames / output.fps;
+  const seconds = framesToSeconds(scene.durationFrames, output.fps);
   const args = [
     hyperframesBin(),
     'render',
@@ -346,11 +444,15 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
     '-o',
     opts.out,
     '--fps',
-    String(output.fps),
-    '--end',
-    String(seconds),
+    // Exact: HyperFrames takes FFmpeg-style rationals (30000/1001), #302.
+    fpsArg(output.fps),
+    // --end only at whole rates and for MP4 (MOV, with alpha, renders the composition's whole data-duration);
+    // otherwise the root's data-duration gives the frames (rootSeconds).
+    ...(!opts.alpha && HF_END_RATES.includes(output.fps) ? ['--end', String(seconds)] : []),
     '--workers',
     '1',
+    // MOV renders with transparency, as ProRes 4444 (its default profile keeps alpha).
+    ...(opts.alpha ? ['--format', 'mov', '--prores-profile', '4444'] : []),
     '--refuse-outside-files',
     '--no-browser-gpu',
     '--quiet',
@@ -451,6 +553,8 @@ export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?
         .filter(([, t]) => t.engine === 'hyperframes')
         .map(([id, t]) => ({ ...t, id })),
     browserSandbox: () => chromiumSandbox(),
+    // Transparent backgrounds (#302): HyperFrames captures with alpha for its MOV output.
+    capabilities: () => ({ frameRanges: false, output: { alpha: true } }),
     availability() {
       const b = browser();
       if (!b || !existsSync(b)) return { ok: false, reason: 'no browser: set REELFORGE_CHROMIUM_PATH to a Chrome Headless Shell binary' };
@@ -470,11 +574,13 @@ export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?
         out: ctx.out,
         workDir: ctx.workDir,
         cacheDir: ctx.cacheDir,
-        assets: ctx.assets,
         browserExecutable: browser(),
         signal: ctx.signal,
         timeoutMs: opts.timeoutMs,
         log: ctx.log,
+        ...(ctx.alpha ? { alpha: true } : {}),
+        assets: ctx.assets,
+        tools: ctx.tools,
       });
       ctx.progress(scene.durationFrames, scene.durationFrames);
       return {

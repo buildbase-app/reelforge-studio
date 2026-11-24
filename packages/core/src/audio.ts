@@ -14,6 +14,7 @@ import {
   type Tools,
 } from '@reelforge/media-pipeline';
 import {
+  framesToSeconds,
   LOUDNESS_TARGETS,
   resolveDucking,
   type DuckingSettings,
@@ -76,6 +77,8 @@ export interface AudioPassInput {
   workDir: string;
   signal: AbortSignal;
   log(line: string): void;
+  /** The output format has no audio (#302: gif, png-sequence): no mix, no audio stream, nothing to check. */
+  formatWithoutAudio?: string;
 }
 
 export interface AudioLoudness {
@@ -140,7 +143,7 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
   const target = plan.loudness === 'off' ? null : LOUDNESS_TARGETS[plan.loudness];
   const manifest: AudioManifest = {
     music: music ? { asset: music.asset, volume: music.volume } : null,
-    voice: voice ? { asset: voice.asset, volume: voice.volume, startSeconds: voice.startFrame / fps } : null,
+    voice: voice ? { asset: voice.asset, volume: voice.volume, startSeconds: framesToSeconds(voice.startFrame, fps) } : null,
     sfx,
     ...(i.fullTimeline ? {} : { note: 'preview of a scene subset: audio replaced by silence' }),
     track: 'mixed',
@@ -149,6 +152,11 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
     ducking: null,
     loudness: { preset: plan.loudness, target: target ? { integrated: target.integrated, truePeak: target.truePeak, lra: target.lra, tolerance: target.tolerance, truePeakCeiling: target.truePeak } : null, input: null, normalisation: 'none' },
   };
+  if (i.formatWithoutAudio) {
+    log(`audio: none (${i.formatWithoutAudio} has no audio)`);
+    const reason = `${i.formatWithoutAudio} has no audio`;
+    return { file: null, noAudio: true, manifest: { ...manifest, music: null, voice: null, sfx: [], ducking: null, track: 'none', note: reason, loudness: { ...manifest.loudness, reason } } };
+  }
   if (plan.mute && plan.mutedTrack === 'none') {
     log('audio: muted, no audio stream (render.audio.mutedTrack = none)');
     return { file: null, noAudio: true, manifest: { ...manifest, track: 'none', loudness: { ...manifest.loudness, reason: 'muted' } } };
@@ -159,7 +167,7 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
   let ducking: AudioManifest['ducking'] = null;
   const duck = resolveDucking(music?.ducking);
   if (music && voice && duck && duck.depthDb > 0) {
-    const offset = voice.startFrame / fps;
+    const offset = framesToSeconds(voice.startFrame, fps);
     const speech = await speechSegments(tools.ffmpeg, file(voice.asset), { thresholdDb: duck.thresholdDb, signal });
     const windows = speech.map(([s, e]) => [r2(s + offset), r2(Math.min(e + offset, i.totalSeconds))] as [number, number]).filter(([s, e]) => e > s);
     ducking = { ...duck, windows };
@@ -174,8 +182,8 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
     out: mixFile,
     totalSeconds: i.totalSeconds,
     music: music ? { file: file(music.asset), volume: music.volume, ...(music.fadeInSeconds !== undefined ? { fadeInSeconds: music.fadeInSeconds } : {}), fadeOutSeconds: music.fadeOutSeconds } : null,
-    voice: voice ? { file: file(voice.asset), volume: voice.volume, startSeconds: voice.startFrame / fps } : null,
-    sfx: sfx.map((s) => ({ file: file(s.asset), volume: s.volume, atSeconds: s.atFrame / fps })),
+    voice: voice ? { file: file(voice.asset), volume: voice.volume, startSeconds: framesToSeconds(voice.startFrame, fps) } : null,
+    sfx: sfx.map((s) => ({ file: file(s.asset), volume: s.volume, atSeconds: framesToSeconds(s.atFrame, fps) })),
     gainDb,
     ducking: ducking ? { depthDb: ducking.depthDb, attackMs: ducking.attackMs, releaseMs: ducking.releaseMs, windows: ducking.windows } : null,
     signal,
@@ -210,13 +218,24 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
  * (always a warning), and A/V sync (start at 0, durations within one frame;
  * always a failure, returned as `syncProblems`).
  */
-export async function verifyAudio(tools: Tools, file: string, fps: number, m: AudioManifest, mode: AudioPlan['qa'], signal?: AbortSignal): Promise<{ manifest: AudioManifest; failures: string[]; syncProblems: string[] }> {
+export async function verifyAudio(
+  tools: Tools,
+  file: string,
+  fps: number,
+  m: AudioManifest,
+  mode: AudioPlan['qa'],
+  signal?: AbortSignal,
+  /** sync: false for audio-only files (#302: m4a, wav), which have no video to be in sync with; loudness is still checked. */
+  opts: { sync?: boolean } = {}
+): Promise<{ manifest: AudioManifest; failures: string[]; syncProblems: string[] }> {
   const issues: AudioQaIssue[] = [];
   let syncProblems: string[] = [];
   if (m.track !== 'none') {
-    const { problems, ...sync } = await checkAvSync(tools.ffprobe, file, fps);
-    syncProblems = problems;
-    m.avSync = sync;
+    if (opts.sync !== false) {
+      const { problems, ...sync } = await checkAvSync(tools.ffprobe, file, fps);
+      syncProblems = problems;
+      m.avSync = sync;
+    }
     const t = m.loudness.target;
     if (m.track === 'mixed' && t && m.loudness.normalisation !== 'none') {
       const got = await measureEbur128(tools.ffmpeg, file, signal);

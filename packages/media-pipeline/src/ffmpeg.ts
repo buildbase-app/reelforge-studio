@@ -1,4 +1,5 @@
 import { execFile, spawn, spawnSync } from 'node:child_process';
+import { rateArg } from './rate';
 
 /** Raised when a pipeline stage fails. Carries the stage name and tool output. */
 export class PipelineError extends Error {
@@ -85,17 +86,31 @@ export function run(
   bin: string,
   args: string[],
   stage: string,
-  opts: { signal?: AbortSignal; cwd?: string } = {}
+  opts: {
+    signal?: AbortSignal;
+    cwd?: string;
+    /** The child's whole environment (default: inherited). Untrusted media is decoded with a scrubbed one. */
+    env?: NodeJS.ProcessEnv;
+    /** Kill the tool after this many milliseconds (rejects with a timeout error). */
+    timeoutMs?: number;
+  } = {}
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], signal: opts.signal, ...(opts.cwd ? { cwd: opts.cwd } : {}) });
+    const child = spawn(bin, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      signal: opts.signal,
+      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      ...(opts.env ? { env: opts.env } : {}),
+      ...(opts.timeoutMs ? { timeout: opts.timeoutMs, killSignal: 'SIGKILL' as const } : {}),
+    });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
     child.on('error', (e) => reject(new PipelineError(stage, e.message, stderr)));
-    child.on('close', (code) => {
+    child.on('close', (code, sig) => {
       if (code === 0) resolve({ stdout, stderr });
+      else if (sig === 'SIGKILL' && opts.timeoutMs && !opts.signal?.aborted) reject(new PipelineError(stage, `${bin} did not finish within ${opts.timeoutMs} ms`, stderr.split('\n').slice(-30).join('\n')));
       else
         reject(
           new PipelineError(stage, `${bin} exited with code ${code}`, stderr.split('\n').slice(-30).join('\n'))
@@ -146,6 +161,14 @@ export function filterThreadArgs(s: EncoderSettings = encoder): string[] {
   return s.threads > 0 ? ['-filter_threads', String(s.threads), '-filter_complex_threads', String(s.threads)] : [];
 }
 
+/**
+ * The encoder thread cap (an output option) for encoders other than x264
+ * (#302: prores_ks, libvpx-vp9, libaom-av1, ffv1): the same render.encoderThreads.
+ */
+export function encoderThreadArgs(s: EncoderSettings = encoder): string[] {
+  return s.threads > 0 ? ['-threads', String(s.threads)] : [];
+}
+
 /** Video encoding settings every clip is normalised to before assembly (libx264 high, yuv420p, CRF 18, medium). */
 export function h264Args(s: EncoderSettings = encoder): string[] {
   const x264 = [...(s.lookahead > 0 ? [`rc-lookahead=${s.lookahead}`] : [])];
@@ -167,6 +190,12 @@ export function h264Args(s: EncoderSettings = encoder): string[] {
   ];
 }
 
+/**
+ * The clip an engine writes when a render keeps alpha (#302, EngineRenderContext.alpha):
+ * ProRes 4444 with a 16-bit alpha channel in a MOV (FFmpeg's prores_ks).
+ */
+export const ALPHA_CLIP_ARGS = ['-c:v', 'prores_ks', '-profile:v', '4', '-vendor', 'apl0', '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16'];
+
 export interface FrameEncoder {
   /** Write one PNG frame. Resolves once FFmpeg has accepted it. */
   write(png: Buffer): Promise<void>;
@@ -184,8 +213,11 @@ export interface FrameEncoder {
 export function startPngEncoder(
   ffmpeg: string,
   out: string,
-  fps: number,
-  stage = 'encode'
+  /** A number or an exact "num/den" such as "30000/1001" (#302). */
+  fps: number | string,
+  stage = 'encode',
+  /** alpha: keep the PNGs' alpha channel (ALPHA_CLIP_ARGS, `out` should end in .mov) instead of H.264. */
+  opts: { alpha?: boolean } = {}
 ): FrameEncoder {
   const child = spawn(
     ffmpeg,
@@ -197,14 +229,14 @@ export function startPngEncoder(
       '-f',
       'image2pipe',
       '-framerate',
-      String(fps),
+      rateArg(fps),
       '-c:v',
       'png',
       '-i',
       '-',
-      ...h264Args(),
+      ...(opts.alpha ? [...ALPHA_CLIP_ARGS, ...encoderThreadArgs()] : h264Args()),
       '-r',
-      String(fps),
+      rateArg(fps),
       '-an',
       out,
     ],

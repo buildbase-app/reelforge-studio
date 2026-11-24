@@ -2,14 +2,37 @@ import { existsSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { browserVersion, chromiumSandbox as coreChromiumSandbox, packageVersion, renderChildEnv, sceneTimeoutCapMs, type EnginePlugin, type ResolvedAsset } from '@reelforge/core';
-import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
+import {
+  assetHeaders,
+  assetToken,
+  browserVersion,
+  chromiumSandbox as coreChromiumSandbox,
+  lookupAsset,
+  packageVersion,
+  renderChildEnv,
+  rewriteSceneHtml,
+  sceneAssetUses,
+  sceneTimeoutCapMs,
+  stageSceneAssets,
+  type EnginePlugin,
+  type ResolvedAsset,
+  type StagedSceneAssets,
+} from '@reelforge/core';
+import { PipelineError, startPngEncoder, type Tools } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
   FIT_TEXT_SCRIPT,
+  fpsArg,
+  framesToSeconds,
+  htmlTitleProps,
   MAX_SOURCE_BYTES,
   TEMPLATES,
-  htmlTitleProps,
+  FONT_LOAD_TIMEOUT_MS,
+  fontFaceCss,
+  mediaKey,
+  rewriteAssetRefs,
+  type DomLogo,
+  type DomMediaLayer,
   type OutputSettings,
   type RenderScene,
   type ThemeTokens,
@@ -26,16 +49,24 @@ export interface HtmlRenderOptions {
   platform?: string;
   out: string;
   ffmpeg: string;
-  /** Project assets on local disk (pictures of html-layout panes). */
-  assets?: ReadonlyMap<string, ResolvedAsset>;
-  /** Scratch directory (video frames of html-layout panes). Default: next to `out`. */
-  workDir?: string;
   browserExecutable?: string;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
   /** Whole-render timeout. Default: 30 s + 1 s per frame (per 1920x1080 worth of pixels), at most render.sceneTimeoutSeconds. */
   timeoutMs?: number;
+  /** Transparent background (#302): no page background, screenshots with alpha, ProRes 4444 clip (`out` ends in .mov). */
+  alpha?: boolean;
+  /** The project's assets (EngineRenderContext.assets); the scene may use only these (#299). html-layout panes read them directly. */
+  assets?: ReadonlyMap<string, ResolvedAsset>;
+  /** FFmpeg/ffprobe for staging assets (default: `ffmpeg` and `ffprobe` next to opts.ffmpeg). */
+  tools?: Tools;
+  /** Scratch directory (staged assets, video frames of html-layout panes). Default: next to `out`. */
+  workDir?: string;
+  log?: (line: string) => void;
 }
+
+/** The origin html scenes load assets from: answered by request interception only (`.invalid` never resolves). */
+export const ASSET_ORIGIN = 'http://rf-assets.invalid';
 
 export interface HtmlRenderResult {
   out: string;
@@ -44,6 +75,8 @@ export interface HtmlRenderResult {
   browser: string;
   /** Requests the sandbox blocked (for logs). */
   blockedRequests: string[];
+  /** Asset files the page loaded (names under the asset base). */
+  assetRequests: string[];
 }
 
 export function htmlEngineVersion(): string {
@@ -59,10 +92,29 @@ export function resolveHtmlBrowser(explicit?: string): string {
   throw new PipelineError('setup', `No Chromium for the html engine: set REELFORGE_CHROMIUM_PATH (tried ${p ?? '(unset)'})`);
 }
 
-/** The html + css to render for a scene: agent source, or a built-in template. */
-export function sceneSource(scene: RenderScene, durationSeconds: number): { html: string; css: string } {
-  if (scene.html !== undefined) return { html: scene.html, css: scene.css ?? '' };
-  if (scene.template === 'html-title') return htmlTitle(htmlTitleProps.parse(scene.props), durationSeconds);
+/** The html + css to render for a scene: agent source, or a built-in template; `asset:` references point at `assetBase`. */
+export function sceneSource(scene: RenderScene, durationSeconds: number, staged?: StagedSceneAssets, assetBase = ''): { html: string; css: string } {
+  const url = (key: string) => {
+    const it = staged?.items.get(key);
+    return it ? assetBase + it.name : undefined;
+  };
+  if (scene.html !== undefined) {
+    if (!staged) return { html: scene.html, css: scene.css ?? '' };
+    const isVideo = (key: string) => staged.items.get(key)?.frames !== undefined;
+    return { html: rewriteSceneHtml(scene.html, url, { videoAsImage: true, isVideo }), css: rewriteAssetRefs(scene.css ?? '', url) };
+  }
+  if (scene.template === 'html-title') {
+    const props = htmlTitleProps.parse(scene.props);
+    const bgKey = props.media ? mediaKey(props.media.asset, props.media.start) : undefined;
+    const bgItem = bgKey ? staged?.items.get(bgKey) : undefined;
+    const bg: DomMediaLayer | undefined =
+      props.media && bgItem
+        ? { url: assetBase + bgItem.name, fit: props.media.fit, ...(props.media.focus ? { focus: props.media.focus } : {}), dim: props.media.dim, tag: 'img', ...(bgItem.frames ? { videoKey: bgItem.key } : {}) }
+        : undefined;
+    const logoItem = props.logo ? staged?.items.get(props.logo.asset) : undefined;
+    const logo: DomLogo | undefined = props.logo && logoItem ? { url: assetBase + logoItem.name, corner: props.logo.corner, size: props.logo.size } : undefined;
+    return htmlTitle(props, durationSeconds, { ...(bg ? { bg } : {}), ...(logo ? { logo } : {}) });
+  }
   throw new PipelineError(`render:${scene.id}`, `unknown html template "${scene.template}"`);
 }
 
@@ -78,13 +130,20 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   const { scene, output } = opts;
   const stage = `render:${scene.id}`;
   const frames = scene.durationFrames;
-  const durationSeconds = frames / output.fps;
+  const durationSeconds = framesToSeconds(frames, output.fps);
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
   const executable = resolveHtmlBrowser(opts.browserExecutable);
 
   let source: { html: string; css: string };
-  let videos = new Map<string, string[]>();
+  // html-layout panes (#287): pictures inlined as data: URLs, video as one JPEG per frame swapped in per screenshot.
+  let layoutVideos = new Map<string, string[]>();
   const framesDir = join(opts.workDir ?? join(dirname(opts.out), `.work-${scene.id}`), 'frames');
+  // Other scenes (#299): stage the files this scene uses (only the project's own), served under a per-render base.
+  let staged: StagedSceneAssets | undefined;
+  const token = assetToken();
+  const assetBase = `${ASSET_ORIGIN}/${token}/`;
+  const videos: Record<string, string[]> = {};
+  const tools = opts.tools ?? { ffmpeg: opts.ffmpeg, ffprobe: opts.ffmpeg.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1') };
   if (scene.html === undefined && scene.template === 'html-layout') {
     try {
       const l = await layoutSource({
@@ -100,19 +159,59 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
       source = { html: l.dom.html, css: l.dom.css };
-      videos = l.videos;
+      layoutVideos = l.videos;
+      // Fonts (#303) for layout panes too: the theme's family, from project font assets or the bundled set.
+      const f = await stageSceneAssets({
+        uses: [],
+        assets: opts.assets ?? new Map(),
+        dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
+        tools,
+        output,
+        frames: { first: 0, count: frames },
+        video: 'frames',
+        fonts: { family: theme.fontFamily, markup: '' },
+        ...(opts.signal ? { signal: opts.signal } : {}),
+        ...(opts.log ? { log: opts.log } : {}),
+      });
+      if (f.fonts.length) staged = f;
     } catch (e) {
       if (e instanceof PipelineError) throw e;
       throw new PipelineError(stage, (e as Error).message);
     }
-  } else source = sceneSource(scene, durationSeconds);
+  } else {
+    let uses;
+    try {
+      uses = sceneAssetUses(scene, scene.template ? TEMPLATES[scene.template as keyof typeof TEMPLATES] : undefined);
+    } catch (e) {
+      throw new PipelineError(stage, (e as Error).message);
+    }
+    {
+      const st = await stageSceneAssets({
+        uses,
+        assets: opts.assets ?? new Map(),
+        dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
+        tools,
+        output,
+        frames: { first: 0, count: frames },
+        video: 'frames',
+        // Fonts (#303): project font assets and bundled fonts of the families the theme and the scene name.
+        fonts: { family: theme.fontFamily, markup: `${scene.html ?? ''}\n${scene.css ?? ''}` },
+        ...(opts.signal ? { signal: opts.signal } : {}),
+        ...(opts.log ? { log: opts.log } : {}),
+      });
+      if (st.items.size || st.fonts.length) staged = st;
+    }
+    for (const [k, it] of staged?.items ?? []) if (it.frames) videos[k] = it.frames.names.map((n) => assetBase + n);
+    source = sceneSource(scene, durationSeconds, staged, assetBase);
+  }
+  const fontCss = staged?.fonts.length ? fontFaceCss(staged.fontFaces(assetBase)) : undefined;
   // Inlined pictures (html-layout) are not scene source; only agent and template markup counts.
-  if (!videos.size && scene.template !== 'html-layout' && Buffer.byteLength(source.html) + Buffer.byteLength(source.css) > MAX_SOURCE_BYTES * 2) {
+  if (scene.template !== 'html-layout' && Buffer.byteLength(source.html) + Buffer.byteLength(source.css) > MAX_SOURCE_BYTES * 2) {
     throw new PipelineError(stage, `html scene is larger than ${MAX_SOURCE_BYTES * 2} bytes`);
   }
   let doc: string;
   try {
-    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds, ...(opts.platform ? { platform: opts.platform } : {}) });
+    doc = buildDocument({ html: source.html, css: source.css, theme, output, durationSeconds, ...(opts.platform ? { platform: opts.platform } : {}), ...(staged ? { assetBase } : {}), ...(fontCss ? { fontCss } : {}), ...(opts.alpha ? { transparent: true } : {}) });
   } catch (e) {
     throw new PipelineError(stage, (e as Error).message);
   }
@@ -128,8 +227,9 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   const signal = AbortSignal.any([timeout, navigation.signal, ...(opts.signal ? [opts.signal] : [])]);
   const navigationError = () =>
     new PipelineError(stage, `the scene tried to navigate away from its document (${navigatedTo.slice(0, 120)}): scenes render without network access and must not navigate`);
-  const encoder = startPngEncoder(opts.ffmpeg, opts.out, output.fps, stage);
+  const encoder = startPngEncoder(opts.ffmpeg, opts.out, fpsArg(output.fps), stage, { alpha: opts.alpha === true });
   const blocked: string[] = [];
+  const assetRequests: string[] = [];
   let browser: Browser | undefined;
   const onAbort = () => {
     encoder.kill();
@@ -170,6 +270,14 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     await context.route('**/*', (route) => {
       const url = route.request().url();
       if (url.startsWith('data:') || url === 'about:blank') return route.continue();
+      // This render's assets: answered from the staged files (exact name lookup), never from the network.
+      if (staged && url.startsWith(assetBase) && route.request().method() === 'GET') {
+        const hit = lookupAsset(staged, token, new URL(url).pathname);
+        if (hit) {
+          if (assetRequests.length < 10_000) assetRequests.push(url.slice(assetBase.length));
+          return route.fulfill({ status: 200, path: hit.file, headers: assetHeaders(hit.contentType) });
+        }
+      }
       if (blocked.length < 50) blocked.push(url.slice(0, 200));
       return route.abort('blockedbyclient');
     });
@@ -185,16 +293,35 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     };
     page.on('framenavigated', onNavigated);
     if (page.url() !== home) onNavigated(page.mainFrame());
-    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    // Fonts (#303): wait until every face the page uses has loaded (a face that fails fails the render), within a limit.
+    const fontProblem = await page.evaluate(async (limit) => {
+      void document.body.offsetHeight; // lay out, so the faces in use start loading
+      const done = await Promise.race([document.fonts.ready.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), limit))]);
+      if (!done) return `fonts did not load within ${limit} ms`;
+      const failed = [...document.fonts].filter((f) => f.status === 'error').map((f) => f.family);
+      return failed.length ? `font(s) did not load: ${[...new Set(failed)].join(', ')}` : '';
+    }, FONT_LOAD_TIMEOUT_MS);
+    if (fontProblem) throw new PipelineError(stage, fontProblem);
+    if (staged) {
+      // Every asset picture must have loaded before the first frame (a missing one fails the render, not a blank frame).
+      const broken = await page.evaluate(async (base) => {
+        const imgs = [...document.images].filter((i) => i.src.startsWith(base));
+        await Promise.all(imgs.map((i) => i.decode().catch(() => undefined)));
+        return imgs.filter((i) => !i.complete || i.naturalWidth === 0).map((i) => i.src.slice(base.length));
+      }, assetBase);
+      if (broken.length) throw new PipelineError(stage, `asset picture(s) did not load: ${broken.slice(0, 5).join(', ')}`);
+    }
     // Fit-to-box (#287): elements marked data-rf-fit shrink until they fit their box.
     await page.evaluate(FIT_TEXT_SCRIPT);
+    const hasVideo = Object.keys(videos).length > 0;
+    if (hasVideo) await page.evaluate((v) => void ((window as unknown as { __rfVideos: unknown }).__rfVideos = v), videos);
 
     for (let f = 0; f < frames; f++) {
       if (signal.aborted) break;
-      const t = (f * 1000) / output.fps;
+      const t = framesToSeconds(f, output.fps) * 1000;
       // Video in layout panes: this frame's picture of each video, decoded before the screenshot.
       const pictures: Array<[string, string]> = [];
-      for (const [key, files] of videos) pictures.push([key, await frameDataUrl(files[f]!)]);
+      for (const [key, files] of layoutVideos) pictures.push([key, await frameDataUrl(files[f]!)]);
       await page.evaluate(
         async ({ ms, pictures }) => {
           for (const a of document.getAnimations()) {
@@ -212,7 +339,26 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
         },
         { ms: t, pictures }
       );
-      const png = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: output.width, height: output.height }, caret: 'hide', animations: 'allow' });
+      if (hasVideo) {
+        // Video (#299): picture f of each clip, decoded before the screenshot (frame-exact, no codec in the browser).
+        const missing = await page.evaluate(async (frame) => {
+          const v = (window as unknown as { __rfVideos: Record<string, string[]> }).__rfVideos;
+          const els = [...document.querySelectorAll<HTMLImageElement>('img[data-rf-video]')];
+          await Promise.all(
+            els.map((el) => {
+              const urls = v[el.dataset.rfVideo ?? ''];
+              if (!urls) return undefined;
+              const next = urls[Math.min(frame, urls.length - 1)]!;
+              if (el.src === next) return undefined;
+              el.src = next;
+              return el.decode().catch(() => undefined);
+            })
+          );
+          return els.filter((el) => !el.complete || el.naturalWidth === 0).length;
+        }, f);
+        if (missing) throw new PipelineError(stage, `video picture for frame ${f} did not load`);
+      }
+      const png = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: output.width, height: output.height }, caret: 'hide', animations: 'allow', omitBackground: opts.alpha === true });
       await encoder.write(png);
       opts.onProgress?.(f + 1, frames);
     }
@@ -221,7 +367,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     if (signal.aborted) throw new PipelineError(stage, 'cancelled');
     await encoder.finish();
     const version = browser.version();
-    return { out: opts.out, frames, millis: Date.now() - started, browser: version, blockedRequests: blocked };
+    return { out: opts.out, frames, millis: Date.now() - started, browser: version, blockedRequests: blocked, assetRequests };
   } catch (e) {
     encoder.kill();
     if (navigation.signal.aborted) throw navigationError();
@@ -242,7 +388,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   } finally {
     signal.removeEventListener('abort', onAbort);
     await browser?.close().catch(() => undefined);
-    if (videos.size) await rm(framesDir, { recursive: true, force: true }).catch(() => undefined);
+    if (layoutVideos.size) await rm(framesDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -258,6 +404,8 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         .filter(([, t]) => t.engine === 'html')
         .map(([id, t]) => ({ ...t, id })),
     browserSandbox: () => chromiumSandbox(),
+    // Transparent backgrounds (#302): screenshots keep alpha when the page paints no background.
+    capabilities: () => ({ frameRanges: false, output: { alpha: true } }),
     availability() {
       try {
         resolveHtmlBrowser(opts.browserExecutable);
@@ -274,12 +422,15 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         ...(ctx.platform ? { platform: ctx.platform } : {}),
         out: ctx.out,
         ffmpeg: ctx.tools.ffmpeg,
-        assets: ctx.assets,
-        workDir: ctx.workDir,
         browserExecutable: opts.browserExecutable,
         signal: ctx.signal,
         onProgress: ctx.progress,
         timeoutMs: opts.timeoutMs,
+        ...(ctx.alpha ? { alpha: true } : {}),
+        assets: ctx.assets,
+        tools: ctx.tools,
+        workDir: ctx.workDir,
+        log: ctx.log,
       });
       if (res.blockedRequests.length) ctx.log(`html sandbox blocked ${res.blockedRequests.length} request(s): ${res.blockedRequests.slice(0, 5).join(', ')}`);
       return {

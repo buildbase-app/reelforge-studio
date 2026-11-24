@@ -6,8 +6,32 @@ import type { AddressInfo } from 'node:net';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
-import { chromiumSandbox, packageVersion, publishDirAtomically, renderChildEnv, stampMatches } from '@reelforge/core';
-import type { OutputSettings, RenderScene, ThemeTokens } from '@reelforge/project-schema';
+import {
+  assetHeaders,
+  assetToken,
+  chromiumSandbox,
+  lookupAsset,
+  packageVersion,
+  publishDirAtomically,
+  renderChildEnv,
+  sceneAssetUses,
+  stageSceneAssets,
+  stampMatches,
+  type ResolvedAsset,
+  type StagedSceneAssets,
+} from '@reelforge/core';
+import type { Tools } from '@reelforge/media-pipeline';
+import {
+  TEMPLATES,
+  fpsArg,
+  fpsValue,
+  framesToSeconds,
+  layoutSceneProps,
+  toLayoutSpec,
+  type OutputSettings,
+  type RenderScene,
+  type ThemeTokens,
+} from '@reelforge/project-schema';
 import { chromium, type Browser } from 'playwright-core';
 import type { Plugin } from 'vite';
 import type {} from './protocol';
@@ -39,6 +63,31 @@ export interface MotionCanvasRenderOptions {
   onProgress?: (framesDone: number, framesTotal: number) => void;
   /** Rebuild the browser bundle even if one exists. */
   rebuild?: boolean;
+  /** The project's assets (EngineRenderContext.assets); the scene may use only these (#299). */
+  assets?: ReadonlyMap<string, ResolvedAsset>;
+  /** FFmpeg/ffprobe for staging assets (default: opts.ffmpeg and ffprobe next to it). */
+  tools?: Tools;
+  /** Scratch directory (staged assets). Default: next to `out`. */
+  workDir?: string;
+  log?: (line: string) => void;
+  /**
+   * Only these frames of the scene, first and last inclusive: the scene runs
+   * from frame 0 (Motion Canvas seeks without drawing) and the clip holds
+   * frames first..last. Used by the layout proofs and tests to take one
+   * settled frame; the engine does not declare frame ranges for fan-out.
+   */
+  frameRange?: readonly [number, number];
+}
+
+/**
+ * Variables of a scene: its props as given, or, for motion-canvas-layout
+ * (#287), the parsed props (defaults applied) and the geometry spec of their
+ * layout, so the scene calls the same layout functions as the DOM engines.
+ */
+export function sceneVariables(scene: RenderScene, output: OutputSettings): Record<string, unknown> {
+  if (scene.template !== 'motion-canvas-layout') return { ...(scene.props as Record<string, unknown>) };
+  const props = layoutSceneProps.parse(scene.props);
+  return { props, spec: toLayoutSpec(props.layout), fps: fpsValue(output.fps), frames: scene.durationFrames };
 }
 
 export interface MotionCanvasRenderResult {
@@ -177,8 +226,9 @@ function sourceHash(): string {
     }
   };
   walk(scenesDir);
-  // The scenes import the shared layout module (#287); a change to it must rebuild the bundle.
+  // The scenes import the shared layout and media modules (#287, #299); a change to them must rebuild the bundle.
   h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/layout')));
+  h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/media')));
   return h.digest('hex');
 }
 
@@ -191,11 +241,22 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
 };
 
-/** Serve the bundle on 127.0.0.1 only; module scripts cannot load from file://. */
-function serve(root: string): Promise<Server> {
+/**
+ * Serve the bundle on 127.0.0.1 only; module scripts cannot load from file://.
+ * With `assets`, `/<token>/<name>` answers this render's staged asset files
+ * (exact name lookup, #299).
+ */
+function serve(root: string, assets?: { staged: StagedSceneAssets; token: string }): Promise<Server> {
   const base = resolve(root) + sep;
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    if (assets && url.pathname.startsWith(`/${assets.token}/`)) {
+      const hit = req.method === 'GET' ? lookupAsset(assets.staged, assets.token, url.pathname) : undefined;
+      if (!hit) return void res.writeHead(404).end();
+      res.writeHead(200, assetHeaders(hit.contentType));
+      createReadStream(hit.file).on('error', () => res.destroy()).pipe(res);
+      return;
+    }
     const target = normalize(join(base, decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)));
     if (!target.startsWith(base) || !existsSync(target) || !statSync(target).isFile()) {
       res.writeHead(404).end();
@@ -218,15 +279,44 @@ export async function renderMotionCanvasScene(
   const started = Date.now();
   const { scene, output } = opts;
   const executable = resolveBrowser(opts.browserExecutable);
+  const range = opts.frameRange;
+  if (range && (range[0] < 0 || range[1] < range[0] || range[1] >= scene.durationFrames)) {
+    throw new PipelineError(`render:${scene.id}`, `frame range ${range[0]}-${range[1]} is not inside the scene's ${scene.durationFrames} frames`);
+  }
+  const first = range ? range[0] : 0;
+  const end = range ? range[1] + 1 : scene.durationFrames;
+  let variables: Record<string, unknown>;
+  try {
+    variables = sceneVariables(scene, output);
+  } catch (e) {
+    throw new PipelineError(`render:${scene.id}`, (e as Error).message);
+  }
   const bundle = await buildBundle(opts.cacheDir, opts.rebuild);
   mkdirSync(dirname(opts.out), { recursive: true });
 
-  const server = await serve(bundle);
+  // Assets (#299): the scene's files staged (video as one picture per frame), served by the bundle server under a random token.
+  const uses = sceneAssetUses(scene, scene.template ? TEMPLATES[scene.template as keyof typeof TEMPLATES] : undefined);
+  const staging = await stageSceneAssets({
+    uses,
+    assets: opts.assets ?? new Map(),
+    dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
+    tools: opts.tools ?? { ffmpeg: opts.ffmpeg, ffprobe: opts.ffmpeg.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1') },
+    output,
+    frames: { first, count: end - first },
+    video: 'frames',
+    // Fonts (#303): the theme's families that are project font assets or bundled fonts, loaded before the first frame.
+    ...(opts.theme ? { fonts: { family: opts.theme.fontFamily } } : {}),
+    ...(opts.signal ? { signal: opts.signal } : {}),
+    ...(opts.log ? { log: opts.log } : {}),
+  });
+  const staged = staging.items.size || staging.fonts.length ? staging : undefined;
+  const token = assetToken();
+  const server = await serve(bundle, staged ? { staged, token } : undefined);
   const port = (server.address() as AddressInfo).port;
   let browser: Browser | undefined;
-  const encoder = startPngEncoder(opts.ffmpeg, opts.out, output.fps, `render:${scene.id}`);
+  const encoder = startPngEncoder(opts.ffmpeg, opts.out, fpsArg(output.fps), `render:${scene.id}`);
   const consoleErrors: string[] = [];
-  let nextFrame = 0;
+  let nextFrame = first;
 
   const abort = () => {
     encoder.kill();
@@ -260,33 +350,39 @@ export async function renderMotionCanvasScene(
     page.on('pageerror', (e) => consoleErrors.push(e.message));
 
     await page.exposeBinding('__reelforgeFrame', async (_src, frame: number, png: string) => {
+      // A range's export can run one frame past its end; those frames are not part of the clip.
+      if (frame >= end) return;
       if (frame !== nextFrame) {
         throw new Error(`frame ${frame} arrived out of order (expected ${nextFrame})`);
       }
       nextFrame++;
       await encoder.write(Buffer.from(png, 'base64'));
-      opts.onProgress?.(nextFrame, scene.durationFrames);
+      opts.onProgress?.(nextFrame - first, end - first);
     });
 
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.waitForFunction(() => window.__reelforgeReady === true, null, { timeout: 30_000 });
 
     const props = scene.props as Record<string, unknown>;
+    const layoutBackground = scene.template === 'motion-canvas-layout' ? ((variables.props as { background?: string }).background ?? null) : null;
     const response = await page.evaluate(
       (req) => window.__reelforgeRender!(req),
       {
         template: scene.template ?? '',
         variables: {
-          ...props,
-          durationSeconds: scene.durationFrames / output.fps,
+          ...variables,
+          durationSeconds: framesToSeconds(scene.durationFrames, output.fps),
           ...(opts.theme ? { theme: opts.theme } : {}),
           ...(opts.platform ? { platform: opts.platform } : {}),
+          ...(staged ? { assets: staged.media(`http://127.0.0.1:${port}/${token}/`) } : {}),
         },
         width: output.width,
         height: output.height,
-        fps: output.fps,
-        frames: scene.durationFrames,
-        background: (props.background as string | undefined) ?? opts.theme?.colors.background ?? null,
+        fps: fpsValue(output.fps),
+        frames: end,
+        ...(first ? { firstFrame: first } : {}),
+        background: layoutBackground ?? (props.background as string | undefined) ?? opts.theme?.colors.background ?? null,
+        ...(staged?.fonts.length ? { fonts: staged.fontFaces(`http://127.0.0.1:${port}/${token}/`) } : {}),
       }
     );
 
@@ -294,14 +390,14 @@ export async function renderMotionCanvasScene(
     if (!response.ok) {
       throw new PipelineError(
         `render:${scene.id}`,
-        `Motion Canvas render ${response.result}`,
+        `Motion Canvas render ${response.result}${response.errors[0] ? `: ${response.errors[0].split('\n')[0]!.slice(0, 300)}` : ''}`,
         [...response.errors, ...consoleErrors].join('\n')
       );
     }
-    if (nextFrame !== scene.durationFrames) {
+    if (nextFrame !== end) {
       throw new PipelineError(
         `render:${scene.id}`,
-        `Motion Canvas produced ${nextFrame} frames, expected ${scene.durationFrames}. ` +
+        `Motion Canvas produced ${nextFrame - first} frames, expected ${end - first}. ` +
           'The scene code is probably shorter than the duration in the manifest.',
         consoleErrors.join('\n')
       );
@@ -310,7 +406,7 @@ export async function renderMotionCanvasScene(
     const browserVersion = browser.version();
     return {
       out: opts.out,
-      frames: nextFrame,
+      frames: nextFrame - first,
       engine: 'motion-canvas',
       engineVersion: motionCanvasVersion(),
       browser: browserVersion,

@@ -189,7 +189,7 @@ export const TOOLS: ToolDef[] = [
     name: 'create_project',
     title: 'Create a project',
     description:
-      'Creates a project from a manifest. Minimal manifest: { schemaVersion: "0.2", projectId, title, output: { width: 1080, height: 1920, fps: 30, format: "mp4" }, scenes: [{ id, engine, template, durationSeconds, props }] }. output can be any even size from 16 to 4096 px, e.g. 1920x1080 (16:9), 1080x1080 (1:1), 1080x1350 (4:5), 1080x1920 (9:16, the usual default) or 3840x2160 (4K); built-in templates lay themselves out for the aspect ratio and keep text inside the safe area. Optional: brief (brief.platform sets the safe area for app overlays), theme, audio, assets, captions. The manifest is validated against installed engines and templates; on failure you get every problem with its path. v0.1 manifests are migrated automatically.',
+      'Creates a project from a manifest. Minimal manifest: { schemaVersion: "0.2", projectId, title, output: { width: 1080, height: 1920, fps: 30, format: "mp4" }, scenes: [{ id, engine, template, durationSeconds, props }] }. output can be any even size from 16 to 4096 px, e.g. 1920x1080 (16:9), 1080x1080 (1:1), 1080x1350 (4:5), 1080x1920 (9:16, the usual default) or 3840x2160 (4K); built-in templates lay themselves out for the aspect ratio and keep text inside the safe area. Optional: brief (brief.platform sets the safe area for app overlays), theme, audio, assets (scenes use them by id: template props media and logo, or asset:<id> in html), captions. The manifest is validated against installed engines and templates; on failure you get every problem with its path. v0.1 manifests are migrated automatically.',
     scope: 'write',
     input: { manifest: manifestObj, idempotencyKey },
     run: async (a, { service }) => {
@@ -428,7 +428,8 @@ export const TOOLS: ToolDef[] = [
     name: 'add_asset_from_url',
     title: 'Import an asset from a URL',
     description:
-      'Downloads an image, audio, video or font from a public https URL into the server asset store (size-limited, private networks refused, type checked from the bytes) and, with projectId, adds it to the project as assetId. Only use files you have the rights to; pass license metadata.',
+      'Downloads an image, audio, video or font from a public https URL into the server asset store (size-limited, private networks refused, type checked from the bytes) and, with projectId, adds it to the project as assetId. Only use files you have the rights to; pass license metadata.' +
+      ' Use it in scenes by its manifest id: template props media: { asset, fit: cover|contain|blur-fill, start (video in-point, s), dim } and logo: { asset, corner, size }, or asset:<id> in html scenes (<img src="asset:logo">, <video src="asset:clip">, url(asset:hero)). Video is frame-accurate at any frame rate; SVG is stored sanitised (no scripts, handlers or remote references). A font is used by naming its family (metadata.font.family) in the theme fontFamily; Inter, Source Serif 4 and JetBrains Mono are bundled. With projectId the asset belongs to that project; without, every project of the workspace may use it.',
     scope: 'write',
     input: { url: z.string().url(), projectId: projectId.optional(), assetId: z.string().optional().describe('Id to use in the manifest, e.g. "music".'), license: licenseObj, idempotencyKey },
     annotations: { openWorldHint: true },
@@ -451,12 +452,19 @@ export const TOOLS: ToolDef[] = [
     name: 'preview_scene',
     title: 'Render a quick preview',
     description:
-      'Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted. Previews are queued at priority "interactive" (ahead of renders) by default. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image).' +
+      'Starts a low-resolution preview render (default 1/3 size) of one scene, or of the whole project when sceneId is omitted; with variant, at that output variant\'s size and platform (the layout reflowed for it). Previews are queued at priority "interactive" (ahead of renders) by default. Returns a job; call get_job with waitSeconds: 45 until it finishes, then get_render_output (includes a poster image).' +
       QUEUE_REFUSALS,
     scope: 'render',
-    input: { projectId, sceneId: z.string().optional(), scale: z.number().gt(0).max(1).optional(), priority: priorityArg('preview', 'interactive'), idempotencyKey },
+    input: {
+      projectId,
+      sceneId: z.string().optional(),
+      scale: z.number().gt(0).max(1).optional(),
+      variant: z.string().optional().describe('Preview at this output variant (an id from the manifest\'s variants). Omit for output.'),
+      priority: priorityArg('preview', 'interactive'),
+      idempotencyKey,
+    },
     run: async (a, { service }) => {
-      const opts = { sceneId: a.sceneId, scale: a.scale, ...(a.priority ? { priority: a.priority } : {}) };
+      const opts = { sceneId: a.sceneId, scale: a.scale, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}) };
       return service.idempotent(a.idempotencyKey, 'preview_scene', { projectId: a.projectId, ...opts }, async () => ({ job: await service.preview(a.projectId, opts) }));
     },
   },
@@ -530,7 +538,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_render_output',
     title: 'Get a render output',
     description:
-      'Returns the output of a finished render: downloadUrl (a signed link to the MP4 that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG of the first frame so you can look at it.',
+      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha).',
     scope: 'read',
     input: { renderId: z.string().optional(), jobId: z.string().optional(), includePoster: z.boolean().optional() },
     annotations: { readOnlyHint: true },
@@ -547,7 +555,7 @@ export const TOOLS: ToolDef[] = [
       return { ...summary, output: manifest.output, checks: manifest.checks, versions: manifest.versions };
     },
     extra: async (result, args, { service }) => {
-      if (args.includePoster === false) return [];
+      if (args.includePoster === false || !result.posterUrl) return [];
       const { path } = await service.renderFile(result.renderId, 'poster.png');
       return [{ type: 'image', data: (await readFile(path)).toString('base64'), mimeType: 'image/png' }];
     },
@@ -639,13 +647,14 @@ export const TOOLS: ToolDef[] = [
     name: 'upload_asset',
     title: 'Upload an asset (base64)',
     description:
-      'Uploads a small file you already have (image, audio, video, font) as base64, for example generated audio. The type is checked from the bytes. With projectId it is added to the project as assetId. MCP messages are limited to a few MB; for larger files use REST POST /v1/assets (multipart) or add_asset_from_url.',
+      'Uploads a small file you already have (image incl. SVG, audio, video, font) as base64, for example a logo or generated audio. The type is checked from the bytes. With projectId it is added to the project as assetId. MCP messages are limited to a few MB; for larger files use REST POST /v1/assets (multipart) or add_asset_from_url.' +
+      ' Use it in scenes by its manifest id: template props media: { asset, fit: cover|contain|blur-fill, start (video in-point, s), dim } and logo: { asset, corner, size }, or asset:<id> in html scenes (<img src="asset:logo">, <video src="asset:clip">, url(asset:hero)). Video is frame-accurate at any frame rate; SVG is stored sanitised (no scripts, handlers or remote references). A font is used by naming its family (metadata.font.family) in the theme fontFamily; Inter, Source Serif 4 and JetBrains Mono are bundled. With projectId the asset belongs to that project; without, every project of the workspace may use it.',
     scope: 'write',
     input: {
       dataBase64: z.string().min(1).describe('File content, base64.'),
       filename: z.string().optional(),
       projectId: projectId.optional(),
-      assetId: z.string().optional(),
+      assetId: z.string().optional().describe('Id to use in the manifest, e.g. "logo".'),
       license: licenseObj,
     },
     run: async (a, { service }) =>
@@ -722,6 +731,20 @@ export const TOOLS: ToolDef[] = [
       const opts = { projectId: a.projectId, acknowledgeCost: a.acknowledgeCost === true, attachAs: a.attachAs === 'none' ? ('none' as const) : undefined, assetId: a.assetId };
       return service.idempotent(a.idempotencyKey, 'run_provider', { providerId: a.providerId, params: a.params, ...opts }, () => service.runProvider(a.providerId, a.params, opts));
     },
+  },
+  {
+    name: 'get_analytics_summary',
+    title: 'Get render analytics',
+    description:
+      'Aggregates for a time range (default: the last 30 days by UTC day; at most 90 days, or 7 days with bucket "hour"): render and preview jobs per bucket by status (succeeded, failed, cancelled, unfinished), success and failure rates (failed / (succeeded + failed); cancelled jobs are left out), render time and queue wait (p50 and p95 in ms), scene render time per engine (p50, p95, from the manifests of the newest 200 successful renders), minutes rendered, storage used (measured at most every 5 minutes), the top error codes of failed jobs, and webhook deliveries per status and endpoint. scan.truncated says when the range had more jobs than one call reads (20 000); the figures then cover scan.coveredFrom to range.to. Needs the read scope.',
+    scope: 'read',
+    input: {
+      from: z.string().max(40).optional().describe('Start: ISO 8601 time or a UTC date (YYYY-MM-DD). Aligned down to the bucket. Default: 29 days before today (UTC), or 24 hours before `to` with bucket "hour".'),
+      to: z.string().max(40).optional().describe('End, exclusive: ISO 8601 time, or a UTC date (that whole day is included). Default: now.'),
+      bucket: z.enum(['day', 'hour']).optional().describe('Bucket size of the series (default day).'),
+    },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => service.analyticsSummary(a),
   },
   {
     name: 'get_licence',
@@ -1025,7 +1048,7 @@ done with tools; there is no UI.
 
 ## Steps
 1. get_capabilities: engines that can render here (available: true), templates,
-   themes, providers (configured? cost?), limits (fps 24/25/30/60, max 180 s),
+   themes, providers (configured? cost?), limits (supportedFps, maxProjectSeconds, maxScenes),
    licence (renderAllowed; if false, get_licence has the message and fix for the user).
 2. list_templates: props JSON Schema, duration range (seconds) and theme tokens
    of each template. list_themes: built-in "default", "midnight" and custom ones.
@@ -1090,7 +1113,9 @@ done with tools; there is no UI.
   TikTok and Shorts; 1920x1080 for YouTube and the web; 1080x1080 or 1080x1350
   for feed posts; 3840x2160 for 4K). Built-in templates reflow for the aspect
   ratio; on tall frames they keep clear of the app's buttons and captions.
-- Layouts (templates html-layout and hyperframes-layout): split screen (2-4
+- Layouts (templates html-layout, hyperframes-layout, remotion-layout and
+  motion-canvas-layout, all with the same props, so a scene can move between
+  engines by changing only engine and template): split screen (2-4
   panes, side by side or stacked, ratios), picture-in-picture (corner, width
   and margin in units), grid (n x m, or chosen per frame) or full frame, each
   pane with an image or video asset placed with fit contain, cover or blur-fill
