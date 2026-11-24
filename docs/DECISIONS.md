@@ -2491,7 +2491,11 @@ duration, audio present or absent, GIF bytes, zip entries and PNG headers, then 
 ProRes 4444 clip with alpha: the html engine screenshots with `omitBackground` on a page without
 background; HyperFrames renders `--format mov` (ProRes 4444; `--end` is MP4-only, so the
 composition's own duration is rendered and assembly trims to the scene's frames). Remotion and Motion
-Canvas do not declare it yet. **Previews** stay H.264 MP4; non-MP4 renders do not fan out. **Settings:**
+Canvas do not declare it yet. **Posters** of other formats are the middle frame at 540 px (VP9 alpha decoded
+with libvpx so the poster keeps its transparency); MP4 keeps its first-frame poster. **Dashboard:** a format
+label on cards and the render page; MP4 and WebM play in `<video>`, a GIF shows as itself, audio in `<audio>`,
+and MOV (browsers do not decode ProRes) and PNG sequences show the poster as a still with a caption saying
+so; transparency sits on a dark checkerboard in the screen's tone, the convention editors use. **Previews** stay H.264 MP4; non-MP4 renders do not fan out. **Settings:**
 `render.formats.*` (VP9/AV1 quality and speed, GIF fps, size, dither and limits, AAC and Opus
 bitrates), runtime, applied process-wide like #349's encoder settings. `EngineCapabilities.output`
 is the field PR #376 adds for frame rates and sizes; this decision adds `alpha` to it (merge: one

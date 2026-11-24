@@ -21,6 +21,8 @@
   --btn: #141413;
   --btn-text: #ffffff;
   --screen: #0e0f11;
+  /* Transparency is shown the way editors show it: a dark checkerboard in the screen's tone. */
+  --screen-check: #1d1f23;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -613,6 +615,12 @@ progress.settled::-moz-progress-bar {
   display: block;
   background: var(--screen);
 }
+.player.alpha,
+.thumb.alpha {
+  background-color: var(--screen);
+  background-image: conic-gradient(var(--screen-check) 25%, transparent 0 50%, var(--screen-check) 0 75%, transparent 0);
+  background-size: 16px 16px;
+}
 .thumb img {
   display: block;
   width: 100%;
@@ -626,6 +634,9 @@ progress.settled::-moz-progress-bar {
 .card-title {
   font-weight: 500;
 }
+.card-title .mono {
+  overflow-wrap: anywhere;
+}
 
 /* Render */
 .render-grid-2 {
@@ -634,6 +645,12 @@ progress.settled::-moz-progress-bar {
   gap: 16px;
   margin-bottom: 16px;
   align-items: start;
+}
+.player-figure {
+  margin: 0;
+}
+.player-figure .help {
+  margin-top: 8px;
 }
 .player audio {
   align-self: center;
@@ -655,6 +672,10 @@ progress.settled::-moz-progress-bar {
   height: auto;
   border-radius: 4px;
   background: #000;
+}
+.player.alpha video,
+.player.alpha img {
+  background: transparent;
 }
 .render-side {
   display: grid;

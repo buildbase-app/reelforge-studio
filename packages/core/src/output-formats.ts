@@ -245,5 +245,6 @@ export async function checkFormatOutput(o: { plan: FormatPlan; tools: Tools; pkg
   }
   await assertDecodable(tools.ffmpeg, pkg.file);
   Object.assign(checks, { metadata: 'pass', decode: 'pass', duration: 'pass' });
-  return { info: { ...base, ...info }, problems, checks };
+  // A GIF's stream rate is whole centiseconds per frame (15 fps reads as 16.67); report the rate it was made at.
+  return { info: { ...base, ...info, ...(plan.kind === 'animation' ? { fps: pkg.fps!, streamFps: info.fps } : {}) }, problems, checks };
 }

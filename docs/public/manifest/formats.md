@@ -78,6 +78,8 @@ and a GIF for the docs in one `render_project` call. A variant that sets
 `format` takes neither `codec` nor `alpha` from `output`; one that does not,
 inherits them unless it sets them.
 
+**Posters.** An MP4's poster is its first frame, as before. Other formats take the middle frame (540 px wide, transparent where the render keeps alpha), because a first frame is often still empty and the dashboard shows MOV and PNG sequences as that still: browsers do not play ProRes.
+
 **Previews** (`preview_scene`) are always H.264 MP4, whatever the format.
 Renders in other formats run on one worker (render fan-out joins MP4 only).
 

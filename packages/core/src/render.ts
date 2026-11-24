@@ -373,10 +373,11 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
   let packaging: string[] | undefined;
   let outputTmp = finalTmp;
   let poster: string | null = join(tmp, 'poster.png');
-  const makePoster = (from: string) =>
+  const makePoster = (from: string, o: { frame?: number; width?: number; vp9Alpha?: boolean } = {}) =>
     ffmpegSpan('ffmpeg poster', () =>
-      run(tools.ffmpeg, ['-hide_banner', '-v', 'error', '-y', '-i', from, '-vf', 'select=eq(n\\,0),scale=270:-2', '-frames:v', '1', poster!], 'poster')
+      run(tools.ffmpeg, ['-hide_banner', '-v', 'error', '-y', ...(o.vp9Alpha ? ['-c:v', 'libvpx-vp9'] : []), '-i', from, '-vf', `select=eq(n\\,${o.frame ?? 0}),scale=${o.width ?? 270}:-2`, '-frames:v', '1', poster!], 'poster')
     );
+  let posterFrame = 0;
   if (plan) {
     // Other formats (#302): GIF / PNG zip from the master, then the format's own checks.
     const geometry = { width: output.width, height: output.height, fps: output.fps, frames: assembled.totalFrames };
@@ -388,8 +389,11 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     if (fc.problems.length) throw new PipelineError('validate:output', fc.problems.join('; '));
     info = fc.info;
     formatChecks = fc.checks;
+    // Other formats' posters come from the middle frame (a first frame is often still empty, and MOV and PNG
+    // sequences show it as their still in the dashboard) at 540 px; VP9 alpha needs libvpx to decode its alpha.
+    posterFrame = Math.floor((plan.kind === 'animation' ? pkg.frames : assembled.totalFrames) / 2);
     if (plan.kind === 'audio') poster = null;
-    else await makePoster(plan.kind === 'image-sequence' ? finalTmp : outputTmp);
+    else await makePoster(plan.kind === 'image-sequence' ? finalTmp : outputTmp, { frame: posterFrame, width: 540, vp9Alpha: spec.codec === 'vp9' && spec.alpha });
     if (plan.master && !plan.master.final) await rm(finalTmp, { force: true });
   } else {
     const probed = await ffmpegSpan('ffprobe output', () => probe(tools.ffprobe, finalTmp));
@@ -432,7 +436,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     schemaVersion: SCHEMA_VERSION,
     createdAt: new Date().toISOString(),
     wallClockMillis: Date.now() - started,
-    output: plan ? { file: outName, ...(poster ? { poster: 'poster.png' } : {}), ...info } : { file: 'final.mp4', poster: 'poster.png', ...info },
+    output: plan ? { file: outName, ...(poster ? { poster: 'poster.png', posterFrame } : {}), ...info } : { file: 'final.mp4', poster: 'poster.png', ...info },
     scenes: clips.map((c) => ({ ...c, file: rel(c.file) })),
     audio: {
       music: music ? { asset: a.music!.asset, volume: music.volume } : null,
