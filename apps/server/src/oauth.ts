@@ -14,8 +14,11 @@ import type { AuthContext, Scope } from '@reelforge/core';
  *   - Tokens: JWT (RFC 9068 profile) signed with an asymmetric key from the
  *     issuer's JWKS; `iss` must be the issuer, `aud` must contain the
  *     audience (the MCP endpoint URL, RFC 8707), `exp` in the future.
- *   - Scopes: `reelforge:read`, `reelforge:write`, `reelforge:render`, `reelforge:admin` in
- *     `scope` (space-separated) or `scp` (array) map to ReelForge's scopes.
+ *   - Scopes: `renderweld:read`, `renderweld:write`, `renderweld:render`, `renderweld:admin` and
+ *     `renderweld:owner` (and the old `reelforge:*` names, #413) in `scope` (space-separated)
+ *     or `scp` (array) map to RenderWeld's scopes. `renderweld:owner` (or `reelforge:owner`) is
+ *     the instance owner (configuration, licence, providers, storage, workspaces); only the
+ *     operator's authorization server decides who gets it (#304).
  */
 export interface OAuthSettings {
   /** The authorization server's issuer identifier (exact `iss`). */
@@ -26,7 +29,20 @@ export interface OAuthSettings {
   jwksUrl?: string;
 }
 
-export const OAUTH_SCOPES: Record<string, Scope> = { 'reelforge:read': 'read', 'reelforge:write': 'write', 'reelforge:render': 'render', 'reelforge:admin': 'admin' };
+/** Token scopes: the RenderWeld names, then the old ReelForge names (accepted until phase 7, #416; docs/RENAMED.md). */
+export const OAUTH_SCOPES: Record<string, Scope> = {
+  'renderweld:read': 'read',
+  'renderweld:write': 'write',
+  'renderweld:render': 'render',
+  'renderweld:admin': 'admin',
+  // The instance owner, like an owner key: tokens act in the default workspace (the owner's), D-125.
+  'renderweld:owner': 'owner',
+  'reelforge:read': 'read',
+  'reelforge:write': 'write',
+  'reelforge:render': 'render',
+  'reelforge:admin': 'admin',
+  'reelforge:owner': 'owner',
+};
 
 export type OAuthResult = { ok: true; auth: AuthContext; subject: string } | { ok: false; error: 'invalid_token' | 'insufficient_scope'; description: string };
 
@@ -60,7 +76,7 @@ function b64json(part: string): Record<string, unknown> {
   return v as Record<string, unknown>;
 }
 
-/** ReelForge scopes from the token's `scope` (space-separated) or `scp` (array) claim; unknown values are ignored. */
+/** RenderWeld scopes from the token's `scope` (space-separated) or `scp` (array) claim; unknown values are ignored. */
 export function scopesFromClaims(claims: Record<string, unknown>): Scope[] {
   const raw = typeof claims.scope === 'string' ? claims.scope.split(' ') : Array.isArray(claims.scp) ? claims.scp.filter((s): s is string => typeof s === 'string') : [];
   return [...new Set(raw.map((s) => OAUTH_SCOPES[s]).filter((s): s is Scope => Boolean(s)))];
@@ -73,7 +89,7 @@ export function protectedResourceMetadata(s: OAuthSettings) {
     authorization_servers: [s.issuer],
     scopes_supported: Object.keys(OAUTH_SCOPES),
     bearer_methods_supported: ['header'],
-    resource_name: 'ReelForge Studio MCP',
+    resource_name: 'RenderWeld MCP',
     resource_documentation: 'https://github.com/buildbase-app/reelforge-studio/blob/main/docs/DEPLOY.md#mcp-oauth',
   };
 }

@@ -4,7 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PluginRegistry, RemotionLambdaBackend, ElevenLabsTts } from '@reelforge/core';
-import { TOOLS, WORKFLOW_GUIDE, startServer, type StartedServer } from '../src/index';
+import { BRIEF_ESSENTIALS, TOOLS, WORKFLOW_GUIDE, startServer, type StartedServer } from '../src/index';
 import { parseProject } from '@reelforge/project-schema';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 import { testDatabase } from './serverProcess';
@@ -75,6 +75,7 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
     const client = await connect(adminKey);
     const caps = json(await client.callTool({ name: 'get_capabilities', arguments: {} }));
     expect(caps.schemaVersion).toBe('0.2');
+    expect(caps.server).toMatchObject({ name: 'renderweld', title: 'RenderWeld', aliases: ['reelforge-studio'] });
     const created = json(await client.callTool({ name: 'create_project', arguments: { manifest: sample } }));
     expect(created.migratedFrom).toBe('0.1');
     expect(created.timing.map((t: any) => t.durationFrames)).toEqual([90, 120]);
@@ -105,6 +106,22 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
     await client.close();
   });
 
+  it('enforces the read scope on prompts and resources that read data (#426)', async () => {
+    const writer = await connect((await server.service.keys.create('writer-only', ['write'])).key);
+    // plan_reel lists templates and themes, like list_templates and list_themes: a key without read is refused.
+    await expect(writer.getPrompt({ name: 'plan_reel', arguments: { brief: 'x' } })).rejects.toThrow(/read/);
+    await expect(writer.getPrompt({ name: 'review_reel', arguments: { projectId: 'sample-reel' } })).rejects.toThrow(/read/);
+    for (const uri of ['renderweld://templates', 'renderweld://schema/project', 'renderweld://projects/sample-reel']) {
+      await expect(writer.readResource({ uri })).rejects.toThrow(/read/);
+    }
+    expect(json(await writer.callTool({ name: 'list_themes', arguments: {} })).error.code).toBe('forbidden');
+    // Static guidance needs no scope: it reads nothing of the workspace.
+    const make = await writer.getPrompt({ name: 'make_reel', arguments: { topic: 'a bakery opening' } });
+    expect((make.messages[0]!.content as any).text).toContain('a bakery opening');
+    expect((await writer.readResource({ uri: 'renderweld://guide/workflow' })).contents[0]).toMatchObject({ text: WORKFLOW_GUIDE });
+    await writer.close();
+  });
+
   it('exposes resources and prompts', async () => {
     const client = await connect(adminKey);
     const { resources } = await client.listResources();
@@ -114,7 +131,7 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
     const { resourceTemplates } = await client.listResourceTemplates();
     expect(resourceTemplates.map((r) => r.uriTemplate)).toEqual(expect.arrayContaining(['renderweld://projects/{id}', 'reelforge://projects/{id}']));
     const { prompts } = await client.listPrompts();
-    expect(prompts.map((p) => p.name).sort()).toEqual(['make_reel', 'plan_reel', 'review_reel']);
+    expect(prompts.map((p) => p.name).sort()).toEqual(['brief_intake', 'make_reel', 'plan_reel', 'review_reel']);
     // Every resource answers under renderweld:// and the old reelforge:// with the same content (#412).
     for (const scheme of ['renderweld', 'reelforge']) {
       const schema = await client.readResource({ uri: `${scheme}://schema/project` });
@@ -133,6 +150,14 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
     expect(client.getInstructions()).toContain('renderweld://guide/workflow');
     const make = await client.getPrompt({ name: 'make_reel', arguments: { topic: 'a bakery opening' } });
     expect((make.messages[0]!.content as any).text).toContain('a bakery opening');
+    expect((make.messages[0]!.content as any).text).toContain('brief_intake');
+    // brief_intake (#313): every essential, where its answer goes, and the rule to ask instead of assuming.
+    const intake = await client.getPrompt({ name: 'brief_intake', arguments: { request: 'a 20 s reel for our bakery opening' } });
+    const intakeText = (intake.messages[0]!.content as any).text as string;
+    expect(intakeText).toContain('a 20 s reel for our bakery opening');
+    expect(intakeText).toContain('Do not invent answers');
+    for (const e of BRIEF_ESSENTIALS) expect(intakeText).toContain(e.question);
+    expect(BRIEF_ESSENTIALS.map((e) => e.id)).toEqual(['goal', 'audience', 'platform', 'length', 'language', 'style', 'brand', 'captions', 'voice', 'music', 'content']);
     const plan = await client.getPrompt({ name: 'plan_reel', arguments: { brief: 'Launch of a coffee app', targetSeconds: '12' } });
     expect((plan.messages[0]!.content as any).text).toContain('kinetic-title');
     const review = await client.getPrompt({ name: 'review_reel', arguments: { projectId: 'sample-reel' } });
@@ -187,4 +212,20 @@ describe('output variants over MCP (#287)', () => {
     await client.callTool({ name: 'delete_project', arguments: { projectId: 'mcp-variants' } });
     await client.close();
   }, 120_000);
+});
+
+// After the tests above, so sample-reel exists for review_reel.
+describe('MCP server names (#413)', () => {
+  it('introduces itself as RenderWeld in initialize, its instructions and its prompts (#413)', async () => {
+    const client = await connect(adminKey);
+    expect(client.getServerVersion()).toMatchObject({ name: 'renderweld', title: 'RenderWeld' });
+    expect(client.getInstructions()).toMatch(/^RenderWeld renders short videos/);
+    for (const [name, args] of [['make_reel', { topic: 'hooks' }], ['plan_reel', { brief: 'hooks' }], ['review_reel', { projectId: 'sample-reel' }]] as const) {
+      const text = JSON.stringify((await client.getPrompt({ name, arguments: args })).messages);
+      expect(text, name).toContain('RenderWeld');
+      // review_reel quotes the project, whose sample title still says ReelForge (examples move in the docs sweep, #415).
+      if (name !== 'review_reel') expect(text, name).not.toContain('ReelForge');
+    }
+    expect(WORKFLOW_GUIDE).toMatch(/^# RenderWeld: /);
+  });
 });

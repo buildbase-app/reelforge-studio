@@ -45,6 +45,7 @@ import {
 } from '@reelforge/project-schema';
 import { BUNDLED_FONTS } from './fonts';
 import type { AudioManifest } from './audio';
+import { OLD_SERVER_NAMES, PRODUCT_NAME, SERVER_NAME } from './product';
 import { AssetStore, assetUsableBy, stageStream } from './assets';
 import { CAPTION_FILE_PATTERN, captionFileNames, captionFontChoice, captionFontList, captionsEtag, type CaptionManifest } from './captions';
 import { applyCaptionUpdate, getCaptionsInput, parseInput, projectCaptionsView, renderCaptionsView, transcribeInput, updateCaptionsInput, type ProjectCaptionsView, type RenderCaptionsView } from './captions-edit';
@@ -353,6 +354,9 @@ export interface UploadOptions {
  * Every capability of the product as plain async methods. REST routes and
  * MCP tools are thin wrappers over this class, so both always behave the same.
  */
+/** How long deleting a project waits for its cancelled renders to stop before removing its files (#419). */
+const DELETE_WAIT_MS = 15_000;
+
 export class ReelforgeService {
   readonly dataDir: string;
   readonly cacheDir: string;
@@ -854,7 +858,8 @@ export class ReelforgeService {
     const engines = this.registry.listEngines();
     const sandboxOff = engines.filter((e) => e.browserSandbox?.() === false).map((e) => e.id);
     return {
-      server: { name: 'reelforge-studio', version: this.serverVersion, edition: this.settings.current.build.edition, mcpToolsStatus: 'experimental' },
+      // `name` is the RenderWeld server name; `aliases` keeps the old one findable until phase 7 (#413, docs/RENAMED.md).
+      server: { name: SERVER_NAME, title: PRODUCT_NAME, aliases: [...OLD_SERVER_NAMES], version: this.serverVersion, edition: this.settings.current.build.edition, mcpToolsStatus: 'experimental' },
       schemaVersion: SCHEMA_VERSION,
       supportedSchemaVersions: SUPPORTED_SCHEMA_VERSIONS,
       engines: engines.map((e) => {
@@ -1081,12 +1086,42 @@ export class ReelforgeService {
   async deleteProject(id: string) {
     await this.projects.delete(id);
     for (const [run, pid] of this.renderIndex) if (pid === id && run.startsWith(this.rk(''))) this.renderIndex.delete(run);
-    if (!this.storage.isLocal) {
-      // The local folder is gone; remove the project's renders from the bucket too (manifests first).
-      const objects = await this.storage.driver.list(`${PROJECTS_PREFIX}${id}/`);
-      const order = [...objects.filter((o) => o.key.endsWith(`/${RENDER_MANIFEST}`)), ...objects.filter((o) => !o.key.endsWith(`/${RENDER_MANIFEST}`))];
-      for (const o of order) await this.storage.driver.delete(o.key);
+    // Its queued and running renders and previews stop (#419): a render that finished after the delete would
+    // otherwise write its files back into the deleted project. One that finishes anyway removes them again.
+    const stopping: string[] = [];
+    for (const status of ['queued', 'running'] as const) {
+      for (const job of await this.jobs.list({ projectId: id, status })) {
+        await this.jobs.cancel(job.id).then(() => stopping.push(job.id), () => undefined);
+      }
     }
+    // A cancelled render stops within a moment here (a heartbeat on another worker); then its folder goes too.
+    await Promise.all(stopping.map((jobId) => this.jobs.waitFor(jobId, DELETE_WAIT_MS).catch(() => undefined)));
+    await this.removeProjectFiles(id);
+  }
+
+  /** What is left of a deleted project: its local folder, or its renders in remote storage (manifests first). */
+  private async removeProjectFiles(id: string) {
+    await rm(this.projects.dir(id), { recursive: true, force: true, maxRetries: 3 });
+    if (this.storage.isLocal) return;
+    const objects = await this.storage.driver.list(`${PROJECTS_PREFIX}${id}/`);
+    const order = [...objects.filter((o) => o.key.endsWith(`/${RENDER_MANIFEST}`)), ...objects.filter((o) => !o.key.endsWith(`/${RENDER_MANIFEST}`))];
+    for (const o of order) await this.storage.driver.delete(o.key);
+  }
+
+  /**
+   * A render or preview that finished after its project was deleted (#419): its files are removed again and the
+   * job fails with not_found, so a deleted project never comes back on disk or in the bucket.
+   */
+  private async failIfProjectDeleted(projectId: string, runId: string, log: (line: string) => void) {
+    const deleted = await this.projects.get(projectId).then(
+      () => false,
+      (e: unknown) => e instanceof ApiError && e.status === 404
+    );
+    if (!deleted) return;
+    this.renderIndex.delete(this.rk(runId));
+    await this.removeProjectFiles(projectId);
+    log(`project "${projectId}" was deleted while this job ran; its output was removed`);
+    throw notFound('project', projectId);
   }
 
   async listProjectVersions(id: string) {
@@ -1927,6 +1962,7 @@ export class ReelforgeService {
     } else {
       await joinUnits(this.fanOutDeps(), ctx);
     }
+    await this.failIfProjectDeleted(p.projectId, p.runId, ctx.log);
     this.renderIndex.set(this.rk(p.runId), p.projectId);
     return { ...(await this.getRender(p.runId)) };
   }
@@ -1974,6 +2010,7 @@ export class ReelforgeService {
       },
       { signal: ctx.signal, log: ctx.log, progress: ctx.progress }
     );
+    await this.failIfProjectDeleted(p.projectId, outcome.runId, ctx.log);
     this.renderIndex.set(this.rk(outcome.runId), p.projectId);
     const summary = await this.getRender(outcome.runId);
     return { ...summary };

@@ -125,6 +125,19 @@ describe('caption style and ASS', () => {
     expect(plain).toMatch(/,1,\d+,0,8,86,86,230,1$/m);
   });
 
+  it('"none" switches the box and the outline off, like null (#451)', () => {
+    const base = parseProject(sample);
+    if (!base.ok) throw new Error('sample');
+    const project = parseProject({ ...base.project, captions: { style: { background: 'none', outline: 'none' } } });
+    if (!project.ok) throw new Error(JSON.stringify(project.issues));
+    const st = captionRenderStyle(project.project, theme, project.project.output, 32);
+    expect(st).toMatchObject({ background: null, outline: null });
+    expect(captionRenderStyle({ ...project.project, captions: { enabled: false, style: { background: null } } }, theme, project.project.output, 32)).toMatchObject({ background: null, outline: '#000000' });
+    // Theme tokens take it too; anything else is still refused.
+    expect(parseProject({ ...base.project, theme: { base: 'midnight', tokens: { captionStyle: { background: 'none' } } } }).ok).toBe(true);
+    expect(parseProject({ ...base.project, captions: { style: { background: 'nothing' } } }).ok).toBe(false);
+  });
+
   it('moves cues to where a scene subset plays in a preview', () => {
     const mapped = mapCuesToClips(cues, [{ startFrame: 180, frames: 30 }], 30);
     expect(mapped).toEqual([]);
@@ -222,6 +235,26 @@ describe('captions in a render', () => {
     const out = (await svc.renderFile(summary.renderId)).path;
     expect((await regionStats(out, 30, region)).yMax).toBeLessThan(60);
     await expect(svc.startRender('cap-reel', { captions: 'loud' })).rejects.toMatchObject({ code: 'bad_request' });
+  }, 180_000);
+
+  it('update_project can switch the caption box off with a merge patch: background "none" (#451)', async () => {
+    // null in a merge patch deletes the key and brings the default box back; "none" survives the patch.
+    await svc.updateProject('cap-reel', { captions: { mode: 'both', style: { background: 'none', outline: '#ff0000' } } });
+    expect((await svc.getProject('cap-reel')).manifest.captions.style).toMatchObject({ background: 'none', outline: '#ff0000' });
+    const done = await svc.jobs.waitFor((await svc.startRender('cap-reel')).id, 120_000);
+    expect(done.status, JSON.stringify(done.error)).toBe('succeeded');
+    const renderId = done.result!.renderId as string;
+    const manifest = (await svc.getRenderManifest(renderId)) as any;
+    expect(manifest.captions.style).toMatchObject({ background: null, outline: '#ff0000' });
+    // ASS BorderStyle 1 (outline + shadow) instead of 3 (opaque box), red outline (&H000000FF).
+    const ass = readFileSync((await svc.renderFile(renderId, 'captions.ass')).path, 'utf8');
+    expect(ass).toMatch(/^Style: Caption,[^,]+,\d+,&H00FFFFFF,&H00FFFFFF,&H000000FF,[^,]+,-1,0,0,0,100,100,0,0,1,/m);
+    const out = (await svc.renderFile(renderId)).path;
+    // cue 2 (no word highlight) at 4.0 s: white text with a red outline; with a box the edge is the black box.
+    const second = await regionStats(out, 120, region);
+    expect(second.yMax).toBeGreaterThan(200);
+    expect(second.vMax).toBeGreaterThan(170);
+    await svc.updateProject('cap-reel', { captions: { style: null } });
   }, 180_000);
 
   it('a scene preview shows the cues of that scene at its own time', async () => {

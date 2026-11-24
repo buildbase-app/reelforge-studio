@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { ApiError } from '../errors';
+import { userAgent } from '../product';
 import type { ProviderPlugin, ProviderResult, ProviderRunContext } from '../plugins';
 
 export const elevenLabsParams = z
@@ -87,7 +88,7 @@ export class ElevenLabsTts implements ProviderPlugin {
     ctx.log(`elevenlabs: ${p.text.length} characters, voice ${p.voiceId}, model ${p.modelId}`);
     const res = await ctx.fetch(url, {
       method: 'POST',
-      headers: { 'xi-api-key': key, 'content-type': 'application/json', accept: 'application/json' },
+      headers: { 'xi-api-key': key, 'content-type': 'application/json', accept: 'application/json', 'user-agent': userAgent('Providers') },
       body: JSON.stringify({ text: p.text, model_id: p.modelId, ...(p.languageCode ? { language_code: p.languageCode } : {}) }),
       signal: ctx.signal,
     });

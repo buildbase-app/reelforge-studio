@@ -154,3 +154,28 @@ describe('sources stay inside the CSP', () => {
     for (const f of files) expect(src(f), f).not.toMatch(/document\.cookie|[?&](key|token|api_key)=/);
   });
 });
+
+describe('RenderWeld name, icons and manifest (#413)', () => {
+  it('the build links the kit icons and a manifest that opens /dashboard/', async () => {
+    const { buildDashboard } = await import('../build');
+    const { mkdtempSync, readdirSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const out = mkdtempSync(join(tmpdir(), 'renderweld-dashboard-build-'));
+    try {
+      await buildDashboard(out);
+      const html = readFileSync(join(out, 'index.html'), 'utf8');
+      expect(html).toContain('<title>RenderWeld</title>');
+      expect(html).not.toMatch(/ReelForge|%[A-Z_]+%/);
+      const files = readdirSync(join(out, 'assets'));
+      const linked = (rel: string) => html.match(new RegExp(`rel="${rel}" href="assets/([^"]+)"`))?.[1];
+      for (const rel of ['icon', 'apple-touch-icon', 'manifest']) expect(files, rel).toContain(linked(rel));
+      const manifest = JSON.parse(readFileSync(join(out, 'assets', linked('manifest')!), 'utf8'));
+      expect(manifest).toMatchObject({ name: 'RenderWeld', short_name: 'RenderWeld', start_url: '../', scope: '../', display: 'standalone' });
+      expect(manifest.icons.map((i: { purpose: string; sizes: string }) => `${i.purpose} ${i.sizes}`)).toEqual(['any 192x192', 'any 512x512', 'maskable 512x512']);
+      for (const icon of manifest.icons) expect(files).toContain(icon.src);
+      expect(readFileSync(join(out, 'assets', linked('icon')!), 'utf8')).toContain('<title>RenderWeld</title>');
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+});

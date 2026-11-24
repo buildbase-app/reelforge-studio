@@ -388,6 +388,6 @@ describe('security: stored licence state integrity and clock (SEC-04)', () => {
     expect(answer.serverTime).toBe('2026-11-21T12:00:00.000Z');
     expect(sent!.url).toBe('https://licence.example.test/api/v1/licenses/org/validate');
     expect(JSON.parse(sent!.body)).toEqual({ key: KEY, instance: 'rf-1' });
-    expect(Object.keys(sent!.headers).sort()).toEqual(['accept', 'content-type']);
+    expect(sent!.headers).toEqual({ 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'RenderWeld-Licence/1' });
   });
 });
