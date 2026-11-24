@@ -2422,3 +2422,44 @@ names and header lines), compared case-insensitively, not against the IANA regis
 track is not built. **Toggles:** a server default `captions.defaultMode` (runtime) below the
 project's `captions.mode`, below `render_project`'s `captions`; the default is captured when a render
 is queued.
+
+## AB. Self-hosted web dashboard (2026-11-23, issue #292)
+
+How to run it and what it shows: [docs/public/install/dashboard.md](public/install/dashboard.md).
+
+### D-115 --- The dashboard is static files in the studio, a client of the public REST API with an API-key sign-in; off by default
+
+**Status:** DECIDED (reversible).\
+**Where it runs.** `apps/dashboard` builds (esbuild, `pnpm --filter @reelforge/dashboard build`, also in the
+Docker `build` stage) into `apps/dashboard/dist`: one `index.html`, one JS module and one stylesheet with
+content-hashed names, the mark as the icon. The server serves them at `/dashboard` from a new file
+(`apps/server/src/dashboard.ts`, mounted with one line in `app.ts`), so the dashboard ships in the one image and
+the customer operates it like the rest of the studio; nothing runs on our side. **Off by default:**
+`dashboard.enabled` (runtime setting; file, `REELFORGE_DASHBOARD_ENABLED` or `PATCH /v1/config`); off, every
+`/dashboard` path answers 404 with how to turn it on. Worker instances never serve it. **Only the public API:**
+the page calls `/v1` with `Authorization: Bearer <key>` like any client, so scopes, rate limits, IP allowlists,
+expiry and the audit log apply unchanged, and a gap in the API is a gap the dashboard cannot hide. Gaps found and
+closed for part 1: `GET /v1/me` / MCP `get_me` (the calling key's name, scopes and limits, so the page offers
+cancel and retry only to keys with the render scope; the server refuses them anyway), and
+`RenderSummary.storage` (`driver` and the render's key `prefix`; the bucket or root stays with `get_storage`,
+admin, as D-088 keeps paths from callers below admin). **Sign-in:** the person pastes an API key; it is checked
+with `GET /v1/me` and kept in memory, or in `sessionStorage` (ends with the tab) when they tick "keep me signed
+in"; never a cookie, so there is no session the browser sends by itself and no CSRF surface, and never in a URL.
+Posters and videos, which an `<img>` or `<video>` cannot fetch with a header, are fetched with the key into
+object URLs, except a render file behind a link this server signed (D-067), which plays from its path on the same
+origin. *Rejected:* a server-side session cookie (a second auth system, CSRF, logout and expiry to build, and a
+cookie the browser attaches by itself); `EventSource` (cannot send the header: the page reads the job's SSE
+stream with `fetch`); a bucket link in the player (another origin, which the CSP refuses). **Strict headers:**
+`default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:;
+connect-src 'self'; font-src 'self'; manifest-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';
+frame-ancestors 'none'`, plus `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy` and
+`Cross-Origin-Resource-Policy: same-origin`; no inline script or style anywhere (the page builds its DOM with text
+nodes and never sets a `style` attribute); system fonts, no CDN, no external request. The same Host check as
+`/mcp` (`server.publicUrl`, `server.allowedHosts`) guards against DNS rebinding. **Stack:** plain TypeScript and a
+few DOM helpers, no framework: part 1 is 11.9 KB of JS and CSS gzipped against a 150 KB budget that the build
+enforces. *Rejected:* Vite + React as #15 sketched (a framework and a dev server for a handful of views, and a
+larger bundle to audit under the CSP); Preact (small, but not needed at this size; revisit if part 2's forms grow).
+**Live jobs:** the list polls `GET /v1/jobs` every 3 s while the tab is visible (no list-wide event stream
+exists); one job's page follows `GET /v1/jobs/:id/events` and polls its fan-out units (`?parentId=`). About 20
+requests a minute per open page, well inside the default 300 per key. **Split:** part 1 is sign-in, jobs and the
+library; analytics (aggregates the API does not offer yet), settings and the audit log viewer come in part 2.

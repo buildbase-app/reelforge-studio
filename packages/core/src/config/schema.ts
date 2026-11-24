@@ -128,6 +128,16 @@ export const ConfigSchema = z.object({
         'Run as `reelforge worker --once` (D-100): claim at most one job, render it and exit (0 succeeded, cancelled or nothing queued; 1 failed; 75 handed back, lease lost, or the `--job` still queued; see docs/providers/backends.md). For job platforms that start one container per unit (KEDA ScaledJob, Azure Container Apps event jobs, AWS Batch, Cloud Run Jobs, ECS RunTask). Implies `server.role` `worker` (same database and storage rules); serves no HTTP.',
     }),
   }),
+  dashboard: z.object({
+    enabled: setting(z.boolean(), {
+      kind: 'boolean',
+      scope: 'runtime',
+      env: 'REELFORGE_DASHBOARD_ENABLED',
+      default: false,
+      description:
+        'Serve the web dashboard at `/dashboard` (D-115; docs/public/install/dashboard.md): live jobs with cancel and retry, and the library of projects and renders. Off: `/dashboard` answers 404. It is a client of the public REST API: people sign in with an API key, and every call is checked against that key\'s scopes. Same Host check as `/mcp` (`server.publicUrl`, `server.allowedHosts`), a strict Content-Security-Policy, no cookies and no external hosts. Not served by `worker` instances.',
+    }),
+  }),
   queue: z.object({
     driver: setting(z.enum(['auto', 'inprocess', 'database']), {
       kind: 'enum',
