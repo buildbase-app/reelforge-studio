@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { browserVersion, chromiumSandbox as coreChromiumSandbox, packageVersion, renderChildEnv, sceneTimeoutCapMs, type EnginePlugin } from '@reelforge/core';
+import { rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { browserVersion, chromiumSandbox as coreChromiumSandbox, packageVersion, renderChildEnv, sceneTimeoutCapMs, type EnginePlugin, type ResolvedAsset } from '@reelforge/core';
 import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
@@ -14,6 +15,7 @@ import {
   type ThemeTokens,
 } from '@reelforge/project-schema';
 import { chromium, type Browser } from 'playwright-core';
+import { frameDataUrl, layoutSource } from './media';
 import { buildDocument, htmlTitle } from './page';
 
 export interface HtmlRenderOptions {
@@ -24,10 +26,14 @@ export interface HtmlRenderOptions {
   platform?: string;
   out: string;
   ffmpeg: string;
+  /** Project assets on local disk (pictures of html-layout panes). */
+  assets?: ReadonlyMap<string, ResolvedAsset>;
+  /** Scratch directory (video frames of html-layout panes). Default: next to `out`. */
+  workDir?: string;
   browserExecutable?: string;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
-  /** Whole-render timeout. Default: 30 s + 1 s per frame, at most render.sceneTimeoutSeconds. */
+  /** Whole-render timeout. Default: 30 s + 1 s per frame (per 1920x1080 worth of pixels), at most render.sceneTimeoutSeconds. */
   timeoutMs?: number;
 }
 
@@ -76,8 +82,32 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
   const executable = resolveHtmlBrowser(opts.browserExecutable);
 
-  const source = sceneSource(scene, durationSeconds);
-  if (Buffer.byteLength(source.html) + Buffer.byteLength(source.css) > MAX_SOURCE_BYTES * 2) {
+  let source: { html: string; css: string };
+  let videos = new Map<string, string[]>();
+  const framesDir = join(opts.workDir ?? join(dirname(opts.out), `.work-${scene.id}`), 'frames');
+  if (scene.html === undefined && scene.template === 'html-layout') {
+    try {
+      const l = await layoutSource({
+        props: scene.props,
+        output,
+        ...(opts.platform ? { platform: opts.platform } : {}),
+        durationSeconds,
+        frames,
+        assets: opts.assets ?? new Map(),
+        ffmpeg: opts.ffmpeg,
+        framesDir,
+        stage,
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      });
+      source = { html: l.dom.html, css: l.dom.css };
+      videos = l.videos;
+    } catch (e) {
+      if (e instanceof PipelineError) throw e;
+      throw new PipelineError(stage, (e as Error).message);
+    }
+  } else source = sceneSource(scene, durationSeconds);
+  // Inlined pictures (html-layout) are not scene source; only agent and template markup counts.
+  if (!videos.size && scene.template !== 'html-layout' && Buffer.byteLength(source.html) + Buffer.byteLength(source.css) > MAX_SOURCE_BYTES * 2) {
     throw new PipelineError(stage, `html scene is larger than ${MAX_SOURCE_BYTES * 2} bytes`);
   }
   let doc: string;
@@ -88,7 +118,9 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   }
 
   mkdirSync(dirname(opts.out), { recursive: true });
-  const timeoutMs = Math.min(opts.timeoutMs ?? 30_000 + frames * 1000, sceneTimeoutCapMs());
+  // 1 s per frame at 1080p and less, more for larger frames (a 4K screenshot is four times the pixels).
+  const perFrameMs = 1000 * Math.max(1, (output.width * output.height) / (1920 * 1080));
+  const timeoutMs = Math.min(opts.timeoutMs ?? 30_000 + frames * perFrameMs, sceneTimeoutCapMs());
   const timeout = AbortSignal.timeout(timeoutMs);
   // The page leaving its document (meta refresh, a link) fails the render (D-085).
   const navigation = new AbortController();
@@ -160,12 +192,26 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     for (let f = 0; f < frames; f++) {
       if (signal.aborted) break;
       const t = (f * 1000) / output.fps;
-      await page.evaluate((ms) => {
-        for (const a of document.getAnimations()) {
-          a.pause();
-          a.currentTime = ms;
-        }
-      }, t);
+      // Video in layout panes: this frame's picture of each video, decoded before the screenshot.
+      const pictures: Array<[string, string]> = [];
+      for (const [key, files] of videos) pictures.push([key, await frameDataUrl(files[f]!)]);
+      await page.evaluate(
+        async ({ ms, pictures }) => {
+          for (const a of document.getAnimations()) {
+            a.pause();
+            a.currentTime = ms;
+          }
+          const loads: Array<Promise<void>> = [];
+          for (const [key, src] of pictures) {
+            for (const img of document.querySelectorAll<HTMLImageElement>(`img[data-rf-video="${CSS.escape(key)}"]`)) {
+              img.src = src;
+              loads.push(img.decode().catch(() => undefined));
+            }
+          }
+          await Promise.all(loads);
+        },
+        { ms: t, pictures }
+      );
       const png = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: output.width, height: output.height }, caret: 'hide', animations: 'allow' });
       await encoder.write(png);
       opts.onProgress?.(f + 1, frames);
@@ -196,6 +242,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   } finally {
     signal.removeEventListener('abort', onAbort);
     await browser?.close().catch(() => undefined);
+    if (videos.size) await rm(framesDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -227,6 +274,8 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         ...(ctx.platform ? { platform: ctx.platform } : {}),
         out: ctx.out,
         ffmpeg: ctx.tools.ffmpeg,
+        assets: ctx.assets,
+        workDir: ctx.workDir,
         browserExecutable: opts.browserExecutable,
         signal: ctx.signal,
         onProgress: ctx.progress,

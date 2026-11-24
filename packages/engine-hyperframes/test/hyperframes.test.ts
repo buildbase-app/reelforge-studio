@@ -72,7 +72,7 @@ describe('composition builder', () => {
   });
   it('is a plugin with the hyperframes-title template and a pinned version', () => {
     const e = hyperframesEngine();
-    expect(e.templates().map((t) => t.id)).toEqual(['hyperframes-title']);
+    expect(e.templates().map((t) => t.id)).toEqual(['hyperframes-layout', 'hyperframes-title']);
     expect(hyperframesVersion()).toBe('0.9.77');
   });
 });

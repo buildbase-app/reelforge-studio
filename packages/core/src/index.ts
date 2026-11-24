@@ -20,6 +20,7 @@ export * from './audit';
 export * from './idempotency';
 export * from './render';
 export * from './captions';
+export * from './audio';
 export * from './service';
 export * from './versions';
 export * from './childEnv';

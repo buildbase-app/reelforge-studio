@@ -4,7 +4,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { ApiError, PRIORITIES, ReelforgeService, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@reelforge/core';
 import { auditAction, auditTarget } from './audit';
-import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag } from '@reelforge/project-schema';
+import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag, renderAudioOptions } from '@reelforge/project-schema';
 import { z } from 'zod';
 import type { ServerConfig } from './config';
 import { resourceMetadataUrl } from './oauth';
@@ -477,10 +477,15 @@ export const TOOLS: ToolDef[] = [
         .enum(['off', 'burned', 'sidecar', 'both'])
         .optional()
         .describe('Captions for this render, overriding the manifest\'s captions.mode (and the server default captions.defaultMode): off, burned into the video, sidecar files (SRT, WebVTT, ASS per language) next to final.mp4, or both.'),
+      audio: renderAudioOptions
+        .optional()
+        .describe(
+          'Audio for this render, overriding the manifest: mute (silence everything), voice / music / sfx (false leaves that track out), loudness (social -14 LUFS, broadcast-ebu -23, broadcast-atsc -24, podcast -16, off). E.g. { music: false } for a voice-only cut, { mute: true } for a silent autoplay version.'
+        ),
       idempotencyKey,
     },
     run: async (a, { service }) => {
-      const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}) };
+      const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}), ...(a.audio ? { audio: a.audio } : {}) };
       return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, opts));
     },
   },
@@ -1085,6 +1090,13 @@ done with tools; there is no UI.
   TikTok and Shorts; 1920x1080 for YouTube and the web; 1080x1080 or 1080x1350
   for feed posts; 3840x2160 for 4K). Built-in templates reflow for the aspect
   ratio; on tall frames they keep clear of the app's buttons and captions.
+- Layouts (templates html-layout and hyperframes-layout): split screen (2-4
+  panes, side by side or stacked, ratios), picture-in-picture (corner, width
+  and margin in units), grid (n x m, or chosen per frame) or full frame, each
+  pane with an image or video asset placed with fit contain, cover or blur-fill
+  (blurred fill for a mismatched aspect ratio), text, and an optional lower
+  third. Upload the media as assets first; the layout reflows for every size
+  and variant.
 - Ask the user before anything that costs money (providers) or deletes data.
 `;
 

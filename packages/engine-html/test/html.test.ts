@@ -40,7 +40,7 @@ describe('document builder', () => {
     const e = htmlEngine();
     expect(e.id).toBe('html');
     expect(e.acceptsSource).toBe(true);
-    expect(e.templates().map((t) => t.id)).toEqual(['html-title']);
+    expect(e.templates().map((t) => t.id)).toEqual(['html-title', 'html-layout']);
   });
 });
 

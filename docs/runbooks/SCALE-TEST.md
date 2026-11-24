@@ -3,7 +3,7 @@
 **Goal.** Measure, on dedicated cloud hardware, whether ReelForge Studio runs **1,000 concurrent
 renders** with a bounded queue wait, an error rate under 0.1 %, every job exactly once and a known
 memory and CPU cost per render, and find where it stops. The result replaces the estimates in
-`docs/SCALE.md` (PR #349: "about 45 nodes of 16 vCPU / 32 GiB for 1,000 renders a minute",
+`docs/SCALE.md` (#349, merged: "about 45 nodes of 16 vCPU / 32 GiB for 1,000 renders a minute",
 **unverified**) with measurements. Issue #307; background #151, #153, #285 (Track B).
 
 **Status of this runbook (2026-11-24):** written, not yet run. Nothing below has been measured on
@@ -28,10 +28,10 @@ Contents: [what exists](#what-is-ready-and-what-is-new) ·
 | Kubernetes base (api + worker Deployments, PDBs, NetworkPolicy) and KEDA overlay | ready, applied to kind only (#153); KEDA's own scaling never run | `deployment/kubernetes/`, `e2e/k8s/keda.sh` |
 | PgBouncer transaction-mode settings (D-104) | ready (compose); the Kubernetes Deployment below is new, inline | `deployment/compose/pgbouncer.env` |
 | Prometheus metrics, alert rules, Grafana dashboard | ready | `/metrics`, `deployment/observability/` |
-| Claim cost at N queued jobs on a real database: `pnpm load:depth` with `LOAD_DEPTH_PG_URL` | ready **once #349 merges** (on `claude/scale-307` until then) | `scripts/load/queue-depth.ts` |
+| Claim cost at N queued jobs on a real database: `pnpm load:depth` with `LOAD_DEPTH_PG_URL` | ready (merged in #349) | `scripts/load/queue-depth.ts` |
 | Fake-engine workers against any database URL | ready | `scripts/load/queue-worker.ts` |
 | Exactly-once / lost-job check against the database | ready; this PR adds `CHECK_SINCE` so earlier runs in the same database do not count | `scripts/load/check.ts` |
-| Encoder and render memory per size on one machine: `pnpm load:encode` | ready once #349 merges | `scripts/load/encode.ts` |
+| Encoder and render memory per size on one machine: `pnpm load:encode` | ready (merged in #349) | `scripts/load/encode.ts` |
 | **Real-render driver against a deployed URL** (ramp, soak, enqueue-only) | **new in this PR**, dry run tested locally against an in-memory fake server; never run against a real deployment | `scripts/load/real-render.ts` (`pnpm load:real`) |
 | Seccomp profile on every worker node (Chromium's sandbox, D-086) | **new, inline below, untested** | this page, phase 0 |
 | EKS / GKE cluster definitions, PgBouncer Deployment, test overlay | **new, inline below, untested** | this page |
