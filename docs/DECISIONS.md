@@ -2990,6 +2990,28 @@ with the docs in phase 6), the HPA's `reelforge_jobs_queued` external metric (na
 `apps/server/test/mcp.test.ts`, `apps/server/test/parity.test.ts`, `scripts/docs/cloud-docs.test.mjs`. Reference:
 [RENAMED.md](RENAMED.md).
 
+### D-130 --- Product name: RenderWeld (renderweld.com); the two-frame weld mark; one brand kit generated from master SVGs
+
+**Status:** DECIDED (founder, 2026-11-24, epic #408) for the name, domain and handles; the mark and kit are approved
+(#410; the founder asked for it to be decided and to proceed). Number assigned at merge. Supersedes D-001's working name "ReelForge" and the
+vertical reel-frame mark proposed in #273.\
+**Decision:** the product is **RenderWeld**, one word with a capital R and W, never split, shortened ("Weld", "RW") or
+set in all caps. Main domain `renderweld.com`; `renderweld.dev` and the old `reelforge.buildbase.app` redirect to it path
+for path (301). Handle `renderweld` everywhere; technical names `renderweld` (CLI), `@renderweld/*` (packages),
+`RENDERWELD_*` (settings, with `REELFORGE_*` still accepted, D-127). Descriptor "Self-hosted video rendering for AI
+agents."; tagline "Agents write the manifest. RenderWeld renders the video." Words to avoid: "deploy", "hosting",
+"host your apps", "open source". **Mark:** a portrait and a landscape rounded frame sharing a wall, with a signal-orange
+dot on the joint (the weld point and a camera's tally light); ink `#141413` and orange `#FF4F00`, no gradients, glows or
+shadows; hand-tuned 16 and 32 px variants keep it legible at 16 px. **Kit:** `docs/brand/` holds the master SVGs and
+`build.mjs`, which renders every derived file (favicons, app and manifest icons, share images, GitHub, social, listing,
+app-directory and print assets) and checks sizes and safe zones; only the web, share and GitHub outputs are committed,
+the rest ships as the kit zip. **Reason:** "ReelForge" tied the product to vertical reels; RenderWeld renders any size
+and welds four engines, voice, music and captions into one file. No software, video or MCP product used the combined
+name (web search 2026-11-24). *Rejected:* keeping ReelForge (wrong promise once every format renders); a hand-drawn
+asset set (sizes drift; one script reproduces every file byte for byte). **Open:** the trademark search for
+"RENDERWELD" and "RENDER WELD" in classes 9 and 42 (#409, founder). Reference:
+[BRAND_AND_PRODUCTION.md](BRAND_AND_PRODUCTION.md), [brand/BRAND.md](brand/BRAND.md).
+
 ## AD. Infrastructure, not a decision engine (2026-11-24, epic #285)
 
 Founder decisions on two feature notes ("features for any reel, any topic, any niche" and "the
