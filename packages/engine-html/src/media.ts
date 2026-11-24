@@ -17,8 +17,35 @@ const IMAGE_TYPES: Array<[(b: Buffer) => boolean, string]> = [
   [(b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff, 'image/jpeg'],
   [(b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP', 'image/webp'],
   [(b) => b.subarray(0, 6).toString('latin1').startsWith('GIF8'), 'image/gif'],
-  [(b) => /^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(b.subarray(0, 2048).toString('utf8')), 'image/svg+xml'],
+  [(b) => looksLikeSvg(b.subarray(0, 2048).toString('utf8')), 'image/svg+xml'],
 ];
+
+/**
+ * An SVG document: optional XML declaration and comments, then `<svg`. A linear scan with indexOf, not a regex:
+ * a pattern with a repeated lazy comment group can backtrack exponentially on `<!--` runs (CodeQL js/redos).
+ */
+export function looksLikeSvg(text: string): boolean {
+  let i = 0;
+  const skipSpace = () => {
+    while (i < text.length && /\s/.test(text[i]!)) i++;
+  };
+  skipSpace();
+  if (text.startsWith('<?xml', i)) {
+    const end = text.indexOf('>', i);
+    if (end < 0) return false;
+    i = end + 1;
+    skipSpace();
+  }
+  while (text.startsWith('<!--', i)) {
+    const end = text.indexOf('-->', i + 4);
+    if (end < 0) return false;
+    i = end + 3;
+    skipSpace();
+  }
+  if (text.slice(i, i + 4).toLowerCase() !== '<svg') return false;
+  const next = text[i + 4];
+  return next === '>' || (next !== undefined && /\s/.test(next));
+}
 
 /** The image's type from its first bytes (the stored content type is not trusted for a data: URL). */
 export function sniffImageType(b: Buffer): string | null {
