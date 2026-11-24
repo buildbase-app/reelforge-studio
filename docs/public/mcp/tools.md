@@ -364,9 +364,9 @@ No arguments.
 
 ### `configure_provider`
 
-**Configure a media provider (admin)**. Scope: `admin`. REST: `PUT /v1/providers/:id/config`.
+**Configure a media provider (owner)**. Scope: `owner`. REST: `PUT /v1/providers/:id/config`.
 
-Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider's setting names). Values are stored encrypted in the server database (needs REELFORGE_SECRET_KEY on the server) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the admin scope. Only do this with a key the user gave you for this purpose.
+Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider's setting names). Values are stored encrypted in the server database (needs REELFORGE_SECRET_KEY on the server) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the owner scope (instance-level, #304). Only do this with a key the user gave you for this purpose.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -530,9 +530,9 @@ No arguments.
 
 ### `activate_licence`
 
-**Set and activate the licence key (admin)**. Scope: `admin`, idempotent. REST: `POST /v1/licence`.
+**Set and activate the licence key (owner)**. Scope: `owner`, idempotent. REST: `POST /v1/licence`.
 
-Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the admin scope.
+Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the owner scope (instance-level, #304).
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -540,9 +540,9 @@ Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and
 
 ### `deactivate_licence`
 
-**Give the licence activation back (admin)**. Scope: `admin`, destructive. REST: `DELETE /v1/licence`.
+**Give the licence activation back (owner)**. Scope: `owner`, destructive. REST: `DELETE /v1/licence`.
 
-Frees this server's activation of the licence key at the licence server, so the key can be activated on another server. Afterwards renders and previews are refused here until activate_licence is called again. Only do this when the user asks (e.g. moving to a new server). Needs the admin scope.
+Frees this server's activation of the licence key at the licence server, so the key can be activated on another server. Afterwards renders and previews are refused here until activate_licence is called again. Only do this when the user asks (e.g. moving to a new server). Needs the owner scope (instance-level, #304).
 
 No arguments.
 
@@ -552,9 +552,9 @@ Configuration, storage, API keys and the audit log. These need a key with the ad
 
 ### `get_config`
 
-**Get the server configuration (admin)**. Scope: `admin`, read-only. REST: `GET /v1/config`.
+**Get the server configuration (owner)**. Scope: `owner`, read-only. REST: `GET /v1/config`.
 
-Returns every server setting with its effective value and where it comes from: source "default", "file" (REELFORGE_CONFIG), "env" (origin names the variable) or "runtime" (set with update_config, stored in the database; wins over the others). scope "runtime" settings can be changed with update_config; scope "startup" ones only in the config file or environment, then a restart. Secrets are only "set" / "not set". Optional prefix filters keys, e.g. "limits". Needs the admin scope.
+Returns every server setting with its effective value and where it comes from: source "default", "file" (REELFORGE_CONFIG), "env" (origin names the variable) or "runtime" (set with update_config, stored in the database; wins over the others). scope "runtime" settings can be changed with update_config; scope "startup" ones only in the config file or environment, then a restart. Secrets are only "set" / "not set". Optional prefix filters keys, e.g. "limits". Needs the owner scope (instance-level, #304).
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -562,9 +562,9 @@ Returns every server setting with its effective value and where it comes from: s
 
 ### `update_config`
 
-**Change runtime settings (admin)**. Scope: `admin`. REST: `PATCH /v1/config`.
+**Change runtime settings (owner)**. Scope: `owner`. REST: `PATCH /v1/config`.
 
-Changes runtime settings at once and stores them in the database (they survive restarts and override the config file and environment). settings maps dotted keys from get_config to values, e.g. { "limits.rateLimitPerMinute": 120 }; null clears a runtime value (the file/env/default applies again). All or nothing: start-up-only keys (port, database URL, data directory, ...) are refused with where to set them. Secrets (provider keys, licence key) are stored encrypted and need REELFORGE_SECRET_KEY on the server. Every change is audit-logged. Needs the admin scope. Only change what the user asked for.
+Changes runtime settings at once and stores them in the database (they survive restarts and override the config file and environment). settings maps dotted keys from get_config to values, e.g. { "limits.rateLimitPerMinute": 120 }; null clears a runtime value (the file/env/default applies again). All or nothing: start-up-only keys (port, database URL, data directory, ...) are refused with where to set them. Secrets (provider keys, licence key) are stored encrypted and need REELFORGE_SECRET_KEY on the server. Every change is audit-logged. Needs the owner scope (instance-level, #304). Only change what the user asked for.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -572,17 +572,17 @@ Changes runtime settings at once and stores them in the database (they survive r
 
 ### `get_storage`
 
-**Get storage driver, usage and health (admin)**. Scope: `admin`, read-only. REST: `GET /v1/storage`.
+**Get storage driver, usage and health (owner)**. Scope: `owner`, read-only. REST: `GET /v1/storage`.
 
-Returns where asset and render files are stored: driver ("local", "s3", "azure", "gcs"), location (bucket/container, endpoint, prefix, credential source; never secrets), how download links are made (bucket-signed or through this server), health (can the store be reached), usage (assets, renders, unfinished uploads, local cache in objects and bytes), the retention policy (storage.retention.*, change it with update_config) and the last scheduled sweep. Needs the admin scope.
+Returns where asset and render files are stored: driver ("local", "s3", "azure", "gcs"), location (bucket/container, endpoint, prefix, credential source; never secrets), how download links are made (bucket-signed or through this server), health (can the store be reached), usage (assets, renders, unfinished uploads, local cache in objects and bytes), the retention policy (storage.retention.*, change it with update_config) and the last scheduled sweep. Needs the owner scope (instance-level, #304).
 
 No arguments.
 
 ### `run_storage_cleanup`
 
-**Apply the storage retention policy now (admin)**. Scope: `admin`, destructive. REST: `POST /v1/storage/cleanup`.
+**Apply the storage retention policy now (owner)**. Scope: `owner`, destructive. REST: `POST /v1/storage/cleanup`.
 
-Deletes renders the retention policy no longer keeps (older than storage.retention.renderDays; the newest keepLastRendersPerProject of each project and renders of running jobs are always kept), unfinished uploads and stale staging directories older than tempHours, and local cached copies unused for cacheDays. Call with dryRun: true first and show the user what would be deleted; deleting renders cannot be undone. renderDays / keepLastRendersPerProject try another policy for this run only (to set the policy, use update_config). Returns every render removed with its size and reason. Audit-logged. Needs the admin scope.
+Deletes renders the retention policy no longer keeps (older than storage.retention.renderDays; the newest keepLastRendersPerProject of each project and renders of running jobs are always kept), unfinished uploads and stale staging directories older than tempHours, and local cached copies unused for cacheDays. Call with dryRun: true first and show the user what would be deleted; deleting renders cannot be undone. renderDays / keepLastRendersPerProject try another policy for this run only (to set the policy, use update_config). Returns every render removed with its size and reason. Audit-logged. Needs the owner scope (instance-level, #304).
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -612,7 +612,7 @@ One API key (as list_keys shows it) with its render usage today and this month (
 
 **Create an API key (admin)**. Scope: `admin`. REST: `POST /v1/keys`.
 
-Creates an API key with the given scopes (read, write, render, admin) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.
+Creates an API key in this key's workspace with the given scopes (read, write, render, admin; owner only from an owner key) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |

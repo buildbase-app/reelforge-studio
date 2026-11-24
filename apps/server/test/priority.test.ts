@@ -65,7 +65,7 @@ beforeAll(async () => {
     { dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' },
     { registry, env: { ...database.env, REELFORGE_LICENCE_MODE: 'off', REELFORGE_METRICS_ALLOW_ANONYMOUS: 'true' }, quiet: true }
   );
-  admin = (await server.service.keys.create('admin', ['admin'])).key;
+  admin = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   agent = (await server.service.keys.create('agent', ['read', 'write', 'render'])).key;
   expect((await api('POST', '/v1/projects', agent, sample)).status).toBe(201);
 }, 120_000);

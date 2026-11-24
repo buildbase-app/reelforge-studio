@@ -4,11 +4,13 @@ import { Readable } from 'node:stream';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import {
   ApiError,
+  DEFAULT_WORKSPACE_ID,
   TERMINAL,
   currentRequest,
   hasScope,
   normalizeIp,
   requestIdFrom,
+  runInWorkspace,
   runWithRequest,
   type AuthContext,
   type KeyOptions,
@@ -183,9 +185,13 @@ export function createApp({ service, config, observability }: AppDeps) {
       }
       if (r && r.key && r.reason !== 'unknown') {
         // A real key that may not be used (revoked, expired, wrong address): worth an audit entry.
-        await service.audit({ actorType: 'api_key', actorId: r.key.id, actorName: r.key.name, action: 'auth.denied', targetType: 'key', targetId: r.key.id, result: 'denied', data: { reason: r.reason } });
+        // In the key's own workspace (#304): its admins see the refusals.
+        await runInWorkspace(r.key.workspaceId, () =>
+          service.audit({ actorType: 'api_key', actorId: r.key!.id, actorName: r.key!.name, action: 'auth.denied', targetType: 'key', targetId: r.key!.id, result: 'denied', data: { reason: r.reason } })
+        );
       }
       if (r?.reason === 'ip_not_allowed') return { response: c.json(errorBody('ip_not_allowed', r.message), 403) };
+      if (r?.reason === 'workspace_suspended') return { response: c.json(errorBody('workspace_suspended', r.message), 403) };
       c.header('WWW-Authenticate', 'Bearer realm="reelforge"');
       const message = r && r.reason !== 'unknown' ? `${r.message}; ask an admin for a new key` : 'missing or invalid API key: send "Authorization: Bearer rf_..."';
       return { response: c.json(errorBody(r?.reason === 'expired' ? 'key_expired' : r?.reason === 'revoked' ? 'key_revoked' : 'unauthorized', message), 401) };
@@ -205,9 +211,14 @@ export function createApp({ service, config, observability }: AppDeps) {
     if (signed && c.req.method === 'GET' && c.req.query('sig')) {
       const pre = guard.check(currentRequest()?.ip);
       if (!pre.allowed) return limited(c, pre.scope, pre.decision);
-      const ok = service.verifySignedDownload(signed[1]!, c.req.query('file') ?? 'final.mp4', Number(c.req.query('expires')), c.req.query('sig')!);
+      // The link signs its workspace (#304): it opens that render of that workspace only, under its storage prefix.
+      const ws = c.req.query('ws') ?? DEFAULT_WORKSPACE_ID;
+      const ok = service.verifySignedDownload(signed[1]!, c.req.query('file') ?? 'final.mp4', Number(c.req.query('expires')), c.req.query('sig')!, ws);
       if (!ok) return c.json(errorBody('unauthorized', 'the download link is invalid or has expired; get a new one with get_render_output'), 401);
-      c.set('auth', { keyId: 'signed-url', name: 'signed download link', scopes: ['read'] });
+      const auth: AuthContext = { keyId: 'signed-url', name: 'signed download link', scopes: ['read'], workspaceId: ws };
+      c.set('auth', auth);
+      const ctx = currentRequest();
+      if (ctx) ctx.auth = auth;
       return next();
     }
     const a = await authorize(c);
@@ -313,7 +324,7 @@ export function createApp({ service, config, observability }: AppDeps) {
     // A probe that sends a key is answered anonymously while its address is over the pre-auth limits (no key lookup).
     if (token?.startsWith('rf_') && guard.check(currentRequest()?.ip).allowed) {
       const a = await service.keys.authenticate(token, { ip: currentRequest()?.ip }).catch(() => null);
-      admin = Boolean(a?.ok && hasScope(a.auth, 'admin'));
+      admin = Boolean(a?.ok && hasScope(a.auth, 'owner'));
       if (!a?.ok && a?.reason !== 'ip_not_allowed') guard.failure(currentRequest()?.ip); // a guess here counts like one on /v1
     }
     c.header('Cache-Control', 'no-store');
@@ -530,7 +541,7 @@ export function createApp({ service, config, observability }: AppDeps) {
   );
 
   v1.get('/providers', need('read'), (c) => c.json({ providers: service.listProviders() }));
-  v1.put('/providers/:id/config', need('admin'), json, async (c) => {
+  v1.put('/providers/:id/config', need('owner'), json, async (c) => {
     const b = await body(c);
     return c.json(await service.configureProvider(c.req.param('id'), b.values, actor(c)));
   });
@@ -547,8 +558,8 @@ export function createApp({ service, config, observability }: AppDeps) {
     return c.json(await service.idempotent(idemKey(c), 'run_provider', { providerId, params, ...opts }, () => service.runProvider(providerId, params, opts)), 201);
   });
 
-  v1.get('/config', need('admin'), (c) => c.json(service.getConfig({ prefix: c.req.query('prefix') || undefined })));
-  v1.patch('/config', need('admin'), json, async (c) => {
+  v1.get('/config', need('owner'), (c) => c.json(service.getConfig({ prefix: c.req.query('prefix') || undefined })));
+  v1.patch('/config', need('owner'), json, async (c) => {
     const b = await body(c);
     // { "settings": { "limits.rateLimitPerMinute": 120 } }; a bare object of settings works too.
     const patch = 'settings' in b && b.settings && typeof b.settings === 'object' ? b.settings : b;
@@ -556,14 +567,14 @@ export function createApp({ service, config, observability }: AppDeps) {
   });
 
   v1.get('/licence', need('read'), (c) => c.json(service.getLicence()));
-  v1.post('/licence', need('admin'), json, async (c) => {
+  v1.post('/licence', need('owner'), json, async (c) => {
     const b = await body(c);
     return c.json(await service.activateLicence(b.key, actor(c)));
   });
-  v1.delete('/licence', need('admin'), async (c) => c.json(await service.deactivateLicence(actor(c))));
+  v1.delete('/licence', need('owner'), async (c) => c.json(await service.deactivateLicence(actor(c))));
 
-  v1.get('/storage', need('admin'), async (c) => c.json(await service.getStorage()));
-  v1.post('/storage/cleanup', need('admin'), json, async (c) => {
+  v1.get('/storage', need('owner'), async (c) => c.json(await service.getStorage()));
+  v1.post('/storage/cleanup', need('owner'), json, async (c) => {
     const b = await body(c);
     return c.json(await service.runStorageCleanup({ dryRun: b.dryRun ?? (c.req.query('dryRun') === 'true' ? true : undefined), renderDays: b.renderDays, keepLastRendersPerProject: b.keepLastRendersPerProject }, actor(c)));
   });

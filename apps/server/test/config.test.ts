@@ -36,7 +36,7 @@ beforeAll(async () => {
   dropDb = database.drop;
   env = { ...database.env, REELFORGE_CONFIG: configFile, REELFORGE_RATE_LIMIT_PER_MINUTE: '500', REELFORGE_SECRET_KEY: SECRET_KEY, REELFORGE_LICENCE_MODE: 'off' };
   server = await start();
-  admin = (await server.service.keys.create('admin', ['admin'])).key;
+  admin = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   reader = (await server.service.keys.create('reader', ['read'])).key;
 });
 afterAll(async () => {

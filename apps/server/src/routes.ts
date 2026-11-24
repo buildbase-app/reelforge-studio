@@ -10,7 +10,8 @@ export interface RouteEntry {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
   display?: string;
-  scope: 'read' | 'write' | 'render' | 'admin';
+  /** `owner`: instance-level (#304); `admin`: the key's own workspace. */
+  scope: 'read' | 'write' | 'render' | 'admin' | 'owner';
   tool: string;
   /** How the MCP tool differs, when it does. */
   note?: string;
@@ -66,15 +67,15 @@ export const REST_ROUTES: RouteEntry[] = [
     note: 'Multipart upload in REST; base64 (a few MB) in MCP. JSON {url} maps to add_asset_from_url.',
   },
   { method: 'GET', path: '/v1/providers', scope: 'read', tool: 'list_providers' },
-  { method: 'PUT', path: '/v1/providers/:id/config', scope: 'admin', tool: 'configure_provider' },
+  { method: 'PUT', path: '/v1/providers/:id/config', scope: 'owner', tool: 'configure_provider' },
   { method: 'POST', path: '/v1/providers/:id/run', scope: 'render', tool: 'run_provider', note: 'generate_voice is a TTS shortcut.' },
-  { method: 'GET', path: '/v1/config', scope: 'admin', tool: 'get_config' },
-  { method: 'PATCH', path: '/v1/config', scope: 'admin', tool: 'update_config' },
+  { method: 'GET', path: '/v1/config', scope: 'owner', tool: 'get_config' },
+  { method: 'PATCH', path: '/v1/config', scope: 'owner', tool: 'update_config' },
   { method: 'GET', path: '/v1/licence', scope: 'read', tool: 'get_licence' },
-  { method: 'POST', path: '/v1/licence', scope: 'admin', tool: 'activate_licence' },
-  { method: 'DELETE', path: '/v1/licence', scope: 'admin', tool: 'deactivate_licence' },
-  { method: 'GET', path: '/v1/storage', scope: 'admin', tool: 'get_storage' },
-  { method: 'POST', path: '/v1/storage/cleanup', scope: 'admin', tool: 'run_storage_cleanup' },
+  { method: 'POST', path: '/v1/licence', scope: 'owner', tool: 'activate_licence' },
+  { method: 'DELETE', path: '/v1/licence', scope: 'owner', tool: 'deactivate_licence' },
+  { method: 'GET', path: '/v1/storage', scope: 'owner', tool: 'get_storage' },
+  { method: 'POST', path: '/v1/storage/cleanup', scope: 'owner', tool: 'run_storage_cleanup' },
   { method: 'GET', path: '/v1/keys', scope: 'admin', tool: 'list_keys' },
   { method: 'POST', path: '/v1/keys', scope: 'admin', tool: 'create_key' },
   { method: 'GET', path: '/v1/keys/:id', scope: 'admin', tool: 'get_key' },

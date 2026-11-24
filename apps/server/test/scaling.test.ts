@@ -145,7 +145,7 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
     testDb = await createTestDatabase(kind!, dir);
     api = await instance('api-1', 'api');
     workers.push(await instance('worker-a', 'worker', 2), await instance('worker-b', 'worker', 2));
-    admin = (await api.service.keys.create('admin', ['admin'])).key;
+    admin = (await api.service.keys.create('admin', ['admin', 'owner'])).key;
     expect((await rest(api, 'POST', '/v1/projects', { manifest: { ...sample, projectId: 'scale', title: 'Scale' } })).status).toBe(201);
     const url = `http://127.0.0.1:${(receiver.address() as AddressInfo).port}/hook`;
     expect((await rest(api, 'POST', '/v1/webhooks', { name: 'cluster', url, events: ['job.*', 'render.ready'] })).status).toBe(201);

@@ -58,15 +58,15 @@ with their own sizes.
 | `GET` | `/v1/assets/:id` | `read` | `get_asset` |  |
 | `POST` | `/v1/assets` | `write` | `upload_asset` | Multipart upload in REST; base64 (a few MB) in MCP. JSON {url} maps to add_asset_from_url. |
 | `GET` | `/v1/providers` | `read` | `list_providers` |  |
-| `PUT` | `/v1/providers/:id/config` | `admin` | `configure_provider` |  |
+| `PUT` | `/v1/providers/:id/config` | `owner` | `configure_provider` |  |
 | `POST` | `/v1/providers/:id/run` | `render` | `run_provider` | generate_voice is a TTS shortcut. |
-| `GET` | `/v1/config` | `admin` | `get_config` |  |
-| `PATCH` | `/v1/config` | `admin` | `update_config` |  |
+| `GET` | `/v1/config` | `owner` | `get_config` |  |
+| `PATCH` | `/v1/config` | `owner` | `update_config` |  |
 | `GET` | `/v1/licence` | `read` | `get_licence` |  |
-| `POST` | `/v1/licence` | `admin` | `activate_licence` |  |
-| `DELETE` | `/v1/licence` | `admin` | `deactivate_licence` |  |
-| `GET` | `/v1/storage` | `admin` | `get_storage` |  |
-| `POST` | `/v1/storage/cleanup` | `admin` | `run_storage_cleanup` |  |
+| `POST` | `/v1/licence` | `owner` | `activate_licence` |  |
+| `DELETE` | `/v1/licence` | `owner` | `deactivate_licence` |  |
+| `GET` | `/v1/storage` | `owner` | `get_storage` |  |
+| `POST` | `/v1/storage/cleanup` | `owner` | `run_storage_cleanup` |  |
 | `GET` | `/v1/keys` | `admin` | `list_keys` |  |
 | `POST` | `/v1/keys` | `admin` | `create_key` |  |
 | `GET` | `/v1/keys/:id` | `admin` | `get_key` |  |

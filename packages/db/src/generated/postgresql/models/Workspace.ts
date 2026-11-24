@@ -14,7 +14,8 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model Workspace
- * 
+ * A tenant of the install (#304, D-1XX): every project, asset, theme, job, key, webhook and audit entry belongs to
+ * one. "default" always exists; existing installs keep all their rows there.
  */
 export type WorkspaceModel = runtime.Types.Result.DefaultSelection<Prisma.$WorkspacePayload>
 
@@ -28,18 +29,36 @@ export type WorkspaceMinAggregateOutputType = {
   id: string | null
   name: string | null
   createdAt: Date | null
+  status: string | null
+  updatedAt: Date | null
+  suspendedAt: Date | null
+  deletedAt: Date | null
+  purgeAfter: Date | null
+  limits: string | null
 }
 
 export type WorkspaceMaxAggregateOutputType = {
   id: string | null
   name: string | null
   createdAt: Date | null
+  status: string | null
+  updatedAt: Date | null
+  suspendedAt: Date | null
+  deletedAt: Date | null
+  purgeAfter: Date | null
+  limits: string | null
 }
 
 export type WorkspaceCountAggregateOutputType = {
   id: number
   name: number
   createdAt: number
+  status: number
+  updatedAt: number
+  suspendedAt: number
+  deletedAt: number
+  purgeAfter: number
+  limits: number
   _all: number
 }
 
@@ -48,18 +67,36 @@ export type WorkspaceMinAggregateInputType = {
   id?: true
   name?: true
   createdAt?: true
+  status?: true
+  updatedAt?: true
+  suspendedAt?: true
+  deletedAt?: true
+  purgeAfter?: true
+  limits?: true
 }
 
 export type WorkspaceMaxAggregateInputType = {
   id?: true
   name?: true
   createdAt?: true
+  status?: true
+  updatedAt?: true
+  suspendedAt?: true
+  deletedAt?: true
+  purgeAfter?: true
+  limits?: true
 }
 
 export type WorkspaceCountAggregateInputType = {
   id?: true
   name?: true
   createdAt?: true
+  status?: true
+  updatedAt?: true
+  suspendedAt?: true
+  deletedAt?: true
+  purgeAfter?: true
+  limits?: true
   _all?: true
 }
 
@@ -139,6 +176,12 @@ export type WorkspaceGroupByOutputType = {
   id: string
   name: string
   createdAt: Date
+  status: string
+  updatedAt: Date | null
+  suspendedAt: Date | null
+  deletedAt: Date | null
+  purgeAfter: Date | null
+  limits: string | null
   _count: WorkspaceCountAggregateOutputType | null
   _min: WorkspaceMinAggregateOutputType | null
   _max: WorkspaceMaxAggregateOutputType | null
@@ -166,6 +209,12 @@ export type WorkspaceWhereInput = {
   id?: Prisma.StringFilter<"Workspace"> | string
   name?: Prisma.StringFilter<"Workspace"> | string
   createdAt?: Prisma.DateTimeFilter<"Workspace"> | Date | string
+  status?: Prisma.StringFilter<"Workspace"> | string
+  updatedAt?: Prisma.DateTimeNullableFilter<"Workspace"> | Date | string | null
+  suspendedAt?: Prisma.DateTimeNullableFilter<"Workspace"> | Date | string | null
+  deletedAt?: Prisma.DateTimeNullableFilter<"Workspace"> | Date | string | null
+  purgeAfter?: Prisma.DateTimeNullableFilter<"Workspace"> | Date | string | null
+  limits?: Prisma.StringNullableFilter<"Workspace"> | string | null
   projects?: Prisma.ProjectListRelationFilter
   apiKeys?: Prisma.ApiKeyListRelationFilter
   jobs?: Prisma.JobListRelationFilter
@@ -188,6 +237,12 @@ export type WorkspaceOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  status?: Prisma.SortOrder
+  updatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  suspendedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  deletedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  purgeAfter?: Prisma.SortOrderInput | Prisma.SortOrder
+  limits?: Prisma.SortOrderInput | Prisma.SortOrder
   projects?: Prisma.ProjectOrderByRelationAggregateInput
   apiKeys?: Prisma.ApiKeyOrderByRelationAggregateInput
   jobs?: Prisma.JobOrderByRelationAggregateInput
@@ -213,6 +268,12 @@ export type WorkspaceWhereUniqueInput = Prisma.AtLeast<{
   NOT?: Prisma.WorkspaceWhereInput | Prisma.WorkspaceWhereInput[]
   name?: Prisma.StringFilter<"Workspace"> | string
   createdAt?: Prisma.DateTimeFilter<"Workspace"> | Date | string
+  status?: Prisma.StringFilter<"Workspace"> | string
+  updatedAt?: Prisma.DateTimeNullableFilter<"Workspace"> | Date | string | null
+  suspendedAt?: Prisma.DateTimeNullableFilter<"Workspace"> | Date | string | null
+  deletedAt?: Prisma.DateTimeNullableFilter<"Workspace"> | Date | string | null
+  purgeAfter?: Prisma.DateTimeNullableFilter<"Workspace"> | Date | string | null
+  limits?: Prisma.StringNullableFilter<"Workspace"> | string | null
   projects?: Prisma.ProjectListRelationFilter
   apiKeys?: Prisma.ApiKeyListRelationFilter
   jobs?: Prisma.JobListRelationFilter
@@ -235,6 +296,12 @@ export type WorkspaceOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  status?: Prisma.SortOrder
+  updatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  suspendedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  deletedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  purgeAfter?: Prisma.SortOrderInput | Prisma.SortOrder
+  limits?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.WorkspaceCountOrderByAggregateInput
   _max?: Prisma.WorkspaceMaxOrderByAggregateInput
   _min?: Prisma.WorkspaceMinOrderByAggregateInput
@@ -247,12 +314,24 @@ export type WorkspaceScalarWhereWithAggregatesInput = {
   id?: Prisma.StringWithAggregatesFilter<"Workspace"> | string
   name?: Prisma.StringWithAggregatesFilter<"Workspace"> | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Workspace"> | Date | string
+  status?: Prisma.StringWithAggregatesFilter<"Workspace"> | string
+  updatedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Workspace"> | Date | string | null
+  suspendedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Workspace"> | Date | string | null
+  deletedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Workspace"> | Date | string | null
+  purgeAfter?: Prisma.DateTimeNullableWithAggregatesFilter<"Workspace"> | Date | string | null
+  limits?: Prisma.StringNullableWithAggregatesFilter<"Workspace"> | string | null
 }
 
 export type WorkspaceCreateInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -275,6 +354,12 @@ export type WorkspaceUncheckedCreateInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -297,6 +382,12 @@ export type WorkspaceUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -319,6 +410,12 @@ export type WorkspaceUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -341,36 +438,72 @@ export type WorkspaceCreateManyInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
 }
 
 export type WorkspaceUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type WorkspaceUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type WorkspaceCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  status?: Prisma.SortOrder
+  updatedAt?: Prisma.SortOrder
+  suspendedAt?: Prisma.SortOrder
+  deletedAt?: Prisma.SortOrder
+  purgeAfter?: Prisma.SortOrder
+  limits?: Prisma.SortOrder
 }
 
 export type WorkspaceMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  status?: Prisma.SortOrder
+  updatedAt?: Prisma.SortOrder
+  suspendedAt?: Prisma.SortOrder
+  deletedAt?: Prisma.SortOrder
+  purgeAfter?: Prisma.SortOrder
+  limits?: Prisma.SortOrder
 }
 
 export type WorkspaceMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  status?: Prisma.SortOrder
+  updatedAt?: Prisma.SortOrder
+  suspendedAt?: Prisma.SortOrder
+  deletedAt?: Prisma.SortOrder
+  purgeAfter?: Prisma.SortOrder
+  limits?: Prisma.SortOrder
 }
 
 export type WorkspaceScalarRelationFilter = {
@@ -384,6 +517,14 @@ export type StringFieldUpdateOperationsInput = {
 
 export type DateTimeFieldUpdateOperationsInput = {
   set?: Date | string
+}
+
+export type NullableDateTimeFieldUpdateOperationsInput = {
+  set?: Date | string | null
+}
+
+export type NullableStringFieldUpdateOperationsInput = {
+  set?: string | null
 }
 
 export type WorkspaceCreateNestedOneWithoutProjectsInput = {
@@ -614,6 +755,12 @@ export type WorkspaceCreateWithoutProjectsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
@@ -635,6 +782,12 @@ export type WorkspaceUncheckedCreateWithoutProjectsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -672,6 +825,12 @@ export type WorkspaceUpdateWithoutProjectsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
@@ -693,6 +852,12 @@ export type WorkspaceUncheckedUpdateWithoutProjectsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -714,6 +879,12 @@ export type WorkspaceCreateWithoutApiKeysInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
@@ -735,6 +906,12 @@ export type WorkspaceUncheckedCreateWithoutApiKeysInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -772,6 +949,12 @@ export type WorkspaceUpdateWithoutApiKeysInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
@@ -793,6 +976,12 @@ export type WorkspaceUncheckedUpdateWithoutApiKeysInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -814,6 +1003,12 @@ export type WorkspaceCreateWithoutJobsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeCreateNestedManyWithoutWorkspaceInput
@@ -835,6 +1030,12 @@ export type WorkspaceUncheckedCreateWithoutJobsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   themes?: Prisma.ThemeUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -872,6 +1073,12 @@ export type WorkspaceUpdateWithoutJobsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUpdateManyWithoutWorkspaceNestedInput
@@ -893,6 +1100,12 @@ export type WorkspaceUncheckedUpdateWithoutJobsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   themes?: Prisma.ThemeUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -914,6 +1127,12 @@ export type WorkspaceCreateWithoutThemesInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -935,6 +1154,12 @@ export type WorkspaceUncheckedCreateWithoutThemesInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -972,6 +1197,12 @@ export type WorkspaceUpdateWithoutThemesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -993,6 +1224,12 @@ export type WorkspaceUncheckedUpdateWithoutThemesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -1014,6 +1251,12 @@ export type WorkspaceCreateWithoutProviderSettingsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -1035,6 +1278,12 @@ export type WorkspaceUncheckedCreateWithoutProviderSettingsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -1072,6 +1321,12 @@ export type WorkspaceUpdateWithoutProviderSettingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -1093,6 +1348,12 @@ export type WorkspaceUncheckedUpdateWithoutProviderSettingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -1114,6 +1375,12 @@ export type WorkspaceCreateWithoutSettingsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -1135,6 +1402,12 @@ export type WorkspaceUncheckedCreateWithoutSettingsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -1172,6 +1445,12 @@ export type WorkspaceUpdateWithoutSettingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -1193,6 +1472,12 @@ export type WorkspaceUncheckedUpdateWithoutSettingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -1214,6 +1499,12 @@ export type WorkspaceCreateWithoutAssetsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -1235,6 +1526,12 @@ export type WorkspaceUncheckedCreateWithoutAssetsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -1272,6 +1569,12 @@ export type WorkspaceUpdateWithoutAssetsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -1293,6 +1596,12 @@ export type WorkspaceUncheckedUpdateWithoutAssetsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -1314,6 +1623,12 @@ export type WorkspaceCreateWithoutAuditLogsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -1335,6 +1650,12 @@ export type WorkspaceUncheckedCreateWithoutAuditLogsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -1372,6 +1693,12 @@ export type WorkspaceUpdateWithoutAuditLogsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -1393,6 +1720,12 @@ export type WorkspaceUncheckedUpdateWithoutAuditLogsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -1414,6 +1747,12 @@ export type WorkspaceCreateWithoutIdempotencyKeysInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -1435,6 +1774,12 @@ export type WorkspaceUncheckedCreateWithoutIdempotencyKeysInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -1472,6 +1817,12 @@ export type WorkspaceUpdateWithoutIdempotencyKeysInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -1493,6 +1844,12 @@ export type WorkspaceUncheckedUpdateWithoutIdempotencyKeysInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -1514,6 +1871,12 @@ export type WorkspaceCreateWithoutRateLimitWindowsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -1535,6 +1898,12 @@ export type WorkspaceUncheckedCreateWithoutRateLimitWindowsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -1572,6 +1941,12 @@ export type WorkspaceUpdateWithoutRateLimitWindowsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -1593,6 +1968,12 @@ export type WorkspaceUncheckedUpdateWithoutRateLimitWindowsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -1614,6 +1995,12 @@ export type WorkspaceCreateWithoutLicenceStatesInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -1635,6 +2022,12 @@ export type WorkspaceUncheckedCreateWithoutLicenceStatesInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -1672,6 +2065,12 @@ export type WorkspaceUpdateWithoutLicenceStatesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -1693,6 +2092,12 @@ export type WorkspaceUncheckedUpdateWithoutLicenceStatesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -1714,6 +2119,12 @@ export type WorkspaceCreateWithoutWebhookEndpointsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -1735,6 +2146,12 @@ export type WorkspaceUncheckedCreateWithoutWebhookEndpointsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -1772,6 +2189,12 @@ export type WorkspaceUpdateWithoutWebhookEndpointsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -1793,6 +2216,12 @@ export type WorkspaceUncheckedUpdateWithoutWebhookEndpointsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -1814,6 +2243,12 @@ export type WorkspaceCreateWithoutWebhookDeliveriesInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -1835,6 +2270,12 @@ export type WorkspaceUncheckedCreateWithoutWebhookDeliveriesInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -1872,6 +2313,12 @@ export type WorkspaceUpdateWithoutWebhookDeliveriesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -1893,6 +2340,12 @@ export type WorkspaceUncheckedUpdateWithoutWebhookDeliveriesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -1914,6 +2367,12 @@ export type WorkspaceCreateWithoutWebhookAttemptsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -1935,6 +2394,12 @@ export type WorkspaceUncheckedCreateWithoutWebhookAttemptsInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -1972,6 +2437,12 @@ export type WorkspaceUpdateWithoutWebhookAttemptsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -1993,6 +2464,12 @@ export type WorkspaceUncheckedUpdateWithoutWebhookAttemptsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -2014,6 +2491,12 @@ export type WorkspaceCreateWithoutDispatchOutboxInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -2035,6 +2518,12 @@ export type WorkspaceUncheckedCreateWithoutDispatchOutboxInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -2072,6 +2561,12 @@ export type WorkspaceUpdateWithoutDispatchOutboxInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -2093,6 +2588,12 @@ export type WorkspaceUncheckedUpdateWithoutDispatchOutboxInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -2114,6 +2615,12 @@ export type WorkspaceCreateWithoutInstanceLeasesInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobCreateNestedManyWithoutWorkspaceInput
@@ -2135,6 +2642,12 @@ export type WorkspaceUncheckedCreateWithoutInstanceLeasesInput = {
   id: string
   name: string
   createdAt?: Date | string
+  status?: string
+  updatedAt?: Date | string | null
+  suspendedAt?: Date | string | null
+  deletedAt?: Date | string | null
+  purgeAfter?: Date | string | null
+  limits?: string | null
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutWorkspaceInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutWorkspaceInput
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutWorkspaceInput
@@ -2172,6 +2685,12 @@ export type WorkspaceUpdateWithoutInstanceLeasesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUpdateManyWithoutWorkspaceNestedInput
@@ -2193,6 +2712,12 @@ export type WorkspaceUncheckedUpdateWithoutInstanceLeasesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  updatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  suspendedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  purgeAfter?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  limits?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutWorkspaceNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutWorkspaceNestedInput
   jobs?: Prisma.JobUncheckedUpdateManyWithoutWorkspaceNestedInput
@@ -2380,6 +2905,12 @@ export type WorkspaceSelect<ExtArgs extends runtime.Types.Extensions.InternalArg
   id?: boolean
   name?: boolean
   createdAt?: boolean
+  status?: boolean
+  updatedAt?: boolean
+  suspendedAt?: boolean
+  deletedAt?: boolean
+  purgeAfter?: boolean
+  limits?: boolean
   projects?: boolean | Prisma.Workspace$projectsArgs<ExtArgs>
   apiKeys?: boolean | Prisma.Workspace$apiKeysArgs<ExtArgs>
   jobs?: boolean | Prisma.Workspace$jobsArgs<ExtArgs>
@@ -2403,21 +2934,39 @@ export type WorkspaceSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ext
   id?: boolean
   name?: boolean
   createdAt?: boolean
+  status?: boolean
+  updatedAt?: boolean
+  suspendedAt?: boolean
+  deletedAt?: boolean
+  purgeAfter?: boolean
+  limits?: boolean
 }, ExtArgs["result"]["workspace"]>
 
 export type WorkspaceSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   name?: boolean
   createdAt?: boolean
+  status?: boolean
+  updatedAt?: boolean
+  suspendedAt?: boolean
+  deletedAt?: boolean
+  purgeAfter?: boolean
+  limits?: boolean
 }, ExtArgs["result"]["workspace"]>
 
 export type WorkspaceSelectScalar = {
   id?: boolean
   name?: boolean
   createdAt?: boolean
+  status?: boolean
+  updatedAt?: boolean
+  suspendedAt?: boolean
+  deletedAt?: boolean
+  purgeAfter?: boolean
+  limits?: boolean
 }
 
-export type WorkspaceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "createdAt", ExtArgs["result"]["workspace"]>
+export type WorkspaceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "createdAt" | "status" | "updatedAt" | "suspendedAt" | "deletedAt" | "purgeAfter" | "limits", ExtArgs["result"]["workspace"]>
 export type WorkspaceInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   projects?: boolean | Prisma.Workspace$projectsArgs<ExtArgs>
   apiKeys?: boolean | Prisma.Workspace$apiKeysArgs<ExtArgs>
@@ -2464,6 +3013,22 @@ export type $WorkspacePayload<ExtArgs extends runtime.Types.Extensions.InternalA
     id: string
     name: string
     createdAt: Date
+    /**
+     * "active" | "suspended" (keys are refused, queued jobs wait) | "deleted" (soft-deleted, purged after purgeAfter).
+     */
+    status: string
+    updatedAt: Date | null
+    suspendedAt: Date | null
+    deletedAt: Date | null
+    /**
+     * A soft-deleted workspace's rows and files are purged after this time (workspaces.deleteGraceDays).
+     */
+    purgeAfter: Date | null
+    /**
+     * Per-workspace limits as JSON text (renders per day/month, requests per minute, storage bytes); null: the
+     * workspaces.defaultLimits settings, which are unlimited unless the operator sets them.
+     */
+    limits: string | null
   }, ExtArgs["result"]["workspace"]>
   composites: {}
 }
@@ -2906,6 +3471,12 @@ export interface WorkspaceFieldRefs {
   readonly id: Prisma.FieldRef<"Workspace", 'String'>
   readonly name: Prisma.FieldRef<"Workspace", 'String'>
   readonly createdAt: Prisma.FieldRef<"Workspace", 'DateTime'>
+  readonly status: Prisma.FieldRef<"Workspace", 'String'>
+  readonly updatedAt: Prisma.FieldRef<"Workspace", 'DateTime'>
+  readonly suspendedAt: Prisma.FieldRef<"Workspace", 'DateTime'>
+  readonly deletedAt: Prisma.FieldRef<"Workspace", 'DateTime'>
+  readonly purgeAfter: Prisma.FieldRef<"Workspace", 'DateTime'>
+  readonly limits: Prisma.FieldRef<"Workspace", 'String'>
 }
     
 

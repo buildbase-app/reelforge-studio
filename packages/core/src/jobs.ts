@@ -9,7 +9,8 @@ import type { PageRequest } from './paging';
 import { childJobs, describeUnit, isFannedOut, isTerminal, treeProgress, type ChildSpec } from './fanout';
 import { defaultPriority, effectiveRank, priorityRank, type JobPriority } from './priority';
 import type { DispatchListener, DispatchListenerStatus, DispatchMessage, OutboxRelayStatus } from './dispatch';
-import type { ChildSettlement, InstanceLeaseRecord, JobCaps, JobFilter, JobLeaseFence, JobProgress, JobRecord, JobRepository, JobStatus, QuotaWindow } from './repositories';
+import { DEFAULT_WORKSPACE_ID, type ChildSettlement, type InstanceLeaseRecord, type JobCaps, type JobFilter, type JobLeaseFence, type JobProgress, type JobRecord, type JobRepository, type JobStatus, type QuotaWindow } from './repositories';
+import { contextWorkspaceId, runAsSystem, runInWorkspace } from './workspace';
 
 export type { JobProgress, JobRecord, JobStatus } from './repositories';
 export const TERMINAL: readonly JobStatus[] = ['succeeded', 'failed', 'cancelled'];
@@ -330,6 +331,27 @@ export class JobRunner {
       return n && n > 0 ? n : undefined;
     };
     this.onClaim = opts.onClaim ?? (() => undefined);
+    // Workspaces (#304): the claim, heartbeat and housekeeping loops work for every workspace, so they never run in
+    // the workspace of whatever request or job happened to wake them (their timers would inherit it). Each job then
+    // runs in its own workspace (start), and its events are emitted there (emit).
+    const self = this as unknown as Record<string, (...a: unknown[]) => unknown>;
+    for (const m of ['pump', 'claimLoop', 'onDispatch', 'heartbeat', 'housekeeping'] as const) {
+      const f = self[m]!.bind(this);
+      self[m] = (...a: unknown[]) => runAsSystem(() => f(...a));
+    }
+  }
+
+  /** Whether a job may be seen by this call: always in system context, else only from its own workspace (#304). */
+  private visible(job: JobRecord | undefined): job is JobRecord {
+    if (!job) return false;
+    const ws = contextWorkspaceId();
+    return ws === undefined || (job.workspaceId ?? DEFAULT_WORKSPACE_ID) === ws;
+  }
+
+  /** A job active in this process, if the caller may see it. */
+  private activeJob(id: string): JobRecord | undefined {
+    const a = this.active.get(id);
+    return this.visible(a) ? a : undefined;
   }
 
   /** The claim's options besides worker, types and times: the per-key running cap and priority aging, read now. */
@@ -412,6 +434,7 @@ export class JobRunner {
       ...(meta.projectId ? { projectId: meta.projectId } : {}),
       ...(meta.retryOf ? { retryOf: meta.retryOf } : {}),
       ...(meta.apiKeyId ? { apiKeyId: meta.apiKeyId } : {}),
+      ...(contextWorkspaceId() !== undefined ? { workspaceId: contextWorkspaceId()! } : {}),
       ...(this.mode === 'database' ? { queue: 'database' as const, attempts: 0 } : {}),
       priority: meta.priority ?? defaultPriority(type),
     };
@@ -443,7 +466,7 @@ export class JobRunner {
   }
 
   async get(id: string): Promise<JobRecord> {
-    const a = this.active.get(id);
+    const a = this.activeJob(id);
     if (a) return structuredClone(a);
     const j = await this.repo.get(id);
     if (!j) throw notFound('job', id);
@@ -525,11 +548,11 @@ export class JobRunner {
 
   async cancel(id: string): Promise<JobRecord> {
     // Fan-out (D-097): cancelling a unit or the join cancels its render, and a render cascades to its children.
-    const parentId = (this.active.get(id) ?? (await this.repo.get(id)))?.parentId;
+    const parentId = (this.activeJob(id) ?? (await this.repo.get(id)))?.parentId;
     if (parentId) return this.cancel(parentId);
     const tree = await this.cancelTree(id);
     if (tree) return tree;
-    const job = this.active.get(id);
+    const job = this.activeJob(id);
     if (job) {
       if (job.status === 'queued') {
         this.queue = this.queue.filter((q) => q !== id);
@@ -704,7 +727,8 @@ export class JobRunner {
   }
 
   private emit(e: JobEvent) {
-    this.events.emit('event', { ...e, job: structuredClone(e.job) });
+    // Listeners (outbound events, audit) act in the job's workspace (#304).
+    runInWorkspace(e.job.workspaceId ?? contextWorkspaceId(), () => this.events.emit('event', { ...e, job: structuredClone(e.job) }));
   }
 
   private pump() {
@@ -738,7 +762,8 @@ export class JobRunner {
       }
       if (best < 0) break;
       const [id] = this.queue.splice(best, 1);
-      void this.start(this.active.get(id!)!);
+      const job = this.active.get(id!)!;
+      void runInWorkspace(job.workspaceId, () => this.start(job));
     }
     this.notifyIdle();
   }
@@ -1082,7 +1107,7 @@ export class JobRunner {
       if (this.stopping) return { job: null };
       const job = await this.repo.claim(input);
       if (!job) return { job };
-      if (!this.stopping) return { job, run: this.start(job) };
+      if (!this.stopping) return { job, run: runInWorkspace(job.workspaceId, () => this.start(job)) };
       const handedBack = await this.repo.release(job.id, { workerId: this.workerId, attempts: job.attempts ?? 1 }, new Date().toISOString()).catch((e: Error) => {
         this.log('warn', `queue: could not hand back job ${job.id}, claimed as shutdown began (its lease expires on its own): ${e.message}`);
         return false;
