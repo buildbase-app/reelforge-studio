@@ -102,6 +102,9 @@ fi
 [ "${SKIP_BUILD:-}" = 1 ] || docker build ${BUILD_ARGS:-} "${EDITION_ARGS[@]}" -t "$IMAGE" .
 echo "== image $IMAGE: edition $(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$IMAGE"), hardened run flags: $HARDENED"
 [ "$(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$IMAGE")" = "$EDITION" ] || { echo "✘ $IMAGE is not a $EDITION build"; exit 1; }
+# Rename (#413): the new edition label matches the old one, and the title says RenderWeld.
+[ "$(docker image inspect -f '{{ index .Config.Labels "app.renderweld.edition" }}' "$IMAGE")" = "$EDITION" ] || { echo "✘ $IMAGE has no app.renderweld.edition=$EDITION label"; exit 1; }
+[ "$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.title" }}' "$IMAGE")" = RenderWeld ] || { echo "✘ $IMAGE title label is not RenderWeld"; exit 1; }
 # The hardened run flags (docs/DEPLOY.md#hardening). The image's user is 10001:10001.
 # Chromium's sandbox is the image default (D-086): the hardened run sets no sandbox variable at
 # all; a plain `docker run` (HARDENED=0, Docker's default seccomp profile) needs the explicit opt-out.

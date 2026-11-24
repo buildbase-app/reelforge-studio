@@ -1,3 +1,4 @@
+import { PRODUCT_NAME, userAgent } from '../product';
 import { eventText, eventTitle } from './events';
 import { classifyStatus, postOnce, type HttpResult, type OutboundPolicy } from './http';
 import { signatureHeaders } from './signature';
@@ -123,7 +124,7 @@ export const slackProvider = chat('slack', 'Slack incoming webhook', (title, tex
 
 /** Discord webhook: `{ content }` (max 2000 characters), mentions disabled. */
 export const discordProvider = chat('discord', 'Discord webhook', (_title, text) => ({
-  username: 'ReelForge',
+  username: PRODUCT_NAME,
   content: text.length > 1990 ? `${text.slice(0, 1987)}...` : text,
   allowed_mentions: { parse: [] },
 }));
@@ -178,7 +179,7 @@ async function apiCall(ctx: SendContext, url: string, headers: Record<string, st
   try {
     const res = await ctx.fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'ReelForge-Studio-Notifications/1', ...headers },
+      headers: { 'content-type': 'application/json', accept: 'application/json', 'user-agent': userAgent('Notifications'), ...headers },
       body: JSON.stringify(body),
       signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(ctx.timeoutMs)]),
     });

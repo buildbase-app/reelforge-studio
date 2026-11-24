@@ -50,7 +50,7 @@ export async function pooledSchemaWarning(url: string, probe: (url: string) => P
   if ((await probe(url)) !== true) return null;
   return (
     `database: ?schema=${p.schema} goes through a transaction-mode connection pooler (${redactDatabaseUrl(url)}), which does not keep each client's search_path. ` +
-    'This version names the schema in every statement (#191), so it is safe here; ReelForge processes older than that fix using this database through the pooler can read or claim another schema\'s rows: upgrade every api and worker before running them side by side. ' +
+    'This version names the schema in every statement (#191), so it is safe here; RenderWeld (formerly ReelForge) processes older than that fix using this database through the pooler can read or claim another schema\'s rows: upgrade every api and worker before running them side by side. ' +
     'Your own SQL through the pooler (psql, reporting tools) must name the schema too (docs/providers/queue-and-scaling.md#pgbouncer-transaction-mode)'
   );
 }

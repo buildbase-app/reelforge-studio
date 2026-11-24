@@ -3,36 +3,36 @@
  * renderweld CLI (operator tasks that need no running server). The old name
  * `reelforge` (src/reelforge.ts) runs the same commands with a deprecation notice.
  *
- *   reelforge migrate [--status]       apply database migrations (and import v0.1 data once)
- *   reelforge import-v01 [--data-dir DIR]  import a v0.1 filesystem data directory again (existing rows are kept)
- *   reelforge backup <file>            SQLite: consistent copy of the live database
- *   reelforge keys create [--name NAME] [--scopes read,write,render,admin] [limits]
- *   reelforge keys list | show <keyId>
- *   reelforge keys update <keyId> [--name NAME] [limits]
- *   reelforge keys rotate <keyId> [--grace-hours N]
- *   reelforge keys revoke <keyId>
- *   reelforge keys delete <keyId>
+ *   renderweld migrate [--status]       apply database migrations (and import v0.1 data once)
+ *   renderweld import-v01 [--data-dir DIR]  import a v0.1 filesystem data directory again (existing rows are kept)
+ *   renderweld backup <file>            SQLite: consistent copy of the live database
+ *   renderweld keys create [--name NAME] [--scopes read,write,render,admin] [limits]
+ *   renderweld keys list | show <keyId>
+ *   renderweld keys update <keyId> [--name NAME] [limits]
+ *   renderweld keys rotate <keyId> [--grace-hours N]
+ *   renderweld keys revoke <keyId>
+ *   renderweld keys delete <keyId>
  *     limits: --expires-in 30d|12h | --expires-at ISO | --rate-limit N | --renders-per-day N
  *             --renders-per-month N | --ip-allow CIDR,CIDR | --max-priority interactive|standard|batch
  *             ("none" clears one in update)
- *   reelforge audit list [--from ISO] [--to ISO] [--actor KEYID] [--action key.*] [--target ID] [--result R] [--limit N] [--json]
- *   reelforge audit export [--format jsonl|csv] [--out FILE] [same filters]   (streamed)
- *   reelforge audit sweep              delete entries past audit.retentionDays and expired idempotency keys
- *   reelforge config check [--file PATH]   validate the config file and environment (no server, no database)
- *   reelforge config show [--json] [--offline]   effective configuration, secrets redacted
- *   reelforge licence status [--json] [--check]   licence status (exit 2 when renders are refused)
- *   reelforge licence activate [KEY] [--json]     store the key (encrypted) and activate it now
- *   reelforge licence deactivate [--json]         give this server's activation back
- *   reelforge storage status [--json]             driver, health, usage, retention
- *   reelforge storage migrate --to <driver> [--from local] [--dry-run]   copy assets and renders (idempotent)
- *   reelforge storage cleanup [--dry-run] [--json]   apply the retention policy now
- *   reelforge webhooks list | show <id> | delete <id> [--json]
- *   reelforge webhooks create --name N [--type webhook|slack|discord|teams|email] [--url URL] [--to a@x,b@y] [--provider smtp] --events job.*,render.ready
- *   reelforge webhooks update <id> [--name N] [--url URL] [--events E,E] [--enable|--disable] [--rotate-secret [--grace-hours N]]
- *   reelforge webhooks test <id>          queue a webhook.test event (the running server delivers it)
- *   reelforge webhooks deliveries <id> [--status dead] [--limit N] [--json]
- *   reelforge webhooks replay <id> <deliveryId>
- *   reelforge worker --once [--job <id>] [--wait-ms N]   claim at most one job, render it, exit (D-100)
+ *   renderweld audit list [--from ISO] [--to ISO] [--actor KEYID] [--action key.*] [--target ID] [--result R] [--limit N] [--json]
+ *   renderweld audit export [--format jsonl|csv] [--out FILE] [same filters]   (streamed)
+ *   renderweld audit sweep              delete entries past audit.retentionDays and expired idempotency keys
+ *   renderweld config check [--file PATH]   validate the config file and environment (no server, no database)
+ *   renderweld config show [--json] [--offline]   effective configuration, secrets redacted
+ *   renderweld licence status [--json] [--check]   licence status (exit 2 when renders are refused)
+ *   renderweld licence activate [KEY] [--json]     store the key (encrypted) and activate it now
+ *   renderweld licence deactivate [--json]         give this server's activation back
+ *   renderweld storage status [--json]             driver, health, usage, retention
+ *   renderweld storage migrate --to <driver> [--from local] [--dry-run]   copy assets and renders (idempotent)
+ *   renderweld storage cleanup [--dry-run] [--json]   apply the retention policy now
+ *   renderweld webhooks list | show <id> | delete <id> [--json]
+ *   renderweld webhooks create --name N [--type webhook|slack|discord|teams|email] [--url URL] [--to a@x,b@y] [--provider smtp] --events job.*,render.ready
+ *   renderweld webhooks update <id> [--name N] [--url URL] [--events E,E] [--enable|--disable] [--rotate-secret [--grace-hours N]]
+ *   renderweld webhooks test <id>          queue a webhook.test event (the running server delivers it)
+ *   renderweld webhooks deliveries <id> [--status dead] [--limit N] [--json]
+ *   renderweld webhooks replay <id> <deliveryId>
+ *   renderweld worker --once [--job <id>] [--wait-ms N]   claim at most one job, render it, exit (D-100)
  *
  * Uses DATABASE_URL (default: SQLite in REELFORGE_DATA_DIR, ./data) like the
  * server. The key is printed once.
@@ -83,38 +83,38 @@ function arg(name: string, args: string[]): string | undefined {
 }
 
 const USAGE = `usage:
-  reelforge migrate [--status]
-  reelforge import-v01 [--data-dir DIR]
-  reelforge backup <file>   (SQLite; use pg_dump / mysqldump for the others)
-  reelforge keys create [--name NAME] [--scopes ${SCOPES.join(',')}] [LIMITS]   (every keys command takes --workspace ID; default "default")
-  reelforge keys list
-  reelforge keys show <keyId>
-  reelforge keys update <keyId> [--name NAME] [LIMITS]   ("none" clears a limit)
-  reelforge keys rotate <keyId> [--grace-hours N]
-  reelforge keys revoke <keyId>
-  reelforge keys delete <keyId>
+  renderweld migrate [--status]
+  renderweld import-v01 [--data-dir DIR]
+  renderweld backup <file>   (SQLite; use pg_dump / mysqldump for the others)
+  renderweld keys create [--name NAME] [--scopes ${SCOPES.join(',')}] [LIMITS]   (every keys command takes --workspace ID; default "default")
+  renderweld keys list
+  renderweld keys show <keyId>
+  renderweld keys update <keyId> [--name NAME] [LIMITS]   ("none" clears a limit)
+  renderweld keys rotate <keyId> [--grace-hours N]
+  renderweld keys revoke <keyId>
+  renderweld keys delete <keyId>
     LIMITS: --expires-in 30d|12h  --expires-at ISO  --rate-limit N  --renders-per-day N  --renders-per-month N  --ip-allow CIDR,CIDR  --max-priority interactive|standard|batch
-  reelforge audit list [--from ISO] [--to ISO] [--actor KEYID] [--action ACTION|prefix.*] [--target-type T] [--target ID] [--result success|failure|denied] [--limit N] [--json]
-  reelforge audit export [--format jsonl|csv] [--out FILE] [same filters]
-  reelforge audit sweep
-  reelforge config check [--file PATH]
-  reelforge config show [--json] [--offline]
-  reelforge licence status [--json] [--check]
-  reelforge licence activate [KEY] [--json]   (KEY also from REELFORGE_LICENCE_KEY_INPUT; omit to re-activate the configured key)
-  reelforge licence deactivate [--json]
-  reelforge storage status [--json]
-  reelforge storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]
-  reelforge storage cleanup [--dry-run] [--json]
-  reelforge webhooks list | show <id> | delete <id> [--json]
-  reelforge webhooks create --name N [--type webhook|slack|discord|teams|email] [--url URL] [--to a@x,b@y] [--provider smtp|resend|postmark|ses|sendgrid] --events job.*,render.ready
-  reelforge webhooks update <id> [--name N] [--url URL] [--to ...] [--events ...] [--enable|--disable] [--rotate-secret [--grace-hours N]]
-  reelforge webhooks test <id>
-  reelforge webhooks deliveries <id> [--status pending|delivering|succeeded|dead] [--limit N] [--json]
-  reelforge webhooks replay <id> <deliveryId>
-  reelforge worker --once [--job <id>] [--wait-ms N]   (exit 0 succeeded/cancelled/nothing queued, 1 failed, 75 handed back or still queued)`;
+  renderweld audit list [--from ISO] [--to ISO] [--actor KEYID] [--action ACTION|prefix.*] [--target-type T] [--target ID] [--result success|failure|denied] [--limit N] [--json]
+  renderweld audit export [--format jsonl|csv] [--out FILE] [same filters]
+  renderweld audit sweep
+  renderweld config check [--file PATH]
+  renderweld config show [--json] [--offline]
+  renderweld licence status [--json] [--check]
+  renderweld licence activate [KEY] [--json]   (KEY also from REELFORGE_LICENCE_KEY_INPUT; omit to re-activate the configured key)
+  renderweld licence deactivate [--json]
+  renderweld storage status [--json]
+  renderweld storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]
+  renderweld storage cleanup [--dry-run] [--json]
+  renderweld webhooks list | show <id> | delete <id> [--json]
+  renderweld webhooks create --name N [--type webhook|slack|discord|teams|email] [--url URL] [--to a@x,b@y] [--provider smtp|resend|postmark|ses|sendgrid] --events job.*,render.ready
+  renderweld webhooks update <id> [--name N] [--url URL] [--to ...] [--events ...] [--enable|--disable] [--rotate-secret [--grace-hours N]]
+  renderweld webhooks test <id>
+  renderweld webhooks deliveries <id> [--status pending|delivering|succeeded|dead] [--limit N] [--json]
+  renderweld webhooks replay <id> <deliveryId>
+  renderweld worker --once [--job <id>] [--wait-ms N]   (exit 0 succeeded/cancelled/nothing queued, 1 failed, 75 handed back or still queued)`;
 
 /**
- * \`reelforge storage ...\` (D-069): works on the configuration (file, env and
+ * \`renderweld storage ...\` (D-069): works on the configuration (file, env and
  * the database's runtime settings, so encrypted credentials are used) without
  * a running server.
  */
@@ -136,7 +136,7 @@ async function storage(cmd: string | undefined, argv: string[], config: ServerCo
       const to = arg('to', argv) as StorageDriverId | undefined;
       const fromId = (arg('from', argv) ?? 'local') as StorageDriverId;
       if (!to || !STORAGE_DRIVERS.includes(to) || !STORAGE_DRIVERS.includes(fromId) || to === fromId) {
-        console.error(`usage: reelforge storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]  (--to and --from must differ)`);
+        console.error(`usage: ${cliName} storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]  (--to and --from must differ)`);
         process.exitCode = 1;
         return;
       }
@@ -198,7 +198,7 @@ async function storage(cmd: string | undefined, argv: string[], config: ServerCo
 }
 
 /**
- * `reelforge webhooks ...` (#66): manages endpoints in the database without a
+ * `renderweld webhooks ...` (#66): manages endpoints in the database without a
  * running server. Deliveries (test, replay) go into the outbox; the running
  * server's worker sends them. Secrets are printed once, on create and rotate.
  */
@@ -222,13 +222,13 @@ async function webhooks(cmd: string | undefined, argv: string[], config: ServerC
     const print = (v: unknown) => console.log(JSON.stringify(v, null, 2));
     const id = pos[0];
     const need = () => {
-      if (!id) throw new Error(`usage: reelforge webhooks ${cmd} <webhookId>`);
+      if (!id) throw new Error(`usage: ${cliName} webhooks ${cmd} <webhookId>`);
       return id;
     };
     if (cmd === 'list') {
       const r = await svc.list();
       if (json) return print(r);
-      if (!r.webhooks.length) console.log('no webhooks yet: reelforge webhooks create --name N --url https://... --events "*"');
+      if (!r.webhooks.length) console.log(`no webhooks yet: ${cliName} webhooks create --name N --url https://... --events "*"`);
       for (const w of r.webhooks) console.log(`${w.id}  ${w.enabled ? 'enabled ' : 'DISABLED'}  ${w.type.padEnd(8)} ${w.name}  ${w.url ?? `${w.email?.provider}: ${w.email?.to.join(', ')}`}  events: ${w.events.join(',')}${w.provider.configured ? '' : `  (not configured: ${w.provider.missing})`}`);
       return;
     }
@@ -271,7 +271,7 @@ async function webhooks(cmd: string | undefined, argv: string[], config: ServerC
     if (cmd === 'test') {
       const r = await svc.test(need(), {}, actor);
       if (json) return print(r);
-      console.log(`queued test delivery ${r.delivery.id} (webhook-id ${r.delivery.messageId}); the running server sends it. Check: reelforge webhooks deliveries ${id}`);
+      console.log(`queued test delivery ${r.delivery.id} (webhook-id ${r.delivery.messageId}); the running server sends it. Check: ${cliName} webhooks deliveries ${id}`);
       return;
     }
     if (cmd === 'deliveries') {
@@ -282,7 +282,7 @@ async function webhooks(cmd: string | undefined, argv: string[], config: ServerC
       return;
     }
     if (cmd === 'replay') {
-      if (!pos[1]) throw new Error('usage: reelforge webhooks replay <webhookId> <deliveryId>');
+      if (!pos[1]) throw new Error(`usage: ${cliName} webhooks replay <webhookId> <deliveryId>`);
       return print(await svc.replay(need(), pos[1], actor));
     }
   } catch (e) {
@@ -314,7 +314,7 @@ function printLicence(r: LicenceReport, json: boolean) {
 }
 
 /**
- * `reelforge licence ...`: works on the database directly (no running server
+ * `renderweld licence ...`: works on the database directly (no running server
  * needed). A running server reads the stored state at its next check; a key
  * stored here reaches a running server after a restart (D-032).
  */
@@ -344,7 +344,7 @@ async function licence(cmd: string | undefined, argv: string[], config: ServerCo
         const { changes } = await settings.update({ 'licence.key': key.trim() });
         await repos.audit.write({ actorType: 'cli', action: 'config.update', targetType: 'config', data: { changes } });
       } else if (!manager.report().key) {
-        console.error('no licence key is set: reelforge licence activate <KEY>');
+        console.error(`no licence key is set: ${cliName} licence activate <KEY>`);
         process.exitCode = 1;
         return;
       }
@@ -361,7 +361,7 @@ async function licence(cmd: string | undefined, argv: string[], config: ServerCo
   }
 }
 
-/** `reelforge config check`: validate the file and environment without starting anything. Exit 1 on errors. */
+/** `renderweld config check`: validate the file and environment without starting anything. Exit 1 on errors. */
 function configCheck(argv: string[]): void {
   const file = arg('file', argv);
   // --file replaces RENDERWELD_CONFIG and its old name REELFORGE_CONFIG.
@@ -425,7 +425,7 @@ function printReport(r: ConfigReport, note?: string) {
   for (const w of r.warnings) console.log(`! ${w}`);
 }
 
-/** `reelforge config show`: the effective configuration with the database's runtime settings (unless --offline), secrets redacted. */
+/** `renderweld config show`: the effective configuration with the database's runtime settings (unless --offline), secrets redacted. */
 async function configShow(argv: string[], config: ServerConfig): Promise<void> {
   let db: Database | undefined;
   let note: string | undefined;
@@ -458,14 +458,14 @@ async function configShow(argv: string[], config: ServerConfig): Promise<void> {
   }
 }
 
-/** `reelforge worker --once`: one job per process, for job platforms (D-100). */
+/** `renderweld worker --once`: one job per process, for job platforms (D-100). */
 async function worker(args: string[]): Promise<void> {
   if (!args.includes('--once')) {
-    console.error('usage: reelforge worker --once [--job <id>] [--wait-ms N]\nA long-running worker is the server with REELFORGE_ROLE=worker (docs/providers/queue-and-scaling.md).');
+    console.error(`usage: ${cliName} worker --once [--job <id>] [--wait-ms N]\nA long-running worker is the server with REELFORGE_ROLE=worker (docs/providers/queue-and-scaling.md).`);
     process.exit(1);
   }
   const opts = onceArgs(args);
-  // As in main.ts: the configuration reads a copy; render child processes never inherit ReelForge secrets (D-086).
+  // As in main.ts: the configuration reads a copy; render child processes never inherit RenderWeld secrets (D-086).
   const env = { ...process.env };
   scrubSecretEnv(process.env);
   process.exit(await runWorkerOnce(env, opts));
@@ -484,7 +484,7 @@ export async function runCli(argv: string[], name: CliName = 'renderweld'): Prom
 export type CliName = 'renderweld' | 'reelforge';
 let cliName: CliName = 'renderweld';
 /** The usage text under the name this CLI was started with. */
-const usage = () => USAGE.replace(/^ {2}reelforge /gm, `  ${cliName} `);
+const usage = () => USAGE.replace(/^ {2}renderweld /gm, `  ${cliName} `);
 
 async function main(argv: string[]) {
   const [group, cmd, ...rest] = argv;
@@ -608,7 +608,7 @@ function describeKey(k: PublicKey): string {
   return `${k.id}  ${k.prefix}…  ${k.name.padEnd(20)} ${k.status.padEnd(8)} ${k.scopes.join(',').padEnd(24)} created ${k.createdAt}${k.lastUsedAt ? `, last used ${k.lastUsedAt}` : ''}${limits.length ? `  [${limits.join('; ')}]` : ''}`;
 }
 
-/** `reelforge keys ...`: the same lifecycle as create_key / rotate_key / revoke_key, audit-logged as the CLI. */
+/** `renderweld keys ...`: the same lifecycle as create_key / rotate_key / revoke_key, audit-logged as the CLI. */
 async function keys(cmd: string, rest: string[], config: ServerConfig): Promise<void> {
   const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir, migrate: config.migrateOnStart, connectTimeoutSeconds: config.dbConnectTimeoutSeconds });
   try {
@@ -663,7 +663,7 @@ async function keys(cmd: string, rest: string[], config: ServerConfig): Promise<
   }
 }
 
-/** `reelforge audit list|export|sweep`. */
+/** `renderweld audit list|export|sweep`. */
 async function audit(cmd: string | undefined, rest: string[], config: ServerConfig): Promise<void> {
   if (!['list', 'export', 'sweep'].includes(cmd ?? '')) {
     console.log(usage());

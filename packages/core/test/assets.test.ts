@@ -65,11 +65,13 @@ describe('AssetStore', () => {
   let server: Server;
   let base: string;
   let mp3: Buffer;
+  const agents: string[] = [];
   beforeAll(async () => {
     const f = join(dir, 'tone.mp3');
     await makeTone(f, 1);
     mp3 = readFileSync(f);
     server = createServer((req, res) => {
+      agents.push(req.headers['user-agent'] ?? '');
       if (req.url === '/tone.mp3') return res.writeHead(200, { 'content-type': 'audio/mpeg' }).end(mp3);
       if (req.url === '/big') return res.writeHead(200).end(Buffer.alloc(5000, 1));
       if (req.url === '/loop') return res.writeHead(302, { location: '/loop' }).end();
@@ -105,6 +107,8 @@ describe('AssetStore', () => {
   it('imports from a URL, following a limited number of redirects', async () => {
     const a = await store().fromUrl(`${base}/redirect`);
     expect(a.contentType).toBe('audio/mpeg');
+    // The RenderWeld User-Agent, with the old token after it (#413), on the request and the redirect.
+    expect(agents.slice(-2)).toEqual(['RenderWeld-Asset-Fetch/1 reelforge-studio-asset-fetch', 'RenderWeld-Asset-Fetch/1 reelforge-studio-asset-fetch']);
     // Same bytes as the earlier upload: the existing asset is returned.
     expect(a.id).toBe((await store().put({ data: mp3, source: 'upload' })).id);
     await expect(store().fromUrl(`${base}/loop`)).rejects.toMatchObject({ code: 'fetch_failed' });

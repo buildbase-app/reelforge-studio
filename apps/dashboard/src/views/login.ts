@@ -48,7 +48,7 @@ export function loginView(root: HTMLElement, opts: { onSubmit(key: string, keep:
       'p',
       { id: 'key-help', class: 'help' },
       'A read key can watch jobs and browse renders. Cancel and retry need the render scope. Create one with ',
-      h('code', null, 'reelforge keys create --name dashboard --scopes read'),
+      h('code', null, 'renderweld keys create --name dashboard --scopes read'),
       '.'
     ),
     h('div', { class: 'check' }, keep, h('label', { for: 'keep' }, 'Keep me signed in until this tab closes')),
@@ -64,7 +64,7 @@ export function loginView(root: HTMLElement, opts: { onSubmit(key: string, keep:
       h(
         'div',
         { class: 'login-card' },
-        h('p', { class: 'brand' }, mark(24), h('span', null, 'ReelForge Studio')),
+        h('p', { class: 'brand' }, mark(24), h('span', null, 'RenderWeld')),
         h('h1', { tabindex: '-1' }, 'Sign in to the dashboard'),
         h('p', { class: 'lede' }, 'Watch render jobs and browse finished reels on this studio.'),
         form,

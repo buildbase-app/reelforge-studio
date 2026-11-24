@@ -380,7 +380,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
       throw new PipelineError(
         stage,
         'Chromium could not start its sandbox on this machine (e.g. Ubuntu 23.10+ restricts unprivileged user namespaces). ' +
-          'Enable user namespaces for Chrome (see Chromium docs/security/apparmor-userns-restrictions.md), or run ReelForge in a container ' +
+          'Enable user namespaces for Chrome (see Chromium docs/security/apparmor-userns-restrictions.md), or run RenderWeld in a container ' +
           'and set REELFORGE_CHROMIUM_NO_SANDBOX=1.',
         msg.slice(0, 2000)
       );

@@ -3,6 +3,9 @@
  *
  *   dist/index.html
  *   dist/assets/app-<hash>.js, app-<hash>.css, mark-<hash>.svg
+ *   dist/assets/apple-touch-icon-<hash>.png, icon-*-<hash>.png, manifest-<hash>.webmanifest
+ *
+ * The icons are the RenderWeld kit's web icons (docs/brand/web, #410/#413).
  *
  * One minified ES module and one stylesheet, no source maps, no external URL.
  * Fails when the JS and CSS together exceed the budget (gzip).
@@ -29,6 +32,28 @@ export interface BuiltFile {
 
 const hash = (b: Uint8Array) => createHash('sha256').update(b).digest('hex').slice(0, 10);
 
+/**
+ * The web app manifest (#413). It lives in assets/, so the start URL and scope
+ * are one level up (/dashboard/) and the icons sit next to it.
+ */
+export function webManifest(icons: { i192: string; i512: string; maskable: string }) {
+  return {
+    name: 'RenderWeld',
+    short_name: 'RenderWeld',
+    description: 'Jobs, library, analytics and settings of this RenderWeld server.',
+    start_url: '../',
+    scope: '../',
+    display: 'standalone',
+    theme_color: '#191B1F',
+    background_color: '#191B1F',
+    icons: [
+      { src: icons.i192, sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: icons.i512, sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: icons.maskable, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ],
+  };
+}
+
 export async function buildDashboard(outDir = DEFAULT_OUT): Promise<{ files: BuiltFile[]; totalGzip: number }> {
   const result = await build({
     entryPoints: [join(here, 'src', 'main.ts'), join(here, 'src', 'styles.css')],
@@ -46,15 +71,28 @@ export async function buildDashboard(outDir = DEFAULT_OUT): Promise<{ files: Bui
   const css = result.outputFiles.find((f) => f.path.endsWith('.css'));
   if (!js || !css) throw new Error('esbuild did not produce one JS and one CSS file');
   const icon = await readFile(join(here, 'src', 'mark.svg'));
+  const png = async (name: string): Promise<[string, Uint8Array]> => {
+    const body = await readFile(join(here, 'src', 'icons', `${name}.png`));
+    return [`${name}-${hash(body)}.png`, body];
+  };
+  const [apple, i192, i512, maskable] = await Promise.all(['apple-touch-icon', 'icon-192', 'icon-512', 'icon-maskable-512'].map(png));
+  const manifest = Buffer.from(JSON.stringify(webManifest({ i192: i192![0], i512: i512![0], maskable: maskable![0] }), null, 2) + '\n');
   const assets: Array<[string, Uint8Array]> = [
     [`app-${hash(js.contents)}.js`, js.contents],
     [`app-${hash(css.contents)}.css`, css.contents],
     [`mark-${hash(icon)}.svg`, icon],
+    apple!,
+    [`manifest-${hash(manifest)}.webmanifest`, manifest],
+    i192!,
+    i512!,
+    maskable!,
   ];
   const html = (await readFile(join(here, 'src', 'index.html'), 'utf8'))
     .replace('%JS%', `assets/${assets[0]![0]}`)
     .replace('%CSS%', `assets/${assets[1]![0]}`)
-    .replace('%ICON%', `assets/${assets[2]![0]}`);
+    .replace('%ICON%', `assets/${assets[2]![0]}`)
+    .replace('%APPLE_ICON%', `assets/${assets[3]![0]}`)
+    .replace('%MANIFEST%', `assets/${assets[4]![0]}`);
 
   await rm(outDir, { recursive: true, force: true });
   await mkdir(join(outDir, 'assets'), { recursive: true });

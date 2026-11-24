@@ -30,7 +30,7 @@ const KineticTitleEntry: React.FC<Record<string, unknown>> = ({ __output: _ignor
 // remotion-layout (#287): the markup comes ready-built from src/render.ts (`__layout`), with staged media in `__assets`.
 const LayoutEntry: React.FC<Record<string, unknown>> = ({ __layout, __assets }) => {
   const layout = __layout as LayoutSceneInput | undefined;
-  if (!layout) throw new Error('remotion-layout renders only through the ReelForge renderer (no __layout input)');
+  if (!layout) throw new Error('remotion-layout renders only through the RenderWeld renderer (no __layout input)');
   return <LayoutScene {...layout} assets={(__assets as Record<string, SceneMedia> | undefined) ?? {}} />;
 };
 

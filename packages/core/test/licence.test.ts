@@ -374,7 +374,8 @@ describe('BuildBaseLicenceClient (HTTP)', () => {
     expect(calls.map((x) => JSON.parse(String(x.init.body)))).toEqual([{ key: KEY, instance: 'rf-1' }, { key: KEY, instance: 'rf-1' }, { key: KEY }, { key: KEY, instance: 'rf-1' }]);
     for (const x of calls) {
       expect(x.init.method).toBe('POST');
-      expect(Object.keys(x.init.headers as Record<string, string>).sort()).toEqual(['accept', 'content-type']);
+      // No credentials: only the content headers and the product User-Agent (#413).
+      expect(x.init.headers).toEqual({ 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'RenderWeld-Licence/1' });
     }
   });
 
