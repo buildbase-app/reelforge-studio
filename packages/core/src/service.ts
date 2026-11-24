@@ -90,6 +90,7 @@ import { ClaimRate, DEFAULT_PRIORITY, PRIORITIES, defaultPriority, isPriority, l
 import { WebhookService, jobPayload, renderDedupeKey, renderOutcome, renderSummary, type NotificationProvider } from './webhooks/index';
 import type { AuditEntry } from './repositories';
 import type { JobEvent, JobUsage } from './jobs';
+import { Analytics, type AnalyticsSummary } from './analytics';
 
 export interface ServiceConfig {
   /**
@@ -2218,6 +2219,26 @@ export class ReelforgeService {
   /** Driver, where the bytes go (no secrets), health, usage, retention policy and the last sweep. */
   getStorage() {
     return this.storage.status();
+  }
+
+  // ---- analytics (#292) ---------------------------------------------------------
+
+  private analytics: Analytics | null = null;
+
+  /**
+   * get_analytics_summary (GET /v1/analytics/summary, read): renders per day by status, success and failure rates,
+   * render time (per engine from the manifests), queue wait, minutes rendered, storage used, top error codes and
+   * webhook delivery health, for a bounded range (at most 90 days by day, 7 by hour). See analytics.ts.
+   */
+  analyticsSummary(query: Record<string, unknown> = {}): Promise<AnalyticsSummary> {
+    this.analytics ??= new Analytics({
+      jobs: this.jobs, // the runner's page: live state of jobs running in this process, like list_jobs
+      webhooks: this.repos.webhooks,
+      storageUsage: () => this.storage.usage(),
+      readManifest: async (projectId, runId) => (await this.storage.renders.readManifest<{ scenes?: Array<{ engine?: unknown; millis?: unknown }> }>(projectId, runId)) ?? null,
+      now: () => this.now(),
+    });
+    return this.analytics.summary(query);
   }
 
   /**

@@ -636,6 +636,8 @@ export function createApp(deps: AppDeps) {
   });
   v1.delete('/licence', need('admin'), async (c) => c.json(await service.deactivateLicence(actor(c))));
 
+  // Analytics (#292): aggregates over a bounded range, read from jobs, render manifests, storage usage and the webhook outbox.
+  v1.get('/analytics/summary', need('read'), async (c) => c.json(await service.analyticsSummary(c.req.query())));
   v1.get('/storage', need('admin'), async (c) => c.json(await service.getStorage()));
   v1.post('/storage/cleanup', need('admin'), json, async (c) => {
     const b = await body(c);

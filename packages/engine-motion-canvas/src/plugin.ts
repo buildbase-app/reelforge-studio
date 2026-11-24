@@ -8,7 +8,7 @@ export interface MotionCanvasEngineOptions {
   browserExecutable?: string;
 }
 
-/** The Motion Canvas engine as a plugin (templates: animated-explainer). */
+/** The Motion Canvas engine as a plugin (templates: animated-explainer, motion-canvas-layout). */
 export function motionCanvasEngine(opts: MotionCanvasEngineOptions = {}): EnginePlugin {
   return {
     id: 'motion-canvas',

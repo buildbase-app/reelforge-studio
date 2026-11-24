@@ -1,4 +1,4 @@
-import { HttpError, sameOriginLink, type ProjectSummary, type RenderManifest, type RenderSummary } from '../api';
+import { HttpError, sameOriginLink, type ProjectSummary, type RenderAudio, type RenderCaptionsView, type RenderManifest, type RenderSummary } from '../api';
 import { fill, h, notice, tableWrap } from '../dom';
 import { ago, clock, dateTime, downloadLabel, duration, outputFormat, outputShort, playerKind, size, stillNote } from '../format';
 import type { Ctx, View } from '../main';
@@ -15,6 +15,8 @@ const CHECK_LABEL: Record<string, string> = {
   entries: 'One PNG per frame in the zip',
   pngHeaders: 'Frame size and colour type match',
   audio: 'Audio codec and length match',
+  avSync: 'Audio and video stay in sync',
+  loudness: 'Loudness meets the preset',
 };
 
 function format(r: Pick<RenderSummary, 'width' | 'height' | 'fps' | 'durationSeconds' | 'format' | 'codec' | 'alpha'>): string {
@@ -23,6 +25,72 @@ function format(r: Pick<RenderSummary, 'width' | 'height' | 'fps' | 'durationSec
     : [outputShort(r), size(r.width, r.height), `${r.fps} fps`, `${r.durationSeconds.toFixed(1)} s`];
   // A card's line wraps between parts only, never inside "30 fps" or "1920 × 1080".
   return parts.map((p) => p.replace(/ /g, '\u00a0')).join(' · ');
+}
+
+/** 3.25 -> "0:03.2" (cue times). */
+function cueTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  return `${m}:${(sec - m * 60).toFixed(1).padStart(4, '0')}`;
+}
+
+const db = (v: number | null | undefined, unit: string) => (v === null || v === undefined ? '–' : `${v.toFixed(1)} ${unit}`);
+
+/** The render's audio (#301): what the file carries, the loudness target, what was measured, and the QA result. */
+function audioPanel(a: RenderAudio): HTMLElement {
+  const rows: Array<[string, string]> = [
+    ['Track', a.track === 'mixed' ? 'Mixed' : a.track === 'silent' ? 'Silent track' : 'No audio'],
+    ['Loudness preset', a.preset],
+    ['Target', a.target ? `${db(a.target.integrated, 'LUFS')} · peak ${db(a.target.truePeak, 'dBTP')}` : '–'],
+    ['Measured', a.measured ? `${db(a.measured.integrated, 'LUFS')} · peak ${db(a.measured.truePeak, 'dBTP')} · range ${db(a.measured.lra, 'LU')}` : 'Not measured'],
+    ['Normalisation', a.normalisation],
+  ];
+  return h(
+    'section',
+    { class: 'panel', 'aria-labelledby': 'audio-h' },
+    h('h2', { id: 'audio-h' }, 'Audio'),
+    h('dl', { class: 'facts' }, rows.map(([k, v]) => h('div', null, h('dt', null, k), h('dd', { class: 'num' }, v)))),
+    h(
+      'ul',
+      { class: 'checks qa' },
+      a.qa.issues.length
+        ? a.qa.issues.map((i) => h('li', { class: i.severity === 'fail' ? 'fail' : 'warn' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), h('span', null, i.message), h('span', { class: 'sub' }, i.severity === 'fail' ? 'Failed' : 'Warning')))
+        : h('li', { class: 'pass' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), h('span', null, 'Loudness checks'), h('span', { class: 'sub' }, 'Passed'))
+    )
+  );
+}
+
+/** Caption tracks of a render (get_captions with renderId): one row per language, and the first cues of each. */
+function captionsPanel(c: RenderCaptionsView): HTMLElement {
+  return h(
+    'section',
+    { class: 'panel wide-panel', 'aria-labelledby': 'captions-h' },
+    h('h2', { id: 'captions-h' }, `Captions (${c.languages.length} ${c.languages.length === 1 ? 'track' : 'tracks'})`),
+    h('p', { class: 'meta tracks-meta' }, `${c.burned ? `Burned in${c.burnLanguage ? ` (${c.burnLanguage})` : ''}` : 'Sidecar files'} · ${c.approved ? 'approved' : 'not approved'}`),
+    h(
+      'ul',
+      { class: 'tracks' },
+      c.languages.map((t) =>
+        h(
+          'li',
+          null,
+          h(
+            'div',
+            { class: 'bar-head' },
+            h('span', { class: 'bar-name' }, t.language ?? 'No language tag', t.primary ? h('span', { class: 'meta' }, ' · primary') : null),
+            h('span', { class: 'num' }, `${t.cues.length} cues${t.descriptions.length ? ` · ${t.descriptions.length} descriptions` : ''}`)
+          ),
+          h('span', { class: 'sub' }, `From ${t.source} · ${t.burned ? 'burned in' : 'sidecar'} · ${t.qa.ok ? 'reading rules passed' : `${t.qa.issues.length} reading-rule issues`}`),
+          t.cues.length
+            ? h(
+                'ol',
+                { class: 'cues', 'aria-label': `First cues, ${t.language ?? 'untagged'}` },
+                t.cues.slice(0, 4).map((q) => h('li', null, h('span', { class: 'num cue-time' }, `${cueTime(q.start)}–${cueTime(q.end)}`), h('span', null, q.text)))
+              )
+            : null
+        )
+      )
+    )
+  );
 }
 
 function kindLabel(kind: string): string {
@@ -223,6 +291,7 @@ export const renderView: View = (ctx, main, renderId) => {
     const file = r.file ?? 'final.mp4';
     const ext = file.slice(file.lastIndexOf('.') + 1);
 
+    const captionsBox = h('div', { hidden: true });
     const checks = Object.entries(m.checks ?? {});
     if (r.captions) checks.push(['captions', r.captions.qa.ok ? 'pass' : `${r.captions.qa.issues.length} issues`]);
     const scenes = m.scenes ?? [];
@@ -267,7 +336,7 @@ export const renderView: View = (ctx, main, renderId) => {
             ? h(
                 'ul',
                 { class: 'checks' },
-                checks.map(([k, v]) => h('li', { class: v === 'pass' ? 'pass' : 'fail' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), h('span', null, CHECK_LABEL[k] ?? k), h('span', { class: 'sub' }, v === 'pass' ? 'Passed' : v)))
+                checks.map(([k, v]) => h('li', { class: v === 'pass' ? 'pass' : v === 'skipped' ? 'skip' : v === 'warn' ? 'warn' : 'fail' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), h('span', null, CHECK_LABEL[k] ?? k), h('span', { class: 'sub' }, v === 'pass' ? 'Passed' : v === 'skipped' ? 'Skipped' : v === 'warn' ? 'Warning' : v)))
               )
             : h('p', { class: 'empty' }, 'No checks recorded.')
         )
@@ -310,9 +379,17 @@ export const renderView: View = (ctx, main, renderId) => {
             ...engines.map(([e, v]) => [e, v] as [string, string]),
           ])
         ),
-        section('Files', h('ul', { class: 'files' }, r.files.map((f) => h('li', { class: 'mono' }, f))))
+        section('Files', h('ul', { class: 'files' }, r.files.map((f) => h('li', { class: 'mono' }, f)))),
+        r.audio ? audioPanel(r.audio) : null,
+        captionsBox
       )
     );
+    if (r.captions) {
+      ctx.api
+        .get<RenderCaptionsView>(`/v1/renders/${enc}/captions`, ac.signal)
+        .then((c) => (c.languages.length ? captionsBox.replaceWith(captionsPanel(c)) : captionsBox.remove()))
+        .catch(() => captionsBox.remove());
+    } else captionsBox.remove();
 
     // Bucket and root of the storage: get_storage is admin only.
     if (ctx.isAdmin) {

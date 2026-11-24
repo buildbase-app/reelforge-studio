@@ -12,15 +12,16 @@ import { buildDashboard } from '../build';
  * engines, an admin, a read and a render key. For the browser test and the
  * screenshot script.
  */
-export async function startStudio(engines: EnginePlugin[], opts: { dashboard?: boolean } = {}) {
+export async function startStudio(engines: EnginePlugin[], opts: { dashboard?: boolean; env?: Record<string, string>; register?: (r: PluginRegistry) => void } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'reelforge-dashboard-'));
   const assets = join(dir, 'dashboard');
   const built = await buildDashboard(assets);
-  const env = { REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_DASHBOARD_ENABLED: String(opts.dashboard ?? true) };
+  const env = { REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_DASHBOARD_ENABLED: String(opts.dashboard ?? true), ...opts.env };
   const config = { ...loadConfig(env), dashboardAssetsDir: assets };
   const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir });
   const registry = new PluginRegistry();
   for (const e of engines) registry.registerEngine(e);
+  opts.register?.(registry);
   const service = await ReelforgeService.create(registry, {
     repositories: db.repositories(),
     dataDir: config.dataDir,

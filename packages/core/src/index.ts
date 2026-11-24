@@ -23,6 +23,7 @@ export * from './output-formats';
 export * from './captions';
 export * from './audio';
 export * from './service';
+export * from './analytics';
 export * from './versions';
 export * from './childEnv';
 export * from './sceneMarkup';

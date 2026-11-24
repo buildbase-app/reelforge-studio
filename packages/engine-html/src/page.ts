@@ -1,5 +1,5 @@
 import { assertSafeSceneFragment } from '@reelforge/core';
-import { frameLayout, layoutCssVars, mediaLayersHtml, type DomLogo, type DomMediaLayer, type HtmlTitleProps, type OutputSettings, type ThemeTokens } from '@reelforge/project-schema';
+import { domThemeCss, frameLayout, mediaLayersHtml, type DomLogo, type DomMediaLayer, type HtmlTitleProps, type OutputSettings, type ThemeTokens } from '@reelforge/project-schema';
 
 /**
  * Builds the sandboxed document an html scene is rendered from. Agent HTML and
@@ -36,8 +36,7 @@ export function escapeHtml(s: string): string {
  * --rf-content-w/h the box inside --rf-safe-*.
  */
 export function themeCss(theme: ThemeTokens, output: OutputSettings, durationSeconds: number, platform?: string): string {
-  const c = theme.colors;
-  return `:root{--rf-bg:${c.background};--rf-surface:${c.surface};--rf-text:${c.text};--rf-muted:${c.mutedText};--rf-accent:${c.accent};--rf-accent2:${c.accent2};--rf-font:${theme.fontFamily};--rf-heading-weight:${theme.headingWeight};--rf-radius:${theme.radius};--rf-spacing:${theme.spacing};--rf-speed:${theme.motionSpeed};--rf-width:${output.width}px;--rf-height:${output.height}px;--rf-duration:${durationSeconds}s;${layoutCssVars(output.width, output.height, platform)}}`;
+  return domThemeCss(theme, output, durationSeconds, platform);
 }
 
 export function buildDocument(opts: {
