@@ -117,7 +117,7 @@ describe('ReelforgeService limits', () => {
       expect(job.status).toBe('queued');
       await svc.cancelJob(job.id);
       await svc.jobs.idle();
-      expect(svc.capabilities().limits).toMatchObject({ maxRenderFrames: 200, maxRenderDimension: 1000, maxScenes: 50 });
+      expect(svc.capabilities().limits).toMatchObject({ maxRenderFrames: 200, maxRenderDimension: 1000, maxScenes: 50, minSceneFrames: 3, shortSceneWarnSeconds: 0.25 });
     } finally {
       await svc.updateConfig({ 'limits.maxRenderFrames': null, 'limits.maxRenderDimension': null });
     }

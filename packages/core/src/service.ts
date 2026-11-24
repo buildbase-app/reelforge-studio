@@ -14,6 +14,8 @@ import {
   isSafeRelativePath,
   MAX_PROJECT_SECONDS,
   MAX_SOURCE_BYTES,
+  MIN_SCENE_FRAMES,
+  SHORT_SCENE_WARN_SECONDS,
   parseCaptions,
   parseProject,
   projectJsonSchema,
@@ -955,6 +957,9 @@ export class ReelforgeService {
     return {
       maxProjectSeconds: Math.min(MAX_PROJECT_SECONDS, l.maxRenderSeconds),
       maxScenes: l.maxScenes,
+      /** Shortest scene (html source and layout templates; other templates have their own minSeconds), and the length under which validation warns (#450). */
+      minSceneFrames: MIN_SCENE_FRAMES,
+      shortSceneWarnSeconds: SHORT_SCENE_WARN_SECONDS,
       maxRenderFrames: l.maxRenderFrames,
       maxRenderDimension: l.maxRenderDimension,
       maxRenderFps: l.maxRenderFps,
