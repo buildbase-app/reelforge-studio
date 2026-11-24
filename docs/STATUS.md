@@ -733,7 +733,7 @@ real-render driver `pnpm load:real` (`scripts/load/real-render.ts`, dry run test
 fake server only) and `CHECK_SINCE` for the exactly-once check.
 ### Self-hosted web dashboard, part 2 (2026-11-24, issue #292)
 
-Built (D-1XX): analytics (renders per day by outcome, rates, render time per engine, queue wait, minutes, storage,
+Built (D-126): analytics (renders per day by outcome, rates, render time per engine, queue wait, minutes, storage,
 top errors, webhook health) from the new read-scope `GET /v1/analytics/summary` / `get_analytics_summary` (job table
 walked with the keyset index, at most 90 days and 20 000 jobs per call; manifests and storage usage cached);
 settings (every config key grouped with its source, secrets masked, runtime keys edited with type checks from the

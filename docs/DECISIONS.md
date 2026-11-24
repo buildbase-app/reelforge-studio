@@ -2755,7 +2755,7 @@ a numbered clip frame-exact in two panes with in-points, whole and frame range),
 pixel tests in `apps/server/test/formats.test.ts`, the contact sheets (a row per engine) and `geometry.json` in
 `docs/proofs/layouts/`.
 
-### D-1XX --- Dashboard part 2: analytics from the job table and manifests through one bounded read-scope summary; settings and audit through the existing tools
+### D-126 --- Dashboard part 2: analytics from the job table and manifests through one bounded read-scope summary; settings and audit through the existing tools
 
 *(Number assigned at merge.)*
 
