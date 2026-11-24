@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   LAYOUT_DEFAULTS,
+  LAYOUT_STYLE,
+  animationProgress,
+  cubicBezier,
+  layoutMediaRefs,
+  layoutSceneDom,
   autoGrid,
   fitMedia,
   frameLayout,
@@ -229,5 +234,71 @@ describe('layout scene props (#287)', () => {
     hf.scenes[0]!.engine = 'hyperframes';
     hf.scenes[0]!.template = 'hyperframes-layout';
     expect(parseProject(hf).ok).toBe(true);
+  });
+});
+
+describe('layouts on every engine (#287): one props schema, shared style and timing', () => {
+  it('the four layout templates take the same props, and a scene moves between engines by engine and template only', () => {
+    const scene = { id: 's', durationSeconds: 2, props: { layout: { type: 'pip' }, panes: [{ media: { asset: 'clip', fit: 'blur-fill', startSeconds: 1.5 } }, { color: '#223344', headline: 'Inset' }] } };
+    for (const [engine, template] of [
+      ['html', 'html-layout'],
+      ['hyperframes', 'hyperframes-layout'],
+      ['remotion', 'remotion-layout'],
+      ['motion-canvas', 'motion-canvas-layout'],
+    ] as const) {
+      const r = parseProject({
+        schemaVersion: '0.2',
+        projectId: 'p',
+        title: 'p',
+        output: { width: 1080, height: 1920, fps: 30, format: 'mp4' },
+        assets: [{ id: 'clip', uri: 'project://a.mp4', mediaType: 'video' }],
+        scenes: [{ ...scene, engine, template }],
+      });
+      expect(r.ok, `${engine}/${template}`).toBe(true);
+    }
+  });
+
+  it('layoutMediaRefs gives each pane asset with its in-point, for staging', () => {
+    expect(layoutMediaRefs({ layout: { type: 'split' }, panes: [{ media: { asset: 'a', startSeconds: 2 } }, { media: { asset: 'b' } }] })).toEqual([
+      { path: ['panes', 0, 'media', 'asset'], asset: 'a', mediaTypes: ['image', 'video'], start: 2 },
+      { path: ['panes', 1, 'media', 'asset'], asset: 'b', mediaTypes: ['image', 'video'] },
+    ]);
+  });
+
+  it('cubicBezier is the CSS timing function', () => {
+    const linear = cubicBezier(0, 0, 1, 1);
+    for (const x of [0, 0.1, 0.5, 0.9, 1]) expect(linear(x)).toBeCloseTo(x, 5);
+    // CSS `ease` (0.25, 0.1, 0.25, 1) at x = 0.5 is 0.8024, `ease-out` (0, 0, 0.58, 1) 0.6847.
+    expect(cubicBezier(0.25, 0.1, 0.25, 1)(0.5)).toBeCloseTo(0.8024, 3);
+    expect(cubicBezier(0, 0, 0.58, 1)(0.5)).toBeCloseTo(0.6847, 3);
+    const ease = cubicBezier(0.2, 0.8, 0.2, 1);
+    let last = 0;
+    for (let i = 0; i <= 100; i++) {
+      const y = ease(i / 100);
+      expect(y).toBeGreaterThanOrEqual(last - 1e-9);
+      last = y;
+    }
+    expect(ease(-1)).toBe(0);
+    expect(ease(2)).toBe(1);
+  });
+
+  it('animationProgress follows delay, duration and easing with fill both', () => {
+    const a = LAYOUT_STYLE.motion.card;
+    expect(animationProgress(0, a)).toBe(0);
+    expect(animationProgress(a.delay, a)).toBe(0);
+    expect(animationProgress(a.delay + a.duration, a)).toBe(1);
+    expect(animationProgress(10, a)).toBe(1);
+    expect(animationProgress(a.delay + a.duration / 2, a)).toBeGreaterThan(0.5);
+  });
+
+  it('the DOM builder reads its sizes and timing from LAYOUT_STYLE', () => {
+    const props = layoutSceneProps.parse({ layout: { type: 'pip' }, panes: [{ color: '#112233' }, { label: 'Cam', headline: 'Hi', body: 'There' }], lowerThird: { name: 'Sam' } });
+    const dom = layoutSceneDom({ props, width: 1000, height: 1000, durationSeconds: 3, picture: () => '' });
+    const m = LAYOUT_STYLE.motion;
+    expect(dom.css).toContain(`rfl-pop ${m.inset.duration}s cubic-bezier(${m.inset.ease.join(',')}) ${m.inset.delay}s both`);
+    expect(dom.css).toContain(`rfl-in ${m.card.duration}s cubic-bezier(${m.card.ease.join(',')}) ${m.card.delay}s both`);
+    expect(dom.css).toContain(`rfl-out ${m.lowerThirdOut.duration}s cubic-bezier(${m.lowerThirdOut.ease.join(',')}) ${(3 - m.lowerThirdOut.lead).toFixed(3)}s both`);
+    expect(dom.css).toContain(`font-size:${LAYOUT_STYLE.card.size * 10}px`);
+    expect(dom.html).toContain(`data-rf-fit-tol="${LAYOUT_STYLE.fitInk}"`);
   });
 });
