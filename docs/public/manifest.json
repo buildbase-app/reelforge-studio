@@ -7,6 +7,7 @@
   "folders": [
     { "path": "start", "name": "Quick start" },
     { "path": "install", "name": "Install" },
+    { "path": "deploy", "name": "Deploy to a cloud" },
     { "path": "api", "name": "REST API" },
     { "path": "mcp", "name": "MCP" },
     { "path": "providers", "name": "Providers" },
@@ -19,6 +20,7 @@
   "docs": [
     "docs/public/start/quick-start.md",
     "docs/public/start/connect-an-agent.md",
+    "docs/HOW_IT_WORKS.md",
     "docs/public/install/docker.md",
     "docs/public/install/licence.md",
     "docs/public/install/from-source.md",
@@ -33,11 +35,17 @@
     },
     "docs/public/install/dashboard.md",
     "docs/public/install/buildbase-console-setup.md",
+    "docs/cloud/overview.md",
+    "docs/cloud/aws.md",
+    "docs/cloud/google-cloud.md",
+    "docs/cloud/azure.md",
+    "docs/cloud/other-platforms.md",
     "docs/public/api/rest-api.md",
     "docs/public/api/endpoints.md",
     "docs/public/mcp/mcp-server.md",
     "docs/public/mcp/tools.md",
     "docs/public/providers/all-providers.md",
+    "docs/PROVIDERS.md",
     {
       "file": "docs/providers/storage.md",
       "folder": "providers",
@@ -67,6 +75,7 @@
     "docs/public/manifest/formats.md",
     "docs/public/manifest/assets.md",
     "docs/public/manifest/audio.md",
+    "docs/public/manifest/fonts.md",
     "docs/public/cookbook/prompts.md",
     {
       "file": "docs/PRIVACY.md",
@@ -77,6 +86,7 @@
       "order": 1,
       "tags": ["privacy", "security"]
     },
+    "docs/ISOLATION.md",
     "docs/public/troubleshooting/common-problems.md",
     "docs/public/screenshots/store.md",
     "docs/public/screenshots/studio.md",

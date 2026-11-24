@@ -659,6 +659,66 @@ Re-check before relying on any price, limit or date.
   YouTube inauthentic-content clarification [2026-07-16] https://www.tubefilter.com/2026/07/13/youtube-inauthentic-content-monetization-policy-update/;
   YouTube Data API `status.containsSyntheticMedia` https://developers.google.com/youtube/v3/docs/videos;
   MCP Apps extension [2026-01-26] https://blog.modelcontextprotocol.io/posts/2026-01-26-mcp-apps/.
+- 2026-11-24 (#285, #288, #291; docs/cloud/, docs/PROVIDERS.md, docs/ISOLATION.md). **Cloud deployment
+  guides**, read on 2026-11-24 unless noted. AWS: *Amazon ECS task definition parameters for Fargate*
+  (https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html):
+  "If you're using tasks that use Fargate, the `sharedMemorySize` parameter isn't supported";
+  `ephemeralStorage` expands Fargate task storage (platform 1.4.0+); `dockerSecurityOptions` is not
+  offered for Fargate, so no custom seccomp profile; `stopTimeout` "The maximum value is 120 seconds".
+  *Fargate task ephemeral storage*
+  (https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-task-storage.html): "a minimum of
+  20 GiB", "up to a maximum of 200 GiB", and the container image is stored on that ephemeral storage. *Understand how EKS Pod Identity works*
+  (https://docs.aws.amazon.com/eks/latest/userguide/pod-id-how-it-works.html): the pod gets
+  `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://169.254.170.23/v1/credentials` and a projected token
+  with audience `pods.eks.amazonaws.com`; the container credential provider is part of the SDKs'
+  default chain. Google Cloud: *Control communication between Pods and Services using network
+  policies* (https://docs.cloud.google.com/kubernetes-engine/docs/network-policy): with Workload
+  Identity Federation for GKE allow egress to `169.254.169.252/32` on ports 988 and 987 (GKE
+  1.21.0-gke.1000 and later), `127.0.0.1/32` on 988 and 987 before that, and `169.254.169.254/32` on
+  ports 80 and 8080 with GKE Dataplane V2. *Authenticate to Google Cloud APIs from GKE workloads*
+  (https://docs.cloud.google.com/kubernetes-engine/docs/how-to/workload-identity): principal
+  identifier `principal://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/PROJECT_ID.svc.id.goog/subject/ns/NAMESPACE/sa/KSA_NAME`.
+  Cloud Run: *Configure secrets* (https://docs.cloud.google.com/run/docs/configuring/services/secrets):
+  `--update-secrets=PATH=SECRET:VERSION` mounts a file, `ENV=SECRET:VERSION` an environment variable,
+  the service identity needs `roles/secretmanager.secretAccessor`, two secrets cannot share a path;
+  *Billing settings* (https://docs.cloud.google.com/run/docs/configuring/billing-settings):
+  `--no-cpu-throttling` is instance-based billing, request-based billing allocates CPU only while a
+  request is processed; *Deploy worker pools* (https://docs.cloud.google.com/run/docs/deploy-worker-pools):
+  `gcloud run worker-pools deploy`, no load-balanced URL, no autoscaling (instance count set by hand).
+  Azure: *Use a Microsoft Entra Workload ID on AKS*
+  (https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview, updated 2026-10-20): pod label
+  `azure.workload.identity/use: "true"` required, service account annotation
+  `azure.workload.identity/client-id`, the webhook sets `AZURE_FEDERATED_TOKEN_FILE`;
+  `@azure/identity` 3.2.0 minimum for Node.js. *Scaling in Azure Container Apps*
+  (https://learn.microsoft.com/en-us/azure/container-apps/scale-app, 2026-05-19): custom rules from
+  "any ScaledObject-based KEDA scaler", event-driven jobs from ScaledJob-based scalers, defaults 30 s
+  polling and 300 s cooldown, `activeRevisionsMode: single` for non-HTTP rules. *Manage secrets in
+  Azure Container Apps* (https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets,
+  2026-09-04): `keyvaultref:<uri>,identityref:<id>`, role Key Vault Secrets User, a secret volume mounts
+  each secret as a file named after it, new Key Vault versions picked up within 30 minutes. Storage:
+  Cloudflare R2 *S3 API compatibility* (https://developers.cloudflare.com/r2/api/s3/api/): endpoint
+  `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`, region `auto`, multipart and CopyObject implemented,
+  the `x-amz-server-side-encryption` header not implemented (SSE-C is). Hetzner *Using S3 API tools*
+  (https://docs.hetzner.com/storage/object-storage/getting-started/using-s3-api-tools/): endpoint
+  per location (`fsn1.your-objectstorage.com`), virtual-hosted addressing. Tigris *AWS JS SDK*
+  (https://www.tigrisdata.com/docs/sdks/s3/aws-js-sdk/): endpoint `https://t3.storage.dev`, region
+  `auto`, no path style. Fly.io *App configuration* (https://docs.fly.io/reference/configuration):
+  `[processes]` groups, `[[mounts]]` and `[[vm]]` per process group, `auto_stop_machines` `off` /
+  `stop` / `suspend`; a volume mounts on one Machine. Not fetched (written from the vendors' documented
+  behaviour, marked VERIFY in the guides): DigitalOcean App Platform and Spaces, Railway, GKE
+  Autopilot's node-file restrictions, Container Apps' seccomp and `/dev/shm`, Azure user delegation
+  key scope, the ADOT and Google Cloud collector exporter names.
+- **OpenMotion comparison (2026-11-24, epic #285, docs/research/OPENMOTION-COMPARISON-2026-11.md).**
+  nexu-io/openmotion read at commit `543c5002f6eebea04744927073e3e7bb873e541c` from a shallow clone
+  (https://github.com/nexu-io/openmotion, Apache-2.0; nothing run). Read: README, LICENSE, CHANGELOG,
+  `docs/hyperframes.md`, `docs/mcp-phase1-tools.md`, `docs/motion-md.md`, `docs/motion-package-spec.md`,
+  `deploy/README.md` and `deploy/k8s/`, `shared/phase1-tools.ts`, `shared/caption-style.ts`,
+  `src/infra/config.ts`, the skills under `skills/`, `library/components/registry/catalog.json`
+  (448 items, counts computed locally), `library/templates/catalog/` (287 entries) and the vendored
+  GSAP "Standard No Charge" licence text. GitHub pages read the same day as a snapshot: repository
+  page (stars shown as 15.8k, README badge 9.5k dated 2026-11-09), releases (v0.1.0 to v0.2.1,
+  17-21 Nov), issues (44 open), commits. Our pinned `hyperframes` 0.9.77 package lists `lint` and
+  `measure` commands in `dist/cli.js` (checked in `node_modules`).
 - **Assets in engines (2026-11-24, issue #299).** Read from the installed packages (no network):
   HyperFrames 0.9.77 `dist/chunk-ZXZVZTKA.js` `parseVideoElements` (every `<video src>` in a
   composition is extracted frame by frame by its own FFmpeg pass; `data-start`, `data-duration`,
@@ -673,3 +733,11 @@ Re-check before relying on any price, limit or date.
   to it (measured here: source frame within half an output frame, no drift over 12 s at 23.976 and
   29.97; `packages/media-pipeline/test/media.test.ts`). Playwright (playwright-core 1.65.1) `route.fulfill` answers
   requests in an `offline: true` context (checked here before relying on it).
+- **Fonts (2026-11-24, issue #303).** npm registry (`npm view`, 2026-11-24): `@fontsource-variable/inter` 5.3.0,
+  `@fontsource-variable/source-serif-4` 5.3.1, `@fontsource-variable/jetbrains-mono` 5.3.0, all `OFL-1.1`; each
+  package's `LICENSE` is the SIL OFL 1.1 text, and the copyright lines quoted in docs/public/manifest/fonts.md were
+  read from the fonts' own `name` table (ID 0). W3C *WOFF File Format 2.0* (Recommendation, §4-5: table directory,
+  UIntBase128, transform versions; `glyf`/`loca` transformed at version 0, others at non-zero) and *WOFF File Format
+  1.0*; OpenType spec (Microsoft Typography) `name` IDs 1, 2, 4, 13, 14, 16, 17, `OS/2.usWeightClass`/`fsSelection`,
+  `fvar` axis records. VERIFY against the live specs (written from the specs as known and checked against the
+  bundled fonts and fontTools 4.68 output).

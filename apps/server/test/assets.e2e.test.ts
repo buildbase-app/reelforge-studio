@@ -1,18 +1,18 @@
 import { execFile, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ReelforgeService, createMemoryRepositories } from '@reelforge/core';
 import { probe, resolveTools, run, type Tools } from '@reelforge/media-pipeline';
 import { tempDir } from '../../../packages/core/test/helpers';
 import { externalNetworkCalls } from '../../../packages/engine-hyperframes/test/strace-egress';
-import { QUAD, colorDistance, makeNumberedClip, makeQuadImage, makeTone, meanColor, readBars, readPicture } from '../../../packages/media-pipeline/test/media-fixtures';
+import { QUAD, TEST_FONTS, colorDistance, makeNumberedClip, makeQuadImage, makeTone, meanColor, readBars, readPicture } from '../../../packages/media-pipeline/test/media-fixtures';
 import { createDefaultRegistry } from '../src/registry';
 
 /**
  * #299 end to end: assets uploaded to the store are used by every engine in
  * one render (image, video clip, SVG logo in the scenes; an audio bed under
- * them), and the Remotion and Motion Canvas layout templates (#287) with the
+ * them, a font the theme names), and the Remotion and Motion Canvas layout templates (#287) with the
  * same image and clip, checked on the final video's pixels and sound; the whole render runs
  * under strace where it can and makes no connection outside loopback. A
  * project cannot render another project's assets.
@@ -40,6 +40,7 @@ describe.skipIf(!hasBrowser)('ASSET-E2E uploaded assets on every engine in one r
     await makeNumberedClip(tools.ffmpeg, join(dir, 'clip.mp4'), { fps: 30, frames: 90 });
     await makeTone(tools.ffmpeg, join(dir, 'tone.m4a'), 8);
     writeFileSync(join(dir, 'logo.svg'), LOGO_SVG);
+    copyFileSync(join(TEST_FONTS, 'rf-block.woff2'), join(dir, 'brand.woff2'));
     const traceFile = join(dir, 'strace.txt');
     const fixture = join(import.meta.dirname, 'fixtures', 'render-assets.mts');
     const [cmd, args] = hasStrace
@@ -95,6 +96,11 @@ describe.skipIf(!hasBrowser)('ASSET-E2E uploaded assets on every engine in one r
         expect(colorDistance(meanColor(p, 240, 280), QUAD.br), `${engine} ${k} picture`).toBeLessThan(30);
       }
     }
+  });
+
+  it('every engine loaded the theme\'s uploaded font (#303) and the bundled fallback named after it', () => {
+    const log = result.log.join('\n');
+    for (const engine of ['rem', 'mc', 'html', 'hf']) expect(log, engine).toMatch(new RegExp(`render:${engine}[\\s\\S]*?assets: fonts RF Block \\(project\\), Inter \\(bundled\\)`));
   });
 
   it.runIf(hasStrace)('strace: the whole render connects and sends nothing outside loopback (0 network egress)', () => {

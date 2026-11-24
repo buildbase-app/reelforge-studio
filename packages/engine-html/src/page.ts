@@ -49,6 +49,8 @@ export function buildDocument(opts: {
   platform?: string;
   /** The render's asset base URL, allowed by the policy for images and fonts. */
   assetBase?: string;
+  /** @font-face rules for the scene's fonts (#303), before the theme and scene styles. */
+  fontCss?: string;
 }): string {
   if (/<\/style/i.test(opts.css)) throw new Error('css must not contain "</style"');
   assertSafeSceneFragment(opts.html);
@@ -57,6 +59,7 @@ export function buildDocument(opts: {
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
     `<meta http-equiv="Content-Security-Policy" content="${cspFor(opts.assetBase)}">` +
+    (opts.fontCss ? `<style>${opts.fontCss.replace(/<\/style/gi, '')}</style>` : '') +
     `<style>${themeCss(opts.theme, opts.output, opts.durationSeconds, opts.platform)}` +
     `html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden;background:var(--rf-bg);color:var(--rf-text);font-family:var(--rf-font)}` +
     `#rf-root{position:relative;width:${width}px;height:${height}px;overflow:hidden;box-sizing:border-box}` +

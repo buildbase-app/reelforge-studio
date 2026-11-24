@@ -2686,6 +2686,33 @@ store path into the page; rasterising SVG at upload (needs a browser in the uplo
 per-engine `test/assets.test.ts`, `packages/media-pipeline/test/media.test.ts` (no drift), contact sheet
 `docs/proofs/assets/templates-with-media.jpg`.
 
+### D-122 --- Fonts: font assets register under the family inside the file; a bundled OFL set; fonts load before the first frame and a failed face fails the render
+
+**Status:** DECIDED (reversible), issue #303. Number assigned at merge.\
+**Upload:** a font is parsed by `packages/core/src/fonts.ts` (no font library): sfnt, WOFF (zlib tables) and WOFF2
+(one Brotli stream; `name`, `OS/2`, `head`, `fvar` are never transformed) with every offset bounds-checked. The
+family (name ID 16, else 1), subfamily, `usWeightClass`, italic bit, `fvar` axes and the licence note (IDs 13, 14)
+go into `metadata.font`; a file that does not parse is refused (415), collections too. **Use:** no manifest change.
+Every font asset of a project is registered under the family name inside it (CSS-safe characters only), with its
+weight and style, or its `wght`/`wdth` range for a variable font, whenever the theme's `fontFamily` or the scene's
+own html/css names that family; a scene stages only those faces (`stageSceneAssets` `fonts`). **Bundled:** Inter,
+Source Serif 4 and JetBrains Mono, OFL-1.1 variable fonts from the Fontsource npm packages (pinned, every unicode
+subset, roman and italic), served from the package files through the same per-render asset origin, so a theme
+that names them renders the same on every host; a project font of the same family replaces a bundled one. Fallback
+after those: installed fonts (fontconfig), then the generic family. **Loading:** html declares `@font-face`
+(`font-display: block`) and waits for `document.fonts.ready` after layout, 15 s at most, failing on any face with
+status `error`; Remotion adds the faces with the FontFace API inside a gate that renders nothing (`delayRender`)
+until all have loaded, and `cancelRender`s on failure; Motion Canvas loads them before `Renderer.render`;
+HyperFrames gets `@font-face` to files in its composition folder and waits for `document.fonts.ready` itself (its
+runtime does), with the parse check at staging as the guard. Remote fonts stay impossible (D-111).
+*Rejected:* a `fonts[]` manifest section (the family is in the file; one less thing for agents to get wrong);
+installing fonts into the image with apt (renders would differ between hosts and the image; image size budget);
+Google Fonts at render time (network, D-111); bundling CJK families now (tens of MB; follow-up). **Not yet:**
+project fonts in libass captions, CJK/RTL bundled fonts and shaping tests, missing-glyph (tofu) QA. Proof:
+`packages/engine-*/test/fonts.test.ts` (pixels of an all-box test font vs the fallback), `packages/core/test/fonts.test.ts`,
+`apps/server/test/assets.e2e.test.ts`, `docs/proofs/assets/bundled-font-four-engines.jpg`. Test fonts:
+`packages/core/test/fixtures/fonts/` (made by `make-fonts.py`, CC0, no third-party glyphs).
+
 ## AC. Layouts on Remotion and Motion Canvas (2026-11-24, issue #287)
 
 ### D-121 --- remotion-layout draws the shared layout markup and seeks its CSS animations per frame; motion-canvas-layout rebuilds the scene from nodes placed by the same geometry; media through #299's staging

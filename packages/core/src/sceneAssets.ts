@@ -9,13 +9,16 @@ import {
   assetRefsInMarkup,
   mediaKey,
   rewriteAssetRefs,
+  fontFamilies,
   type AssetMediaType,
+  type FontFaceSpec,
   type RenderScene,
   type SceneMedia,
   type TemplateDefinition,
 } from '@reelforge/project-schema';
 import { defaultTreeAdapter as ta, parse, parseFragment, serialize, type DefaultTreeAdapterMap } from 'parse5';
 import { sniffContentType } from './assets';
+import { FontError, bundledFontFaces, fontFaceDescriptors, readFontInfo } from './fonts';
 import { renderChildEnv } from './childEnv';
 import type { Logger, ResolvedAsset } from './plugins';
 import { SceneMarkupError } from './sceneMarkup';
@@ -148,9 +151,16 @@ export interface StagedAsset {
   frames?: { names: string[]; first: number };
 }
 
+/** A font face staged for a scene: `name` is its served name. */
+export type StagedFontFace = Omit<FontFaceSpec, 'url'> & { name: string; source: 'project' | 'bundled'; asset?: string };
+
 export interface StagedSceneAssets {
   dir: string;
   items: Map<string, StagedAsset>;
+  /** Font faces of the families the scene names (#303): project font assets first, then the bundled set. */
+  fonts: StagedFontFace[];
+  /** The font faces with URLs under `base`. */
+  fontFaces(base: string): FontFaceSpec[];
   /** Everything the asset origin serves, by exact name. */
   files: Map<string, ServedFile>;
   /** What templates get (`SceneMedia` by key), with URLs under `base`. */
@@ -171,6 +181,12 @@ export interface StageOptions {
   video?: 'frames' | 'file';
   /** Largest file accepted. Default 2 GiB. */
   maxBytes?: number;
+  /**
+   * Fonts (#303): the theme's font-family list and the scene's own html/css.
+   * Every family named there that is a project font asset (by the family
+   * name inside the file) or a bundled font is staged as @font-face faces.
+   */
+  fonts?: { family: string; markup?: string };
   signal?: AbortSignal;
   log?: Logger;
 }
@@ -313,10 +329,14 @@ export async function stageSceneAssets(o: StageOptions): Promise<StagedSceneAsse
     o.log?.(`assets: ${a.id}${use.start ? ` from ${use.start}s` : ''}: ${pics.length} pictures of ${p.width}x${p.height} ${p.codec} at ${p.fps.toFixed(3)} fps`);
   }
 
+  const fonts = o.fonts ? await stageFonts(o, files) : [];
+
   return {
     dir: o.dir,
     items,
     files,
+    fonts,
+    fontFaces: (base) => fonts.map(({ name, source: _s, asset: _a, ...f }) => ({ ...f, url: base + name })),
     media(base) {
       const out: Record<string, SceneMedia> = {};
       for (const [k, it] of items) {
@@ -331,6 +351,55 @@ export async function stageSceneAssets(o: StageOptions): Promise<StagedSceneAsse
       return out;
     },
   };
+}
+
+const FONT_FORMAT: Record<string, FontFaceSpec['format']> = { 'font/woff2': 'woff2', 'font/woff': 'woff', 'font/ttf': 'truetype', 'font/otf': 'opentype' };
+const GENERIC = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'emoji', 'math', 'fangsong']);
+
+/** Stage the font faces of the families a scene names (see StageOptions.fonts). */
+async function stageFonts(o: StageOptions, files: Map<string, ServedFile>): Promise<StagedFontFace[]> {
+  const named = new Set(fontFamilies(o.fonts!.family).filter((f) => !GENERIC.has(f.toLowerCase())).map((f) => f.toLowerCase()));
+  const markup = (o.fonts!.markup ?? '').toLowerCase();
+  const wanted = (family: string) => named.has(family.toLowerCase()) || (markup !== '' && markup.includes(family.toLowerCase()));
+  const out: StagedFontFace[] = [];
+  const projectFamilies = new Set<string>();
+  // Project fonts: every font asset of the project, registered under the family name inside the file.
+  for (const a of o.assets.values()) {
+    if (a.mediaType !== 'font') continue;
+    const fail = (msg: string) => new PipelineError('assets', `font asset "${a.id}": ${msg}`);
+    const real = await realpath(a.file).catch(() => null);
+    const st = real ? await stat(real) : null;
+    if (!real || !st?.isFile()) throw fail('its file is missing');
+    const bytes = await readFile(real);
+    const sniffed = sniffContentType(bytes);
+    if (sniffed?.mediaType !== 'font') throw fail('its bytes are not a TTF, OTF, WOFF or WOFF2 font');
+    let info;
+    try {
+      info = readFontInfo(bytes);
+    } catch (e) {
+      throw fail(e instanceof FontError ? e.message : String(e));
+    }
+    if (!wanted(info.family)) continue;
+    projectFamilies.add(info.family.toLowerCase());
+    const name = `fonts/${a.id}.${sniffed.ext}`;
+    const file = join(o.dir, name);
+    await mkdir(join(o.dir, 'fonts'), { recursive: true });
+    await writeFile(file, bytes);
+    files.set(name, { file, contentType: sniffed.contentType });
+    out.push({ family: info.family, name, format: FONT_FORMAT[sniffed.contentType]!, ...fontFaceDescriptors(info), source: 'project', asset: a.id });
+  }
+  // Bundled fonts (a project font of the same family replaces them).
+  for (const f of bundledFontFaces()) {
+    if (!wanted(f.family) || projectFamilies.has(f.family.toLowerCase())) continue;
+    const name = `fonts/bundled/${f.file.slice(f.file.lastIndexOf('/') + 1)}`;
+    const file = join(o.dir, name);
+    await mkdir(join(o.dir, 'fonts', 'bundled'), { recursive: true });
+    await copyFile(f.file, file);
+    files.set(name, { file, contentType: 'font/woff2' });
+    out.push({ family: f.family, name, format: 'woff2', weight: f.weight, style: f.style, ...(f.unicodeRange ? { unicodeRange: f.unicodeRange } : {}), source: 'bundled' });
+  }
+  if (out.length) o.log?.(`assets: fonts ${[...new Set(out.map((f) => `${f.family} (${f.source})`))].join(', ')}: ${out.length} face(s)`);
+  return out;
 }
 
 /** Headers for every asset response: exact type, no sniffing, no scripts (an SVG opened directly runs none), readable cross-origin (fonts). */

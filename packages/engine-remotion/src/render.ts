@@ -174,7 +174,8 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
   const uses = sceneAssetUses(scene, TEMPLATES[scene.template as keyof typeof TEMPLATES]);
   let assetServer: AssetServer | undefined;
   let media: Record<string, unknown> | undefined;
-  if (uses.length) {
+  let fonts: unknown[] | undefined;
+  {
     const staged = await stageSceneAssets({
       uses,
       assets: opts.assets ?? new Map(),
@@ -183,11 +184,16 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
       output,
       frames: { first: range ? range[0] : 0, count: frames },
       video: 'frames',
+      // Fonts (#303): the theme's families that are project font assets or bundled fonts, loaded before any frame.
+      ...(opts.theme ? { fonts: { family: opts.theme.fontFamily } } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
       ...(opts.log ? { log: opts.log } : {}),
     });
-    assetServer = await startAssetServer(staged);
-    media = staged.media(assetServer.base);
+    if (staged.items.size || staged.fonts.length) {
+      assetServer = await startAssetServer(staged);
+      media = staged.media(assetServer.base);
+      if (staged.fonts.length) fonts = staged.fontFaces(assetServer.base);
+    }
   }
   // remotion-layout (#287): the html and HyperFrames layout markup, built here from the same geometry.
   let layout: Record<string, unknown> | undefined;
@@ -204,6 +210,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
     ...(opts.theme ? { __theme: opts.theme } : {}),
     ...(opts.platform ? { __platform: opts.platform } : {}),
     ...(media ? { __assets: media } : {}),
+    ...(fonts ? { __fonts: fonts } : {}),
     __output: {
       width: output.width,
       height: output.height,

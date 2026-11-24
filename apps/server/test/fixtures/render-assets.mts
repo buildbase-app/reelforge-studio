@@ -5,7 +5,7 @@
 // JSON line. Run by assets.e2e.test.ts, under strace where it works
 // (`node --import tsx render-assets.mts <dir>`), so every connect() and send
 // of the render (server process, browsers, HyperFrames, FFmpeg) is seen.
-// <dir> holds quad.png, clip.mp4, tone.m4a and logo.svg.
+// <dir> holds quad.png, clip.mp4, tone.m4a, logo.svg and brand.woff2 (a font the theme uses, #303).
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { ReelforgeService, createMemoryRepositories } from '@reelforge/core';
@@ -23,7 +23,7 @@ const result = await (async () => {
   });
   try {
     const up = async (file: string, name: string) => (await svc.uploadAsset(readFileSync(join(dir, file)), { filename: name })).asset;
-    const [quad, clip, tone, logo] = [await up('quad.png', 'quad.png'), await up('clip.mp4', 'clip.mp4'), await up('tone.m4a', 'bed.m4a'), await up('logo.svg', 'logo.svg')];
+    const [quad, clip, tone, logo, brand] = [await up('quad.png', 'quad.png'), await up('clip.mp4', 'clip.mp4'), await up('tone.m4a', 'bed.m4a'), await up('logo.svg', 'logo.svg'), await up('brand.woff2', 'brand.woff2')];
     const entry = (id: string, a: typeof quad) => ({ id, uri: `asset://${a.id}`, mediaType: a.mediaType, license: { name: 'test fixture', redistributable: false } });
     const sourceLayout =
       '<img src="asset:quad" style="position:absolute;left:0;top:0;width:200px;height:100px">' +
@@ -33,8 +33,8 @@ const result = await (async () => {
       projectId: 'assets-reel',
       title: 'Assets on every engine',
       output: { width: 320, height: 320, fps: 30, format: 'mp4' },
-      theme: { base: 'default', tokens: { colors: { background: '#000000' } } },
-      assets: [entry('quad', quad), entry('clip', clip), entry('bed', tone), entry('logo', logo)],
+      theme: { base: 'default', tokens: { colors: { background: '#000000' }, fontFamily: '"RF Block", Inter, sans-serif' } },
+      assets: [entry('quad', quad), entry('clip', clip), entry('bed', tone), entry('logo', logo), entry('brand', brand)],
       audio: { music: { asset: 'bed', volume: 0.8, fadeOutSeconds: 0 } },
       scenes: [
         { id: 'rem', engine: 'remotion', template: 'kinetic-title', durationFrames: 45, props: { headline: 'Remotion', media: { asset: 'clip', fit: 'contain', focus: { x: 50, y: 0 }, dim: 0 }, logo: { asset: 'logo', corner: 'bottom-right', size: 14 } } },

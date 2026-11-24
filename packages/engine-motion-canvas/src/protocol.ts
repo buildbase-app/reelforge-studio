@@ -12,6 +12,8 @@ export interface RenderRequest {
   /** Export from this frame on (a frame range's first frame); the scene still runs from frame 0. Default 0. */
   firstFrame?: number;
   background: string | null;
+  /** Font faces to load before the first frame (#303): project font assets and bundled fonts on the bundle server. */
+  fonts?: Array<{ family: string; url: string; format: 'woff2' | 'woff' | 'truetype' | 'opentype'; weight: string; style: 'normal' | 'italic'; stretch?: string; unicodeRange?: string }>;
 }
 
 export interface RenderResponse {
