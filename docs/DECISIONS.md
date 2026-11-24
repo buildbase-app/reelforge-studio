@@ -2534,3 +2534,41 @@ that a few seconds would have absorbed (measured: [SCALE.md](SCALE.md#backpressu
 cap near the pool's capacity keeps the queue in front of the pool, where its wait is bounded. *Rejected:* a
 separate pool for enqueues. It would not have helped, because the burst was
 of enqueues, and it would add connections the pooler sizing of D-104 has to count.
+
+### D-116 --- Audio: one PCM mix per render, two-pass loudnorm to a preset (social -14 LUFS / -2 dBTP by default), checked after the AAC encode; ducking by volume automation from speech segments
+
+**Status:** DECIDED (reversible). Number assigned at merge (D-110 to D-114 are claimed by open pull requests).\
+Renders came out at about -10 LUFS with true peaks above 0 dBFS, which clips after platform transcoding, and
+`music.ducking` was stored but not applied (#301). Now the audio is mixed **once over the whole timeline** into
+48 kHz float PCM (music padded and faded, voice and sfx with 5-10 ms edge fades, bus gains in dB, a 10 ms master
+fade at both ends), never per scene or fan-out chunk, so joins and seams cannot click; assemble() and the fan-out
+join encode that one track. **Loudness:** FFmpeg `loudnorm` pass 1 measures the mix; pass 2 applies the measured
+values with `linear=true` (one gain) when the true peak allows it, else loudnorm's dynamic mode limits the peaks
+(recorded as `normalisation`). The true-peak target is 0.5 dB under the ceiling for the AAC encoder's overshoot;
+the LRA target is never below the measured range, so the range is not compressed to meet a guideline (EBU R 128
+does not recommend LRA under one minute). Presets: `social` -14 LUFS / -2 dBTP (default; -2 rather than -1 because
+platforms transcode again, and Spotify asks for -2 dBTP above -14 LUFS), `broadcast-ebu` -23 / -1 (EBU R 128),
+`broadcast-atsc` -24 / -2 (ATSC A/85), `podcast` -16 / -1 (Apple Podcasts), `off`; render option > manifest
+`audio.loudness` > `render.audio.loudness`. **Verification** is on the delivered file (after the caption burn-in)
+with the `ebur128` meter, not loudnorm's own figures: on short clips loudnorm's integrated value differed from
+ebur128 by up to 0.7 LU here. Off by more than 1 LU or over the ceiling is a QA warning, or a failure with
+`render.audio.loudnessQa: fail` (default `warn`, so a hard-to-normalise mix still delivers, with the numbers).
+A/V sync (audio starts at 0, durations within one frame; BT.1359 detectability is about +45/-125 ms) always fails
+the render. **Ducking:** a volume curve on the music from the voice's speech segments (`silencedetect` at
+`thresholdDb`, default -40 dBFS), depth 18 dB, attack 120 ms ending where speech starts, release 400 ms; segments
+closer than attack + release merge so the music does not pump; applied per 32-sample block so the ramps make no
+zipper noise. **Toggles:** `audio.enabled.{voice,music,sfx}` and `audio.mute` in the manifest, the same plus
+`loudness` as `render_project` `audio`; a muted render carries a silent AAC track (default) or none
+(`render.audio.mutedTrack: none`). *Rejected:* `sidechaincompress` keyed on the voice (its depth depends on the
+voice level and ratio rather than a number you set, and a live compressor reacts after the first syllable;
+offline we know the voice in advance); a single-pass `loudnorm` (dynamic mode on everything, which changes
+transients and misses the target on short clips); normalising each scene (scene levels would jump and joins
+would need crossfades); an `alimiter` after a plain gain (sample-peak, not true-peak, without oversampling).
+Proof: `packages/media-pipeline/test/audio.test.ts` (AUD-1..7) and `packages/core/test/audio.test.ts`
+(AUD-10..15); a real render of the sample reel went from -9.1 LUFS / +3.1 dBTP to -14.3 LUFS / -2.4 dBTP.
+**FFmpeg 5.1 (release image):** assemble() encodes the video without audio, then muxes the audio in a second pass
+with the video copied and no frame limit, because FFmpeg 5.1 ends every stream of an output once one reaches its
+`-frames` limit (the audio came out about one encoder delay short and failed the A/V sync check; 6.x does not do
+this). Only filter options present in 5.1 are used (`ebur128 framelog=verbose`, not `quiet`), and
+`assertAudioSupport()` tries each audio filter with the pipeline's options once per FFmpeg binary before the first
+mix, failing with the missing one named.

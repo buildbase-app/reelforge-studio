@@ -1052,6 +1052,32 @@ export const ConfigSchema = z.object({
       description:
         'With `render.fanOut: scenes+chunks`: scenes shorter than this (seconds, 2 to 3600) are never split and render as one unit.',
     }),
+    audio: z.object({
+      loudness: setting(z.enum(['social', 'broadcast-ebu', 'broadcast-atsc', 'podcast', 'off']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_AUDIO_LOUDNESS',
+        default: 'social',
+        description:
+          'Loudness preset of renders whose manifest sets no `audio.loudness` and whose `render_project` call passes none (#301, docs/public/manifest/audio.md). `social`: -14 LUFS, true peak -2 dBTP; `broadcast-ebu`: EBU R 128, -23 LUFS, -1 dBTP; `broadcast-atsc`: ATSC A/85, -24 LKFS, -2 dBTP; `podcast`: -16 LUFS, -1 dBTP; `off`: the mix as it is. Two-pass FFmpeg loudnorm, measured again after the AAC encode.',
+      }),
+      loudnessQa: setting(z.enum(['warn', 'fail']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_AUDIO_LOUDNESS_QA',
+        default: 'warn',
+        description:
+          'What a render does when the finished file misses its loudness target (integrated loudness more than 1 LU off, or the true peak over the ceiling): `warn` records it in the render manifest (`audio.qa`) and `get_render_output`; `fail` fails the render.',
+      }),
+      mutedTrack: setting(z.enum(['silent', 'none']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_AUDIO_MUTED_TRACK',
+        default: 'silent',
+        description:
+          'What a muted render (`audio.mute`) carries: `silent`, a valid silent AAC track (safest: some players and upload pipelines expect an audio stream); `none`, no audio stream at all.',
+      }),
+    }),
     ffmpegPath: setting(nonEmpty(), {
       kind: 'path',
       scope: 'startup',

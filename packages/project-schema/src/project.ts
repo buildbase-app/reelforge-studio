@@ -17,6 +17,7 @@ import {
 } from './templates';
 import { themeId, themeTokensPatch } from './themes';
 import { MAX_CAPTION_LANGUAGES, captionWord, isLanguageTag, projectCaptions, sameLanguage, type CaptionCue } from './captions';
+import { audioBusGains, audioToggles, loudnessPreset, musicDucking } from './audio';
 
 /**
  * Manifest v0.2: the agent-facing contract (docs/AGENT_PLATFORM.md §5).
@@ -149,8 +150,10 @@ export const musicTrack = z
     asset: id,
     /** Level relative to full scale, 0..1. */
     volume: z.number().min(0).max(1).default(0.8),
-    /** Lower the music under the voice. Stored; not applied by the v0.1 renderer (warning). */
-    ducking: z.boolean().default(false),
+    /** Lower the music under the voice: true (defaults), false, or { depthDb, attackMs, releaseMs, thresholdDb }. */
+    ducking: musicDucking.default(false),
+    /** Fade-in at the start of the video, seconds (unset: 0.25). */
+    fadeInSeconds: z.number().min(0).max(10).optional(),
     fadeOutSeconds: z.number().min(0).max(10).default(1),
   })
   .strict();
@@ -168,6 +171,14 @@ export const audio = z
     voice: voiceTrack.nullable().default(null),
     music: musicTrack.nullable().default(null),
     sfx: z.array(sfxCue).max(50).default([]),
+    /** Loudness preset of the finished video (unset: the server's render.audio.loudness). */
+    loudness: loudnessPreset.optional(),
+    /** Master mute: a silent track (or none, per render.audio.mutedTrack). */
+    mute: z.boolean().optional(),
+    /** Buses on or off (unset: on). */
+    enabled: audioToggles.optional(),
+    /** Per-bus gain in dB (unset: 0). */
+    gainDb: audioBusGains.optional(),
   })
   .strict();
 
