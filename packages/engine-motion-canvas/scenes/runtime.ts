@@ -1,4 +1,5 @@
 import { Renderer, RendererResult, Vector2, type Project } from '@motion-canvas/core';
+import { loadFontFaces } from '@reelforge/project-schema/media';
 import type {} from '../src/protocol';
 
 /**
@@ -10,12 +11,19 @@ import type {} from '../src/protocol';
  */
 const projects: Record<string, () => Promise<{ default: Project }>> = {
   'animated-explainer': () => import('./animated-explainer/project?project'),
+  'motion-canvas-layout': () => import('./layout/project?project'),
 };
 
 window.__reelforgeRender = async (req) => {
   const load = projects[req.template];
   if (!load) {
     return { ok: false, result: 'error', errors: [`unknown Motion Canvas template "${req.template}"`] };
+  }
+  // Fonts first (#303): Txt measures and draws with canvas, which uses only fonts that have loaded.
+  try {
+    await loadFontFaces(req.fonts ?? []);
+  } catch (e) {
+    return { ok: false, result: 'error', errors: [(e as Error).message] };
   }
   const project = (await load()).default;
   const errors: string[] = [];
@@ -34,7 +42,7 @@ window.__reelforgeRender = async (req) => {
   await renderer.render({
     name: project.name,
     // The renderer exports frames from..to inclusive, so N frames end at (N-1)/fps.
-    range: [0, (req.frames - 1) / req.fps],
+    range: [(req.firstFrame ?? 0) / req.fps, (req.frames - 1) / req.fps],
     fps: req.fps,
     size: new Vector2(req.width, req.height),
     resolutionScale: 1,

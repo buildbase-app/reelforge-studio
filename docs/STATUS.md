@@ -98,6 +98,33 @@ MP4's `r_frame_rate` is exact (ffprobe-checked, also through the fan-out join an
 cannot render are refused with `422 unsupported_output` before queueing; `preview_scene` takes a `variant`; the
 manifest's 180 s and 50-scene caps became config bounds (defaults unchanged)
 ([Frame rates](public/manifest/formats.md#frame-rates)).
+**Assets in every engine (#299, D-120, 2026-11-24):** uploaded images (PNG, JPEG, WebP, GIF, sanitised SVG) and
+video clips reach Remotion, Motion Canvas, html and HyperFrames: template props `media` (fit `cover` / `contain` /
+`blur-fill`) and `logo`, and `asset:<id>` in html scenes. Video is one picture per output frame on an exact
+frame-rate grid (no drift at 23.976 or 29.97; HyperFrames seeks it itself), and the audio bed is the existing
+`audio.music`. Files are staged per scene from the project's own manifest, re-sniffed and size-checked, and served
+from a per-render origin with no network (request interception for html, token paths on loopback for Motion Canvas
+and Remotion, the composition folder for HyperFrames). Uploads with a `projectId` belong to that project. Tests: a
+four-engine render with an image, a clip, an SVG logo and an audio bed checked by pixels and loudness, under
+`strace` with 0 connections outside loopback, plus per-engine pixel tests and refusal tests
+([Images, video and audio in scenes](public/manifest/assets.md)).
+**Fonts (#303, D-122, 2026-11-24):** font assets (TTF, OTF, WOFF, WOFF2, variable included) are parsed on upload
+(family, style, weight, axes, licence note in `metadata.font`; files that do not parse are refused) and used by
+every engine when the theme or the scene names their family; a bundled OFL set (Inter, Source Serif 4, JetBrains
+Mono, from Fontsource) renders the same everywhere. Fonts load before the first frame (FontFace API in Remotion and
+Motion Canvas, `document.fonts` with a 15 s limit in html, HyperFrames' own wait), and a face that fails fails the
+render. Tests: glyph-shape pixel checks against the fallback on all four engines, refused fonts, the four-engine
+render with an uploaded font under `strace` (0 egress) ([Fonts](public/manifest/fonts.md)). Not yet: CJK/RTL
+fonts bundled, project fonts in burned captions, missing-glyph QA.
+([Images, video and audio in scenes](public/manifest/assets.md)). Fonts in themes follow in #303.
+**Layouts on Remotion and Motion Canvas (#287, D-121, 2026-11-24):** templates `remotion-layout` and
+`motion-canvas-layout` take the same props as `html-layout` and `hyperframes-layout`, so a layout scene moves between
+all four engines by changing its engine and template. Remotion draws the shared HTML/CSS builder's markup and seeks its
+animations per frame; Motion Canvas builds the scene from its own nodes, placed by the same geometry functions, type
+sizes and timing. Media in panes come from #299's staging (loopback origin for Remotion, token path for Motion Canvas),
+video one picture per frame. Tests: on rendered pixels at 16:9, 1:1, 9:16 and 4K, every pane and the lower third within
+1 layout unit of the html engine's, and all pane text inside its box; a numbered clip frame-exact in panes with
+in-points, whole and frame range; contact sheets with a row per engine and `geometry.json` in `docs/proofs/layouts/`.
 
 **Store**: Next.js 16 on Cloudflare Workers (OpenNext) with D1,
 `@buildbase/sdk` 1.8, ReelForge homepage (English), sign-in through BuildBase,
@@ -694,6 +721,16 @@ toggles, mute and the QA rule (core). Checked on FFmpeg 5.1.6 (built from source
 suites pass on both. Not yet (rest of #301): a voice with provider + text but no asset
 still renders silently (warning), scene timing from the voice, the per-render ducking amount of #298.
 
+### Runbooks: capacity test and pre-production pentest (2026-11-24, issues #307, #325)
+
+Written, **not run** (they need a cloud account, a budget and LLM keys from the founder):
+[runbooks/SCALE-TEST.md](runbooks/SCALE-TEST.md) (EKS or GKE topology with sizes and cost, queue depth
+to 100,000 jobs, real renders ramping to 1,000 in flight, a 30-minute soak, failure injection, pass
+thresholds and a results template) and [runbooks/PENTEST.md](runbooks/PENTEST.md) (the #325 gate:
+written scope, an isolated PentAGI 2.2.0 runner without a Docker socket, the pre-prod target, ten flows
+with prompts, ZAP and nuclei baselines, private findings and the release gate). New tooling: the
+real-render driver `pnpm load:real` (`scripts/load/real-render.ts`, dry run tested against an in-memory
+fake server only) and `CHECK_SINCE` for the exactly-once check.
 ### Self-hosted web dashboard, part 2 (2026-11-24, issue #292)
 
 Built (D-1XX): analytics (renders per day by outcome, rates, render time per engine, queue wait, minutes, storage,

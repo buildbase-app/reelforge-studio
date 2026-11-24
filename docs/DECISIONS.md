@@ -2601,7 +2601,7 @@ props); compositing media with FFmpeg after the engine (layouts would not be an 
 around panes); a loopback media server for the html engine (a network path out of the sandboxed page); video
 `<video>` elements in the html engine (Chrome Headless Shell has no H.264 decoder, and seeking is not frame-exact).
 **Not yet:** Remotion and Motion Canvas layout templates (Remotion would need a loopback media server for
-`<OffthreadVideo>`/`<Img>`; Motion Canvas has no DOM). Proof: `apps/server/test/formats.test.ts` (pane geometry and
+`<OffthreadVideo>`/`<Img>`; Motion Canvas has no DOM). (Done since: D-121 in section AC.) Proof: `apps/server/test/formats.test.ts` (pane geometry and
 text measured in the browser at 16:9, 1:1, 4:5, 9:16, 21:9 and 4K on both engines; fit modes, video start offsets
 and frame-by-frame video checked on rendered pixels) and the contact sheets in `docs/proofs/layouts/`.
 
@@ -2641,6 +2641,119 @@ WebM, GIF, PNG sequence, audio only), a configurable scene source size (256 KB),
 for long renders, and a limits page.
 **preview_scene takes `variant`** (#287): the preview renders at that variant's size (scaled) and platform, through
 the same `withVariant()` path as a variant render; an unknown variant is `404` with the list.
+
+## AB. Assets in every engine (2026-11-24, issue #299)
+
+Live testing found uploaded images, video and fonts ignored by every engine: `EngineRenderContext.assets` was
+filled and never read. Fonts are #303 (a separate record).
+
+### D-120 --- Scenes use assets by manifest id; each scene's files are staged, checked and served from a per-render origin; video becomes one picture per frame
+
+**Status:** DECIDED (reversible).\
+**References.** Template props `media` (`asset`, `fit` `cover` / `contain` / `blur-fill`, `focus`, `start`, `dim`)
+and `logo` (`asset`, `corner`, `size`) on every built-in template, through a `mediaAssets(props)` hook on the
+template definition (the same hook the layouts work #287 adds), and `asset:<id>` in html / hyperframes markup. An
+id must be an entry of the same manifest's `assets`; store ids (`asset://`), paths, query strings, audio in markup
+and references inside elements that open documents (`iframe`, `object`, `embed`, `a`, `link`, `script`) are
+refused at validation and again at render time. **Staging** (`packages/core/src/sceneAssets.ts`): before a scene
+renders, its engine calls `stageSceneAssets` with the scene's uses; each file comes from the project's resolved
+assets only, is followed to its real path, sniffed again against the manifest's media type, size-checked
+(16384 px / 100 MP images, 8192 px / 3 h video, 2 GiB) and copied into the scene's work directory under a made-up
+name; SVG is rewritten again. **Serving:** by exact name from a map of staged files, never by joining a request
+path: html answers `http://rf-assets.invalid/<token>/` by Playwright request interception (no socket; the page
+CSP allows only that base for images and fonts), Motion Canvas serves `/<token>/` from its loopback bundle server,
+Remotion gets a loopback server for the length of the render (its browser is not ours to intercept), HyperFrames
+reads `assets/` inside its composition folder (`--refuse-outside-files`, deny-all sink unchanged). Responses send
+`nosniff` and `script-src 'none'`. **Video:** `videoFramesAt` (media-pipeline) extracts the pictures of the scene's
+frames (or frame range) with FFmpeg's `fps` filter on a grid anchored at the in-point (`-copyts`, `start_time`),
+rates as exact fractions (29.97 = 30000/1001), rotation applied, last frame held; engines show picture k at frame k
+(Remotion frame-range chunks stay frame-pure). HyperFrames seeks `<video>` itself, which tested frame-exact.
+**SVG** is accepted only rewritten from an allowlist (parse5 foreign content, serialised as XML by our code): no
+scripts, handlers, `foreignObject`, animation, external references or loading styles; links are unwrapped; shown
+only as images. **Decoding:** FFmpeg/ffprobe as children without server secrets (D-086) and with time limits;
+pictures by the engine's Chromium. **Projects:** an upload, import or provider result attached with `projectId`
+records the project on the asset (`metadata.projects`); another project listing that store id is refused by
+`validate_project` and the render (`asset_not_in_project`). Uploads without a project stay usable by the whole
+workspace (a brand kit); existing assets have no projects recorded and keep working. Workspaces (#348) separate
+stores below this. **Audio** stays on the `audio` buses (#346's mix); clip sound is not used. **Fit:** `FitMode` / `fitMedia` are #287's (`layout.ts`); `packages/project-schema/src/media.ts` re-exports them for
+the engine bundles. **Frame rates:** video pictures sit on the exact grid of D-119's rates (`rateArg`, so 29.97 is
+30000/1001 also when given as `fpsValue()`'s decimal), and engines take frame times from `framesToSeconds`. *Rejected:* playing `<video>` in the browsers (not
+frame-exact headless, and Chrome Headless Shell builds may lack H.264); `data:` URLs for everything (inflates
+Remotion input props and pages, no streaming); `file:` URLs (open the whole filesystem to the page); copying the
+store path into the page; rasterising SVG at upload (needs a browser in the upload path); a per-project asset table
+(a schema migration across three databases for what the metadata field answers). Proof:
+`apps/server/test/assets.e2e.test.ts` (four engines, pixels, loudness, `strace` 0 egress, project isolation),
+per-engine `test/assets.test.ts`, `packages/media-pipeline/test/media.test.ts` (no drift), contact sheet
+`docs/proofs/assets/templates-with-media.jpg`.
+
+### D-122 --- Fonts: font assets register under the family inside the file; a bundled OFL set; fonts load before the first frame and a failed face fails the render
+
+**Status:** DECIDED (reversible), issue #303. Number assigned at merge.\
+**Upload:** a font is parsed by `packages/core/src/fonts.ts` (no font library): sfnt, WOFF (zlib tables) and WOFF2
+(one Brotli stream; `name`, `OS/2`, `head`, `fvar` are never transformed) with every offset bounds-checked. The
+family (name ID 16, else 1), subfamily, `usWeightClass`, italic bit, `fvar` axes and the licence note (IDs 13, 14)
+go into `metadata.font`; a file that does not parse is refused (415), collections too. **Use:** no manifest change.
+Every font asset of a project is registered under the family name inside it (CSS-safe characters only), with its
+weight and style, or its `wght`/`wdth` range for a variable font, whenever the theme's `fontFamily` or the scene's
+own html/css names that family; a scene stages only those faces (`stageSceneAssets` `fonts`). **Bundled:** Inter,
+Source Serif 4 and JetBrains Mono, OFL-1.1 variable fonts from the Fontsource npm packages (pinned, every unicode
+subset, roman and italic), served from the package files through the same per-render asset origin, so a theme
+that names them renders the same on every host; a project font of the same family replaces a bundled one. Fallback
+after those: installed fonts (fontconfig), then the generic family. **Loading:** html declares `@font-face`
+(`font-display: block`) and waits for `document.fonts.ready` after layout, 15 s at most, failing on any face with
+status `error`; Remotion adds the faces with the FontFace API inside a gate that renders nothing (`delayRender`)
+until all have loaded, and `cancelRender`s on failure; Motion Canvas loads them before `Renderer.render`;
+HyperFrames gets `@font-face` to files in its composition folder and waits for `document.fonts.ready` itself (its
+runtime does), with the parse check at staging as the guard. Remote fonts stay impossible (D-111).
+*Rejected:* a `fonts[]` manifest section (the family is in the file; one less thing for agents to get wrong);
+installing fonts into the image with apt (renders would differ between hosts and the image; image size budget);
+Google Fonts at render time (network, D-111); bundling CJK families now (tens of MB; follow-up). **Not yet:**
+project fonts in libass captions, CJK/RTL bundled fonts and shaping tests, missing-glyph (tofu) QA. Proof:
+`packages/engine-*/test/fonts.test.ts` (pixels of an all-box test font vs the fallback), `packages/core/test/fonts.test.ts`,
+`apps/server/test/assets.e2e.test.ts`, `docs/proofs/assets/bundled-font-four-engines.jpg`. Test fonts:
+`packages/core/test/fixtures/fonts/` (made by `make-fonts.py`, CC0, no third-party glyphs).
+
+## AC. Layouts on Remotion and Motion Canvas (2026-11-24, issue #287)
+
+### D-121 --- remotion-layout draws the shared layout markup and seeks its CSS animations per frame; motion-canvas-layout rebuilds the scene from nodes placed by the same geometry; media through #299's staging
+
+**Status:** DECIDED (reversible), issue #287. Builds on D-108, D-118, D-119 (exact frame rates: frame i is at
+`framesToSeconds(i, fps)`; Motion Canvas gets `fpsValue`) and D-120 (assets).\
+Layout scenes (`layoutSceneProps`) must move between engines: one manifest scene, the same panes, text boxes and
+lower third whichever engine renders it. **Remotion** renders React in Chromium, so `remotion-layout` does not
+re-implement the layout: `src/render.ts` builds the markup with `layoutSceneDom` (the html and HyperFrames builder)
+and the page variables with `domThemeCss` (now shared with the html engine's page), and the composition
+(`compositions/LayoutScene.tsx`) draws it. Before the first frame it waits for fonts and pictures and runs the html
+engine's fit-to-box (`FIT_TEXT_SCRIPT`); on every frame it pauses each CSS animation at `frame / fps` and writes the
+paused state into inline styles (`animation: none` plus the computed opacity and transform), because Remotion moves
+the composition's DOM into its own wrapper after the first frame is ready and a moved element restarts its CSS
+animations (observed: paused animations running again from 0 ms). A frame depends only on its number, so
+frame-range chunks keep `frameRanges: true`. **Motion Canvas** draws on a canvas, so `motion-canvas-layout`
+builds the scene from Motion Canvas nodes; everything that decides where things go comes from
+`@reelforge/project-schema/layout`: `layoutPanes`, `clearOfLowerThird`, `lowerThirdBox`, `fitMedia`, and the new
+`LAYOUT_STYLE` (type sizes, padding, radii, the blur-fill darkening and scale, animation delays, durations and
+cubic-bezier easings), which the DOM builder now reads too, so the two cannot drift. Text wraps in Motion Canvas's
+layout (the browser's flexbox and line breaking) and shrinks with the same binary search and minimum as the DOM
+fit-to-box. Motion Canvas draws a filtered node through a cache canvas clipped to the view, so the scene pads the
+view's cache by three blur radii; without it `blur-fill` faded to the pane colour at the frame's edges. Every frame
+is a function of its frame number (one `yield` per frame), so the engine also accepts a `frameRange` (it seeks
+without drawing); it does not declare frame ranges for fan-out. **Media** come from #299's staging: the files the
+panes use, checked and served from the render's own origin (Remotion's loopback server, Motion Canvas's token
+path), video as one picture per output frame, picture k at frame k from the pane's `startSeconds`.
+**Fit-to-box fix (all DOM engines):** a pane's text card had a fit tolerance of 0, and glyphs stick out of its
+1.08 line boxes by about 0.07 em, so on a plain pane (no padding) the card always counted as overflowing and shrank
+to its minimum even with room to spare (the longest-headline sample at 9:16 showed a 29 px headline in a box with
+room for 78 px). The card's tolerance is now 0.1 em (`LAYOUT_STYLE.fitInk`): a hidden line (at least 0.75 em) still
+counts. *Rejected:* drawing the DOM markup into Motion Canvas as an SVG `foreignObject` picture (Motion Canvas would
+only pass a picture through, not draw the scene; not tried); one geometry implementation per engine (the drift D-118 avoided);
+`<Img>`/`<OffthreadVideo>` in Remotion (the staged per-frame pictures are frame-exact and shared with the other
+engines); playing CSS animations in Remotion in real time (not deterministic). *Known difference:* the DOM engines
+balance the last lines of body text (`text-wrap: pretty`); Motion Canvas breaks lines greedily, so a paragraph can
+wrap differently inside the same box. Proof: `apps/server/test/layouts-engines.test.ts` (rendered pixels at 16:9,
+1:1, 9:16 and 4K: every pane and the lower third within 1 unit of the html engine's, all pane text inside its box;
+a numbered clip frame-exact in two panes with in-points, whole and frame range), the four-engine fit and video
+pixel tests in `apps/server/test/formats.test.ts`, the contact sheets (a row per engine) and `geometry.json` in
+`docs/proofs/layouts/`.
 
 ### D-1XX --- Dashboard part 2: analytics from the job table and manifests through one bounded read-scope summary; settings and audit through the existing tools
 

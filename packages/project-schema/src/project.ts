@@ -22,6 +22,7 @@ import {
 import { themeId, themeTokensPatch } from './themes';
 import { MAX_CAPTION_LANGUAGES, captionWord, isLanguageTag, projectCaptions, sameLanguage, type CaptionCue } from './captions';
 import { audioBusGains, audioToggles, loudnessPreset, musicDucking } from './audio';
+import { assetRefsInMarkup } from './assetRefs';
 
 /**
  * Manifest v0.2: the agent-facing contract (docs/AGENT_PLATFORM.md §5).
@@ -313,6 +314,16 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
       add(['scenes', i, 'html'], `engine "${s.engine}" does not accept html/css; use a template`);
       return;
     }
+    // asset:<id> in scene html/css (#299): only this manifest's images, videos and fonts.
+    const markup = assetRefsInMarkup(s.html, s.css);
+    for (const bad of [...new Set(markup.bad)]) {
+      add(['scenes', i, 'html'], `"${bad}" is not an asset reference: write asset:<id> with the id of an entry in this manifest's assets (store ids, paths and query strings are not allowed)`);
+    }
+    for (const ref of markup.refs) {
+      const a = assetById.get(ref.asset);
+      if (!a) add(['scenes', i, ref.where], `unknown asset id "${ref.asset}" in asset:${ref.asset}; add it to the manifest's assets first`);
+      else if (a.mediaType === 'audio') add(['scenes', i, ref.where], `asset "${ref.asset}" is audio; sound goes in audio.music, audio.voice or audio.sfx, not in scene markup`);
+    }
     if (utf8Bytes(s.html) + utf8Bytes(s.css) > MAX_SOURCE_BYTES) {
       add(['scenes', i, 'html'], `html + css is larger than ${MAX_SOURCE_BYTES} bytes`);
     }
@@ -361,12 +372,13 @@ function checkProject(p: Shape, ctx: z.RefinementCtx, catalog: TemplateCatalog) 
         add(['scenes', i, 'props', ...issue.path.map((k) => k as string | number)], issue.message);
       }
     }
-    // Media a template places (layout panes, #287): images or videos listed in the manifest's assets.
+    // Media a template places (#299): entries of this manifest's assets, of the right media type.
     for (const ref of template.mediaAssets?.(s.props) ?? []) {
       const a = assetById.get(ref.asset);
       const path = ['scenes', i, 'props', ...ref.path];
+      const allowed = ref.mediaTypes ?? ['image', 'video'];
       if (!a) add(path, `unknown asset id "${ref.asset}"; add it to the manifest's assets first`);
-      else if (a.mediaType !== 'image' && a.mediaType !== 'video') add(path, `asset "${ref.asset}" is ${a.mediaType}; panes show images or videos`);
+      else if (!allowed.includes(a.mediaType)) add(path, `asset "${ref.asset}" is ${a.mediaType}; expected ${allowed.join(' or ')}`);
     }
   });
 

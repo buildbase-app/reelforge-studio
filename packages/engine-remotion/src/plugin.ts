@@ -10,7 +10,7 @@ export interface RemotionEngineOptions {
   concurrency?: number;
 }
 
-/** The Remotion engine as a plugin (templates: kinetic-title). */
+/** The Remotion engine as a plugin (templates: kinetic-title, remotion-layout). */
 export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
   const browser = () => opts.browserExecutable ?? process.env.REELFORGE_CHROMIUM_PATH;
   return {
@@ -49,6 +49,10 @@ export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
         signal: ctx.signal,
         onProgress: ctx.progress,
         ...(ctx.frameRange ? { frameRange: ctx.frameRange } : {}),
+        assets: ctx.assets,
+        tools: ctx.tools,
+        workDir: ctx.workDir,
+        log: ctx.log,
       });
       return { file: res.out, frames: res.frames, engineVersion: res.engineVersion, browserVersion: browserVersion(browser()), millis: res.millis };
     },

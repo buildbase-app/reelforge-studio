@@ -12,11 +12,14 @@ import {
   packageVersion,
   prepareSceneDocument,
   renderChildEnv,
+  sceneAssetUses,
   sceneTimeoutCapMs,
+  stageSceneAssets,
   type EnginePlugin,
   type ResolvedAsset,
+  type StagedSceneAssets,
 } from '@reelforge/core';
-import { PipelineError } from '@reelforge/media-pipeline';
+import { PipelineError, type Tools } from '@reelforge/media-pipeline';
 import {
   BUILTIN_THEMES,
   FIT_TEXT_SCRIPT,
@@ -24,6 +27,7 @@ import {
   fpsLabel,
   fpsValue,
   frameLayout,
+  fontFaceCss,
   framesToSeconds,
   hyperframesTitleProps,
   layoutCssVars,
@@ -31,6 +35,11 @@ import {
   TEMPLATES,
   layoutSceneDom,
   layoutSceneProps,
+  mediaKey,
+  mediaLayersHtml,
+  rewriteAssetRefs,
+  type DomLogo,
+  type DomMediaLayer,
   type HyperframesTitleProps,
   type PictureRequest,
   type OutputSettings,
@@ -101,7 +110,8 @@ function themeVars(theme: ThemeTokens, output: OutputSettings, platform?: string
  * headline shrinks to fit (an inline FIT_TEXT_SCRIPT, `data-rf-fit`), and on
  * landscape frames the line length is capped.
  */
-export function hyperframesTitle(props: HyperframesTitleProps, output: OutputSettings, seconds: number, platform?: string): string {
+export function hyperframesTitle(props: HyperframesTitleProps, output: OutputSettings, seconds: number, platform?: string, media: { bg?: DomMediaLayer; logo?: DomLogo } = {}): string {
+  const layers = mediaLayersHtml(media.bg, media.logo);
   const l = frameLayout(output.width, output.height, platform);
   const u = l.unit;
   const c = l.safe.content;
@@ -122,11 +132,16 @@ export function hyperframesTitle(props: HyperframesTitleProps, output: OutputSet
 @keyframes hf-grow{from{transform:scaleX(.15)}to{transform:scaleX(1)}}
 @keyframes hf-fade{from{opacity:0}to{opacity:1}}
 @keyframes hf-out{to{opacity:0}}
+#hf-wrap>.rf-media,#hf-wrap>.rf-logo{flex-shrink:initial;max-width:none}
+#hf-head,#hf-line,#hf-sub{position:relative;z-index:1}
+${layers.css}
 </style>
 <div id="hf-wrap" class="clip" data-start="0" data-duration="${seconds}">
+${layers.under}
 <h1 id="hf-head" data-rf-fit data-rf-fit-min="${Math.floor(l.type.displayMin)}">${escapeHtml(props.headline)}</h1>
 <div id="hf-line"></div>
 ${props.subline ? `<p id="hf-sub">${escapeHtml(props.subline)}</p>` : ''}
+${layers.over}
 </div>
 <script>${FIT_TEXT_SCRIPT}</script>`;
 }
@@ -186,23 +201,40 @@ export function buildComposition(
   output: OutputSettings,
   theme: ThemeTokens,
   platform?: string,
-  /** Where the pictures of layout panes are (hyperframes-layout). */
-  media?: (asset: string) => CompositionMedia
+  /** Staged assets (#299), or, for hyperframes-layout, where the pictures of its panes are (#287). */
+  media?: StagedSceneAssets | ((asset: string) => CompositionMedia)
 ): string {
   const seconds = framesToSeconds(scene.durationFrames, output.fps);
+  const staged = typeof media === 'function' ? undefined : media;
+  const paneMedia = typeof media === 'function' ? media : undefined;
   const stage = `render:${scene.id}`;
+  // Assets (#299) are files in the composition folder (assets/<name>), served by HyperFrames' own file server.
+  const url = (key: string) => {
+    const it = staged?.items.get(key);
+    return it ? `assets/${it.name}` : undefined;
+  };
   let body: string;
+  let css = scene.css;
   if (scene.html !== undefined) {
-    body = scene.html;
+    body = staged ? rewriteAssetRefs(scene.html, url) : scene.html;
+    if (staged && css) css = rewriteAssetRefs(css, url);
     if (new TextEncoder().encode(body + (scene.css ?? '')).length > MAX_SOURCE_BYTES) {
       throw new PipelineError(stage, `composition is larger than ${MAX_SOURCE_BYTES} bytes`);
     }
     if (scene.css && /<\/style/i.test(scene.css)) throw new PipelineError(stage, 'css must not contain "</style"');
   } else if (scene.template === 'hyperframes-title') {
-    body = hyperframesTitle(hyperframesTitleProps.parse(scene.props), output, seconds, platform);
+    const props = hyperframesTitleProps.parse(scene.props);
+    const bgItem = props.media ? staged?.items.get(mediaKey(props.media.asset, props.media.start)) : undefined;
+    const bg: DomMediaLayer | undefined =
+      props.media && bgItem
+        ? { url: `assets/${bgItem.name}`, fit: props.media.fit, ...(props.media.focus ? { focus: props.media.focus } : {}), dim: props.media.dim, tag: bgItem.mediaType === 'video' ? 'video' : 'img', ...(props.media.start ? { start: props.media.start } : {}) }
+        : undefined;
+    const logoItem = props.logo ? staged?.items.get(props.logo.asset) : undefined;
+    const logo: DomLogo | undefined = props.logo && logoItem ? { url: `assets/${logoItem.name}`, corner: props.logo.corner, size: props.logo.size } : undefined;
+    body = hyperframesTitle(props, output, seconds, platform, { ...(bg ? { bg } : {}), ...(logo ? { logo } : {}) });
   } else if (scene.template === 'hyperframes-layout') {
     const resolve =
-      media ??
+      paneMedia ??
       ((asset: string): CompositionMedia => {
         throw new PipelineError(stage, `asset "${asset}" is not available to the renderer`);
       });
@@ -211,11 +243,14 @@ export function buildComposition(
     throw new PipelineError(stage, `unknown hyperframes template "${scene.template}"`);
   }
 
+  // Fonts (#303): @font-face for the staged faces, files in the composition folder ('self' in the policy).
+  const fonts = staged?.fonts.length ? `<style>${fontFaceCss(staged.fontFaces('assets/')).replace(/<\/style/gi, '')}</style>` : '';
   const head =
     `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${HF_CSP}">` +
     `<script>${HF_PAGE_GUARD}</script>` +
+    fonts +
     `<style>${themeVars(theme, output, platform)}html,body{margin:0;width:${output.width}px;height:${output.height}px;overflow:hidden;background:var(--rf-bg);color:var(--rf-text);font-family:var(--rf-font)}*{box-sizing:border-box}</style>` +
-    (scene.css ? `<style>${scene.css}</style>` : '');
+    (css ? `<style>${css}</style>` : '');
 
   // A full document (agent's own <html>) or a fragment wrapped in a sized root composition.
   const isDocument = /<html[\s>]/i.test(body);
@@ -269,12 +304,14 @@ export interface HyperframesRenderOptions {
   out: string;
   workDir: string;
   cacheDir: string;
-  /** Project assets on local disk (pictures of hyperframes-layout panes). */
-  assets?: ReadonlyMap<string, ResolvedAsset>;
   browserExecutable?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
   log?: (line: string) => void;
+  /** The project's assets (EngineRenderContext.assets); the scene may use only these (#299), including hyperframes-layout panes. */
+  assets?: ReadonlyMap<string, ResolvedAsset>;
+  /** ffprobe/ffmpeg for checking assets before the render. */
+  tools?: Tools;
 }
 
 /**
@@ -361,8 +398,33 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
   const project = join(opts.workDir, 'hyperframes');
   await mkdir(project, { recursive: true });
-  const media = await stageMedia(scene, project, opts.assets ?? new Map(), stage);
-  const doc = buildComposition(scene, output, theme, opts.platform, media);
+  let doc: string;
+  if (scene.html === undefined && scene.template === 'hyperframes-layout') {
+    // Layout panes (#287): files linked into media/, video played as a timed <video> that HyperFrames seeks.
+    doc = buildComposition(scene, output, theme, opts.platform, await stageMedia(scene, project, opts.assets ?? new Map(), stage));
+  } else {
+    let uses;
+    try {
+      uses = sceneAssetUses(scene, scene.template ? TEMPLATES[scene.template as keyof typeof TEMPLATES] : undefined);
+    } catch (e) {
+      throw new PipelineError(stage, (e as Error).message);
+    }
+    // Inside the composition folder, so --refuse-outside-files still holds; HyperFrames seeks video itself.
+    const staged = await stageSceneAssets({
+      uses,
+      assets: opts.assets ?? new Map(),
+      dir: join(project, 'assets'),
+      tools: opts.tools ?? { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe' },
+      output,
+      frames: { first: 0, count: scene.durationFrames },
+      video: 'file',
+      // Fonts (#303): project font assets and bundled fonts of the families the theme and the scene name.
+      fonts: { family: theme.fontFamily, markup: `${scene.html ?? ''}\n${scene.css ?? ''}` },
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      ...(opts.log ? { log: opts.log } : {}),
+    });
+    doc = buildComposition(scene, output, theme, opts.platform, staged);
+  }
   // One temp directory per render: the CLI and its browser inherit it, which is how
   // every process of this render is found and killed when it ends (processes.ts).
   const tmpDir = join(opts.cacheDir, 'hyperframes', 'tmp', `r-${randomUUID()}`);
@@ -503,11 +565,12 @@ export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?
         out: ctx.out,
         workDir: ctx.workDir,
         cacheDir: ctx.cacheDir,
-        assets: ctx.assets,
         browserExecutable: browser(),
         signal: ctx.signal,
         timeoutMs: opts.timeoutMs,
         log: ctx.log,
+        assets: ctx.assets,
+        tools: ctx.tools,
       });
       ctx.progress(scene.durationFrames, scene.durationFrames);
       return {
