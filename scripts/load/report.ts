@@ -7,12 +7,12 @@ const row = (cells: unknown[]) => `| ${cells.map((c) => String(c ?? '')).join(' 
 
 export function renderMarkdown(doc: Any): string {
   const h = doc.host;
-  const foot = `${doc.hardwareNote}: ${h.vcpu} vCPU (${h.cpuModel}), ${h.ramGiB} GiB RAM, ${h.disk}, ${doc.postgres.version} (${doc.postgres.image}; ${Object.entries(doc.postgres.settings)
+  const foot = `${doc.hardwareNote}: ${h.vcpu} vCPU (${h.cpuModel}), ${h.ramGiB} GiB RAM, ${h.disk}, ${doc.postgres.version} (${doc.postgres.external ? `external server ${doc.postgres.external.host}${doc.postgres.external.pooler ? `, pooler ${doc.postgres.external.pooler}` : ''}` : doc.postgres.image}; ${Object.entries(doc.postgres.settings)
     .map(([k, v]) => `${k}=${v}`)
     .join(', ')}), ${doc.config.apiInstances} api instances × connection_limit ${doc.config.apiPool}, workers connection_limit ${doc.config.workerPool}, Node ${h.node}, ${h.date.slice(0, 10)}`;
   const out: string[] = [`Conditions: ${doc.caveat}. ${foot}.`, ''];
   for (const [pooler, r] of Object.entries<Any>(doc.results)) {
-    out.push(`### ${pooler === 'pgbouncer' ? `PgBouncer (transaction mode, pool ${doc.postgres.pgbouncer?.default_pool_size})` : 'Direct connections'}`, '');
+    out.push(`### ${pooler === 'pgbouncer' ? (doc.postgres.external ? 'Through the external pooler (LOAD_POOLER_URL)' : `PgBouncer (transaction mode, pool ${doc.postgres.pgbouncer?.default_pool_size})`) : 'Direct connections'}`, '');
     const crudRows = Object.entries<Any>(r).filter(([k]) => k.startsWith('a:') || k.startsWith('b:'));
     if (crudRows.length) {
       out.push(

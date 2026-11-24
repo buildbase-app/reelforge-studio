@@ -1474,13 +1474,15 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
               }, TX);
         // Under repeatable read, INSERT ... SELECT share-locks what it reads; when the previous window has no row
         // that is a gap lock, and concurrent first requests of a key can deadlock on it. InnoDB rolls the victim's
-        // statement back whole, so it is retried (only then is a check more than one statement).
+        // statement back whole, so it is retried (only then is a check more than one statement), after a short
+        // random pause that grows per attempt: retried at once, a burst collides again in lockstep (#423).
         for (let attempt = 1; ; attempt++) {
           try {
             const packed = await once();
             return { count: Number(packed & 0xffffffffn), previous: Number(packed >> 32n) };
           } catch (e) {
-            if (attempt >= 5 || !isWriteConflict(e)) throw e;
+            if (attempt >= SLIDE_ATTEMPTS || !isWriteConflict(e)) throw e;
+            await new Promise((r) => setTimeout(r, Math.random() * 5 * attempt * attempt));
           }
         }
       },
@@ -1534,6 +1536,9 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled']);
 
 /** A deadlock or write conflict the database resolved by rolling the statement back (MySQL 1213; Prisma P2034). */
+/** MySQL sliding-window checks: attempts on a write conflict (deadlock) before the error reaches the caller (#423). */
+const SLIDE_ATTEMPTS = 8;
+
 function isWriteConflict(e: unknown): boolean {
   const x = e as { code?: unknown; message?: unknown; cause?: { kind?: unknown; originalCode?: unknown } } | null;
   return Boolean(
