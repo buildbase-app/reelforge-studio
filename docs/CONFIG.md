@@ -50,6 +50,12 @@ logging:
 | `server.workerConcurrency` | `REELFORGE_WORKER_CONCURRENCY` | integer | `limits.renderConcurrency` | startup |  | Jobs one `worker` (or `all`) instance claims and renders at the same time. Unset: `limits.renderConcurrency` (which can then be changed at runtime). Scale out with more worker instances rather than a high value here. |
 | `server.workerOnce` | `REELFORGE_WORKER_ONCE` | boolean | `false` | startup |  | Run as `reelforge worker --once` (D-100): claim at most one job, render it and exit (0 succeeded, cancelled or nothing queued; 1 failed; 75 handed back, lease lost, or the `--job` still queued; see docs/providers/backends.md). For job platforms that start one container per unit (KEDA ScaledJob, Azure Container Apps event jobs, AWS Batch, Cloud Run Jobs, ECS RunTask). Implies `server.role` `worker` (same database and storage rules); serves no HTTP. |
 
+## dashboard
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `dashboard.enabled` | `REELFORGE_DASHBOARD_ENABLED` | boolean | `false` | runtime |  | Serve the web dashboard at `/dashboard` (D-115; docs/public/install/dashboard.md): live jobs with cancel and retry, and the library of projects and renders. Off: `/dashboard` answers 404. It is a client of the public REST API: people sign in with an API key, and every call is checked against that key's scopes. Same Host check as `/mcp` (`server.publicUrl`, `server.allowedHosts`), a strict Content-Security-Policy, no cookies and no external hosts. Not served by `worker` instances. |
+
 ## queue
 
 | Key | Env | Type | Default | Scope | Secret | Description |
@@ -246,6 +252,20 @@ logging:
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
 | `providers.elevenlabs.apiKey` | `REELFORGE_ELEVENLABS_API_KEY`, `ELEVENLABS_API_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Enables the ElevenLabs TTS provider. Same setting as `configure_provider` / `PUT /v1/providers/elevenlabs/config`; stored encrypted when set at runtime. |
+
+## captions
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `captions.defaultMode` | `REELFORGE_CAPTIONS_DEFAULT_MODE` | `off` \| `burned` \| `sidecar` \| `both` | `off` | runtime |  | Captions for projects that do not set `captions.mode` (docs/CAPTIONS.md): `off` (the default; projects render as before), `burned` into the video, `sidecar` files (SRT, WebVTT, ASS) next to final.mp4, or `both`. A project's `captions.mode` and render_project's `captions` override it. |
+| `captions.stt.provider` | `REELFORGE_STT_PROVIDER` | string | `faster-whisper` | runtime |  | Speech-to-text provider used by `transcribe_captions` (get_capabilities `captions.stt` lists the installed ones and whether each can run here). |
+| `captions.stt.command` | `REELFORGE_STT_COMMAND` | path | `reelforge-whisper` | runtime |  | The local speech-to-text program: a name looked up on PATH or an absolute path. It is started directly (never through a shell) with a fixed argument list and no network access is needed (deployment/stt/README.md). The default `reelforge-whisper` is installed by the optional speech-to-text image layer; without it speech-to-text is off and get_capabilities says so. Admin-only like every setting, and audit-logged. |
+| `captions.stt.model` | `REELFORGE_STT_MODEL` | string | `small` | runtime |  | Whisper model: a name (tiny, base, small, medium, large-v3, distil-large-v3, ... and the .en variants) that must already be downloaded into `captions.stt.modelDir`, or the path of a converted model directory. Models are never downloaded at run time. |
+| `captions.stt.modelDir` | `REELFORGE_STT_MODEL_DIR` | path | (the Hugging Face cache of the server user) | runtime |  | Directory the models were pre-downloaded into (the image layer uses `/opt/reelforge/whisper-models`). |
+| `captions.stt.language` | `REELFORGE_STT_LANGUAGE` | string | `auto` | runtime |  | Spoken language of voice-overs: `auto` detects it, or a BCP 47 tag (its primary subtag is passed to Whisper, e.g. `pt` for `pt-BR`). `transcribe_captions` can pass one per call. |
+| `captions.stt.computeType` | `REELFORGE_STT_COMPUTE_TYPE` | `default` \| `auto` \| `int8` \| `int8_float32` \| `int8_float16` \| `int8_bfloat16` \| `int16` \| `float16` \| `bfloat16` \| `float32` | `int8` | runtime |  | CTranslate2 compute type: `int8` is fast on a CPU; `float16` needs a GPU. |
+| `captions.stt.device` | `REELFORGE_STT_DEVICE` | `cpu` \| `cuda` \| `auto` | `cpu` | runtime |  | `cpu`, `cuda` (an NVIDIA GPU with CUDA libraries in the image) or `auto`. |
+| `captions.stt.timeoutSeconds` | `REELFORGE_STT_TIMEOUT_SECONDS` | integer | `600` | runtime |  | Longest one transcription may run (10 to 3600 seconds); the process is killed after it. |
 
 ## logging
 

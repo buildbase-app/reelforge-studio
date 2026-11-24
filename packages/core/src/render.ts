@@ -51,6 +51,8 @@ export interface RenderPipelineInput {
   telemetry?: Telemetry;
   /** Overrides the manifest's `captions.mode` for this render (render_project's `captions`). */
   captionsMode?: CaptionMode;
+  /** The server's captions.defaultMode when the job was queued (projects without captions.mode). */
+  captionsDefault?: CaptionMode;
 }
 
 export interface RenderPipelineResult {
@@ -316,6 +318,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
         theme: input.theme,
         output,
         ...(input.captionsMode ? { modeOverride: input.captionsMode } : {}),
+        ...(input.captionsDefault ? { defaultMode: input.captionsDefault } : {}),
         ...(fullTimeline ? {} : { subset: clips }),
         durationSeconds: assembled.totalFrames / output.fps,
         dir: tmp,

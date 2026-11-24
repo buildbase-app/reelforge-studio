@@ -18,6 +18,56 @@ export const captionWord = z
   })
   .strict();
 
+// ---- language tags ----------------------------------------------------------
+
+/**
+ * Whether `tag` is a well-formed BCP 47 language tag ("en", "pt-BR",
+ * "zh-Hant-TW"): letters, digits and hyphens only (so it is safe in a file
+ * name and a WebVTT or ASS header line), at most 35 characters, and accepted
+ * by Intl.getCanonicalLocales (structure: language, script, region, variants,
+ * extensions). Validity against the IANA registry is not checked.
+ */
+export function isLanguageTag(tag: string): boolean {
+  if (tag.length < 2 || tag.length > 35) return false;
+  for (let i = 0; i < tag.length; i++) {
+    const c = tag.charCodeAt(i);
+    const ok = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 45;
+    if (!ok) return false;
+  }
+  try {
+    return Intl.getCanonicalLocales(tag).length === 1;
+  } catch {
+    return false;
+  }
+}
+
+/** The canonical form of a language tag ("PT-br" -> "pt-BR"); the input when it is not a tag. */
+export function canonicalLanguage(tag: string): string {
+  try {
+    return Intl.getCanonicalLocales(tag)[0] ?? tag;
+  } catch {
+    return tag;
+  }
+}
+
+/** Same language tag, ignoring case and canonical form. */
+export function sameLanguage(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  return canonicalLanguage(a).toLowerCase() === canonicalLanguage(b).toLowerCase();
+}
+
+/** A BCP 47 language tag such as "en" or "pt-BR". */
+export const languageTag = z
+  .string()
+  .min(2)
+  .max(35)
+  .refine(isLanguageTag, { message: 'must be a BCP 47 language tag such as "en", "de" or "pt-BR"' });
+
+// ---- cues -------------------------------------------------------------------
+
+export const CUE_KINDS = ['caption', 'description'] as const;
+export type CueKind = (typeof CUE_KINDS)[number];
+
 /** One caption cue, in seconds of video time. `text` may contain "\n" to force a line break. */
 export const captionCue = z
   .object({
@@ -26,8 +76,40 @@ export const captionCue = z
     text: z.string().min(1).max(500),
     /** Word timings inside the cue (video time). Enables the word highlight ("karaoke") style. */
     words: z.array(captionWord).max(200).optional(),
+    /**
+     * "caption" (default): shown and burned. "description": a text audio
+     * description of what is on screen, written only to a WebVTT sidecar for
+     * <track kind="descriptions">; never burned, not in SRT or ASS.
+     */
+    kind: z.enum(CUE_KINDS).optional(),
   })
   .strict();
+
+/** The cues of one more language (captions.tracks). */
+export const captionTrack = z
+  .object({
+    /** Caption and description cues in this language, in video seconds, in time order per kind. */
+    cues: z.array(captionCue).max(2000),
+  })
+  .strict();
+
+/** Most languages one project carries (the primary one plus captions.tracks). */
+export const MAX_CAPTION_LANGUAGES = 20;
+
+/** Split cues by kind, keeping each one's index in the original list. */
+export function splitCueKinds(cues: readonly CaptionCue[]): { captions: CaptionCue[]; descriptions: CaptionCue[]; captionIndex: number[]; descriptionIndex: number[] } {
+  const out = { captions: [] as CaptionCue[], descriptions: [] as CaptionCue[], captionIndex: [] as number[], descriptionIndex: [] as number[] };
+  cues.forEach((c, i) => {
+    if (c.kind === 'description') {
+      out.descriptions.push(c);
+      out.descriptionIndex.push(i);
+    } else {
+      out.captions.push(c);
+      out.captionIndex.push(i);
+    }
+  });
+  return out;
+}
 
 export const CAPTION_MODES = ['off', 'burned', 'sidecar', 'both'] as const;
 export type CaptionMode = (typeof CAPTION_MODES)[number];
@@ -49,8 +131,17 @@ export const projectCaptions = z
     enabled: z.boolean().default(false),
     /** off (default), burned into the video, sidecar files (SRT, WebVTT, ASS) next to final.mp4, or both. render_project can override it per render. */
     mode: captionMode.optional(),
-    /** BCP 47 language of the cues (written into the WebVTT header and the render manifest). Default: brief.language. */
-    language: z.string().min(2).max(35).optional(),
+    /** BCP 47 language of `cues` (the primary language; written into the WebVTT and ASS headers and the render manifest). Default: brief.language when it is a valid tag. */
+    language: languageTag.optional(),
+    /** The one language burned into the video (modes burned and both): the primary language (default) or a key of `tracks`. Every language gets sidecars. */
+    burnLanguage: languageTag.optional(),
+    /** More languages, keyed by BCP 47 tag (not the primary one): each written as captions.<tag>.srt/.vtt/.ass, and burned when it is burnLanguage. */
+    tracks: z.record(languageTag, captionTrack).optional(),
+    /** Set by update_captions with approve: true; approved while the captions still have this etag (get_captions). */
+    approval: z
+      .object({ etag: z.string().min(1).max(100), approvedAt: z.string().min(1).max(40) })
+      .strict()
+      .optional(),
     /** Caption style on top of the theme's captionStyle tokens. */
     style: captionStyle.partial().optional(),
     /** "word" highlights the word being spoken when the cue has word timings (the default then); "none" never does. */
@@ -59,7 +150,7 @@ export const projectCaptions = z
     maxLineChars: z.number().int().min(16).max(CAPTION_RULES.maxLineChars).optional(),
     /** Characters per cue when cues are built from word timestamps or scene text. Default: two lines. */
     maxCharsPerCue: z.number().int().min(16).max(CAPTION_RULES.maxLineChars * 2).optional(),
-    /** Manual cues (or imported with import_captions). When empty, cues are built from the voice's word timestamps, else from scene caption text. */
+    /** Manual cues of the primary language (or imported with import_captions); may include description cues. With no caption cues here, they are built from the voice's word timestamps, else from scene caption text. */
     cues: z.array(captionCue).max(2000).optional(),
   })
   .strict();
@@ -67,6 +158,7 @@ export const projectCaptions = z
 export type CaptionWord = z.infer<typeof captionWord>;
 export type CaptionCue = z.infer<typeof captionCue>;
 export type ProjectCaptions = z.infer<typeof projectCaptions>;
+export type CaptionTrack = z.infer<typeof captionTrack>;
 
 // ---- line breaking ----------------------------------------------------------
 
@@ -335,8 +427,9 @@ export function formatSrt(cues: readonly CaptionCue[], maxLineChars: number = CA
 const vttEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** WebVTT, with inline word timestamps (`<00:00:01.200>`) when the cue has word timings. */
-export function formatVtt(cues: readonly CaptionCue[], o: { maxLineChars?: number; language?: string } = {}): string {
-  const head = `WEBVTT${o.language ? `\nLanguage: ${o.language}` : ''}\n\n`;
+export function formatVtt(cues: readonly CaptionCue[], o: { maxLineChars?: number; language?: string; kind?: 'descriptions' } = {}): string {
+  const language = o.language && isLanguageTag(o.language) ? o.language : undefined;
+  const head = `WEBVTT${o.kind ? `\nKind: ${o.kind}` : ''}${language ? `\nLanguage: ${language}` : ''}\n\n`;
   return (
     head +
     cues

@@ -22,6 +22,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
 import type { ServerConfig } from './config';
 import { auditAction, auditTarget, matchRoute, restArgs, resultOf } from './audit';
+import { mountDashboard } from './dashboard';
 import { handleMcp, serverCard } from './mcp';
 import { httpTelemetry } from './observability/http';
 import { StructuredLogger } from './observability/logger';
@@ -420,6 +421,7 @@ export function createApp(deps: AppDeps) {
   v1.use('*', authenticate);
 
   v1.get('/capabilities', need('read'), (c) => c.json(service.capabilities()));
+  v1.get('/me', need('read'), async (c) => c.json(await service.getMe(c.get('auth'))));
   v1.get('/schema/project', need('read'), (c) => c.json(service.projectSchema()));
   v1.get('/templates', need('read'), (c) => c.json({ templates: service.listTemplates(c.req.query('engine')) }));
 
@@ -494,6 +496,23 @@ export function createApp(deps: AppDeps) {
     const r = await service.importCaptions(c.req.param('id'), b, expectedVersion(c, b));
     return c.json({ ...project(r), imported: r.imported });
   });
+  v1.get('/projects/:id/captions', need('read'), async (c) => {
+    const language = c.req.query('language');
+    return c.json(await service.getCaptions({ projectId: c.req.param('id'), ...(language ? { language } : {}) }));
+  });
+  v1.patch('/projects/:id/captions', need('write'), json, async (c) => {
+    // The captions etag comes in the body or as If-Match (not a project version here); expectedVersion in the body or query.
+    const { expectedVersion: ev, ...b } = await body(c);
+    const etag = b.etag ?? c.req.header('if-match');
+    const v = ev ?? c.req.query('expectedVersion');
+    const version = v === undefined ? undefined : Number(v);
+    if (version !== undefined && (!Number.isInteger(version) || version < 1)) throw new ApiError('bad_request', 400, 'expectedVersion must be a positive integer');
+    return c.json(await service.updateCaptions(c.req.param('id'), { ...b, ...(etag !== undefined ? { etag } : {}) }, version));
+  });
+  v1.post('/projects/:id/captions/transcribe', need('render'), json, async (c) => {
+    const { expectedVersion: _ev, ...b } = await body(c);
+    return c.json(await service.transcribeCaptions(c.req.param('id'), b, expectedVersion(c, { expectedVersion: _ev })));
+  });
 
   v1.post('/projects/:id/preview', need('render'), json, async (c) => {
     const b = await body(c);
@@ -549,6 +568,10 @@ export function createApp(deps: AppDeps) {
   });
 
   v1.get('/renders/:id', need('read'), async (c) => c.json(await service.getRender(c.req.param('id'))));
+  v1.get('/renders/:id/captions', need('read'), async (c) => {
+    const language = c.req.query('language');
+    return c.json(await service.getCaptions({ renderId: c.req.param('id'), ...(language ? { language } : {}) }));
+  });
   v1.get('/renders/:id/output', need('read'), async (c) => {
     const file = c.req.query('file') ?? 'final.mp4';
     const o = await service.renderObject(c.req.param('id'), file);
@@ -679,6 +702,7 @@ export function createApp(deps: AppDeps) {
   });
 
   app.route('/v1', v1);
+  mountDashboard(app, service, config); // GET /dashboard (dashboard.enabled, D-115)
   return app;
 }
 
