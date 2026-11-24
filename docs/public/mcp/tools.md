@@ -141,7 +141,7 @@ Every update saves a new version. Returns the version numbers; read one with get
 
 **Delete a project**. Scope: `write`, destructive. REST: `DELETE /v1/projects/:id`.
 
-Deletes a project with all its versions and renders. Cannot be undone; confirm with the user first.
+Deletes a project with all its versions and renders, and cancels its queued and running renders and previews. Cannot be undone; confirm with the user first.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |

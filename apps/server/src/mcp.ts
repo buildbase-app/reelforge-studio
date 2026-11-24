@@ -604,7 +604,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'delete_project',
     title: 'Delete a project',
-    description: 'Deletes a project with all its versions and renders. Cannot be undone; confirm with the user first.',
+    description: 'Deletes a project with all its versions and renders, and cancels its queued and running renders and previews. Cannot be undone; confirm with the user first.',
     scope: 'write',
     input: { projectId },
     annotations: { destructiveHint: true },

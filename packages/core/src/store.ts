@@ -144,7 +144,8 @@ export class ProjectStore {
     this.checkId(id);
     await this.mutex.run(id, async () => {
       if (!(await this.repo.delete(id))) throw notFound('project', id);
-      await rm(this.dir(id), { recursive: true, force: true });
+      // A render writing into the folder at this moment can make one pass fail with ENOTEMPTY: retried.
+      await rm(this.dir(id), { recursive: true, force: true, maxRetries: 3 });
     });
   }
 }
