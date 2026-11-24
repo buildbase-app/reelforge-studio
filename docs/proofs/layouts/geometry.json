@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-24T10:08:13.055Z",
+  "generatedAt": "2026-11-24T12:34:56.375Z",
   "command": "pnpm formats:prove-layouts --geometry",
   "frame": "frame 30 of a 1.5 s scene at 30 fps",
   "rows": [
@@ -3846,9 +3846,9 @@
       "lowerThird": {
         "found": {
           "x": 214,
-          "y": 1697,
+          "y": 1698,
           "width": 1672,
-          "height": 355
+          "height": 354
         },
         "pxFromHtml": 0
       },
@@ -3912,9 +3912,9 @@
           "width": 1672,
           "height": 358
         },
-        "pxFromHtml": 3
+        "pxFromHtml": 4
       },
-      "maxPxFromHtml": 3,
+      "maxPxFromHtml": 4,
       "textPixelsOutsideTextBoxes": 0,
       "problems": []
     },
