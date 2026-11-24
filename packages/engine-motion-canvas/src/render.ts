@@ -264,19 +264,20 @@ export async function renderMotionCanvasScene(
 
   // Assets (#299): the scene's files staged (video as one picture per frame), served by the bundle server under a random token.
   const uses = sceneAssetUses(scene, scene.template ? TEMPLATES[scene.template as keyof typeof TEMPLATES] : undefined);
-  const staged = uses.length
-    ? await stageSceneAssets({
-        uses,
-        assets: opts.assets ?? new Map(),
-        dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
-        tools: opts.tools ?? { ffmpeg: opts.ffmpeg, ffprobe: opts.ffmpeg.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1') },
-        output,
-        frames: { first: 0, count: scene.durationFrames },
-        video: 'frames',
-        ...(opts.signal ? { signal: opts.signal } : {}),
-        ...(opts.log ? { log: opts.log } : {}),
-      })
-    : undefined;
+  const staging = await stageSceneAssets({
+    uses,
+    assets: opts.assets ?? new Map(),
+    dir: join(opts.workDir ?? `${opts.out}.work`, 'assets'),
+    tools: opts.tools ?? { ffmpeg: opts.ffmpeg, ffprobe: opts.ffmpeg.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1') },
+    output,
+    frames: { first: 0, count: scene.durationFrames },
+    video: 'frames',
+    // Fonts (#303): the theme's families that are project font assets or bundled fonts, loaded before the first frame.
+    ...(opts.theme ? { fonts: { family: opts.theme.fontFamily } } : {}),
+    ...(opts.signal ? { signal: opts.signal } : {}),
+    ...(opts.log ? { log: opts.log } : {}),
+  });
+  const staged = staging.items.size || staging.fonts.length ? staging : undefined;
   const token = assetToken();
   const server = await serve(bundle, staged ? { staged, token } : undefined);
   const port = (server.address() as AddressInfo).port;
@@ -345,6 +346,7 @@ export async function renderMotionCanvasScene(
         fps: fpsValue(output.fps),
         frames: scene.durationFrames,
         background: (props.background as string | undefined) ?? opts.theme?.colors.background ?? null,
+        ...(staged?.fonts.length ? { fonts: staged.fontFaces(`http://127.0.0.1:${port}/${token}/`) } : {}),
       }
     );
 
@@ -352,7 +354,7 @@ export async function renderMotionCanvasScene(
     if (!response.ok) {
       throw new PipelineError(
         `render:${scene.id}`,
-        `Motion Canvas render ${response.result}`,
+        `Motion Canvas render ${response.result}${response.errors[0] ? `: ${response.errors[0].split('\n')[0]!.slice(0, 300)}` : ''}`,
         [...response.errors, ...consoleErrors].join('\n')
       );
     }
