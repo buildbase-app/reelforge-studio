@@ -515,6 +515,8 @@ Lists render and preview jobs, optionally only those of one project (projectId) 
 | --- | --- | --- | --- |
 | `projectId` | string | no | Project id (the manifest's projectId). |
 | `parentId` | string | no | Only the children of this job: the render_unit jobs and the render_join job of a fanned-out render (render.fanOut), given the render job's id. |
+| `status` | "queued" \| "running" \| "succeeded" \| "failed" \| "cancelled" | no | Only jobs in this state, e.g. succeeded for finished renders. |
+| `type` | "render" \| "preview" \| "render_unit" \| "render_join" | no | Only jobs of this type. |
 | `limit` | integer | no | Page size: 1 to 200, default 50. |
 | `cursor` | string | no | nextCursor from the previous page of this list (same filters), unchanged. Omit for the first page. |
 

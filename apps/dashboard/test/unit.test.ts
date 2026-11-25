@@ -5,6 +5,7 @@ import { can, parseEvent, sameOriginLink } from '../src/api';
 import { labelEvery, niceTicks, tickText } from '../src/chart';
 import { ago, between, bucketLabel, bucketTitle, bytes, downloadLabel, duration, groupTitle, jobType, latency, outputFormat, outputShort, percent, playerKind, rate, scopeText, size, stillNote } from '../src/format';
 import { assetSource } from '../src/views/assets';
+import { renderIdOf, rendersQuery } from '../src/views/renders';
 import { auditQuery } from '../src/views/audit';
 import { parseInput } from '../src/views/settings';
 
@@ -85,6 +86,16 @@ describe('analytics figures and chart scales', () => {
     expect(tickText(1_500_000, 2_000_000)).toBe('1.5M');
     expect(labelEvery(30, 8)).toBe(4);
     expect(labelEvery(5, 8)).toBe(1);
+  });
+});
+
+describe('renders (#292)', () => {
+  it('asks for one page of finished renders or previews, and takes the render id from the job result', () => {
+    expect(rendersQuery('render')).toBe('/v1/jobs?status=succeeded&type=render&limit=50');
+    expect(rendersQuery('preview', 'abc=')).toBe('/v1/jobs?status=succeeded&type=preview&limit=50&cursor=abc%3D');
+    expect(renderIdOf({ result: { renderId: 'run_abc123' } })).toBe('run_abc123');
+    expect(renderIdOf({ result: { renderId: '../x' } })).toBeNull();
+    expect(renderIdOf({})).toBeNull();
   });
 });
 

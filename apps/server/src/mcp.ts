@@ -579,10 +579,12 @@ export const TOOLS: ToolDef[] = [
     input: {
       projectId: projectId.optional(),
       parentId: z.string().max(191).optional().describe('Only the children of this job: the render_unit jobs and the render_join job of a fanned-out render (render.fanOut), given the render job\'s id.'),
+      status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']).optional().describe('Only jobs in this state, e.g. succeeded for finished renders.'),
+      type: z.enum(['render', 'preview', 'render_unit', 'render_join']).optional().describe('Only jobs of this type.'),
       ...pageArgs,
     },
     annotations: { readOnlyHint: true },
-    run: async (a, { service }) => service.listJobs({ projectId: a.projectId, parentId: a.parentId }, { limit: a.limit, cursor: a.cursor }),
+    run: async (a, { service }) => service.listJobs({ projectId: a.projectId, parentId: a.parentId, status: a.status, type: a.type }, { limit: a.limit, cursor: a.cursor }),
   },
   {
     name: 'retry_job',

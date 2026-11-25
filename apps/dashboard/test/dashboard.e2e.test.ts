@@ -172,6 +172,15 @@ describe.runIf(hasBrowser)('dashboard in a browser', () => {
     await page.getByText(`projects/spring-launch/renders/${ids.render}/`).waitFor();
     expect(await axe(page), 'render').toEqual([]);
 
+    // Renders (#292): every finished render across projects, newest first, linked to its page; previews apart.
+    await page.getByRole('link', { name: 'Renders', exact: true }).click();
+    await page.getByRole('heading', { level: 1, name: 'Renders' }).waitFor();
+    await page.getByRole('link', { name: ids.render }).waitFor();
+    await expect(page.getByRole('link', { name: 'spring-launch' }).count()).resolves.toBeGreaterThan(0);
+    expect(await axe(page), 'renders').toEqual([]);
+    await page.getByRole('button', { name: 'Previews' }).click();
+    await page.getByText('No finished previews yet.').waitFor();
+
     // Assets (#292): every stored asset with its type, size and licence; one without a licence is marked.
     await page.getByRole('link', { name: 'Assets' }).click();
     await page.getByRole('heading', { level: 1, name: 'Assets' }).waitFor();
