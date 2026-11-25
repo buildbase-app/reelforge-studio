@@ -1116,6 +1116,32 @@ export const ConfigSchema = z.object({
           'What a muted render (`audio.mute`) carries: `silent`, a valid silent AAC track (safest: some players and upload pipelines expect an audio stream); `none`, no audio stream at all.',
       }),
     }),
+    qa: z.object({
+      video: setting(z.enum(['off', 'warn', 'fail']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_VIDEO',
+        default: 'warn',
+        description:
+          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`) and black pictures (`render.qa.blackSeconds`), measured on every frame in one FFmpeg decode pass. `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
+      }),
+      freezeSeconds: setting(z.number().min(0.5).max(3600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_FREEZE_SECONDS',
+        default: 3,
+        description:
+          'A picture that does not change for this long (seconds, 0.5 to 3600) is reported as frozen: viewers read a still that long as a stuck video. Raise it for deliberate holds such as slides.',
+      }),
+      blackSeconds: setting(z.number().min(0.1).max(3600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_BLACK_SECONDS',
+        default: 0.5,
+        description:
+          'Black pictures lasting this long (seconds, 0.1 to 3600) are reported; a fade through black is shorter. Not checked on transparent output.',
+      }),
+    }),
     ffmpegPath: setting(nonEmpty(), {
       kind: 'path',
       scope: 'startup',

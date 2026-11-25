@@ -48,3 +48,4 @@ export * from './sceneAssets';
 export * from './fonts';
 export * from './workspace';
 export * from './workspace-admin';
+export * from './videoqa';

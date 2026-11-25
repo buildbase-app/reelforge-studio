@@ -222,7 +222,14 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
     }
 
     const out = await ok(agent, 'get_render_output', { jobId: job.id });
-    expect(out.data.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', avSync: 'pass', loudness: 'skipped' });
+    expect(out.data.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', avSync: 'pass', loudness: 'skipped', freeze: 'pass', black: 'warn' });
+    // The picture checks (#294) on real engines: the Motion Canvas explainer shows about a second of its empty dark
+    // background before its title appears, which reads as a gap; nothing else freezes or goes black.
+    expect(out.data.videoQa.issues, JSON.stringify(out.data.videoQa)).toHaveLength(1);
+    const [black] = out.data.videoQa.issues;
+    expect(black).toMatchObject({ rule: 'video.black', severity: 'warning', scenes: ['how-it-works'] });
+    expect(black.durationSeconds).toBeGreaterThanOrEqual(0.5);
+    expect(black.message).toContain('nothing on screen that long reads as a gap');
     expect(out.content.some((c) => c.type === 'image' && c.mimeType === 'image/png')).toBe(true);
     expect(out.data.versions.engines).toMatchObject({ remotion: '4.0.545', 'motion-canvas': '3.17.2', hyperframes: 'hyperframes 0.9.77' });
 

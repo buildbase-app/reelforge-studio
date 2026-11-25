@@ -284,6 +284,7 @@ that was run; "partial" says what is missing.
 | §6 Assets: upload or URL, licence, checksum | done | Content-addressed store, byte sniffing, https only, SSRF guard at connect time, size limit |
 | §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->76<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 Resources and prompts `brief_intake`, `make_reel`, `plan_reel`, `review_reel` | done | MCP tests |
+| Picture checks after the encode (#294): frozen and black stretches per render, `render.qa.*`, warn or fail | done (first two gates) | `packages/core/test/videoqa.test.ts` (VQA-01..06); motion energy, loop seam, seek determinism and flashes still open |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |
 | §8 API keys: random 32 bytes, hashed, scopes, CLI, admin API, bootstrap key | done | `REELFORGE_BOOTSTRAP_KEY` or `_FILE`; CLI `pnpm keys:create` / `reelforge keys create` in Docker (picked up without restart); admin tools create/list/revoke |

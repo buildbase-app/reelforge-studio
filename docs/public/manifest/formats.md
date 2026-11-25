@@ -405,6 +405,43 @@ pnpm formats:prove-layouts
 pnpm formats:prove-layouts --geometry
 ```
 
+## Picture checks
+
+Every finished render and preview is decoded once more, frame by frame, to find
+pictures that freeze or go black (#294). A check of single stills can't see
+either. The results are in the render manifest and in `get_render_output` /
+`GET /v1/renders/:id`:
+
+- `checks.freeze` and `checks.black`: `pass`, `warn`, or `skipped` (when the
+  check is off, the output is audio only, or, for black, the output is
+  transparent).
+- `videoQa`: the thresholds, every stretch measured (`freezes`, `blacks`, in
+  seconds) and one issue per stretch. Each issue names the scenes it overlaps
+  and what to change. A black opening also says that platforms will show a
+  black thumbnail.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `render.qa.video` | `warn` | `warn` records the issues; `fail` fails the render with them; `off` skips the pass |
+| `render.qa.freezeSeconds` | `3` | A picture that doesn't change for this long is reported (0.5 to 3600). Raise it for slides or other deliberate holds |
+| `render.qa.blackSeconds` | `0.5` | Black lasting this long is reported (0.1 to 3600); a fade through black is shorter |
+
+Near-black counts as black. An empty frame on a dark theme background (the
+default `#0b0b14`) is what a viewer sees as a gap, so a scene whose first
+element arrives a second late is reported.
+
+How it measures: FFmpeg `freezedetect` (noise tolerance −60 dB, so only truly
+unchanged pictures count) and `blackdetect` (a pixel is black at 10 % luma or
+below, a picture when 98 % of it is). They run in one pass over the assembled
+picture: the MP4, or the master the other formats are packaged from. The
+settings are runtime settings (`update_config`, `PATCH /v1/config`) and apply to
+the next render. Tests: `packages/core/test/videoqa.test.ts`. They cover a black
+opening and a frozen stretch measured to the second, a still scene named with
+its times, a preview checked on its own, and `fail` and `off`.
+
+Not yet measured (#294): motion energy, loop seams, seek determinism, flashes,
+and text overflow in the final file.
+
 ## Proof: contact sheets
 
 Every built-in template is rendered on its engine at 16:9, 1:1, 4:5, 9:16 and

@@ -538,7 +538,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_render_output',
     title: 'Get a render output',
     description:
-      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha).',
+      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. checks.freeze and checks.black are "warn" when the picture froze or went black (render.qa.*); videoQa.issues names the times and scenes: fix those scenes. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha).',
     scope: 'read',
     input: { renderId: z.string().optional(), jobId: z.string().optional(), includePoster: z.boolean().optional() },
     annotations: { readOnlyHint: true },
@@ -1184,6 +1184,8 @@ done with tools; there is no UI.
 9. Optional quick look: preview_scene (low resolution), then get_render_output.
 10. render_project -> get_job with waitSeconds 45 (repeat while running) until succeeded/failed ->
    get_render_output. Give the user downloadUrl (works without a key for ~1 h).
+   Read checks: freeze or black = "warn" means a scene froze or went black;
+   videoQa.issues names it, with the times. Fix it and render again.
    If it failed: get_job_logs, fix, render again (or retry_job).
    An error licence_required / licence_invalid is not a manifest problem: tell
    the user its message and fix (an admin activates with activate_licence).
