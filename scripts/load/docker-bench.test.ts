@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { best, cgroupFiles, config, parseSizes, readCgroup, renderMarkdown, shouldContinue, type ApiPoint, type Point } from './docker-bench';
+import { best, brokenPoint, cgroupFiles, config, parseSizes, readCgroup, renderMarkdown, shouldContinue, type ApiPoint, type Point } from './docker-bench';
 
 const root = mkdtempSync(join(tmpdir(), 'rf-bench-test-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -94,5 +94,19 @@ describe('docker sizing benchmark', () => {
     expect(md).toContain('| 1 vCPU, 2 GiB | 1 | 20 | 90 s / 95 s | 800 MiB | 20 MiB | - |');
     expect(md).toContain('| 2 vCPU, 4 GiB | 2 | 70 | 90 s / 95 s | 1600 MiB | 20 MiB | 600 (88 ms) |');
     expect(md).toContain('| 1 vCPU, 2 GiB | 2 | 4 / 1 | 21 | 0.2 | 1600 MiB | 0 | failed: out of memory |');
+  });
+
+  it('BENCH-06 a run that broke off counts every planned render as failed, names an OOM kill and ends the sweep for that size', () => {
+    const size = { cpus: 1, memGiB: 0.5 };
+    const p = brokenPoint(size, 'v1080-30s', 2, 4, new Error('container exited before it was healthy:\nKilled'), true);
+    expect(p).toMatchObject({ concurrency: 2, ok: 0, failed: 4, rendersPerHour: 0, oomKills: 1, errors: ['container OOM-killed: container exited before it was healthy: Killed'] });
+    expect(brokenPoint(size, 'v1080-30s', 1, 2, 'container not healthy in time', false)).toMatchObject({ failed: 2, oomKills: null, errors: ['container not healthy in time'] });
+    expect(shouldContinue([p], 4, 0.05)).toBe(false);
+    expect(best([p])).toBeNull();
+    const md = renderMarkdown([p], [], { cpuModel: 'Test CPU', vcpu: 4, ramGiB: 16, date: '2026-11-25T00:00:00Z', note: 'Shared sandbox.' }, 'v1080-30s');
+    expect(md).toContain('| 1 vCPU, 0.5 GiB | none without a failure | - | - | - MiB | - | - |');
+    expect(md).toContain('| 1 vCPU, 0.5 GiB | 2 | 0 / 4 | 0 | 0 | - MiB | 1 | container OOM-killed: container exited before it was healthy: Killed |');
+    expect(md).toContain('measured 2026-11-25.\n\nShared sandbox.\n');
+    expect(config({}).note).toBe('');
   });
 });
