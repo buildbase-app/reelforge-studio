@@ -164,10 +164,10 @@ describe('over REST and MCP', () => {
     expect(JSON.stringify(unknown.content)).toContain('not_found');
 
     const index = await client.readResource({ uri: 'renderweld://skills' });
-    expect(index.contents[0]!.text).toContain('- **Review and QA** (renderweld://skills/review-and-qa)');
+    expect((index.contents[0] as any).text).toContain('- **Review and QA** (renderweld://skills/review-and-qa)');
     const res = await client.readResource({ uri: 'renderweld://skills/av-sync' });
     expect(res.contents[0]).toMatchObject({ mimeType: 'text/markdown', text: expect.stringContaining('# Audio and video sync\n') });
-    expect((await client.readResource({ uri: 'reelforge://skills/av-sync' })).contents[0]!.text).toBe(res.contents[0]!.text); // the old scheme still reads
+    expect(((await client.readResource({ uri: 'reelforge://skills/av-sync' })).contents[0] as any).text).toBe((res.contents[0] as any).text); // the old scheme still reads
     const { resources } = await client.listResources();
     const skillUris = resources.map((r) => r.uri).filter((u) => u.startsWith('renderweld://skills/'));
     expect(skillUris).toEqual(SKILL_ORDER.map((n) => `renderweld://skills/${n}`));
@@ -187,7 +187,7 @@ describe('over REST and MCP', () => {
     expect(await (await fetch(`${custom.url}/v1/skills/av-sync`, { headers: auth })).text()).toBe('# Our sync rules\n\n1. Picture first.\n');
     const client = await connect(custom, customKey);
     expect(json(await client.callTool({ name: 'get_skill', arguments: { name: 'house-style' } }))).toMatchObject({ title: 'House style', source: 'custom', markdown: '# House style\n\n1. Logo bottom right.\n' });
-    expect((await client.readResource({ uri: 'renderweld://skills/motion-house' })).contents[0]!.text).toBe('# motion-house\n\n1. A rule.\n');
+    expect(((await client.readResource({ uri: 'renderweld://skills/motion-house' })).contents[0] as any).text).toBe('# motion-house\n\n1. A rule.\n');
     await client.close();
   });
 
