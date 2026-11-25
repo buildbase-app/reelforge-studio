@@ -2629,10 +2629,10 @@ export class ReelforgeService {
    * default workspace always uses the instance's. A provider without `scopedSettings` only ever sees the
    * instance's, so it counts as not configured for a workspace that may not share them.
    */
-  async providerSettingsFor(provider: ProviderPlugin, workspaceId = currentWorkspaceId()) {
+  async providerSettingsFor(provider: ProviderPlugin, workspaceId = currentWorkspaceId(), preloaded?: { values: Record<string, string>; errors: Record<string, string> }) {
     const instanceEnv = Object.fromEntries(provider.env.map((n) => [n, this.providerEnv[n]])) as Record<string, string | undefined>;
     const repo = this.workspaceProviderRepo(workspaceId);
-    const own = repo ? await this.settings.workspaceProviderValues(repo) : { values: {}, errors: {} };
+    const own = preloaded ?? (repo ? await this.settings.workspaceProviderValues(repo) : { values: {}, errors: {} });
     const ownNames = provider.env.filter((n) => own.values[n] !== undefined || own.errors[n] !== undefined);
     if (repo && ownNames.length && provider.scopedSettings) {
       const env = Object.fromEntries(provider.env.map((n) => [n, own.values[n]])) as Record<string, string | undefined>;
@@ -2649,9 +2649,11 @@ export class ReelforgeService {
    * (`settingsFrom`: `workspace`, `instance` or `none`, #480), and which settings are set (never their values).
    */
   async listProviders(workspaceId = currentWorkspaceId()) {
+    const repo = this.workspaceProviderRepo(workspaceId);
+    const own = repo ? await this.settings.workspaceProviderValues(repo) : undefined;
     return Promise.all(
       this.registry.listProviders().map(async (p) => {
-        const creds = await this.providerSettingsFor(p, workspaceId);
+        const creds = await this.providerSettingsFor(p, workspaceId, own);
         return {
           id: p.id,
           kind: p.kind,
