@@ -721,6 +721,12 @@ export interface WorkspaceLimits {
   retentionMaxAgeHours?: number;
   /** The newest N renders of each project the sweep always keeps, as `keepLastRendersPerProject`, never more than the instance's. */
   retentionKeepLast?: number;
+  /**
+   * Delete a render this many minutes after the first download of its output (#487), whatever its age and the
+   * keep-last. The grace lets a retry or a second device fetch it again. Downloads are seen by this server only, so
+   * the workspace's download links go through it, not through the bucket.
+   */
+  retentionDeleteAfterDownloadMinutes?: number;
 }
 
 export interface WorkspaceRecord {

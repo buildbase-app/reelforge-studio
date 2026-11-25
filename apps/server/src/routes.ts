@@ -96,6 +96,7 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'POST', path: '/v1/keys/:id/revoke', scope: 'admin', tool: 'revoke_key' },
   { method: 'DELETE', path: '/v1/keys/:id', scope: 'admin', tool: 'delete_key' },
   { method: 'GET', path: '/v1/workspace', scope: 'read', tool: 'get_workspace' },
+  { method: 'PATCH', path: '/v1/workspace/retention', scope: 'admin', tool: 'set_workspace_retention', note: 'The key\'s own workspace; tighter only (#487).' },
   { method: 'GET', path: '/v1/workspaces', scope: 'owner', tool: 'list_workspaces' },
   { method: 'POST', path: '/v1/workspaces', scope: 'owner', tool: 'create_workspace' },
   { method: 'PATCH', path: '/v1/workspaces/:id', scope: 'owner', tool: 'update_workspace' },
