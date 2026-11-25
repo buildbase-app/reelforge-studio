@@ -17,6 +17,7 @@
  *   BENCH_SIZES=2:4 BENCH_WORKLOAD=h1080-60s pnpm bench:docker
  *   BENCH_SIZES=4:8 BENCH_CONCURRENCY=3 pnpm bench:docker  # one setting, no sweep
  *   BENCH_DRY_RUN=1 pnpm bench:docker                      # prints the docker commands, runs nothing
+ *   BENCH_NOTE="Shared sandbox." pnpm bench:docker         # a line printed under the table
  *
  * Results: BENCH_OUT/<stamp>-docker/ points.jsonl (one line per point, written as it ends),
  * summary.json and summary.md (the table in docs/BENCHMARKS.md). Numbers depend on the CPU model:
@@ -72,6 +73,8 @@ export function config(e: NodeJS.ProcessEnv = process.env) {
     apiParallel: Number(get('BENCH_API_PARALLEL', '32')),
     jobTimeoutSeconds: Number(get('BENCH_JOB_TIMEOUT_SECONDS', '1800')),
     out: resolve(import.meta.dirname, '../..', get('BENCH_OUT', 'out/bench')),
+    // Free text printed under the table, e.g. how the image was built or what else ran on the host.
+    note: get('BENCH_NOTE', ''),
   };
 }
 export type Config = ReturnType<typeof config>;
@@ -307,6 +310,30 @@ async function apiPoint(cfg: Config, s: Started, size: Size): Promise<ApiPoint> 
   return { size, requests: lat.length, errors, seconds: round(seconds, 1), perSecond: round(lat.length / seconds, 0), p95Ms: summary(lat).p95 };
 }
 
+/**
+ * A point whose run broke off (the container exited or was OOM-killed, the API stopped answering): every
+ * planned render counts as failed, so the sweep stops raising K for this size and the report shows why.
+ */
+export function brokenPoint(size: Size, workload: string, concurrency: number, total: number, error: unknown, oomKilled: boolean): Point {
+  const message = (error instanceof Error ? error.message : String(error)).split('\n').map((l) => l.trim()).filter(Boolean).join(' ').slice(0, 160);
+  return {
+    size,
+    workload,
+    concurrency,
+    ok: 0,
+    failed: total,
+    errors: [oomKilled ? `container OOM-killed: ${message}` : message],
+    wallSeconds: 0,
+    rendersPerHour: 0,
+    videoSecondsPerCpuSecond: 0,
+    renderSeconds: { mean: 0, p95: 0 },
+    peakMemMiB: null,
+    oomKills: oomKilled ? 1 : null,
+    cpuSeconds: null,
+    peakDiskMiB: null,
+  };
+}
+
 // ---- report -------------------------------------------------------------------------------------------
 
 export function renderMarkdown(points: Point[], api: ApiPoint[], host: Record<string, unknown>, workload: string): string {
@@ -314,6 +341,7 @@ export function renderMarkdown(points: Point[], api: ApiPoint[], host: Record<st
   const sizes = [...new Map(points.map((x) => [`${x.size.cpus}:${x.size.memGiB}`, x.size])).values()];
   const lines = [
     `Workload: ${p.seconds} s videos at ${p.width}x${p.height}, 30 fps, H.264, html engine. Host: ${String(host.cpuModel)}, ${String(host.vcpu)} vCPU, ${String(host.ramGiB)} GiB, measured ${String(host.date).slice(0, 10)}.`,
+    ...(host.note ? ['', String(host.note)] : []),
     '',
     '| Container | Renders at once | Renders an hour | Time per render (mean / p95) | Peak memory | Peak disk | API reads a second (p95) |',
     '| --- | --- | --- | --- | --- | --- | --- |',
@@ -341,7 +369,7 @@ async function main() {
   if (!PROFILES[cfg.workload]) throw new Error(`BENCH_WORKLOAD: unknown ${cfg.workload} (known: ${Object.keys(PROFILES).join(', ')})`);
   const dir = join(cfg.out, `${new Date().toISOString().replace(/[:.]/g, '-')}-docker`);
   if (!cfg.dryRun) mkdirSync(dir, { recursive: true });
-  const host = { ...hostFingerprint(), image: cfg.dryRun ? cfg.image : docker(['image', 'inspect', '-f', '{{.Id}}', cfg.image]) };
+  const host = { ...hostFingerprint(), image: cfg.dryRun ? cfg.image : docker(['image', 'inspect', '-f', '{{.Id}}', cfg.image]), note: cfg.note };
   const t = httpTransport(`http://127.0.0.1:${cfg.port}`);
   const points: Point[] = [];
   const api: ApiPoint[] = [];
@@ -356,9 +384,15 @@ async function main() {
         continue;
       }
       try {
-        await healthy(s);
-        const point = await renderPoint(cfg, t, s, size, k);
-        console.log(`${size.cpus} vCPU ${size.memGiB} GiB, ${k} at once: ${point.ok} ok, ${point.failed} failed, ${point.rendersPerHour}/h, peak ${point.peakMemMiB} MiB, OOM ${point.oomKills}`);
+        let point: Point;
+        try {
+          await healthy(s);
+          point = await renderPoint(cfg, t, s, size, k);
+        } catch (e) {
+          // One broken point (the container died, an OOM kill took the server) ends this size, not the run.
+          point = brokenPoint(size, cfg.workload, k, k * cfg.rendersPerSlot, e, docker(['inspect', '-f', '{{.State.OOMKilled}}', s.name], true) === 'true');
+        }
+        console.log(`${size.cpus} vCPU ${size.memGiB} GiB, ${k} at once: ${point.ok} ok, ${point.failed} failed, ${point.rendersPerHour}/h, peak ${point.peakMemMiB} MiB, OOM ${point.oomKills}${point.ok === 0 ? ` (${point.errors.join('; ')})` : ''}`);
         mine.push(point);
         appendFileSync(join(dir, 'points.jsonl'), `${JSON.stringify(point)}\n`);
       } finally {
@@ -373,6 +407,8 @@ async function main() {
       const a = await apiPoint(cfg, s, size);
       console.log(`${size.cpus} vCPU ${size.memGiB} GiB API: ${a.perSecond}/s, p95 ${round(a.p95Ms, 0)} ms, ${a.errors} errors`);
       api.push(a);
+    } catch (e) {
+      console.log(`${size.cpus} vCPU ${size.memGiB} GiB API: not measured (${e instanceof Error ? e.message.split('\n')[0] : String(e)})`);
     } finally {
       stop(s, cfg);
     }

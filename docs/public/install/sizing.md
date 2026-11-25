@@ -116,8 +116,11 @@ videos with 1, 2, 3 ... at once until a render fails, the container runs out of
 memory or throughput stops rising by 5 %, then measures the API. Results go to
 `out/bench/<date>-docker/` (`summary.md` is the table above). Where the host blocks
 the user namespaces Chrome's sandbox needs, add
-`BENCH_ENV=REELFORGE_CHROMIUM_NO_SANDBOX=1`. The script is
-`scripts/load/docker-bench.ts`.
+`BENCH_ENV=REELFORGE_CHROMIUM_NO_SANDBOX=1`. `BENCH_NOTE="..."` adds a line about
+your host under the table (shared or dedicated, what else ran). If a container
+dies during a step (an out-of-memory kill of the server, for example), that step
+is recorded with its renders failed and the reason, and the run goes on with the
+next size. The script is `scripts/load/docker-bench.ts`.
 
 The benchmark image is the `dev` edition, the same image with the licence settings
 not fixed; the licence check is one call to the licence server at start-up and
