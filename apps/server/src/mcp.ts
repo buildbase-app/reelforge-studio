@@ -500,6 +500,7 @@ export const TOOLS: ToolDef[] = [
       backend: z.string().optional().describe('Render backend id; default from the manifest ("local").'),
       variant: z.string().optional().describe('Render only this output variant (an id from the manifest\'s variants). Omit to render every variant, or output when the manifest has none.'),
       approvalToken: z.string().optional().describe('When render.approval asks for one (409 approval_required): the token approve_render_plan returned for this plan.'),
+      planId: z.string().optional().describe('The planId from plan_render: each job keeps its output\'s estimate, and get_render_output reports it next to the actual render time. Refused when the project changed since the plan.'),
       priority: priorityArg('render', 'standard'),
       captions: z
         .enum(['off', 'burned', 'sidecar', 'both'])
@@ -514,7 +515,7 @@ export const TOOLS: ToolDef[] = [
     },
     run: async (a, { service }) => {
       const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}), ...(a.audio ? { audio: a.audio } : {}) };
-      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, { ...opts, approvalToken: a.approvalToken }));
+      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, { ...opts, approvalToken: a.approvalToken, planId: a.planId }));
     },
   },
   {

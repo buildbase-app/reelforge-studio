@@ -573,7 +573,7 @@ export function createApp(deps: AppDeps) {
     const projectId = c.req.param('id');
     const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.variant !== undefined ? { variant: b.variant } : {}), ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}), ...(b.audio !== undefined ? { audio: b.audio } : {}) };
     // The approval token is not part of the idempotency fingerprint: a retry with the same key replays the first answer.
-    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, () => service.renderProject(projectId, { ...opts, approvalToken: b.approvalToken })), 202);
+    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, () => service.renderProject(projectId, { ...opts, approvalToken: b.approvalToken, planId: b.planId })), 202);
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
 
