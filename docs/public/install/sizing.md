@@ -94,9 +94,23 @@ sandbox, so a lower bound).
 
 Renders are independent, so throughput adds up across workers: run more `worker`
 containers on PostgreSQL or MySQL with bucket storage
-([queue and scaling guide](../../providers/queue-and-scaling.md)), each sized as above. Ten 4 vCPU workers render about ten times one 4 vCPU
-container's renders an hour, as long as the database and the bucket keep up; the
-[load test results](../../PERFORMANCE.md) measure the queue on its own.
+([queue and scaling guide](../../providers/queue-and-scaling.md)), each sized as above.
+
+Measured on the same host (2026-11-25): one `api` container (0.5 vCPU) and `worker`
+containers of 1 vCPU and 2 GiB each, on PostgreSQL 17 and bucket storage (a Google
+Cloud Storage emulator), with the same 30 s vertical renders:
+
+| Workers | Renders | Renders an hour | Per worker | Peak memory per worker |
+| --- | --- | --- | --- | --- |
+| 1 | 2 | 28.8 | 2 | 867 MiB |
+| 3 | 9 | 79.4 (2.76 times one) | 3, 3, 3 | 792-892 MiB |
+
+Every render succeeded and ran once. The queue spread them evenly, and the `api`
+container rendered nothing. The host's 4 vCPU also ran the database, the storage
+emulator and the `api`, which explains most of the 8 % below three times one
+worker; separate machines should come closer. The queue itself is not the limit
+at fleet size: the [load test results](../../PERFORMANCE.md) measured 219 to 330
+job claims a second with 10 to 200 workers.
 
 ## Measure your own machine
 
