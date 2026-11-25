@@ -11,6 +11,9 @@ once the dedicated run below exists.
 > nothing; they are **not capacity claims** and must not be quoted as such (store rule, #49).
 > The [dedicated run](#dedicated-run-not-yet-measured) is defined below and is **not yet measured**.
 
+One container's renders an hour, memory and API throughput at 1, 2 and 4 vCPU (real renders,
+`pnpm bench:docker`) are on the [sizing page](public/install/sizing.md).
+
 ## How to run it
 
 ```bash
