@@ -2292,6 +2292,20 @@ export class ReelforgeService {
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  /**
+   * delete_render (DELETE /v1/renders/:id, write, #312): removes one finished render or preview with every file
+   * (output, poster, captions, clips, manifest) from storage and from this instance's caches. Its job keeps its
+   * history; get_render_output then answers not_found. Cannot be undone.
+   */
+  async deleteRender(runId: string): Promise<{ deleted: string; projectId: string; files: number }> {
+    const { projectId } = await this.findRender(runId);
+    const run = (await this.storage.renders.listRuns(projectId)).find((r) => r.runId === runId);
+    if (!run) throw notFound('render', runId);
+    await this.storage.deleteRender(run);
+    this.renderIndex.delete(this.rk(runId));
+    return { deleted: runId, projectId, files: run.keys.length };
+  }
+
   /** A file of a render in storage (default: its output, final.mp4 or another format's file, #302): its key, type and size, for streaming. */
   async renderObject(runId: string, fileArg?: string): Promise<{ key: string; contentType: string; bytes: number; file: string }> {
     const file = fileArg ?? (await this.getRender(runId)).file;

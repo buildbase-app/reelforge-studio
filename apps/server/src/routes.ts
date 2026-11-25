@@ -55,6 +55,7 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'GET', path: '/v1/jobs/:id/events', scope: 'read', tool: 'get_job', note: 'SSE stream in REST; MCP clients call get_job with waitSeconds (long-poll).' },
   { method: 'GET', path: '/v1/renders/:id', scope: 'read', tool: 'get_render_output' },
   { method: 'GET', path: '/v1/renders/:id/captions', scope: 'read', tool: 'get_captions', note: 'MCP: get_captions with renderId.' },
+  { method: 'DELETE', path: '/v1/renders/:id', scope: 'write', tool: 'delete_render' },
   {
     method: 'GET',
     path: '/v1/renders/:id/output',

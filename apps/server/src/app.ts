@@ -608,6 +608,10 @@ export function createApp(deps: AppDeps) {
   });
 
   v1.get('/renders/:id', need('read'), async (c) => c.json(await service.getRender(c.req.param('id'))));
+  v1.delete('/renders/:id', need('write'), async (c) => {
+    await service.deleteRender(c.req.param('id'));
+    return c.body(null, 204);
+  });
   v1.get('/renders/:id/captions', need('read'), async (c) => {
     const language = c.req.query('language');
     return c.json(await service.getCaptions({ renderId: c.req.param('id'), ...(language ? { language } : {}) }));
