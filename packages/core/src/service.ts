@@ -2630,7 +2630,6 @@ export class ReelforgeService {
    * instance's, so it counts as not configured for a workspace that may not share them.
    */
   async providerSettingsFor(provider: ProviderPlugin, workspaceId = currentWorkspaceId(), preloaded?: { values: Record<string, string>; errors: Record<string, string> }) {
-    const instanceEnv = Object.fromEntries(provider.env.map((n) => [n, this.providerEnv[n]])) as Record<string, string | undefined>;
     const repo = this.workspaceProviderRepo(workspaceId);
     const own = preloaded ?? (repo ? await this.settings.workspaceProviderValues(repo) : { values: {}, errors: {} });
     const ownNames = provider.env.filter((n) => own.values[n] !== undefined || own.errors[n] !== undefined);
@@ -2639,7 +2638,8 @@ export class ReelforgeService {
       return { source: 'workspace' as const, env, configured: provider.configured(env), errors: own.errors };
     }
     if (!repo || this.sharesInstanceProvider(provider.id)) {
-      return { source: 'instance' as const, env: instanceEnv, configured: provider.scopedSettings ? provider.configured(instanceEnv) : provider.configured(), errors: {} };
+      // The instance's: no ctx.env, so the plugin reads the environment it was built with, exactly as before #480.
+      return { source: 'instance' as const, env: undefined, configured: provider.configured(), errors: {} };
     }
     return { source: 'none' as const, env: Object.fromEntries(provider.env.map((n) => [n, undefined])) as Record<string, string | undefined>, configured: false, errors: {} };
   }

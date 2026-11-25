@@ -247,9 +247,10 @@ from the source. The contracts and the steps for each kind are in
   Zod `params`, `cacheKey()`, `run()` with `ctx.fetch` and `ctx.putAsset`);
   `packages/core/src/providers/elevenlabs.ts` is the template. Its environment
   names become settable with `configure_provider`. List its host in PRIVACY.md.
-  Set `scopedSettings: true` and read the key from `ctx.env` (and `configured(env)`)
-  so each workspace can use its own account (#480); a plugin that reads its
-  constructor environment only ever uses the instance's.
+  Set `scopedSettings: true` and read the key from `ctx.env` when it is set (and
+  `configured(env)`), else from the constructor environment, so each workspace can
+  use its own account (#480); a plugin that reads only its constructor environment
+  only ever uses the instance's.
 - **Render backend:** `RenderBackend` (`configured()`, `implemented`,
   `submit()`, `cancel()`); keep `implemented: false` until it renders.
 - **Storage driver:** `StorageDriver` (`packages/core/src/storage.ts`, the

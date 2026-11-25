@@ -3105,7 +3105,8 @@ or `configure_provider { workspaceId }` by the owner), encrypted, in that worksp
 provider settings table (no migration). A call uses the workspace's own settings when it has any, never mixed
 with the instance's; otherwise the instance's when `providers.shareWithWorkspaces` lists the provider (`["*"]`
 by default, so upgrades behave as before), otherwise the provider counts as not configured. The default
-workspace always uses the instance's. Providers receive the settings in `ctx.env`; only plugins that declare
+workspace always uses the instance's. Providers receive a workspace's own settings in `ctx.env` (absent when the call uses the instance's, so the
+plugin reads the environment it was built with, as before); only plugins that declare
 `scopedSettings` accept a workspace's own, so an older plugin that reads its constructor environment can never
 bill the instance's account for a workspace that may not share it. Settings are read on every call, so several
 instances agree without a cache. *Why:* agencies and platform teams need each tenant's cost, voices and data

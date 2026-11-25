@@ -172,10 +172,11 @@ export interface ProviderRunContext {
   /** fetch, injectable for tests. */
   fetch: typeof fetch;
   /**
-   * The provider's settings for this call, by the names in `env` (#480): the calling workspace's own values
-   * (configure_workspace_provider), else the instance's when it shares them (`providers.shareWithWorkspaces`).
-   * A provider with `scopedSettings` reads its key from here, never from the process environment, so each
-   * workspace's calls go to its own account. Absent when the service calls an older plugin.
+   * The calling workspace's own provider settings for this call, by the names in `env` (#480,
+   * configure_workspace_provider). A provider with `scopedSettings` reads its key from here when it is set, so
+   * that workspace's calls go to its own account. Absent when the call uses the instance's settings (the default
+   * workspace, or a workspace that may share them: `providers.shareWithWorkspaces`): the provider then reads the
+   * environment it was built with, as before.
    */
   env?: Readonly<Record<string, string | undefined>>;
 }

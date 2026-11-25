@@ -86,7 +86,7 @@ interface ProviderPlugin {        // produces an asset (audio, video, image) fro
   configured(env?): boolean;      // is its key set (for one workspace's settings, when env is given)?
   scopedSettings?: boolean;       // reads its key from ctx.env, so a workspace can bring its own (#480)
   costNote: string;               // shown to agents before they call it
-  run(params, ctx): Promise<AssetResult>;    // e.g. TTS returns audio + word timestamps; ctx.env = this call's settings
+  run(params, ctx): Promise<AssetResult>;    // e.g. TTS returns audio + word timestamps; ctx.env = the workspace's own settings, if any
 }
 interface RenderBackend {         // where engine renders and assembly run (docs/providers/backends.md)
   id: 'local' | 'remotion-lambda' | string;
