@@ -47,13 +47,16 @@ const RENAMED = new Set([...read('docs/CONFIG.md').matchAll(/\bREELFORGE_[A-Z0-9
 const COMPOSE_FILES = ['docker-compose.yml', 'deployment/compose/docker-compose.scale.yml', 'deployment/compose/docker-compose.pgbouncer.yml', 'scripts/dev/compose.yml'];
 const COMPOSE = new Set(COMPOSE_FILES.flatMap((f) => [...read(f).matchAll(/\$\{(REELFORGE_[A-Z0-9_]+)/g)].map((m) => m[1])));
 
+/** The old site hosts (renderweld.com and dev.renderweld.com now). */
+const OLD_HOSTS = ['reelforge-dev.buildbase.app', 'reelforge.buildbase.app'];
+
 const CLI = '(?:audit|backup|config|import-v01|keys|licence|license|migrate|storage|webhooks|worker|workspaces)';
 const ATTR = '(?:job|jobs|render|queue|webhook|limits|licence|server|provider|build|key_id|request_id|project|engine|workspace)';
 
 /** [rule, test(line) -> offending text or null]. */
 const RULES = [
   ['product name', (l) => l.match(/\bReelForge\b|\bREELFORGE\b(?!_)/)?.[0]],
-  ['old URL', (l) => l.match(/\breelforge(?:-dev)?\.buildbase\.app\b/)?.[0]],
+  ['old URL', (l) => OLD_HOSTS.find((h) => l.includes(h))],
   ['old MCP resource', (l) => l.match(/\breelforge:\/\/\S*/)?.[0]],
   ['old CLI name', (l) => l.match(new RegExp(`(?:^|[\\s\`(]|pnpm )reelforge ${CLI}\\b`))?.[0]?.trim()],
   ['old OAuth scope', (l) => l.match(/\breelforge:(?:read|write|render|admin|owner)\b/)?.[0]],
