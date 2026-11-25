@@ -46,6 +46,13 @@ and an unexpected job (needs `TEST_POSTGRES_URL`; the percentile and report test
 | (c) claims | 5 000 jobs inserted with the real `insert` (20 inserters), then 10/50/200 real `JobRunner`s (10 per process, own pool of 2 each) drain them with a no-op handler; then the same workers idle for 10 s | real queue |
 | exactly-once | after (b), the real reel and each (c): every accepted job `succeeded`, no job the client never got (duplicate enqueue), `running` events = attempts, at most one `succeeded` event, re-claims counted ([`scripts/load/check.ts`](../scripts/load/check.ts)) | SQL over all jobs |
 
+The per-address guard (`server.preAuthRateLimitPerMinute`, #305) is off on the api instances of a
+load run (`LOAD_PRE_AUTH_PER_MINUTE`, default `0`): every request comes from the load generator's one
+address, and at the guard's default of 1 200 a minute per instance a run would measure the guard. On
+2026-11-25 a run with it on answered 6 000 to 7 500 requests/s of which 40/s were 2xx (2 instances x
+20/s), the rest `429`; the same run with it off gave 600 to 780 2xx/s, 0 errors. Keep it on in
+production.
+
 Measured alongside every run: DB container CPU (`docker stats`, 100 % = one vCPU), connections and
 lock waits sampled every second from `pg_stat_activity`, commits/s, statements/s
 (`pg_stat_statements`), rows written per table (`pg_stat_user_tables`), api CPU per instance
