@@ -455,7 +455,7 @@ export function createApp(deps: AppDeps) {
   const v1 = new Hono<Env>();
   v1.use('*', authenticate);
 
-  v1.get('/capabilities', need('read'), (c) => c.json(service.capabilities()));
+  v1.get('/capabilities', need('read'), async (c) => c.json(await service.capabilitiesFor()));
   v1.get('/me', need('read'), async (c) => c.json(await service.getMe(c.get('auth'))));
   v1.get('/schema/project', need('read'), (c) => c.json(service.projectSchema()));
   v1.get('/templates', need('read'), (c) => c.json({ templates: service.listTemplates(c.req.query('engine')) }));
@@ -635,10 +635,15 @@ export function createApp(deps: AppDeps) {
     }
   );
 
-  v1.get('/providers', need('read'), (c) => c.json({ providers: service.listProviders() }));
+  v1.get('/providers', need('read'), async (c) => c.json({ providers: await service.listProviders() }));
   v1.put('/providers/:id/config', need('owner'), json, async (c) => {
     const b = await body(c);
-    return c.json(await service.configureProvider(c.req.param('id'), b.values, actor(c)));
+    if (b.workspaceId !== undefined && typeof b.workspaceId !== 'string') throw new ApiError('bad_request', 400, 'workspaceId must be a workspace id');
+    return c.json(await service.configureProvider(c.req.param('id'), b.values, actor(c), b.workspaceId as string | undefined));
+  });
+  v1.put('/providers/:id/workspace-config', need('admin'), json, async (c) => {
+    const b = await body(c);
+    return c.json(await service.configureWorkspaceProvider(c.req.param('id'), b.values, actor(c)));
   });
   v1.post('/providers/:id/run', need('render'), json, async (c) => {
     const b = await body(c);

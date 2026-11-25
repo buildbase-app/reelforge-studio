@@ -73,6 +73,7 @@ export const REST_ROUTES: RouteEntry[] = [
   },
   { method: 'GET', path: '/v1/providers', scope: 'read', tool: 'list_providers' },
   { method: 'PUT', path: '/v1/providers/:id/config', scope: 'owner', tool: 'configure_provider' },
+  { method: 'PUT', path: '/v1/providers/:id/workspace-config', scope: 'admin', tool: 'configure_workspace_provider' },
   { method: 'POST', path: '/v1/providers/:id/run', scope: 'render', tool: 'run_provider', note: 'generate_voice is a TTS shortcut.' },
   { method: 'GET', path: '/v1/config', scope: 'owner', tool: 'get_config' },
   { method: 'PATCH', path: '/v1/config', scope: 'owner', tool: 'update_config' },

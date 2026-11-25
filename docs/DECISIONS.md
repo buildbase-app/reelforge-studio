@@ -3096,3 +3096,19 @@ not found for any free set, and a licensing mistake in a sold image is expensive
 raising the default budget; bundling starter music (no verified redistribution rights); Twemoji
 (CC-BY 4.0, attribution on every use) and OpenMoji (CC-BY-SA, share-alike risk) for icons or emoji;
 Pixabay audio (no standalone redistribution); Piper's `en_US-lessac` voice (research-only licence).
+
+### D-133 --- Provider accounts per workspace: a workspace's own settings win; the instance's are shared only as configured
+
+**Status:** DECIDED (agent, 2026-11-25, #480; reversible). Number assigned at merge.\
+**Decision:** a workspace can store its own provider settings (`configure_workspace_provider` by its admin,
+or `configure_provider { workspaceId }` by the owner), encrypted, in that workspace's rows of the existing
+provider settings table (no migration). A call uses the workspace's own settings when it has any, never mixed
+with the instance's; otherwise the instance's when `providers.shareWithWorkspaces` lists the provider (`["*"]`
+by default, so upgrades behave as before), otherwise the provider counts as not configured. The default
+workspace always uses the instance's. Providers receive the settings in `ctx.env`; only plugins that declare
+`scopedSettings` accept a workspace's own, so an older plugin that reads its constructor environment can never
+bill the instance's account for a workspace that may not share it. Settings are read on every call, so several
+instances agree without a cache. *Why:* agencies and platform teams need each tenant's cost, voices and data
+terms on that tenant's account. *Rejected:* a per-provider `sharedWithWorkspaces` that turns itself off once any
+workspace has its own (surprising for the other workspaces); falling back to the instance's for settings a
+workspace left out (it could pair one tenant's key with another account's options).

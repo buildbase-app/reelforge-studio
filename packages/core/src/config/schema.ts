@@ -1256,6 +1256,15 @@ export const ConfigSchema = z.object({
         description: 'Enables the ElevenLabs TTS provider. Same setting as `configure_provider` / `PUT /v1/providers/elevenlabs/config`; stored encrypted when set at runtime.',
       }),
     }),
+    shareWithWorkspaces: setting(z.array(z.string().regex(/^(\*|[a-z0-9][a-z0-9-]{0,63})$/, 'a provider id such as elevenlabs, or *')).max(100), {
+      kind: 'list',
+      scope: 'runtime',
+      env: 'REELFORGE_PROVIDERS_SHARE_WITH_WORKSPACES',
+      default: ['*'],
+      example: 'elevenlabs',
+      description:
+        'Providers whose instance-level settings (the owner\'s keys, `configure_provider`) workspaces other than the default may use when they have none of their own (#480, docs/WORKSPACES.md): `*` for every provider (the default: all workspaces share the instance\'s accounts, as before), a list of provider ids, or an empty list (`update_config` with `[]`) so each workspace must bring its own with `configure_workspace_provider`. A workspace\'s own settings always win, and are never used by another workspace.',
+    }),
   }),
   captions: z.object({
     defaultMode: setting(z.enum(['off', 'burned', 'sidecar', 'both']), {

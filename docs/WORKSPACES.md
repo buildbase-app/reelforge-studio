@@ -11,7 +11,7 @@ An install that never creates a workspace has one, `default`, and works exactly 
 | Scope | Where it applies | What it allows |
 | --- | --- | --- |
 | `read`, `write`, `render` | the key's workspace | as before: read, edit and render that workspace's projects |
-| `admin` | the key's workspace | also that workspace's keys, webhooks and audit log, and everything a write or render key can do |
+| `admin` | the key's workspace | also that workspace's keys, webhooks and audit log, its own provider accounts (`configure_workspace_provider`), and everything a write or render key can do |
 | `owner` | the install | also workspaces (create, list, rename, change limits, suspend, delete, restore), runtime configuration (`get_config`, `update_config`), the licence, provider credentials, storage status and cleanup, `/readyz` details, every workspace's audit log, and owner keys |
 
 - An owner key lives in a workspace, normally `default`. It reads and writes that workspace's data like an admin
@@ -77,6 +77,43 @@ How exactly each limit is counted:
   same moment can pass a limit by a few jobs.
 - Storage usage is measured from the storage driver at most a minute earlier.
 
+## Provider accounts per workspace (#480)
+
+By default every workspace uses the provider accounts the owner configured (`configure_provider`): one
+ElevenLabs key, one bill, one set of voices. A workspace can bring its own instead, so its costs land on its
+account, its cloned voices stay on its account, and its text goes only to the provider its contract allows.
+
+```bash
+# An admin of the workspace sets its own key (stored encrypted; never returned):
+curl -X PUT "$URL/v1/providers/elevenlabs/workspace-config" -H "Authorization: Bearer $WORKSPACE_ADMIN_KEY" \
+  -H 'content-type: application/json' -d '{"values": {"ELEVENLABS_API_KEY": "..."}}'
+# Or the owner sets it for a workspace:
+curl -X PUT "$URL/v1/providers/elevenlabs/config" -H "Authorization: Bearer $OWNER_KEY" \
+  -H 'content-type: application/json' -d '{"values": {"ELEVENLABS_API_KEY": "..."}, "workspaceId": "acme"}'
+```
+
+MCP: `configure_workspace_provider { providerId, values }` (admin), or `configure_provider { providerId,
+values, workspaceId }` (owner). `null` clears a value.
+
+- **Which settings a call uses.** The workspace's own, when it set any (never mixed with the instance's).
+  Otherwise the instance's, when `providers.shareWithWorkspaces` allows it: `["*"]` (the default) shares
+  every provider; a list of ids shares those; `[]` shares none, so a workspace without its own settings
+  gets `409 provider_not_configured` naming `configure_workspace_provider`. The default workspace always
+  uses the instance's.
+- **What a workspace sees.** `list_providers` and `get_capabilities` answer for the caller's workspace:
+  `configured`, `settingsFrom` (`workspace`, `instance` or `none`) and `perWorkspace` (whether the provider
+  takes a workspace's own settings). Values are never returned, and audit entries say only `set` or
+  `cleared`.
+- **Storage.** The values are rows of that workspace in the provider settings table, encrypted with
+  `REELFORGE_SECRET_KEY`, deleted with the workspace. Every call reads them, so a change applies at once on
+  every instance.
+- **Which providers.** ElevenLabs, and any provider plugin with `scopedSettings: true` (it reads its key
+  from `ctx.env`). An older plugin reads only the instance's settings: it takes no workspace key
+  (`400 provider_not_per_workspace`), and a workspace that may not share the instance's cannot use it.
+  Speech-to-text (`faster-whisper`, local, no key) and render backends stay instance-level.
+- **Limits.** `limits.providerRunsPerKeyPerDay` and `limits.providerRunsPerDay` count every call, whoever's
+  account it uses.
+
 ## Isolation: what it guarantees and what it does not
 
 **Guaranteed, and tested by the denial suite (`apps/server/test/workspaces.test.ts`):**
@@ -101,8 +138,9 @@ How exactly each limit is counted:
 - **Database and bucket.** One database and one storage bucket hold every workspace. Isolation is enforced by
   ReelForge, not by the database (no row-level security) or the bucket (no per-workspace credentials). Anyone with
   database or bucket credentials, a backup, or shell access to the server sees every workspace.
-- **Instance-level settings.** Runtime configuration, provider credentials (e.g. one ElevenLabs key for
-  everyone), the licence and storage settings are the owner's and apply to every workspace.
+- **Instance-level settings.** Runtime configuration, the licence and storage settings are the owner's and
+  apply to every workspace. Provider credentials are the instance's by default too, but a workspace can bring
+  its own (next section).
 - **Compute.** Workspaces share the render workers. Claims take turns between workspaces that have queued jobs, so
   one workspace cannot keep the others waiting by queueing many jobs. Priority and per-key fairness apply inside a
   workspace. Optional render limits cap a workspace's volume.

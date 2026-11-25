@@ -286,6 +286,7 @@ logging:
 | Key | Env | Type | Default | Scope | Secret | Description |
 | --- | --- | --- | --- | --- | --- | --- |
 | `providers.elevenlabs.apiKey` | `RENDERWELD_ELEVENLABS_API_KEY`, `ELEVENLABS_API_KEY`; old name `REELFORGE_ELEVENLABS_API_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Enables the ElevenLabs TTS provider. Same setting as `configure_provider` / `PUT /v1/providers/elevenlabs/config`; stored encrypted when set at runtime. |
+| `providers.shareWithWorkspaces` | `RENDERWELD_PROVIDERS_SHARE_WITH_WORKSPACES`; old name `REELFORGE_PROVIDERS_SHARE_WITH_WORKSPACES` | list (comma-separated in env) | `*` | runtime |  | Providers whose instance-level settings (the owner's keys, `configure_provider`) workspaces other than the default may use when they have none of their own (#480, docs/WORKSPACES.md): `*` for every provider (the default: all workspaces share the instance's accounts, as before), a list of provider ids, or an empty list (`update_config` with `[]`) so each workspace must bring its own with `configure_workspace_provider`. A workspace's own settings always win, and are never used by another workspace. Example: `elevenlabs`. |
 
 ## captions
 
