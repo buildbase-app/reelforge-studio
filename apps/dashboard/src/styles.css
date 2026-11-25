@@ -197,6 +197,29 @@ code,
   gap: 12px;
   margin-left: auto;
 }
+/* Workspace picker: the signed-in keys of this tab, one per workspace (requests run in the key's own workspace). */
+.ws {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ws-label {
+  color: var(--text-2);
+  font-size: 13px;
+}
+.ws-select {
+  max-width: 220px;
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.login-cancel {
+  margin-top: 12px;
+}
 .who-key {
   display: flex;
   flex-direction: column;
@@ -1346,6 +1369,16 @@ details.group[open] .chev {
   }
 }
 @media (max-width: 720px) {
+  .ws-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .ws-select {
+    max-width: 150px;
+  }
   .top {
     flex-wrap: wrap;
     gap: 8px 16px;
