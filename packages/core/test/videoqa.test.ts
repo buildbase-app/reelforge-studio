@@ -70,6 +70,10 @@ describe('detectVideoIssues', () => {
     const [freeze] = videoQaIssues({ freezes: [{ startSeconds: 1.98, endSeconds: 6, durationSeconds: 4.02 }], blacks: [] }, times, 'warning');
     expect(freeze!.scenes).toEqual(['b', 'c']);
     expect(sceneTimes([{ sceneId: 'c', startFrame: 120, frames: 60 }], 30)).toEqual([{ sceneId: 'c', start: 0, end: 2 }]);
+    // Flashes (WCAG 2.3.1) become an issue with the rate, the scenes and what to change.
+    const [flash] = videoQaIssues({ freezes: [], blacks: [], flashes: [{ startSeconds: 4.2, endSeconds: 5.5, transitionsPerSecond: 10, kind: 'general' }] }, times, 'error');
+    expect(flash).toMatchObject({ rule: 'video.flash', severity: 'error', scenes: ['c'], startSeconds: 4.2, durationSeconds: 1.3 });
+    expect(flash!.message).toContain('flashes at up to 5 a second over a quarter of the picture or more, from 4.20 s to 5.50 s (scene "c"): more than three a second can trigger seizures');
   });
 });
 
@@ -77,8 +81,8 @@ describe('renders', () => {
   it('VQA-03 a picture that keeps moving passes both checks', async () => {
     const { done, manifest } = await render('moving');
     expect(done.status, JSON.stringify(done.error)).toBe('succeeded');
-    expect(manifest!.checks).toMatchObject({ freeze: 'pass', black: 'pass' });
-    expect(manifest!.videoQa).toMatchObject({ mode: 'warn', thresholds: { freezeSeconds: 3, blackSeconds: 0.5 }, freezes: [], blacks: [], issues: [] });
+    expect(manifest!.checks).toMatchObject({ freeze: 'pass', black: 'pass', flash: 'pass' });
+    expect(manifest!.videoQa).toMatchObject({ mode: 'warn', thresholds: { freezeSeconds: 3, blackSeconds: 0.5 }, freezes: [], blacks: [], flashes: [], issues: [] });
   }, 120_000);
 
   it('VQA-04 a 5 s still scene is reported as frozen, with its scene and times, in the manifest and the render summary', async () => {
@@ -116,7 +120,7 @@ describe('renders', () => {
     expect((await render('stuck')).manifest!.checks.freeze).toBe('pass');
     await svc.updateConfig({ 'render.qa.video': 'off', 'render.qa.freezeSeconds': null });
     const off = await render('stuck');
-    expect(off.manifest!.checks).toMatchObject({ freeze: 'skipped', black: 'skipped' });
+    expect(off.manifest!.checks).toMatchObject({ freeze: 'skipped', black: 'skipped', flash: 'skipped' });
     expect(off.manifest!.videoQa).toBeUndefined();
     await svc.updateConfig({ 'render.qa.video': null });
   }, 240_000);

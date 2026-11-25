@@ -1,4 +1,4 @@
-import type { VideoInterval } from '@renderweld/media-pipeline';
+import type { FlashWindow, VideoInterval } from '@renderweld/media-pipeline';
 
 /**
  * Picture checks on a finished render (#294, render.qa.*): pictures that freeze and pictures that are black,
@@ -14,7 +14,7 @@ export interface VideoQaSettings {
 export const VIDEO_QA_DEFAULTS: VideoQaSettings = { video: 'warn', freezeSeconds: 3, blackSeconds: 0.5 };
 
 export interface VideoQaIssue {
-  rule: 'video.freeze' | 'video.black';
+  rule: 'video.freeze' | 'video.black' | 'video.flash';
   severity: 'warning' | 'error';
   message: string;
   startSeconds: number;
@@ -29,6 +29,8 @@ export interface VideoQaManifest {
   thresholds: { freezeSeconds: number; blackSeconds: number | null };
   freezes: VideoInterval[];
   blacks: VideoInterval[];
+  /** More than three general or red flashes in a second over a quarter of the picture (WCAG 2.2 SC 2.3.1). */
+  flashes: FlashWindow[];
   issues: VideoQaIssue[];
 }
 
@@ -54,7 +56,7 @@ const sceneWords = (ids: string[]) => (ids.length === 0 ? '' : ids.length === 1 
 
 /** The issues for what was measured: one per stretch, naming its scenes and what to change. */
 export function videoQaIssues(
-  measured: { freezes: VideoInterval[]; blacks: VideoInterval[] },
+  measured: { freezes: VideoInterval[]; blacks: VideoInterval[]; flashes?: FlashWindow[] },
   scenes: ReadonlyArray<{ sceneId: string; start: number; end: number }>,
   severity: VideoQaIssue['severity']
 ): VideoQaIssue[] {
@@ -78,6 +80,17 @@ export function videoQaIssues(
       rule: 'video.black',
       severity,
       message: `${fmt(iv.durationSeconds)} of black or near-black, empty picture from ${fmt(iv.startSeconds)}${sceneWords(ids)}${opening ? ': the first frame is black, so platforms show a black thumbnail and viewers scroll past' : ': nothing on screen that long reads as a gap. Bring the first element in sooner, and check that every layer and asset rendered'}`,
+      ...iv,
+      scenes: ids,
+    });
+  }
+  for (const w of measured.flashes ?? []) {
+    const iv = { startSeconds: w.startSeconds, endSeconds: w.endSeconds, durationSeconds: Math.round((w.endSeconds - w.startSeconds) * 1000) / 1000 };
+    const ids = overlapping(iv);
+    issues.push({
+      rule: 'video.flash',
+      severity,
+      message: `${w.kind === 'red' ? 'saturated red flashes' : 'flashes'} at up to ${w.transitionsPerSecond / 2} a second over a quarter of the picture or more, from ${fmt(iv.startSeconds)} to ${fmt(iv.endSeconds)}${sceneWords(ids)}: more than three a second can trigger seizures (WCAG 2.2, 2.3.1). Slow them to three a second or fewer, shrink the flashing area below a quarter of the frame, or lower the contrast`,
       ...iv,
       scenes: ids,
     });

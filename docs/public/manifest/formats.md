@@ -407,16 +407,17 @@ pnpm formats:prove-layouts --geometry
 
 ## Picture checks
 
-Every finished render and preview is decoded once more, frame by frame, to find
-pictures that freeze or go black (#294). A check of single stills can't see
+Every finished render and preview is decoded once more, frame by frame. The
+pass finds pictures that freeze or go black, and flashes that can trigger
+seizures (#294). A check of single stills can't see
 either. The results are in the render manifest and in `get_render_output` /
 `GET /v1/renders/:id`:
 
-- `checks.freeze` and `checks.black`: `pass`, `warn`, or `skipped` (when the
-  check is off, the output is audio only, or, for black, the output is
-  transparent).
-- `videoQa`: the thresholds, every stretch measured (`freezes`, `blacks`, in
-  seconds) and one issue per stretch. Each issue names the scenes it overlaps
+- `checks.freeze`, `checks.black` and `checks.flash`: `pass`, `warn`, or
+  `skipped` (when the check is off, the output is audio only, or, for black,
+  the output is transparent).
+- `videoQa`: the thresholds, every stretch measured (`freezes`, `blacks`,
+  `flashes`, in seconds) and one issue per stretch. Each issue names the scenes it overlaps
   and what to change. A black opening also says that platforms will show a
   black thumbnail.
 
@@ -435,12 +436,28 @@ unchanged pictures count) and `blackdetect` (a pixel is black at 10 % luma or
 below, a picture when 98 % of it is). They run in one pass over the assembled
 picture: the MP4, or the master the other formats are packaged from. The
 settings are runtime settings (`update_config`, `PATCH /v1/config`) and apply to
-the next render. Tests: `packages/core/test/videoqa.test.ts`. They cover a black
+the next render. Tests: `packages/core/test/videoqa.test.ts` and
+`packages/media-pipeline/test/flashes.test.ts`, which covers a 5 Hz strobe, a red
+strobe, a small flashing box, a gentle pulse, and exactly three flashes a second. They cover a black
 opening and a frozen stretch measured to the second, a still scene named with
 its times, a preview checked on its own, and `fail` and `off`.
 
-Not yet measured (#294): motion energy, loop seams, seek determinism, flashes,
-and text overflow in the final file.
+**Flashes (WCAG 2.2 SC 2.3.1).** More than three flashes in any one second
+fails. A flash is a pair of opposing changes of at least 0.1 in relative
+luminance, with the darker side below 0.80. For saturated red (R/(R+G+B) ≥ 0.8),
+it's a change of more than 20 in (R − G − B) × 320. That is EA IRIS's method and
+WCAG 2.0's; WCAG 2.2 states the same idea as a CIE 1976 u′v′ change above 0.2.
+ITU-R BT.1702-3 and Ofcom use the same SDR numbers (20 cd/m² below 160 cd/m²
+at a 200 cd/m² white). Only flashing that covers a quarter of the picture or
+more counts. Each frame is measured as an 8 × 8
+grid of area-averaged cells (relative luminance from linearised sRGB), so a
+small flashing element passes and a full-frame strobe doesn't. The thresholds
+are fixed by the standard, not settings. Not yet covered: IRIS's "extended
+failure" (4 to 6 transitions a second held for 5 s) and stripe patterns. Video
+for broadcast should still go through a dedicated analyser such as EA IRIS.
+
+Not yet measured (#294): motion energy, loop seams, seek determinism, and text
+overflow in the final file.
 
 ## Proof: contact sheets
 

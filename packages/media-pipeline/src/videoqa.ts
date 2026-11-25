@@ -1,4 +1,8 @@
+import { randomBytes } from 'node:crypto';
+import { readFile, rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { run } from './ffmpeg';
+import { FLASH_GRID, analyseFlashes, type FlashWindow } from './flashes';
 
 /** A stretch of the video, in seconds from its start. */
 export interface VideoInterval {
@@ -18,12 +22,16 @@ export interface VideoQaOptions {
   blackSeconds: number;
   /** freezedetect noise tolerance in dB (default -60: only truly unchanged pictures). */
   freezeNoiseDb?: number;
+  /** Photosensitive flash analysis (WCAG 2.3.1) at this frame rate; unset: no flash check. */
+  flashFps?: number;
   signal?: AbortSignal;
 }
 
 export interface VideoQaResult {
   freezes: VideoInterval[];
   blacks: VideoInterval[];
+  /** Stretches with more than three general or red flashes in a second (empty when not checked). */
+  flashes: FlashWindow[];
   args: string[];
 }
 
@@ -40,10 +48,26 @@ export async function detectVideoIssues(o: VideoQaOptions): Promise<VideoQaResul
   if (o.freezeSeconds > 0) filters.push(`freezedetect=n=${o.freezeNoiseDb ?? -60}dB:d=${o.freezeSeconds}`);
   // pix_th: a pixel at or under 10 % luma is black; pic_th: 98 % of the picture must be (FFmpeg's defaults, stated).
   if (o.blackSeconds > 0) filters.push(`blackdetect=d=${o.blackSeconds}:pix_th=0.10:pic_th=0.98`);
-  if (!filters.length) return { freezes: [], blacks: [], args: [] };
-  const args = ['-hide_banner', '-nostats', '-v', 'info', '-i', o.input, '-map', '0:v:0', '-an', '-sn', '-vf', filters.join(','), '-f', 'null', '-'];
-  const { stderr } = await run(o.ffmpeg, args, 'qa:video', { signal: o.signal });
-  return { ...parseVideoQa(stderr, o.durationSeconds), args };
+  const flash = o.flashFps !== undefined && o.flashFps > 0;
+  if (!filters.length && !flash) return { freezes: [], blacks: [], flashes: [], args: [] };
+  // One decode: the detectors on one branch, an area-averaged 8x8 grid per frame for the flash analysis on the other.
+  const grid = join(dirname(o.input), `.qa-grid-${randomBytes(4).toString('hex')}.rgb`);
+  const detect = filters.length ? filters.join(',') : 'null';
+  const args = flash
+    ? ['-hide_banner', '-nostats', '-v', 'info', '-i', o.input, '-filter_complex', `[0:v:0]split=2[d][g];[d]${detect}[n];[g]scale=${FLASH_GRID}:${FLASH_GRID}:flags=area,format=rgb24[c]`, '-map', '[n]', '-f', 'null', '-', '-map', '[c]', '-f', 'rawvideo', '-y', grid]
+    : ['-hide_banner', '-nostats', '-v', 'info', '-i', o.input, '-map', '0:v:0', '-an', '-sn', '-vf', detect, '-f', 'null', '-'];
+  try {
+    const { stderr } = await run(o.ffmpeg, args, 'qa:video', { signal: o.signal });
+    const parsed = parseVideoQa(stderr, o.durationSeconds);
+    return {
+      freezes: o.freezeSeconds > 0 ? parsed.freezes : [],
+      blacks: o.blackSeconds > 0 ? parsed.blacks : [],
+      flashes: flash ? analyseFlashes(await readFile(grid), o.flashFps!) : [],
+      args: args.map((a) => (a === grid ? '<grid>' : a)),
+    };
+  } finally {
+    if (flash) await rm(grid, { force: true });
+  }
 }
 
 /** The intervals in FFmpeg's log (freezedetect metadata lines, blackdetect summary lines). */

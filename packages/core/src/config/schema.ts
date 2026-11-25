@@ -1123,7 +1123,7 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_RENDER_QA_VIDEO',
         default: 'warn',
         description:
-          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`) and black pictures (`render.qa.blackSeconds`), measured on every frame in one FFmpeg decode pass. `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
+          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`), black pictures (`render.qa.blackSeconds`) and photosensitive flashes (more than three general or red flashes a second over a quarter of the picture, WCAG 2.2 SC 2.3.1), measured on every frame in one FFmpeg decode pass. `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`, `checks.flash`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
       }),
       freezeSeconds: setting(z.number().min(0.5).max(3600), {
         kind: 'number',
