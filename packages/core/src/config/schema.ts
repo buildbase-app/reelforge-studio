@@ -1260,10 +1260,10 @@ export const ConfigSchema = z.object({
       kind: 'list',
       scope: 'runtime',
       env: 'REELFORGE_PROVIDERS_SHARE_WITH_WORKSPACES',
-      default: ['*'],
-      example: 'elevenlabs',
+      default: [],
+      example: '*',
       description:
-        'Providers whose instance-level settings (the owner\'s keys, `configure_provider`) workspaces other than the default may use when they have none of their own (#480, docs/WORKSPACES.md): `*` for every provider (the default: all workspaces share the instance\'s accounts, as before), a list of provider ids, or an empty list (`update_config` with `[]`) so each workspace must bring its own with `configure_workspace_provider`. A workspace\'s own settings always win, and are never used by another workspace.',
+        'Providers whose instance-level settings (the owner\'s keys, `configure_provider`) workspaces other than the default may use when they have none of their own (#480, docs/WORKSPACES.md): empty by default, so each workspace brings its own with `configure_workspace_provider` and gets `409 provider_not_configured` until it does; a list of provider ids shares those; `*` shares every provider. A workspace\'s own settings always win, and are never used by another workspace; the default workspace always uses the instance\'s. **Upgrading** an install whose workspaces used the instance\'s keys before #480: set this to `*` (`update_config`, or `REELFORGE_PROVIDERS_SHARE_WITH_WORKSPACES=*`) to keep that behaviour.',
     }),
   }),
   captions: z.object({

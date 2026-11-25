@@ -8,8 +8,8 @@ import { testDatabase } from './serverProcess';
 
 /**
  * Per-workspace provider credentials (#480): a workspace brings its own provider account, its calls use it and
- * no other workspace's do, the instance's account is shared only as providers.shareWithWorkspaces allows, and
- * a secret is never echoed.
+ * no other workspace's do, the instance's account is shared only as providers.shareWithWorkspaces allows
+ * (nothing by default), and a secret is never echoed.
  */
 const { dir, cleanup } = tempDir('renderweld-wsprov-');
 let server: StartedServer;
@@ -111,7 +111,20 @@ afterAll(async () => {
 });
 
 describe('per-workspace provider credentials (#480)', () => {
-  it('WSP-01 by default every workspace uses the instance account, and says so', async () => {
+  it('WSP-01 by default a workspace without its own key cannot use the instance account; the default workspace can; the owner can share it', async () => {
+    const before = calls.length;
+    const refused = await run(keys.a, 'scoped-tts');
+    expect(refused.status).toBe(409);
+    expect(refused.json.error.code).toBe('provider_not_configured');
+    expect(refused.json.error.message).toContain('configure_workspace_provider');
+    expect((await run(keys.b, 'legacy-tts')).status).toBe(409);
+    expect(calls.length).toBe(before);
+    expect(await providerOf(keys.a, 'scoped-tts')).toMatchObject({ configured: false, settingsFrom: 'none', perWorkspace: true });
+    expect((await run(keys.defaultAdmin, 'scoped-tts')).status).toBe(201);
+    expect(lastKey()).toBe('instance-scoped-key');
+
+    // Sharing every provider (how workspaces worked before #480) puts them on the instance account, and they say so.
+    expect((await rest(keys.owner, 'PATCH', '/v1/config', { 'providers.shareWithWorkspaces': ['*'] })).status).toBe(200);
     expect((await run(keys.a, 'scoped-tts')).status).toBe(201);
     expect(lastKey()).toBe('instance-scoped-key');
     expect((await run(keys.b, 'legacy-tts')).status).toBe(201);
@@ -209,6 +222,8 @@ describe('per-workspace provider credentials (#480)', () => {
     expect(calls.length).toBe(before);
     expect((await run(keys.defaultAdmin, 'legacy-tts')).status).toBe(201);
     expect(lastKey()).toBe('instance-legacy-key');
+    // Back to the default: nothing shared.
     expect((await rest(keys.owner, 'PATCH', '/v1/config', { 'providers.shareWithWorkspaces': null })).status).toBe(200);
+    expect(await providerOf(keys.b, 'legacy-tts')).toMatchObject({ configured: false, settingsFrom: 'none' });
   });
 });

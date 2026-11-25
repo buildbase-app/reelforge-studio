@@ -79,9 +79,10 @@ How exactly each limit is counted:
 
 ## Provider accounts per workspace (#480)
 
-By default every workspace uses the provider accounts the owner configured (`configure_provider`): one
-ElevenLabs key, one bill, one set of voices. A workspace can bring its own instead, so its costs land on its
-account, its cloned voices stay on its account, and its text goes only to the provider its contract allows.
+Each workspace brings its own provider accounts: its costs land on its account, its cloned voices stay on
+its account, and its text goes only to the provider its contract allows. Only the default workspace uses the
+accounts the owner configured (`configure_provider`), unless the owner shares them with every workspace
+(`providers.shareWithWorkspaces`: one ElevenLabs key, one bill, one set of voices).
 
 ```bash
 # An admin of the workspace sets its own key (stored encrypted; never returned):
@@ -96,10 +97,14 @@ MCP: `configure_workspace_provider { providerId, values }` (admin), or `configur
 values, workspaceId }` (owner). `null` clears a value.
 
 - **Which settings a call uses.** The workspace's own, when it set any (never mixed with the instance's).
-  Otherwise the instance's, when `providers.shareWithWorkspaces` allows it: `["*"]` (the default) shares
-  every provider; a list of ids shares those; `[]` shares none, so a workspace without its own settings
-  gets `409 provider_not_configured` naming `configure_workspace_provider`. The default workspace always
-  uses the instance's.
+  Otherwise the instance's, when `providers.shareWithWorkspaces` allows it: `[]` (the default) shares none,
+  so a workspace without its own settings gets `409 provider_not_configured` naming
+  `configure_workspace_provider`; a list of ids shares those; `["*"]` shares every provider. The default
+  workspace always uses the instance's.
+- **Upgrading.** Before #480 every workspace used the instance's provider accounts. If your workspaces rely on
+  that, keep it with `update_config { "providers.shareWithWorkspaces": ["*"] }` (owner) or
+  `REELFORGE_PROVIDERS_SHARE_WITH_WORKSPACES=*`, before or right after the upgrade; otherwise their provider
+  calls get `409` until each sets its own key.
 - **What a workspace sees.** `list_providers` and `get_capabilities` answer for the caller's workspace:
   `configured`, `settingsFrom` (`workspace`, `instance` or `none`) and `perWorkspace` (whether the provider
   takes a workspace's own settings). Values are never returned, and audit entries say only `set` or
@@ -139,8 +144,8 @@ values, workspaceId }` (owner). `null` clears a value.
   ReelForge, not by the database (no row-level security) or the bucket (no per-workspace credentials). Anyone with
   database or bucket credentials, a backup, or shell access to the server sees every workspace.
 - **Instance-level settings.** Runtime configuration, the licence and storage settings are the owner's and
-  apply to every workspace. Provider credentials are the instance's by default too, but a workspace can bring
-  its own (next section).
+  apply to every workspace. Provider credentials are each workspace's own; the owner may share the instance's
+  (section above).
 - **Compute.** Workspaces share the render workers. Claims take turns between workspaces that have queued jobs, so
   one workspace cannot keep the others waiting by queueing many jobs. Priority and per-key fairness apply inside a
   workspace. Optional render limits cap a workspace's volume.
