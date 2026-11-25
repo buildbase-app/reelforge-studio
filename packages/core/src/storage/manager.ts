@@ -85,6 +85,7 @@ export class StorageManager {
   readonly stagingRoot: string;
   private current: StorageDriver | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private sweepStartedMs: number | null = null;
   private running: Promise<CleanupReport> | null = null;
   private lastSweep: { at: string; deletedObjects: number; freedBytes: number; error?: string } | null = null;
 
@@ -248,9 +249,41 @@ export class StorageManager {
       health: { ...health, checkedAt: new Date(started).toISOString(), latencyMs: this.now() - started },
       usage,
       ...(usageError ? { usageError } : {}),
-      retention: { ...this.policy(), sweepIntervalMinutes: cfg.retention.sweepIntervalMinutes },
+      retention: {
+        ...this.policy(),
+        sweepIntervalMinutes: cfg.retention.sweepIntervalMinutes,
+        nextSweepAt: this.nextSweepAt(),
+        workspaces: await this.workspacePolicies(),
+      },
       lastSweep: this.lastSweep,
     };
+  }
+
+  /** When the scheduled sweep runs next; null when it is off. */
+  private nextSweepAt(): string | null {
+    const minutes = this.opts.settings.config.storage.retention.sweepIntervalMinutes;
+    if (!this.timer || this.sweepStartedMs === null || minutes <= 0) return null;
+    const every = minutes * 60_000;
+    const runs = Math.floor((this.now() - this.sweepStartedMs) / every) + 1;
+    return new Date(this.sweepStartedMs + runs * every).toISOString();
+  }
+
+  /**
+   * Each workspace with its own retention (#487) and the policy the sweep applies to it: the owner sees every
+   * tenant's data policy in one place (get_storage).
+   */
+  private async workspacePolicies(): Promise<Array<{ workspaceId: string; own: WorkspaceRetention; applied: { maxAgeHours: number | null; keepLast: number | null; deleteAfterDownloadMinutes: number | null } }>> {
+    if (!this.opts.workspaces || !this.opts.workspaceRetention) return [];
+    const out = [];
+    const instance = this.policy();
+    for (const workspaceId of await this.opts.workspaces()) {
+      const own = await this.opts.workspaceRetention(workspaceId);
+      if (!own) continue;
+      const p = workspacePolicy(instance, own);
+      const hours = p.maxAgeHours ?? (p.renderDays > 0 ? p.renderDays * 24 : null);
+      out.push({ workspaceId, own, applied: { maxAgeHours: hours, keepLast: p.keepLastRendersPerProject || null, deleteAfterDownloadMinutes: p.deleteAfterDownloadMinutes ?? null } });
+    }
+    return out;
   }
 
   /**
@@ -403,6 +436,7 @@ export class StorageManager {
     this.stopSweeper();
     const minutes = this.opts.settings.config.storage.retention.sweepIntervalMinutes;
     if (minutes <= 0) return;
+    this.sweepStartedMs = this.now();
     this.timer = setInterval(() => void this.sweep(), minutes * 60_000);
     this.timer.unref();
   }

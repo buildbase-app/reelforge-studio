@@ -780,7 +780,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_storage',
     title: 'Get storage driver, usage and health (owner)',
     description:
-      'Returns where asset and render files are stored: driver ("local", "s3", "azure", "gcs"), location (bucket/container, endpoint, prefix, credential source; never secrets), how download links are made (bucket-signed or through this server), health (can the store be reached), usage (assets, renders, unfinished uploads, local cache in objects and bytes), the retention policy (storage.retention.*, change it with update_config) and the last scheduled sweep. Needs the owner scope (instance-level, #304).',
+      'Returns where asset and render files are stored: driver ("local", "s3", "azure", "gcs"), location (bucket/container, endpoint, prefix, credential source; never secrets), how download links are made (bucket-signed or through this server), health (can the store be reached), usage (assets, renders, unfinished uploads, local cache in objects and bytes), the retention policy (storage.retention.*, change it with update_config) with retention.nextSweepAt and retention.workspaces (each workspace with its own retention, #487: its limits and what the sweep applies to it), and the last scheduled sweep. Needs the owner scope (instance-level, #304).',
     scope: 'owner',
     input: {},
     annotations: { readOnlyHint: true },

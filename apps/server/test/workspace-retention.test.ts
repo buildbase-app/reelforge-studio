@@ -209,4 +209,17 @@ describe('retention per workspace', () => {
     const audit = (await rest('GET', '/v1/audit?action=workspace.retention.tighten', undefined, keys.acme)).json;
     expect(audit.events.map((e: { action: string; data: { changed: Record<string, unknown> } }) => [e.action, Object.keys(e.data.changed).sort()])).toContainEqual(['workspace.retention.tighten', ['deleteAfterDownloadMinutes', 'maxAgeHours']]);
   });
+
+  it('RET-08 get_storage shows every workspace\'s own retention and what the sweep applies to it', async () => {
+    expect((await rest('PATCH', '/v1/workspaces/acme', { limits: { retentionMaxAgeHours: 12, retentionDeleteAfterDownloadMinutes: 15 } }, keys.owner)).status).toBe(200);
+    const storage = (await rest('GET', '/v1/storage', undefined, keys.owner)).json;
+    const byId = Object.fromEntries(storage.retention.workspaces.map((w: { workspaceId: string }) => [w.workspaceId, w]));
+    expect(byId.acme).toEqual({ workspaceId: 'acme', own: { maxAgeHours: 12, deleteAfterDownloadMinutes: 15 }, applied: { maxAgeHours: 12, keepLast: null, deleteAfterDownloadMinutes: 15 } });
+    expect(byId.default).toMatchObject({ own: { keepLast: 100 }, applied: { keepLast: 100 } });
+    // The sweep is off in this test server (interval 0), so there is no next run.
+    expect(storage.retention.nextSweepAt).toBeNull();
+    // A workspace admin cannot read the instance's storage.
+    expect((await rest('GET', '/v1/storage', undefined, keys.acme)).status).toBe(403);
+  });
 });
+

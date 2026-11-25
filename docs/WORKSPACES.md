@@ -110,6 +110,10 @@ in force. Loosening or clearing one is refused with `403 forbidden`, because it 
 that stays the owner's (`update_workspace` limits). The owner's own workspace works the same way. Each change is
 audited as `workspace.retention.tighten`.
 
+The owner sees every tenant's policy in one place: `get_storage` (`GET /v1/storage`) answers `retention.workspaces`,
+each workspace with its own retention, its limits (`own`) and what the sweep applies (`applied`, with the instance's
+policy as the ceiling), and `retention.nextSweepAt`.
+
 ```bash
 curl -X PATCH "$URL/v1/workspace/retention" -H "Authorization: Bearer $WORKSPACE_ADMIN_KEY" -H 'content-type: application/json' \
   -d '{"deleteAfterDownloadMinutes": 60, "maxAgeHours": 24}'
