@@ -64,6 +64,7 @@ export const REST_ROUTES: RouteEntry[] = [
   },
   { method: 'GET', path: '/v1/assets', scope: 'read', tool: 'list_assets' },
   { method: 'GET', path: '/v1/assets/:id', scope: 'read', tool: 'get_asset' },
+  { method: 'GET', path: '/v1/assets/:id/file', scope: 'read', tool: 'get_asset', note: 'The file itself (Range supported), e.g. for previews; MCP get_asset returns its metadata.' },
   {
     method: 'POST',
     path: '/v1/assets',

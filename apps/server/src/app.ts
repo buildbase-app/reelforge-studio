@@ -622,6 +622,13 @@ export function createApp(deps: AppDeps) {
 
   v1.get('/assets', need('read'), async (c) => c.json(await service.listAssets({ projectId: c.req.query('projectId') }, page(c))));
   v1.get('/assets/:id', need('read'), async (c) => c.json(await service.getAsset(c.req.param('id'))));
+  v1.get('/assets/:id/file', need('read'), async (c) => {
+    const o = await service.assets.object(c.req.param('id'));
+    // Uploaded content on this origin: never sniffed, never run (a sanitised SVG still gets no script or origin).
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('Content-Security-Policy', "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'");
+    return sendStored(c, service, o, o.name);
+  });
   v1.post(
     '/assets',
     need('write'),

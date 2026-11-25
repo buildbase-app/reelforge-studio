@@ -320,7 +320,7 @@ Lists assets: with projectId, all of that project's manifest entries (one page, 
 
 ### `get_asset`
 
-**Get an asset**. Scope: `read`, read-only. REST: `GET /v1/assets/:id`.
+**Get an asset**. Scope: `read`, read-only. REST: `GET /v1/assets/:id`, `GET /v1/assets/:id/file`.
 
 Metadata of an asset in the store: content type, media type, size, sha256, source, licence, provider metadata (e.g. TTS word timestamps).
 

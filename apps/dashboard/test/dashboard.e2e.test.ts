@@ -188,6 +188,8 @@ describe.runIf(hasBrowser)('dashboard in a browser', () => {
     await expect(page.getByRole('row', { name: /logo\.png/ }).getByText('CC0-1.0').count()).resolves.toBe(1);
     await expect(page.getByRole('row', { name: /clip-still\.png/ }).getByText('None').count()).resolves.toBe(1);
     await expect(page.getByText('1 without a licence', { exact: false }).count()).resolves.toBe(1);
+    // Image previews come through the API (the key is a header): both PNGs load.
+    await page.waitForFunction(() => [...document.querySelectorAll<HTMLImageElement>('img.asset-thumb')].filter((i) => i.complete && i.naturalWidth === 16).length === 2);
     expect(await axe(page), 'assets').toEqual([]);
 
     // The key is nowhere but in memory: not in the URL, no cookie, not in sessionStorage (not asked to keep it).

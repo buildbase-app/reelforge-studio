@@ -42,12 +42,46 @@ export const assetsView: View = (ctx, main) => {
   const table = h(
     'table',
     { class: 'table' },
-    h('thead', null, h('tr', null, ...['Asset', 'Type', 'Size', 'Length', 'Licence', 'Source', 'Added'].map((t) => h('th', { scope: 'col' }, t)))),
+    h('thead', null, h('tr', null, h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, 'Preview')), ...['Asset', 'Type', 'Size', 'Length', 'Licence', 'Source', 'Added'].map((t) => h('th', { scope: 'col' }, t)))),
     tbody
   );
   fill(main, h('div', { class: 'page-head' }, h('h1', { tabindex: '-1' }, 'Assets')), msg, summary, tableWrap('Assets', table), more);
 
   const rows: AssetRow[] = [];
+  // Image previews through the API (the key is a header, so an <img src> cannot fetch them): three at a time,
+  // each fetched once, object URLs revoked when the page closes.
+  const urls = new Map<string, string>();
+  const queue: Array<() => Promise<void>> = [];
+  let active = 0;
+  const pump = () => {
+    while (active < 3 && queue.length && !ac.signal.aborted) {
+      const job = queue.shift()!;
+      active++;
+      void job().finally(() => {
+        active--;
+        pump();
+      });
+    }
+  };
+  const thumb = (a: AssetRow) => {
+    if (a.mediaType !== 'image') return null;
+    const img = h('img', { class: 'asset-thumb', alt: '', width: '40', height: '40', loading: 'lazy' });
+    const known = urls.get(a.id);
+    if (known) img.src = known;
+    else {
+      queue.push(async () => {
+        try {
+          const url = await ctx.api.objectUrl(`/v1/assets/${encodeURIComponent(a.id)}/file`, ac.signal);
+          urls.set(a.id, url);
+          img.src = url;
+        } catch {
+          img.remove();
+        }
+      });
+      pump();
+    }
+    return img;
+  };
   const show = () => {
     const now = Date.now();
     const unlicensed = rows.filter((a) => !a.license).length;
@@ -59,6 +93,7 @@ export const assetsView: View = (ctx, main) => {
         h(
           'tr',
           null,
+          h('td', null, thumb(a)),
           h('td', null, h('span', { class: 'break' }, a.originalName ?? a.id), a.originalName ? h('span', { class: 'sub mono' }, a.id) : null),
           h('td', null, TYPE[a.mediaType] ?? a.mediaType, h('span', { class: 'sub mono' }, a.contentType)),
           h('td', { class: 'num' }, bytes(a.bytes)),
@@ -83,5 +118,8 @@ export const assetsView: View = (ctx, main) => {
     fill(msg, notice(e instanceof HttpError ? e.message : 'Could not load the assets.', 'error'));
   };
   void load().catch(fail);
-  return () => ac.abort();
+  return () => {
+    ac.abort();
+    for (const u of urls.values()) URL.revokeObjectURL(u);
+  };
 };

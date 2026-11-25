@@ -81,3 +81,22 @@ describe('GET /v1/jobs?status=&type=', () => {
     expect(JSON.parse(body.result.content[0]!.text).jobs.map((j: { id: string }) => j.id)).toEqual([ids.preview]);
   });
 });
+
+describe('GET /v1/assets/:id/file', () => {
+  it('ASSET-FILE-01 streams the stored bytes with their type, nosniff and a sandboxing CSP; Range works; no key is 401, unknown is 404', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+    const { asset } = await server.service.uploadAsset(png, { filename: 'dot.png' });
+    const r = await rest(`/v1/assets/${asset.id}/file`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toBe('image/png');
+    expect(r.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(r.headers.get('content-security-policy')).toMatch(/^sandbox;/);
+    expect(r.headers.get('content-disposition')).toBe(`inline; filename="${asset.id}.png"`);
+    expect(Buffer.from(await r.arrayBuffer()).equals(png)).toBe(true);
+    const part = await fetch(`${server.url}/v1/assets/${asset.id}/file`, { headers: { Authorization: `Bearer ${key}`, Range: 'bytes=0-7' } });
+    expect(part.status).toBe(206);
+    expect(Buffer.from(await part.arrayBuffer()).equals(png.subarray(0, 8))).toBe(true);
+    expect((await fetch(`${server.url}/v1/assets/${asset.id}/file`)).status).toBe(401);
+    expect((await rest('/v1/assets/ast-0000000000000000/file')).status).toBe(404);
+  });
+});
