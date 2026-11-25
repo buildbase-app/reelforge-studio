@@ -3,7 +3,7 @@ import {
   framesToSeconds,
   sceneFrames,
   type Project,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import type { ResolvedConfig } from './config/load';
 
 /**

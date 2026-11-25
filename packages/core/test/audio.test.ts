@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { measureEbur128, probe, resolveTools, run } from '@reelforge/media-pipeline';
-import { parseProject } from '@reelforge/project-schema';
+import { measureEbur128, probe, resolveTools, run } from '@renderweld/media-pipeline';
+import { parseProject } from '@renderweld/project-schema';
 import { AUDIO_DEFAULTS, PluginRegistry, ReelforgeService, createMemoryRepositories, resolveAudioPlan, verifyAudio, type AudioManifest } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
 

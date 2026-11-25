@@ -7,7 +7,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseProject } from '@reelforge/project-schema';
+import { parseProject } from '@renderweld/project-schema';
 import type { GalleryEntry } from './catalog/build';
 
 export function stableJson(v: unknown): string {

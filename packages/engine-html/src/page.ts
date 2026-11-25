@@ -1,5 +1,5 @@
-import { assertSafeSceneFragment } from '@reelforge/core';
-import { domThemeCss, frameLayout, mediaLayersHtml, type DomLogo, type DomMediaLayer, type HtmlTitleProps, type OutputSettings, type ThemeTokens } from '@reelforge/project-schema';
+import { assertSafeSceneFragment } from '@renderweld/core';
+import { domThemeCss, frameLayout, mediaLayersHtml, type DomLogo, type DomMediaLayer, type HtmlTitleProps, type OutputSettings, type ThemeTokens } from '@renderweld/project-schema';
 
 /**
  * Builds the sandboxed document an html scene is rendered from. Agent HTML and

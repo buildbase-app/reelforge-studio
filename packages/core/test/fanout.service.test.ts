@@ -8,8 +8,8 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { checkTimestamps, probe, resolveTools } from '@reelforge/media-pipeline';
-import type { RenderScene } from '@reelforge/project-schema';
+import { checkTimestamps, probe, resolveTools } from '@renderweld/media-pipeline';
+import type { RenderScene } from '@renderweld/project-schema';
 import { JOIN_JOB_TYPE, PluginRegistry, ReelforgeService, UNIT_JOB_TYPE, createMemoryRepositories, type EnginePlugin, type JobRecord, type Repositories } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
 

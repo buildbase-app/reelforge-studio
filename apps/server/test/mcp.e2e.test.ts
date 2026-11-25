@@ -4,11 +4,11 @@ import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { assertDecodable, checkExpectation, frameStats, probe, resolveTools } from '@reelforge/media-pipeline';
+import { assertDecodable, checkExpectation, frameStats, probe, resolveTools } from '@renderweld/media-pipeline';
 import { tempDir } from '../../../packages/core/test/helpers';
 import { startMockLicenceServer, type MockLicenceServer } from '../../../e2e/mock-licence/server.mjs';
 import { cliCreateKey, startServerProcess, testDatabase, type ServerProcess } from './serverProcess';
-import { envValue } from '@reelforge/core';
+import { envValue } from '@renderweld/core';
 
 /**
  * The whole agent journey over MCP only, against a real server process

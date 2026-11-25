@@ -16,7 +16,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { Database, pgTable } from '@reelforge/db';
+import { Database, pgTable } from '@renderweld/db';
 import { num, round } from './lib';
 
 export interface ExactlyOnce {

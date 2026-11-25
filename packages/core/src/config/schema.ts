@@ -1,6 +1,6 @@
 import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
-import { isLanguageTag } from '@reelforge/project-schema';
+import { isLanguageTag } from '@renderweld/project-schema';
 import { weakKeyReason } from '../keyStrength';
 
 /**

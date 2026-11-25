@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestDatabase, prepareDatabase, serverTestDatabaseKind, type Database, type TestDatabase } from '@reelforge/db';
+import { createTestDatabase, prepareDatabase, serverTestDatabaseKind, type Database, type TestDatabase } from '@renderweld/db';
 import { DatabaseRateLimiter, rateLimitHeaders } from '../src/rateLimit';
 import { tempDir } from '../../../packages/core/test/helpers';
 

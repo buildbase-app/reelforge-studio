@@ -1,5 +1,5 @@
 {
-  "name": "@reelforge/db",
+  "name": "@renderweld/db",
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
@@ -20,8 +20,8 @@
     "@prisma/adapter-mariadb": "7.10.1",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
-    "@reelforge/core": "workspace:*",
-    "@reelforge/project-schema": "workspace:*",
+    "@renderweld/core": "workspace:*",
+    "@renderweld/project-schema": "workspace:*",
     "pg": "8.23.1"
   },
   "devDependencies": {

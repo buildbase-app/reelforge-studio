@@ -18,8 +18,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parseProject, type Project } from '@reelforge/project-schema';
-import type { JobRecord, Repositories } from '@reelforge/core';
+import { parseProject, type Project } from '@renderweld/project-schema';
+import type { JobRecord, Repositories } from '@renderweld/core';
 import { Database, READ_REPLICA_READS, availableTestDatabases, createTestDatabase, openWithRetry, parseDatabaseUrl, parseReadUrl, prepareDatabase, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-replica-'));

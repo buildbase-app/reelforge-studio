@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { BuildBaseLicenceClient, LicenceManager, PluginRegistry, type LicenceApi } from '@reelforge/core';
-import { availableTestDatabases, createTestDatabase, prepareDatabase, serverTestDatabaseKind, type Database, type TestDatabase } from '@reelforge/db';
+import { BuildBaseLicenceClient, LicenceManager, PluginRegistry, type LicenceApi } from '@renderweld/core';
+import { availableTestDatabases, createTestDatabase, prepareDatabase, serverTestDatabaseKind, type Database, type TestDatabase } from '@renderweld/db';
 import { startServer, type StartedServer } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 import { startMockLicenceServer, type MockLicenceServer } from '../../../e2e/mock-licence/server.mjs';

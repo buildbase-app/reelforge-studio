@@ -1,5 +1,5 @@
 import { SeverityNumber, context, trace, type Logger as OtelLogger } from '@opentelemetry/api';
-import { RuntimeConfig, type ResolvedConfig } from '@reelforge/core';
+import { RuntimeConfig, type ResolvedConfig } from '@renderweld/core';
 import { Redactor } from './redact';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';

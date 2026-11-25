@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { envValue } from '@reelforge/core';
+import { envValue } from '@renderweld/core';
 import { Database } from './database';
 import type { DatabaseKind } from './url';
 

@@ -180,7 +180,7 @@ if (dashboardOn) {
         timer = setTimeout(buildDashboard, 200);
       });
     } catch (e) {
-      log('dash', `cannot watch apps/dashboard/src (${e.message}); rebuild with \`pnpm --filter @reelforge/dashboard build\``);
+      log('dash', `cannot watch apps/dashboard/src (${e.message}); rebuild with \`pnpm --filter @renderweld/dashboard build\``);
     }
   }
 }

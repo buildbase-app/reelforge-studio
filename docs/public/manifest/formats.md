@@ -200,10 +200,10 @@ At 1080x1920 the content box is 950x979 pixels starting at (65, 269). At
 it unless the platform is `none`, `broadcast`, `web` or `presentation`.
 
 Code that runs outside a template can read the same numbers from
-`@reelforge/project-schema`:
+`@renderweld/project-schema`:
 
 ```ts
-import { safeAreaInsets, frameLayout } from '@reelforge/project-schema';
+import { safeAreaInsets, frameLayout } from '@renderweld/project-schema';
 
 safeAreaInsets(1080, 1920, 'tiktok');
 // { action: {...}, title: {...}, ui: { top: 269, right: 65, bottom: 672, left: 65 }, content: {...} }

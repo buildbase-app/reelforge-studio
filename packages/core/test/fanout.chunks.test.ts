@@ -12,8 +12,8 @@
 import { join } from 'node:path';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { keyFrames, probe, resolveTools, run } from '@reelforge/media-pipeline';
-import type { Project, RenderScene } from '@reelforge/project-schema';
+import { keyFrames, probe, resolveTools, run } from '@renderweld/media-pipeline';
+import type { Project, RenderScene } from '@renderweld/project-schema';
 import { JOIN_JOB_TYPE, PluginRegistry, ReelforgeService, UNIT_JOB_TYPE, createMemoryRepositories, type EnginePlugin, type JobEvent, type JobRecord, type Repositories } from '../src/index';
 import { LocalBackend } from '../src/backends/local';
 import { chunkRanges, planChunks, unitSpecs, type ChunkPolicy, type RenderJobParams } from '../src/render-fanout';

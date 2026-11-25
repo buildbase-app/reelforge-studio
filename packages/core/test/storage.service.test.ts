@@ -9,7 +9,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
+import { checkExpectation, probe, resolveTools } from '@renderweld/media-pipeline';
 import { PluginRegistry, ReelforgeService, createMemoryRepositories, createStorageDriver, streamToBuffer, type StorageDriver, type StorageFactory } from '../src/index';
 import { fakeEngine, makeTone, memoryStorage, tempDir } from './helpers';
 

@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { OutboxRelay, createMemoryRepositories, newId, type JobRecord, type Repositories } from '@reelforge/core';
+import { OutboxRelay, createMemoryRepositories, newId, type JobRecord, type Repositories } from '@renderweld/core';
 import { availableTestDatabases, createTestDatabase, prepareDatabase, type Database, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-outbox-'));

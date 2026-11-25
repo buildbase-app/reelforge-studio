@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { resolveTools } from '@reelforge/media-pipeline';
-import { fontFaceCss, fontFamilies } from '@reelforge/project-schema';
+import { resolveTools } from '@renderweld/media-pipeline';
+import { fontFaceCss, fontFamilies } from '@renderweld/project-schema';
 import { AssetStore, BUNDLED_FONTS, bundledFontFaces, createMemoryRepositories, fontFaceDescriptors, readFontInfo, stageSceneAssets, type ResolvedAsset } from '../src/index';
 import { tempDir } from './helpers';
 

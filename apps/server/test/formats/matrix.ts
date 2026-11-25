@@ -9,13 +9,13 @@ import { execFile } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import type { EnginePlugin } from '@reelforge/core';
-import { htmlEngine } from '@reelforge/engine-html';
-import { hyperframesEngine } from '@reelforge/engine-hyperframes';
-import { motionCanvasEngine } from '@reelforge/engine-motion-canvas';
-import { remotionEngine } from '@reelforge/engine-remotion';
-import { resolveTools } from '@reelforge/media-pipeline';
-import { builtinTheme, frameLayout, type OutputSettings, type RenderScene, type ThemeTokens } from '@reelforge/project-schema';
+import type { EnginePlugin } from '@renderweld/core';
+import { htmlEngine } from '@renderweld/engine-html';
+import { hyperframesEngine } from '@renderweld/engine-hyperframes';
+import { motionCanvasEngine } from '@renderweld/engine-motion-canvas';
+import { remotionEngine } from '@renderweld/engine-remotion';
+import { resolveTools } from '@renderweld/media-pipeline';
+import { builtinTheme, frameLayout, type OutputSettings, type RenderScene, type ThemeTokens } from '@renderweld/project-schema';
 
 const run = promisify(execFile);
 

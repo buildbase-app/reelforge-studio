@@ -1,6 +1,6 @@
 import React from 'react';
 import { Composition, registerRoot } from 'remotion';
-import type { FontFaceSpec, KineticTitleProps, SceneMedia, ThemeTokens } from '@reelforge/project-schema';
+import type { FontFaceSpec, KineticTitleProps, SceneMedia, ThemeTokens } from '@renderweld/project-schema';
 import { FontGate } from './Fonts';
 import { KineticTitle } from './KineticTitle';
 import { LayoutScene, type LayoutSceneInput } from './LayoutScene';
@@ -14,7 +14,7 @@ interface RenderInput {
   __output?: { width: number; height: number; fps: number; durationInFrames: number };
 }
 
-// Props are validated by @reelforge/project-schema before a render starts, so
+// Props are validated by @renderweld/project-schema before a render starts, so
 // the composition does not declare a Remotion (zod 3) schema of its own.
 const KineticTitleEntry: React.FC<Record<string, unknown>> = ({ __output: _ignored, __theme, __platform, __assets, __fonts, ...props }) => (
   <FontGate fonts={(__fonts as FontFaceSpec[] | undefined) ?? []}>

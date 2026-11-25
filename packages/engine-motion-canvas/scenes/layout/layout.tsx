@@ -12,8 +12,8 @@ import {
   type LayoutSpec,
   type PaneBox,
   type Rect as Box,
-} from '@reelforge/project-schema/layout';
-import { mediaKey, mediaUrlAt, type FitMode, type SceneMedia } from '@reelforge/project-schema/media';
+} from '@renderweld/project-schema/layout';
+import { mediaKey, mediaUrlAt, type FitMode, type SceneMedia } from '@renderweld/project-schema/media';
 
 /**
  * Template "motion-canvas-layout" (#287): split screen, picture-in-picture,
@@ -23,7 +23,7 @@ import { mediaKey, mediaUrlAt, type FitMode, type SceneMedia } from '@reelforge/
  * Motion Canvas draws on a canvas, not in the DOM, so this scene builds the
  * same picture from Motion Canvas nodes. Everything that decides where things
  * go comes from the same functions as the DOM engines
- * (`@reelforge/project-schema/layout`): pane rectangles (`layoutPanes`), text
+ * (`@renderweld/project-schema/layout`): pane rectangles (`layoutPanes`), text
  * boxes kept clear of the lower third (`clearOfLowerThird`), the lower third's
  * box (`lowerThirdBox`), where media lands for each fit mode (`fitMedia`), and
  * the type sizes, spacing and timing (`LAYOUT_STYLE`). Text wraps in Motion

@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseProject } from '@reelforge/project-schema';
+import { parseProject } from '@renderweld/project-schema';
 import { breakLines, buildEntry, type GalleryEntry } from '../src/catalog/build';
 import { buildAll, REELS } from '../src/catalog/index';
 import { hashSeed, letters, rng, themeFor } from '../src/catalog/kit';

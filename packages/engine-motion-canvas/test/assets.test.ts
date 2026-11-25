@@ -2,12 +2,12 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { ResolvedAsset } from '@reelforge/core';
-import { resolveTools, type Tools } from '@reelforge/media-pipeline';
-import { builtinTheme, frameLayout, type OutputSettings, type RenderScene } from '@reelforge/project-schema';
+import type { ResolvedAsset } from '@renderweld/core';
+import { resolveTools, type Tools } from '@renderweld/media-pipeline';
+import { builtinTheme, frameLayout, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
 import { renderMotionCanvasScene } from '../src/index';
 import { QUAD, colorDistance, makeNumberedClip, makeQuadImage, meanColor, readBars, readPicture } from '../../media-pipeline/test/media-fixtures';
-import { envValue } from '@reelforge/core';
+import { envValue } from '@renderweld/core';
 
 /**
  * #299: animated-explainer shows a background video and a logo from the

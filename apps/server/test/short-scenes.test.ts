@@ -12,9 +12,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { envValue, ReelforgeService, createMemoryRepositories, type EnginePlugin } from '@reelforge/core';
-import { assertDecodable, checkExpectation, checkTimestamps, concatClips, frameStats, keyFrames, normaliseClip, probe, resolveTools } from '@reelforge/media-pipeline';
-import { MIN_SCENE_FRAMES, builtinTheme, parseProject, type OutputSettings, type RenderScene } from '@reelforge/project-schema';
+import { envValue, ReelforgeService, createMemoryRepositories, type EnginePlugin } from '@renderweld/core';
+import { assertDecodable, checkExpectation, checkTimestamps, concatClips, frameStats, keyFrames, normaliseClip, probe, resolveTools } from '@renderweld/media-pipeline';
+import { MIN_SCENE_FRAMES, builtinTheme, parseProject, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
 import { makeTone } from '../../../packages/core/test/helpers';
 import { createDefaultRegistry } from '../src/registry';
 

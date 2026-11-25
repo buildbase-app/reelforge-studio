@@ -7,7 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Webhook } from 'standardwebhooks';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { PluginRegistry, type LicenceAnswer, type LicenceApi } from '@reelforge/core';
+import { PluginRegistry, type LicenceAnswer, type LicenceApi } from '@renderweld/core';
 import { startServer, type StartedServer } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 import { testDatabase } from './serverProcess';

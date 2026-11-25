@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { OutputSettings, RenderScene } from '@reelforge/project-schema';
+import type { OutputSettings, RenderScene } from '@renderweld/project-schema';
 import { sceneVariables } from '../src/index';
 
 /** motion-canvas-layout (#287): the scene gets parsed props and the geometry spec, so it calls the shared layout functions. */

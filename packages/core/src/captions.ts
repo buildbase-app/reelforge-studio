@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
-import { PipelineError, burnSubtitles, type Tools } from '@reelforge/media-pipeline';
+import { PipelineError, burnSubtitles, type Tools } from '@renderweld/media-pipeline';
 import {
   breakLines,
   captionColor,
@@ -20,7 +20,7 @@ import {
   type OutputSettings,
   type Project,
   type ThemeTokens,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import { BUNDLED_FONTS, bundledFontFaces, readFontInfo } from './fonts';
 import type { ResolvedAsset } from './plugins';
 

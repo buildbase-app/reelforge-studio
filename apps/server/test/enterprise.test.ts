@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { ElevenLabsTts, PluginRegistry, type AuditEntry, type AuditSink } from '@reelforge/core';
+import { ElevenLabsTts, PluginRegistry, type AuditEntry, type AuditSink } from '@renderweld/core';
 import { TOOLS, startServer, type StartedServer } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 import { testDatabase } from './serverProcess';

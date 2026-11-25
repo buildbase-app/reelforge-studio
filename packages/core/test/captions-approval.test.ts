@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { resolveTools, run } from '@reelforge/media-pipeline';
-import type { CaptionCue } from '@reelforge/project-schema';
+import { resolveTools, run } from '@renderweld/media-pipeline';
+import type { CaptionCue } from '@renderweld/project-schema';
 import {
   FasterWhisperStt,
   PluginRegistry,

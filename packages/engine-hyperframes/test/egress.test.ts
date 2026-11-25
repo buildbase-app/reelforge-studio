@@ -5,10 +5,10 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { builtinTheme } from '@reelforge/project-schema';
+import { builtinTheme } from '@renderweld/project-schema';
 import { hyperframesEnv, renderHyperframesScene, startNetworkSink } from '../src/index';
 import { externalNetworkCalls } from './strace-egress';
-import { envValue } from '@reelforge/core';
+import { envValue } from '@renderweld/core';
 
 /**
  * #318: HyperFrames resolves web fonts with the CLI's own Node `fetch`

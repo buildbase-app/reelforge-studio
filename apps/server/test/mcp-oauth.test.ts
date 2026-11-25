@@ -8,7 +8,7 @@ import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories, createMemoryWorkspaceRepositories, runInWorkspace, type Repositories } from '@reelforge/core';
+import { PluginRegistry, ReelforgeService, createMemoryRepositories, createMemoryWorkspaceRepositories, runInWorkspace, type Repositories } from '@renderweld/core';
 import { createApp, loadConfig } from '../src/index';
 import { OAuthVerifier, looksLikeJwt, resourceMetadataUrl, scopesFromClaims } from '../src/oauth';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';

@@ -2,7 +2,7 @@ import { createWriteStream } from 'node:fs';
 import { copyFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { PipelineError, normaliseClip, streamParams, toolVersion, type StreamParams, type Tools } from '@reelforge/media-pipeline';
+import { PipelineError, normaliseClip, streamParams, toolVersion, type StreamParams, type Tools } from '@renderweld/media-pipeline';
 import {
   timeline,
   type CaptionMode,
@@ -10,7 +10,7 @@ import {
   type RenderAudioOptions,
   type ThemeTokens,
   type FrameRate,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import type { AudioDefaults } from './audio';
 import { describeUnit, JOIN_JOB_TYPE, UNIT_JOB_TYPE, type ChildSpec } from './fanout';
 import type { JobContext } from './jobs';

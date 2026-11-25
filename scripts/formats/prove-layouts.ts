@@ -21,7 +21,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
+import { checkExpectation, probe, resolveTools } from '@renderweld/media-pipeline';
 import { engines } from '../../apps/server/test/formats/matrix';
 import { LAYOUT_ENGINES, LAYOUT_FORMATS, LAYOUT_SAMPLES, LAYOUT_STRESS_SAMPLES, checkGeometry, layoutSheet, layoutThumb, makeLayoutMedia, renderGeometryFrame, renderLayout } from '../../apps/server/test/formats/layouts';
 

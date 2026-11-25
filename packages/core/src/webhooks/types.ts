@@ -155,7 +155,7 @@ export interface DeliveryFilter {
 
 /**
  * Endpoints, the outbox and the delivery log. Implementations: memory
- * (createMemoryRepositories) and Prisma (@reelforge/db), checked by
+ * (createMemoryRepositories) and Prisma (@renderweld/db), checked by
  * packages/db/test/webhooks-contract.test.ts.
  */
 export interface WebhookRepository {

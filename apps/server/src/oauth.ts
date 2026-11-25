@@ -1,5 +1,5 @@
 import { createPublicKey, verify as verifySignature, type JsonWebKey, type KeyObject } from 'node:crypto';
-import type { AuthContext, Scope } from '@reelforge/core';
+import type { AuthContext, Scope } from '@renderweld/core';
 
 /**
  * MCP authorization (#305, D-112): ReelForge as an OAuth 2.1 resource server

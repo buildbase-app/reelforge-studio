@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, copyFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
+import { checkExpectation, probe, resolveTools } from '@renderweld/media-pipeline';
 import {
   ElevenLabsTts,
   PluginRegistry,

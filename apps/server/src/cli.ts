@@ -69,8 +69,8 @@ import {
   type Repositories,
   type Scope,
   type StorageDriverId,
-} from '@reelforge/core';
-import { Database, parseDatabaseUrl, parseReadUrl, prepareDatabase } from '@reelforge/db';
+} from '@renderweld/core';
+import { Database, parseDatabaseUrl, parseReadUrl, prepareDatabase } from '@renderweld/db';
 import { resolve } from 'node:path';
 import { loadConfig, type ServerConfig } from './config';
 import { onceArgs, runWorkerOnce } from './worker';
@@ -448,7 +448,7 @@ async function configShow(argv: string[], config: ServerConfig): Promise<void> {
         db = undefined;
       }
     } else note = 'offline: runtime settings from the database not included';
-    const runtime = new RuntimeConfig(db ? db.repositories() : (await import('@reelforge/core')).createMemoryRepositories(), config.sources);
+    const runtime = new RuntimeConfig(db ? db.repositories() : (await import('@renderweld/core')).createMemoryRepositories(), config.sources);
     await runtime.load();
     const report = runtime.report();
     if (argv.includes('--json')) console.log(JSON.stringify(note ? { ...report, note } : report, null, 2));

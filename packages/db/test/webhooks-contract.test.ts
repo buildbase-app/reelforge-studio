@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createMemoryRepositories, newSequentialId, type Repositories, type WebhookDeliveryRecord, type WebhookEndpointRecord } from '@reelforge/core';
+import { createMemoryRepositories, newSequentialId, type Repositories, type WebhookDeliveryRecord, type WebhookEndpointRecord } from '@renderweld/core';
 import { Database, availableTestDatabases, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-db-webhooks-'));

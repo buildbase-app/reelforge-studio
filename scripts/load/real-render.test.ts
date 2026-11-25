@@ -6,7 +6,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseProject } from '@reelforge/project-schema';
+import { parseProject } from '@renderweld/project-schema';
 import { afterAll, describe, expect, it } from 'vitest';
 import { buildManifest, config, fakeTransport, pickWeighted, PROFILES, rng, run } from './real-render';
 

@@ -4,7 +4,7 @@
  *
  * This module has no dependencies (no zod, no Node APIs) so the browser
  * bundles of the Remotion compositions and Motion Canvas scenes import it as
- * `@reelforge/project-schema/layout`. Engines hash this file into their bundle
+ * `@renderweld/project-schema/layout`. Engines hash this file into their bundle
  * cache key, so a change here rebuilds them.
  *
  * Units: `unit` is 1 % of the SHORTER side (`min(width, height) / 100`), so a

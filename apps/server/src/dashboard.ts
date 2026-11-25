@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ReelforgeService } from '@reelforge/core';
+import type { ReelforgeService } from '@renderweld/core';
 import type { Context, Hono } from 'hono';
 import { errorBody, hostName, type Env } from './app';
 import type { ServerConfig } from './config';
@@ -77,7 +77,7 @@ export function mountDashboard(app: Hono<Env>, service: ReelforgeService, config
       body = await readFile(join(dir(), name));
     } catch {
       if (name !== 'index.html') return c.json(errorBody('not_found', `no dashboard file ${name}`), 404);
-      return c.json(errorBody('dashboard_not_built', 'the dashboard assets are missing: run `pnpm --filter @reelforge/dashboard build` (the Docker image builds them)'), 503);
+      return c.json(errorBody('dashboard_not_built', 'the dashboard assets are missing: run `pnpm --filter @renderweld/dashboard build` (the Docker image builds them)'), 503);
     }
     return c.body(new Uint8Array(body), 200, { ...SECURITY_HEADERS, 'Content-Type': type, 'Cache-Control': cache });
   };

@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_WORKSPACE_ID, JobRunner, newId, type JobRecord, type JobRepository, type Repositories } from '@reelforge/core';
+import { DEFAULT_WORKSPACE_ID, JobRunner, newId, type JobRecord, type JobRepository, type Repositories } from '@renderweld/core';
 import { Database, availableTestDatabases, createPrismaRepositories, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-queue-shutdown-'));

@@ -1,5 +1,5 @@
 {
-  "name": "@reelforge/engine-remotion",
+  "name": "@renderweld/engine-remotion",
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
@@ -12,9 +12,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@reelforge/core": "workspace:*",
-    "@reelforge/media-pipeline": "workspace:*",
-    "@reelforge/project-schema": "workspace:*",
+    "@renderweld/core": "workspace:*",
+    "@renderweld/media-pipeline": "workspace:*",
+    "@renderweld/project-schema": "workspace:*",
     "@remotion/renderer": "4.0.545",
     "react": "19.2.3",
     "react-dom": "19.2.3",

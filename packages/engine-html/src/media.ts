@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ResolvedAsset } from '@reelforge/core';
-import { PipelineError, extractVideoFrames } from '@reelforge/media-pipeline';
-import { layoutSceneDom, layoutSceneProps, type LayoutDom, type OutputSettings } from '@reelforge/project-schema';
+import type { ResolvedAsset } from '@renderweld/core';
+import { PipelineError, extractVideoFrames } from '@renderweld/media-pipeline';
+import { layoutSceneDom, layoutSceneProps, type LayoutDom, type OutputSettings } from '@renderweld/project-schema';
 
 /**
  * Pictures for the html engine's layout scenes (#287). The page may load

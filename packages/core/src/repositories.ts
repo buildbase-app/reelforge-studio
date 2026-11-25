@@ -1,4 +1,4 @@
-import type { Project, Theme } from '@reelforge/project-schema';
+import type { Project, Theme } from '@renderweld/project-schema';
 import type { PageRequest } from './paging';
 import type { JobPriority } from './priority';
 import type { StoredAsset } from './plugins';
@@ -8,7 +8,7 @@ import type { WebhookRepository } from './webhooks/types';
  * Persistence contracts. ReelforgeService and the stores in this package
  * depend only on these interfaces; implementations live elsewhere:
  *
- *   - @reelforge/db       Prisma 7: SQLite (default), PostgreSQL, MySQL/MariaDB
+ *   - @renderweld/db       Prisma 7: SQLite (default), PostgreSQL, MySQL/MariaDB
  *   - createMemoryRepositories() in this package (tests, ephemeral use)
  *
  * A `Repositories` object is bound to one workspace: every row it reads or

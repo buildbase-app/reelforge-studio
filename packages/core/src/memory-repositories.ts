@@ -1,4 +1,4 @@
-import type { Project, Theme } from '@reelforge/project-schema';
+import type { Project, Theme } from '@renderweld/project-schema';
 import { conflict } from './errors';
 import { newId, newSequentialId } from './fsutil';
 import { createMemoryWebhookRepository } from './webhooks/memory';

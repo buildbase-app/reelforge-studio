@@ -14,8 +14,8 @@
  */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BuildBaseLicenceClient, LicenceManager } from '@reelforge/core';
-import { Database, prepareDatabase } from '@reelforge/db';
+import { BuildBaseLicenceClient, LicenceManager } from '@renderweld/core';
+import { Database, prepareDatabase } from '@renderweld/db';
 
 const ORG = '6b01478bb42d2c444e99fcd8';
 const KEY = 'SPIKE-AAAAA-BBBBB-CCCCC-DDDDD';

@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_WORKSPACE_ID, childJobs, createMemoryRepositories, newId, type JobRecord, type Repositories } from '@reelforge/core';
+import { DEFAULT_WORKSPACE_ID, childJobs, createMemoryRepositories, newId, type JobRecord, type Repositories } from '@renderweld/core';
 import { Database, availableTestDatabases, createPrismaRepositories, createTestDatabase, prepareDatabase, sqlNames, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-queue-contract-'));

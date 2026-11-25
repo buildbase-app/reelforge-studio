@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseProject } from '@reelforge/project-schema';
+import { parseProject } from '@renderweld/project-schema';
 import { describe, expect, it } from 'vitest';
 import { CELL_ENGINES, ENGINE_INFO, HYGEN, HYGEN_TMPLS, hygenArgs, projectIdFor } from '../cells';
 import { REPO } from '../lib/studio';

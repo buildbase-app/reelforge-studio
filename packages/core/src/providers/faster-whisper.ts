@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
-import { MAX_PROJECT_SECONDS } from '@reelforge/project-schema';
+import { MAX_PROJECT_SECONDS } from '@renderweld/project-schema';
 import { renderChildEnv } from '../childEnv';
 import { ApiError } from '../errors';
 import type { Availability, Logger, SpeechToTextPlugin, SttRequest, SttResult, SttSettings } from '../plugins';

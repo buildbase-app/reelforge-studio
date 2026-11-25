@@ -34,9 +34,9 @@ any time; it changes only what is missing.
 1. Checks Node (from `.nvmrc`), pnpm (the version in `packageManager`), FFmpeg 5.1+
    with the encoders and filters renders need, ffprobe, free disk, free ports and a
    Chrome Headless Shell. Each problem comes with the fix.
-2. `pnpm install --frozen-lockfile`, `pnpm --filter @reelforge/db run generate`
+2. `pnpm install --frozen-lockfile`, `pnpm --filter @renderweld/db run generate`
    (the generated clients are committed; this checks they match) and
-   `pnpm --filter @reelforge/dashboard run build`.
+   `pnpm --filter @renderweld/dashboard run build`.
 3. Installs Chrome Headless Shell when none is found, the way CI does
    (`playwright-core install chromium-headless-shell`, the version in the lockfile).
 4. Writes `.env.local` (gitignored by `.env.*`, mode 600): `RENDERWELD_SECRET_KEY`
@@ -122,7 +122,7 @@ pnpm dev:setup && pnpm dev:all
 
 If Chrome Headless Shell fails to start with a missing shared library
 (`error while loading shared libraries: libnss3.so`), install its system packages:
-`sudo pnpm --filter @reelforge/engine-motion-canvas exec playwright-core install-deps chromium-headless-shell`.
+`sudo pnpm --filter @renderweld/engine-motion-canvas exec playwright-core install-deps chromium-headless-shell`.
 Running as root prints `Chromium's own sandbox is OFF because the server runs as root`:
 fine for a container, prefer a normal user on a workstation.
 
@@ -213,7 +213,7 @@ then the platform default, newest revision first), Remotion's download in
 `node_modules/.remotion`. If there is none it runs:
 
 ```bash
-pnpm --filter @reelforge/engine-motion-canvas exec playwright-core install chromium-headless-shell
+pnpm --filter @renderweld/engine-motion-canvas exec playwright-core install chromium-headless-shell
 ```
 
 Without one, the server starts but renders fail with
@@ -277,8 +277,8 @@ pnpm renderweld migrate                # apply
 ```
 
 A schema change: edit `packages/db/prisma/base.prisma`, then
-`pnpm --filter @reelforge/db generate` and
-`pnpm --filter @reelforge/db migration <name>` (writes the SQL for all three
+`pnpm --filter @renderweld/db generate` and
+`pnpm --filter @renderweld/db migration <name>` (writes the SQL for all three
 databases); see AGENTS.md, "Conventions". Production database notes:
 [DEPLOY.md#database](DEPLOY.md#database).
 
@@ -344,10 +344,10 @@ Load the Chromium path first (`set -a; . ./.env.local; set +a` does it, or expor
 | Typecheck | `pnpm typecheck` | nothing |
 | Everything CI's fast job runs | `pnpm test` | FFmpeg; browser tests skip without Chromium |
 | Browser required (as CI) | `REELFORGE_REQUIRE_BROWSER=1 pnpm test` | a missing browser fails instead of skipping |
-| One package | `pnpm --filter @reelforge/core test`, or `pnpm exec vitest run test/x.test.ts` in it | |
+| One package | `pnpm --filter @renderweld/core test`, or `pnpm exec vitest run test/x.test.ts` in it | |
 | Setup helpers | `pnpm test:dev` | nothing |
 | Docs | `pnpm test:docs`, `pnpm docs:reference --check`, `pnpm docs:config --check` | nothing |
-| PostgreSQL contract + server | `TEST_POSTGRES_URL=... pnpm --filter @reelforge/db test`; `REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=... pnpm --filter @reelforge/server test` | `pnpm dev:setup --postgres` |
+| PostgreSQL contract + server | `TEST_POSTGRES_URL=... pnpm --filter @renderweld/db test`; `REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=... pnpm --filter @renderweld/server test` | `pnpm dev:setup --postgres` |
 | MySQL contract + server | the same with `TEST_MYSQL_URL` and `REELFORGE_TEST_DB=mysql` | `pnpm dev:setup --mysql` |
 | Docker e2e | `e2e/docker/run.sh` (`DB=postgres`, `EDITION=dev`, `SCALE=1`, see the file's header) | Docker, about 4 GB |
 | Kubernetes e2e | `e2e/k8s/` | kind, Docker |
@@ -363,7 +363,7 @@ serves at `/dashboard/` when `RENDERWELD_DASHBOARD_ENABLED=true` (setup turns it
 the server reads the files on each request, so a page reload shows the change. Sign
 in with the admin key from `.env.local`, or a narrower one:
 `pnpm renderweld keys create --name dash --scopes read`. Screenshots:
-`pnpm --filter @reelforge/dashboard screenshots`. Visual changes follow the design
+`pnpm --filter @renderweld/dashboard screenshots`. Visual changes follow the design
 rules in AGENTS.md. More: [docs/public/install/dashboard.md](public/install/dashboard.md).
 
 ## Docs generators
@@ -416,7 +416,7 @@ in two terminals.
 | `Unsupported engine` / `Node v20... is older than 22` | old Node | `nvm install 22 && nvm use` |
 | `listen EADDRINUSE: address already in use 127.0.0.1:4321` | port taken | [ports](#ports) |
 | `the dashboard is off: set dashboard.enabled ...` (404 on `/dashboard`) | `RENDERWELD_DASHBOARD_ENABLED` not true | set it in `.env.local` |
-| `dashboard_not_built` (503) | `apps/dashboard/dist` missing | `pnpm --filter @reelforge/dashboard build` (`pnpm dev:all` does it) |
+| `dashboard_not_built` (503) | `apps/dashboard/dist` missing | `pnpm --filter @renderweld/dashboard build` (`pnpm dev:all` does it) |
 | `host "..." is not allowed; set REELFORGE_PUBLIC_URL or REELFORGE_ALLOWED_HOSTS` (403 `forbidden_host`) | you reach the studio by a name other than localhost/127.0.0.1 (a LAN IP, a tunnel) | `RENDERWELD_ALLOWED_HOSTS=myhost` or `RENDERWELD_PUBLIC_URL=https://...` |
 | `no browser: set REELFORGE_CHROMIUM_PATH ...` | no Chrome Headless Shell | [Chromium](#chromium) |
 | `ffmpeg was not found ...` or `... cannot run the audio pipeline ...` | FFmpeg missing or minimal | [FFmpeg](#ffmpeg) |
@@ -449,7 +449,7 @@ only (noncommercial, [LICENSING.md](../LICENSING.md)). Paths that need a licence
 
 ReelForge Studio is now RenderWeld ([RENAMED.md](RENAMED.md)). Every `REELFORGE_*`
 variable has a `RENDERWELD_*` twin and both work; the scripts and this page use the
-new names. The package names (`@reelforge/*`), the repository name, the
+new names. The package names (`@renderweld/*`), the repository name, the
 `reelforge.db` file and the `reelforge-whisper` program keep their old names for now.
 
 | Old | New |

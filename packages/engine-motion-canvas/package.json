@@ -1,5 +1,5 @@
 {
-  "name": "@reelforge/engine-motion-canvas",
+  "name": "@renderweld/engine-motion-canvas",
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
@@ -13,9 +13,9 @@
   },
   "dependencies": {
     "@motion-canvas/core": "3.17.2",
-    "@reelforge/core": "workspace:*",
-    "@reelforge/media-pipeline": "workspace:*",
-    "@reelforge/project-schema": "workspace:*",
+    "@renderweld/core": "workspace:*",
+    "@renderweld/media-pipeline": "workspace:*",
+    "@renderweld/project-schema": "workspace:*",
     "playwright-core": "^1.57.0"
   },
   "devDependencies": {

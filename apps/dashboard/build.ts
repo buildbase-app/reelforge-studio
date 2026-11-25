@@ -10,7 +10,7 @@
  * One minified ES module and one stylesheet, no source maps, no external URL.
  * Fails when the JS and CSS together exceed the budget (gzip).
  *
- *   pnpm --filter @reelforge/dashboard build
+ *   pnpm --filter @renderweld/dashboard build
  */
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';

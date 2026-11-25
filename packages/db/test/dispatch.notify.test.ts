@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { newId, type DispatchMessage, type JobRecord } from '@reelforge/core';
+import { newId, type DispatchMessage, type JobRecord } from '@renderweld/core';
 import { dispatchContract } from '../../core/test/dispatch-contract';
 import { Database, PgNotifyListener, createNotifyListener, createPrismaRepositories, createTestDatabase, notifyChannel, prepareDatabase, type TestDatabase } from '../src/index';
 
