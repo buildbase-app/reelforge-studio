@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { REST_ROUTES, TOOLS, TOOL_ALIASES } from '@renderweld/server';
+import { BUILT_IN_SKILLS, REST_ROUTES, TOOLS, TOOL_ALIASES } from '@renderweld/server';
 import { TEMPLATES, templateDurationLabel } from '@renderweld/project-schema';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -28,7 +28,7 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   {
     title: 'Start here',
     intro: 'What this server can do, the manifest schema and the installed templates. Call these before anything else.',
-    tools: ['get_capabilities', 'get_me', 'get_project_schema', 'list_templates'],
+    tools: ['get_capabilities', 'get_me', 'get_project_schema', 'list_templates', 'get_skill'],
   },
   {
     title: 'Projects',
@@ -327,8 +327,71 @@ export function withToolCount(text: string, path = 'the file'): string {
   return text.replace(TOOL_COUNT_MARKER, `<!-- mcp-tool-count -->${TOOLS.length}<!-- /mcp-tool-count -->`);
 }
 
+/** Every built-in skill, from apps/server/src/skills, with how agents read them and how to add your own. */
+export function renderSkillsDoc(): string {
+  const out: string[] = [
+    frontMatter({
+      title: 'Skills for agents',
+      description: `The ${BUILT_IN_SKILLS.length} built-in skills an agent reads over MCP or REST (brief, layout and type, sound, captions and accessibility, sync, brand, review), and how to add your own.`,
+      folder: 'mcp',
+      slug: 'skills',
+      order: 3,
+      tags: ['mcp', 'reference', 'skills'],
+    }),
+    '# Skills for agents',
+    '',
+    GENERATED,
+    '',
+    'A skill is a short set of rules, with numbers, for one step of making a video: what to ask before building, where text may go at every aspect ratio, loudness and ducking, caption limits, sync tolerances, brand consistency and the checks before delivery.',
+    'Each rule comes from a published standard (EBU, ITU, WCAG, Netflix and BBC timed text) and says which tools and fields apply it here.',
+    'An agent that reads the skill for the step it is on makes fewer of the defaults that make a video look generic.',
+    '',
+    '## Reading them',
+    '',
+    '| Where | How |',
+    '| --- | --- |',
+    '| MCP | `get_skill` without `name` lists them; `get_skill { name }` returns one as Markdown. Resources `renderweld://skills` (the index) and `renderweld://skills/<name>`. |',
+    '| REST | `GET /v1/skills` (the list) and `GET /v1/skills/:name` (`text/markdown`). Both need the `read` scope. |',
+    '| Agent tools | `renderweld skills export <dir>` writes `<dir>/renderweld-<name>/SKILL.md` for each skill, the folder layout Claude Code (`.claude/skills/`), Codex and other agent tools load. `--prefix` changes the folder prefix; a changed file is kept unless `--force`. `renderweld skills list` prints them. |',
+    '',
+    'The workflow guide (`renderweld://guide/workflow`, the `make_reel` prompt) starts with the brief and points to the skills.',
+    '',
+    '## Adding your own',
+    '',
+    'Set `skills.dir` (`RENDERWELD_SKILLS_DIR`) to a folder of skills: your house rules, or a skills pack. They are served beside the built-in ones, and one with a built-in\'s name replaces it.',
+    '',
+    '- Each skill is `<name>.md` or `<name>/SKILL.md`, the Agent Skills format: front matter with `name` (lowercase letters, digits and hyphens, matching the file or folder name) and `description` (at most 1024 characters; say when to use it), `title` optional, then Markdown.',
+    '- At most 256 KiB a skill and 200 skills.',
+    '- The folder is read at start-up. A file that cannot be used stops the start with its name, so a broken pack is never served half-loaded.',
+    '',
+    '```markdown',
+    '---',
+    'name: house-style',
+    'description: Our lower thirds, logo placement and words we never use. Use for every video for the Acme brand.',
+    '---',
+    '# House style',
+    '',
+    '1. The logo sits bottom right, 4 % of the short side, on every scene.',
+    '```',
+    '',
+    '## The built-in skills',
+    '',
+    '| Skill | Use it for |',
+    '| --- | --- |',
+    ...BUILT_IN_SKILLS.map((s) => `| [\`${s.name}\`](#${s.name}) | ${cell(s.description)} |`),
+    '',
+  ];
+  for (const s of BUILT_IN_SKILLS) {
+    // The skill's own H1 becomes this page's H2 (with an anchor by name); its sections move down one level.
+    const body = s.body.replace(/^# .*\n+/, '').replace(/^(#{2,5}) /gm, '#$1 ').trimEnd();
+    out.push(`<a id="${s.name}"></a>`, '', `## ${s.title}`, '', `\`${s.name}\`: ${s.description}`, '', body, '');
+  }
+  return out.join('\n');
+}
+
 export const OUTPUTS: Array<{ path: string; render: () => string }> = [
   { path: 'docs/public/mcp/tools.md', render: renderToolsDoc },
+  { path: 'docs/public/mcp/skills.md', render: renderSkillsDoc },
   { path: 'docs/public/api/endpoints.md', render: renderEndpointsDoc },
   { path: 'docs/public/manifest/templates.md', render: renderTemplatesDoc },
   ...TOOL_COUNT_FILES.map((path) => ({
