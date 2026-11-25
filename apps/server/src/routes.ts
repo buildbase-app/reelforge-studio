@@ -11,7 +11,7 @@ export interface RouteEntry {
   path: string;
   display?: string;
   /** `owner`: instance-level (#304); `admin`: the key's own workspace. */
-  scope: 'read' | 'write' | 'render' | 'admin' | 'owner';
+  scope: 'read' | 'write' | 'render' | 'approve' | 'admin' | 'owner';
   tool: string;
   /** How the MCP tool differs, when it does. */
   note?: string;
@@ -46,6 +46,7 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'POST', path: '/v1/projects/:id/captions/transcribe', scope: 'render', tool: 'transcribe_captions' },
   { method: 'POST', path: '/v1/projects/:id/preview', scope: 'render', tool: 'preview_scene' },
   { method: 'POST', path: '/v1/projects/:id/render-plan', scope: 'read', tool: 'plan_render' },
+  { method: 'POST', path: '/v1/projects/:id/render-plan/approve', scope: 'approve', tool: 'approve_render_plan' },
   { method: 'POST', path: '/v1/projects/:id/renders', scope: 'render', tool: 'render_project' },
   { method: 'GET', path: '/v1/projects/:id/renders', scope: 'read', tool: 'list_renders' },
   { method: 'GET', path: '/v1/jobs', scope: 'read', tool: 'list_jobs', note: 'Filters: ?projectId= and ?parentId= (the units and the join of a fanned-out render).' },

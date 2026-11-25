@@ -1016,6 +1016,30 @@ export const ConfigSchema = z.object({
     }),
   }),
   render: z.object({
+    approval: z.object({
+      mode: setting(z.enum(['off', 'above', 'always']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_APPROVAL_MODE',
+        default: 'off',
+        description:
+          'Whether render_project needs a human approval token (#485, plan_render then approve_render_plan): `off` (the default), `above` when the plan\'s estimated render time is over `render.approval.aboveSeconds` or cannot be estimated yet, or `always`. Without the token, render_project answers 409 approval_required with the plan.',
+      }),
+      aboveSeconds: setting(z.number().int().min(1).max(1_000_000), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_APPROVAL_ABOVE_SECONDS',
+        default: 600,
+        description: 'With `render.approval.mode` `above`: renders whose plan estimates more seconds of rendering than this (all outputs together) need an approval token.',
+      }),
+      tokenMinutes: setting(z.number().int().min(1).max(10_080), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_APPROVAL_TOKEN_MINUTES',
+        default: 60,
+        description: 'How long an approval token from approve_render_plan is valid. Each token starts one render and only for the plan it was made from.',
+      }),
+    }),
     chromiumPath: setting(nonEmpty().optional(), {
       kind: 'path',
       scope: 'startup',
