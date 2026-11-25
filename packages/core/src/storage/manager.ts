@@ -8,6 +8,7 @@ import type { RuntimeConfig } from '../config/runtime';
 import type { StorageDriver } from '../plugins';
 import type { StorageFactory } from './factory';
 import { DEFAULT_WORKSPACE_ID } from '../repositories';
+import { framesCacheDir } from '../frames';
 import { currentWorkspaceId, runInWorkspace, workspaceKeyPrefix } from '../workspace';
 import { ASSETS_PREFIX, checkKey, mapLimit } from './keys';
 import { scopeDriver } from './scoped';
@@ -310,6 +311,8 @@ export class StorageManager {
       if (dryRun) return true;
       try {
         await this.renders.deleteRun(run);
+        // get_frames' cached stills of this render go with it.
+        await rm(framesCacheDir(this.opts.cacheDir, run.runId), { recursive: true, force: true });
         return true;
       } catch (e) {
         report.errors.push(`${run.projectId}/${run.runId}: ${(e as Error).message}`);
