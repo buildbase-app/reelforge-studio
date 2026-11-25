@@ -469,6 +469,16 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'plan_render',
+    title: 'Plan a render (estimate before rendering)',
+    description:
+      'Before render_project: what the same call would render (each output with its size, frames, length and format; every variant when the project has variants and no variant is given), whether the project validates, and for each output an estimated render time and file size measured from this workspace\'s newest successful renders (basis "measured"; "partial" when an engine has no sample yet; "none" with no sample: then render or preview once). Also the queue it would join (jobs queued, measured claim rate, estimated wait) and the backend\'s cost note. Nothing is queued and nothing is charged. Show the user the estimate before an expensive render.',
+    scope: 'read',
+    input: { projectId: z.string(), variant: z.string().optional().describe('One of the project\'s variants; leave out for what render_project would render.') },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => service.planRender(a.projectId, { variant: a.variant }),
+  },
+  {
     name: 'render_project',
     title: 'Render the project',
     description:
@@ -1182,6 +1192,8 @@ done with tools; there is no UI.
    get_captions); when the user approves, update_captions { approve: true }.
 8. validate_project until ok: true (warnings are fine but read them).
 9. Optional quick look: preview_scene (low resolution), then get_render_output.
+   Before a long or many-size render, plan_render shows each output with its
+   estimated render time, file size and the queue wait; tell the user.
 10. render_project -> get_job with waitSeconds 45 (repeat while running) until succeeded/failed ->
    get_render_output. Give the user downloadUrl (works without a key for ~1 h).
    If it failed: get_job_logs, fix, render again (or retry_job).
@@ -1248,7 +1260,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
     {
       instructions:
         `${PRODUCT_NAME} renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ` +
-        'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
+        'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> plan_render (estimate) -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
         'With captions, call get_captions and ask the user to approve them (update_captions approve: true) before render_project; never assume approval. ' +
         `Full guide with a minimal manifest: resource ${resourceUri('guide/workflow')} or prompt make_reel. ` +
         'Renders need a valid licence: get_capabilities.licence / get_licence say whether renders are allowed and, if not, what the user must do. ' +

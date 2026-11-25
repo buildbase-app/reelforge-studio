@@ -25,6 +25,7 @@ export * from './captions';
 export * from './audio';
 export * from './service';
 export * from './analytics';
+export * from './render-plan';
 export * from './versions';
 export * from './childEnv';
 export * from './sceneMarkup';

@@ -184,10 +184,10 @@ REST handlers, with descriptions written for agents:
 Implemented extras (v0.1), so every REST route has a tool: projects and versions,
 themes, renders and jobs (`list_jobs`, `retry_job`, `list_renders`), assets,
 providers, keys and their lifecycle, the audit log (#65), configuration, licence,
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
 tool's scope, arguments and REST equivalent is generated from the server's
 registry: [public/mcp/tools.md](public/mcp/tools.md) (`pnpm docs:reference`).
 Create and render tools take an optional `idempotencyKey` (D-057). Resource
@@ -258,6 +258,7 @@ that was run; "partial" says what is missing.
 | §3 Backend: local | done | renders on the instance that claimed the job: the in-process queue on one instance (concurrency 1 by default), or `worker` instances of the database queue (below) |
 | §3 Backend: remotion-lambda | partial (skeleton) | Configuration check only; submitting returns `not_implemented` (501). Nothing faked |
 | §3 Backend interface v2 + `worker --once` (#150) | done | `kind`, `capabilities()`, `estimate()` in `get_capabilities` and `validate_project`; contract suite for every backend; `reelforge worker --once [--job <id>]` / `REELFORGE_WORKER_ONCE=1` tested with processes on PostgreSQL and MySQL (D-100, docs/providers/backends.md) |
+| Render plan before rendering (#485): `plan_render` / `POST /v1/projects/:id/render-plan` (read) | done (plan); approval: open | each output (every variant) with frames, length, format, estimated render time and file size measured from the workspace's newest successful renders (per megapixel-frame per engine; basis measured / partial / none), the queue wait at the measured claim rate, validation, `planId`; nothing queued. `packages/core/test/render-plan.test.ts` (PLAN-01..05), `apps/server/test/render-plan.test.ts` (PLAN-10..13). The approval token of #485 is a follow-up |
 | §3 Storage: local fs | done | `LocalStorageDriver` for asset and render files |
 | Database (#23, D-022) | done | Repository interfaces in core; Prisma 7: SQLite (default), PostgreSQL, MySQL by `DATABASE_URL`; migrations on start / `reelforge migrate`; one-time v0.1 import; contract tests on all three; Docker e2e on all three. MongoDB: not yet (Prisma 7) |
 | §3 Storage: S3-compatible, Azure Blob, GCS, signed URLs (#27, D-065..D-069) | done (MinIO tested; Azure/GCS on emulators) | `storage.driver` local / s3 / azure / gcs; bucket-signed `downloadUrl`; atomic render commit; retention (`get_storage`, `run_storage_cleanup`); `reelforge storage migrate`. Provider matrix and test cases: docs/providers/storage.md. AWS S3, R2, B2, Wasabi, Spaces untested |
@@ -282,7 +283,7 @@ that was run; "partial" says what is missing.
 | Licence activation (#25, D-028, D-035..D-038) | done | BuildBase licence API (key + instance id only), `LicenceState` table on all three databases, daily validate, 14-day offline grace, backoff, clock checks; renders/previews refused with `licence_required` / `licence_invalid` + fix; `get_licence` / `activate_licence` / `deactivate_licence`, `/v1/licence`, `reelforge licence`; unit tests (mock LicensesApi), server tests (mock licence server, injected clock), Docker e2e on SQLite and PostgreSQL, one live check against the dev environment. `licence.mode: trial` reserved |
 | Workflow guide for agents without docs | done | MCP resource `reelforge://guide/workflow` and prompt `make_reel`; the guide's manifest is validated by a test |
 | §6 Assets: upload or URL, licence, checksum | done | Content-addressed store, byte sniffing, https only, SSRF guard at connect time, size limit |
-| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->76<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->77<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 Resources and prompts `brief_intake`, `make_reel`, `plan_reel`, `review_reel` | done | MCP tests |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |
