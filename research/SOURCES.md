@@ -762,3 +762,38 @@ Re-check before relying on any price, limit or date.
   `librav1e`, `libopus`, `gif`, `png`, `ffv1`, `aac`, `pcm_s16le`, `pcm_s24le`, `libx265`) and the
   libass filter's `alpha` option, and `packages/media-pipeline/test/formats.test.ts` passes on it (13 of 13, in `node:22-bookworm-slim`); the service and engine tests ran with 6.1.1. A server whose
   FFmpeg lacks an encoder refuses that format (`422 unsupported_output`).
+
+## Quality check thresholds (2026-11-25, issue #313)
+
+Read 2026-11-25 for `docs/QA.md`, which gives every check's threshold, source and date.
+
+- **WCAG photosensitive flash thresholds.** *Understanding SC 2.3.1*, WCAG 2.2
+  (https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html): "no more than three general
+  flashes and / or no more than three red flashes within any one-second period"; a general flash is "a pair of
+  opposing changes in relative luminance of 10% or more of the maximum relative luminance (1.0)" "where the relative
+  luminance of the darker image is below 0.80"; area "(25% of any 10 degree visual field on the screen)", a "341 x 256
+  pixel rectangle" at 1024 x 768; saturated red per the note "new in WCAG 2.2": R/(R + G + B) "greater than or equal to
+  0.8" and "more than 0.2 (unitless) in the CIE 1976 UCS chromaticity diagram". The same red note is in the WCAG 2.1
+  Understanding page as "the working definition (as of 2022)". *Understanding SC 2.3.1*, WCAG 2.0
+  (https://www.w3.org/TR/UNDERSTANDING-WCAG20/seizure-does-not-violate.html, no longer maintained), note 3:
+  "R/(R+ G + B) >= 0.8, and the change in the value of (R-G-B)x320 is > 20", "(negative values of (R-G-B)x320 are set
+  to zero)". That WCAG 2.0 measure is what `packages/media-pipeline/src/flashes.ts` implements; the earlier comment
+  there and in `docs/public/manifest/formats.md` called it EA IRIS's method too, which the IRIS README does not
+  support. *EA IRIS README* (https://github.com/electronicarts/IRIS): flash failure "more than 3 flashes per second in
+  any given second"; extended failure "between 2-3 flashes per second in any given 5 consecutive seconds" (not
+  checked by the studio); its red transition is a change of 20 in an accumulated red difference, with no published
+  R/(R+G+B) test, and the README says IRIS does not "guarantee, certify or otherwise validate" compliance.
+- **Netflix timed text, re-read.** General Requirements (215758617): "Minimum duration: 5/6 (five-sixths) of a second
+  per subtitle event (e.g. 20 frames for 24fps)", "Maximum duration: 7 seconds per subtitle event". English (USA)
+  (217350977): "42 characters per line", "Maximum two lines.", "Adult programs: Up to 20 characters per second"
+  (children's 17). Subtitle Timing Guidelines (360051554394): "Subtitles must have a minimum of 2 frames between them";
+  "In 24fps content, any gaps between subtitles of 3-11 frames inclusive must be closed to 2 frames"; its section 3
+  says "20 frames (or 4/5 sec)", which conflicts with 5/6 s (20 frames at 24 fps is 5/6 s); the studio keeps 0.833 s.
+- **Spotify and Apple Podcasts, re-read.** Spotify: "We adjust tracks to -14 dB LUFS, according to the ITU 1770
+  standard", "Keep it below -1dB TP (True Peak) max.", "If your master is louder than -14dB integrated LUFS, keep
+  True Peak below -2dB". Apple: "around -16 dB LKFS, with a +/- 1 dB tolerance", true peak not above "-1 dB FS",
+  framed as a recommendation under "Best practices".
+- **FFmpeg `freezedetect` and `blackdetect` defaults**, read with `ffmpeg -h filter=freezedetect` and
+  `ffmpeg -h filter=blackdetect` on FFmpeg 6.1.1 (`6.1.1-3ubuntu5`): noise "default 0.001" (-60 dB), freeze duration
+  "default 2"; black duration "default 2", `pix_th` "default 0.1", `pic_th` "default 0.98". The studio keeps the
+  noise, pixel and picture levels and sets its own durations (3 s and 0.5 s, `render.qa.*`).
