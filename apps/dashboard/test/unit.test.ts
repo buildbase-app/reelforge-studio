@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { can, parseEvent, sameOriginLink } from '../src/api';
 import { labelEvery, niceTicks, tickText } from '../src/chart';
 import { ago, between, bucketLabel, bucketTitle, bytes, downloadLabel, duration, groupTitle, jobType, latency, outputFormat, outputShort, percent, playerKind, rate, scopeText, size, stillNote } from '../src/format';
+import { assetSource } from '../src/views/assets';
 import { auditQuery } from '../src/views/audit';
 import { parseInput } from '../src/views/settings';
 
@@ -84,6 +85,14 @@ describe('analytics figures and chart scales', () => {
     expect(tickText(1_500_000, 2_000_000)).toBe('1.5M');
     expect(labelEvery(30, 8)).toBe(4);
     expect(labelEvery(5, 8)).toBe(1);
+  });
+});
+
+describe('assets (#292)', () => {
+  it('says where an asset came from in a few words', () => {
+    expect(assetSource('upload')).toBe('Upload');
+    expect(assetSource('https://cdn.example.com/a/b/logo.png?sig=secret')).toBe('cdn.example.com');
+    expect(assetSource('elevenlabs')).toBe('elevenlabs');
   });
 });
 

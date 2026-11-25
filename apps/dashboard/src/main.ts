@@ -2,6 +2,7 @@ import { Api, HttpError, can, type Me } from './api';
 import { fill, h, mark } from './dom';
 import { scopeText } from './format';
 import { analyticsView } from './views/analytics';
+import { assetsView } from './views/assets';
 import { auditView } from './views/audit';
 import { jobView, jobsView } from './views/jobs';
 import { libraryView, renderView } from './views/library';
@@ -67,6 +68,7 @@ function buildShell(me: Me): NonNullable<typeof shell> {
   const nav = {
     jobs: h('a', { href: '#/jobs' }, 'Jobs'),
     library: h('a', { href: '#/library' }, 'Library'),
+    assets: h('a', { href: '#/assets' }, 'Assets'),
     analytics: h('a', { href: '#/analytics' }, 'Analytics'),
     settings: h('a', { href: '#/settings' }, 'Settings'),
     audit: h('a', { href: '#/audit' }, 'Audit log'),
@@ -92,12 +94,13 @@ function buildShell(me: Me): NonNullable<typeof shell> {
   return { main, nav };
 }
 
-type Section = 'jobs' | 'library' | 'analytics' | 'settings' | 'audit';
+type Section = 'jobs' | 'library' | 'assets' | 'analytics' | 'settings' | 'audit';
 const ROUTES: Array<[RegExp, View, Section]> = [
   [/^#\/jobs\/([\w-]+)$/, jobView, 'jobs'],
   [/^#\/jobs$/, jobsView, 'jobs'],
   [/^#\/library\/([\w-]+)$/, libraryView, 'library'],
   [/^#\/library$/, libraryView, 'library'],
+  [/^#\/assets$/, assetsView, 'assets'],
   [/^#\/renders\/([\w-]+)$/, renderView, 'library'],
   [/^#\/analytics$/, analyticsView, 'analytics'],
   [/^#\/settings$/, configView, 'settings'],
