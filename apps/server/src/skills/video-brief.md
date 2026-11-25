@@ -12,8 +12,9 @@ videos look generic. Ask, or write the default down and mark it assumed.
 ## Rules
 1. Never infer the goal, audience, platform or length from style words
    ("modern", "engaging"). Ask, or state the default and label it *assumed*.
-2. Ask the open questions in one message, at most about eight, each with a
-   suggested default the user can accept with "yes":
+2. Ask only what the request has not already answered, in one message: at
+   most about eight questions (group related topics), each with a suggested
+   default the user can accept with "yes". The topics:
    goal (one sentence: "after watching, <who> will <do what>"), audience and
    language, where it is posted (platform, organic or paid), size or sizes,
    length, tone (three adjectives, each turned into something measurable such

@@ -17,8 +17,8 @@ description: Safe areas for every aspect ratio, type sizes relative to the frame
    all of them. A conservative fallback for 1080×1920: about 14 % clear at
    the top, 35 % at the bottom and 6 % at each side.
 3. Size type from the frame's height, not in fixed pixels: titles about
-   4-9 % of the frame height, secondary text 2.5-4 %, nothing smaller than
-   2.6 % of the shorter side. Check a copy scaled to 360 px wide: if you
+   4-9 % of the frame height, secondary text 3-4 %, and nothing smaller than
+   2.6 % of the shorter side (which decides on landscape frames). Check a copy scaled to 360 px wide: if you
    cannot read it there, it is too small for a phone.
 4. Titles: at most two lines and about 37 characters a line. Avoid
    paragraphs on screen.
@@ -29,8 +29,8 @@ description: Safe areas for every aspect ratio, type sizes relative to the frame
    scene; no uppercase text with wide letter-spacing as decoration.
 7. Use a grid: margins equal to the safe area, and recurring elements
    (lower thirds, captions, logo) in the same place in every scene.
-8. A lower third sits inside the safe area and stays at least 0.5 s plus
-   0.3 s per word. Captions move up while a lower third is on screen.
+8. A lower third sits inside the safe area and stays for its reading time
+   (`script-timing` rule 3) plus about 0.5 s. Captions move up while a lower third is on screen.
 9. Wider than 16:9 (21:9): compose so the important part also works in a
    16:9 crop.
 10. Re-lay out each size; never centre-crop one size into another.
@@ -40,8 +40,9 @@ description: Safe areas for every aspect ratio, type sizes relative to the frame
   scenes reflow for every output and variant.
 - `--rf-safe-top/right/bottom/left` are the safe insets for this output and
   platform (`--rf-title-safe-*`, `--rf-action-safe-*` too); keep text inside
-  them. `brief.platform` (or a variant's `platform`) switches the app-interface
-  zone of tall frames on or off.
+  them. `brief.platform` (or a variant's `platform`) is free text: `none`,
+  `broadcast`, `web` or `presentation` turn the app-interface zone of tall
+  frames off; any other value (`tiktok`, `reels`) keeps it on.
 - Layout templates (`html-layout` and its twins on the other engines) give
   split screen, picture-in-picture, grids and a lower third that reflow for
   every size.
@@ -56,7 +57,7 @@ description: Safe areas for every aspect ratio, type sizes relative to the frame
 ## Before you render
 - [ ] Every size checked on a frame with the platform overlay in mind.
 - [ ] Contrast measured on the worst frame; text readable at 360 px wide.
-- [ ] Reading times met: on-screen text and captions at most 20 characters a second (see `captions-and-accessibility`).
+- [ ] Reading times met (see `script-timing`).
 
 ## Sources
 - EBU R 95, safe areas for 16:9 production (tech.ebu.ch/docs/r/r095.pdf); ITU-R BT.1848.

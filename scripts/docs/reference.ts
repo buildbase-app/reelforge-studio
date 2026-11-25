@@ -332,7 +332,7 @@ export function renderSkillsDoc(): string {
   const out: string[] = [
     frontMatter({
       title: 'Skills for agents',
-      description: `The ${BUILT_IN_SKILLS.length} built-in skills an agent reads over MCP or REST (brief, layout and type, sound, captions and accessibility, sync, brand, review), and how to add your own.`,
+      description: `The ${BUILT_IN_SKILLS.length} built-in skills an agent reads over MCP or REST, one for every step of making a video (brief, timing, layout and type, motion, camera, physical plausibility, sound, voice, captions and accessibility, sync, brand, review), and how to add your own.`,
       folder: 'mcp',
       slug: 'skills',
       order: 3,
@@ -342,8 +342,8 @@ export function renderSkillsDoc(): string {
     '',
     GENERATED,
     '',
-    'A skill is a short set of rules, with numbers, for one step of making a video: what to ask before building, where text may go at every aspect ratio, loudness and ducking, caption limits, sync tolerances, brand consistency and the checks before delivery.',
-    'Each rule comes from a published standard (EBU, ITU, WCAG, Netflix and BBC timed text) and says which tools and fields apply it here.',
+    'A skill is a short set of rules, with numbers, for one step of making a video: what to ask before building, timing in frames, where text may go at every aspect ratio, motion curves and durations, camera moves and cuts, how moving things and people behave so the result does not look fake, loudness and voice, caption limits, sync tolerances, brand consistency and the checks before delivery.',
+    'Each rule carries its number and its source (published standards such as EBU, ITU, WCAG and Netflix or BBC timed text; animation and cinematography practice; physics) and says which tools and fields apply it here. Where the studio enforces a number, a test keeps the skill and the check identical.',
     'An agent that reads the skill for the step it is on makes fewer of the defaults that make a video look generic.',
     '',
     '## Reading them',

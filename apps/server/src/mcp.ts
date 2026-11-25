@@ -157,7 +157,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_skill',
     title: 'Read a craft skill',
     description:
-      'Rules for one step of making a video, with numbers, so the result follows published standards instead of generic defaults. Built in: video-brief (what to ask before assuming), layout-and-type (safe areas for every aspect ratio, type size, contrast), sound-and-mix (loudness, ducking, balance), captions-and-accessibility (caption limits, flashing), av-sync (tolerances, frame arithmetic), brand-consistency (themes as brand kits) and review-and-qa (checks before delivery). The operator may add more (skills.dir). Without name: the list. With name: the skill as Markdown. Also the resources renderweld://skills/<name>.',
+      'Rules for one step of making a video, with numbers, so the result follows professional craft, published standards and the physical world instead of generic defaults. Built in: video-brief (what to ask before assuming), script-timing (words and reading time in frames), layout-and-type (safe areas for every aspect ratio, type size, contrast), motion-design (easing, durations, springs), camera-language (shot sizes, moves, cuts), physical-plausibility (gravity, weight, walking, blinking, artefacts in generated footage), sound-and-mix (loudness, ducking, sound-effect timing), voice-over (pace, pronunciation, consent), captions-and-accessibility (caption limits, flashing), av-sync (tolerances, frame arithmetic, lip sync), brand-consistency and review-and-qa. The operator may add more (skills.dir). Without name: the list. With name: the skill as Markdown. Also the resources renderweld://skills/<name>.',
     scope: 'read',
     input: { name: z.string().max(64).optional().describe('Skill name, e.g. "layout-and-type". Omit to list the skills.') },
     annotations: { readOnlyHint: true },
@@ -1141,7 +1141,7 @@ export const RESOURCES = [
   { name: 'project-schema', path: 'schema/project', title: 'Project manifest JSON Schema', description: 'JSON Schema of the current manifest version.', mimeType: 'application/json' },
   { name: 'templates', path: 'templates', title: 'Installed templates', description: 'Templates with engines, durations, theme tokens and props schemas.', mimeType: 'application/json' },
   { name: 'project', path: 'projects/{id}', title: 'Project manifest', description: 'The current manifest of a project.', mimeType: 'application/json' },
-  { name: 'skills', path: 'skills', title: 'Skills', description: 'Index of the skills: rules for the steps of making a video (brief, layout and type, sound, captions and accessibility, sync, brand, review), plus any the operator added.', mimeType: 'text/markdown' },
+  { name: 'skills', path: 'skills', title: 'Skills', description: 'Index of the skills: rules for every step of making a video (brief, timing, layout and type, motion, camera, physical plausibility, sound, voice, captions and accessibility, sync, brand, review), plus any the operator added.', mimeType: 'text/markdown' },
   { name: 'skill', path: 'skills/{name}', title: 'Skill', description: 'One skill as Markdown: when to use it, numbered rules, how to apply them with these tools, signs of generic output, a checklist and sources.', mimeType: 'text/markdown' },
 ] as const;
 export type ResourcePath = (typeof RESOURCES)[number]['path'];
@@ -1230,11 +1230,13 @@ done with tools; there is no UI.
 }
 
 ## Skills
-Rules for the steps, with numbers (safe areas, type sizes, loudness, caption
-limits, sync tolerances, review checks). get_skill without a name lists them,
-with any the operator added; read the one for the step you are on with
+Rules for every step, with numbers (timing in frames, safe areas, motion
+curves, camera moves, physics of moving things and people, loudness, voice,
+caption limits, sync tolerances, review checks). get_skill without a name lists
+them, with any the operator added; read the one for the step you are on with
 get_skill { name } (or the resource renderweld://skills/<name>). Built in:
-video-brief, layout-and-type, sound-and-mix, captions-and-accessibility,
+video-brief, script-timing, layout-and-type, motion-design, camera-language,
+physical-plausibility, sound-and-mix, voice-over, captions-and-accessibility,
 av-sync, brand-consistency, review-and-qa.
 
 ## Rules of thumb
@@ -1283,7 +1285,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
         'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
         'With captions, call get_captions and ask the user to approve them (update_captions approve: true) before render_project; never assume approval. ' +
         `Full guide with a minimal manifest: resource ${resourceUri('guide/workflow')} or prompt make_reel. ` +
-        `Rules for each step (brief, layout and safe areas, sound, captions, sync, brand, review): get_skill or resource ${resourceUri('skills')}. ` +
+        `Rules for each step (brief, timing, layout and safe areas, motion, camera, physical plausibility, sound, voice, captions, sync, brand, review): get_skill or resource ${resourceUri('skills')}. ` +
         'Renders need a valid licence: get_capabilities.licence / get_licence say whether renders are allowed and, if not, what the user must do. ' +
         'Tools are experimental until v1.0.',
     }

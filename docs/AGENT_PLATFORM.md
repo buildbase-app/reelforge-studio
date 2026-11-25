@@ -286,7 +286,7 @@ that was run; "partial" says what is missing.
 | §6 Assets: upload or URL, licence, checksum | done | Content-addressed store, byte sniffing, https only, SSRF guard at connect time, size limit |
 | §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->77<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 Resources and prompts `brief_intake`, `make_reel`, `plan_reel`, `review_reel` | done | MCP tests |
-| Skills for agents (#313): 7 built-in, `skills.dir` for more, `get_skill`, `/v1/skills`, resources, `renderweld skills export` | done | `apps/server/test/skills.test.ts` (SKL-01..11) |
+| Skills for agents (#313): 12 built-in craft skills, public (D-132), `skills.dir` for more, `get_skill`, `/v1/skills`, resources, `renderweld skills export` | done | `apps/server/test/skills.test.ts` (SKL-01..15) |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |
 | §8 API keys: random 32 bytes, hashed, scopes, CLI, admin API, bootstrap key | done | `REELFORGE_BOOTSTRAP_KEY` or `_FILE`; CLI `pnpm keys:create` / `reelforge keys create` in Docker (picked up without restart); admin tools create/list/revoke |

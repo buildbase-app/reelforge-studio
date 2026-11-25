@@ -13,7 +13,9 @@ description: Logo rules, colour tokens, type, motion and sound kept identical ac
    colours with approved text-on-background pairs, fonts licensed for video,
    motion style, sound logo, tone of voice and anything banned.
 2. Never stretch, rotate, recolour or add effects to a logo, and never
-   animate it unless the kit supplies an animated version.
+   animate it unless the kit supplies an animated version or motion rules.
+   A logo the kit lets move is a rigid object: it never squashes
+   (`physical-plausibility`).
 3. Respect the kit's clear space (often a letter height or half the logo's
    height) and minimum size.
 4. The logo keeps the same corner and size in every scene and every size,

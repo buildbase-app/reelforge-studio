@@ -25,9 +25,8 @@ The renderer checks the file; you check whether the video works.
 6. Creative checks: the subject is clear from the first frame; one message
    and one call to action; with text and sound off, the pictures still tell
    the story; a stranger could describe each key frame in one sentence.
-7. Watch every generated clip (footage from a media provider) at full size
-   for artefacts: warped hands and faces, text that changes from frame to
-   frame, objects that appear, vanish or pass through each other.
+7. Run the artefact sweep from `physical-plausibility` on every generated
+   clip.
 8. Every claim traces to the brief's sources; every asset has its licence;
    disclosure is applied where needed.
 9. Write findings ranked P0 (must fix), P1 (should fix), P2 (nice to have),

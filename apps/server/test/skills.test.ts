@@ -7,6 +7,7 @@ import { PluginRegistry } from '@renderweld/core';
 import { TOOLS, WORKFLOW_GUIDE, startServer, type StartedServer } from '../src/index';
 import { runCli } from '../src/cli';
 import { BUILT_IN_SKILLS, MAX_SKILL_BYTES, SKILL_ORDER, SkillError, mergeSkills, parseSkill, readSkillsDir, skillsFor } from '../src/skills/index';
+import { CAPTION_RULES, DUCKING_DEFAULTS, LOUDNESS_TARGETS, NO_UI_PLATFORMS, SAFE_AREA_SPEC, SHORT_SCENE_WARN_SECONDS } from '@renderweld/project-schema';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 import { testDatabase } from './serverProcess';
 
@@ -49,6 +50,114 @@ describe('built-in skills', () => {
       for (const [, name] of s.body.matchAll(/`([a-z]+(?:_[a-z]+)+)(?=[`\s])/g)) expect(tools.has(name!), `${s.name} names "${name}", which is not a tool or prompt`).toBe(true);
       for (const [, name] of s.body.matchAll(/see `([a-z]+(?:-[a-z]+)+)`/g)) expect(skills.has(name!), `${s.name} points to skill "${name}"`).toBe(true);
     }
+  });
+});
+
+describe('skills tell the same numbers the studio enforces, and their arithmetic is right', () => {
+  // Line breaks in the Markdown are layout, not content: compare the text with whitespace collapsed.
+  const body = (name: string) => BUILT_IN_SKILLS.find((s) => s.name === name)!.body.replace(/\s+/g, ' ');
+  const num = (v: number) => String(v);
+
+  it('SKL-12 caption limits, loudness targets, ducking defaults, safe areas and the short-scene warning match the code', () => {
+    const cap = body('captions-and-accessibility');
+    expect(cap).toContain(`at most ${CAPTION_RULES.maxLineChars} characters, 32 on tall (portrait) frames; at most two lines`);
+    expect(CAPTION_RULES.maxLines).toBe(2);
+    expect(cap).toContain(`at most ${CAPTION_RULES.maxCharsPerSecond} characters a second`);
+    expect(CAPTION_RULES.minSeconds).toBeCloseTo(5 / 6, 3);
+    expect(cap).toContain('at least 5/6 s (0.83 s: 25 frames at 30 fps)');
+    expect(Math.round(CAPTION_RULES.minSeconds * 30)).toBe(25);
+    expect(cap).toContain(`and at most ${CAPTION_RULES.maxSeconds} s, longer than 5/6 s when rule 3 needs it`);
+    expect(CAPTION_RULES.minGapFrames).toBe(2);
+    expect(cap).toContain('gap of at least two frames');
+    expect(cap).toContain(`(${CAPTION_RULES.maxLineChars} characters, 32 on portrait, two`);
+
+    const mix = body('sound-and-mix');
+    expect(mix).toContain(`\`social\` (${num(LOUDNESS_TARGETS.social.integrated)} LUFS; it limits peaks to ${num(LOUDNESS_TARGETS.social.truePeak)} dBTP so the file still meets rule 1's -1 dBTP`);
+    expect(LOUDNESS_TARGETS.social.truePeak).toBeLessThanOrEqual(-1);
+    expect(mix).toContain(`European broadcast ${num(LOUDNESS_TARGETS['broadcast-ebu'].integrated)} LUFS, ${num(LOUDNESS_TARGETS['broadcast-ebu'].truePeak)} dBTP`);
+    expect(mix).toContain(`US broadcast ${num(LOUDNESS_TARGETS['broadcast-atsc'].integrated)} LKFS`);
+    const d = DUCKING_DEFAULTS;
+    expect(mix).toContain(`(defaults ${d.depthDb} dB, ${d.attackMs} ms, ${d.releaseMs} ms, ${num(d.thresholdDb)} dB)`);
+    // Rule 3 asks for 12-20 dB and an attack of at most about 150 ms: the defaults must follow it.
+    expect(mix).toContain('12-20 dB lower; short attack (at most about 150 ms)');
+    expect(d.depthDb).toBeGreaterThanOrEqual(12);
+    expect(d.depthDb).toBeLessThanOrEqual(20);
+    expect(d.attackMs).toBeLessThanOrEqual(150);
+
+    const layout = body('layout-and-type');
+    const pct = (f: number) => `${Math.round(f * 1000) / 10} %`;
+    expect(layout).toContain(`is free text: ${NO_UI_PLATFORMS.map((p) => `\`${p}\``).slice(0, -1).join(', ')} or \`${NO_UI_PLATFORMS.at(-1)}\` turn the app-interface zone`);
+    expect(layout).toContain(`about ${pct(SAFE_AREA_SPEC.ui.top)} clear at the top, ${pct(SAFE_AREA_SPEC.ui.bottom)} at the bottom and ${pct(SAFE_AREA_SPEC.ui.sides)} at each side`);
+    expect(layout).toContain(`graphics-safe is ${pct(SAFE_AREA_SPEC.title)} from each edge and action-safe ${pct(SAFE_AREA_SPEC.action)}`);
+
+    expect(body('script-timing')).toContain(`scenes under ${SHORT_SCENE_WARN_SECONDS} s`);
+  });
+
+  it('SKL-13 the arithmetic in the skills is right: falls, beats, words, durations, shutter, steps, blinks', () => {
+    // Free fall: t = sqrt(2h / 9.81), frames at 30 fps.
+    const phys = body('physical-plausibility');
+    const falls = [...phys.matchAll(/from (\d+(?:\.\d+)?) m(?: that is about)? (\d+\.\d+) s\s*\((\d+) frames/gi)];
+    expect(falls).toHaveLength(3);
+    for (const [, h, s, f] of falls) {
+      const t = Math.sqrt((2 * Number(h)) / 9.81);
+      expect(Number(s), `fall from ${h} m`).toBeCloseTo(t, 2);
+      expect(Number(f), `frames for ${h} m`).toBe(Math.round(t * 30));
+    }
+    // Walking: a step every 12 frames at 24 fps is 120 steps a minute; blinks of 0.1-0.4 s are 3-12 frames at 30 fps.
+    expect(phys).toContain('100-120 steps a minute (a step about every 12 frames at 24 fps)');
+    expect((24 * 60) / 120).toBe(12);
+    expect(phys).toContain('0.1-0.4 s (3-12 frames at 30 fps)');
+    expect([0.1 * 30, 0.4 * 30]).toEqual([3, 12]);
+
+    // Beats: frames per beat = fps x 60 / BPM.
+    expect(body('sound-and-mix')).toContain('(120 BPM at 30 fps is 15 frames)');
+    expect((30 * 60) / 120).toBe(15);
+
+    // Words: 150 wpm is 2.5 words a second, 75 words in 30 s.
+    expect(body('script-timing')).toContain("At 150 wpm that is 2.5 words a second (a 30 s video holds about 75 words; at an explainer's 130 wpm, 65");
+    expect(150 / 60).toBe(2.5);
+    expect((30 * 130) / 60).toBe(65);
+
+    // Motion durations at 30 fps.
+    const motion = body('motion-design');
+    expect(motion).toContain('6-8 frames (200-270 ms)');
+    expect([Math.round((6 / 30) * 1000), Math.round((8 / 30) * 1000)]).toEqual([200, 267]);
+    expect(motion).toContain('9-18 frames (0.3-0.6 s)');
+    expect(motion).toContain('21 frames (0.7 s)');
+    expect(21 / 30).toBeCloseTo(0.7, 5);
+
+    // The 180-degree shutter: exposure 1 / (2 x fps).
+    expect(body('camera-language')).toContain('exposure is 1 ÷ (2 × fps), so 1/48 s at 24 fps and 1/60 s at 30 fps');
+  });
+
+  it('SKL-14 every skill says when to use it, has at least five numbered rules and a checklist an agent can tick', () => {
+    for (const s of BUILT_IN_SKILLS) {
+      expect(s.description, s.name).toMatch(/\bUse (when|whenever|for|before)\b/);
+      expect(s.body, s.name).toMatch(/\*\*Use when:\*\*/);
+      const rules = s.body.split('## Rules')[1]!.split('\n## ')[0]!;
+      expect((rules.match(/^\d+\. /gm) ?? []).length, s.name).toBeGreaterThanOrEqual(5);
+      expect((s.body.match(/^- \[ \] /gm) ?? []).length, s.name).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('SKL-15 a skill named in another exists, and every "`skill` rule N" points at a rule that skill has', () => {
+    const ruleCount = (name: string) => (BUILT_IN_SKILLS.find((s) => s.name === name)!.body.split('## Rules')[1]!.split('\n## ')[0]!.match(/^\d+\. /gm) ?? []).length;
+    const names = new Set<string>(SKILL_ORDER);
+    let refs = 0;
+    for (const s of BUILT_IN_SKILLS) {
+      const text = s.body.replace(/\s+/g, ' ');
+      for (const m of text.matchAll(/`([a-z]+(?:-[a-z]+)+)`/g)) {
+        // Backticked hyphenated words are skill names unless they are settings or values the studio takes.
+        if (/^(broadcast-|html-|motion-|kinetic-|hyper|title-safe|action-safe|rf-)/.test(m[1]!)) continue;
+        expect(names.has(m[1]!), `${s.name} names ${m[1]}`).toBe(true);
+      }
+      for (const m of text.matchAll(/`([a-z-]+)` rules? (\d+)/g)) {
+        refs++;
+        expect(names.has(m[1]!), `${s.name} cites ${m[1]}`).toBe(true);
+        expect(Number(m[2]), `${s.name} cites ${m[1]} rule ${m[2]}`).toBeLessThanOrEqual(ruleCount(m[1]!));
+      }
+    }
+    expect(refs).toBeGreaterThan(0);
   });
 });
 
@@ -148,14 +257,14 @@ describe('over REST and MCP', () => {
     expect(await one.text()).toContain('# Captions and accessibility\n');
     const missing = await fetch(`${plain.url}/v1/skills/nope`, { headers: auth });
     expect(missing.status).toBe(404);
-    expect((await missing.json()).error).toMatchObject({ code: 'not_found', message: expect.stringContaining('skills: video-brief, layout-and-type') });
+    expect((await missing.json()).error).toMatchObject({ code: 'not_found', message: expect.stringContaining('skills: video-brief, script-timing, layout-and-type') });
   });
 
   it('SKL-08 get_skill and the renderweld://skills resources serve the same set; the guide points to them', async () => {
     const client = await connect(plain, readKey);
     const listed = json(await client.callTool({ name: 'get_skill', arguments: {} }));
     expect(listed.skills.map((s: any) => s.name)).toEqual([...SKILL_ORDER]);
-    expect(listed.skills[1]).toMatchObject({ name: 'layout-and-type', uri: 'renderweld://skills/layout-and-type' });
+    expect(listed.skills[1]).toMatchObject({ name: SKILL_ORDER[1], uri: `renderweld://skills/${SKILL_ORDER[1]}` });
     const one = json(await client.callTool({ name: 'get_skill', arguments: { name: 'sound-and-mix' } }));
     expect(one).toMatchObject({ name: 'sound-and-mix', title: 'Sound and mix', source: 'built-in' });
     expect(one.markdown).toBe(readFileSync(new URL('../src/skills/sound-and-mix.md', import.meta.url), 'utf8').replace(/^---\n[\s\S]*?\n---\n/, ''));
@@ -211,13 +320,13 @@ describe('renderweld skills export', () => {
     console.error = (l: string) => logs.push(String(l));
     try {
       await runCli(['skills', 'export', out]);
-      expect(logs.at(-1)).toContain('exported 7 skills');
+      expect(logs.at(-1)).toContain(`exported ${SKILL_ORDER.length} skills`);
       const file = join(out, 'renderweld-av-sync', 'SKILL.md');
       const text = readFileSync(file, 'utf8');
       expect(text).toMatch(/^---\nname: renderweld-av-sync\ndescription: "Tolerances for sound/);
       expect(parseSkill(text, 'SKILL.md').name).toBe('renderweld-av-sync');
       await runCli(['skills', 'export', out]);
-      expect(logs.at(-1)).toContain('(0 new, 0 updated, 7 unchanged)');
+      expect(logs.at(-1)).toContain(`(0 new, 0 updated, ${SKILL_ORDER.length} unchanged)`);
       writeFileSync(file, `${text}local edit\n`);
       process.exitCode = 0;
       await runCli(['skills', 'export', out]);

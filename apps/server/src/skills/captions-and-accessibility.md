@@ -13,10 +13,11 @@ patterns.
    file (WebVTT or SRT) where the platform takes one; burn them in as well for
    social video that autoplays without sound. Long-form video is never
    burned-in only.
-2. Line length at most 42 characters (stricter guides use 32); about 25 on
-   tall frames. At most two lines on landscape and square frames.
+2. Line length at most 42 characters, 32 on tall (portrait) frames; at most
+   two lines.
 3. Reading speed at most 20 characters a second for adults, 17 for children.
-4. Each caption stays at least 5/6 s and at most 7 s, with a gap of at least
+4. Each caption stays at least 5/6 s (0.83 s: 25 frames at 30 fps) and at
+   most 7 s, longer than 5/6 s when rule 3 needs it, with a gap of at least
    two frames between captions; snap starts and ends to nearby cuts.
 5. Sync: a caption appears with its speech, not before it by more than a
    moment, and never trails it by more than about 1.5 s.

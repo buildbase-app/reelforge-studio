@@ -9,10 +9,11 @@ import { fileURLToPath } from 'node:url';
  * Served by the get_skill tool, GET /v1/skills and the renderweld://skills resources, generated into the public
  * docs, and exported as SKILL.md folders by `renderweld skills export`.
  *
- * Mechanisms, not content (D-128): the built-ins hold published standards and how to apply them with this
- * server's tools (safe areas, loudness, caption limits, sync tolerances, brand tokens, review checks). Curated
- * craft (pacing, motion and camera style, physical-plausibility kits, voice direction, where sound effects go)
- * is pack material, loaded through `skills.dir`.
+ * They cover craft and standards, not content: timing in frames, motion curves, camera grammar, physical
+ * plausibility of moving things and people, loudness, voice, captions, sync, brand and review, each rule with its
+ * number and its source (founder decision 2026-11-25: public, so an agent with no video knowledge is guided). What a
+ * video says, its structure and its music stay with the user (D-128). The tests tie every number the studio also
+ * enforces to the constant it enforces it with.
  */
 export interface Skill {
   name: string;
@@ -27,7 +28,20 @@ export interface Skill {
 const DIR = dirname(fileURLToPath(import.meta.url));
 
 /** The built-ins in the order agents meet them: brief first, review last. */
-export const SKILL_ORDER = ['video-brief', 'layout-and-type', 'sound-and-mix', 'captions-and-accessibility', 'av-sync', 'brand-consistency', 'review-and-qa'] as const;
+export const SKILL_ORDER = [
+  'video-brief',
+  'script-timing',
+  'layout-and-type',
+  'motion-design',
+  'camera-language',
+  'physical-plausibility',
+  'sound-and-mix',
+  'voice-over',
+  'captions-and-accessibility',
+  'av-sync',
+  'brand-consistency',
+  'review-and-qa',
+] as const;
 
 /** Agent Skills naming: lowercase letters, digits and single hyphens, at most 64 characters. */
 export const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

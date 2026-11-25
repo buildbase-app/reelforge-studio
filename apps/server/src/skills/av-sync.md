@@ -11,8 +11,9 @@ a render.
 ## Rules
 1. Tolerances: sound ahead of the picture is noticed at about 45 ms and
    unacceptable at about 90 ms; sound behind is noticed at about 125 ms and
-   unacceptable at about 185 ms (ITU-R BT.1359). Aim for zero: audio never
-   more than one frame early or three frames late.
+   unacceptable at about 185 ms (ITU-R BT.1359). Those are what viewers notice,
+   not targets: aim for zero and deliver within one frame, never with the
+   sound early.
 2. Keep the timeline in frames, at a constant frame rate, with 48 kHz audio.
    Convert seconds to frames once, from absolute times.
 3. A visual that a word names appears at the start of that word, or up to
@@ -20,9 +21,15 @@ a render.
    picture leading the sound far better than the reverse.
 4. A bullet point appears at the start of its phrase and stays through the
    sentence.
-5. Beat frames: round(index × fps × 60 ÷ BPM + offset). Cut on the beat
-   frame or one frame before it.
-6. After rendering, measure: voice onsets against caption cues and visual
+5. An impact sound lands on the contact frame (±1); a whoosh peaks at the
+   fastest frame of the move.
+6. Beat frames: round(index × fps × 60 ÷ BPM + offset), where offset is the
+   frame of the first downbeat (from the track's cue sheet, or found by ear
+   and checked against the render; RenderWeld does not detect beats). Cut on the
+   beat frame or one frame before it.
+7. Characters: mouth shapes lead their sound by one or two frames; closures
+   on M, B and P land exactly.
+8. After rendering, measure: voice onsets against caption cues and visual
    events, and report the offset in milliseconds.
 
 ## In RenderWeld
@@ -36,7 +43,8 @@ a render.
 
 ## Signs of a generic, machine-made video
 - Narration describing a feature while the previous picture is still up.
-- Cuts half a beat late; sound effects trailing the picture.
+- Cuts half a beat late; sound effects trailing the hit.
+- Mouths moving without closing on M, B and P.
 
 ## Before you render
 - [ ] Word timestamps used for every narration-driven visual.
