@@ -21,7 +21,7 @@ export interface CleanupReport {
   startedAt: string;
   durationMs: number;
   /** Renders deleted (or, in a dry run, that would be). `workspaceId` outside the default workspace (#304). */
-  renders: Array<{ workspaceId?: string; projectId: string; renderId: string; createdAt: string; objects: number; bytes: number; reason: 'older_than_renderDays' | 'beyond_keepLastRendersPerProject' }>;
+  renders: Array<{ workspaceId?: string; projectId: string; renderId: string; createdAt: string; objects: number; bytes: number; reason: 'older_than_renderDays' | 'older_than_workspace_retention' | 'beyond_keepLastRendersPerProject' }>;
   /** Unfinished uploads (`.tmp-<runId>/`) and incomplete render directories older than tempHours. */
   temp: Array<{ workspaceId?: string; projectId: string; runId: string; createdAt: string; objects: number; bytes: number }>;
   /** Local staging directories of renders for remote storage, older than tempHours. */
@@ -39,6 +39,8 @@ export interface StorageManagerOptions {
   cacheDir: string;
   /** Run ids of renders that are queued or running (never cleaned up). */
   activeRunIds: () => Promise<Set<string>>;
+  /** A workspace's own, stricter retention (#487); the instance policy is the ceiling. */
+  workspaceRetention?: (workspaceId: string) => Promise<{ maxAgeHours?: number; keepLast?: number } | undefined>;
   /**
    * Workspaces whose files the sweep, cleanup and usage cover (#304); unset: only the caller's. Each one's files
    * are under its own key prefix (workspaceKeyPrefix), which `driver` applies for the workspace of the call.
@@ -291,7 +293,8 @@ export class StorageManager {
     await this.eachWorkspace(async (ws) => {
       const own = await this.opts.activeRunIds();
       for (const id of own) active.add(id);
-      await this.cleanupRenders(report, dryRun, policy, own, await this.renders.listAllRuns(), startedMs, tempBefore, ws === DEFAULT_WORKSPACE_ID ? {} : { workspaceId: ws });
+      const wsPolicy = workspacePolicy(policy, await this.opts.workspaceRetention?.(ws));
+      await this.cleanupRenders(report, dryRun, wsPolicy, own, await this.renders.listAllRuns(), startedMs, tempBefore, ws === DEFAULT_WORKSPACE_ID ? {} : { workspaceId: ws });
     });
     return this.finishCleanup(report, dryRun, policy, active, startedMs, tempBefore);
   }
@@ -299,7 +302,7 @@ export class StorageManager {
   private async cleanupRenders(
     report: CleanupReport,
     dryRun: boolean,
-    policy: RetentionPolicy,
+    policy: RetentionPolicy & { maxAgeHours?: number },
     active: Set<string>,
     runs: StoredRun[],
     startedMs: number,
@@ -321,14 +324,15 @@ export class StorageManager {
     const byProject = new Map<string, StoredRun[]>();
     for (const r of runs.filter((x) => x.complete)) byProject.set(r.projectId, [...(byProject.get(r.projectId) ?? []), r]);
     const { renderDays, keepLastRendersPerProject: keep } = policy;
-    if (renderDays > 0 || keep > 0) {
+    const maxAgeMs = policy.maxAgeHours ? policy.maxAgeHours * 3600 * 1000 : renderDays * DAY;
+    if (maxAgeMs > 0 || keep > 0) {
       for (const list of byProject.values()) {
         list.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.runId < b.runId ? 1 : -1));
         for (const [i, run] of list.entries()) {
           if (keep > 0 && i < keep) continue;
           if (active.has(run.runId)) continue;
           const age = startedMs - Date.parse(run.createdAt);
-          const reason = renderDays > 0 ? (age > renderDays * DAY ? 'older_than_renderDays' : null) : 'beyond_keepLastRendersPerProject';
+          const reason = maxAgeMs > 0 ? (age > maxAgeMs ? (policy.maxAgeHours ? 'older_than_workspace_retention' : 'older_than_renderDays') : null) : 'beyond_keepLastRendersPerProject';
           if (!reason) continue;
           if (await remove(run)) {
             report.renders.push({ ...tag, projectId: run.projectId, renderId: run.runId, createdAt: run.createdAt, objects: run.objects, bytes: run.bytes, reason });
@@ -411,4 +415,17 @@ export class StorageManager {
       return null;
     }
   }
+}
+
+/**
+ * The policy the sweep applies in one workspace (#487): the instance's, made stricter by the workspace's own
+ * retention. A maximum age keeps the shorter of the two (hours), a keep-last the smaller; the instance's policy is
+ * the ceiling, so a workspace can keep less than the instance, never more.
+ */
+export function workspacePolicy(policy: RetentionPolicy, own: { maxAgeHours?: number; keepLast?: number } | undefined): RetentionPolicy & { maxAgeHours?: number } {
+  if (!own) return policy;
+  const instanceHours = policy.renderDays > 0 ? policy.renderDays * 24 : Infinity;
+  const hours = own.maxAgeHours && own.maxAgeHours > 0 ? Math.min(own.maxAgeHours, instanceHours) : undefined;
+  const keep = own.keepLast && own.keepLast > 0 ? (policy.keepLastRendersPerProject > 0 ? Math.min(own.keepLast, policy.keepLastRendersPerProject) : own.keepLast) : policy.keepLastRendersPerProject;
+  return { ...policy, keepLastRendersPerProject: keep, ...(hours !== undefined && hours !== instanceHours ? { maxAgeHours: hours } : {}) };
 }

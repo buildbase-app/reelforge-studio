@@ -713,6 +713,14 @@ export interface WorkspaceLimits {
   rateLimitPerMinute?: number;
   /** Bytes of assets and renders the workspace may store; uploads and renders are refused above it. */
   storageBytes?: number;
+  /**
+   * Retention stricter than the instance's `storage.retention` (#487), for a tenant under its own data policy:
+   * renders and previews older than this many hours are deleted by the sweep. The instance's `renderDays` stays
+   * the ceiling: a workspace can keep less, never more.
+   */
+  retentionMaxAgeHours?: number;
+  /** The newest N renders of each project the sweep always keeps, as `keepLastRendersPerProject`, never more than the instance's. */
+  retentionKeepLast?: number;
 }
 
 export interface WorkspaceRecord {

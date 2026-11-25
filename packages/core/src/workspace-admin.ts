@@ -14,8 +14,15 @@ interface Actor {
   actorId?: string;
 }
 
-const LIMIT_KEYS = ['rendersPerDay', 'rendersPerMonth', 'rateLimitPerMinute', 'storageBytes'] as const;
-const LIMIT_MAX: Record<(typeof LIMIT_KEYS)[number], number> = { rendersPerDay: 1_000_000, rendersPerMonth: 10_000_000, rateLimitPerMinute: 1_000_000, storageBytes: 1e15 };
+const LIMIT_KEYS = ['rendersPerDay', 'rendersPerMonth', 'rateLimitPerMinute', 'storageBytes', 'retentionMaxAgeHours', 'retentionKeepLast'] as const;
+const LIMIT_MAX: Record<(typeof LIMIT_KEYS)[number], number> = {
+  rendersPerDay: 1_000_000,
+  rendersPerMonth: 10_000_000,
+  rateLimitPerMinute: 1_000_000,
+  storageBytes: 1e15,
+  retentionMaxAgeHours: 87_600,
+  retentionKeepLast: 10_000,
+};
 /** Job types that count against render limits (the same as the per-key render quotas). */
 export const WORKSPACE_RENDER_TYPES = ['render', 'preview'];
 const USAGE_TTL_MS = 60_000;
@@ -72,7 +79,8 @@ export class WorkspaceAdmin {
     const def = this.d.settings.current.config.workspaces;
     const out: WorkspaceLimits = {};
     for (const k of LIMIT_KEYS) {
-      const v = w?.limits?.[k] ?? def[k];
+      // Retention has no workspaces.* default: the instance's storage.retention applies (#487).
+      const v = w?.limits?.[k] ?? (def as Partial<Record<(typeof LIMIT_KEYS)[number], number>>)[k];
       if (v && v > 0) out[k] = v;
     }
     return out;

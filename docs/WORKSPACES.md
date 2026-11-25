@@ -68,6 +68,18 @@ change the instance-wide default with `update_config` or the environment, or set
 | Renders and previews per UTC day / month, across all the workspace's keys | `workspaces.rendersPerDay`, `workspaces.rendersPerMonth` | `429 workspace_quota_exceeded` with `Retry-After` |
 | Requests per minute, across all the workspace's keys | `workspaces.rateLimitPerMinute` | `429 rate_limited`, `details.scope: "workspace"` |
 | Bytes of assets and renders stored | `workspaces.storageBytes` | `507 storage_limit_exceeded` on upload and render start |
+| Retention: renders and previews older than N hours are deleted, the newest N of each project kept (`retentionMaxAgeHours`, `retentionKeepLast`) | none: the instance's `storage.retention.*` | deleted by the storage sweep (reason `older_than_workspace_retention`) |
+
+Retention per workspace (#487) is for a tenant under a stricter data policy (a health or legal client that may keep
+nothing past a day) without forcing it on every tenant. It can only be stricter than the instance's
+`storage.retention`: the shorter maximum age and the smaller keep-last win, so a workspace never keeps more than the
+instance allows. The sweep runs every `storage.retention.sweepIntervalMinutes` (60), so a render may outlive its
+limit by up to that; `run_storage_cleanup { dryRun: true }` lists what the next run deletes and why.
+
+```bash
+curl -X PATCH "$URL/v1/workspaces/acme" -H "Authorization: Bearer $OWNER_KEY" -H 'content-type: application/json' \
+  -d '{"limits": {"retentionMaxAgeHours": 24}}'
+```
 
 Per-key limits (`rateLimitPerMinute`, `rendersPerDay`, ...) still apply on top.
 

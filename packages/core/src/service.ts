@@ -429,7 +429,15 @@ export class ReelforgeService {
       dataDir: this.dataDir,
       cacheDir: this.cacheDir,
       activeRunIds: () => this.activeRunIds(),
-      ...(isWorkspaceRouter(config.repositories) ? { workspaces: () => (config.repositories as WorkspaceRouter).workspaceIds() } : {}),
+      ...(isWorkspaceRouter(config.repositories)
+        ? {
+            workspaces: () => (config.repositories as WorkspaceRouter).workspaceIds(),
+            workspaceRetention: async (ws: string) => {
+              const l = (await (config.repositories as WorkspaceRouter).workspace(ws))?.limits;
+              return l && (l.retentionMaxAgeHours || l.retentionKeepLast) ? { maxAgeHours: l.retentionMaxAgeHours, keepLast: l.retentionKeepLast } : undefined;
+            },
+          }
+        : {}),
       onSweep: (r) => this.auditCleanup(r, { actorType: 'system' }).then(() => undefined),
       log: config.log,
     });
