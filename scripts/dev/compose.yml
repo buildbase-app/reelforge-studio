@@ -1,0 +1,49 @@
+# Local services for development only (docs/DEVELOPMENT.md): PostgreSQL, MySQL and MinIO,
+# bound to 127.0.0.1. `pnpm dev:setup --postgres | --mysql | --minio` starts the one you ask for:
+#
+#   docker compose -p renderweld-dev -f scripts/dev/compose.yml --env-file .env.local up -d postgres
+#
+# Passwords come from .env.local (written by `pnpm dev:setup`). Data lives in named volumes;
+# `docker compose -p renderweld-dev -f scripts/dev/compose.yml down -v` deletes it.
+# POSTGRES_IMAGE / MYSQL_IMAGE / MINIO_IMAGE pick another image or a mirror
+# (e.g. mirror.gcr.io/library/postgres:17). MinIO no longer publishes new images: if the pull
+# fails, build one with `MINIO_IMAGE=$(e2e/minio/build-image.sh)`.
+name: renderweld-dev
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17}
+    environment:
+      POSTGRES_USER: renderweld
+      POSTGRES_PASSWORD: ${RENDERWELD_DEV_POSTGRES_PASSWORD:-}
+      POSTGRES_DB: renderweld
+    ports: ["127.0.0.1:${RENDERWELD_DEV_POSTGRES_PORT:-5432}:5432"]
+    volumes: [postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U renderweld -d renderweld"]
+      interval: 2s
+      retries: 30
+  mysql:
+    image: ${MYSQL_IMAGE:-mysql:8.4}
+    environment:
+      MYSQL_USER: renderweld
+      MYSQL_PASSWORD: ${RENDERWELD_DEV_MYSQL_PASSWORD:-}
+      MYSQL_ROOT_PASSWORD: ${RENDERWELD_DEV_MYSQL_ROOT_PASSWORD:-}
+      MYSQL_DATABASE: renderweld
+    ports: ["127.0.0.1:${RENDERWELD_DEV_MYSQL_PORT:-3306}:3306"]
+    volumes: [mysql:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 2s
+      retries: 60
+  minio:
+    image: ${MINIO_IMAGE:-minio/minio:latest}
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: renderweld
+      MINIO_ROOT_PASSWORD: ${RENDERWELD_DEV_MINIO_PASSWORD:-}
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    volumes: [minio:/data]
+volumes:
+  postgres:
+  mysql:
+  minio:
