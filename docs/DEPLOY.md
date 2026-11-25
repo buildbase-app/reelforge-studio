@@ -175,6 +175,7 @@ or sees passwords. Set:
 REELFORGE_MCP_OAUTH_ISSUER=https://auth.example.com/realms/studio   # exactly the tokens' `iss`
 REELFORGE_MCP_OAUTH_AUDIENCE=https://studio.example.com/mcp         # default: REELFORGE_PUBLIC_URL + /mcp
 # REELFORGE_MCP_OAUTH_JWKS_URL=...   # default: jwks_uri from the issuer's metadata
+# REELFORGE_MCP_OAUTH_WORKSPACE_CLAIM=renderweld_workspace   # several workspaces: the claim that names a token's workspace
 ```
 
 `/.well-known/oauth-protected-resource` (and `.../mcp`) then names the issuer
@@ -190,8 +191,21 @@ parameter MCP clients send), `exp` in the future (60 s leeway). Scopes come from
 insufficient_scope`. `reelforge:admin` administers the default workspace;
 `reelforge:owner` is the instance owner (configuration, licence, providers,
 storage, workspaces), so grant it in your authorization server only to the
-people who run the install. The
-rate limit and the audit trail count per subject (`oauth:<sub>`). API keys keep
+people who run the install.
+
+With several workspaces (#304), set `REELFORGE_MCP_OAUTH_WORKSPACE_CLAIM` to
+the name of a claim your authorization server adds to each token. Use a string
+holding the workspace id: per client, per organisation or per group. Every token
+must then carry it (#479):
+
+- No claim, or a workspace that doesn't exist or was deleted: `401
+  invalid_token`, with the reason.
+- A suspended workspace: `403 workspace_suspended`, as for its keys.
+- Otherwise, everything the token reads and writes stays in that workspace,
+  exactly like an API key made there.
+
+Without the setting, tokens act in the default workspace. The rate limit and the
+audit trail count per subject (`oauth:<sub>`). API keys keep
 working on `/mcp` and are the only credential for REST. Opaque (non-JWT) tokens
 and token introspection are not supported yet. Outbound: the issuer's metadata
 and JWKS URLs (docs/PRIVACY.md).

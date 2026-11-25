@@ -196,11 +196,19 @@ export function createApp(deps: AppDeps) {
    * Check the client address budget, then the bearer key (expiry, revocation, IP allowlist) or, on /mcp with
    * OAuth on, the access token; then the per-key (or per OAuth subject) rate limit and the workspace's budget.
    *
-   * TODO(#304): OAuth access tokens (D-112) act in the default workspace, like keys made before workspaces. To give
-   * them other workspaces, map a token claim to the workspace in OAuthVerifier (e.g. "reelforge:workspace",
-   * configurable), refuse a token whose workspace does not exist or is not active (as KeyStore.authenticate does
-   * through workspaceStatus), and set AuthContext.workspaceId from it; every repository call is then scoped by it.
+   * OAuth access tokens (D-112) act in the default workspace, unless security.oauth.workspaceClaim names the claim
+   * that carries their workspace (#479): then the token must name an existing workspace, a suspended one is refused
+   * as for its keys, and AuthContext.workspaceId scopes every call the token makes.
    */
+  const workspaceClaim = config.resolved.config.security.oauth.workspaceClaim;
+  const tokenWorkspace = async (claims: Record<string, unknown>): Promise<{ workspaceId: string } | { status: 401 | 403; code: string; message: string }> => {
+    const raw = claims[workspaceClaim!];
+    if (typeof raw !== 'string' || !raw || raw.length > 64) return { status: 401, code: 'invalid_token', message: `the token has no "${workspaceClaim}" claim naming its workspace` };
+    const status = await service.workspaceStatus(raw);
+    if (status === null || status === 'deleted') return { status: 401, code: 'invalid_token', message: `the token names workspace "${raw}", which does not exist` };
+    if (status === 'suspended') return { status: 403, code: 'workspace_suspended', message: `the workspace of this token (${raw}) is suspended; ask the instance owner` };
+    return { workspaceId: raw };
+  };
   const authorize = async (c: Context, opts: { oauth?: boolean } = {}): Promise<{ auth: AuthContext } | { response: Response }> => {
     const ctx = currentRequest();
     // Before any database work: a flood or a key-guessing run from one address stops here (#305).
@@ -217,6 +225,14 @@ export function createApp(deps: AppDeps) {
         }
         challenge(c, true, { error: v.error, description: v.description, ...(v.error === 'insufficient_scope' ? { scope: 'reelforge:read' } : {}) });
         return { response: c.json(errorBody(v.error, `access token refused: ${v.description}`), v.error === 'insufficient_scope' ? 403 : 401) };
+      }
+      if (workspaceClaim) {
+        const ws = await tokenWorkspace(v.claims);
+        if (!('workspaceId' in ws)) {
+          if (ws.status === 401) challenge(c, true, { error: 'invalid_token', description: ws.message });
+          return { response: c.json(errorBody(ws.code, `access token refused: ${ws.message}`), ws.status) };
+        }
+        return limit(c, { ...v.auth, workspaceId: ws.workspaceId });
       }
       return limit(c, v.auth);
     }

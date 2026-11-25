@@ -815,6 +815,14 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_MCP_OAUTH_JWKS_URL',
         description: 'The issuer\'s JWKS. Default: `jwks_uri` from its metadata (`/.well-known/oauth-authorization-server`, then OpenID discovery).',
       }),
+      workspaceClaim: setting(z.string().regex(/^[A-Za-z0-9_:./-]{1,100}$/, 'a claim name such as renderweld_workspace').optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_MCP_OAUTH_WORKSPACE_CLAIM',
+        example: 'renderweld_workspace',
+        description:
+          'The access-token claim that names the workspace a token acts in (#479), e.g. a custom claim your authorization server adds per client or organisation. Set: every token must carry it as a string naming an existing workspace (`401 invalid_token` otherwise; a suspended workspace gives `403 workspace_suspended`, as for its keys), and everything the token reads or writes stays in that workspace. Unset: tokens act in the default workspace.',
+      }),
     }),
   }),
   audit: z.object({

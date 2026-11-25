@@ -124,8 +124,9 @@ encryption key or network boundary needs one install per customer; each install 
   `runAsSystem`, as the job runner does.
 - A new REST route or MCP tool is probed by the denial suite automatically. If it takes a new path parameter or a
   new required argument, give the suite a probe value (`A_IDS`, `resourceArgs`, `filler`).
-- **MCP OAuth (#343, D-112):** access tokens act in `default`. `reelforge:admin` is a workspace admin (test
-  OAUTH-09); `reelforge:owner` makes the token an instance owner, like an owner key, and only your authorization
-  server decides who gets it (OAUTH-10). A token claim (e.g. `reelforge:workspace`) that sets the workspace the same way
-  as a key is not built yet; see the TODO at `authorize()` in `apps/server/src/app.ts` and the `it.todo` in
-  `test/workspace-admin.test.ts`.
+- **MCP OAuth (#343, D-112):** access tokens act in `default` unless `security.oauth.workspaceClaim`
+  (`REELFORGE_MCP_OAUTH_WORKSPACE_CLAIM`) names the token claim that carries their workspace (#479). Then a
+  token acts only in the workspace it names, exactly like a key made there. A token without the claim, or naming a
+  workspace that does not exist or was deleted, gets `401 invalid_token`; a suspended workspace gives `403
+  workspace_suspended` (test OAUTH-11). `reelforge:admin` is a workspace admin (OAUTH-09); `reelforge:owner` makes
+  the token an instance owner, like an owner key, and only your authorization server decides who gets it (OAUTH-10).
