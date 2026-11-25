@@ -3096,3 +3096,20 @@ not found for any free set, and a licensing mistake in a sold image is expensive
 raising the default budget; bundling starter music (no verified redistribution rights); Twemoji
 (CC-BY 4.0, attribution on every use) and OpenMoji (CC-BY-SA, share-alike risk) for icons or emoji;
 Pixabay audio (no standalone redistribution); Piper's `en_US-lessac` voice (research-only licence).
+
+### D-137 --- Project glossary: the user's spellings and pronunciations, applied by exact match only
+
+**Status:** DECIDED (agent, 2026-11-25, #486; reversible). Number assigned at merge.\
+**Decision:** a project's manifest takes an optional `glossary` (up to 200 terms, each once, letter case ignored):
+`term` (the exact spelling), `spoken` (what the voice should say), `alternatives` (spellings speech-to-text tends to
+produce) and `doNotTranslate`. Speech-to-text gets the terms as its prompt (faster-whisper `initial_prompt`, passed as
+one `--initial-prompt=` argument so a term can never become an option) and its words are respelled where they match a
+term or an alternative as whole words; `transcribe_captions` reports each replacement. A voice made for a project reads
+each term's `spoken` form, while the stored text keeps the term and the returned word timings are turned back into it.
+Caption QA compares how often the script and the cues spell each term exactly and fails on a difference
+(`qa.glossary`). *Why:* brand and product names are the most visible caption errors, and only the user knows how their
+names are spelled and said. Exact matching keeps the studio from rewriting a real word. *Rejected:* fuzzy or phonetic
+matching (it rewrites ordinary words that sound alike); provider pronunciation dictionaries such as SSML phonemes or
+ElevenLabs dictionaries (each provider has its own format and not every one has any; plain spoken text works with
+all of them); translating with `doNotTranslate` (the studio translates nothing, so the flag is stored for the agent
+or translation tool).
