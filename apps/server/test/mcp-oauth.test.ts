@@ -267,6 +267,24 @@ describe('MCP OAuth 2.1 resource server', () => {
     expect((await w.mcp(w.key)).status).toBe(200);
   });
 
+  it('OAUTH-12 security.oauth.blockedSubjects (#479): a blocked subject is refused at once, others are not, and unblocking restores it', async () => {
+    const w = await setup({ REELFORGE_MCP_OAUTH_ISSUER: ISSUER }, issuer);
+    const lost = issuer.token({ sub: 'lost-laptop', scope: 'reelforge:read' });
+    const other = issuer.token({ sub: 'still-fine', scope: 'reelforge:read' });
+    expect((await w.mcp(lost)).status).toBe(200);
+    await w.service.updateConfig({ 'security.oauth.blockedSubjects': ['lost-laptop'] });
+    const refused = await w.mcp(lost);
+    expect(refused.status).toBe(401);
+    expect(refused.headers.get('www-authenticate')).toContain('invalid_token');
+    expect(((await refused.json()) as { error: { code: string; message: string } }).error).toMatchObject({ code: 'invalid_token', message: expect.stringContaining('subject is blocked') });
+    expect((await w.mcp(other)).status).toBe(200);
+    expect((await w.mcp(w.key)).status).toBe(200); // API keys are not subjects
+    await w.service.updateConfig({ 'security.oauth.blockedSubjects': null });
+    expect((await w.mcp(lost)).status).toBe(200);
+    // A subject with a space or a comma cannot be listed (the environment form is comma-separated).
+    await expect(w.service.updateConfig({ 'security.oauth.blockedSubjects': ['a b'] })).rejects.toThrow();
+  });
+
   it('OAUTH-06 scopes come from `scope` or `scp`; only renderweld:* and the old reelforge:* values count', () => {
     expect(scopesFromClaims({ scope: 'openid reelforge:read reelforge:admin' })).toEqual(['read', 'admin']);
     expect(scopesFromClaims({ scp: ['reelforge:write', 'read'] })).toEqual(['write']);

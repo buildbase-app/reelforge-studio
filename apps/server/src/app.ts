@@ -226,6 +226,12 @@ export function createApp(deps: AppDeps) {
         challenge(c, true, { error: v.error, description: v.description, ...(v.error === 'insufficient_scope' ? { scope: 'reelforge:read' } : {}) });
         return { response: c.json(errorBody(v.error, `access token refused: ${v.description}`), v.error === 'insufficient_scope' ? 403 : 401) };
       }
+      // A blocked subject (#479) is refused before its token expires; the list is a runtime setting, read live.
+      if (service.settings.current.config.security.oauth.blockedSubjects.includes(v.subject)) {
+        const message = 'this token\'s subject is blocked on this server (security.oauth.blockedSubjects)';
+        challenge(c, true, { error: 'invalid_token', description: message });
+        return { response: c.json(errorBody('invalid_token', `access token refused: ${message}`), 401) };
+      }
       if (workspaceClaim) {
         const ws = await tokenWorkspace(v.claims);
         if (!('workspaceId' in ws)) {

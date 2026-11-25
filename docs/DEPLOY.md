@@ -205,7 +205,13 @@ must then carry it (#479):
   exactly like an API key made there.
 
 Without the setting, tokens act in the default workspace. The rate limit and the
-audit trail count per subject (`oauth:<sub>`). API keys keep
+audit trail count per subject (`oauth:<sub>`).
+
+To cut off one person or device before its tokens expire (a lost laptop, someone
+who left), add its subject to `security.oauth.blockedSubjects` with
+`update_config` (owner). The change is audited and applies on the next request:
+the subject's tokens get `401 invalid_token`. Also stop your authorization server
+from issuing it new tokens. API keys keep
 working on `/mcp` and are the only credential for REST. Opaque (non-JWT) tokens
 and token introspection are not supported yet. Outbound: the issuer's metadata
 and JWKS URLs (docs/PRIVACY.md).
