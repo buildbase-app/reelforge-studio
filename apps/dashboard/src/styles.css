@@ -1428,6 +1428,17 @@ details.group[open] .chev {
   .stack td.row-actions {
     grid-column: 1 / -1;
   }
+  /* The header is hidden here: a cell that needs its column name to make sense carries it. */
+  .stack td[data-label] {
+    text-align: left;
+  }
+  .stack td[data-label]::before {
+    content: attr(data-label) " ";
+    color: var(--text-2);
+  }
+  .stack td[data-label] > .checks {
+    display: inline-flex;
+  }
   .stack td.row-actions {
     margin-left: -8px;
     text-align: left;

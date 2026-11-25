@@ -41,7 +41,7 @@ export const assetsView: View = (ctx, main) => {
   const more = h('div');
   const table = h(
     'table',
-    { class: 'table' },
+    { class: 'table stack' },
     h('thead', null, h('tr', null, h('th', { scope: 'col' }, h('span', { class: 'sr-only' }, 'Preview')), ...['Asset', 'Type', 'Size', 'Length', 'Licence', 'Source', 'Added'].map((t) => h('th', { scope: 'col' }, t)))),
     tbody
   );
@@ -95,12 +95,12 @@ export const assetsView: View = (ctx, main) => {
           null,
           h('td', null, thumb(a)),
           h('td', null, h('span', { class: 'break' }, a.originalName ?? a.id), a.originalName ? h('span', { class: 'sub mono' }, a.id) : null),
-          h('td', null, TYPE[a.mediaType] ?? a.mediaType, h('span', { class: 'sub mono' }, a.contentType)),
-          h('td', { class: 'num' }, bytes(a.bytes)),
-          h('td', { class: 'num' }, a.durationSeconds ? `${a.durationSeconds.toFixed(1)} s` : '–'),
-          h('td', null, a.license ? a.license.name : h('span', { class: 'checks' }, h('span', { class: 'status warn', title: 'No licence recorded: a render with this asset may not be yours to publish' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), 'None'))),
-          h('td', { class: 'break' }, assetSource(a.source)),
-          h('td', { title: dateTime(a.createdAt) }, ago(a.createdAt, now))
+          h('td', { 'data-label': 'Type' }, TYPE[a.mediaType] ?? a.mediaType, h('span', { class: 'sub mono' }, a.contentType)),
+          h('td', { class: 'num', 'data-label': 'Size' }, bytes(a.bytes)),
+          h('td', { class: 'num', 'data-label': 'Length' }, a.durationSeconds ? `${a.durationSeconds.toFixed(1)} s` : '–'),
+          h('td', { 'data-label': 'Licence' }, a.license ? a.license.name : h('span', { class: 'checks' }, h('span', { class: 'status warn', title: 'No licence recorded: a render with this asset may not be yours to publish' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), 'None'))),
+          h('td', { class: 'break', 'data-label': 'Source' }, assetSource(a.source)),
+          h('td', { title: dateTime(a.createdAt), 'data-label': 'Added' }, ago(a.createdAt, now))
         )
       )
     );

@@ -34,14 +34,14 @@ export const rendersView: View = (ctx, main) => {
   const more = h('div');
   const picker = h(
     'div',
-    { class: 'filters', role: 'group', 'aria-label': 'Show' },
+    { class: 'segs', role: 'group', 'aria-label': 'Show' },
     ...(['render', 'preview'] as const).map((k) =>
-      h('button', { type: 'button', class: 'btn btn-quiet', 'aria-pressed': String(k === kept), onclick: () => switchTo(k) }, k === 'render' ? 'Renders' : 'Previews')
+      h('button', { type: 'button', class: 'seg', 'aria-pressed': String(k === kept), onclick: () => switchTo(k) }, k === 'render' ? 'Renders' : 'Previews')
     )
   );
   const table = h(
     'table',
-    { class: 'table' },
+    { class: 'table stack' },
     h('thead', null, h('tr', null, ...['Output', 'Project', 'Variant', 'Finished', 'Took'].map((t) => h('th', { scope: 'col' }, t)))),
     tbody
   );
@@ -61,10 +61,10 @@ export const rendersView: View = (ctx, main) => {
           'tr',
           null,
           h('td', null, rid ? h('a', { href: `#/renders/${rid}`, class: 'mono' }, rid) : h('span', { class: 'mono' }, j.id)),
-          h('td', null, j.projectId ? h('a', { href: `#/library/${j.projectId}` }, j.projectId) : '–'),
-          h('td', null, variant),
-          h('td', { title: dateTime(j.finishedAt) }, ago(j.finishedAt, now)),
-          h('td', { class: 'num' }, between(j.startedAt, j.finishedAt, now))
+          h('td', { 'data-label': 'Project' }, j.projectId ? h('a', { href: `#/library/${j.projectId}` }, j.projectId) : '–'),
+          h('td', { 'data-label': 'Variant' }, variant),
+          h('td', { title: dateTime(j.finishedAt), 'data-label': 'Finished' }, ago(j.finishedAt, now)),
+          h('td', { class: 'num', 'data-label': 'Took' }, between(j.startedAt, j.finishedAt, now))
         );
       })
     );
