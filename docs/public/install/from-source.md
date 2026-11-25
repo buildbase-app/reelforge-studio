@@ -23,6 +23,12 @@ Tested on Linux x64 only.
 
 ## Start
 
+The short way, from a clone: `pnpm dev:setup` checks the requirements, installs,
+and writes `.env.local` with generated keys; `pnpm dev:all` runs the server and the
+dashboard with reload. The developer guide in the repository,
+[docs/DEVELOPMENT.md](https://github.com/buildbase-app/reelforge-studio/blob/main/docs/DEVELOPMENT.md),
+covers every platform and problem. By hand:
+
 ```bash
 git clone https://github.com/buildbase-app/reelforge-studio.git
 cd reelforge-studio

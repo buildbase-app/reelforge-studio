@@ -15,6 +15,16 @@ one MP4 with FFmpeg and checks it. No AI provider is required.
 
 ## Quick start (server first)
 
+Developing on the studio? Two commands do everything below, and
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) covers every platform and problem:
+
+```bash
+pnpm dev:setup    # checks prerequisites, installs, writes .env.local with generated keys
+pnpm dev:all      # API + MCP + dashboard with reload; prints the URLs and a `claude mcp add` line
+```
+
+By hand:
+
 Requirements: Node 22, pnpm 10 (`corepack enable`), FFmpeg (6.1 tested), and
 Chrome Headless Shell (`npx playwright-core install chromium-headless-shell`
 or `npx remotion browser ensure`).
@@ -43,8 +53,10 @@ docker compose up -d --build      # then use $REELFORGE_BOOTSTRAP_KEY as the adm
 ```
 
 Developers: `pnpm typecheck`, `pnpm test` (`REELFORGE_REQUIRE_BROWSER=1` in
-CI), `pnpm spike` (standalone two-engine render). See `AGENTS.md`, "Working in
-this repo".
+CI), `pnpm spike` (standalone two-engine render). Local setup, test tiers,
+databases and running the studio next to the store site
+(`scripts/dev/both.sh`): [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). See also
+`AGENTS.md`, "Working in this repo".
 
 ## What works today
 

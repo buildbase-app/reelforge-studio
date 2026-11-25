@@ -3,6 +3,10 @@
 Use this task prompt with Codex, Claude Code, or another coding agent
 after placing this docs pack in the repository.
 
+Local setup: `pnpm dev:setup`, then `pnpm dev:all`. Every case (platforms,
+proxies, offline, databases, tests, both repos) is in
+[DEVELOPMENT.md](DEVELOPMENT.md).
+
 ------------------------------------------------------------------------
 
 You are the lead engineer for ReelForge. Read `AGENTS.md` and every file
