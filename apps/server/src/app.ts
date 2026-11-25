@@ -46,6 +46,9 @@ export interface AppDeps {
   fetch?: typeof fetch;
 }
 
+/** Most messages in one JSON-RPC batch on /mcp; each costs one rate-limit unit. */
+export const MCP_MAX_BATCH = 10;
+
 export function errorBody(code: string, message: string, details?: unknown) {
   return { error: { code, message, ...(details === undefined ? {} : { details }) } };
 }
@@ -426,6 +429,20 @@ export function createApp(deps: AppDeps) {
   app.get('/.well-known/oauth-protected-resource/mcp', metadata);
 
   // ---- MCP ------------------------------------------------------------------------
+  /** Charge `n` more rate-limit units to a key (and its workspace): the extra messages of a JSON-RPC batch on /mcp. */
+  const charge = async (c: Context, auth: AuthContext, n: number): Promise<Response | undefined> => {
+    const wsLimit = auth.workspaceId ? await service.workspaceAdmin?.rateLimitOf(auth.workspaceId) : undefined;
+    for (let i = 0; i < n; i++) {
+      const d = await limiter.take(auth.keyId, auth.rateLimitPerMinute);
+      if (!d.allowed) return limited(c, 'key', d);
+      if (wsLimit) {
+        const w = await limiter.take(`workspace:${auth.workspaceId}`, wsLimit);
+        if (!w.allowed) return limited(c, 'workspace', w);
+      }
+    }
+    return undefined;
+  };
+
   app.all('/mcp', async (c) => {
     // DNS-rebinding protection: the Host (and Origin, when a browser sends one) must be ours.
     const host = hostName(c.req.header('host'));
@@ -446,7 +463,30 @@ export function createApp(deps: AppDeps) {
     if (c.req.method !== 'POST') return handleMcp(c.req.raw, auth, service, config);
     let answered: Response | undefined;
     const refused = await json(c, async () => {
-      answered = await handleMcp(c.req.raw, auth, service, config);
+      // A JSON-RPC batch runs one call per message, so it costs one rate-limit unit per message, not one per HTTP
+      // request; authorize() took the first. Batches are capped (MCP 2025-06-18 dropped batching; older clients
+      // may still send them).
+      const text = await c.req.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = undefined;
+      }
+      if (Array.isArray(parsed)) {
+        if (parsed.length > MCP_MAX_BATCH) {
+          answered = c.json(errorBody('batch_too_large', `a JSON-RPC batch on /mcp holds at most ${MCP_MAX_BATCH} messages (got ${parsed.length}); send them in several requests`), 400);
+          return;
+        }
+        const over = parsed.length > 1 ? await charge(c, auth, parsed.length - 1) : undefined;
+        if (over) {
+          answered = over;
+          return;
+        }
+      }
+      // Not JSON: the transport reads the text again and answers with its JSON-RPC parse error.
+      const req = parsed === undefined ? new Request(c.req.raw.url, { method: 'POST', headers: c.req.raw.headers, body: text }) : c.req.raw;
+      answered = await handleMcp(req, auth, service, config, parsed);
     });
     return answered ?? refused ?? c.res;
   });
