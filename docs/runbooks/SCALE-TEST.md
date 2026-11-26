@@ -1,6 +1,6 @@
 # Runbook: capacity test on real infrastructure
 
-**Goal.** Measure, on dedicated cloud hardware, whether ReelForge Studio runs **1,000 concurrent
+**Goal.** Measure, on dedicated cloud hardware, whether RenderWeld runs **1,000 concurrent
 renders** with a bounded queue wait, an error rate under 0.1 %, every job exactly once and a known
 memory and CPU cost per render, and find where it stops. The result replaces the estimates in
 `docs/SCALE.md` (#349, merged: "about 45 nodes of 16 vCPU / 32 GiB for 1,000 renders a minute",
@@ -75,7 +75,7 @@ variant; the GKE variant follows the same shape.
 | --- | --- | --- | --- |
 | Kubernetes | EKS 1.33+, VPC CNI with network policy enabled | GKE Standard (not Autopilot: the worker needs a `Localhost` seccomp profile), Dataplane V2 | — |
 | Worker node pool | `c7i.4xlarge` (16 vCPU, 32 GiB), 0 to 115 nodes, taint `reelforge.io/pool=workers:NoSchedule` | `c3d-highcpu-16` (16 vCPU, 32 GB), 0 to 115 nodes, same taint | `server.workerConcurrency = min(16 / 1.5, (32 − 1) / 1) = 10` renders per node (SCALE.md formula); 1,000 in flight = 100 nodes + 15 % headroom |
-| Worker pod | 1 per node: `REELFORGE_WORKER_CONCURRENCY=10`, requests `cpu: 14500m, memory: 12Gi`, limit `memory: 24Gi`, `/dev/shm` 4 GiB, `/tmp` 2 GiB | same | 10 × 0.8 GB (1080p) to 10 × 1.7 GB (all 4K) measured peaks; requests leave room for DaemonSets |
+| Worker pod | 1 per node: `RENDERWELD_WORKER_CONCURRENCY=10`, requests `cpu: 14500m, memory: 12Gi`, limit `memory: 24Gi`, `/dev/shm` 4 GiB, `/tmp` 2 GiB | same | 10 × 0.8 GB (1080p) to 10 × 1.7 GB (all 4K) measured peaks; requests leave room for DaemonSets |
 | api node pool | 3 × `c7i.2xlarge` (8 vCPU, 16 GiB) | 3 × `c3d-highcpu-8` | 6 api pods (2 per node) at `cpu: 2, memory: 2Gi`; #151: one instance about 150 req/s; HPA on CPU 6 to 12 |
 | System node pool | 2 × `m7i.xlarge` | 2 × `n2-standard-4` | Prometheus, Grafana, KEDA, PgBouncer, CoreDNS |
 | Database | RDS PostgreSQL 17, `db.r7g.2xlarge` (8 vCPU, 64 GiB), Multi-AZ, gp3 500 GiB / 12,000 IOPS, `max_connections=1000`, `pg_stat_statements` on | Cloud SQL PostgreSQL 17 Enterprise, 8 vCPU / 32 GB, HA (regional), SSD 500 GB, `max_connections=1000`, `cloudsql.enable_pg_stat_statements` | about 10 claims/s needed at 600 renders/min (#349: 114 to 174 claims/s on a 4-vCPU shared host); the open risk is progress writes, up to 2/s per running render = 2,000 writes/s at 1,000 in flight (never measured, #307) |
@@ -89,7 +89,7 @@ variant; the GKE variant follows the same shape.
 **KEDA settings for the test** (a local overlay over `deployment/kubernetes/keda/`, not committed):
 
 ```yaml
-# scaledobject-patch.yaml: divisor = REELFORGE_WORKER_CONCURRENCY (10); fast scale-up for a ramp
+# scaledobject-patch.yaml: divisor = RENDERWELD_WORKER_CONCURRENCY (10); fast scale-up for a ramp
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata: { name: reelforge-worker, namespace: reelforge }
@@ -139,8 +139,8 @@ spec:
       containers:
         - name: reelforge
           env:
-            - { name: REELFORGE_WORKER_CONCURRENCY, value: "10" }
-            - { name: REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS, value: "300" }
+            - { name: RENDERWELD_WORKER_CONCURRENCY, value: "10" }
+            - { name: RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS, value: "300" }
           resources:
             requests: { cpu: 14500m, memory: 12Gi }
             limits: { memory: 24Gi }
@@ -152,7 +152,7 @@ spec:
 The worker's database URL (secret key `database-url`) points at PgBouncer with
 `?connection_limit=21`; the api's at PgBouncer with `?connection_limit=10`. That means two secrets
 (or two keys) instead of the base's one. Storage with Pod Identity / Workload Identity: drop the
-`REELFORGE_S3_*_FILE` variables from both Deployments.
+`RENDERWELD_S3_*_FILE` variables from both Deployments.
 
 ## Expected cost
 
@@ -261,10 +261,10 @@ done > keys.txt && chmod 600 keys.txt     # never commit; delete the keys after 
    `deployment/compose/docker-compose.pgbouncer.yml` and `pgbouncer.env`, with the pool sizes of
    the topology) as a 2-replica Deployment and Service on the system pool. Run the migrations once
    on the direct URL (DEPLOY.md, "Migrations on the direct port"), then start every instance with
-   `REELFORGE_MIGRATE_ON_START=0`.
+   `RENDERWELD_MIGRATE_ON_START=0`.
 5. **Secrets and config.** Create the `reelforge` secret as in
    `deployment/kubernetes/base/secret.example.yaml` (a fresh `secret-key`, a strong bootstrap key,
-   the licence key as `REELFORGE_LICENCE_KEY_FILE`, a metrics token). Edit `base/configmap.yaml`
+   the licence key as `RENDERWELD_LICENCE_KEY_FILE`, a metrics token). Edit `base/configmap.yaml`
    (public URL, bucket, region) and the NetworkPolicy allowlist in `base/networkpolicy.yaml`
    (VPC CIDR for PgBouncer and the database, the S3 or GCS address ranges, the licence server,
    Prometheus' namespace).
@@ -322,7 +322,7 @@ for n in 5000 20000 100000; do
     DB_URL="postgresql://reelforge:...@<pgbouncer>:6432/reelforge?connection_limit=2" RUNNERS=10 WORK_MS=1000 NAME=fw$i \
       node --import tsx scripts/load/queue-worker.ts > "$RUN/fw$i.log" 2>&1 &
   done
-  # wait until reelforge_jobs_queued is 0 and nothing runs, then stop them (SIGTERM hands back a claim in flight)
+  # wait until renderweld_jobs_queued is 0 and nothing runs, then stop them (SIGTERM hands back a claim in flight)
   kill $(jobs -p); wait
   DB_URL="postgresql://reelforge:...@<db-host>:5432/reelforge" CHECK_SINCE=$(cat "$RUN/since.txt") \
     node --import tsx scripts/load/check.ts "$RUN/ids.json" | tee "$RUN/exactly-once.json"
@@ -369,22 +369,22 @@ DB_URL=<direct reelforge URL> CHECK_SINCE=$(cat "$RUN/since.txt") node --import 
 Run each runner with half the keys and half the steps' numbers (`LOAD_STEPS=25:600,50:600,...`) to
 split the client load; merge the two `summary.json` files in the results template. Then one **cold
 ramp**: node pool and KEDA at zero, `LOAD_STEPS=500:900`, and record the time from the first submit
-to 500 `reelforge_jobs_running` and the queue wait p95 of the first 5 minutes.
+to 500 `renderweld_jobs_running` and the queue wait p95 of the first 5 minutes.
 
 **Per step, pass if:**
 
 | Metric | Threshold | Source |
 | --- | --- | --- |
-| Error rate (refused after 8 tries + failed + client timeouts) ÷ submitted | < 0.1 % | `summary.json` `errorRate`; `reelforge_jobs_finished_total` |
-| Queue wait p95 (warm pool) | ≤ 60 s; the D-103 SLO (≤ 300 s for renders) must hold at every step | `summary.json`, `reelforge_job_queue_wait_seconds` |
-| Render time p95 per size | ≤ 1.5 × its value at the 50 step (no slowdown from contention) | `summary.json` by profile, `reelforge_job_duration_seconds` |
-| Renders running | `sum(reelforge_jobs_running{job="reelforge-worker"})` reaches the step's number within 2 minutes (warm) | Prometheus |
+| Error rate (refused after 8 tries + failed + client timeouts) ÷ submitted | < 0.1 % | `summary.json` `errorRate`; `renderweld_jobs_finished_total` |
+| Queue wait p95 (warm pool) | ≤ 60 s; the D-103 SLO (≤ 300 s for renders) must hold at every step | `summary.json`, `renderweld_job_queue_wait_seconds` |
+| Render time p95 per size | ≤ 1.5 × its value at the 50 step (no slowdown from contention) | `summary.json` by profile, `renderweld_job_duration_seconds` |
+| Renders running | `sum(renderweld_jobs_running{job="reelforge-worker"})` reaches the step's number within 2 minutes (warm) | Prometheus |
 | Memory per render | worker pod working set ÷ its running renders ≤ 1.0 GiB with 1080p only, ≤ 2.0 GiB with 4K among them; **0 OOMKilled** | cAdvisor, kube-state-metrics |
 | CPU per render | recorded per engine (Remotion and HyperFrames use their own encoders: unmeasured) | cAdvisor ÷ running |
 | Exactly once | every check.ts counter 0 | `exactly-once.json` |
 | Outputs | every verified file has the size and duration asked (1 in 100 downloaded and probed) | `summary.json` `verified` |
 | api | non-render request p95 ≤ 1 s; 5xx other than 503 = 0 | `http_server_request_duration_seconds` |
-| Database | CPU ≤ 70 %, PgBouncer `cl_waiting` 0 for more than 5 s, no `reelforge_queue_errors_total` | CloudWatch / Cloud Monitoring, `SHOW POOLS` |
+| Database | CPU ≤ 70 %, PgBouncer `cl_waiting` 0 for more than 5 s, no `renderweld_queue_errors_total` | CloudWatch / Cloud Monitoring, `SHOW POOLS` |
 
 The highest step that passes is the measured capacity of this topology. A failing step is a result,
 not a reason to stop: finish the step, record it, and note the first metric that broke.
@@ -400,7 +400,7 @@ LOAD_URL=$API LOAD_KEYS_FILE=keys.txt LOAD_STEPS=1000:1800 LOAD_VERIFY_EVERY=100
 Pass if every phase-B threshold holds over the whole 30 minutes and, in addition: worker memory
 does not grow from the first to the last 10 minutes by more than 10 % at equal running renders (no
 leak); no pod restarts; database connections and PgBouncer pools flat; the bucket holds one MP4 per
-succeeded render (count objects under the run's render ids); `reelforge_jobs_requeued_total` 0.
+succeeded render (count objects under the run's render ids); `renderweld_jobs_requeued_total` 0.
 
 ## Phase D: failure injection
 
@@ -409,10 +409,10 @@ apart, with the timestamps written down. The exactly-once check runs over the wh
 
 | # | Failure | Command (AWS; GKE equivalent) | Expected | Pass if |
 | --- | --- | --- | --- | --- |
-| D1 | Kill 20 % of worker pods at once | `kubectl -n reelforge get pods -l app.kubernetes.io/component=worker -o name \| shuf \| head -n 10 \| xargs kubectl -n reelforge delete --grace-period=0 --force` | their jobs' leases expire and the jobs are claimed again (`reelforge_jobs_requeued_total{reelforge_reason="lease_expired"}`), attempt 2 | no lost or duplicated job; requeued = jobs that were running on those pods; queue wait recovers within 2 × `queue.leaseSeconds` |
+| D1 | Kill 20 % of worker pods at once | `kubectl -n reelforge get pods -l app.kubernetes.io/component=worker -o name \| shuf \| head -n 10 \| xargs kubectl -n reelforge delete --grace-period=0 --force` | their jobs' leases expire and the jobs are claimed again (`renderweld_jobs_requeued_total{renderweld_reason="lease_expired"}`), attempt 2 | no lost or duplicated job; requeued = jobs that were running on those pods; queue wait recovers within 2 × `queue.leaseSeconds` |
 | D2 | Lose worker nodes (spot interruption) | `aws ec2 terminate-instances --instance-ids <2 worker nodes>` (`gcloud compute instances delete`) | the same as D1, plus new nodes from the autoscaler | as D1; capacity back within 10 minutes |
 | D3 | Graceful drain | `kubectl drain <worker node> --ignore-daemonsets --delete-emptydir-data` | running renders finish or are handed back within `queue.shutdownGraceSeconds` (`reason="released"`) | no failed render caused by the drain |
-| D4 | Database failover | `aws rds reboot-db-instance --db-instance-identifier <id> --force-failover` (`gcloud sql instances failover <id>`) | `/readyz` 503 for the failover time, `reelforge_queue_errors_total` rises, no crash loop, work resumes | no lost or duplicated job; recovery to the previous throughput within 5 minutes of the database answering; renders that failed have a typed error and succeed on `retry_job` |
+| D4 | Database failover | `aws rds reboot-db-instance --db-instance-identifier <id> --force-failover` (`gcloud sql instances failover <id>`) | `/readyz` 503 for the failover time, `renderweld_queue_errors_total` rises, no crash loop, work resumes | no lost or duplicated job; recovery to the previous throughput within 5 minutes of the database answering; renders that failed have a typed error and succeed on `retry_job` |
 | D5 | Storage outage, 5 minutes | add a bucket policy that denies the worker and api roles (`aws s3api put-bucket-policy`), then restore it (GCS: remove the service account's IAM binding, then add it back) | workers' `/readyz` 503 and they stop claiming; jobs wait; downloads fail with a clear error | after restore every waiting job runs; no job lost; failed ones have a storage error code and succeed on retry |
 | D6 | api rollout during submits | `kubectl -n reelforge rollout restart deployment/reelforge-api` | some 503s or connection errors; the driver retries with the same idempotency key | `unexpected` (duplicate enqueue) 0 in check.ts; error rate < 0.1 % |
 
@@ -425,22 +425,22 @@ series: sum over pods except where noted. `job` labels are the scrape jobs of ph
 
 | What | PromQL |
 | --- | --- |
-| Queue depth (cluster-wide value, the same on every instance: take `max`) | `max(reelforge_jobs_queued)` |
-| Renders running | `sum(reelforge_jobs_running{job="reelforge-worker"})` |
-| Queue wait p95 (renders) | `histogram_quantile(0.95, sum by (le) (rate(reelforge_job_queue_wait_seconds_bucket{reelforge_job_type="render"}[5m])))` |
-| Render duration p95 | `histogram_quantile(0.95, sum by (le) (rate(reelforge_job_duration_seconds_bucket{reelforge_job_type="render",reelforge_job_status="succeeded"}[5m])))` |
-| Scene time per engine p95 | `histogram_quantile(0.95, sum by (le, reelforge_engine) (rate(reelforge_render_scene_duration_seconds_bucket[5m])))` |
-| Frames per second per engine | `sum by (reelforge_engine) (rate(reelforge_render_fps_sum[5m])) / sum by (reelforge_engine) (rate(reelforge_render_fps_count[5m]))` |
-| Render error ratio | `sum(rate(reelforge_jobs_finished_total{reelforge_job_type="render",reelforge_job_status="failed"}[5m])) / sum(rate(reelforge_jobs_finished_total{reelforge_job_type="render"}[5m]))` |
-| Requeued jobs | `sum by (reelforge_reason) (increase(reelforge_jobs_requeued_total[10m]))` |
-| Queue errors | `sum by (reelforge_operation) (increase(reelforge_queue_errors_total[5m]))` |
-| Claims | `sum by (reelforge_result) (rate(reelforge_queue_claims_total[1m]))` |
-| Limit refusals | `sum by (reelforge_limit_reason) (increase(reelforge_limits_rejections_total[5m]))` |
+| Queue depth (cluster-wide value, the same on every instance: take `max`) | `max(renderweld_jobs_queued)` |
+| Renders running | `sum(renderweld_jobs_running{job="reelforge-worker"})` |
+| Queue wait p95 (renders) | `histogram_quantile(0.95, sum by (le) (rate(renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="render"}[5m])))` |
+| Render duration p95 | `histogram_quantile(0.95, sum by (le) (rate(renderweld_job_duration_seconds_bucket{renderweld_job_type="render",renderweld_job_status="succeeded"}[5m])))` |
+| Scene time per engine p95 | `histogram_quantile(0.95, sum by (le, renderweld_engine) (rate(renderweld_render_scene_duration_seconds_bucket[5m])))` |
+| Frames per second per engine | `sum by (renderweld_engine) (rate(renderweld_render_fps_sum[5m])) / sum by (renderweld_engine) (rate(renderweld_render_fps_count[5m]))` |
+| Render error ratio | `sum(rate(renderweld_jobs_finished_total{renderweld_job_type="render",renderweld_job_status="failed"}[5m])) / sum(rate(renderweld_jobs_finished_total{renderweld_job_type="render"}[5m]))` |
+| Requeued jobs | `sum by (renderweld_reason) (increase(renderweld_jobs_requeued_total[10m]))` |
+| Queue errors | `sum by (renderweld_operation) (increase(renderweld_queue_errors_total[5m]))` |
+| Claims | `sum by (renderweld_result) (rate(renderweld_queue_claims_total[1m]))` |
+| Limit refusals | `sum by (renderweld_limit_reason) (increase(renderweld_limits_rejections_total[5m]))` |
 | HTTP status mix | `sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{job="reelforge-api"}[1m]))` |
 | HTTP p95 per route | `histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job="reelforge-api"}[5m])))` |
-| Memory per running render | `sum(container_memory_working_set_bytes{namespace="reelforge",container="reelforge",pod=~"reelforge-worker.*"}) / sum(reelforge_jobs_running{job="reelforge-worker"})` |
+| Memory per running render | `sum(container_memory_working_set_bytes{namespace="reelforge",container="reelforge",pod=~"reelforge-worker.*"}) / sum(renderweld_jobs_running{job="reelforge-worker"})` |
 | Peak memory per worker pod | `max_over_time(container_memory_working_set_bytes{namespace="reelforge",container="reelforge",pod=~"reelforge-worker.*"}[30m])` |
-| CPU per running render | `sum(rate(container_cpu_usage_seconds_total{namespace="reelforge",container="reelforge",pod=~"reelforge-worker.*"}[5m])) / sum(reelforge_jobs_running{job="reelforge-worker"})` |
+| CPU per running render | `sum(rate(container_cpu_usage_seconds_total{namespace="reelforge",container="reelforge",pod=~"reelforge-worker.*"}[5m])) / sum(renderweld_jobs_running{job="reelforge-worker"})` |
 | OOM kills, restarts | `kube_pod_container_status_last_terminated_reason{namespace="reelforge",reason="OOMKilled"}`, `increase(kube_pod_container_status_restarts_total{namespace="reelforge"}[30m])` |
 
 Database: CPU, connections, write IOPS and commit latency from CloudWatch / Cloud Monitoring;

@@ -1,6 +1,6 @@
 # Workspaces and tenancy
 
-One ReelForge Studio install can host several teams, clients or customers. Each one gets a **workspace**. Its
+One RenderWeld install can host several teams, clients or customers. Each one gets a **workspace**. Its
 projects, versions, renders, assets, themes, jobs, API keys, webhooks, deliveries, audit log and idempotency keys
 are invisible to every other workspace (#304, decisions D-124 and D-125 in [DECISIONS.md](DECISIONS.md)).
 
@@ -17,7 +17,7 @@ An install that never creates a workspace has one, `default`, and works exactly 
 - An owner key lives in a workspace, normally `default`. It reads and writes that workspace's data like an admin
   key; it manages the other workspaces through the workspace tools, not by reading their projects.
 - Upgrading from an earlier version: admin keys that existed before gain `owner`, through migration 0015, and so
-  do admin keys imported from a v0.1 data directory. The bootstrap key (`REELFORGE_BOOTSTRAP_KEY`) is
+  do admin keys imported from a v0.1 data directory. The bootstrap key (`RENDERWELD_BOOTSTRAP_KEY`) is
   `admin` + `owner`.
 - Admin keys made from now on are workspace admins.
 - Only an owner key, or the CLI, can create, change, rotate, revoke or delete a key with the `owner` scope.
@@ -33,7 +33,7 @@ curl -X POST $URL/v1/workspaces -H "Authorization: Bearer $OWNER" -H 'content-ty
 ```
 
 Over MCP: `create_workspace { id, name, adminKey: true }`. On the server without a running API:
-`reelforge keys create --workspace acme --name acme-admin --scopes admin`. The workspace must already exist.
+`renderweld keys create --workspace acme --name acme-admin --scopes admin`. The workspace must already exist.
 
 Give the team the admin key. They create their own keys (`create_key`), webhooks and projects; any key can see
 which workspace it is in with `GET /v1/workspace` (`get_workspace`).
@@ -99,7 +99,7 @@ How exactly each limit is counted:
 **Shared, by design (one install):**
 
 - **Database and bucket.** One database and one storage bucket hold every workspace. Isolation is enforced by
-  ReelForge, not by the database (no row-level security) or the bucket (no per-workspace credentials). Anyone with
+  RenderWeld, not by the database (no row-level security) or the bucket (no per-workspace credentials). Anyone with
   database or bucket credentials, a backup, or shell access to the server sees every workspace.
 - **Instance-level settings.** Runtime configuration, provider credentials (e.g. one ElevenLabs key for
   everyone), the licence and storage settings are the owner's and apply to every workspace.
@@ -124,8 +124,8 @@ encryption key or network boundary needs one install per customer; each install 
   `runAsSystem`, as the job runner does.
 - A new REST route or MCP tool is probed by the denial suite automatically. If it takes a new path parameter or a
   new required argument, give the suite a probe value (`A_IDS`, `resourceArgs`, `filler`).
-- **MCP OAuth (#343, D-112):** access tokens act in `default`. `reelforge:admin` is a workspace admin (test
-  OAUTH-09); `reelforge:owner` makes the token an instance owner, like an owner key, and only your authorization
-  server decides who gets it (OAUTH-10). A token claim (e.g. `reelforge:workspace`) that sets the workspace the same way
+- **MCP OAuth (#343, D-112):** access tokens act in `default`. `renderweld:admin` is a workspace admin (test
+  OAUTH-09); `renderweld:owner` makes the token an instance owner, like an owner key, and only your authorization
+  server decides who gets it (OAUTH-10). A token claim (e.g. `renderweld:workspace`) that sets the workspace the same way
   as a key is not built yet; see the TODO at `authorize()` in `apps/server/src/app.ts` and the `it.todo` in
   `test/workspace-admin.test.ts`.
