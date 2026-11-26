@@ -65,7 +65,7 @@ import { outputSupportIssues } from './output-support';
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
 import { KeyStore, hasScope, quotaWindows, type AuthContext, type KeyOptions, type PublicKey, type Scope } from './keys';
-import { DEFAULT_WORKSPACE_ID, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories, type WorkspaceStatus } from './repositories';
+import { DEFAULT_WORKSPACE_ID, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories, type WorkspaceStatus, type JobStatus } from './repositories';
 import { WORKSPACE_ID, currentWorkspaceId, isWorkspaceRouter, mergeAuditPages, runInWorkspace, workspaceKeyPrefix, type WorkspaceRouter } from './workspace';
 import { WorkspaceAdmin } from './workspace-admin';
 import {
@@ -198,6 +198,9 @@ const JOB_EVENTS: Record<string, string> = { queued: 'job.queued', running: 'job
 export const MAX_MCP_EXPORT = 10_000;
 
 /** Render and preview jobs count towards a key's render quota. */
+/** list_jobs filters (GET /v1/jobs?status=&type=). */
+export const LIST_JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'cancelled'] as const;
+export const LIST_JOB_TYPES = ['render', 'preview', 'render_unit', 'render_join'] as const;
 const QUOTA_JOB_TYPES = ['render', 'preview'];
 /** Validation errors for exceeded render limits start with this (a preview of some scenes is checked on its own). */
 const RENDER_LIMIT_PREFIX = 'render limit: ';
@@ -2134,16 +2137,21 @@ export class ReelforgeService {
    * One page of jobs, newest first (D-102; paged like listProjects), optionally of one project and/or the children
    * of one job (`parentId`: the units and the join of a fanned-out render, D-097). The cursor carries both filters.
    */
-  async listJobs(filter: { projectId?: string; parentId?: string } = {}, q: { limit?: unknown; cursor?: unknown } = {}) {
+  async listJobs(filter: { projectId?: string; parentId?: string; status?: string; type?: string } = {}, q: { limit?: unknown; cursor?: unknown } = {}) {
     const projectId = filter.projectId || undefined;
     const parentId = filter.parentId || undefined;
-    // The cursor's filter: the projectId alone as before (cursors of #182 stay valid); with parentId, both
-    // ("|" cannot occur in a project id, so two filters never share a string).
-    const key = parentId === undefined ? (projectId ?? '') : `${projectId ?? ''}|parent:${parentId}`;
+    const status = filter.status || undefined;
+    const type = filter.type || undefined;
+    if (status !== undefined && !(LIST_JOB_STATUSES as readonly string[]).includes(status)) throw badRequest(`status must be one of ${LIST_JOB_STATUSES.join(', ')}`);
+    if (type !== undefined && !(LIST_JOB_TYPES as readonly string[]).includes(type)) throw badRequest(`type must be one of ${LIST_JOB_TYPES.join(', ')}`);
+    // The cursor's filter: the projectId alone as before (cursors of #182 stay valid); with parentId, both; a
+    // status or type filter is added the same way ("|" cannot occur in a project id, so two filters never share a string).
+    const key =
+      (parentId === undefined ? (projectId ?? '') : `${projectId ?? ''}|parent:${parentId}`) + (status ? `|status:${status}` : '') + (type ? `|type:${type}` : '');
     const req = parsePageQuery('jobs', key, q);
     // No job can have an impossible id: answered without a query.
     if ((projectId !== undefined && !isProjectId(projectId)) || (parentId !== undefined && !isRowId(parentId))) return { jobs: [], nextCursor: null };
-    const where = { ...(projectId ? { projectId } : {}), ...(parentId ? { parentId } : {}) };
+    const where = { ...(projectId ? { projectId } : {}), ...(parentId ? { parentId } : {}), ...(status ? { status: status as JobStatus } : {}), ...(type ? { type } : {}) };
     const { items, nextCursor } = await readPage('jobs', key, req, (r) => this.jobs.page(where, r));
     return { jobs: items, nextCursor };
   }
