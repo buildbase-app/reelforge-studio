@@ -45,6 +45,10 @@ import {
   type ValidationWarning,
   type ThemeTokens,
   safeAreaInsets,
+  applyGlossaryToTranscript,
+  glossaryPrompt,
+  restoreGlossaryTerms,
+  spokenText,
 } from '@renderweld/project-schema';
 import { BUNDLED_FONTS } from './fonts';
 import { FRAMES_DEFAULT_WIDTH, FRAMES_MAX_BYTES, FRAMES_MAX_WIDTH, FRAMES_MIN_WIDTH, framesCacheDir, planFrames, sceneSpans, type FramesRequest, type PlannedTile } from './frames';
@@ -1741,7 +1745,9 @@ export class ReelforgeService {
     const language = t.language ?? s.language;
     const hash = createHash('sha256');
     await pipeline(createReadStream(file), hash);
-    const key = createHash('sha256').update(JSON.stringify([plugin.id, hash.digest('hex'), s.model, s.computeType, s.device, language])).digest('hex');
+    // The glossary's terms as the prompt (#486): a different glossary is a different transcription.
+    const prompt = glossaryPrompt(manifest.glossary);
+    const key = createHash('sha256').update(JSON.stringify([plugin.id, hash.digest('hex'), s.model, s.computeType, s.device, language, prompt ?? ''])).digest('hex');
     const cacheFile = join(this.cacheDir, 'stt', `${key}.json`);
     type Cached = { language: string | null; words: Array<{ text: string; start: number; end: number }>; durationSeconds?: number; engine: Record<string, string> };
     let result = existsSync(cacheFile) ? await readJson<Cached>(cacheFile).catch(() => null) : null;
@@ -1752,14 +1758,16 @@ export class ReelforgeService {
       try {
         const logs: string[] = [];
         result = await withSpan(this.telemetry.tracer, `stt.transcribe ${plugin.id}`, { 'reelforge.stt.provider': plugin.id }, () =>
-          plugin.transcribe({ file, language, settings: s }, { signal: AbortSignal.timeout((s.timeoutSeconds + 5) * 1000), log: (l) => logs.push(l) })
+          plugin.transcribe({ file, language, settings: s, ...(prompt ? { prompt } : {}) }, { signal: AbortSignal.timeout((s.timeoutSeconds + 5) * 1000), log: (l) => logs.push(l) })
         );
         await writeJsonAtomic(cacheFile, result);
       } finally {
         this.sttRunning--;
       }
     }
-    const words = voiceWords(result.words);
+    // Exact spellings from the glossary (#486): every term in any letter case and each listed alternative.
+    const glossed = applyGlossaryToTranscript(voiceWords(result.words), manifest.glossary);
+    const words = glossed.words;
     const detected = result.language && isLanguageTag(result.language) ? result.language : null;
     let manualCues = 0;
     const stored = await this.projects.update(
@@ -1788,6 +1796,8 @@ export class ReelforgeService {
       words: words.length,
       ...(result.durationSeconds !== undefined ? { durationSeconds: result.durationSeconds } : {}),
       cached,
+      // Each spelling the glossary corrected (#486), so the user can see what changed.
+      ...(glossed.replacements.length ? { glossaryReplacements: glossed.replacements } : {}),
       ...(manualCues ? { note: `captions.cues has ${manualCues} manual caption cue(s), which take precedence over the voice; call again with replaceCues: true to show the transcription` } : {}),
       ...(words.length ? {} : { note: 'no speech was recognised in the voice track' }),
       captions: view,
@@ -2809,8 +2819,12 @@ export class ReelforgeService {
         issues: parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message })),
       });
     }
-    if (opts.projectId) await this.projects.get(opts.projectId);
-    const cacheKey = provider.cacheKey?.(parsed.data);
+    const glossary = opts.projectId ? (await this.projects.get(opts.projectId)).manifest.glossary : undefined;
+    // TTS reads each glossary term's `spoken` form (#486); the captions and the stored text keep the term.
+    const text = provider.kind === 'tts' ? (parsed.data as { text?: unknown }).text : undefined;
+    const spoken = typeof text === 'string' && glossary?.length ? spokenText(text, glossary) : null;
+    const callParams = spoken?.replaced ? { ...(parsed.data as object), text: spoken.text } : parsed.data;
+    const cacheKey = provider.cacheKey?.(callParams);
     // Per workspace (#304): a hit points at an asset of the caller's workspace.
     const cacheFile = cacheKey ? join(this.cacheDir, 'providers', workspaceKeyPrefix(currentWorkspaceId()), `${cacheKey}.json`) : null;
     let result: { asset: StoredAsset; data?: Record<string, unknown>; cached?: boolean } | undefined;
@@ -2841,7 +2855,7 @@ export class ReelforgeService {
       const attrs = { 'reelforge.provider': providerId, 'reelforge.provider.kind': provider.kind };
       try {
         result = await withSpan(this.telemetry.tracer, `provider.run ${providerId}`, attrs, () =>
-          provider.run(parsed.data, {
+          provider.run(callParams, {
             signal: controller.signal,
             log: () => undefined,
             putAsset: (input) => this.assets.put(input),
@@ -2861,8 +2875,9 @@ export class ReelforgeService {
       projectAssetId = await this.attachToProject(opts.projectId, result.asset, opts.assetId ?? (provider.kind === 'tts' ? 'voice' : undefined));
       if (provider.kind === 'tts' && (opts.attachAs ?? 'voice') === 'voice') {
         const p = parsed.data as { text?: string; voiceId?: string };
-        // Word timestamps (ElevenLabs "with-timestamps") are kept on the voice track: captions are built from them (#300).
-        const words = voiceWords(result.data?.words);
+        // Word timestamps (ElevenLabs "with-timestamps") are kept on the voice track: captions are built from them (#300),
+        // with each `spoken` respelling turned back into its glossary term (#486).
+        const words = spoken?.replaced ? restoreGlossaryTerms(voiceWords(result.data?.words), glossary).words : voiceWords(result.data?.words);
         await this.projects.update(opts.projectId, (current) =>
           this.parseOrThrow({
             ...current,

@@ -18,6 +18,7 @@ import {
   buildCuesFromText,
   buildCuesFromWords,
   checkCaptions,
+  withGlossaryCheck,
   type CaptionCue,
   type CaptionMode,
   type CaptionQa,
@@ -29,6 +30,7 @@ export * from './project';
 export * from './templates';
 export * from './themes';
 export * from './captions';
+export * from './glossary';
 export * from './audio';
 export * from './migrate';
 export * from './layout';
@@ -169,6 +171,7 @@ function captionWarnings(p: Project, defaultMode?: CaptionMode): ValidationWarni
         message: `caption ${issue.cue + 1}${t.primary ? '' : ` (${t.language})`}${manual ? '' : ` (built from ${t.source})`} [${issue.rule}]: ${issue.message}`,
       });
     }
+    for (const g of t.qa.glossary ?? []) warnings.push({ path: 'glossary', message: `glossary [${g.rule}]: ${g.message}` });
   }
   return warnings;
 }
@@ -252,7 +255,8 @@ export function resolveCaptions(p: Project, opts: { mode?: CaptionMode; defaultM
   const modeSource: ResolvedCaptions['modeSource'] = opts.mode ? 'render' : p.captions.mode ? 'project' : opts.defaultMode && opts.defaultMode !== 'off' ? 'server' : 'default';
   const burnLanguage = p.captions.burnLanguage ?? language ?? null;
   const burning = mode === 'burned' || mode === 'both';
-  const qa = qaOf(cues);
+  // The glossary check compares the primary language with the voice script (#486).
+  const qa = withGlossaryCheck(qaOf(cues), cues, voice?.text, p.glossary);
   const tracks: ResolvedCaptionTrack[] = [
     { language: language ?? null, primary: true, burned: false, source, cues, descriptions: own.descriptions, captionIndex, qa },
     ...Object.entries(p.captions.tracks ?? {}).map(([lang, t]): ResolvedCaptionTrack => {
