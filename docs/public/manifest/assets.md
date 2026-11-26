@@ -1,6 +1,6 @@
 ---
 title: "Images, video and audio in scenes"
-description: "How ReelForge Studio scenes use uploaded assets on every engine: asset ids in template props and asset:<id> in html, fit modes, frame-accurate video, SVG sanitising, the audio bed, limits and which project may use which asset."
+description: "How RenderWeld scenes use uploaded assets on every engine: asset ids in template props and asset:<id> in html, fit modes, frame-accurate video, SVG sanitising, the audio bed, limits and which project may use which asset."
 folder: "manifest"
 slug: "assets"
 order: 4

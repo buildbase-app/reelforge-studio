@@ -1,6 +1,6 @@
 ---
 title: "Audio: loudness, mixing and toggles"
-description: "How ReelForge Studio mixes and finishes a render's audio: loudness presets and their sources, platform recommendations, ducking of music under the voice, fades, bus gains, the on/off toggles and muted renders, and the checks after the final encode."
+description: "How RenderWeld mixes and finishes a render's audio: loudness presets and their sources, platform recommendations, ducking of music under the voice, fades, bus gains, the on/off toggles and muted renders, and the checks after the final encode."
 folder: "manifest"
 slug: "audio"
 order: 4
@@ -105,7 +105,7 @@ The preset of a render is, first found wins:
 1. `render_project`'s `audio.loudness` (REST: `POST /v1/projects/:id/renders`
    with `{ "audio": { "loudness": "broadcast-ebu" } }`);
 2. the manifest's `audio.loudness`;
-3. the server setting `render.audio.loudness` (`REELFORGE_RENDER_AUDIO_LOUDNESS`,
+3. the server setting `render.audio.loudness` (`RENDERWELD_RENDER_AUDIO_LOUDNESS`,
    or at runtime with `update_config` / `PATCH /v1/config`), default `social`.
 
 ## Mixing
