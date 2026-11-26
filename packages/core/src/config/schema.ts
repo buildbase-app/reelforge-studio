@@ -1172,7 +1172,7 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_RENDER_QA_LOW_MOTION_SECONDS',
         default: 3,
         description:
-          'Pictures that barely move for this long (seconds, 0 to 3600; 0: not reported) are reported as `video.motion`: every frame changes less than `render.qa.motionFloor`, so the video reads as stuck though it is not a perfect still (grain, a blinking cursor, a crawl too slow to see). Stretches already reported as frozen are left out. Motion energy per second is recorded in `videoQa.motion` either way.',
+          'Pictures that barely move for this long (seconds, 0 to 3600; 0: not reported) are reported as `video.motion`: no frame differs from the picture a second before by `render.qa.motionFloor` or more, so the video reads as stuck though it is not a perfect still (grain, a blinking cursor, a crawl too slow to see). Stretches already reported as frozen are left out. Motion energy per second is recorded in `videoQa.motion` either way.',
       }),
       motionFloor: setting(z.number().min(0.05).max(20), {
         kind: 'number',
