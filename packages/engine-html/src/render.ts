@@ -14,6 +14,7 @@ import {
   sceneAssetUses,
   sceneTimeoutCapMs,
   stageSceneAssets,
+  videoSelectorsAsImages,
   type EnginePlugin,
   type ResolvedAsset,
   type StagedSceneAssets,
@@ -102,7 +103,10 @@ export function sceneSource(scene: RenderScene, durationSeconds: number, staged?
   if (scene.html !== undefined) {
     if (!staged) return { html: scene.html, css: scene.css ?? '' };
     const isVideo = (key: string) => staged.items.get(key)?.frames !== undefined;
-    return { html: rewriteSceneHtml(scene.html, url, { videoAsImage: true, isVideo }), css: rewriteAssetRefs(scene.css ?? '', url) };
+    const html = rewriteSceneHtml(scene.html, url, { videoAsImage: true, isVideo });
+    const css = rewriteAssetRefs(scene.css ?? '', url);
+    // Clips became <img data-rf-video>: rules that select `video` by tag select those too (#448).
+    return { html, css: html.includes('data-rf-video=') ? videoSelectorsAsImages(css) : css };
   }
   if (scene.template === 'html-title') {
     const props = htmlTitleProps.parse(scene.props);

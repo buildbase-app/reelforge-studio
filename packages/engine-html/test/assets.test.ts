@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ResolvedAsset } from '@renderweld/core';
-import { probe, resolveTools, type Tools } from '@renderweld/media-pipeline';
+import { probe, resolveTools, run, type Tools } from '@renderweld/media-pipeline';
 import { builtinTheme, frameLayout, type OutputSettings } from '@renderweld/project-schema';
 import { renderHtmlScene } from '../src/index';
 import { QUAD, colorDistance, makeNumberedClip, makeQuadImage, meanColor, readBars, readPicture } from '../../media-pipeline/test/media-fixtures';
@@ -37,8 +37,16 @@ beforeAll(async () => {
     ['clip', { id: 'clip', file: await makeNumberedClip(tools.ffmpeg, join(dir, 'clip.mp4'), { fps: 30, frames: 120 }), mediaType: 'video' }],
     ['evil', { id: 'evil', file: svg, mediaType: 'image' }],
     ['bed', { id: 'bed', file: join(dir, 'missing.m4a'), mediaType: 'audio' }],
+    ['qclip', { id: 'qclip', file: await quadClip(join(dir, 'qclip.mp4')), mediaType: 'video' }],
   ]);
 }, 60_000);
+
+/** A 360x640 clip of the four QUAD colours (1 s), for checking how CSS sizes a clip. */
+async function quadClip(file: string): Promise<string> {
+  const png = await makeQuadImage(tools.ffmpeg, join(dir, 'quad-360x640.png'), 360, 640);
+  await run(tools.ffmpeg, ['-hide_banner', '-v', 'error', '-y', '-loop', '1', '-i', png, '-t', '1', '-r', '30', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', file], 'fixture');
+  return file;
+}
 
 const render = (name: string, scene: Record<string, unknown>, extra: Partial<Parameters<typeof renderHtmlScene>[0]> = {}) =>
   renderHtmlScene({
@@ -79,6 +87,21 @@ describe.skipIf(!hasBrowser)('ASSET-HTML html engine renders the project\'s imag
       expect(readBars(p, { x: 0, y: 120, width: 320, height: 80 }), `frame ${f}`).toBe(f);
       expect(readBars(p, { x: 0, y: 220, width: 320, height: 80 }), `frame ${f} from 2 s`).toBe(60 + f);
     }
+  }, 180_000);
+
+  it('CSS that selects `video` by tag still sizes the clip (#448): a 360x640 clip covers a 180x320 pane, not its top-left quarter', async () => {
+    const pane = { x: 20, y: 0, width: 180, height: 320 };
+    const res = await render('vcss', {
+      durationFrames: 3,
+      html: '<style>.pane video{object-fit:cover}</style><div class="pane"><video src="asset:qclip"></video></div>',
+      css: `#rf-root{background:#000}.pane{position:absolute;left:${pane.x}px;top:${pane.y}px;width:${pane.width}px;height:${pane.height}px;overflow:hidden}video{width:100%;height:100%}`,
+    });
+    const p = await readPicture(tools.ffmpeg, res.out, 1, output);
+    const at = (fx: number, fy: number) => meanColor(p, pane.x + pane.width * fx, pane.y + pane.height * fy);
+    expect(colorDistance(at(0.25, 0.25), QUAD.tl), 'top-left').toBeLessThan(25);
+    expect(colorDistance(at(0.75, 0.25), QUAD.tr), 'top-right').toBeLessThan(25);
+    expect(colorDistance(at(0.75, 0.75), QUAD.br), 'bottom-right').toBeLessThan(25);
+    expect(colorDistance(at(0.25, 0.75), QUAD.bl), 'bottom-left').toBeLessThan(25);
   }, 180_000);
 
   it('the html-title template shows background video (contain) and a logo in the safe corner', async () => {
