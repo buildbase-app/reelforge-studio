@@ -47,6 +47,9 @@ export interface AppDeps {
   fetch?: typeof fetch;
 }
 
+/** Most messages in one JSON-RPC batch on /mcp; each costs one rate-limit unit. */
+export const MCP_MAX_BATCH = 10;
+
 export function errorBody(code: string, message: string, details?: unknown) {
   return { error: { code, message, ...(details === undefined ? {} : { details }) } };
 }
@@ -199,11 +202,19 @@ export function createApp(deps: AppDeps) {
    * Check the client address budget, then the bearer key (expiry, revocation, IP allowlist) or, on /mcp with
    * OAuth on, the access token; then the per-key (or per OAuth subject) rate limit and the workspace's budget.
    *
-   * TODO(#304): OAuth access tokens (D-112) act in the default workspace, like keys made before workspaces. To give
-   * them other workspaces, map a token claim to the workspace in OAuthVerifier (e.g. "reelforge:workspace",
-   * configurable), refuse a token whose workspace does not exist or is not active (as KeyStore.authenticate does
-   * through workspaceStatus), and set AuthContext.workspaceId from it; every repository call is then scoped by it.
+   * OAuth access tokens (D-112) act in the default workspace, unless security.oauth.workspaceClaim names the claim
+   * that carries their workspace (#479): then the token must name an existing workspace, a suspended one is refused
+   * as for its keys, and AuthContext.workspaceId scopes every call the token makes.
    */
+  const workspaceClaim = config.resolved.config.security.oauth.workspaceClaim;
+  const tokenWorkspace = async (claims: Record<string, unknown>): Promise<{ workspaceId: string } | { status: 401 | 403; code: string; message: string }> => {
+    const raw = claims[workspaceClaim!];
+    if (typeof raw !== 'string' || !raw || raw.length > 64) return { status: 401, code: 'invalid_token', message: `the token has no "${workspaceClaim}" claim naming its workspace` };
+    const status = await service.workspaceStatus(raw);
+    if (status === null || status === 'deleted') return { status: 401, code: 'invalid_token', message: `the token names workspace "${raw}", which does not exist` };
+    if (status === 'suspended') return { status: 403, code: 'workspace_suspended', message: `the workspace of this token (${raw}) is suspended; ask the instance owner` };
+    return { workspaceId: raw };
+  };
   const authorize = async (c: Context, opts: { oauth?: boolean } = {}): Promise<{ auth: AuthContext } | { response: Response }> => {
     const ctx = currentRequest();
     // Before any database work: a flood or a key-guessing run from one address stops here (#305).
@@ -220,6 +231,20 @@ export function createApp(deps: AppDeps) {
         }
         challenge(c, true, { error: v.error, description: v.description, ...(v.error === 'insufficient_scope' ? { scope: 'reelforge:read' } : {}) });
         return { response: c.json(errorBody(v.error, `access token refused: ${v.description}`), v.error === 'insufficient_scope' ? 403 : 401) };
+      }
+      // A blocked subject (#479) is refused before its token expires; the list is a runtime setting, read live.
+      if (service.settings.current.config.security.oauth.blockedSubjects.includes(v.subject)) {
+        const message = 'this token\'s subject is blocked on this server (security.oauth.blockedSubjects)';
+        challenge(c, true, { error: 'invalid_token', description: message });
+        return { response: c.json(errorBody('invalid_token', `access token refused: ${message}`), 401) };
+      }
+      if (workspaceClaim) {
+        const ws = await tokenWorkspace(v.claims);
+        if (!('workspaceId' in ws)) {
+          if (ws.status === 401) challenge(c, true, { error: 'invalid_token', description: ws.message });
+          return { response: c.json(errorBody(ws.code, `access token refused: ${ws.message}`), ws.status) };
+        }
+        return limit(c, { ...v.auth, workspaceId: ws.workspaceId });
       }
       return limit(c, v.auth);
     }
@@ -429,6 +454,20 @@ export function createApp(deps: AppDeps) {
   app.get('/.well-known/oauth-protected-resource/mcp', metadata);
 
   // ---- MCP ------------------------------------------------------------------------
+  /** Charge `n` more rate-limit units to a key (and its workspace): the extra messages of a JSON-RPC batch on /mcp. */
+  const charge = async (c: Context, auth: AuthContext, n: number): Promise<Response | undefined> => {
+    const wsLimit = auth.workspaceId ? await service.workspaceAdmin?.rateLimitOf(auth.workspaceId) : undefined;
+    for (let i = 0; i < n; i++) {
+      const d = await limiter.take(auth.keyId, auth.rateLimitPerMinute);
+      if (!d.allowed) return limited(c, 'key', d);
+      if (wsLimit) {
+        const w = await limiter.take(`workspace:${auth.workspaceId}`, wsLimit);
+        if (!w.allowed) return limited(c, 'workspace', w);
+      }
+    }
+    return undefined;
+  };
+
   app.all('/mcp', async (c) => {
     // DNS-rebinding protection: the Host (and Origin, when a browser sends one) must be ours.
     const host = hostName(c.req.header('host'));
@@ -449,7 +488,30 @@ export function createApp(deps: AppDeps) {
     if (c.req.method !== 'POST') return handleMcp(c.req.raw, auth, service, config);
     let answered: Response | undefined;
     const refused = await json(c, async () => {
-      answered = await handleMcp(c.req.raw, auth, service, config);
+      // A JSON-RPC batch runs one call per message, so it costs one rate-limit unit per message, not one per HTTP
+      // request; authorize() took the first. Batches are capped (MCP 2025-06-18 dropped batching; older clients
+      // may still send them).
+      const text = await c.req.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = undefined;
+      }
+      if (Array.isArray(parsed)) {
+        if (parsed.length > MCP_MAX_BATCH) {
+          answered = c.json(errorBody('batch_too_large', `a JSON-RPC batch on /mcp holds at most ${MCP_MAX_BATCH} messages (got ${parsed.length}); send them in several requests`), 400);
+          return;
+        }
+        const over = parsed.length > 1 ? await charge(c, auth, parsed.length - 1) : undefined;
+        if (over) {
+          answered = over;
+          return;
+        }
+      }
+      // Not JSON: the transport reads the text again and answers with its JSON-RPC parse error.
+      const req = parsed === undefined ? new Request(c.req.raw.url, { method: 'POST', headers: c.req.raw.headers, body: text }) : c.req.raw;
+      answered = await handleMcp(req, auth, service, config, parsed);
     });
     return answered ?? refused ?? c.res;
   });

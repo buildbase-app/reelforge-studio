@@ -815,6 +815,23 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_MCP_OAUTH_JWKS_URL',
         description: 'The issuer\'s JWKS. Default: `jwks_uri` from its metadata (`/.well-known/oauth-authorization-server`, then OpenID discovery).',
       }),
+      workspaceClaim: setting(z.string().regex(/^[A-Za-z0-9_:./-]{1,100}$/, 'a claim name such as renderweld_workspace').optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_MCP_OAUTH_WORKSPACE_CLAIM',
+        example: 'renderweld_workspace',
+        description:
+          'The access-token claim that names the workspace a token acts in (#479), e.g. a custom claim your authorization server adds per client or organisation. Set: every token must carry it as a string naming an existing workspace (`401 invalid_token` otherwise; a suspended workspace gives `403 workspace_suspended`, as for its keys), and everything the token reads or writes stays in that workspace. Unset: tokens act in the default workspace.',
+      }),
+      blockedSubjects: setting(z.array(z.string().min(1).max(255).regex(/^[^\s,]+$/, 'a token subject (sub), without spaces or commas')).max(1000), {
+        kind: 'list',
+        scope: 'runtime',
+        env: 'REELFORGE_MCP_OAUTH_BLOCKED_SUBJECTS',
+        default: [],
+        example: 'auth0|65f0c2,user-42',
+        description:
+          'Access-token subjects (`sub`) refused on `/mcp` at once, before their tokens expire (#479): for a lost device or a person who left, while your authorization server stops issuing them tokens. A blocked token gets `401 invalid_token`. Runtime: `update_config` (owner) applies it on the next request and audits the change. At most 1000.',
+      }),
     }),
   }),
   audit: z.object({
@@ -1114,6 +1131,14 @@ export const ConfigSchema = z.object({
         default: 'silent',
         description:
           'What a muted render (`audio.mute`) carries: `silent`, a valid silent AAC track (safest: some players and upload pipelines expect an audio stream); `none`, no audio stream at all.',
+      }),
+      sfxMaskingDb: setting(z.number().min(-20).max(30), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_AUDIO_SFX_MASKING_DB',
+        default: 3,
+        description:
+          'Warn when a sound effect is less than this many dB louder than the music and voice under it (RMS over its first half second, or all of it when shorter; -20 to 30, #459): the render records an `sfx.masked` warning in `audio.qa` with the cue, its time and a volume that would clear it, and `checks.sfx` is `warn`. Lower it to warn less, raise it to ask for more headroom. A warning only: the render still succeeds.',
       }),
     }),
     ffmpegPath: setting(nonEmpty(), {

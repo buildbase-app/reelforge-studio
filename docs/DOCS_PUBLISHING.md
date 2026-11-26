@@ -11,7 +11,7 @@ docs/public/**/*.md, docs/PRIVACY.md, docs/CONFIG.md, docs/providers/*.md
 scripts/docs/sync-buildbase.mjs  ──org API──►  BuildBase Docs (dev env, then production)
                                                        │  content.docs.tree() / byPath(), doc.* webhooks
                                                        ▼
-                                          reelforge.buildbase.app/docs (store repo)
+                                          renderweld.com/docs (store repo)
 ```
 
 ## What gets published

@@ -10,7 +10,7 @@ How RenderWeld looks and ships in production. It covers:
 - DNS and email security;
 - the enterprise checklist.
 
-The product was called ReelForge until the rename (#408). The full brand standard, with the mark geometry, the colour table with contrast ratios and the index of every asset, is [`brand/BRAND.md`](brand/BRAND.md). Colours come from the founder's palette decision (#247). This page doesn't repeat that decision: it applies it.
+The product was called RenderWeld until the rename (#408). The full brand standard, with the mark geometry, the colour table with contrast ratios and the index of every asset, is [`brand/BRAND.md`](brand/BRAND.md). Colours come from the founder's palette decision (#247). This page doesn't repeat that decision: it applies it.
 
 State checked on 2026-11-24.
 
@@ -23,7 +23,7 @@ These are ranked by what they cost us while we sell.
 | 1 | Buy `renderweld.com` and `renderweld.dev`, claim the `renderweld` handles, run the trademark search, rename the GitHub org and repository | Founder | #409 |
 | 2 | DNSSEC, CAA, SPF/DKIM/DMARC, MTA-STS and the four mailboxes on the new zone (section 7) | Founder + agent, after #409 | #275 |
 | 3 | Move the site and store to `renderweld.com` with the kit's icons and share images, and 301 every old URL path for path | Agent | #411 |
-| 4 | HSTS is `max-age=0` on `reelforge.buildbase.app`: a Cloudflare zone setting on `buildbase.app` overrides the Worker's header. Our own zone ends this; fix it on the old host while it still serves pages | Founder (Cloudflare dashboard) | #272 |
+| 4 | HSTS is `max-age=0` on `renderweld.com`: a Cloudflare zone setting on `buildbase.app` overrides the Worker's header. Our own zone ends this; fix it on the old host while it still serves pages | Founder (Cloudflare dashboard) | #272 |
 | 5 | Uptime and error alerts, status page, versioned releases with a changelog | Agent + founder | #271 |
 
 ## 2. Name
@@ -58,7 +58,7 @@ Old names keep working for customers during the rename (settings, CLI, MCP URIs,
 
 **The mark** is two rounded frames, a portrait one (about 9:16) and a landscape one (about 16:9). They stand on one baseline and share a wall. A solid signal-orange dot sits on the joint:
 - **the weld point**, where every format becomes one file;
-- **a camera's tally light**, the "recording" lamp the ReelForge mark already had.
+- **a camera's tally light**, the "recording" lamp the RenderWeld mark already had.
 
 The two frames say "any format", the shared wall says "joined". It replaces the vertical reel-frame mark (#273).
 
@@ -140,7 +140,7 @@ The Docker image carries no brand files except the dashboard's icon (a few KB, D
 
 ## 6. Domain
 
-**`renderweld.com` is the main domain** (#408). `renderweld.dev` redirects to it (the whole `.dev` TLD is HSTS-preloaded, so it is HTTPS-only from the first visit). Why our own domain, not `reelforge.buildbase.app`:
+**`renderweld.com` is the main domain** (#408). `renderweld.dev` redirects to it (the whole `.dev` TLD is HSTS-preloaded, so it is HTTPS-only from the first visit). Why our own domain, not `renderweld.com`:
 
 - **Trust:** business buyers and their security reviewers expect the vendor's own domain.
 - **Control:** settings on the `buildbase.app` zone apply to us; the HSTS override (#272) is one example. On our own zone we set CAA records and can HSTS-preload.
@@ -149,7 +149,7 @@ The Docker image carries no brand files except the dashboard's icon (a few KB, D
 
 Buying is the founder's (#409): Cloudflare Registrar, auto-renew on, registrar lock on, 2FA on the account.
 
-**Old links never break.** `reelforge.buildbase.app/<path>` answers `301` to `renderweld.com/<path>`, path and query kept (#411).
+**Old links never break.** `renderweld.com/<path>` answers `301` to `renderweld.com/<path>`, path and query kept (#411).
 
 | Host | Purpose |
 | --- | --- |
@@ -159,7 +159,7 @@ Buying is the founder's (#409): Cloudflare Registrar, auto-renew on, registrar l
 | `status.renderweld.com` | Status page, hosted off Workers |
 | `send.renderweld.com` | Transactional mail only, so its reputation is kept apart from the apex |
 | `renderweld.dev`, `www.renderweld.dev` | `301` to the same path on `renderweld.com` |
-| `reelforge.buildbase.app` | `301` to the same path on `renderweld.com` |
+| `renderweld.com` | `301` to the same path on `renderweld.com` |
 
 ## 7. DNS and email security
 

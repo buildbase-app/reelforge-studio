@@ -1,6 +1,6 @@
 ---
 title: "MCP server overview"
-description: "How agents drive ReelForge Studio over MCP: the endpoint, authentication, the workflow from capabilities to a rendered MP4, resources and prompts."
+description: "How agents drive RenderWeld over MCP: the endpoint, authentication, the workflow from capabilities to a rendered MP4, resources and prompts."
 folder: mcp
 slug: mcp-server
 order: 1
@@ -9,7 +9,7 @@ tags: [mcp, agents]
 
 # MCP server overview
 
-ReelForge Studio is an MCP server. Your agent decides the scenes; the server
+RenderWeld is an MCP server. Your agent decides the scenes; the server
 validates, renders with Remotion, Motion Canvas, HTML/CSS or HyperFrames,
 assembles one MP4 with FFmpeg and checks it. The server has no built-in language
 model and needs no AI provider.
@@ -50,10 +50,10 @@ need `acknowledgeCost: true`) or deletes data.
 
 | Name | What it is |
 | --- | --- |
-| `reelforge://guide/workflow` | The workflow above with a minimal valid manifest and rules of thumb. Read it if you have no other docs |
-| `reelforge://schema/project` | JSON Schema of the current manifest version |
-| `reelforge://templates` | Installed templates with engines, durations, theme tokens and props schemas |
-| `reelforge://projects/{id}` | The current manifest of a project |
+| `renderweld://guide/workflow` | The workflow above with a minimal valid manifest and rules of thumb. Read it if you have no other docs |
+| `renderweld://schema/project` | JSON Schema of the current manifest version |
+| `renderweld://templates` | Installed templates with engines, durations, theme tokens and props schemas |
+| `renderweld://projects/{id}` | The current manifest of a project |
 | `renderweld://skills`, `renderweld://skills/{name}` | Skills for agents: rules with numbers for each step (brief, layout and type, sound, captions and accessibility, sync, brand, review), plus any the operator added with `skills.dir`. Also the `get_skill` tool and `GET /v1/skills`; see [Skills for agents](skills.md) |
 | Prompt `brief_intake` | Ask before assuming: the essentials of a brief (goal, audience, platform and size, length, language, tone, brand, captions, voice, music, exact content), where each goes in the manifest; the agent asks only what the request leaves open |
 | Prompt `make_reel` | Make a reel end to end |

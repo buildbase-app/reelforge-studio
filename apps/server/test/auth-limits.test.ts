@@ -48,7 +48,14 @@ async function setup(env: Record<string, string>) {
   const app = createApp({ service, config });
   const call = (ip: string, token: string | null, path = '/v1/capabilities') =>
     app.request(path, { headers: { host: 'localhost', 'x-forwarded-for': ip, ...(token ? { authorization: `Bearer ${token}` } : {}) } });
-  return { service, key, call, lookups, before: lookups() };
+  /** A POST with the key, as an MCP client sends it (JSON in, JSON or an event stream accepted). */
+  const post = (path: string, body: string, ip = '192.0.2.70') =>
+    app.request(path, {
+      method: 'POST',
+      body,
+      headers: { host: 'localhost', 'x-forwarded-for': ip, authorization: `Bearer ${key}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    });
+  return { service, key, call, post, lookups, before: lookups() };
 }
 
 describe('pre-auth limits over REST', () => {
@@ -146,6 +153,38 @@ describe('per-address budget and per-key limit headers', () => {
     expect(Number(limited.headers.get('ratelimit-reset'))).toBeGreaterThanOrEqual(1);
     const body = (await limited.json()) as { error: { code: string; details: { scope: string; hint: string; limit: number } } };
     expect(body.error).toMatchObject({ code: 'rate_limited', details: { scope: 'key', limit: 3, hint: expect.stringMatching(/rateLimitPerMinute/) } });
+  });
+});
+
+describe('JSON-RPC batches on /mcp', () => {
+  const call = (id: number) => ({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'get_me', arguments: {} } });
+
+  it('AUTH-11 a batch costs one rate-limit unit per message, so it cannot multiply the per-key limit', async () => {
+    const s = await setup({ REELFORGE_RATE_LIMIT_PER_MINUTE: '5' });
+    // Five units: a batch of 3 (3 units) leaves 2 ...
+    const three = await s.post('/mcp', JSON.stringify([call(1), call(2), call(3)]));
+    expect(three.status).toBe(200);
+    expect(((await three.json()) as unknown[]).length).toBe(3);
+    // ... so a batch of 3 more runs out after its second message and is refused with the key's 429, before any call runs.
+    const over = await s.post('/mcp', JSON.stringify([call(4), call(5), call(6)]));
+    expect(over.status).toBe(429);
+    expect(((await over.json()) as { error: { code: string; details: { scope: string } } }).error).toMatchObject({ code: 'rate_limited', details: { scope: 'key' } });
+    // A single message still costs one unit, and the budget is spent.
+    expect((await s.post('/mcp', JSON.stringify(call(7)))).status).toBe(429);
+  });
+
+  it('AUTH-12 a batch over the cap is refused with 400 batch_too_large; a single message or a small batch is not', async () => {
+    const s = await setup({ REELFORGE_RATE_LIMIT_PER_MINUTE: '1000' });
+    const big = await s.post('/mcp', JSON.stringify(Array.from({ length: 11 }, (_, i) => call(i + 1))));
+    expect(big.status).toBe(400);
+    expect(((await big.json()) as { error: { code: string; message: string } }).error).toMatchObject({ code: 'batch_too_large', message: expect.stringMatching(/at most 10 messages \(got 11\)/) });
+    const ten = await s.post('/mcp', JSON.stringify(Array.from({ length: 10 }, (_, i) => call(i + 1))));
+    expect(ten.status).toBe(200);
+    expect(((await ten.json()) as unknown[]).length).toBe(10);
+    // Not JSON: the transport's own JSON-RPC parse error, as before.
+    const broken = await s.post('/mcp', '{"jsonrpc":');
+    expect(broken.status).toBe(400);
+    expect(JSON.stringify(await broken.json())).toMatch(/Parse error/i);
   });
 });
 
