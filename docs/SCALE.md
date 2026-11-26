@@ -229,7 +229,7 @@ same PNG pipe as the html engine. These numbers are for the html engine.
 The worker Deployment scales on the job table (D-101: `deployment/kubernetes/keda/`). Keep four numbers
 consistent:
 
-1. `REELFORGE_WORKER_CONCURRENCY` in the worker's environment: from the sizing above.
+1. `RENDERWELD_WORKER_CONCURRENCY` in the worker's environment: from the sizing above.
 2. The ScaledObject's query divisor (`COUNT(*)::float / <concurrency>` in `scaledobject.yaml`), the same
    number. The pool then has one pod per `concurrency` jobs queued or running.
 3. Worker pod resources: `requests.cpu` = 1.5 × concurrency, `requests.memory` = concurrency × the peak per
@@ -242,7 +242,7 @@ consistent:
 # kustomize patch for a 16 vCPU / 32 GiB node pool, 1080p, 10 renders per pod
 - op: add
   path: /spec/template/spec/containers/0/env/-
-  value: { name: REELFORGE_WORKER_CONCURRENCY, value: "10" }
+  value: { name: RENDERWELD_WORKER_CONCURRENCY, value: "10" }
 - op: replace
   path: /spec/template/spec/containers/0/resources
   value: { requests: { cpu: "15", memory: 9Gi }, limits: { memory: 14Gi } }
@@ -255,7 +255,7 @@ settings: `update_config` (or the ConfigMap) changes them for every worker witho
 ## Scaling on plain Docker
 
 ```bash
-# one api, N workers, PostgreSQL, an S3 bucket; set REELFORGE_WORKER_CONCURRENCY (1 in the file) in the
+# one api, N workers, PostgreSQL, an S3 bucket; set RENDERWELD_WORKER_CONCURRENCY (1 in the file) in the
 # worker service's environment
 docker compose -f deployment/compose/docker-compose.scale.yml up -d --scale worker=3
 ```
@@ -271,8 +271,8 @@ host.
 ```bash
 pnpm load:depth                                   # claim cost at 5k, 10k, 20k queued; PostgreSQL 17 and MySQL 8.4 in Docker (~5 min)
 LOAD_DEPTH_KEYS=200 pnpm load:depth               # many tenants queueing at once
-REELFORGE_CHROMIUM_PATH=... pnpm load:encode      # render and encoder memory, 1080x1920 and 3840x2160 (~20 min)
-REELFORGE_CHROMIUM_PATH=... LOAD_SCENARIOS=b LOAD_POOLERS=direct LOAD_RENDERS=5000 LOAD_SECONDS=30 \
+RENDERWELD_CHROMIUM_PATH=... pnpm load:encode      # render and encoder memory, 1080x1920 and 3840x2160 (~20 min)
+RENDERWELD_CHROMIUM_PATH=... LOAD_SCENARIOS=b LOAD_POOLERS=direct LOAD_RENDERS=5000 LOAD_SECONDS=30 \
   LOAD_FAKE_WORKERS=200 LOAD_FAKE_WORK_MS=1000 LOAD_REAL_REEL=0 LOAD_LOGS=1 pnpm load   # the burst above
 ```
 

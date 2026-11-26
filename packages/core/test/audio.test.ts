@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { measureEbur128, probe, resolveTools, run } from '@renderweld/media-pipeline';
 import { parseProject } from '@renderweld/project-schema';
-import { AUDIO_DEFAULTS, PluginRegistry, ReelforgeService, createMemoryRepositories, resolveAudioPlan, verifyAudio, type AudioManifest } from '../src/index';
+import { AUDIO_DEFAULTS, PluginRegistry, ReelforgeService, createMemoryRepositories, resolveAudioPlan, sfxMaskingIssues, verifyAudio, type AudioManifest } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
 
 // Renders through the service with the fake engines and synthetic audio (#301, #298): loudness after the final AAC
@@ -131,6 +131,59 @@ describe('render audio', () => {
     expect(r.manifest.qa!.issues.find((i) => i.rule === 'loudness.integrated')!.message).toMatch(/peak-limited .*9\.5 dB of gain.*audio\.gainDb\.sfx/);
   }, 240_000);
 
+  it('AUD-20 a sound effect masked by the music bed is a warning with the cue, its time and a volume that clears it; a loud one passes (#459)', async () => {
+    await svc.createProject({ ...sample, projectId: 'masked' });
+    const lic = { name: 'CC0-1.0', redistributable: true };
+    // The #459 reel in small: a loud tonal bed (about -9.6 dBFS at 0.8), a whoosh (band-passed noise swell, about -19 dBFS)
+    // at half volume, so about 16 dB under the bed, and a hit at full volume well over it.
+    await svc.uploadAsset(await wav('bed.wav', 'aevalsrc=0.5*sin(2*PI*220*t)+0.3*sin(2*PI*330*t):s=48000:d=8'), { filename: 'bed.wav', projectId: 'masked', assetId: 'bed', license: lic });
+    await svc.uploadAsset(await wav('whoosh.wav', 'anoisesrc=d=0.6:c=white:a=0.6', "bandpass=f=1500:t=h:w=3000,volume='sin(PI*t/0.6)':eval=frame"), { filename: 'whoosh.wav', projectId: 'masked', assetId: 'whoosh', license: lic });
+    await svc.uploadAsset(await wav('hit2.wav', 'aevalsrc=0.8*cos(2*PI*200*t):s=48000:d=0.3'), { filename: 'hit2.wav', projectId: 'masked', assetId: 'hit2', license: lic });
+    await svc.setAudio('masked', { music: { asset: 'bed', volume: 0.8 }, sfx: [{ asset: 'whoosh', atFrame: 60, volume: 0.5 }, { asset: 'hit2', atFrame: 120, volume: 2 }] });
+    const renderMasked = async () => {
+      const job = await svc.startRender('masked');
+      const done = await svc.jobs.waitFor(job.id, 240_000);
+      expect(done.status, JSON.stringify(done.error)).toBe('succeeded');
+      const id = done.result!.renderId as string;
+      return { id, manifest: (await svc.getRenderManifest(id)) as { audio: AudioManifest; checks: Record<string, string> } };
+    };
+
+    const { id, manifest } = await renderMasked();
+    const a = manifest.audio;
+    expect(a.sfxAudibility!.thresholdDb).toBe(3);
+    const [whoosh, hit] = a.sfxAudibility!.cues;
+    expect(whoosh).toMatchObject({ cue: 0, asset: 'whoosh', atSeconds: 2, windowSeconds: 0.5 });
+    expect(whoosh!.marginDb!, JSON.stringify(whoosh)).toBeLessThan(-10);
+    expect(whoosh!.marginDb!, JSON.stringify(whoosh)).toBeGreaterThan(-20);
+    expect(hit).toMatchObject({ cue: 1, asset: 'hit2', atSeconds: 4, windowSeconds: 0.3 });
+    expect(hit!.marginDb!, JSON.stringify(hit)).toBeGreaterThan(3);
+    const masked = a.qa!.issues.filter((i) => i.rule === 'sfx.masked');
+    expect(masked).toHaveLength(1);
+    expect(masked[0]).toMatchObject({ severity: 'warn', cue: 0, asset: 'whoosh', atSeconds: 2, marginDb: whoosh!.marginDb, suggestedVolume: 2 });
+    expect(masked[0]!.message).toMatch(/sound effect 0 \("whoosh" at 2 s\) is [\d.]+ dB under the music and voice under it .*raise its volume to 2 \(now 0\.5\) and lower the music by about \d+ dB/);
+    // A warning, not a failure, and it does not count against loudness.
+    expect(a.qa!.ok).toBe(false);
+    expect(manifest.checks).toMatchObject({ sfx: 'warn', loudness: 'pass', avSync: 'pass' });
+    expect((await svc.getRender(id)).audio).toMatchObject({ checks: { sfx: 'warn', loudness: 'pass' }, qa: { issues: [expect.objectContaining({ rule: 'sfx.masked', cue: 0 })] } });
+
+    // render.audio.sfxMaskingDb is a runtime setting: lowered far enough, the same reel passes.
+    await svc.updateConfig({ 'render.audio.sfxMaskingDb': -20 });
+    try {
+      const again = await renderMasked();
+      expect(again.manifest.audio.sfxAudibility!.thresholdDb).toBe(-20);
+      expect(again.manifest.audio.qa!.issues.filter((i) => i.rule === 'sfx.masked')).toEqual([]);
+      expect(again.manifest.checks.sfx).toBe('pass');
+    } finally {
+      await svc.updateConfig({ 'render.audio.sfxMaskingDb': null });
+    }
+  }, 480_000);
+
+  it('AUD-21 sound effects with nothing under them are not measured (checks.sfx skipped)', async () => {
+    const { manifest } = await render({ audio: { music: false, voice: false } });
+    expect(manifest.audio.sfxAudibility).toBeUndefined();
+    expect(manifest.checks.sfx).toBe('skipped');
+  }, 240_000);
+
   it('AUD-14 refuses an invalid audio option before queueing', async () => {
     await expect(svc.startRender('mix', { audio: { loudness: 'loud' } })).rejects.toMatchObject({ status: 400 });
     await expect(svc.startRender('mix', { audio: { music: 'yes' } })).rejects.toMatchObject({ status: 400 });
@@ -147,6 +200,25 @@ describe('audio plan and QA rule', () => {
     const bare = parseProject({ ...v02, audio: {} });
     if (!bare.ok) throw new Error('sample');
     expect(resolveAudioPlan(bare.project, {}, { ...AUDIO_DEFAULTS, loudness: 'broadcast-atsc' }).loudness).toBe('broadcast-atsc');
+  });
+
+  it('AUD-22 the sfx.masked message: a volume within reach, or the music to lower when 2 is not enough', () => {
+    const m = (marginDb: number, volume: number): Pick<AudioManifest, 'sfx' | 'sfxAudibility'> => ({
+      sfx: [{ asset: 'pop', atFrame: 45, volume }],
+      sfxAudibility: { thresholdDb: 3, cues: [{ cue: 0, asset: 'pop', atSeconds: 1.5, windowSeconds: 0.2, cueDb: -20, bedDb: -20 - marginDb, marginDb }] },
+    });
+    // 1 dB over a 3 dB threshold: 5 dB more brings it 3 dB past it (0.5 * 10^(5/20) = 0.89).
+    const near = sfxMaskingIssues(m(1, 0.5));
+    expect(near).toEqual([expect.objectContaining({ rule: 'sfx.masked', severity: 'warn', cue: 0, marginDb: 1, suggestedVolume: 0.89 })]);
+    expect(near[0]!.message).toMatch(/is only 1 dB over the music and voice under it \(first 0\.2 s; wanted at least 3 dB over\).*raise its volume to about 0\.89 \(now 0\.5\)/);
+    // 14 dB under: 20 dB is wanted (to 6 dB over); 0.5 -> 2 gives 12 dB, the music has to give the other 8.
+    const far = sfxMaskingIssues(m(-14, 0.5));
+    expect(far[0]).toMatchObject({ suggestedVolume: 2 });
+    expect(far[0]!.message).toMatch(/is 14 dB under .*raise its volume to 2 \(now 0\.5\) and lower the music by about 8 dB .*audio\.gainDb\.sfx/);
+    // At or over the threshold, or nothing under it: no warning.
+    expect(sfxMaskingIssues(m(3, 1))).toEqual([]);
+    expect(sfxMaskingIssues({ sfx: [], sfxAudibility: { thresholdDb: 3, cues: [{ cue: 0, asset: 'x', atSeconds: 0, windowSeconds: 0.1, cueDb: -10, bedDb: null, marginDb: null }] } })).toEqual([]);
+    expect(sfxMaskingIssues({ sfx: [] })).toEqual([]);
   });
 
   it('AUD-15 off-target loudness is a warning in warn mode and a failure in fail mode; the LRA guideline only warns', async () => {

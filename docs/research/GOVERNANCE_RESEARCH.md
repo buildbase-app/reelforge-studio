@@ -1,5 +1,7 @@
 # Contribution governance research: humans and AI coding agents
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](../RENAMED.md) maps each old name to the new one.
+
 Researched 2026-11-21 for `buildbase-app/reelforge-studio` (PolyForm Noncommercial 1.0.0 plus a paid
 commercial licence) and `buildbase-app/reelforge-selling-public-site` (Next.js store, currently MIT).
 
