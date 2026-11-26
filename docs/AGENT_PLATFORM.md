@@ -184,10 +184,10 @@ REST handlers, with descriptions written for agents:
 Implemented extras (v0.1), so every REST route has a tool: projects and versions,
 themes, renders and jobs (`list_jobs`, `retry_job`, `list_renders`), assets,
 providers, keys and their lifecycle, the audit log (#65), configuration, licence,
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->76<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
 tool's scope, arguments and REST equivalent is generated from the server's
 registry: [public/mcp/tools.md](public/mcp/tools.md) (`pnpm docs:reference`).
 Create and render tools take an optional `idempotencyKey` (D-057). Resource
@@ -195,7 +195,9 @@ Create and render tools take an optional `idempotencyKey` (D-057). Resource
 agent with no other docs.
 
 Resources: `renderweld://schema/project`, `renderweld://templates`,
-`renderweld://projects/{id}`. Prompts: `brief_intake` (ask the user what the
+`renderweld://projects/{id}`, and the skills for agents `renderweld://skills` and
+`renderweld://skills/{name}` (also `get_skill` and `GET /v1/skills`; built-in
+standards-based skills plus `skills.dir`, #313; public/mcp/skills.md). Prompts: `brief_intake` (ask the user what the
 request leaves open before planning, #313), `make_reel` (the whole workflow),
 `plan_reel` (turn a brief into a
 manifest using installed templates), `review_reel` (check a manifest against
@@ -282,8 +284,9 @@ that was run; "partial" says what is missing.
 | Licence activation (#25, D-028, D-035..D-038) | done | BuildBase licence API (key + instance id only), `LicenceState` table on all three databases, daily validate, 14-day offline grace, backoff, clock checks; renders/previews refused with `licence_required` / `licence_invalid` + fix; `get_licence` / `activate_licence` / `deactivate_licence`, `/v1/licence`, `renderweld licence`; unit tests (mock LicensesApi), server tests (mock licence server, injected clock), Docker e2e on SQLite and PostgreSQL, one live check against the dev environment. `licence.mode: trial` reserved |
 | Workflow guide for agents without docs | done | MCP resource `renderweld://guide/workflow` and prompt `make_reel`; the guide's manifest is validated by a test |
 | §6 Assets: upload or URL, licence, checksum | done | Content-addressed store, byte sniffing, https only, SSRF guard at connect time, size limit |
-| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->76<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->77<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 Resources and prompts `brief_intake`, `make_reel`, `plan_reel`, `review_reel` | done | MCP tests |
+| Skills for agents (#313): 12 built-in craft skills, public (D-132), `skills.dir` for more, `get_skill`, `/v1/skills`, resources, `renderweld skills export` | done | `apps/server/test/skills.test.ts` (SKL-01..15) |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |
 | §8 API keys: random 32 bytes, hashed, scopes, CLI, admin API, bootstrap key | done | `RENDERWELD_BOOTSTRAP_KEY` or `_FILE`; CLI `pnpm keys:create` / `renderweld keys create` in Docker (picked up without restart); admin tools create/list/revoke |
