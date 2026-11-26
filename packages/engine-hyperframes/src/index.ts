@@ -399,7 +399,7 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   const { scene, output } = opts;
   const stage = `render:${scene.id}`;
   const browser = opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH');
-  if (!browser || !existsSync(browser)) throw new PipelineError('setup', 'no browser for HyperFrames: set REELFORGE_CHROMIUM_PATH');
+  if (!browser || !existsSync(browser)) throw new PipelineError('setup', 'no browser for HyperFrames: set RENDERWELD_CHROMIUM_PATH');
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
   const project = join(opts.workDir, 'hyperframes');
   await mkdir(project, { recursive: true });
@@ -558,7 +558,7 @@ export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?
     capabilities: () => ({ frameRanges: false, output: { alpha: true } }),
     availability() {
       const b = browser();
-      if (!b || !existsSync(b)) return { ok: false, reason: 'no browser: set REELFORGE_CHROMIUM_PATH to a Chrome Headless Shell binary' };
+      if (!b || !existsSync(b)) return { ok: false, reason: 'no browser: set RENDERWELD_CHROMIUM_PATH to a Chrome Headless Shell binary' };
       try {
         if (!existsSync(hyperframesBin())) return { ok: false, reason: 'the hyperframes package is not installed' };
       } catch {
