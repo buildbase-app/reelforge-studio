@@ -131,6 +131,35 @@ The preset of a render is, first found wins:
   that starts or stops on a non-zero sample, or a player that loops the reel,
   does not click.
 
+### Sound effects that cannot be heard
+
+An agent cannot listen, so every render with sound effects over music or a
+voice measures each cue against what plays under it. It compares two levels,
+both RMS over the cue's first half second (or all of it when shorter, at least
+50 ms):
+
+- the cue's own level: its file at its `volume` and the `sfx` bus gain;
+- the bed under it: the mix without sound effects (music and voice with their
+  volumes, fades, bus gains and ducking).
+
+A cue less than `render.audio.sfxMaskingDb` (default 3 dB) over the bed gets a
+warning in `audio.qa.issues`. The render still succeeds:
+
+```json
+{ "rule": "sfx.masked", "severity": "warn", "cue": 0, "asset": "whoosh", "atSeconds": 2.5,
+  "marginDb": -14.2, "suggestedVolume": 2,
+  "message": "sound effect 0 (\"whoosh\" at 2.5 s) is 14.2 dB under the music and voice under it (first 0.5 s; wanted at least 3 dB over), so it will barely be heard: raise its volume to 2 (now 0.5) and lower the music by about 8 dB (audio.music.volume or audio.gainDb.music), or raise audio.gainDb.sfx" }
+```
+
+`suggestedVolume` is the cue volume that puts it 3 dB past the threshold. A cue
+volume stops at 2, so when 2 is not enough, the message also says how much to
+lower the music. `checks.sfx` is `warn` when any cue is masked, `pass`
+otherwise, and `skipped` when no sound effect plays over music or a voice. Each
+cue's figures are in `audio.sfxAudibility` (`cueDb`, `bedDb`, `marginDb`,
+`windowSeconds`). The check needs no model: FFmpeg's `astats` on the stems the
+mixer already has. Ducking the music under sound effects is a separate mix
+feature; this check only reports.
+
 ### Ducking
 
 `music.ducking: true` lowers the music while someone speaks, with the defaults
@@ -202,5 +231,6 @@ when one reaches its frame limit, which would cut the audio short.
 `audio` in `render-manifest.json` has the tracks that played, `toggles`,
 `gainDb`, `ducking` (with the speech windows), `loudness` (`preset`, `target`,
 `input` as measured before normalisation, `normalisation`, `gainDb`, `limiter`, `measured`
-after the final encode), `avSync` and `qa` (`ok`, `mode`, `issues`).
-`get_render_output` repeats the essentials as `audio`.
+after the final encode), `avSync`, `sfxAudibility` (each sound effect against its
+bed) and `qa` (`ok`, `mode`, `issues`). `checks` has `avSync`, `loudness` and
+`sfx`. `get_render_output` repeats the essentials as `audio`.

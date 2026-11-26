@@ -46,7 +46,7 @@ import {
   type ThemeTokens,
 } from '@renderweld/project-schema';
 import { BUNDLED_FONTS } from './fonts';
-import type { AudioManifest } from './audio';
+import { audioChecks, type AudioManifest } from './audio';
 import { OLD_SERVER_NAMES, PRODUCT_NAME, SERVER_NAME } from './product';
 import { AssetStore, assetUsableBy, stageStream } from './assets';
 import { CAPTION_FILE_PATTERN, captionFileNames, captionFontChoice, captionFontList, captionsEtag, type CaptionManifest } from './captions';
@@ -288,9 +288,10 @@ export interface RenderAudio {
   /**
    * Which audio checks ran on the delivered file: A/V sync is skipped without
    * an audio stream (muted with mutedTrack "none", GIF, PNG sequence) and for
-   * audio-only files (no video); loudness is skipped when nothing was normalised.
+   * audio-only files (no video); loudness is skipped when nothing was normalised;
+   * sfx (#459) is skipped when no sound effect plays over music or a voice.
    */
-  checks: { avSync: 'pass' | 'skipped'; loudness: 'pass' | 'warn' | 'skipped' };
+  checks: { avSync: 'pass' | 'skipped'; loudness: 'pass' | 'warn' | 'skipped'; sfx: 'pass' | 'warn' | 'skipped' };
   preset: string;
   target: { integrated: number; truePeak: number } | null;
   normalisation: 'linear' | 'limited' | 'dynamic' | 'none';
@@ -326,10 +327,7 @@ function renderAudio(a: AudioManifest): RenderAudio {
   return {
     track: a.track,
     ...(a.loudness.reason ? { reason: a.loudness.reason } : {}),
-    checks: {
-      avSync: a.avSync ? 'pass' : 'skipped',
-      loudness: a.loudness.measured ? (a.qa?.issues.some((x) => x.rule !== 'loudness.lra') ? 'warn' : 'pass') : 'skipped',
-    },
+    checks: { avSync: a.avSync ? 'pass' : 'skipped', ...audioChecks(a) },
     preset: a.loudness.preset,
     target: t ? { integrated: t.integrated, truePeak: t.truePeakCeiling } : null,
     normalisation: a.loudness.normalisation,
