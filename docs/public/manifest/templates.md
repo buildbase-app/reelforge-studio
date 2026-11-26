@@ -1,6 +1,6 @@
 ---
 title: "Built-in templates"
-description: "The scene templates ReelForge Studio ships with: engine, duration range and what each one draws."
+description: "The scene templates RenderWeld ships with: engine, duration range and what each one draws."
 folder: "manifest"
 slug: "templates"
 order: 2
