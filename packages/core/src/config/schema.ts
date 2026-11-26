@@ -384,7 +384,7 @@ export const ConfigSchema = z.object({
       scope: 'runtime',
       env: 'REELFORGE_RENDER_CONCURRENCY',
       default: 1,
-      description: 'Renders at the same time. Each keeps about 1 to 1.5 CPU cores busy and peaks at about 0.8 GB (1080x1920) or 1.7 GB (3840x2160), measured with the html engine (docs/SCALE.md); more renders than cores / 1.5 only slow each one down. A lower value lets running renders finish.',
+      description: 'Renders at the same time. Measured best: the number of vCPUs; memory about 0.3 GB plus 0.6 GB per render for 1080x1920 (docs/public/install/sizing.md, `pnpm bench:docker`). More than the vCPUs only slows each render: on 1 vCPU two at once finished fewer an hour than one. A lower value lets running renders finish.',
     }),
     maxInflightRequests: setting(z.number().int().min(0).max(100_000), {
       kind: 'integer',
@@ -1148,7 +1148,7 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_RENDER_QA_VIDEO',
         default: 'warn',
         description:
-          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`), black pictures (`render.qa.blackSeconds`) and photosensitive flashes (more than three general or red flashes a second over a quarter of the picture, WCAG 2.2 SC 2.3.1), measured on every frame in one FFmpeg decode pass. `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`, `checks.flash`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
+          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`), black pictures (`render.qa.blackSeconds`), photosensitive flashes (more than three general or red flashes a second over a quarter of the picture, WCAG 2.2 SC 2.3.1), pictures that barely move (`render.qa.lowMotionSeconds`) and, for a project with `output.loop`, a jump where the video repeats, measured on every frame in one FFmpeg decode pass; and on renders, a few frames rendered again on their own (`render.qa.seekFrames`). `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`, `checks.flash`, `checks.motion`, `checks.loop`, `checks.seek`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
       }),
       freezeSeconds: setting(z.number().min(0.5).max(3600), {
         kind: 'number',
@@ -1165,6 +1165,30 @@ export const ConfigSchema = z.object({
         default: 0.5,
         description:
           'Black pictures lasting this long (seconds, 0.1 to 3600) are reported; a fade through black is shorter. Not checked on transparent output.',
+      }),
+      lowMotionSeconds: setting(z.number().min(0).max(3600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_LOW_MOTION_SECONDS',
+        default: 3,
+        description:
+          'Pictures that barely move for this long (seconds, 0 to 3600; 0: not reported) are reported as `video.motion`: no frame differs from the picture a second before by `render.qa.motionFloor` or more, so the video reads as stuck though it is not a perfect still (grain, a blinking cursor, a crawl too slow to see). Stretches already reported as frozen are left out. Motion energy per second is recorded in `videoQa.motion` either way.',
+      }),
+      motionFloor: setting(z.number().min(0.05).max(20), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_MOTION_FLOOR',
+        default: 0.4,
+        description:
+          'A frame that differs from the picture a second before by less than this counts as still for `render.qa.lowMotionSeconds`: the mean change of a 32x32 luma grid, in 8-bit levels (0.05 to 20). Measured on 1080x1920: heavy grain on a still 0.31, a blinking cursor 0.14, text drifting at 20 px/s 0.63, text sliding at 300 px/s 3.7. Smaller frames read grainier (0.57 at 540x960), so a grainy still there is not reported.',
+      }),
+      seekFrames: setting(z.number().int().min(0).max(20), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_SEEK_FRAMES',
+        default: 2,
+        description:
+          'Seek check (#294): this many frames of each render (0 to 20; 0: off), spread over the scenes whose engine renders frame ranges (Remotion), are rendered again on their own and compared with the same frames of the finished video. A frame that differs is reported as `video.seek`: the scene depends on the frames before it, so split renders (`render.fanOut: scenes+chunks`) can show a different picture. Each frame costs one more engine start (about 1 s with Remotion at 1080x1920). Not run for previews or transparent output.',
       }),
     }),
     ffmpegPath: setting(nonEmpty(), {
