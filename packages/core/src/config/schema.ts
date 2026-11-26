@@ -815,6 +815,23 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_MCP_OAUTH_JWKS_URL',
         description: 'The issuer\'s JWKS. Default: `jwks_uri` from its metadata (`/.well-known/oauth-authorization-server`, then OpenID discovery).',
       }),
+      workspaceClaim: setting(z.string().regex(/^[A-Za-z0-9_:./-]{1,100}$/, 'a claim name such as renderweld_workspace').optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_MCP_OAUTH_WORKSPACE_CLAIM',
+        example: 'renderweld_workspace',
+        description:
+          'The access-token claim that names the workspace a token acts in (#479), e.g. a custom claim your authorization server adds per client or organisation. Set: every token must carry it as a string naming an existing workspace (`401 invalid_token` otherwise; a suspended workspace gives `403 workspace_suspended`, as for its keys), and everything the token reads or writes stays in that workspace. Unset: tokens act in the default workspace.',
+      }),
+      blockedSubjects: setting(z.array(z.string().min(1).max(255).regex(/^[^\s,]+$/, 'a token subject (sub), without spaces or commas')).max(1000), {
+        kind: 'list',
+        scope: 'runtime',
+        env: 'REELFORGE_MCP_OAUTH_BLOCKED_SUBJECTS',
+        default: [],
+        example: 'auth0|65f0c2,user-42',
+        description:
+          'Access-token subjects (`sub`) refused on `/mcp` at once, before their tokens expire (#479): for a lost device or a person who left, while your authorization server stops issuing them tokens. A blocked token gets `401 invalid_token`. Runtime: `update_config` (owner) applies it on the next request and audits the change. At most 1000.',
+      }),
     }),
   }),
   audit: z.object({
@@ -1115,6 +1132,40 @@ export const ConfigSchema = z.object({
         description:
           'What a muted render (`audio.mute`) carries: `silent`, a valid silent AAC track (safest: some players and upload pipelines expect an audio stream); `none`, no audio stream at all.',
       }),
+      sfxMaskingDb: setting(z.number().min(-20).max(30), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_AUDIO_SFX_MASKING_DB',
+        default: 3,
+        description:
+          'Warn when a sound effect is less than this many dB louder than the music and voice under it (RMS over its first half second, or all of it when shorter; -20 to 30, #459): the render records an `sfx.masked` warning in `audio.qa` with the cue, its time and a volume that would clear it, and `checks.sfx` is `warn`. Lower it to warn less, raise it to ask for more headroom. A warning only: the render still succeeds.',
+      }),
+    }),
+    qa: z.object({
+      video: setting(z.enum(['off', 'warn', 'fail']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_VIDEO',
+        default: 'warn',
+        description:
+          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`), black pictures (`render.qa.blackSeconds`) and photosensitive flashes (more than three general or red flashes a second over a quarter of the picture, WCAG 2.2 SC 2.3.1), measured on every frame in one FFmpeg decode pass. `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`, `checks.flash`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
+      }),
+      freezeSeconds: setting(z.number().min(0.5).max(3600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_FREEZE_SECONDS',
+        default: 3,
+        description:
+          'A picture that does not change for this long (seconds, 0.5 to 3600) is reported as frozen: viewers read a still that long as a stuck video. Raise it for deliberate holds such as slides.',
+      }),
+      blackSeconds: setting(z.number().min(0.1).max(3600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_BLACK_SECONDS',
+        default: 0.5,
+        description:
+          'Black pictures lasting this long (seconds, 0.1 to 3600) are reported; a fade through black is shorter. Not checked on transparent output.',
+      }),
     }),
     ffmpegPath: setting(nonEmpty(), {
       kind: 'path',
@@ -1348,6 +1399,16 @@ export const ConfigSchema = z.object({
         default: 600,
         description: 'Longest one transcription may run (10 to 3600 seconds); the process is killed after it.',
       }),
+    }),
+  }),
+  skills: z.object({
+    dir: setting(nonEmpty().max(1024).optional(), {
+      kind: 'path',
+      scope: 'startup',
+      env: 'REELFORGE_SKILLS_DIR',
+      defaultText: '(none: the built-in skills only)',
+      description:
+        "A folder of extra skills for agents: your house rules, or a skills pack. Each is `<name>.md` or `<name>/SKILL.md` with `name` and `description` front matter (`title` optional), at most 256 KiB, up to 200 skills. Served by `get_skill`, `GET /v1/skills` and the `renderweld://skills` resources beside the built-in ones; one with a built-in's name replaces it. Read at start-up: a file that cannot be used stops the start with its name.",
     }),
   }),
   logging: z.object({

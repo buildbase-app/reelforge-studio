@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { join, resolve, sep } from 'node:path';
-import { MAX_ZIP_ENTRIES, assHasAlpha, encodersOf, missingEncoders, resolveTools, setEncoderSettings, setFormatSettings, toolPaths, toolVersionAsync, type Tools } from '@renderweld/media-pipeline';
+import { MAX_ZIP_ENTRIES, assHasAlpha, encodersOf, framesImage, missingEncoders, resolveTools, setEncoderSettings, setFormatSettings, toolPaths, toolVersionAsync, type Tools } from '@renderweld/media-pipeline';
 import {
   CAPTION_MODES,
   captionMode,
@@ -44,9 +44,12 @@ import {
   type ValidationIssue,
   type ValidationWarning,
   type ThemeTokens,
+  safeAreaInsets,
 } from '@renderweld/project-schema';
 import { BUNDLED_FONTS } from './fonts';
-import type { AudioManifest } from './audio';
+import { FRAMES_DEFAULT_WIDTH, FRAMES_MAX_BYTES, FRAMES_MAX_WIDTH, FRAMES_MIN_WIDTH, framesCacheDir, planFrames, sceneSpans, type FramesRequest, type PlannedTile } from './frames';
+import type { VideoQaManifest } from './videoqa';
+import { audioChecks, type AudioManifest } from './audio';
 import { OLD_SERVER_NAMES, PRODUCT_NAME, SERVER_NAME } from './product';
 import { AssetStore, assetUsableBy, stageStream } from './assets';
 import { CAPTION_FILE_PATTERN, captionFileNames, captionFontChoice, captionFontList, captionsEtag, type CaptionManifest } from './captions';
@@ -62,7 +65,7 @@ import { outputSupportIssues } from './output-support';
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
 import { KeyStore, hasScope, quotaWindows, type AuthContext, type KeyOptions, type PublicKey, type Scope } from './keys';
-import { DEFAULT_WORKSPACE_ID, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories } from './repositories';
+import { DEFAULT_WORKSPACE_ID, type JobStatus, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories, type WorkspaceStatus } from './repositories';
 import { WORKSPACE_ID, currentWorkspaceId, isWorkspaceRouter, mergeAuditPages, runInWorkspace, workspaceKeyPrefix, type WorkspaceRouter } from './workspace';
 import { WorkspaceAdmin } from './workspace-admin';
 import {
@@ -194,6 +197,9 @@ const JOB_EVENTS: Record<string, string> = { queued: 'job.queued', running: 'job
 /** Most audit entries one MCP export returns (REST streams up to MAX_AUDIT_EXPORT). */
 export const MAX_MCP_EXPORT = 10_000;
 
+/** list_jobs filters (GET /v1/jobs?status=&type=). */
+export const LIST_JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'cancelled'] as const;
+export const LIST_JOB_TYPES = ['render', 'preview', 'render_unit', 'render_join'] as const;
 /** Render and preview jobs count towards a key's render quota. */
 const QUOTA_JOB_TYPES = ['render', 'preview'];
 /** Validation errors for exceeded render limits start with this (a preview of some scenes is checked on its own). */
@@ -279,6 +285,8 @@ export interface RenderSummary {
   storage: { driver: string; prefix: string };
   /** The render's audio (#301): what the file carries, the loudness preset, what was measured after the final encode, QA. */
   audio?: RenderAudio;
+  /** Picture checks (#294, render.qa.*): frozen and black stretches, with the scenes they touch. Absent when off or audio-only. */
+  videoQa?: VideoQaManifest;
 }
 
 export interface RenderAudio {
@@ -288,9 +296,10 @@ export interface RenderAudio {
   /**
    * Which audio checks ran on the delivered file: A/V sync is skipped without
    * an audio stream (muted with mutedTrack "none", GIF, PNG sequence) and for
-   * audio-only files (no video); loudness is skipped when nothing was normalised.
+   * audio-only files (no video); loudness is skipped when nothing was normalised;
+   * sfx (#459) is skipped when no sound effect plays over music or a voice.
    */
-  checks: { avSync: 'pass' | 'skipped'; loudness: 'pass' | 'warn' | 'skipped' };
+  checks: { avSync: 'pass' | 'skipped'; loudness: 'pass' | 'warn' | 'skipped'; sfx: 'pass' | 'warn' | 'skipped' };
   preset: string;
   target: { integrated: number; truePeak: number } | null;
   normalisation: 'linear' | 'limited' | 'dynamic' | 'none';
@@ -326,10 +335,7 @@ function renderAudio(a: AudioManifest): RenderAudio {
   return {
     track: a.track,
     ...(a.loudness.reason ? { reason: a.loudness.reason } : {}),
-    checks: {
-      avSync: a.avSync ? 'pass' : 'skipped',
-      loudness: a.loudness.measured ? (a.qa?.issues.some((x) => x.rule !== 'loudness.lra') ? 'warn' : 'pass') : 'skipped',
-    },
+    checks: { avSync: a.avSync ? 'pass' : 'skipped', ...audioChecks(a) },
     preset: a.loudness.preset,
     target: t ? { integrated: t.integrated, truePeak: t.truePeakCeiling } : null,
     normalisation: a.loudness.normalisation,
@@ -386,6 +392,12 @@ export class ReelforgeService {
   readonly webhooks: WebhookService;
   /** Workspace management and per-workspace limits (#304); null when the repositories are bound to one workspace. */
   readonly workspaceAdmin: WorkspaceAdmin | null;
+  private readonly workspaceStatusOf: (id: string) => Promise<WorkspaceStatus | null>;
+
+  /** A workspace's status (active, suspended, deleted), or null when there is none by that id. Without workspace routing only the default exists. */
+  workspaceStatus(id: string): Promise<WorkspaceStatus | null> {
+    return this.workspaceStatusOf(id);
+  }
   private progressBuckets = new Map<string, number>();
   private licenceSeen: { status: string; reason: string | null } | null = null;
   private licenceTimer: NodeJS.Timeout | null = null;
@@ -451,6 +463,7 @@ export class ReelforgeService {
       audit: (e) => this.audit(e),
       rotationGraceHours: () => this.settings.current.config.keys.rotationGraceHours,
     });
+    this.workspaceStatusOf = router ? async (id: string) => (await router.workspace(id))?.status ?? null : async (id: string) => (id === DEFAULT_WORKSPACE_ID ? 'active' : null);
     this.workspaceAdmin = router
       ? new WorkspaceAdmin({ repos: router, keys: this.keys, settings: this.settings, storage: this.storage, dataDir: this.dataDir, audit: (e) => this.audit(e), now: this.now, log: config.log })
       : null;
@@ -1106,6 +1119,8 @@ export class ReelforgeService {
   }
 
   async deleteProject(id: string) {
+    // Listed before the delete: get_frames' cached stills of these renders go too.
+    const runs = await this.storage.renders.listRuns(id).catch(() => []);
     await this.projects.delete(id);
     for (const [run, pid] of this.renderIndex) if (pid === id && run.startsWith(this.rk(''))) this.renderIndex.delete(run);
     // Its queued and running renders and previews stop (#419): a render that finished after the delete would
@@ -1119,6 +1134,7 @@ export class ReelforgeService {
     // A cancelled render stops within a moment here (a heartbeat on another worker); then its folder goes too.
     await Promise.all(stopping.map((jobId) => this.jobs.waitFor(jobId, DELETE_WAIT_MS).catch(() => undefined)));
     await this.removeProjectFiles(id);
+    for (const run of runs) await rm(framesCacheDir(this.cacheDir, run.runId), { recursive: true, force: true });
   }
 
   /** What is left of a deleted project: its local folder, or its renders in remote storage (manifests first). */
@@ -1954,6 +1970,7 @@ export class ReelforgeService {
       theme: (project) => this.themes.resolve(project.theme),
       assets: (project, pid) => this.resolveAssets(project, pid),
       audioDefaults: () => this.settings.current.config.render.audio,
+      videoQa: () => this.settings.current.config.render.qa,
     };
   }
 
@@ -2091,6 +2108,7 @@ export class ReelforgeService {
       ...(req.captionsMode ? { captionsMode: req.captionsMode } : {}),
       ...(req.audio ? { audio: req.audio } : {}),
       audioDefaults: this.settings.current.config.render.audio,
+      videoQa: this.settings.current.config.render.qa,
       ...(req.captionsDefault ? { captionsDefault: req.captionsDefault } : {}),
       gifMaxBytes: this.settings.current.config.render.formats.gifMaxBytes,
     });
@@ -2136,16 +2154,21 @@ export class ReelforgeService {
    * One page of jobs, newest first (D-102; paged like listProjects), optionally of one project and/or the children
    * of one job (`parentId`: the units and the join of a fanned-out render, D-097). The cursor carries both filters.
    */
-  async listJobs(filter: { projectId?: string; parentId?: string } = {}, q: { limit?: unknown; cursor?: unknown } = {}) {
+  async listJobs(filter: { projectId?: string; parentId?: string; status?: string; type?: string } = {}, q: { limit?: unknown; cursor?: unknown } = {}) {
     const projectId = filter.projectId || undefined;
     const parentId = filter.parentId || undefined;
-    // The cursor's filter: the projectId alone as before (cursors of #182 stay valid); with parentId, both
-    // ("|" cannot occur in a project id, so two filters never share a string).
-    const key = parentId === undefined ? (projectId ?? '') : `${projectId ?? ''}|parent:${parentId}`;
+    const status = filter.status || undefined;
+    const type = filter.type || undefined;
+    if (status !== undefined && !(LIST_JOB_STATUSES as readonly string[]).includes(status)) throw badRequest(`status must be one of ${LIST_JOB_STATUSES.join(', ')}`);
+    if (type !== undefined && !(LIST_JOB_TYPES as readonly string[]).includes(type)) throw badRequest(`type must be one of ${LIST_JOB_TYPES.join(', ')}`);
+    // The cursor's filter: the projectId alone as before (cursors of #182 stay valid); with parentId, both; a
+    // status or type filter is added the same way ("|" cannot occur in a project id, so two filters never share a string).
+    const key =
+      (parentId === undefined ? (projectId ?? '') : `${projectId ?? ''}|parent:${parentId}`) + (status ? `|status:${status}` : '') + (type ? `|type:${type}` : '');
     const req = parsePageQuery('jobs', key, q);
     // No job can have an impossible id: answered without a query.
     if ((projectId !== undefined && !isProjectId(projectId)) || (parentId !== undefined && !isRowId(parentId))) return { jobs: [], nextCursor: null };
-    const where = { ...(projectId ? { projectId } : {}), ...(parentId ? { parentId } : {}) };
+    const where = { ...(projectId ? { projectId } : {}), ...(parentId ? { parentId } : {}), ...(status ? { status: status as JobStatus } : {}), ...(type ? { type } : {}) };
     const { items, nextCursor } = await readPage('jobs', key, req, (r) => this.jobs.page(where, r));
     return { jobs: items, nextCursor };
   }
@@ -2196,6 +2219,7 @@ export class ReelforgeService {
       scenes: Array<{ file: string }>;
       captions?: CaptionManifest;
       audio?: Partial<AudioManifest>;
+      videoQa?: VideoQaManifest;
     }>(projectId, runId);
     if (!m) throw notFound('render', runId);
     const base = `/v1/renders/${runId}/output`;
@@ -2260,6 +2284,7 @@ export class ReelforgeService {
       ...(await this.downloadLink(projectId, runId, outFile)),
       ...(captions ? { captions } : {}),
       ...(m.audio?.loudness && m.audio.track ? { audio: renderAudio(m.audio as AudioManifest) } : {}),
+      ...(m.videoQa ? { videoQa: m.videoQa } : {}),
       storage: { driver: this.storage.driver.id, prefix: renderPrefix(projectId, runId) },
     };
   }
@@ -2309,6 +2334,20 @@ export class ReelforgeService {
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  /**
+   * delete_render (DELETE /v1/renders/:id, write, #312): removes one finished render or preview with every file
+   * (output, poster, captions, clips, manifest) from storage and from this instance's caches. Its job keeps its
+   * history; get_render_output then answers not_found. Cannot be undone.
+   */
+  async deleteRender(runId: string): Promise<{ deleted: string; projectId: string; files: number }> {
+    const { projectId } = await this.findRender(runId);
+    const run = (await this.storage.renders.listRuns(projectId)).find((r) => r.runId === runId);
+    if (!run) throw notFound('render', runId);
+    await this.storage.deleteRender(run);
+    this.renderIndex.delete(this.rk(runId));
+    return { deleted: runId, projectId, files: run.keys.length };
+  }
+
   /** A file of a render in storage (default: its output, final.mp4 or another format's file, #302): its key, type and size, for streaming. */
   async renderObject(runId: string, fileArg?: string): Promise<{ key: string; contentType: string; bytes: number; file: string }> {
     const file = fileArg ?? (await this.getRender(runId)).file;
@@ -2326,6 +2365,90 @@ export class ReelforgeService {
   async renderFile(runId: string, file?: string): Promise<{ path: string; contentType: string }> {
     const o = await this.renderObject(runId, file);
     return { path: await this.storage.localFile(o.key, o.bytes), contentType: o.contentType };
+  }
+
+  /** get_frames runs FFmpeg; at most this many at once per instance, the rest wait their turn. */
+  private framesSlots = 2;
+  private framesQueue: Array<() => void> = [];
+
+  /**
+   * get_frames (GET /v1/renders/:id/frames, read, #379): stills of exact frames of a finished render or preview,
+   * as one labelled contact sheet (default) or one JPEG per frame, from the stored output (no re-render). See
+   * frames.ts for the selection. `overlay: "safe"` tints what lies outside the content safe area of the render's
+   * size and platform. Images stay under FRAMES_MAX_BYTES (tiles shrink if needed) and are cached per render.
+   */
+  async getFrames(runId: string, req: FramesRequest = {}): Promise<FramesResult> {
+    const { projectId } = await this.findRender(runId);
+    const m = await this.storage.renders.readManifest<{
+      kind: string;
+      output: { file?: string; format?: string; width: number; height: number; fps: number; frameRate?: string; frames: number };
+      scenes: Array<{ sceneId: string; startFrame: number; frames: number }>;
+      project?: { brief?: { platform?: string } };
+    }>(projectId, runId);
+    if (!m) throw notFound('render', runId);
+    const file = m.output.file ?? 'final.mp4';
+    if (!/^final\.(mp4|mov|webm|gif)$/.test(file)) throw badRequest(`render ${runId} is ${file}, not a video; get_frames needs an mp4, mov, webm or gif output`);
+    const width = req.width ?? FRAMES_DEFAULT_WIDTH;
+    if (!Number.isInteger(width) || width < FRAMES_MIN_WIDTH || width > FRAMES_MAX_WIDTH) throw badRequest(`width must be a whole number from ${FRAMES_MIN_WIDTH} to ${FRAMES_MAX_WIDTH}`);
+    const layout = req.layout ?? 'sheet';
+    const overlayKind = req.overlay ?? 'none';
+    const frameRate = m.output.frameRate ?? String(m.output.fps);
+    const plan = planFrames(req, { frames: m.output.frames, fps: m.output.fps, scenes: sceneSpans(m.scenes ?? []) });
+    const overlay = overlayKind === 'safe' ? safeAreaInsets(m.output.width, m.output.height, m.project?.brief?.platform).content : undefined;
+
+    const key = createHash('sha256')
+      .update(JSON.stringify({ v: 1, frames: plan.tiles.map((t) => [t.frame, t.label]), width, layout, overlay }))
+      .digest('hex')
+      .slice(0, 32);
+    const dir = framesCacheDir(this.cacheDir, runId);
+    const out = join(dir, layout === 'sheet' ? `${key}.jpg` : key);
+    const meta = join(dir, `${key}.json`);
+    let shape = await readJson<FramesShape>(meta).catch(() => undefined);
+    // A cache entry whose images were cleared is made again.
+    if (shape && !shape.images.every((i) => existsSync(join(dir, i.file)))) shape = undefined;
+    if (!shape) {
+      await new Promise<void>((go) => (this.framesSlots > 0 ? (this.framesSlots--, go()) : this.framesQueue.push(go)));
+      try {
+        const input = (await this.renderFile(runId, file)).path;
+        await mkdir(dir, { recursive: true });
+        // Shrink the tiles until the images fit the byte budget (a busy 4K frame compresses less).
+        for (let tileWidth = width, tries = 0; ; tileWidth = Math.floor(tileWidth * 0.7), tries++) {
+          await rm(out, { recursive: true, force: true });
+          const r = await framesImage({ ffmpeg: this.tools().ffmpeg, input, frameRate, width: m.output.width, height: m.output.height, tiles: plan.tiles, tileWidth, overlay, layout, out });
+          let bytes = 0;
+          const images: FramesShape['images'] = [];
+          for (const f of r.files) {
+            const b = (await stat(f)).size;
+            bytes += b;
+            images.push({ file: f.slice(dir.length + 1), bytes: b });
+          }
+          if (bytes <= FRAMES_MAX_BYTES || tries >= 4 || tileWidth * 0.7 < 60) {
+            shape = { tileWidth: r.tileWidth, tileHeight: r.tileHeight, columns: r.columns, rows: r.rows, labels: r.labels, images };
+            break;
+          }
+        }
+        await writeJsonAtomic(meta, shape);
+      } finally {
+        const next = this.framesQueue.shift();
+        if (next) next();
+        else this.framesSlots++;
+      }
+    }
+    return {
+      renderId: runId,
+      kind: m.kind,
+      mode: plan.mode,
+      layout,
+      overlay: overlayKind,
+      video: { width: m.output.width, height: m.output.height, fps: m.output.fps, frameRate, frames: m.output.frames, durationSeconds: Math.round((m.output.frames / m.output.fps) * 1000) / 1000 },
+      tileWidth: shape.tileWidth,
+      tileHeight: shape.tileHeight,
+      ...(layout === 'sheet' ? { columns: shape.columns, rows: shape.rows } : {}),
+      labels: shape.labels,
+      tiles: plan.tiles.map((t, index) => ({ index, ...t })),
+      ...(plan.omitted.length ? { omitted: plan.omitted } : {}),
+      images: shape.images.map((i) => ({ path: join(dir, i.file), mimeType: 'image/jpeg' as const, bytes: i.bytes })),
+    };
   }
 
   // ---- storage --------------------------------------------------------------
@@ -3074,4 +3197,32 @@ export function voiceWords(raw: unknown): Array<{ text: string; start: number; e
     out.push({ text: text.trim(), start: Math.round(start * 1000) / 1000, end: Math.round(end * 1000) / 1000 });
   }
   return out;
+}
+
+/** What getFrames caches beside the images. */
+interface FramesShape {
+  tileWidth: number;
+  tileHeight: number;
+  columns: number;
+  rows: number;
+  labels: boolean;
+  images: Array<{ file: string; bytes: number }>;
+}
+
+/** getFrames' answer; `images[].path` is a local file the REST and MCP layers read and never return. */
+export interface FramesResult {
+  renderId: string;
+  kind: string;
+  mode: 'auto' | 'at' | 'every';
+  layout: 'sheet' | 'separate';
+  overlay: 'none' | 'safe';
+  video: { width: number; height: number; fps: number; frameRate: string; frames: number; durationSeconds: number };
+  tileWidth: number;
+  tileHeight: number;
+  columns?: number;
+  rows?: number;
+  labels: boolean;
+  tiles: Array<PlannedTile & { index: number }>;
+  omitted?: PlannedTile[];
+  images: Array<{ path: string; mimeType: 'image/jpeg'; bytes: number }>;
 }

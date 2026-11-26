@@ -12,16 +12,16 @@ text says so.
 ## Title
 
 ```text
-Show HN: ReelForge – self-hosted video studio your coding agent drives over MCP
+Show HN: RenderWeld – self-hosted video studio your coding agent drives over MCP
 ```
 
-(79 characters; HN cuts titles at 80. Shorter fallback: "Show HN: ReelForge –
+(80 characters, exactly HN's limit of 80. Shorter fallback: "Show HN: RenderWeld –
 video studio your coding agent drives over MCP".)
 
 ## URL
 
 ```text
-https://reelforge.buildbase.app/agents?utm_source=hackernews&utm_medium=community&utm_campaign=launch-2026-12&utm_content=1203-showhn
+https://renderweld.com/agents?utm_source=hackernews&utm_medium=community&utm_campaign=launch-2026-12&utm_content=1203-showhn
 ```
 
 ## Text
@@ -29,7 +29,7 @@ https://reelforge.buildbase.app/agents?utm_source=hackernews&utm_medium=communit
 ```text
 I wanted my coding agent to make short vertical videos the way it writes
 code: read the tool's capabilities, write a plan, validate it, run it,
-check the output. ReelForge is the server for that.
+check the output. RenderWeld is the server for that.
 
 You run it yourself (Docker, or Node 22 from a checkout). It serves MCP at
 /mcp (official MCP SDK, Streamable HTTP) and REST at /v1 from the same

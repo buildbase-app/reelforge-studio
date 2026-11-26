@@ -1,4 +1,7 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
@@ -38,6 +41,12 @@ describe.runIf(hasBrowser)('dashboard in a browser', () => {
       scenes: [{ id: 'hook', engine: 'remotion', template: 'kinetic-title', durationSeconds: 2, props: { headline: 'Fails on purpose' } }],
     };
     expect((await call('POST', '/v1/projects', broken)).status).toBe(201);
+    // Two assets for the Assets page (#292): one with a licence, one without.
+    for (const [name, colour, license] of [['logo.png', 'orange', { name: 'CC0-1.0', redistributable: true }], ['clip-still.png', 'teal', undefined]] as const) {
+      const file = join(tmpdir(), `dash-${process.pid}-${name}`);
+      execFileSync('ffmpeg', ['-hide_banner', '-v', 'error', '-y', '-f', 'lavfi', '-i', `color=c=${colour}:s=16x16`, '-frames:v', '1', file]);
+      await studio.service.uploadAsset(readFileSync(file), { filename: name, ...(license ? { license } : {}) });
+    }
 
     ids.done = (await call('POST', '/v1/projects/spring-launch/renders', {})).json.job.id;
     const done = await waitFor(ids.done);
@@ -148,6 +157,7 @@ describe.runIf(hasBrowser)('dashboard in a browser', () => {
     }, ids.render);
     expect(await axe(page), 'library').toEqual([]);
 
+
     // One render: player, format, checks, scenes, storage, download.
     await card.click();
     await page.getByRole('heading', { level: 1, name: 'Spring launch teaser' }).waitFor();
@@ -161,6 +171,26 @@ describe.runIf(hasBrowser)('dashboard in a browser', () => {
     });
     await page.getByText(`projects/spring-launch/renders/${ids.render}/`).waitFor();
     expect(await axe(page), 'render').toEqual([]);
+
+    // Renders (#292): every finished render across projects, newest first, linked to its page; previews apart.
+    await page.getByRole('link', { name: 'Renders', exact: true }).click();
+    await page.getByRole('heading', { level: 1, name: 'Renders' }).waitFor();
+    await page.getByRole('link', { name: ids.render }).waitFor();
+    await expect(page.getByRole('link', { name: 'spring-launch' }).count()).resolves.toBeGreaterThan(0);
+    expect(await axe(page), 'renders').toEqual([]);
+    await page.getByRole('button', { name: 'Previews' }).click();
+    await page.getByText('No finished previews yet.').waitFor();
+
+    // Assets (#292): every stored asset with its type, size and licence; one without a licence is marked.
+    await page.getByRole('link', { name: 'Assets' }).click();
+    await page.getByRole('heading', { level: 1, name: 'Assets' }).waitFor();
+    await page.getByText('2 assets shown').waitFor();
+    await expect(page.getByRole('row', { name: /logo\.png/ }).getByText('CC0-1.0').count()).resolves.toBe(1);
+    await expect(page.getByRole('row', { name: /clip-still\.png/ }).getByText('None').count()).resolves.toBe(1);
+    await expect(page.getByText('1 without a licence', { exact: false }).count()).resolves.toBe(1);
+    // Image previews come through the API (the key is a header): both PNGs load.
+    await page.waitForFunction(() => [...document.querySelectorAll<HTMLImageElement>('img.asset-thumb')].filter((i) => i.complete && i.naturalWidth === 16).length === 2);
+    expect(await axe(page), 'assets').toEqual([]);
 
     // The key is nowhere but in memory: not in the URL, no cookie, not in sessionStorage (not asked to keep it).
     expect(page.url()).not.toContain('rf_');

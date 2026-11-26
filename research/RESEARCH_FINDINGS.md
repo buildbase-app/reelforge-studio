@@ -1,5 +1,7 @@
 # Research Findings and Product Context
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](../docs/RENAMED.md) maps each old name to the new one.
+
 **Date researched:** 2026-11-20\
 **Evidence boundary:** This document combines explicit discussion
 decisions with a limited official-source web review. It is not a

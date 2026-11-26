@@ -8,6 +8,7 @@ import {
   checkExpectation,
   checkTimestamps,
   concatClips,
+  detectVideoIssues,
   encodersOf,
   formatSettings,
   encodeAudioOnly,
@@ -31,8 +32,9 @@ import {
   type ThemeTokens,
   type TimelineScene,
 } from '@renderweld/project-schema';
-import { audioPass, resolveAudioPlan, verifyAudio, type AudioDefaults } from './audio';
+import { audioChecks, audioPass, resolveAudioPlan, verifyAudio, type AudioDefaults } from './audio';
 import { captionPass } from './captions';
+import { VIDEO_QA_DEFAULTS, sceneTimes, videoQaIssues, type VideoQaIssue, type VideoQaManifest, type VideoQaSettings } from './videoqa';
 import { writeJsonAtomic } from './fsutil';
 import { MP4_SPEC, checkFormatOutput, isAudioOnly, packageFormat, planFor } from './output-formats';
 import type { Logger, ResolvedAsset } from './plugins';
@@ -65,6 +67,8 @@ export interface RenderPipelineInput {
   audio?: RenderAudioOptions;
   /** The server's `render.audio.*` settings (default: AUDIO_DEFAULTS). */
   audioDefaults?: AudioDefaults;
+  /** The server's `render.qa.*` settings: picture checks after the encode (default: VIDEO_QA_DEFAULTS). */
+  videoQa?: VideoQaSettings;
   /** The server's captions.defaultMode when the job was queued (projects without captions.mode). */
   captionsDefault?: CaptionMode;
   /** GIF output larger than this fails its check (render.formats.gifMaxBytes; 0: no limit). */
@@ -379,6 +383,22 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     )
   );
 
+  // Picture checks (#294, render.qa.*): frozen and black stretches, on every frame of the assembled picture (the
+  // MP4, or the master the other formats are packaged from). Audio-only output has no picture.
+  const qa = input.videoQa ?? VIDEO_QA_DEFAULTS;
+  let videoQa: VideoQaManifest | undefined;
+  if (qa.video !== 'off' && !audioOnly) {
+    const blackSeconds = spec.alpha ? 0 : qa.blackSeconds;
+    const measured = await ffmpegSpan('ffmpeg picture check', () =>
+      detectVideoIssues({ ffmpeg: tools.ffmpeg, input: finalTmp, durationSeconds: framesToSeconds(assembled.totalFrames, output.fps), freezeSeconds: qa.freezeSeconds, blackSeconds, flashFps: fpsValue(output.fps), signal })
+    );
+    const issues = videoQaIssues(measured, sceneTimes(clips, fpsValue(output.fps)), qa.video === 'fail' ? 'error' : 'warning');
+    for (const i of issues) log(`picture qa (${i.severity}): ${i.message}`);
+    if (qa.video === 'fail' && issues.length) throw new PipelineError('qa:video', issues.map((i) => i.message).join('; '));
+    videoQa = { mode: qa.video, thresholds: { freezeSeconds: qa.freezeSeconds, blackSeconds: blackSeconds || null }, freezes: measured.freezes, blacks: measured.blacks, flashes: measured.flashes, issues };
+  }
+  const pictureCheck = (rule: VideoQaIssue['rule'], ran: boolean) => (!videoQa || !ran ? 'skipped' : videoQa.issues.some((i) => i.rule === rule) ? 'warn' : 'pass');
+
   input.progress('validate', 0.93);
   let info: { width: number; height: number; fps: number; frameRate: string; frames: number; durationSeconds: number } & Record<string, unknown>;
   let formatChecks: Record<string, string> | null = null;
@@ -480,8 +500,12 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     checks: {
       ...(formatChecks ?? { metadata: 'pass', decode: 'pass', duration: 'pass', ...(f.streamCopy ? { timestamps: 'pass', avDuration: 'pass' } : {}) }),
       avSync: audio.noAudio || audioOnly ? 'skipped' : 'pass',
-      loudness: audioQa.manifest.loudness.measured ? (audioQa.manifest.qa?.issues.some((x) => x.rule !== 'loudness.lra') ? 'warn' : 'pass') : 'skipped',
+      ...audioChecks(audioQa.manifest),
+      freeze: pictureCheck('video.freeze', true),
+      black: pictureCheck('video.black', videoQa?.thresholds.blackSeconds != null),
+      flash: pictureCheck('video.flash', true),
     },
+    ...(videoQa ? { videoQa } : {}),
     ...(f.streamCopy ? { join: { method: 'concat demuxer, video stream copy', clips: clips.length } } : {}),
     project,
   };

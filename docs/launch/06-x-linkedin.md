@@ -1,7 +1,7 @@
 # X and LinkedIn: daily posts and the launch thread
 
 Founder posts from the launch accounts (#139). Each post carries one real
-reel (attach the MP4) or one real feature, made with ReelForge itself
+reel (attach the MP4) or one real feature, made with RenderWeld itself
 (#249 §3). No hashtag walls, no emoji runs, no all-caps. LinkedIn: same text,
 first line as a hook, the link in the post (not a comment), `utm_source=linkedin`.
 
@@ -11,12 +11,12 @@ The showcase renders are in the R2 bucket (`docs/GALLERY.md`, "upload"). To
 render one again: `pnpm gallery render <slug>` with the steps in
 [`docs/GALLERY.md`](../GALLERY.md). Until `/gallery/<slug>` pages show the
 reels on production (#89), link the home page or `/agents`; afterwards swap
-in `https://reelforge.buildbase.app/gallery/<slug>?utm_…`.
+in `https://renderweld.com/gallery/<slug>?utm_…`.
 
 Link template (replace `MMDD` and `NN`):
 
 ```text
-https://reelforge.buildbase.app/?utm_source=x&utm_medium=social&utm_campaign=launch-2026-12&utm_content=MMDD-post-NN
+https://renderweld.com/?utm_source=x&utm_medium=social&utm_campaign=launch-2026-12&utm_content=MMDD-post-NN
 ```
 
 ## Ten posts
@@ -27,7 +27,7 @@ Each fits X's 280 characters with the link counted as 23 (checked 2026-11-23).
 ```text
 One reel, four render engines: a Remotion title, a Motion Canvas list, an HTML scene the agent wrote itself, and a HyperFrames globe, cut back to back to the exact frame.
 
-Rendered by ReelForge, a studio your AI agent drives over MCP.
+Rendered by RenderWeld, a studio your AI agent drives over MCP.
 <link>
 ```
 
@@ -43,13 +43,13 @@ Result: a 9 s, 1080×1920 reel with four engines, rendered in 107.6 s on a share
 ```text
 An explainer in four plain steps, from one sentence: "how a solar panel turns light into electricity, with a hook and a calm line-art outro."
 
-The agent wrote the scenes. ReelForge rendered them on my own machine.
+The agent wrote the scenes. RenderWeld rendered them on my own machine.
 <link>
 ```
 
 **04 · Feature: errors an agent can fix**
 ```text
-When an agent sends a bad video manifest, ReelForge returns every problem at once, each with its path (scenes.1.props.headline).
+When an agent sends a bad video manifest, RenderWeld returns every problem at once, each with its path (scenes.1.props.headline).
 
 In our Docker test, Claude Code sent one field in the wrong shape, read the error and fixed it itself.
 <link>
@@ -59,13 +59,13 @@ In our Docker test, Claude Code sent one field in the wrong shape, read the erro
 ```text
 A recipe reel: hook, the bowl with a timer, three numbered steps, a closing title. Warm palette, 17 seconds.
 
-Made by asking an agent. Rendered by a studio you run yourself. No per-video fees to ReelForge.
+Made by asking an agent. Rendered by a studio you run yourself. No per-video fees to RenderWeld.
 <link>
 ```
 
 **06 · Feature: local model, no AI provider**
 ```text
-ReelForge needs no AI provider. In our tutorial proofs a local model (through node-llama-cpp) drove the studio over MCP and rendered a reel on every engine.
+RenderWeld needs no AI provider. In our tutorial proofs a local model (through node-llama-cpp) drove the studio over MCP and rendered a reel on every engine.
 
 Your agent, your hardware, your files.
 <link>
@@ -81,7 +81,7 @@ Three engines in one MP4: Remotion, HTML and HyperFrames. The prompt is publishe
 
 **08 · Feature: licence that scales with you**
 ```text
-One ReelForge licence activation per deployment, however many api and worker instances it runs. Workers never call the licence server; only the key and a random instance id are sent, once a day, with 14 days of offline grace.
+One RenderWeld licence activation per deployment, however many api and worker instances it runs. Workers never call the licence server; only the key and a random instance id are sent, once a day, with 14 days of offline grace.
 <link>
 ```
 
@@ -95,7 +95,7 @@ Agencies: the same manifest, new address, new reel. That is what an API is for.
 
 **10 · Feature: the studio is a server**
 ```text
-ReelForge isn't a prompt pack. It's a server: MCP and REST, API keys with scopes, an audit log, signed webhooks, and a job queue that spreads renders across workers.
+RenderWeld isn't a prompt pack. It's a server: MCP and REST, API keys with scopes, an audit log, signed webhooks, and a job queue that spreads renders across workers.
 
 Source-available. Free for personal use; one-time Commercial licence.
 <link>
@@ -106,7 +106,7 @@ Source-available. Free for personal use; one-time Commercial licence.
 `utm_content=1202-thread` on the link in post 6.
 
 ```text
-1/ Today I'm launching ReelForge: a self-hosted video studio your AI agent drives over MCP. Free for personal use; one-time Commercial licence. [attach: walkthrough video agent-session]
+1/ Today I'm launching RenderWeld: a self-hosted video studio your AI agent drives over MCP. Free for personal use; one-time Commercial licence. [attach: walkthrough video agent-session]
 
 2/ How it works: your agent reads what the studio can do, writes a manifest (scenes, engines, timing), validates it and renders. The server joins the scenes to the exact frame and checks the MP4 with ffprobe and a full decode.
 

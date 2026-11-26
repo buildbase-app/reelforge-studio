@@ -1,6 +1,6 @@
 # Draft: request to BuildBase support for the live-selling pilot (#90)
 
-For the founder to send from the account that owns the ReelForge
+For the founder to send from the account that owns the RenderWeld
 organisation. The agent did not send it and contacted no one. No secrets,
 keys or client ids below; the organisation id and the development
 environment key are the ones already public in `docs/STATUS.md` §4.
@@ -11,7 +11,7 @@ says.
 
 ## Subject
 
-Add the ReelForge production organisation to the live-selling pilot
+Add the RenderWeld production organisation to the live-selling pilot
 
 ## Message
 
@@ -21,8 +21,8 @@ Hello BuildBase support,
 Please add our organisation to the live-selling pilot so its own store can
 take live payments.
 
-Organisation: ReelForge, id 6b01478bb42d2c444e99fcd8 (production
-environment). Site: https://reelforge.buildbase.app
+Organisation: RenderWeld, id 6b01478bb42d2c444e99fcd8 (production
+environment). Site: https://renderweld.com
 
 How we sell:
 - Our own store only: the app sells its own items to buyers, paid to our own
@@ -57,7 +57,7 @@ whether the organisation can join the pilot, and roughly when?
 
 Thank you,
 {{founder_name}}
-ReelForge
+RenderWeld
 ```
 
 ## After the answer
