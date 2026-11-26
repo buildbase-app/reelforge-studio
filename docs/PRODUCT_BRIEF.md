@@ -2,7 +2,7 @@
 
 ## 1. Product name
 
-**ReelForge** --- working name, not yet trademark/domain-cleared.
+**RenderWeld** --- working name, not yet trademark/domain-cleared.
 
 ## 2. Product vision
 
@@ -25,7 +25,7 @@ designer, sound designer, editor, and reviewer. - Remotion and Motion
 Canvas both used as core animation technologies. - Reusable templates,
 motion components, visual effects, transitions, typography, sound,
 music, and other assets. - A user may plan in a compatible external
-agent/chat workflow and then pass a structured plan into ReelForge for
+agent/chat workflow and then pass a structured plan into RenderWeld for
 execution/rendering. - Customers can run the software on their own
 computer, VPS, or cloud server. - Source code and end-to-end
 setup/deployment documentation are part of the intended offer. - No
@@ -73,7 +73,7 @@ updates, license rights, and support commitments remain open.
 
 ## 7. Primary user journey
 
-1.  User opens ReelForge locally or on their own server.
+1.  User opens RenderWeld locally or on their own server.
 2.  User creates a project and chooses aspect ratio, duration, language,
     brand style, and target platform.
 3.  User enters a creative brief, script, or imports a structured plan.

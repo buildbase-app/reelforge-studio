@@ -1,6 +1,6 @@
 # Dependency advisories: status
 
-This file records known advisories in dependencies, whether ReelForge Studio is
+This file records known advisories in dependencies, whether RenderWeld is
 affected, and why. Update it whenever `pnpm audit` or Dependabot reports something
 new. The release image is also scanned by Trivy in CI (fixable HIGH/CRITICAL must
 be 0).

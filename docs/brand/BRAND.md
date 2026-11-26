@@ -31,7 +31,7 @@ Every asset at its real size, light and dark, is on the two contact sheets that 
 
 They stand on one baseline and share a wall. A solid signal-orange dot sits on the joint, where the landscape frame's top edge meets the shared wall. The dot is:
 - **the weld point**, where the formats become one file;
-- **a camera's tally light**, the "recording" lamp the ReelForge mark already used.
+- **a camera's tally light**, the "recording" lamp the RenderWeld mark already used.
 
 It keeps the old mark's spirit: the portrait frame and the orange dot are still there. The second frame adds "every format", and the shared wall adds "joined".
 
