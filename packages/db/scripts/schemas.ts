@@ -22,7 +22,7 @@ for (const p of PROVIDERS) {
   }
   if (current === next) continue;
   if (check) {
-    console.error(`${file} is out of date; run pnpm --filter @reelforge/db schemas`);
+    console.error(`${file} is out of date; run pnpm --filter @renderweld/db schemas`);
     stale++;
     continue;
   }

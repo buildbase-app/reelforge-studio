@@ -1,5 +1,5 @@
 {
-  "name": "@reelforge/media-pipeline",
+  "name": "@renderweld/media-pipeline",
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
@@ -12,6 +12,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@reelforge/project-schema": "workspace:*"
+    "@renderweld/project-schema": "workspace:*"
   }
 }

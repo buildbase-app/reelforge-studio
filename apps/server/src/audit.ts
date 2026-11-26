@@ -1,4 +1,4 @@
-import type { AuditResult } from '@reelforge/core';
+import type { AuditResult } from '@renderweld/core';
 import { REST_ROUTES, type RouteEntry } from './routes';
 
 /**

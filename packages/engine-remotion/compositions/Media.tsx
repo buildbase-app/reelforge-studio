@@ -1,7 +1,7 @@
 import React from 'react';
 import { Img, useCurrentFrame } from 'remotion';
-import type { LogoRef, MediaRef, SceneMedia } from '@reelforge/project-schema';
-import { mediaKey, mediaUrlAt } from '@reelforge/project-schema/media';
+import type { LogoRef, MediaRef, SceneMedia } from '@renderweld/project-schema';
+import { mediaKey, mediaUrlAt } from '@renderweld/project-schema/media';
 
 /**
  * Background media and logo for Remotion templates (#299). Pictures come

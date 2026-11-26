@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PipelineError, startPngEncoder } from '@reelforge/media-pipeline';
+import { PipelineError, startPngEncoder } from '@renderweld/media-pipeline';
 import {
   assetHeaders,
   assetToken,
@@ -20,8 +20,8 @@ import {
   type ResolvedAsset,
   type StagedSceneAssets,
   envValue,
-} from '@reelforge/core';
-import type { Tools } from '@reelforge/media-pipeline';
+} from '@renderweld/core';
+import type { Tools } from '@renderweld/media-pipeline';
 import {
   TEMPLATES,
   fpsArg,
@@ -32,7 +32,7 @@ import {
   type OutputSettings,
   type RenderScene,
   type ThemeTokens,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import { chromium, type Browser } from 'playwright-core';
 import type { Plugin } from 'vite';
 import type {} from './protocol';
@@ -228,8 +228,8 @@ function sourceHash(): string {
   };
   walk(scenesDir);
   // The scenes import the shared layout and media modules (#287, #299); a change to them must rebuild the bundle.
-  h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/layout')));
-  h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/media')));
+  h.update(readFileSync(createRequire(import.meta.url).resolve('@renderweld/project-schema/layout')));
+  h.update(readFileSync(createRequire(import.meta.url).resolve('@renderweld/project-schema/media')));
   return h.digest('hex');
 }
 

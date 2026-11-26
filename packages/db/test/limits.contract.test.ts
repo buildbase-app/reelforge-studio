@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_WORKSPACE_ID, UNIT_JOB_TYPE, createMemoryRepositories, newId, type JobCaps, type JobRecord, type Repositories } from '@reelforge/core';
+import { DEFAULT_WORKSPACE_ID, UNIT_JOB_TYPE, createMemoryRepositories, newId, type JobCaps, type JobRecord, type Repositories } from '@renderweld/core';
 import { Database, availableTestDatabases, createPrismaRepositories, createTestDatabase, mysqlInsertId, prepareDatabase, type TestDatabase } from '../src/index';
 import type { AnyPrismaClient } from '../src/prisma-repositories';
 

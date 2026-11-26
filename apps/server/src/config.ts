@@ -1,10 +1,10 @@
 import { resolve } from 'node:path';
-import { loadConfigFile, renamedEnvName, resolveConfig, type ConfigSources, type ResolvedConfig } from '@reelforge/core';
+import { loadConfigFile, renamedEnvName, resolveConfig, type ConfigSources, type ResolvedConfig } from '@renderweld/core';
 import { StructuredLogger, secretValues, type StructuredLoggerOptions } from './observability/logger';
 
 /**
  * The server's view of the configuration. Every value comes from the one
- * schema in @reelforge/core (packages/core/src/config/schema.ts; reference:
+ * schema in @renderweld/core (packages/core/src/config/schema.ts; reference:
  * docs/CONFIG.md): defaults < config file (RENDERWELD_CONFIG / REELFORGE_CONFIG) < environment.
  * Runtime settings from the database are applied on top once the database is
  * open (applyServerSettings).

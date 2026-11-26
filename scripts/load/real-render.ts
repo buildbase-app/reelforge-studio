@@ -25,7 +25,7 @@ import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseProject } from '@reelforge/project-schema';
+import { parseProject } from '@renderweld/project-schema';
 import { env, envNum, round, sleep, summary } from './lib';
 
 export interface Profile { width: number; height: number; seconds: number }

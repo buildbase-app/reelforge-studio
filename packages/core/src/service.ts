@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { join, resolve, sep } from 'node:path';
-import { MAX_ZIP_ENTRIES, assHasAlpha, encodersOf, missingEncoders, resolveTools, setEncoderSettings, setFormatSettings, toolPaths, toolVersionAsync, type Tools } from '@reelforge/media-pipeline';
+import { MAX_ZIP_ENTRIES, assHasAlpha, encodersOf, missingEncoders, resolveTools, setEncoderSettings, setFormatSettings, toolPaths, toolVersionAsync, type Tools } from '@renderweld/media-pipeline';
 import {
   CAPTION_MODES,
   captionMode,
@@ -44,7 +44,7 @@ import {
   type ValidationIssue,
   type ValidationWarning,
   type ThemeTokens,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import { BUNDLED_FONTS } from './fonts';
 import type { AudioManifest } from './audio';
 import { OLD_SERVER_NAMES, PRODUCT_NAME, SERVER_NAME } from './product';
@@ -103,7 +103,7 @@ import { Analytics, type AnalyticsSummary } from './analytics';
 export interface ServiceConfig {
   /**
    * Where state is persisted (projects, keys, jobs, themes, settings, asset
-   * metadata, audit). @reelforge/db opens SQLite/PostgreSQL/MySQL ones;
+   * metadata, audit). @renderweld/db opens SQLite/PostgreSQL/MySQL ones;
    * createMemoryRepositories() keeps everything in memory (tests).
    */
   repositories: Repositories;

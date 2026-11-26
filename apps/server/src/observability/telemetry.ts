@@ -12,7 +12,7 @@ import { resourceFromAttributes, type Resource } from '@opentelemetry/resources'
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs';
 import { MeterProvider, MetricReader, type PushMetricExporter } from '@opentelemetry/sdk-metrics';
 import { BatchSpanProcessor, ParentBasedSampler, TraceIdRatioBasedSampler, TracerProvider } from '@opentelemetry/sdk-trace';
-import type { Config, LicenceStatus, ReelforgeService, Telemetry } from '@reelforge/core';
+import type { Config, LicenceStatus, ReelforgeService, Telemetry } from '@renderweld/core';
 import type { LogsExporter, StructuredLogger } from './logger';
 import { RenameSpanProcessor, twinResourceMetrics } from './rename';
 

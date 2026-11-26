@@ -14,7 +14,7 @@ import { readdirSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { DEFAULT_WORKSPACE_ID, newId, type JobRecord } from '@reelforge/core';
+import { DEFAULT_WORKSPACE_ID, newId, type JobRecord } from '@renderweld/core';
 import { createPrismaRepositories, createTestDatabase, migrationStatus, MIGRATIONS, prepareDatabase, sqlNames, type RawClient } from '../src/index';
 
 const root = join(__dirname, '..', '..', '..');

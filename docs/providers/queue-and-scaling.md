@@ -1539,17 +1539,17 @@ and a job that dies while its worker shuts down is handed back, never failed
 Commands:
 
 ```bash
-pnpm --filter @reelforge/core exec vitest run test/jobs.queue.test.ts test/limits.test.ts test/fanout.queue.test.ts test/fanout.service.test.ts test/fanout.chunks.test.ts
+pnpm --filter @renderweld/core exec vitest run test/jobs.queue.test.ts test/limits.test.ts test/fanout.queue.test.ts test/fanout.service.test.ts test/fanout.chunks.test.ts
 # render fan-out e2e (FAN-30/31/32): real engines, PostgreSQL, MinIO (e2e/minio/build-image.sh), an api + 3 worker processes
 FANOUT_E2E=1 TEST_POSTGRES_URL=postgresql://... FANOUT_E2E_S3_ENDPOINT=http://127.0.0.1:9000 FANOUT_E2E_S3_ACCESS_KEY=... FANOUT_E2E_S3_SECRET_KEY=... \
-  REELFORGE_CHROMIUM_PATH=... pnpm --filter @reelforge/server exec vitest run test/fanout.e2e.test.ts
+  REELFORGE_CHROMIUM_PATH=... pnpm --filter @renderweld/server exec vitest run test/fanout.e2e.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://...?allowPublicKeyRetrieval=true \
-  pnpm --filter @reelforge/db exec vitest run test/queue.contract.test.ts test/queue.processes.test.ts test/limits.contract.test.ts test/priority.contract.test.ts
-pnpm --filter @reelforge/core exec vitest run test/priority.test.ts
-REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @reelforge/server exec vitest run test/priority.test.ts
+  pnpm --filter @renderweld/db exec vitest run test/queue.contract.test.ts test/queue.processes.test.ts test/limits.contract.test.ts test/priority.contract.test.ts
+pnpm --filter @renderweld/core exec vitest run test/priority.test.ts
+REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/priority.test.ts
 docker run --rm -v "$PWD/deployment/observability:/w:ro" -w /w --entrypoint promtool prom/prometheus:v3.7.3 test rules alerts.test.yml
-TEST_POSTGRES_URL=postgresql://... pnpm --filter @reelforge/server exec vitest run test/scaling.test.ts
-REELFORGE_TEST_DB=mysql TEST_MYSQL_URL=mysql://... pnpm --filter @reelforge/server exec vitest run test/scaling.test.ts
+TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/scaling.test.ts
+REELFORGE_TEST_DB=mysql TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/server exec vitest run test/scaling.test.ts
 SCALE=1 E2E_PREFIX=que PORT=4335 e2e/docker/run.sh
 ```
 

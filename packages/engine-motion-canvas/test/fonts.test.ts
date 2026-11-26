@@ -2,12 +2,12 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import type { ResolvedAsset } from '@reelforge/core';
-import { resolveTools } from '@reelforge/media-pipeline';
-import { builtinTheme, type OutputSettings } from '@reelforge/project-schema';
+import type { ResolvedAsset } from '@renderweld/core';
+import { resolveTools } from '@renderweld/media-pipeline';
+import { builtinTheme, type OutputSettings } from '@renderweld/project-schema';
 import { renderMotionCanvasScene } from '../src/index';
 import { TEST_FONTS, inkRatio, readPicture } from '../../media-pipeline/test/media-fixtures';
-import { envValue } from '@reelforge/core';
+import { envValue } from '@renderweld/core';
 
 /** #303: the theme's project font is loaded before the first frame and drawn by Motion Canvas' Txt nodes. */
 const browser = envValue('REELFORGE_CHROMIUM_PATH');

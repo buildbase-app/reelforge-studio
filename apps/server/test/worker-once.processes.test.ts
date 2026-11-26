@@ -2,8 +2,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PluginRegistry, type JobRecord } from '@reelforge/core';
-import { availableTestDatabases, createTestDatabase, type TestDatabase } from '@reelforge/db';
+import { PluginRegistry, type JobRecord } from '@renderweld/core';
+import { availableTestDatabases, createTestDatabase, type TestDatabase } from '@renderweld/db';
 import { startServer, type StartedServer } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 

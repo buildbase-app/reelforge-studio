@@ -14,6 +14,6 @@ export function renderSchema(base: string, provider: Provider): string {
     .replace(/@@(TEXT|LONGTEXT|ID)@@/g, (_, t: 'TEXT' | 'LONGTEXT' | 'ID') => TYPES[provider][t])
     // Tidy the whitespace a removed placeholder leaves behind.
     .replace(/[ \t]+$/gm, '');
-  const header = `// GENERATED from prisma/base.prisma for ${provider}. Do not edit; run \`pnpm --filter @reelforge/db schemas\`.\n`;
+  const header = `// GENERATED from prisma/base.prisma for ${provider}. Do not edit; run \`pnpm --filter @renderweld/db schemas\`.\n`;
   return header + body.replace(/^(\/\/.*\n)+\n/, '');
 }

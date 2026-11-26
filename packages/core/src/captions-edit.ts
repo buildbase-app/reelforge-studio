@@ -13,7 +13,7 @@ import {
   type CaptionQa,
   type Project,
   type ResolvedCaptionTrack,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import { captionsEtag, type CaptionManifest } from './captions';
 import { ApiError, badRequest, notFound } from './errors';
 

@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry } from '@reelforge/core';
-import { Database, createTestDatabase, type TestDatabase } from '@reelforge/db';
+import { PluginRegistry } from '@renderweld/core';
+import { Database, createTestDatabase, type TestDatabase } from '@renderweld/db';
 import { startServer, type StartedServer } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 

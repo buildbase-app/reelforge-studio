@@ -2,11 +2,11 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PipelineError, checkExpectation, framePsnr, frameStats, probe, resolveTools } from '@reelforge/media-pipeline';
-import { builtinTheme } from '@reelforge/project-schema';
-import type { OutputSettings, RenderScene as Scene } from '@reelforge/project-schema';
+import { PipelineError, checkExpectation, framePsnr, frameStats, probe, resolveTools } from '@renderweld/media-pipeline';
+import { builtinTheme } from '@renderweld/project-schema';
+import type { OutputSettings, RenderScene as Scene } from '@renderweld/project-schema';
 import { remotionEngine, renderRemotionScene } from '../src/index';
-import { envValue } from '@reelforge/core';
+import { envValue } from '@renderweld/core';
 
 // Remotion downloads its own browser when none is configured; in CI we point
 // it at a preinstalled one so the test does not depend on network access.

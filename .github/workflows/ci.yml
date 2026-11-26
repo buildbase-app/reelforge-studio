@@ -95,16 +95,16 @@ jobs:
           key: chrome-headless-shell-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Chrome Headless Shell
         run: |
-          pnpm --filter @reelforge/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
+          pnpm --filter @renderweld/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
           BIN=$(find ~/.cache/ms-playwright -type f -name chrome-headless-shell -perm -u+x | head -n 1)
           test -n "$BIN"
           echo "REELFORGE_CHROMIUM_PATH=$BIN" >> "$GITHUB_ENV"
       - name: Typecheck
         run: pnpm typecheck
       - name: Unit tests (schema, core, db, media pipeline, engines)
-        run: pnpm -r --filter '!@reelforge/server' run test
+        run: pnpm -r --filter '!@renderweld/server' run test
       - name: Server tests + MCP and REST end-to-end on SQLite (real server process, all engines)
-        run: pnpm --filter @reelforge/server run test
+        run: pnpm --filter @renderweld/server run test
       - name: End-to-end spike (Remotion + Motion Canvas -> MP4)
         if: env.HEAVY == 'true'
         run: pnpm spike
@@ -177,7 +177,7 @@ jobs:
           key: chrome-headless-shell-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Chrome Headless Shell
         run: |
-          pnpm --filter @reelforge/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
+          pnpm --filter @renderweld/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
           BIN=$(find ~/.cache/ms-playwright -type f -name chrome-headless-shell -perm -u+x | head -n 1)
           test -n "$BIN"
           echo "REELFORGE_CHROMIUM_PATH=$BIN" >> "$GITHUB_ENV"
@@ -186,13 +186,13 @@ jobs:
         env:
           CHECKPOINT_DISABLE: '1'
         run: |
-          pnpm --filter @reelforge/db run check
-          pnpm --filter @reelforge/db run generate
+          pnpm --filter @renderweld/db run check
+          pnpm --filter @renderweld/db run generate
           git diff --exit-code -- packages/db
       - name: Repository contract tests (memory, SQLite, ${{ matrix.db }})
-        run: pnpm --filter @reelforge/db run test
+        run: pnpm --filter @renderweld/db run test
       - name: Server tests + MCP and REST end-to-end on ${{ matrix.db }}
-        run: pnpm --filter @reelforge/server run test
+        run: pnpm --filter @renderweld/server run test
 
   image:
     # The release image (Dockerfile default target), built natively per architecture:

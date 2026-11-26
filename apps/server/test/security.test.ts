@@ -4,7 +4,7 @@
  */
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService, chromiumSandbox, createMemoryRepositories } from '@reelforge/core';
+import { PluginRegistry, ReelforgeService, chromiumSandbox, createMemoryRepositories } from '@renderweld/core';
 import { Redactor, createApp, loadConfig, originAllowed } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 

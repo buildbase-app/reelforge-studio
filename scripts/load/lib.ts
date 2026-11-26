@@ -6,7 +6,7 @@
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { cpus, loadavg, totalmem } from 'node:os';
-import { Database } from '@reelforge/db';
+import { Database } from '@renderweld/db';
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const num = (v: unknown) => (typeof v === 'bigint' ? Number(v) : typeof v === 'string' ? Number(v) : ((v as number) ?? 0));

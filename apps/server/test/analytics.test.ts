@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService } from '@reelforge/core';
-import { prepareDatabase, type Database } from '@reelforge/db';
+import { PluginRegistry, ReelforgeService } from '@renderweld/core';
+import { prepareDatabase, type Database } from '@renderweld/db';
 import { REST_ROUTES, TOOLS, createApp, loadConfig, type ServerConfig } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 

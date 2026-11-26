@@ -596,7 +596,7 @@ provider, instance type and disk):
 ```bash
 git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
 pnpm install --frozen-lockfile
-pnpm --filter @reelforge/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
+pnpm --filter @renderweld/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
 export REELFORGE_CHROMIUM_PATH=$(find ~/.cache/ms-playwright -type f -name chrome-headless-shell -perm -u+x | head -n 1)
 LOAD_HARDWARE_NOTE="dedicated: <provider> <instance type>, <vCPU> vCPU, <RAM>, <disk>" \
 LOAD_API_INSTANCES=6 LOAD_CONNECTIONS=256 LOAD_SECONDS=300 LOAD_KEYS=1000 \

@@ -133,8 +133,8 @@ Full reference: [CONFIG.md](../CONFIG.md).
 
 `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` runs the unit,
 contract and SQLite cases; the process cases need a database:
-`TEST_POSTGRES_URL=... TEST_MYSQL_URL=... pnpm --filter @reelforge/server exec vitest run test/worker-once.processes.test.ts`
-and `pnpm --filter @reelforge/db test` for QUE-13.
+`TEST_POSTGRES_URL=... TEST_MYSQL_URL=... pnpm --filter @renderweld/server exec vitest run test/worker-once.processes.test.ts`
+and `pnpm --filter @renderweld/db test` for QUE-13.
 
 | Id | What | Where | Latest result |
 | --- | --- | --- | --- |

@@ -1,5 +1,5 @@
 import type { Readable } from 'node:stream';
-import { isSafeRelativePath } from '@reelforge/project-schema';
+import { isSafeRelativePath } from '@renderweld/project-schema';
 
 /** Asset bytes: `assets/<assetId>/file.<ext>` (AssetRecord.storageKey is the part after `assets/`). */
 export const ASSETS_PREFIX = 'assets/';

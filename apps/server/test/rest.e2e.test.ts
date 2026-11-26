@@ -1,10 +1,10 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { assertDecodable, checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
+import { assertDecodable, checkExpectation, probe, resolveTools } from '@renderweld/media-pipeline';
 import { tempDir } from '../../../packages/core/test/helpers';
 import { cliCreateKey, startServerProcess, testDatabase, type ServerProcess } from './serverProcess';
-import { envValue } from '@reelforge/core';
+import { envValue } from '@renderweld/core';
 
 /**
  * The REST twin of mcp.e2e.test.ts: the same agent journey with plain HTTP

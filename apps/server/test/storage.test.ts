@@ -8,7 +8,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories, type StorageDriver } from '@reelforge/core';
+import { PluginRegistry, ReelforgeService, createMemoryRepositories, type StorageDriver } from '@renderweld/core';
 import { createApp, loadConfig, startServer } from '../src/index';
 import { fakeEngine, memoryStorage, tempDir } from '../../../packages/core/test/helpers';
 

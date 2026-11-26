@@ -10,8 +10,8 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { renderMotionCanvasScene } from '@reelforge/engine-motion-canvas';
-import { renderRemotionScene } from '@reelforge/engine-remotion';
+import { renderMotionCanvasScene } from '@renderweld/engine-motion-canvas';
+import { renderRemotionScene } from '@renderweld/engine-remotion';
 import {
   PipelineError,
   assemble,
@@ -21,8 +21,8 @@ import {
   probe,
   resolveTools,
   toolVersion,
-} from '@reelforge/media-pipeline';
-import { fpsValue, framesToSeconds, parseProject, timeline, totalFrames } from '@reelforge/project-schema';
+} from '@renderweld/media-pipeline';
+import { fpsValue, framesToSeconds, parseProject, timeline, totalFrames } from '@renderweld/project-schema';
 
 const manifestPath = resolve(process.argv[2] ?? 'examples/sample-reel.json');
 const cacheDir = resolve('.render-cache');

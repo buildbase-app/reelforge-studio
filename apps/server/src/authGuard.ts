@@ -1,4 +1,4 @@
-import { ipv6Groups } from '@reelforge/core';
+import { ipv6Groups } from '@renderweld/core';
 import { RateLimiter, type RateDecision } from './rateLimit';
 
 /** limits.preAuth* settings (runtime: read on every request). */

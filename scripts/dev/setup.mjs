@@ -198,8 +198,8 @@ if (!opts['skip-install']) {
   must('pnpm', ['install', '--frozen-lockfile', ...(opts.offline ? ['--offline'] : [])], opts.offline ? 'the pnpm store lacks a package: run once online, or copy a store (docs/DEVELOPMENT.md#offline)' : 'behind a proxy? docs/DEVELOPMENT.md#proxies');
   step('Generate the Prisma clients');
   // The generated clients are committed (packages/db/src/generated), so a failure here is not fatal.
-  console.log(paint(2, '$ pnpm --filter @reelforge/db run generate'));
-  const gen = run('pnpm', ['--filter', '@reelforge/db', 'run', 'generate'], { stdio: 'inherit' });
+  console.log(paint(2, '$ pnpm --filter @renderweld/db run generate'));
+  const gen = run('pnpm', ['--filter', '@renderweld/db', 'run', 'generate'], { stdio: 'inherit' });
   if (gen.status !== 0) warn('Prisma generate failed; the committed clients in packages/db/src/generated are used', 'it runs `pnpm dlx prisma@7.10.1`, which needs the network once (docs/DEVELOPMENT.md#offline)');
   else {
     const changed = run('git', ['status', '--porcelain', '--', 'packages/db/src/generated']).stdout?.trim();
@@ -207,7 +207,7 @@ if (!opts['skip-install']) {
     else ok('Prisma clients match the committed ones');
   }
   step('Build the dashboard');
-  must('pnpm', ['--filter', '@reelforge/dashboard', 'run', 'build']);
+  must('pnpm', ['--filter', '@renderweld/dashboard', 'run', 'build']);
 }
 
 if (!chromium?.path && !chromium?.missing) {
@@ -216,11 +216,11 @@ if (!chromium?.path && !chromium?.missing) {
     warn('no Chrome Headless Shell: renders fail until you install one', 'docs/DEVELOPMENT.md#chromium');
   } else {
     // The same command CI uses; Playwright's version comes from the lockfile.
-    must('pnpm', ['--filter', '@reelforge/engine-motion-canvas', 'exec', 'playwright-core', 'install', 'chromium-headless-shell'], 'behind a proxy set HTTPS_PROXY, or PLAYWRIGHT_DOWNLOAD_HOST for a mirror (docs/DEVELOPMENT.md#chromium)');
+    must('pnpm', ['--filter', '@renderweld/engine-motion-canvas', 'exec', 'playwright-core', 'install', 'chromium-headless-shell'], 'behind a proxy set HTTPS_PROXY, or PLAYWRIGHT_DOWNLOAD_HOST for a mirror (docs/DEVELOPMENT.md#chromium)');
     chromium = findChromium({ repoDir: ROOT });
     if (chromium?.path) ok(`Chrome Headless Shell: ${chromium.path}`);
     else warn('Chrome Headless Shell was installed but not found', 'set RENDERWELD_CHROMIUM_PATH in .env.local (docs/DEVELOPMENT.md#chromium)');
-    if (process.platform === 'linux') console.log('     If it fails to start (missing libraries): `sudo pnpm --filter @reelforge/engine-motion-canvas exec playwright-core install-deps chromium-headless-shell`');
+    if (process.platform === 'linux') console.log('     If it fails to start (missing libraries): `sudo pnpm --filter @renderweld/engine-motion-canvas exec playwright-core install-deps chromium-headless-shell`');
   }
 }
 

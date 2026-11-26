@@ -2,8 +2,8 @@ import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { resolveTools, type Tools } from '@reelforge/media-pipeline';
-import { parseProject, type RenderScene } from '@reelforge/project-schema';
+import { resolveTools, type Tools } from '@renderweld/media-pipeline';
+import { parseProject, type RenderScene } from '@renderweld/project-schema';
 import {
   AssetStore,
   createMemoryRepositories,
@@ -17,7 +17,7 @@ import {
   svgSize,
   type ResolvedAsset,
 } from '../src/index';
-import { TEMPLATES } from '@reelforge/project-schema';
+import { TEMPLATES } from '@renderweld/project-schema';
 import { makeNumberedClip, makeQuadImage } from '../../media-pipeline/test/media-fixtures';
 import { tempDir } from './helpers';
 

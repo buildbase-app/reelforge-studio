@@ -9,9 +9,9 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildDocument } from '@reelforge/engine-html';
-import { buildComposition } from '@reelforge/engine-hyperframes';
-import { builtinTheme, mergeTokens, type ThemeTokens } from '@reelforge/project-schema';
+import { buildDocument } from '@renderweld/engine-html';
+import { buildComposition } from '@renderweld/engine-hyperframes';
+import { builtinTheme, mergeTokens, type ThemeTokens } from '@renderweld/project-schema';
 import { chromium } from 'playwright-core';
 import type { GalleryEntry } from './catalog/build';
 

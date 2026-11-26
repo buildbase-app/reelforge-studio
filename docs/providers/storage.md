@@ -163,7 +163,7 @@ connection string works with downloads through the server.
 
 ## Test cases
 
-Commands: `pnpm --filter @reelforge/core test` (local, units), with the
+Commands: `pnpm --filter @renderweld/core test` (local, units), with the
 emulators: `TEST_S3_ENDPOINT=http://127.0.0.1:19000 TEST_S3_ACCESS_KEY_ID=…
 TEST_S3_SECRET_ACCESS_KEY=… TEST_AZURE_CONNECTION_STRING="<Azurite>"
 TEST_GCS_ENDPOINT=http://127.0.0.1:4443 REELFORGE_REQUIRE_STORAGE=s3,azure,gcs`;

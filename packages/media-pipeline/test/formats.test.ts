@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { formatSpec, type OutputCodec, type OutputFormat } from '@reelforge/project-schema';
+import { formatSpec, type OutputCodec, type OutputFormat } from '@renderweld/project-schema';
 import {
   ALPHA_CLIP_ARGS,
   alphaStats,

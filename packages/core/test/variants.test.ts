@@ -5,8 +5,8 @@
  */
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { probe, resolveTools } from '@reelforge/media-pipeline';
-import { parseProject, withVariant, type RenderScene } from '@reelforge/project-schema';
+import { probe, resolveTools } from '@renderweld/media-pipeline';
+import { parseProject, withVariant, type RenderScene } from '@renderweld/project-schema';
 import { PluginRegistry, ReelforgeService, createMemoryRepositories, type EnginePlugin } from '../src/index';
 import { unitSpecs } from '../src/render-fanout';
 import { fakeEngine, tempDir } from './helpers';

@@ -4,9 +4,9 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { avDurations, checkTimestamps, framePsnr, frameStats, keyFrames, probe, resolveTools, run, streamParams } from '@reelforge/media-pipeline';
-import { createTestDatabase, type TestDatabase } from '@reelforge/db';
-import { S3StorageDriver, streamToBuffer } from '@reelforge/core';
+import { avDurations, checkTimestamps, framePsnr, frameStats, keyFrames, probe, resolveTools, run, streamParams } from '@renderweld/media-pipeline';
+import { createTestDatabase, type TestDatabase } from '@renderweld/db';
+import { S3StorageDriver, streamToBuffer } from '@renderweld/core';
 import { tempDir } from '../../../packages/core/test/helpers';
 import { cliCreateKey, startServerProcess, type ServerProcess } from './serverProcess';
 
@@ -35,7 +35,7 @@ const SECRET_KEY = 'fanout-e2e-secret-key-0123456789abcdef0123';
 const tools = resolveTools();
 
 const credentials = { accessKeyId: env.FANOUT_E2E_S3_ACCESS_KEY ?? 'minioadmin', secretAccessKey: env.FANOUT_E2E_S3_SECRET_KEY ?? 'minioadmin' };
-/** The bucket, made and removed with the AWS SDK that comes with @reelforge/core (the server's S3 driver has no bucket calls). */
+/** The bucket, made and removed with the AWS SDK that comes with @renderweld/core (the server's S3 driver has no bucket calls). */
 async function bucket(command: 'CreateBucketCommand' | 'DeleteBucketCommand') {
   const req = createRequire(join(__dirname, '../../../packages/core/package.json'));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

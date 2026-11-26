@@ -18,8 +18,8 @@ import {
   type ResolvedAsset,
   type StagedSceneAssets,
   envValue,
-} from '@reelforge/core';
-import { PipelineError, startPngEncoder, type Tools } from '@reelforge/media-pipeline';
+} from '@renderweld/core';
+import { PipelineError, startPngEncoder, type Tools } from '@renderweld/media-pipeline';
 import {
   BUILTIN_THEMES,
   FIT_TEXT_SCRIPT,
@@ -37,7 +37,7 @@ import {
   type OutputSettings,
   type RenderScene,
   type ThemeTokens,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import { chromium, type Browser } from 'playwright-core';
 import { frameDataUrl, layoutSource } from './media';
 import { buildDocument, htmlTitle } from './page';
@@ -84,7 +84,7 @@ export function htmlEngineVersion(): string {
   return `reelforge-html/0.1.0 (playwright-core ${packageVersion('playwright-core', import.meta.url)})`;
 }
 
-/** Chromium's own sandbox (shared rule, @reelforge/core). Re-exported for compatibility. */
+/** Chromium's own sandbox (shared rule, @renderweld/core). Re-exported for compatibility. */
 export const chromiumSandbox = coreChromiumSandbox;
 
 export function resolveHtmlBrowser(explicit?: string): string {

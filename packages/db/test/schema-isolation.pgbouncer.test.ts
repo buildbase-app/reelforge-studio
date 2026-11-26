@@ -19,7 +19,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { newId, type JobRecord } from '@reelforge/core';
+import { newId, type JobRecord } from '@renderweld/core';
 import { Database, createTestDatabase, pooledSchemaWarning, prepareDatabase, probeTransactionPooler, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-pgb-schemas-'));

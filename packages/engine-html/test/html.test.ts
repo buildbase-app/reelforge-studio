@@ -4,10 +4,10 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PipelineError, checkExpectation, frameStats, probe, resolveTools } from '@reelforge/media-pipeline';
-import { builtinTheme, type OutputSettings, type RenderScene } from '@reelforge/project-schema';
+import { PipelineError, checkExpectation, frameStats, probe, resolveTools } from '@renderweld/media-pipeline';
+import { builtinTheme, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
 import { CSP, buildDocument, chromiumSandbox, escapeHtml, htmlEngine, htmlTitle, renderHtmlScene } from '../src/index';
-import { envValue } from '@reelforge/core';
+import { envValue } from '@renderweld/core';
 
 const browser = envValue('REELFORGE_CHROMIUM_PATH');
 const hasBrowser = Boolean(browser && existsSync(browser));

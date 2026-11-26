@@ -1,5 +1,5 @@
-import { effectiveQueueMode, type ResolvedConfig } from '@reelforge/core';
-import { parseDatabaseUrl } from '@reelforge/db';
+import { effectiveQueueMode, type ResolvedConfig } from '@renderweld/core';
+import { parseDatabaseUrl } from '@renderweld/db';
 
 /**
  * Start-up guard for more than one instance (D-076). The `api` and `worker`

@@ -6,7 +6,7 @@ import {
   type ProjectThemeRef,
   type Theme,
   type ThemeTokens,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import { ApiError, conflict, invalidManifest, notFound } from './errors';
 import type { ThemeRepository } from './repositories';
 

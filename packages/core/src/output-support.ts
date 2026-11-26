@@ -1,4 +1,4 @@
-import { SUPPORTED_FPS, fpsArg, fpsLabel, withVariant, type FrameRate, type Project } from '@reelforge/project-schema';
+import { SUPPORTED_FPS, fpsArg, fpsLabel, withVariant, type FrameRate, type Project } from '@renderweld/project-schema';
 import type { PluginRegistry } from './registry';
 
 /**

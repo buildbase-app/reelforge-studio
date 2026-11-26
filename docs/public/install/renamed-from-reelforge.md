@@ -159,11 +159,37 @@ matches the old value keeps matching. Messages, the dashboard, notification
 titles (`RenderWeld: render ... is ready`) and `[renderweld]` log lines in the
 `pretty` format say RenderWeld.
 
+## Workspace packages (contributors)
+
+The source tree's own packages are now `@renderweld/*`. They are private
+workspace packages: none was ever published to npm, so nothing you install
+changes, and there is no alias. Only commands and imports inside a checkout
+use these names.
+
+| Old name | New name |
+| --- | --- |
+| `@reelforge/core` | `@renderweld/core` |
+| `@reelforge/db` | `@renderweld/db` |
+| `@reelforge/server` | `@renderweld/server` |
+| `@reelforge/dashboard` | `@renderweld/dashboard` |
+| `@reelforge/project-schema` | `@renderweld/project-schema` |
+| `@reelforge/media-pipeline` | `@renderweld/media-pipeline` |
+| `@reelforge/engine-remotion` | `@renderweld/engine-remotion` |
+| `@reelforge/engine-motion-canvas` | `@renderweld/engine-motion-canvas` |
+| `@reelforge/engine-html` | `@renderweld/engine-html` |
+| `@reelforge/engine-hyperframes` | `@renderweld/engine-hyperframes` |
+| `@reelforge/gallery` | `@renderweld/gallery` |
+
+Update your own scripts: `pnpm --filter @renderweld/db test`, not
+`@reelforge/db`. pnpm does not fail on a filter that matches no package: it
+prints "No projects matched the filters" and exits 0, so an old filter in a
+script skips its step without an error.
+
 ## Not renamed in this step
 
 Data stays where it is: no table, column, storage key, data directory or
 default SQLite file name (`reelforge.db`) changes, and neither does the
-OpenTelemetry `service.name` default (`reelforge-studio`, a setting). Package
-names, the image name (it follows the repository rename), alert names and the
+OpenTelemetry `service.name` default (`reelforge-studio`, a setting). The
+image name (it follows the repository rename), alert names and the
 `REELFORGE_*` names that some messages still suggest change in later steps,
 each with its own alias where something could break.

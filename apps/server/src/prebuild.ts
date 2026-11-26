@@ -11,8 +11,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prebuildMotionCanvas } from '@reelforge/engine-motion-canvas';
-import { prebuildCompositions } from '@reelforge/engine-remotion';
+import { prebuildMotionCanvas } from '@renderweld/engine-motion-canvas';
+import { prebuildCompositions } from '@renderweld/engine-remotion';
 
 const scratch = mkdtempSync(join(tmpdir(), 'reelforge-prebuild-'));
 try {

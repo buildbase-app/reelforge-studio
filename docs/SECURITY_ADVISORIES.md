@@ -15,7 +15,7 @@ be 0).
 
 | Package | Where | Advisories | Why not affected |
 | --- | --- | --- | --- |
-| `vite` 5.4.21 (and its `esbuild` 0.21) | `@reelforge/engine-motion-canvas`, in the image | 1 high, 7 moderate, 1 low: all in Vite's **dev server** (`server.fs.allow`/`deny`, the `.map` handler for optimized deps, `launch-editor`, cross-origin middleware) and esbuild's **dev server** CORS | The studio only calls Vite's `build()` API (`packages/engine-motion-canvas/src/render.ts`) to produce the Motion Canvas bundle. It never starts Vite's or esbuild's dev server. The bundle is served by the studio's own static server, bound to 127.0.0.1, with a path-traversal check. The fixes exist only in Vite 6.4.4+, and `@motion-canvas/vite-plugin` 3.17.2 supports Vite 4 and 5 only. **Revisit** when Motion Canvas supports Vite 6, or if the engine ever starts a dev server. |
+| `vite` 5.4.21 (and its `esbuild` 0.21) | `@renderweld/engine-motion-canvas`, in the image | 1 high, 7 moderate, 1 low: all in Vite's **dev server** (`server.fs.allow`/`deny`, the `.map` handler for optimized deps, `launch-editor`, cross-origin middleware) and esbuild's **dev server** CORS | The studio only calls Vite's `build()` API (`packages/engine-motion-canvas/src/render.ts`) to produce the Motion Canvas bundle. It never starts Vite's or esbuild's dev server. The bundle is served by the studio's own static server, bound to 127.0.0.1, with a path-traversal check. The fixes exist only in Vite 6.4.4+, and `@motion-canvas/vite-plugin` 3.17.2 supports Vite 4 and 5 only. **Revisit** when Motion Canvas supports Vite 6, or if the engine ever starts a dev server. |
 
 ## How to check
 

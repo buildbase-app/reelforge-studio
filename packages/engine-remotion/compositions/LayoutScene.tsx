@@ -1,8 +1,8 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import { cancelRender, continueRender, delayRender, useCurrentFrame, useVideoConfig } from 'remotion';
-import type { SceneMedia } from '@reelforge/project-schema';
-import { FIT_TEXT_SCRIPT } from '@reelforge/project-schema/layout';
-import { mediaUrlAt } from '@reelforge/project-schema/media';
+import type { SceneMedia } from '@renderweld/project-schema';
+import { FIT_TEXT_SCRIPT } from '@renderweld/project-schema/layout';
+import { mediaUrlAt } from '@renderweld/project-schema/media';
 
 /**
  * Template "remotion-layout" (#287): split screen, picture-in-picture, grid,
@@ -11,7 +11,7 @@ import { mediaUrlAt } from '@reelforge/project-schema/media';
  *
  * The markup is built on the Node side by `layoutSceneDom`, the builder the
  * html and HyperFrames engines use, from the same geometry functions
- * (`@reelforge/project-schema/layout`), so the three engines put every pane,
+ * (`@renderweld/project-schema/layout`), so the three engines put every pane,
  * text block and lower third on the same pixels. This component draws it and
  * makes it frame-pure, the way the html engine does:
  *

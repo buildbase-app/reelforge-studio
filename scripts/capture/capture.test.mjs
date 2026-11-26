@@ -91,7 +91,7 @@ describe('masking', () => {
     const found = findSecrets(`${KEY} a@b.co`);
     assert.deepEqual(found.map((f) => f.kind).sort(), ['email', 'licence-key']);
     assert.ok(found.every((f) => !f.hint.includes(KEY) && f.hint.length < 12));
-    assert.deepEqual(findSecrets('placeholder rf_... and pnpm@10.28.0 and @reelforge/core'), []);
+    assert.deepEqual(findSecrets('placeholder rf_... and pnpm@10.28.0 and @renderweld/core'), []);
   });
   it('gives the in-page masking plain data whose patterns mask like the Node side', () => {
     const cfg = maskingConfig({ allowEmails: ['Hello@Example.org'] });

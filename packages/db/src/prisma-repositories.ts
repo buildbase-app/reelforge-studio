@@ -1,4 +1,4 @@
-import type { Project, Theme } from '@reelforge/project-schema';
+import type { Project, Theme } from '@renderweld/project-schema';
 import {
   conflict,
   expiredUpdate,
@@ -40,7 +40,7 @@ import {
   newOutboxId,
   announceClaim,
   type ReadySignal,
-} from '@reelforge/core';
+} from '@renderweld/core';
 // One client type for all three databases: the generated clients share the
 // same model API (only the SQL dialect differs), so the repositories are
 // written once against the SQLite client's types.

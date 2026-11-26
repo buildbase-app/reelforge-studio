@@ -159,7 +159,7 @@ delivery still in the delivery log, not only the range.
 The Docker image builds the dashboard for you. From a checkout:
 
 ```bash
-pnpm --filter @reelforge/dashboard build   # writes apps/dashboard/dist
+pnpm --filter @renderweld/dashboard build   # writes apps/dashboard/dist
 REELFORGE_DASHBOARD_ENABLED=true pnpm dev
 ```
 
@@ -168,7 +168,7 @@ The build fails if the JavaScript and CSS together are over 150 KB gzipped.
 ## Screenshots
 
 Light and dark, desktop (1440 px) and phone (390 px), made with
-`pnpm --filter @reelforge/dashboard screenshots` (jobs and library) and
+`pnpm --filter @renderweld/dashboard screenshots` (jobs and library) and
 `screenshots:admin` (analytics, settings, audit log, captions; the days before
 today in the analytics shots are seeded job rows, today's are real renders):
 [docs/proofs/dashboard](https://github.com/buildbase-app/reelforge-studio/tree/main/docs/proofs/dashboard).

@@ -19,8 +19,8 @@ import {
   type ResolvedAsset,
   type StagedSceneAssets,
   envValue,
-} from '@reelforge/core';
-import { PipelineError, type Tools } from '@reelforge/media-pipeline';
+} from '@renderweld/core';
+import { PipelineError, type Tools } from '@renderweld/media-pipeline';
 import {
   BUILTIN_THEMES,
   FIT_TEXT_SCRIPT,
@@ -47,7 +47,7 @@ import {
   type RenderScene,
   type ThemeTokens,
   type FrameRate,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import { EGRESS_REFUSED_LINE, FONT_REFUSED_LINE, REFUSED_LINE, nodeEgressEnv, startNetworkSink } from './network';
 import { killRenderNow, reapRender } from './processes';
 

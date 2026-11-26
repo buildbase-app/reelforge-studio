@@ -1,5 +1,5 @@
 import type { Readable } from 'node:stream';
-import type { Tools } from '@reelforge/media-pipeline';
+import type { Tools } from '@renderweld/media-pipeline';
 import type {
   CaptionMode,
   RenderAudioOptions,
@@ -8,7 +8,7 @@ import type {
   RenderScene,
   TemplateDefinition,
   ThemeTokens,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import type { z } from 'zod';
 import type { EngineOutputSupport } from './output-support';
 
@@ -22,7 +22,7 @@ export interface Logger {
   (line: string): void;
 }
 
-/** A template as an engine exposes it. Definitions live in @reelforge/project-schema. */
+/** A template as an engine exposes it. Definitions live in @renderweld/project-schema. */
 export interface EngineTemplate extends TemplateDefinition {
   id: string;
 }
@@ -50,7 +50,7 @@ export interface EngineRenderContext {
   theme: ThemeTokens;
   /**
    * The manifest's brief.platform, if any. Templates read safe areas from
-   * `frameLayout(width, height, platform)` (@reelforge/project-schema): tall
+   * `frameLayout(width, height, platform)` (@renderweld/project-schema): tall
    * frames keep text out of the social-app ui zone unless the platform is one
    * without app ui ("none", "broadcast", ...).
    */

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
-import { browserVersion, envValue, type EnginePlugin } from '@reelforge/core';
-import { TEMPLATES } from '@reelforge/project-schema';
+import { browserVersion, envValue, type EnginePlugin } from '@renderweld/core';
+import { TEMPLATES } from '@renderweld/project-schema';
 import { remotionVersion, renderRemotionScene } from './render';
 
 export interface RemotionEngineOptions {

@@ -1,8 +1,8 @@
 /**
  * Create a migration for every provider from the change in prisma/base.prisma.
  *
- *   pnpm --filter @reelforge/db migration <name>   write migrations/<provider>/<NNNN>_<name>/migration.sql
- *   pnpm --filter @reelforge/db migration --check  fail if the schema changed without a migration
+ *   pnpm --filter @renderweld/db migration <name>   write migrations/<provider>/<NNNN>_<name>/migration.sql
+ *   pnpm --filter @renderweld/db migration --check  fail if the schema changed without a migration
  *
  * How: migrations/<provider>/schema.prisma is a snapshot of the schema at the
  * last migration. The new migration is `prisma migrate diff` from that
@@ -63,7 +63,7 @@ export function writeEmbedded() {
   const next = lines.join('\n');
   const current = existsSync(file) ? readFileSync(file, 'utf8') : '';
   if (current !== next) {
-    if (check) throw new Error('src/generated/migrations.ts is out of date; run pnpm --filter @reelforge/db migration --embed');
+    if (check) throw new Error('src/generated/migrations.ts is out of date; run pnpm --filter @renderweld/db migration --embed');
     writeFileSync(file, next);
     console.log(`wrote ${file}`);
   }
@@ -75,7 +75,7 @@ if (new Set(ids).size !== 1) throw new Error(`providers have different migration
 
 if (check) {
   if (pending.length) {
-    console.error(`schema changed without a migration for: ${pending.map(([p]) => p).join(', ')}; run pnpm --filter @reelforge/db migration <name>`);
+    console.error(`schema changed without a migration for: ${pending.map(([p]) => p).join(', ')}; run pnpm --filter @renderweld/db migration <name>`);
     process.exit(1);
   }
   writeEmbedded();

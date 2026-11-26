@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ConfigError, PluginRegistry } from '@reelforge/core';
+import { ConfigError, PluginRegistry } from '@renderweld/core';
 import { startServer } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 import { testDatabase } from './serverProcess';

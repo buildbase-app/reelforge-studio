@@ -4,11 +4,11 @@
  * renders, one render running while the shots are taken. Desktop 1440 px and
  * mobile 390 px, light and dark, device scale factor 2.
  *
- *   REELFORGE_CHROMIUM_PATH=... pnpm --filter @reelforge/dashboard screenshots [outDir]
+ *   REELFORGE_CHROMIUM_PATH=... pnpm --filter @renderweld/dashboard screenshots [outDir]
  */
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { htmlEngine } from '@reelforge/engine-html';
+import { htmlEngine } from '@renderweld/engine-html';
 import { chromium, type Page } from 'playwright';
 import { htmlReel, startStudio } from '../test/harness';
 

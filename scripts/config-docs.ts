@@ -8,7 +8,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { IMAGE_DEFAULTS_ENV, SETTINGS, envNames, isLegacyEnvName, type SettingDef } from '@reelforge/core';
+import { IMAGE_DEFAULTS_ENV, SETTINGS, envNames, isLegacyEnvName, type SettingDef } from '@renderweld/core';
 
 const out = join(dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'CONFIG.md');
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');

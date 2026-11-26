@@ -2,12 +2,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import type { ResolvedAsset } from '@reelforge/core';
-import { resolveTools } from '@reelforge/media-pipeline';
-import { builtinTheme, type OutputSettings } from '@reelforge/project-schema';
+import type { ResolvedAsset } from '@renderweld/core';
+import { resolveTools } from '@renderweld/media-pipeline';
+import { builtinTheme, type OutputSettings } from '@renderweld/project-schema';
 import { renderHtmlScene } from '../src/index';
 import { TEST_FONTS, inkRatio, readPicture } from '../../media-pipeline/test/media-fixtures';
-import { envValue } from '@reelforge/core';
+import { envValue } from '@renderweld/core';
 
 /**
  * #303: a project font asset is used by the theme in the html engine, and

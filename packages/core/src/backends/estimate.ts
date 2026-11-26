@@ -1,7 +1,7 @@
 import {
   framesToSeconds,
   sceneFrames,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import type { EstimateRequest } from '../plugins';
 
 /** Seconds of finished video and render units (scenes) of a render or preview, for BackendEstimate. */

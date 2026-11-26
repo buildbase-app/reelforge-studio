@@ -306,10 +306,10 @@ machine's kernel was killing processes for lack of memory; it was not re-run.
 Commands:
 
 ```bash
-pnpm --filter @reelforge/core exec vitest run test/webhooks.test.ts
-TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://... pnpm --filter @reelforge/db exec vitest run test/webhooks-contract.test.ts
-pnpm --filter @reelforge/server exec vitest run test/webhooks.test.ts test/webhooks-ops.test.ts test/parity.test.ts
-REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @reelforge/server exec vitest run test/webhooks.test.ts
+pnpm --filter @renderweld/core exec vitest run test/webhooks.test.ts
+TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/db exec vitest run test/webhooks-contract.test.ts
+pnpm --filter @renderweld/server exec vitest run test/webhooks.test.ts test/webhooks-ops.test.ts test/parity.test.ts
+REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/webhooks.test.ts
 e2e/docker/run.sh                       # MAILPIT_IMAGE selects a Mailpit mirror
 ```
 

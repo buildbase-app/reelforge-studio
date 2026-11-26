@@ -9,8 +9,8 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ReelforgeService, createMemoryRepositories } from '@reelforge/core';
-import { alphaStats, probe, resolveTools } from '@reelforge/media-pipeline';
+import { ReelforgeService, createMemoryRepositories } from '@renderweld/core';
+import { alphaStats, probe, resolveTools } from '@renderweld/media-pipeline';
 import { createApp, loadConfig } from '../src/index';
 import { createDefaultRegistry } from '../src/registry';
 import { tempDir } from '../../../packages/core/test/helpers';

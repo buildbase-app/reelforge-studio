@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import type { Project, Theme } from '@reelforge/project-schema';
+import type { Project, Theme } from '@renderweld/project-schema';
 import { ApiError } from './errors';
 import { readJson } from './fsutil';
 import type { StoredAsset } from './plugins';

@@ -13,8 +13,8 @@
  */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { newId, type JobRecord } from '@reelforge/core';
-import { Database, prepareDatabase } from '@reelforge/db';
+import { newId, type JobRecord } from '@renderweld/core';
+import { Database, prepareDatabase } from '@renderweld/db';
 
 const env = process.env;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

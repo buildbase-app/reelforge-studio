@@ -4,8 +4,8 @@ import type { AddressInfo } from 'node:net';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry } from '@reelforge/core';
-import { createTestDatabase, serverTestDatabaseKind, type TestDatabase } from '@reelforge/db';
+import { PluginRegistry } from '@renderweld/core';
+import { createTestDatabase, serverTestDatabaseKind, type TestDatabase } from '@renderweld/db';
 import { startServer, type StartedServer } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 

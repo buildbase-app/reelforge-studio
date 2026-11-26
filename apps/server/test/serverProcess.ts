@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { join, resolve } from 'node:path';
-import { createTestDatabase, serverTestDatabaseKind } from '@reelforge/db';
+import { createTestDatabase, serverTestDatabaseKind } from '@renderweld/db';
 
 /** Helpers that run the server and CLI exactly as an operator does: separate processes. */
 const repo = resolve(__dirname, '../../..');
