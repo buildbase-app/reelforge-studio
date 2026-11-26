@@ -302,6 +302,12 @@ logging:
 | `captions.stt.device` | `RENDERWELD_STT_DEVICE`; old name `REELFORGE_STT_DEVICE` | `cpu` \| `cuda` \| `auto` | `cpu` | runtime |  | `cpu`, `cuda` (an NVIDIA GPU with CUDA libraries in the image) or `auto`. |
 | `captions.stt.timeoutSeconds` | `RENDERWELD_STT_TIMEOUT_SECONDS`; old name `REELFORGE_STT_TIMEOUT_SECONDS` | integer | `600` | runtime |  | Longest one transcription may run (10 to 3600 seconds); the process is killed after it. |
 
+## skills
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `skills.dir` | `RENDERWELD_SKILLS_DIR`; old name `REELFORGE_SKILLS_DIR` | path | (none: the built-in skills only) | startup |  | A folder of extra skills for agents: your house rules, or a skills pack. Each is `<name>.md` or `<name>/SKILL.md` with `name` and `description` front matter (`title` optional), at most 256 KiB, up to 200 skills. Served by `get_skill`, `GET /v1/skills` and the `renderweld://skills` resources beside the built-in ones; one with a built-in's name replaces it. Read at start-up: a file that cannot be used stops the start with its name. |
+
 ## logging
 
 | Key | Env | Type | Default | Scope | Secret | Description |
