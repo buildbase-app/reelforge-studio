@@ -87,10 +87,13 @@ export function videoQaIssues(
   for (const w of measured.flashes ?? []) {
     const iv = { startSeconds: w.startSeconds, endSeconds: w.endSeconds, durationSeconds: Math.round((w.endSeconds - w.startSeconds) * 1000) / 1000 };
     const ids = overlapping(iv);
+    const what = w.kind === 'red' ? 'saturated red flashes' : 'flashes';
     issues.push({
       rule: 'video.flash',
       severity,
-      message: `${w.kind === 'red' ? 'saturated red flashes' : 'flashes'} at up to ${w.transitionsPerSecond / 2} a second over a quarter of the picture or more, from ${fmt(iv.startSeconds)} to ${fmt(iv.endSeconds)}${sceneWords(ids)}: more than three a second can trigger seizures (WCAG 2.2, 2.3.1). Slow them to three a second or fewer, shrink the flashing area below a quarter of the frame, or lower the contrast`,
+      message: w.extended
+        ? `${what} at ${w.transitionsPerSecond / 2} a second, held for ${fmt(iv.durationSeconds)}, over a quarter of the picture or more, from ${fmt(iv.startSeconds)} to ${fmt(iv.endSeconds)}${sceneWords(ids)}: two to three flashes a second sustained for 5 s or more is a failure in EA IRIS (extended failure). Break it into bursts shorter than 5 s, slow it, shrink the flashing area below a quarter of the frame, or lower the contrast`
+        : `${what} at up to ${w.transitionsPerSecond / 2} a second over a quarter of the picture or more, from ${fmt(iv.startSeconds)} to ${fmt(iv.endSeconds)}${sceneWords(ids)}: more than three a second can trigger seizures (WCAG 2.2, 2.3.1). Slow them to three a second or fewer, shrink the flashing area below a quarter of the frame, or lower the contrast`,
       ...iv,
       scenes: ids,
     });

@@ -74,6 +74,7 @@ describe('docs/QA.md matches the code', () => {
     expect(f).toContain(`a change of at least ${FLASH_RULES.minLuminanceChange} in relative luminance with the darker side below ${FLASH_RULES.darkerBelow.toFixed(2)}`);
     expect(f).toContain(`saturated red (R/(R+G+B) at least ${FLASH_RULES.redRatio}) changes by more than ${FLASH_RULES.redChange} in (R-G-B) x ${FLASH_RULES.redScale}`);
     expect(f).toContain(`only flashing over ${pct(FLASH_RULES.minArea)} of the picture counts`);
+    expect(row('video.flash (sustained)')).toContain(`at least ${FLASH_RULES.extendedMinTransitionsPerSecond} transitions (two flashes) in every one-second window for ${FLASH_RULES.extendedSeconds} s or more`);
     for (const key of ['render.qa.video', 'render.qa.freezeSeconds', 'render.qa.blackSeconds']) {
       expect(SETTINGS_BY_KEY.get(key), key).toBeDefined();
       expect(doc).toContain(key);
