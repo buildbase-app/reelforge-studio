@@ -193,7 +193,7 @@ insufficient_scope`. `renderweld:admin` administers the default workspace;
 storage, workspaces), so grant it in your authorization server only to the
 people who run the install.
 
-With several workspaces (#304), set `REELFORGE_MCP_OAUTH_WORKSPACE_CLAIM` to
+With several workspaces (#304), set `RENDERWELD_MCP_OAUTH_WORKSPACE_CLAIM` to
 the name of a claim your authorization server adds to each token. Use a string
 holding the workspace id: per client, per organisation or per group. Every token
 must then carry it (#479):

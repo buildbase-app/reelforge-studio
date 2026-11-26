@@ -154,7 +154,7 @@ values, workspaceId }` (owner). `null` clears a value.
   workspace always uses the instance's.
 - **Upgrading.** Before #480 every workspace used the instance's provider accounts. If your workspaces rely on
   that, keep it with `update_config { "providers.shareWithWorkspaces": ["*"] }` (owner) or
-  `REELFORGE_PROVIDERS_SHARE_WITH_WORKSPACES=*`, before or right after the upgrade; otherwise their provider
+  `RENDERWELD_PROVIDERS_SHARE_WITH_WORKSPACES=*`, before or right after the upgrade; otherwise their provider
   calls get `409` until each sets its own key.
 - **What a workspace sees.** `list_providers` and `get_capabilities` answer for the caller's workspace:
   `configured`, `settingsFrom` (`workspace`, `instance` or `none`) and `perWorkspace` (whether the provider
