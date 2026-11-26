@@ -19,7 +19,7 @@ passing case; a backend that is not built says `implemented: false`.
 | Kind | How compute is found | Examples |
 | --- | --- | --- |
 | `pool` | workers that already run claim jobs from the database queue | this server (`server.role` `all`), N `worker` containers on compose, Kubernetes, ECS, Azure Container Apps; `worker --once` containers a job platform starts |
-| `launcher` | a plugin calls a platform API per queued unit ("run task", "execute job"); the started container runs `reelforge worker --once --job <id>` | Cloud Run Jobs, ECS RunTask, Fly Machines (#28; none built yet) |
+| `launcher` | a plugin calls a platform API per queued unit ("run task", "execute job"); the started container runs `renderweld worker --once --job <id>` | Cloud Run Jobs, ECS RunTask, Fly Machines (#28; none built yet) |
 | `managed` | a renderer someone else operates, for one engine, called by the worker that claimed the job | Remotion Lambda (#157; skeleton) |
 
 ## Matrix
@@ -30,7 +30,7 @@ What `get_capabilities` reports under `backends[]` (`kind`, `configured`,
 | Backend | Kind | Implemented | Engines | Max unit | Frame ranges | Scale to zero | Configured by | Status | Cases |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `local` | `pool` | yes | every engine installed on the server | none of its own | yes when an installed engine declares them (Remotion); used only with `render.fanOut: scenes+chunks` | no (the pool's size is the orchestrator's: KEDA can take workers to 0) | nothing | **tested** | BKD-01..08, the render tests of every engine |
-| `local` through `worker --once` on PostgreSQL 17 | `pool` | yes | as `local` | none | no | yes, per container (the job platform starts one per unit) | `server.role` `worker` + `REELFORGE_WORKER_ONCE=1` or `reelforge worker --once` | **tested** (processes, fake engines) | BKD-10u..18u, BKD-20..25, QUE-13 |
+| `local` through `worker --once` on PostgreSQL 17 | `pool` | yes | as `local` | none | no | yes, per container (the job platform starts one per unit) | `server.role` `worker` + `RENDERWELD_WORKER_ONCE=1` or `renderweld worker --once` | **tested** (processes, fake engines) | BKD-10u..18u, BKD-20..25, QUE-13 |
 | `local` through `worker --once` on MySQL 8.4 | `pool` | yes | as `local` | none | no | as above | as above | **tested** (processes, fake engines) | BKD-10u..18u, BKD-20..25, QUE-13 |
 | `local` with `render.fanOut: scenes` (#156, D-097) | `pool` | yes (scene units normalised to the final encoding; the join concatenates by stream copy) | as `local` | one scene per unit | no (whole scenes) | as the pool | `render.fanOut: scenes` + the database queue | **tested** (contract on SQLite, PostgreSQL 17, MySQL 8.4; e2e with real engines on PostgreSQL 17 + MinIO, 3 worker processes) | FAN-01..05, FAN-01u..10u, FAN-10..15, FAN-20..21, FAN-30..31 ([queue-and-scaling.md](queue-and-scaling.md#render-fan-out)) |
 | `local` with `render.fanOut: scenes+chunks` (#156 step 3) | `pool` | yes (a long scene of a frame-range engine becomes one unit per chunk, joined by stream copy like scenes) | as `local` | one chunk (`render.chunkSeconds`, default 4 s) of a scene ≥ `render.chunkMinSceneSeconds` (default 8 s); other scenes whole | **yes, Remotion** (`renderMedia` `frameRange`); html, Motion Canvas and HyperFrames stay whole (why: [queue-and-scaling.md](queue-and-scaling.md#render-fan-out)) | as the pool | `render.fanOut: scenes+chunks` + the database queue | **tested** (fake engines in the service; Remotion engine test; e2e with real Remotion on PostgreSQL 17 + MinIO, 3 worker processes) | FAN-40..48, ENG-REM-FR, FAN-32 |
@@ -82,10 +82,10 @@ How the service uses it:
 ## `worker --once`: one job per container
 
 ```bash
-reelforge worker --once                 # claim the oldest queued job, render it, exit
-reelforge worker --once --job job_abc   # only that job (launchers); fenced like every claim
-reelforge worker --once --wait-ms 0     # look once, do not wait
-REELFORGE_ROLE=worker REELFORGE_WORKER_ONCE=1   # the image's default command does the same
+renderweld worker --once                 # claim the oldest queued job, render it, exit
+renderweld worker --once --job job_abc   # only that job (launchers); fenced like every claim
+renderweld worker --once --wait-ms 0     # look once, do not wait
+RENDERWELD_ROLE=worker RENDERWELD_WORKER_ONCE=1   # the image's default command does the same
 ```
 
 - It is a `worker` (`server.role` is forced to `worker`): PostgreSQL or MySQL,
@@ -122,16 +122,16 @@ Exit statuses (D-100):
 
 | Setting | Env | Default | Meaning |
 | --- | --- | --- | --- |
-| `server.workerOnce` | `REELFORGE_WORKER_ONCE` | `false` | run as `worker --once` (implies role `worker`) |
-| `queue.onceWaitMs` | `REELFORGE_QUEUE_ONCE_WAIT_MS` | 3 × `queue.pollIntervalMs` | how long `--once` waits for a job; `--wait-ms` overrides it |
-| `queue.pollIntervalMs` | `REELFORGE_QUEUE_POLL_INTERVAL_MS` | `1000` | also the `--once` poll interval while waiting |
-| `queue.shutdownGraceSeconds` | `REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS` | `30` | time a running job gets after SIGTERM before it is handed back |
+| `server.workerOnce` | `RENDERWELD_WORKER_ONCE` | `false` | run as `worker --once` (implies role `worker`) |
+| `queue.onceWaitMs` | `RENDERWELD_QUEUE_ONCE_WAIT_MS` | 3 × `queue.pollIntervalMs` | how long `--once` waits for a job; `--wait-ms` overrides it |
+| `queue.pollIntervalMs` | `RENDERWELD_QUEUE_POLL_INTERVAL_MS` | `1000` | also the `--once` poll interval while waiting |
+| `queue.shutdownGraceSeconds` | `RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS` | `30` | time a running job gets after SIGTERM before it is handed back |
 
 Full reference: [CONFIG.md](../CONFIG.md).
 
 ## Test cases
 
-`pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test` runs the unit,
+`pnpm typecheck && RENDERWELD_REQUIRE_BROWSER=1 pnpm test` runs the unit,
 contract and SQLite cases; the process cases need a database:
 `TEST_POSTGRES_URL=... TEST_MYSQL_URL=... pnpm --filter @renderweld/server exec vitest run test/worker-once.processes.test.ts`
 and `pnpm --filter @renderweld/db test` for QUE-13.
@@ -159,7 +159,7 @@ and `pnpm --filter @renderweld/db test` for QUE-13.
 | BKD-20 | three `--once` processes, three queued renders: each process claims exactly one, renders it, exits 0; three distinct workers | processes (PostgreSQL 17, MySQL 8.4) | pass 2026-11-22 |
 | BKD-21 | `--job <id>` renders that id only, the older queued job stays queued; a second `--job` for it exits 0 with "already succeeded" | processes (PostgreSQL, MySQL) | pass 2026-11-22 |
 | BKD-22 | SIGTERM while rendering: handed back (`queued`, attempts 0), exit 75; another `--once --job` finishes it | processes (PostgreSQL, MySQL) | pass 2026-11-22 |
-| BKD-23 | nothing queued: the real CLI `reelforge worker --once` and `REELFORGE_WORKER_ONCE=1` through `main.ts` exit 0 within `pollIntervalMs` × 3 (+3 s for closing the database); `--wait-ms` overrides | processes (PostgreSQL, MySQL) | pass 2026-11-22 |
+| BKD-23 | nothing queued: the real CLI `renderweld worker --once` and `RENDERWELD_WORKER_ONCE=1` through `main.ts` exit 0 within `pollIntervalMs` × 3 (+3 s for closing the database); `--wait-ms` overrides | processes (PostgreSQL, MySQL) | pass 2026-11-22 |
 | BKD-24 | a failing render: job `failed`, exit 1 | processes (PostgreSQL, MySQL) | pass 2026-11-22 |
 | BKD-25 | `worker --once` on SQLite refuses to start (exit 1, names the fix); `worker` without `--once` prints usage | processes (any) | pass 2026-11-22 |
 | BKD-26 | SIGTERM while the claim is in flight (the claim held before its status event, #172): handed back (`queued`, attempts 0), exit 75 | processes (PostgreSQL, MySQL) | pass 2026-11-22 |

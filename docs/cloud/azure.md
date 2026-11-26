@@ -1,6 +1,6 @@
 ---
 title: "Deploy on Azure"
-description: "ReelForge Studio on Azure: Container Apps or AKS, Azure Database for PostgreSQL, Blob Storage with a managed identity, Key Vault; least-privilege roles, egress, scaling with KEDA scale rules, backups and cost notes."
+description: "RenderWeld on Azure: Container Apps or AKS, Azure Database for PostgreSQL, Blob Storage with a managed identity, Key Vault; least-privilege roles, egress, scaling with KEDA scale rules, backups and cost notes."
 folder: deploy
 slug: azure
 order: 4
@@ -20,9 +20,9 @@ Microsoft Learn on 2026-11-24 (research/SOURCES.md). Steps to check are marked
 
 ```mermaid
 flowchart LR
-  ing[Container Apps ingress<br/>or AKS ingress / Application Gateway] --> api[Container App or AKS Deployment<br/>reelforge api]
+  ing[Container Apps ingress<br/>or AKS ingress / Application Gateway] --> api[Container App or AKS Deployment<br/>RenderWeld api]
   api --> pg[(Azure Database for PostgreSQL<br/>flexible server, private access)]
-  wrk[Container App with a KEDA scale rule<br/>or Container Apps job / AKS + KEDA<br/>reelforge worker] --> pg
+  wrk[Container App with a KEDA scale rule<br/>or Container Apps job / AKS + KEDA<br/>renderweld worker] --> pg
   api --> blob[(Blob Storage container<br/>private)]
   wrk --> blob
   kv[Key Vault] -. secret references .-> api
@@ -32,16 +32,16 @@ flowchart LR
   api -. OTLP .-> col[OpenTelemetry Collector] -.-> mon[Azure Monitor]
 ```
 
-| Part | Azure service | ReelForge settings |
+| Part | Azure service | RenderWeld settings |
 | --- | --- | --- |
-| api | Container App with external ingress (target port 4321), or an AKS Deployment | `REELFORGE_ROLE=api`, `REELFORGE_PUBLIC_URL`, `REELFORGE_TRUST_PROXY=true` |
-| workers | Container App without ingress and a custom scale rule; or a Container Apps **event-driven job** running `worker --once`; or AKS with the KEDA overlay | `REELFORGE_ROLE=worker`; for a job also `REELFORGE_WORKER_ONCE=1` |
+| api | Container App with external ingress (target port 4321), or an AKS Deployment | `RENDERWELD_ROLE=api`, `RENDERWELD_PUBLIC_URL`, `RENDERWELD_TRUST_PROXY=true` |
+| workers | Container App without ingress and a custom scale rule; or a Container Apps **event-driven job** running `worker --once`; or AKS with the KEDA overlay | `RENDERWELD_ROLE=worker`; for a job also `RENDERWELD_WORKER_ONCE=1` |
 | database | Azure Database for PostgreSQL flexible server 13+ (or for MySQL flexible server 8.0+) | `DATABASE_URL` (secret) |
-| files | Blob Storage, one private container | `REELFORGE_STORAGE_DRIVER=azure`, `REELFORGE_AZURE_STORAGE_ACCOUNT_URL`, `REELFORGE_AZURE_STORAGE_CONTAINER`, optional `REELFORGE_AZURE_STORAGE_PREFIX`, `REELFORGE_AZURE_STORAGE_ENCRYPTION_SCOPE` |
-| identity | user-assigned managed identity (Container Apps), Microsoft Entra Workload ID (AKS) | `REELFORGE_AZURE_MANAGED_IDENTITY_CLIENT_ID` for a user-assigned identity on Container Apps; nothing on AKS Workload ID |
-| job wake-up (optional) | Azure Cache for Redis, or PostgreSQL `notify` | `REELFORGE_QUEUE_DISPATCH=redis` or `notify` |
+| files | Blob Storage, one private container | `RENDERWELD_STORAGE_DRIVER=azure`, `RENDERWELD_AZURE_STORAGE_ACCOUNT_URL`, `RENDERWELD_AZURE_STORAGE_CONTAINER`, optional `RENDERWELD_AZURE_STORAGE_PREFIX`, `RENDERWELD_AZURE_STORAGE_ENCRYPTION_SCOPE` |
+| identity | user-assigned managed identity (Container Apps), Microsoft Entra Workload ID (AKS) | `RENDERWELD_AZURE_MANAGED_IDENTITY_CLIENT_ID` for a user-assigned identity on Container Apps; nothing on AKS Workload ID |
+| job wake-up (optional) | Azure Cache for Redis, or PostgreSQL `notify` | `RENDERWELD_QUEUE_DISPATCH=redis` or `notify` |
 | secrets | Key Vault | Container Apps Key Vault references; the Key Vault provider for the Secrets Store CSI driver on AKS |
-| logs, metrics, traces | Log Analytics (stdout), an OpenTelemetry Collector to Azure Monitor | `REELFORGE_OTLP_ENDPOINT` |
+| logs, metrics, traces | Log Analytics (stdout), an OpenTelemetry Collector to Azure Monitor | `RENDERWELD_OTLP_ENDPOINT` |
 
 One small instance is a Linux VM with Docker and the
 [VPS recipe](../DEPLOY.md#3-vps-with-caddy-automatic-https).
@@ -49,21 +49,21 @@ One small instance is a Linux VM with Docker and the
 ## Settings
 
 ```bash
-REELFORGE_PUBLIC_URL=https://studio.example.com
-REELFORGE_TRUST_PROXY=true
-REELFORGE_STORAGE_DRIVER=azure
-REELFORGE_AZURE_STORAGE_ACCOUNT_URL=https://acmereelforge.blob.core.windows.net
-REELFORGE_AZURE_STORAGE_CONTAINER=reelforge
-REELFORGE_AZURE_STORAGE_PREFIX=studio
-REELFORGE_AZURE_MANAGED_IDENTITY_CLIENT_ID=00000000-0000-0000-0000-000000000000   # user-assigned identity (Container Apps, VMs)
-REELFORGE_RATE_LIMIT_STORE=database
-# secrets: DATABASE_URL, REELFORGE_SECRET_KEY, REELFORGE_BOOTSTRAP_KEY, REELFORGE_LICENCE_KEY
+RENDERWELD_PUBLIC_URL=https://studio.example.com
+RENDERWELD_TRUST_PROXY=true
+RENDERWELD_STORAGE_DRIVER=azure
+RENDERWELD_AZURE_STORAGE_ACCOUNT_URL=https://acmereelforge.blob.core.windows.net
+RENDERWELD_AZURE_STORAGE_CONTAINER=reelforge
+RENDERWELD_AZURE_STORAGE_PREFIX=studio
+RENDERWELD_AZURE_MANAGED_IDENTITY_CLIENT_ID=00000000-0000-0000-0000-000000000000   # user-assigned identity (Container Apps, VMs)
+RENDERWELD_RATE_LIMIT_STORE=database
+# secrets: DATABASE_URL, RENDERWELD_SECRET_KEY, RENDERWELD_BOOTSTRAP_KEY, RENDERWELD_LICENCE_KEY
 ```
 
 Without a connection string the driver uses `DefaultAzureCredential`: managed
 identity, workload identity or `AZURE_*` environment variables
 (`packages/core/src/storage/azure.ts`). A connection string
-(`REELFORGE_AZURE_STORAGE_CONNECTION_STRING_FILE`) also works; it needs the
+(`RENDERWELD_AZURE_STORAGE_CONNECTION_STRING_FILE`) also works; it needs the
 account key for bucket-signed links.
 
 `DATABASE_URL` for the flexible server:
@@ -71,7 +71,7 @@ account key for bucket-signed links.
 The server requires TLS by default; TLS to PostgreSQL is untested here (VERIFY).
 The flexible server's built-in PgBouncer listens on 6432 in transaction mode:
 use it for `DATABASE_URL` if you like, run migrations on 5432, and with `notify`
-dispatch set `REELFORGE_DATABASE_DIRECT_URL` to the 5432 URL
+dispatch set `RENDERWELD_DATABASE_DIRECT_URL` to the 5432 URL
 ([queue-and-scaling.md](../providers/queue-and-scaling.md#pgbouncer-transaction-mode)).
 Microsoft Entra authentication to PostgreSQL is not supported (password only).
 
@@ -93,9 +93,9 @@ properties, user delegation key) is:
 
 ```json
 {
-  "Name": "ReelForge blob storage",
+  "Name": "RenderWeld blob storage",
   "IsCustom": true,
-  "Description": "Blobs in the ReelForge container: read, write, list, delete; user delegation keys for signed links.",
+  "Description": "Blobs in the RenderWeld container: read, write, list, delete; user delegation keys for signed links.",
   "Actions": [
     "Microsoft.Storage/storageAccounts/blobServices/containers/read",
     "Microsoft.Storage/storageAccounts/blobServices/generateUserDelegationKey/action"
@@ -154,9 +154,9 @@ add an egress rule for its address. Azure Managed Redis listens on another port
      --min-replicas 1 --max-replicas 5 --cpu 1 --memory 2Gi \
      --secrets "database-url=keyvaultref:https://acme-kv.vault.azure.net/secrets/database-url,identityref:$IDENTITY_ID" \
                "secret-key=keyvaultref:https://acme-kv.vault.azure.net/secrets/secret-key,identityref:$IDENTITY_ID" \
-     --env-vars REELFORGE_ROLE=api DATABASE_URL=secretref:database-url REELFORGE_SECRET_KEY=secretref:secret-key \
-                REELFORGE_STORAGE_DRIVER=azure REELFORGE_AZURE_STORAGE_ACCOUNT_URL=https://acmereelforge.blob.core.windows.net \
-                REELFORGE_AZURE_STORAGE_CONTAINER=reelforge REELFORGE_AZURE_MANAGED_IDENTITY_CLIENT_ID=$IDENTITY_CLIENT_ID
+     --env-vars RENDERWELD_ROLE=api DATABASE_URL=secretref:database-url RENDERWELD_SECRET_KEY=secretref:secret-key \
+                RENDERWELD_STORAGE_DRIVER=azure RENDERWELD_AZURE_STORAGE_ACCOUNT_URL=https://acmereelforge.blob.core.windows.net \
+                RENDERWELD_AZURE_STORAGE_CONTAINER=reelforge RENDERWELD_AZURE_MANAGED_IDENTITY_CLIENT_ID=$IDENTITY_CLIENT_ID
    ```
 
    Or mount the secrets as a volume (`--secret-volume-mount /run/secrets/reelforge`,
@@ -164,7 +164,7 @@ add an egress rule for its address. Azure Managed Redis listens on another port
    Key Vault version is picked up within 30 minutes and restarts revisions that
    use it as an environment variable.
 3. **workers**, one of:
-   - an app without ingress, `REELFORGE_ROLE=worker`, 2 to 4 vCPU, and a
+   - an app without ingress, `RENDERWELD_ROLE=worker`, 2 to 4 vCPU, and a
      **custom scale rule** of type `postgresql` (Container Apps runs any
      ScaledObject-based KEDA scaler): metadata `query` = the query in
      `deployment/kubernetes/keda/scaledobject.yaml`, `targetQueryValue: "1"`,
@@ -173,7 +173,7 @@ add an egress rule for its address. Azure Managed Redis listens on another port
      zero; Container Apps' defaults are a 30 s polling interval and a 300 s
      cooldown. Set `activeRevisionsMode` to `single` for non-HTTP scale rules.
    - an **event-driven job** (ScaledJob-based KEDA scalers) with the same
-     `postgresql` rule and `REELFORGE_ROLE=worker`, `REELFORGE_WORKER_ONCE=1`:
+     `postgresql` rule and `RENDERWELD_ROLE=worker`, `RENDERWELD_WORKER_ONCE=1`:
      one execution per queued render, the shape of
      `deployment/kubernetes/keda/scaledjob/` (tested on kind as a Kubernetes
      Job; untested on Container Apps).
@@ -184,7 +184,7 @@ add an egress rule for its address. Azure Managed Redis listens on another port
    Azure Files SMB share (locking, rename).
 
 Container Apps limits that matter (VERIFY each): `/dev/shm` and seccomp cannot
-be set, so set `REELFORGE_CHROMIUM_NO_SANDBOX=1` if html, hyperframes or
+be set, so set `RENDERWELD_CHROMIUM_NO_SANDBOX=1` if html, hyperframes or
 motion-canvas renders fail with the sandbox message; the replica's termination
 grace period caps `queue.shutdownGraceSeconds`; ephemeral storage size depends on
 the CPU allocation.
@@ -210,17 +210,17 @@ the CPU allocation.
 Container Apps and AKS (Container Insights) send stdout to Log Analytics; the
 JSON fields are queryable with KQL. For metrics and traces run an OpenTelemetry
 Collector with the Azure Monitor exporter (or the Azure Monitor managed
-Prometheus scraping `/metrics`) and set `REELFORGE_OTLP_ENDPOINT` to it.
+Prometheus scraping `/metrics`) and set `RENDERWELD_OTLP_ENDPOINT` to it.
 
 ## Backups
 
 - **Azure Database for PostgreSQL:** automated backups with point-in-time
   restore (7 to 35 days), geo-redundant backup if you need it; an on-demand
-  backup before each ReelForge upgrade.
+  backup before each RenderWeld upgrade.
 - **Blob Storage:** soft delete for blobs and containers, optionally versioning
   and point-in-time restore for block blobs.
 - **Key Vault:** soft delete and purge protection on, so
-  `REELFORGE_SECRET_KEY` cannot be lost by accident.
+  `RENDERWELD_SECRET_KEY` cannot be lost by accident.
 
 ## Cost notes
 

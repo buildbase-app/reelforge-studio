@@ -1,6 +1,6 @@
 ---
 title: "Providers reference"
-description: "Every pluggable part of ReelForge Studio (engines, render backends, storage, database, queue and dispatch, media providers, notifications, audit, observability, secrets, licence): how each is selected, its settings and credentials, how to change it at runtime over REST and MCP, and what is tested."
+description: "Every pluggable part of RenderWeld (engines, render backends, storage, database, queue and dispatch, media providers, notifications, audit, observability, secrets, licence): how each is selected, its settings and credentials, how to change it at runtime over REST and MCP, and what is tested."
 folder: providers
 slug: providers-reference
 order: 2
@@ -9,7 +9,7 @@ tags: [providers, reference, configuration]
 
 # Providers reference
 
-ReelForge Studio is built from plugins and drivers that you pick by
+RenderWeld is built from plugins and drivers that you pick by
 configuration (issue #288). This page lists every one that exists on `main`,
 how it is selected, which settings and credentials it needs, whether it can be
 changed while the server runs, and how it is tested. The detailed pages per
@@ -27,13 +27,13 @@ built**.
 
 Each setting has one of two scopes (`get_config` shows it):
 
-- **startup**: read once at start, from the config file (`REELFORGE_CONFIG`),
+- **startup**: read once at start, from the config file (`RENDERWELD_CONFIG`),
   an environment variable, or `<NAME>_FILE` for secrets. Changing one means a
   restart. Drivers (`storage.driver`, `queue.dispatch`, `server.role`), endpoints
   and the database URL are start-up settings on purpose: an API key must not be
   able to point the server's data at another host.
 - **runtime**: also settable by an admin over the API; stored in the database
-  (secrets AES-256-GCM encrypted with `REELFORGE_SECRET_KEY`), applied at once
+  (secrets AES-256-GCM encrypted with `RENDERWELD_SECRET_KEY`), applied at once
   without a restart, and on every instance of a deployment within 15 s. They win
   over the file and the environment; `null` clears the runtime value.
 
@@ -57,7 +57,7 @@ curl -X PATCH -H "Authorization: Bearer $ADMIN_KEY" -H 'content-type: applicatio
 
 `update_config` is all or nothing. A start-up key is refused with
 `409 startup_only_setting` and says where to set it; a secret without
-`REELFORGE_SECRET_KEY` with `409 secret_key_required`; a release-image licence
+`RENDERWELD_SECRET_KEY` with `409 secret_key_required`; a release-image licence
 setting with `409 build_locked_setting`; a bad value with `422 invalid_setting`.
 Every change is audit-logged (secrets as `set` / `cleared`) and emits a
 `config.changed` event with the key names. Plugin settings that are not in the
@@ -76,7 +76,7 @@ telemetry).
 | --- | --- | --- | --- | --- |
 | Render engines | `remotion`, `motion-canvas`, `html`, `hyperframes` | each scene's `engine` in the manifest | per project | tested (real renders in CI) |
 | Render backends | `local`; `remotion-lambda` | the manifest's `render.backend`, or `backend` on `render_project` | per render | `local` tested; `remotion-lambda` skeleton (`implemented: false`) |
-| One job per container | `worker --once` | `REELFORGE_WORKER_ONCE` / `reelforge worker --once` | startup | tested (processes, PostgreSQL, MySQL; KEDA ScaledJob template on kind) |
+| One job per container | `worker --once` | `RENDERWELD_WORKER_ONCE` / `renderweld worker --once` | startup | tested (processes, PostgreSQL, MySQL; KEDA ScaledJob template on kind) |
 | Render fan-out | `off`, `scenes`, `scenes+chunks` | `render.fanOut` | runtime | tested (PostgreSQL + MinIO, 3 workers) |
 | Instance role | `all`, `api`, `worker` | `server.role` | startup | tested |
 | Storage | `local`, `s3`, `azure`, `gcs` | `storage.driver` | startup (credentials runtime) | local and MinIO tested; Azure and GCS emulator-tested; AWS S3 and other S3 services untested |
@@ -88,7 +88,7 @@ telemetry).
 | Rate-limit counters | `auto`, `memory`, `database` | `limits.rateLimitStore` | startup | tested |
 | Text-to-speech | `elevenlabs` | `providers.elevenlabs.apiKey` / `configure_provider` | runtime | stub-tested (mocked API) |
 | Speech-to-text | `faster-whisper` (local, optional image layer `deployment/stt`) | `captions.stt.provider`, `captions.stt.*` / `update_config` | runtime | tested with the layer (D-114); not in the release image |
-| LLM, stock media, avatars, music | none | — | — | not built: the agent that calls ReelForge does the planning; ReelForge calls no model API |
+| LLM, stock media, avatars, music | none | — | — | not built: the agent that calls RenderWeld does the planning; RenderWeld calls no model API |
 | Notification channels | `webhook`, `slack`, `discord`, `teams`, `email` | `create_webhook` `type` | runtime (per endpoint) | signed webhooks emulator-tested; chat stub-tested |
 | Email providers | `smtp`, `resend`, `postmark`, `sendgrid`, `ses` | the email endpoint's `provider`; credentials `notifications.email.*` | runtime (base URLs and SES endpoint startup) | SMTP emulator-tested (Mailpit); the rest stub-tested |
 | Audit sinks | database (always), `stdout`, `otlp`, `webhooks` | `audit.sinks` | runtime | tested |
@@ -130,7 +130,7 @@ Backends: `local` renders on the worker that claimed the job.
 Common: `storage.downloads`, `storage.retention.*` (runtime);
 `storage.requestTimeoutSeconds`, `storage.connectTimeoutSeconds`,
 `storage.maxAttempts`, `storage.cacheDir` (startup). Switching drivers:
-`reelforge storage migrate --to <driver>` until it copies nothing, then change
+`renderweld storage migrate --to <driver>` until it copies nothing, then change
 `storage.driver` and restart. Details, examples and test cases:
 [providers/storage.md](providers/storage.md); per cloud:
 [cloud/overview.md](cloud/overview.md).
@@ -144,7 +144,7 @@ support yet). Related start-up settings: `database.readUrl`, `database.directUrl
 (the `LISTEN` connection behind a transaction-mode pooler),
 `database.workerConnectionLimit`, `database.migrateOnStart`,
 `database.connectTimeoutSeconds`. Credentials live in the URL (use `_FILE`).
-The database user needs DML on the ReelForge tables and DDL for migrations.
+The database user needs DML on the RenderWeld tables and DDL for migrations.
 Egress: the database host only. Details: [DEPLOY.md](DEPLOY.md#database).
 
 ## Queue and dispatch
@@ -179,7 +179,7 @@ answers `402 cost_acknowledgement_required` with the cost note. Overview:
 ## Notifications and email
 
 Nothing is sent until an admin creates an endpoint (`create_webhook`,
-`POST /v1/webhooks`, `reelforge webhooks create`). Channel `type`: `webhook`
+`POST /v1/webhooks`, `renderweld webhooks create`). Channel `type`: `webhook`
 (Standard Webhooks signed), `slack`, `discord`, `teams` (the channel's incoming
 webhook URL, stored encrypted) or `email` with `email.provider`:
 
@@ -220,7 +220,7 @@ cloud credentials out of the studio. Each secret setting (CONFIG.md column
 "Secret") is read from, in order of precedence: a runtime value (encrypted in the
 database), the environment variable or `<NAME>_FILE`, the config file. Secrets
 are never returned, logged or put in errors; `get_config` shows `set` /
-`not set` and the source. `security.secretKey` (`REELFORGE_SECRET_KEY`) is the
+`not set` and the source. `security.secretKey` (`RENDERWELD_SECRET_KEY`) is the
 key for stored secrets and must be the same on every instance; the release image
 does not start without it. Per platform:
 [cloud/overview.md](cloud/overview.md#secrets-on-every-platform).
@@ -230,7 +230,7 @@ does not start without it. Per platform:
 The one service that is not yours: the BuildBase licence server
 (`api.console.buildbase.app`), called by `api` / `all` instances to activate and
 then once a day per deployment. Key: `licence.key` (`activate_licence`,
-`POST /v1/licence`, `REELFORGE_LICENCE_KEY[_FILE]`). `licence.mode`,
+`POST /v1/licence`, `RENDERWELD_LICENCE_KEY[_FILE]`). `licence.mode`,
 `licence.serverUrl` and `licence.orgId` are fixed in the release image;
 `licence.offlineGraceDays` can only shorten the 14-day grace.
 [ISOLATION.md](ISOLATION.md), [DEPLOY.md](DEPLOY.md#licence).

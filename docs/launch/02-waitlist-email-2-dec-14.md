@@ -21,9 +21,9 @@ questions people actually asked. No pressure, no countdown.
 
 ## Subject options
 
-1. Three questions people asked about ReelForge
-2. The ReelForge launch price ends Wed Dec 16, 13:00 UTC  *(only with a real launch price)*
-3. What changed in ReelForge since Dec 1
+1. Three questions people asked about RenderWeld
+2. The RenderWeld launch price ends Wed Dec 16, 13:00 UTC  *(only with a real launch price)*
+3. What changed in RenderWeld since Dec 1
 
 Preview text: "Answers about licensing, hardware and agents, plus one new thing."
 
@@ -32,7 +32,7 @@ Preview text: "Answers about licensing, hardware and agents, plus one new thing.
 ```text
 Hi,
 
-Two weeks ago I wrote that ReelForge was ready to install. Since then
+Two weeks ago I wrote that RenderWeld was ready to install. Since then
 people have asked good questions, so here are the answers, and one
 thing that shipped.
 
@@ -43,7 +43,7 @@ New: <one sentence on what shipped, from docs/STATUS.md>.
 
 [FAQ]
 Do I need a paid AI service?
-No. ReelForge needs no AI provider. Use the agent you already have
+No. RenderWeld needs no AI provider. Use the agent you already have
 (Claude Code, for example) or a local model: the tutorials include a
 run with a local model through node-llama-cpp on every engine.
 
@@ -64,18 +64,18 @@ The launch price ends on {{launch_price_end}}.
 [/LAUNCH PRICE ONLY]
 
 Pricing and the free Personal key:
-https://reelforge.buildbase.app/pricing?utm_source=buildbase-email&utm_medium=email&utm_campaign=launch-2026-12&utm_content=1214-wl2-pricing
+https://renderweld.com/pricing?utm_source=buildbase-email&utm_medium=email&utm_campaign=launch-2026-12&utm_content=1214-wl2-pricing
 
 Connect your agent:
-https://reelforge.buildbase.app/agents?utm_source=buildbase-email&utm_medium=email&utm_campaign=launch-2026-12&utm_content=1214-wl2-agents
+https://renderweld.com/agents?utm_source=buildbase-email&utm_medium=email&utm_campaign=launch-2026-12&utm_content=1214-wl2-agents
 
 Questions or problems: reply to this email.
 
 {{founder_name}}
-ReelForge
+RenderWeld
 
 --
-You get this because you joined the ReelForge waitlist.
+You get this because you joined the RenderWeld waitlist.
 Unsubscribe: {{unsubscribe}}
 {{companyAddress}}
 ```
