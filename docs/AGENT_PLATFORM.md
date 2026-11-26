@@ -186,9 +186,6 @@ Implemented extras (v0.1), so every REST route has a tool: projects and versions
 themes, renders and jobs (`list_jobs`, `retry_job`, `list_renders`), assets,
 providers, keys and their lifecycle, the audit log (#65), configuration, licence,
 storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->80<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->80<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->80<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->80<!-- /mcp-tool-count --> tools in total**; the grouped list with every
 tool's scope, arguments and REST equivalent is generated from the server's
 registry: [public/mcp/tools.md](public/mcp/tools.md) (`pnpm docs:reference`).
 Create and render tools take an optional `idempotencyKey` (D-057). Resource
