@@ -11,6 +11,11 @@ export interface VideoInterval {
   durationSeconds: number;
 }
 
+/** freezedetect's noise tolerance: only truly unchanged pictures count (FFmpeg's default; docs/QA.md#picture). */
+export const FREEZE_NOISE_DB = -60;
+/** blackdetect: a pixel at or under 10 % luma is black, a picture when 98 % of it is (FFmpeg's defaults, stated). */
+export const BLACK_DETECT = { pixelLuma: 0.1, pictureShare: 0.98 } as const;
+
 export interface VideoQaOptions {
   ffmpeg: string;
   input: string;
@@ -45,9 +50,8 @@ const interval = (start: number, end: number): VideoInterval => ({ startSeconds:
  */
 export async function detectVideoIssues(o: VideoQaOptions): Promise<VideoQaResult> {
   const filters: string[] = [];
-  if (o.freezeSeconds > 0) filters.push(`freezedetect=n=${o.freezeNoiseDb ?? -60}dB:d=${o.freezeSeconds}`);
-  // pix_th: a pixel at or under 10 % luma is black; pic_th: 98 % of the picture must be (FFmpeg's defaults, stated).
-  if (o.blackSeconds > 0) filters.push(`blackdetect=d=${o.blackSeconds}:pix_th=0.10:pic_th=0.98`);
+  if (o.freezeSeconds > 0) filters.push(`freezedetect=n=${o.freezeNoiseDb ?? FREEZE_NOISE_DB}dB:d=${o.freezeSeconds}`);
+  if (o.blackSeconds > 0) filters.push(`blackdetect=d=${o.blackSeconds}:pix_th=${BLACK_DETECT.pixelLuma.toFixed(2)}:pic_th=${BLACK_DETECT.pictureShare}`);
   const flash = o.flashFps !== undefined && o.flashFps > 0;
   if (!filters.length && !flash) return { freezes: [], blacks: [], flashes: [], args: [] };
   // One decode: the detectors on one branch, an area-averaged 8x8 grid per frame for the flash analysis on the other.

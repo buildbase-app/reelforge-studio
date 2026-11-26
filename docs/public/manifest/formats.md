@@ -445,8 +445,9 @@ its times, a preview checked on its own, and `fail` and `off`.
 **Flashes (WCAG 2.2 SC 2.3.1).** More than three flashes in any one second
 fails. A flash is a pair of opposing changes of at least 0.1 in relative
 luminance, with the darker side below 0.80. For saturated red (R/(R+G+B) ≥ 0.8),
-it's a change of more than 20 in (R − G − B) × 320. That is EA IRIS's method and
-WCAG 2.0's; WCAG 2.2 states the same idea as a CIE 1976 u′v′ change above 0.2.
+it's a change of more than 20 in (R − G − B) × 320, WCAG 2.0's working
+definition. WCAG 2.1 and 2.2 replaced it with a CIE 1976 u′v′ change above 0.2,
+which the studio doesn't measure yet.
 ITU-R BT.1702-3 and Ofcom use the same SDR numbers (20 cd/m² below 160 cd/m²
 at a 200 cd/m² white). Only flashing that covers a quarter of the picture or
 more counts. Each frame is measured as an 8 × 8
