@@ -642,7 +642,9 @@ export function createApp(deps: AppDeps) {
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
 
-  v1.get('/jobs', need('read'), async (c) => c.json(await service.listJobs({ projectId: c.req.query('projectId'), parentId: c.req.query('parentId') }, page(c))));
+  v1.get('/jobs', need('read'), async (c) =>
+    c.json(await service.listJobs({ projectId: c.req.query('projectId'), parentId: c.req.query('parentId'), status: c.req.query('status'), type: c.req.query('type') }, page(c)))
+  );
   v1.get('/jobs/:id', need('read'), async (c) => {
     // ?wait=N long-polls up to N seconds (max 50) for the job to finish.
     const wait = Number(c.req.query('wait') ?? 0);
@@ -737,6 +739,13 @@ export function createApp(deps: AppDeps) {
 
   v1.get('/assets', need('read'), async (c) => c.json(await service.listAssets({ projectId: c.req.query('projectId') }, page(c))));
   v1.get('/assets/:id', need('read'), async (c) => c.json(await service.getAsset(c.req.param('id'))));
+  v1.get('/assets/:id/file', need('read'), async (c) => {
+    const o = await service.assets.object(c.req.param('id'));
+    // Uploaded content on this origin: never sniffed, never run (a sanitised SVG still gets no script or origin).
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('Content-Security-Policy', "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'");
+    return sendStored(c, service, o, o.name);
+  });
   v1.post(
     '/assets',
     need('write'),

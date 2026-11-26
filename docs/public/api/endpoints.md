@@ -65,6 +65,7 @@ with their own sizes.
 | `GET` | `/v1/renders/:id/output` | `read` | `get_render_output` | REST streams the file; the MCP tool returns its download URL (same Bearer key) plus a poster image, because MCP results are not meant for large binaries. |
 | `GET` | `/v1/assets` | `read` | `list_assets` |  |
 | `GET` | `/v1/assets/:id` | `read` | `get_asset` |  |
+| `GET` | `/v1/assets/:id/file` | `read` | `get_asset` | The file itself (Range supported), e.g. for previews; MCP get_asset returns its metadata. |
 | `POST` | `/v1/assets` | `write` | `upload_asset` | Multipart upload in REST; base64 (a few MB) in MCP. JSON {url} maps to add_asset_from_url. |
 | `GET` | `/v1/providers` | `read` | `list_providers` |  |
 | `PUT` | `/v1/providers/:id/config` | `owner` | `configure_provider` |  |
