@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createReadStream, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import {
@@ -13,6 +14,7 @@ import {
   runInWorkspace,
   runWithRequest,
   type AuthContext,
+  type FrameAt,
   type KeyOptions,
   type ReelforgeService,
   type RequestContext,
@@ -685,6 +687,45 @@ export function createApp(deps: AppDeps) {
   v1.get('/renders/:id/captions', need('read'), async (c) => {
     const language = c.req.query('language');
     return c.json(await service.getCaptions({ renderId: c.req.param('id'), ...(language ? { language } : {}) }));
+  });
+  v1.get('/renders/:id/frames', need('read'), async (c) => {
+    const q = (k: string) => c.req.query(k);
+    const list = (k: string) => (q(k) ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const num = (k: string, v: string) => {
+      const n = Number(v);
+      if (v === '' || !Number.isFinite(n)) throw new ApiError('bad_request', 400, `${k}: "${v.slice(0, 40)}" is not a number`);
+      return n;
+    };
+    const at: FrameAt[] = [
+      ...list('at').map((s) => num('at', s)),
+      ...list('frames').map((s) => ({ frame: num('frames', s) })),
+      ...list('scenes').map((s) => {
+        const [sceneId, position] = s.split(':');
+        if (position !== undefined && !['start', 'mid', 'end'].includes(position)) throw new ApiError('bad_request', 400, `scenes: position must be start, mid or end (got "${position.slice(0, 20)}")`);
+        return { sceneId: sceneId!, ...(position ? { position: position as 'start' | 'mid' | 'end' } : {}) };
+      }),
+    ];
+    const layout = q('layout');
+    const overlay = q('overlay');
+    if (layout !== undefined && layout !== 'sheet' && layout !== 'separate') throw new ApiError('bad_request', 400, 'layout must be sheet or separate');
+    if (overlay !== undefined && overlay !== 'none' && overlay !== 'safe') throw new ApiError('bad_request', 400, 'overlay must be none or safe');
+    const format = q('format') ?? 'json';
+    if (format !== 'json' && format !== 'jpeg') throw new ApiError('bad_request', 400, 'format must be json or jpeg');
+    if (format === 'jpeg' && layout === 'separate') throw new ApiError('bad_request', 400, 'format=jpeg returns one image: use layout=sheet');
+    const r = await service.getFrames(c.req.param('id'), {
+      ...(at.length ? { at } : {}),
+      ...(q('every') !== undefined ? { everySeconds: num('every', q('every')!) } : {}),
+      ...(q('width') !== undefined ? { width: num('width', q('width')!) } : {}),
+      ...(layout ? { layout } : {}),
+      ...(overlay ? { overlay } : {}),
+    });
+    if (format === 'jpeg') {
+      c.header('Content-Type', 'image/jpeg');
+      c.header('Cache-Control', 'private, max-age=3600');
+      return c.body(new Uint8Array(await readFile(r.images[0]!.path)));
+    }
+    const images = await Promise.all(r.images.map(async (i) => ({ mimeType: i.mimeType, bytes: i.bytes, data: (await readFile(i.path)).toString('base64') })));
+    return c.json({ ...r, images });
   });
   v1.get('/renders/:id/output', need('read'), async (c) => {
     // Without ?file= the render's output, in whatever format it was rendered (#302).
