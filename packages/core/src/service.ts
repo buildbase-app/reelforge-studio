@@ -65,7 +65,7 @@ import { outputSupportIssues } from './output-support';
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
 import { KeyStore, hasScope, quotaWindows, type AuthContext, type KeyOptions, type PublicKey, type Scope } from './keys';
-import { DEFAULT_WORKSPACE_ID, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories } from './repositories';
+import { DEFAULT_WORKSPACE_ID, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories, type WorkspaceStatus } from './repositories';
 import { WORKSPACE_ID, currentWorkspaceId, isWorkspaceRouter, mergeAuditPages, runInWorkspace, workspaceKeyPrefix, type WorkspaceRouter } from './workspace';
 import { WorkspaceAdmin } from './workspace-admin';
 import {
@@ -389,6 +389,12 @@ export class ReelforgeService {
   readonly webhooks: WebhookService;
   /** Workspace management and per-workspace limits (#304); null when the repositories are bound to one workspace. */
   readonly workspaceAdmin: WorkspaceAdmin | null;
+  private readonly workspaceStatusOf: (id: string) => Promise<WorkspaceStatus | null>;
+
+  /** A workspace's status (active, suspended, deleted), or null when there is none by that id. Without workspace routing only the default exists. */
+  workspaceStatus(id: string): Promise<WorkspaceStatus | null> {
+    return this.workspaceStatusOf(id);
+  }
   private progressBuckets = new Map<string, number>();
   private licenceSeen: { status: string; reason: string | null } | null = null;
   private licenceTimer: NodeJS.Timeout | null = null;
@@ -454,6 +460,7 @@ export class ReelforgeService {
       audit: (e) => this.audit(e),
       rotationGraceHours: () => this.settings.current.config.keys.rotationGraceHours,
     });
+    this.workspaceStatusOf = router ? async (id: string) => (await router.workspace(id))?.status ?? null : async (id: string) => (id === DEFAULT_WORKSPACE_ID ? 'active' : null);
     this.workspaceAdmin = router
       ? new WorkspaceAdmin({ repos: router, keys: this.keys, settings: this.settings, storage: this.storage, dataDir: this.dataDir, audit: (e) => this.audit(e), now: this.now, log: config.log })
       : null;
