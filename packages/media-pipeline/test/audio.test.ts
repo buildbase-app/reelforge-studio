@@ -8,6 +8,7 @@ import {
   assertAudioSupport,
   checkAvSync,
   concatClips,
+  levelEnvelope,
   mergeWindows,
   measureEbur128,
   measureLoudness,
@@ -18,6 +19,7 @@ import {
   resolveTools,
   run,
   speechSegments,
+  windowLevelDb,
   type LoudnessTarget,
   type Tools,
 } from '../src/index';
@@ -177,6 +179,18 @@ describe('loudness normalisation (two-pass loudnorm, verified after the AAC enco
     expect(last).toBeGreaterThan(first * 0.8);
     expect(peak(x)).toBeLessThan(0.75);
   }, 60_000);
+
+  it('AUD-23 reads a level envelope once and the RMS of any window from it (#459)', async () => {
+    // 0.5 amplitude sine for 1 s (RMS -9.03 dBFS), then 1 s of silence.
+    const file = await wav('level.wav', 'aevalsrc=0.5*sin(2*PI*440*t):s=48000:d=1', 'apad=pad_dur=1');
+    const env = await levelEnvelope(tools.ffmpeg, file);
+    expect(env.blockSeconds).toBe(0.01);
+    expect(env.rmsDb).toHaveLength(200);
+    expect(windowLevelDb(env, 0.2, 0.5)).toBeCloseTo(-9.03, 1);
+    expect(windowLevelDb(env, 0.8, 0.4)).toBeCloseTo(-12.04, 1); // half of it silent: half the power
+    expect(windowLevelDb(env, 1.2, 0.5)).toBeNull(); // silence
+    expect(windowLevelDb(env, 5, 1)).toBeNull(); // past the end
+  });
 
   it('AUD-2 measures silence as null instead of failing', async () => {
     const silent = await wav('silent.wav', 'anullsrc=r=48000:cl=stereo', 'atrim=end=2');
