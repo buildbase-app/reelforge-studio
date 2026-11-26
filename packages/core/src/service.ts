@@ -68,6 +68,7 @@ import { KeyStore, hasScope, quotaWindows, type AuthContext, type KeyOptions, ty
 import { DEFAULT_WORKSPACE_ID, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories, type WorkspaceStatus, type JobStatus } from './repositories';
 import { WORKSPACE_ID, currentWorkspaceId, isWorkspaceRouter, mergeAuditPages, runInWorkspace, workspaceKeyPrefix, type WorkspaceRouter } from './workspace';
 import { WorkspaceAdmin } from './workspace-admin';
+import { estimateOutput, planId, renderRates, type PlanOutput, type RenderSample } from './render-plan';
 import {
   AuditLog,
   MAX_AUDIT_EXPORT,
@@ -102,6 +103,9 @@ import { WebhookService, jobPayload, renderDedupeKey, renderOutcome, renderSumma
 import type { AuditEntry } from './repositories';
 import type { JobEvent, JobUsage } from './jobs';
 import { Analytics, type AnalyticsSummary } from './analytics';
+
+/** Successful renders a render plan reads its rates from (#485). */
+const RENDER_PLAN_SAMPLE = 50;
 
 export interface ServiceConfig {
   /**
@@ -1204,6 +1208,101 @@ export class ReelforgeService {
       },
       ...(estimate ? { estimate } : {}),
     };
+  }
+
+  /**
+   * The render plan (#485): before render_project, what the same call would render (every output with its frames,
+   * length, size and format), whether it validates, how long each output should take and how large it should be,
+   * measured from this workspace's newest successful renders, and the queue it would join. A sample without a render
+   * of an engine says so (`basis`); nothing is guessed. `planId` names the project version and options it was made for.
+   */
+  async planRender(projectId: string, opts: { variant?: unknown } = {}) {
+    const stored = await this.projects.get(projectId);
+    const project = stored.manifest;
+    const variantIds = project.variants?.map((v) => v.id) ?? [];
+    if (opts.variant !== undefined && (typeof opts.variant !== 'string' || !variantIds.includes(opts.variant))) {
+      throw badRequest(`variant must be one of the project's variants: ${variantIds.join(', ') || '(the project has none)'}`);
+    }
+    const targets: Array<string | null> = typeof opts.variant === 'string' ? [opts.variant] : variantIds.length ? variantIds : [null];
+    const validation = await this.validateManifest(project, projectId);
+    const rates = renderRates(await this.renderSamples(RENDER_PLAN_SAMPLE));
+    const outputs = targets.map((variant) => {
+      const p = variant ? withVariant(project, variant) : project;
+      const out: PlanOutput = {
+        variant,
+        width: p.output.width,
+        height: p.output.height,
+        fps: p.output.fps,
+        frames: totalFrames(p),
+        seconds: framesToSeconds(totalFrames(p), p.output.fps),
+        format: formatSpec(p.output).format,
+        scenes: p.scenes.map((s) => ({ engine: s.engine, frames: sceneFrames(s, p.output.fps) })),
+      };
+      const { scenes: _scenes, ...shown } = out;
+      return { ...shown, estimate: estimateOutput(out, rates) };
+    });
+    const known = outputs.map((o) => o.estimate.renderSeconds);
+    const queued = await this.repos.jobs.countQueued();
+    const claimsPerSecond = await this.claimRate.perSecond();
+    const sampleEngines = Object.keys(rates.msPerMegapixelFrame);
+    return {
+      planId: planId(projectId, stored.meta.version, { variant: opts.variant ?? null }),
+      projectId,
+      projectVersion: stored.meta.version,
+      valid: validation.ok,
+      errors: validation.errors,
+      warnings: validation.warnings,
+      outputs,
+      total: {
+        outputs: outputs.length,
+        renderSeconds: known.every((s) => s !== null) ? Math.round(known.reduce((n, s) => n! + s!, 0)! * 10) / 10 : null,
+        bytes: outputs.every((o) => o.estimate.bytes !== null) ? outputs.reduce((n, o) => n + o.estimate.bytes!, 0) : null,
+      },
+      queue: {
+        queued,
+        claimsPerSecond: Math.round(claimsPerSecond * 1000) / 1000,
+        // Seconds before the first of these jobs starts: the queue ahead at the measured claim rate.
+        estimatedWaitSeconds: queued === 0 ? 0 : claimsPerSecond > 0 ? Math.ceil(queued / claimsPerSecond) : null,
+      },
+      basis: {
+        renders: rates.renders,
+        engines: sampleEngines,
+        note: rates.renders
+          ? `From the ${rates.renders} newest successful renders of this workspace; times are one render alone on one slot, before any queue wait.`
+          : 'No successful render in this workspace yet: render or preview once, and later plans estimate from it.',
+      },
+      ...(validation.estimate ? { backend: validation.estimate } : {}),
+    };
+  }
+
+  /** The newest successful renders of this workspace, as samples for render plans (manifest + stored output size). */
+  private async renderSamples(limit: number): Promise<RenderSample[]> {
+    const jobs = (await this.repos.jobs.page({ status: 'succeeded', type: 'render' }, { limit })).filter((j) => j.projectId && typeof j.result?.renderId === 'string');
+    const sizes = new Map<string, Map<string, number>>();
+    const samples: RenderSample[] = [];
+    for (const j of jobs) {
+      const runId = j.result!.renderId as string;
+      const m = await this.storage.renders
+        .readManifest<{ wallClockMillis?: number; output?: { width?: number; height?: number; frames?: number; durationSeconds?: number }; scenes?: Array<{ engine?: unknown; frames?: unknown; millis?: unknown }> }>(j.projectId!, runId)
+        .catch(() => undefined);
+      if (!m?.output || typeof m.wallClockMillis !== 'number') continue;
+      if (!sizes.has(j.projectId!)) {
+        const runs = await this.storage.renders.listRuns(j.projectId!).catch(() => []);
+        sizes.set(j.projectId!, new Map(runs.filter((r) => r.outputBytes !== undefined).map((r) => [r.runId, r.outputBytes!])));
+      }
+      samples.push({
+        width: Number(m.output.width),
+        height: Number(m.output.height),
+        frames: Number(m.output.frames),
+        seconds: Number(m.output.durationSeconds),
+        wallClockMillis: m.wallClockMillis,
+        ...(sizes.get(j.projectId!)!.has(runId) ? { outputBytes: sizes.get(j.projectId!)!.get(runId)! } : {}),
+        scenes: (m.scenes ?? [])
+          .filter((s) => typeof s.engine === 'string' && typeof s.frames === 'number' && typeof s.millis === 'number')
+          .map((s) => ({ engine: s.engine as string, frames: s.frames as number, millis: s.millis as number })),
+      });
+    }
+    return samples;
   }
 
   /** The backend's estimate for a render, or undefined for an unknown backend (reported by validation) or a failing plugin. */

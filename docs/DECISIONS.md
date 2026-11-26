@@ -3139,3 +3139,19 @@ instances agree without a cache. *Why:* agencies and platform teams need each te
 terms on that tenant's account. *Rejected:* a per-provider `sharedWithWorkspaces` that turns itself off once any
 workspace has its own (surprising for the other workspaces); falling back to the instance's for settings a
 workspace left out (it could pair one tenant's key with another account's options).
+
+### D-134 --- Render plans estimate from this install's own renders, per megapixel-frame per engine; never a guess
+
+**Status:** DECIDED (agent, 2026-11-25, #485; reversible). Number assigned at merge.\
+**Decision:** `plan_render` (`POST /v1/projects/:id/render-plan`, read scope) answers before `render_project`
+with every output the same call would render, each with an estimated render time and file size. The rates
+come from the manifests of the workspace's 50 newest successful renders: the median milliseconds per
+megapixel-frame of scene rendering per engine, the median ratio of the whole render to its scenes (assembly,
+encode, checks), and the median output bytes per megapixel-second. A size or length never rendered before is
+estimated by scaling, an engine with no sample uses the median of the others and says `partial`, and a
+workspace with no render says `none` with a null estimate. The queue wait is the queued jobs at the measured
+claim rate. Nothing is queued or charged, and the result carries a `planId` of the project version and options.
+*Why:* agents and users should see what a render costs before they start it (competitors ship dry runs and
+quotes, #485). Rates from the install's own hardware hold on any machine or cloud, where a fixed table would
+not (the backend contract already refuses to guess, #125). *Deferred:* the approval token (`render.approval`, an
+`approve` scope) is a separate change on #485.
