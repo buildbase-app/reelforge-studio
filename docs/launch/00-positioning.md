@@ -6,7 +6,7 @@ Source for every other file in this folder. Issues #249 (go-to-market) and
 
 ## One line
 
-> ReelForge: a self-hosted, source-available short-form video studio your AI
+> RenderWeld: a self-hosted, source-available short-form video studio your AI
 > agent drives over MCP. Free for personal use; one-time Commercial licence.
 
 Short form (60 characters or fewer): "A self-hosted video studio your AI agent
@@ -36,7 +36,7 @@ Some products sell a reel pack: prompt files and scripts that run inside
 Claude Code (#247). We do not name or criticise them in public. We say what an
 owned studio adds:
 
-| A reel pack | ReelForge Studio |
+| A reel pack | RenderWeld |
 | --- | --- |
 | Runs inside one agent session | A server you run; any agent connects over MCP, scripts and cron over REST |
 | One rendering approach | Four engines in one timeline, joined to the exact frame |
@@ -52,7 +52,7 @@ owned studio adds:
   you may use it.
 - "Free for personal use" (PolyForm Noncommercial 1.0.0 and a free Personal
   key); "one-time Commercial licence" for anything that earns money.
-- "No per-video fees to ReelForge", always with "to ReelForge": Remotion bills
+- "No per-video fees to RenderWeld", always with "to RenderWeld": Remotion bills
   companies of more than 3 people, and a voice provider bills per use.
 - "Driven over MCP or REST"; name only tested clients (Claude Code; an MCP SDK
   script; a local model). Codex: "config checked, agent run not recorded yet".
@@ -92,7 +92,7 @@ owned studio adds:
 - Signed release images and a `v*` release are not done yet (#117).
 - The Commercial licence, refund policy and terms are drafts pending legal
   review (#3, #97). The updates window is not decided (#91).
-- Remotion is not covered by either ReelForge licence: companies of more than
+- Remotion is not covered by either RenderWeld licence: companies of more than
   3 people need their own Remotion licence.
 
 ## Before any launch post goes out
