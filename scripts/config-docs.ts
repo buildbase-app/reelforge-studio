@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { IMAGE_DEFAULTS_ENV, SETTINGS, envNames, isLegacyEnvName, type SettingDef } from '@renderweld/core';
 
 const out = join(dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'CONFIG.md');
-const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+// Backslashes first, so an escaped pipe in the source cannot end a table cell.
+const cell = (s: string) => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
 function defaultText(d: SettingDef): string {
   if (d.defaultText) return d.defaultText;
