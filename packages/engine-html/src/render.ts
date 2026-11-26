@@ -91,7 +91,7 @@ export const chromiumSandbox = coreChromiumSandbox;
 export function resolveHtmlBrowser(explicit?: string): string {
   const p = explicit ?? envValue('REELFORGE_CHROMIUM_PATH');
   if (p && existsSync(p)) return p;
-  throw new PipelineError('setup', `No Chromium for the html engine: set REELFORGE_CHROMIUM_PATH (tried ${p ?? '(unset)'})`);
+  throw new PipelineError('setup', `No Chromium for the html engine: set RENDERWELD_CHROMIUM_PATH (tried ${p ?? '(unset)'})`);
 }
 
 /** The html + css to render for a scene: agent source, or a built-in template; `asset:` references point at `assetBase`. */

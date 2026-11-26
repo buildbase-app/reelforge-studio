@@ -26,6 +26,9 @@ suite on SQLite, PostgreSQL and MySQL; the release image is also built and run
 through the Docker end-to-end suite on Linux arm64 (SQLite) in CI. **Not
 tested:** macOS, Windows and the cloud recipes in the repository's deploy guide.
 
+How many renders one container does at 1, 2 and 4 vCPU, and the
+`limits.renderConcurrency` each size should use: [Sizing](sizing.md).
+
 ## docker compose (recommended)
 
 ```bash
