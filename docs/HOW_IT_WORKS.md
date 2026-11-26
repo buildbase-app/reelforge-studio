@@ -1,6 +1,6 @@
 ---
 title: "How a video is made"
-description: "The path of one ReelForge Studio render from the request to the stored MP4 and the webhook: validation, licence and limits, the queue, the worker's claim, engine renders per scene, fan-out, FFmpeg assembly with audio, captions, checks, storage and events, with the settings that affect each step."
+description: "The path of one RenderWeld render from the request to the stored MP4 and the webhook: validation, licence and limits, the queue, the worker's claim, engine renders per scene, fan-out, FFmpeg assembly with audio, captions, checks, storage and events, with the settings that affect each step."
 folder: start
 slug: how-it-works
 order: 3
