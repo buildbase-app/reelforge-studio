@@ -647,6 +647,16 @@ export const TOOLS: ToolDef[] = [
     run: async (a, { service }) => ({ renders: await service.listRenders(a.projectId) }),
   },
   {
+    name: 'delete_render',
+    title: 'Delete a render',
+    description:
+      'Deletes one finished render or preview with all its files (video, poster, captions, scene clips, manifest) from storage. Its job stays in the history; get_render_output then answers not_found. Cannot be undone; confirm with the user first. To delete every render of a project, delete the project.',
+    scope: 'write',
+    input: { renderId: z.string().max(64).describe('The render id (run_... or prv_...).') },
+    annotations: { destructiveHint: true },
+    run: async (a, { service }) => service.deleteRender(a.renderId),
+  },
+  {
     name: 'list_jobs',
     title: 'List jobs',
     description:
