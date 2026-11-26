@@ -169,7 +169,7 @@ cases: [providers/queue-and-scaling.md](providers/queue-and-scaling.md).
 
 | Provider | Kind | Settings | Credentials | Egress | Limits |
 | --- | --- | --- | --- | --- | --- |
-| ElevenLabs (`elevenlabs`) | text-to-speech with word timestamps | `providers.elevenlabs.apiKey` (`ELEVENLABS_API_KEY`, runtime secret), or `configure_provider { "ELEVENLABS_API_KEY": "..." }` | your ElevenLabs API key | `api.elevenlabs.io`, only on `generate_voice` / `run_provider` with `acknowledgeCost: true` | `limits.providerRunsPerKeyPerDay` (500), `limits.providerRunsPerDay` (`0`: no limit; set one from your plan); identical requests served from the local cache |
+| ElevenLabs (`elevenlabs`) | text-to-speech with word timestamps | `providers.elevenlabs.apiKey` (`ELEVENLABS_API_KEY`, runtime secret), or `configure_provider { "ELEVENLABS_API_KEY": "..." }`; a workspace's own with `configure_workspace_provider` ([WORKSPACES.md](WORKSPACES.md#provider-accounts-per-workspace-480)) | your ElevenLabs API key, or each workspace's own | `api.elevenlabs.io`, only on `generate_voice` / `run_provider` with `acknowledgeCost: true` | `limits.providerRunsPerKeyPerDay` (500), `limits.providerRunsPerDay` (`0`: no limit; set one from your plan); identical requests served from the local cache |
 | faster-whisper (`faster-whisper`) | speech-to-text with word timings, run locally (`transcribe_captions`) | `captions.stt.provider`, `captions.stt.command`, `captions.stt.model`, `captions.stt.modelDir`, `captions.stt.language`, `captions.stt.computeType`, `captions.stt.device`, `captions.stt.timeoutSeconds` (all runtime) | none | none: the program runs offline with a pre-downloaded model (Hugging Face offline mode forced); it needs the optional `deployment/stt` image layer | `captions.stt.timeoutSeconds` (600); output capped at 16 MiB |
 
 Providers cost the operator money, so a call without `acknowledgeCost: true`
@@ -247,6 +247,10 @@ from the source. The contracts and the steps for each kind are in
   Zod `params`, `cacheKey()`, `run()` with `ctx.fetch` and `ctx.putAsset`);
   `packages/core/src/providers/elevenlabs.ts` is the template. Its environment
   names become settable with `configure_provider`. List its host in PRIVACY.md.
+  Set `scopedSettings: true` and read the key from `ctx.env` when it is set (and
+  `configured(env)`), else from the constructor environment, so each workspace can
+  use its own account (#480); a plugin that reads only its constructor environment
+  only ever uses the instance's.
 - **Render backend:** `RenderBackend` (`configured()`, `implemented`,
   `submit()`, `cancel()`); keep `implemented: false` until it renders.
 - **Storage driver:** `StorageDriver` (`packages/core/src/storage.ts`, the

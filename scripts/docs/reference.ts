@@ -58,7 +58,7 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   {
     title: 'Media providers',
     intro: 'Optional providers the operator configures with their own keys. Calls that cost money ask for acknowledgeCost.',
-    tools: ['list_providers', 'configure_provider', 'run_provider', 'generate_voice'],
+    tools: ['list_providers', 'configure_provider', 'configure_workspace_provider', 'run_provider', 'generate_voice'],
   },
   {
     title: 'Rendering and jobs',

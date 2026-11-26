@@ -136,7 +136,7 @@ export const TOOLS: ToolDef[] = [
     scope: 'read',
     input: {},
     annotations: { readOnlyHint: true },
-    run: async (_a, { service }) => service.capabilities(),
+    run: async (_a, { service }) => service.capabilitiesFor(),
   },
   {
     name: 'get_me',
@@ -761,11 +761,12 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_providers',
     title: 'List media providers',
-    description: 'Media providers (TTS, ...) installed on this server, whether the operator configured them, and their cost notes.',
+    description:
+      'Media providers (TTS, ...) installed on this server, whether each is configured for your workspace, where its settings come from (settingsFrom: "workspace" = your workspace\'s own account, "instance" = the operator\'s, "none"), whether a workspace may bring its own (perWorkspace), and their cost notes.',
     scope: 'read',
     input: {},
     annotations: { readOnlyHint: true },
-    run: async (_a, { service }) => ({ providers: service.listProviders() }),
+    run: async (_a, { service }) => ({ providers: await service.listProviders() }),
   },
   {
     name: 'configure_provider',
@@ -776,8 +777,21 @@ export const TOOLS: ToolDef[] = [
     input: {
       providerId: z.string(),
       values: z.record(z.string(), z.string().nullable()).describe('Setting name -> value, or null to clear.'),
+      workspaceId: z.string().optional().describe("Set this workspace's own settings instead of the instance's (#480): its provider calls then use its own account."),
     },
-    run: async (a, { service, auth }) => service.configureProvider(a.providerId, a.values, { actorType: 'api_key', actorId: auth.keyId }),
+    run: async (a, { service, auth }) => service.configureProvider(a.providerId, a.values, { actorType: 'api_key', actorId: auth.keyId }, a.workspaceId),
+  },
+  {
+    name: 'configure_workspace_provider',
+    title: "Configure your workspace's own provider account",
+    description:
+      'Sets or clears your workspace\'s own setting for a provider, such as its ELEVENLABS_API_KEY (#480). Your workspace\'s provider calls then use that account (its bill, its voices, its data terms); no other workspace ever sees or uses it, and clearing it falls back to the instance\'s settings only when the operator shares them (providers.shareWithWorkspaces). Stored encrypted (needs REELFORGE_SECRET_KEY on the server), never returned; list_providers then shows settingsFrom "workspace". Only providers with perWorkspace: true accept it. Needs the admin scope of the workspace. Only do this with a key the user gave you for this purpose.',
+    scope: 'admin',
+    input: {
+      providerId: z.string(),
+      values: z.record(z.string(), z.string().nullable()).describe('Setting name -> value, or null to clear.'),
+    },
+    run: async (a, { service, auth }) => service.configureWorkspaceProvider(a.providerId, a.values, { actorType: 'api_key', actorId: auth.keyId }),
   },
   {
     name: 'get_config',

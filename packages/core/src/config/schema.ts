@@ -1307,6 +1307,15 @@ export const ConfigSchema = z.object({
         description: 'Enables the ElevenLabs TTS provider. Same setting as `configure_provider` / `PUT /v1/providers/elevenlabs/config`; stored encrypted when set at runtime.',
       }),
     }),
+    shareWithWorkspaces: setting(z.array(z.string().regex(/^(\*|[a-z0-9][a-z0-9-]{0,63})$/, 'a provider id such as elevenlabs, or *')).max(100), {
+      kind: 'list',
+      scope: 'runtime',
+      env: 'REELFORGE_PROVIDERS_SHARE_WITH_WORKSPACES',
+      default: [],
+      example: '*',
+      description:
+        'Providers whose instance-level settings (the owner\'s keys, `configure_provider`) workspaces other than the default may use when they have none of their own (#480, docs/WORKSPACES.md): empty by default, so each workspace brings its own with `configure_workspace_provider` and gets `409 provider_not_configured` until it does; a list of provider ids shares those; `*` shares every provider. A workspace\'s own settings always win, and are never used by another workspace; the default workspace always uses the instance\'s. **Upgrading** an install whose workspaces used the instance\'s keys before #480: set this to `*` (`update_config`, or `REELFORGE_PROVIDERS_SHARE_WITH_WORKSPACES=*`) to keep that behaviour.',
+    }),
   }),
   captions: z.object({
     defaultMode: setting(z.enum(['off', 'burned', 'sidecar', 'both']), {

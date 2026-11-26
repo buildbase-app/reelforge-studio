@@ -82,7 +82,7 @@ import {
 } from './audit';
 import { withIdempotency, type IdempotentOperation } from './idempotency';
 import { applyMergePatch, isPlainObject } from './mergePatch';
-import type { BackendContext, BackendEstimate, EstimateRequest, RenderOutcome, RenderRequest, ResolvedAsset, SttSettings, StoredAsset } from './plugins';
+import type { BackendContext, BackendEstimate, EstimateRequest, ProviderPlugin, RenderOutcome, RenderRequest, ResolvedAsset, SttSettings, StoredAsset } from './plugins';
 import { PluginRegistry } from './registry';
 import { runRenderPipeline } from './render';
 import { JOIN_JOB_TYPE, UNIT_JOB_TYPE, joinUnits, planChunks, renderUnit, unitSpecs, type ChunkPolicy, type FanOutDeps, type RenderJobParams } from './render-fanout';
@@ -222,8 +222,8 @@ export interface Actor {
 export interface ProviderSetting {
   name: string;
   set: boolean;
-  /** Where the value comes from; the value itself is never returned. */
-  source: 'api' | 'env' | 'file' | 'build' | 'unset';
+  /** Where the value comes from; the value itself is never returned. `workspace`: the calling workspace's own (#480). */
+  source: 'api' | 'env' | 'file' | 'build' | 'workspace' | 'unset';
   /** A stored value that cannot be used (e.g. it cannot be decrypted with the current REELFORGE_SECRET_KEY). */
   error?: string;
 }
@@ -869,7 +869,24 @@ export class ReelforgeService {
 
   // ---- discovery ------------------------------------------------------------
 
+  /** capabilities() with the providers as the calling workspace sees them (configured with its own or the shared settings, #480). */
+  async capabilitiesFor(workspaceId = currentWorkspaceId()) {
+    return { ...this.capabilities(), providers: await this.listProviders(workspaceId) };
+  }
+
+  /** What this server can do; `providers` as the instance sees them (capabilitiesFor gives a workspace's view). */
   capabilities() {
+    const providers = this.registry.listProviders().map((p) => ({
+      id: p.id,
+      kind: p.kind,
+      displayName: p.displayName,
+      configured: p.configured(),
+      settingsFrom: 'instance' as 'workspace' | 'instance' | 'none',
+      perWorkspace: Boolean(p.scopedSettings),
+      costNote: p.costNote,
+      env: p.env,
+      settings: p.env.map((name) => this.instanceProviderSetting(name)),
+    }));
     const engines = this.registry.listEngines();
     const sandboxOff = engines.filter((e) => e.browserSandbox?.() === false).map((e) => e.id);
     return {
@@ -897,7 +914,7 @@ export class ReelforgeService {
         };
       }),
       templates: this.registry.templateInfos().map(({ propsSchema: _p, ...t }) => t),
-      providers: this.listProviders(),
+      providers,
       backends: this.registry.listBackends().map((b) => ({
         id: b.id,
         displayName: b.displayName,
@@ -2623,7 +2640,11 @@ export class ReelforgeService {
       }
     }
     if (!result) {
-      if (!provider.configured()) {
+      const creds = await this.providerSettingsFor(provider);
+      if (!creds.configured) {
+        if (creds.source === 'none') {
+          throw new ApiError('provider_not_configured', 409, `provider "${providerId}" is not configured for this workspace: an admin of the workspace sets its own ${provider.env.join(', ')} with configure_workspace_provider (the instance's settings are not shared with workspaces: providers.shareWithWorkspaces)`);
+        }
         throw new ApiError('provider_not_configured', 409, `provider "${providerId}" is not configured on this server; the operator must set ${provider.env.join(', ')}`);
       }
       if (!opts.acknowledgeCost) {
@@ -2642,6 +2663,7 @@ export class ReelforgeService {
             log: () => undefined,
             putAsset: (input) => this.assets.put(input),
             fetch: this.fetchImpl,
+            env: creds.env,
           })
         );
       } catch (e) {
@@ -2712,34 +2734,84 @@ export class ReelforgeService {
     throw new ApiError('provider_budget_exhausted', 429, `the server's daily budget of ${c.limit} provider calls is used up (limits.providerRunsPerDay). It resets at ${day.resetsAt}; the operator can raise it.`, details);
   }
 
-  /** Providers, whether they are configured, and which settings are set (never their values). */
-  listProviders() {
-    return this.registry.listProviders().map((p) => ({
-      id: p.id,
-      kind: p.kind,
-      displayName: p.displayName,
-      configured: p.configured(),
-      costNote: p.costNote,
-      env: p.env,
-      settings: p.env.map((name): ProviderSetting => {
-        const error = this.settings.providerError(name);
-        const def = RuntimeConfig.settingForProviderEnv(name);
-        const r = def ? this.settings.current.settings.get(def.key) : undefined;
-        if (r && r.value !== undefined && r.source !== 'default') return { name, set: true, source: r.source === 'runtime' ? 'api' : r.source };
-        if (this.settings.hasProviderValue(name)) return { name, set: true, source: 'api' };
-        if (this.baseEnv[name]) return { name, set: true, source: 'env' };
-        return { name, set: false, source: 'unset', ...(error ? { error } : {}) };
-      }),
-    }));
+  /** Whether workspaces other than the default may use the instance's settings of a provider (providers.shareWithWorkspaces). */
+  private sharesInstanceProvider(providerId: string): boolean {
+    const shared = this.settings.current.config.providers.shareWithWorkspaces;
+    return shared.includes('*') || shared.includes(providerId);
+  }
+
+  /** A workspace's own provider settings (its rows of the provider settings table), or null for the default workspace. */
+  private workspaceProviderRepo(workspaceId: string) {
+    if (workspaceId === DEFAULT_WORKSPACE_ID || !isWorkspaceRouter(this.repos)) return null;
+    return this.repos.forWorkspace(workspaceId).providerSettings;
   }
 
   /**
-   * Set or clear provider settings (admin). Only the names the provider
-   * declares are accepted. Values are stored encrypted (REELFORGE_SECRET_KEY
-   * is required) and override the file and environment; clearing one falls
-   * back to them.
+   * The settings a provider runs with for a workspace (#480): the workspace's own when it set any (never mixed
+   * with the instance's), else the instance's when `providers.shareWithWorkspaces` allows it, else none. The
+   * default workspace always uses the instance's. A provider without `scopedSettings` only ever sees the
+   * instance's, so it counts as not configured for a workspace that may not share them.
    */
-  async configureProvider(providerId: string, values: unknown, actor?: Actor) {
+  async providerSettingsFor(provider: ProviderPlugin, workspaceId = currentWorkspaceId(), preloaded?: { values: Record<string, string>; errors: Record<string, string> }) {
+    const repo = this.workspaceProviderRepo(workspaceId);
+    const own = preloaded ?? (repo ? await this.settings.workspaceProviderValues(repo) : { values: {}, errors: {} });
+    const ownNames = provider.env.filter((n) => own.values[n] !== undefined || own.errors[n] !== undefined);
+    if (repo && ownNames.length && provider.scopedSettings) {
+      const env = Object.fromEntries(provider.env.map((n) => [n, own.values[n]])) as Record<string, string | undefined>;
+      return { source: 'workspace' as const, env, configured: provider.configured(env), errors: own.errors };
+    }
+    if (!repo || this.sharesInstanceProvider(provider.id)) {
+      // The instance's: no ctx.env, so the plugin reads the environment it was built with, exactly as before #480.
+      return { source: 'instance' as const, env: undefined, configured: provider.configured(), errors: {} };
+    }
+    return { source: 'none' as const, env: Object.fromEntries(provider.env.map((n) => [n, undefined])) as Record<string, string | undefined>, configured: false, errors: {} };
+  }
+
+  /**
+   * Providers, whether they are configured for the calling workspace and where its settings come from
+   * (`settingsFrom`: `workspace`, `instance` or `none`, #480), and which settings are set (never their values).
+   */
+  async listProviders(workspaceId = currentWorkspaceId()) {
+    const repo = this.workspaceProviderRepo(workspaceId);
+    const own = repo ? await this.settings.workspaceProviderValues(repo) : undefined;
+    return Promise.all(
+      this.registry.listProviders().map(async (p) => {
+        const creds = await this.providerSettingsFor(p, workspaceId, own);
+        return {
+          id: p.id,
+          kind: p.kind,
+          displayName: p.displayName,
+          configured: creds.configured,
+          settingsFrom: creds.source,
+          perWorkspace: Boolean(p.scopedSettings),
+          costNote: p.costNote,
+          env: p.env,
+          settings: p.env.map((name): ProviderSetting => {
+            if (creds.source === 'workspace') {
+              const error = creds.errors[name];
+              return creds.env[name] ? { name, set: true, source: 'workspace' } : { name, set: false, source: 'unset', ...(error ? { error } : {}) };
+            }
+            if (creds.source === 'none') return { name, set: false, source: 'unset' };
+            return this.instanceProviderSetting(name);
+          }),
+        };
+      })
+    );
+  }
+
+  /** Whether one instance-level provider setting is set and where from (never its value). */
+  private instanceProviderSetting(name: string): ProviderSetting {
+    const error = this.settings.providerError(name);
+    const def = RuntimeConfig.settingForProviderEnv(name);
+    const r = def ? this.settings.current.settings.get(def.key) : undefined;
+    if (r && r.value !== undefined && r.source !== 'default') return { name, set: true, source: r.source === 'runtime' ? 'api' : r.source };
+    if (this.settings.hasProviderValue(name)) return { name, set: true, source: 'api' };
+    if (this.baseEnv[name]) return { name, set: true, source: 'env' };
+    return { name, set: false, source: 'unset', ...(error ? { error } : {}) };
+  }
+
+  /** Checks configure_provider values: only the names the provider declares, each a single-line string or null. */
+  private providerChanges(providerId: string, values: unknown): Record<string, string | null> {
     const provider = this.registry.provider(providerId);
     if (!isPlainObject(values) || Object.keys(values).length === 0) {
       throw badRequest(`values must be an object of settings, e.g. { "${provider.env[0] ?? 'NAME'}": "..." } (null clears one)`);
@@ -2751,6 +2823,18 @@ export class ReelforgeService {
       else if (typeof v === 'string' && v.length > 0 && v.length <= 1000 && !/[\r\n]/.test(v)) changes[name] = v;
       else throw badRequest(`${name} must be a non-empty single-line string (max 1000 characters) or null`);
     }
+    return changes;
+  }
+
+  /**
+   * Set or clear provider settings (owner). Only the names the provider declares are accepted. Values are
+   * stored encrypted (REELFORGE_SECRET_KEY is required) and override the file and environment; clearing one
+   * falls back to them. With `workspaceId` (not the default workspace), they are that workspace's own (#480),
+   * as configure_workspace_provider sets them.
+   */
+  async configureProvider(providerId: string, values: unknown, actor?: Actor, workspaceId?: string) {
+    if (workspaceId !== undefined && workspaceId !== DEFAULT_WORKSPACE_ID) return this.setWorkspaceProvider(workspaceId, providerId, values, actor);
+    const changes = this.providerChanges(providerId, values);
     await this.settings.setProviderValues(changes, providerId);
     await this.audit({
       actorType: actor?.actorType ?? 'system',
@@ -2760,7 +2844,43 @@ export class ReelforgeService {
       targetId: providerId,
       data: { settings: Object.fromEntries(Object.entries(changes).map(([k, v]) => [k, v === null ? 'cleared' : 'set'])) },
     });
-    return this.listProviders().find((p) => p.id === providerId)!;
+    return (await this.listProviders(DEFAULT_WORKSPACE_ID)).find((p) => p.id === providerId)!;
+  }
+
+  /**
+   * Set or clear the calling workspace's own provider settings (admin of that workspace, #480): its calls then
+   * use its own account, and no other workspace ever sees or uses them. The default workspace's settings are
+   * the instance's: the owner sets them with configure_provider.
+   */
+  async configureWorkspaceProvider(providerId: string, values: unknown, actor?: Actor) {
+    const ws = currentWorkspaceId();
+    if (ws === DEFAULT_WORKSPACE_ID) {
+      throw new ApiError('forbidden', 403, "the default workspace uses the instance's provider settings: the owner sets them with configure_provider (PUT /v1/providers/:id/config)");
+    }
+    return this.setWorkspaceProvider(ws, providerId, values, actor);
+  }
+
+  private async setWorkspaceProvider(workspaceId: string, providerId: string, values: unknown, actor?: Actor) {
+    const provider = this.registry.provider(providerId);
+    if (!provider.scopedSettings) {
+      throw new ApiError('provider_not_per_workspace', 400, `provider "${providerId}" reads only the instance's settings, so a workspace cannot bring its own; the owner configures it with configure_provider`);
+    }
+    const repo = this.workspaceProviderRepo(workspaceId);
+    const record = isWorkspaceRouter(this.repos) ? await this.repos.workspace(workspaceId) : null;
+    if (!repo || !record || record.status === 'deleted') throw new ApiError('not_found', 404, `workspace "${workspaceId}" not found`);
+    const changes = this.providerChanges(providerId, values);
+    await this.settings.setWorkspaceProviderValues(repo, changes, providerId);
+    await runInWorkspace(workspaceId, () =>
+      this.audit({
+        actorType: actor?.actorType ?? 'system',
+        ...(actor?.actorId ? { actorId: actor.actorId } : {}),
+        action: 'provider.configure',
+        targetType: 'provider',
+        targetId: providerId,
+        data: { workspace: workspaceId, settings: Object.fromEntries(Object.entries(changes).map(([k, v]) => [k, v === null ? 'cleared' : 'set'])) },
+      })
+    );
+    return (await this.listProviders(workspaceId)).find((p) => p.id === providerId)!;
   }
 
   // ---- configuration ----------------------------------------------------------
