@@ -453,9 +453,11 @@ at a 200 cd/m² white). Only flashing that covers a quarter of the picture or
 more counts. Each frame is measured as an 8 × 8
 grid of area-averaged cells (relative luminance from linearised sRGB), so a
 small flashing element passes and a full-frame strobe doesn't. The thresholds
-are fixed by the standard, not settings. Not yet covered: IRIS's "extended
-failure" (4 to 6 transitions a second held for 5 s) and stripe patterns. Video
-for broadcast should still go through a dedicated analyser such as EA IRIS.
+are fixed by the standard, not settings. Sustained flashing, two to three
+flashes a second held for 5 s or more (EA IRIS's "extended failure"), is reported
+too, as a `video.flash` issue with `extended: true`. Not yet covered: stripe
+patterns. Video for broadcast should still go through a dedicated analyser such
+as EA IRIS.
 
 Not yet measured (#294): motion energy, loop seams, seek determinism, and text
 overflow in the final file.
