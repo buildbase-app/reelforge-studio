@@ -508,14 +508,14 @@ describe('ReelforgeService configuration', () => {
     const providerEnv: NodeJS.ProcessEnv = { ELEVENLABS_API_KEY: 'sk_from_env' };
     const registry = new PluginRegistry().registerEngine(fakeEngine('remotion')).registerProvider(new ElevenLabsTts(providerEnv));
     const s = await ReelforgeService.create(registry, { repositories: repos, dataDir: join(dir, 'svc2'), providerEnv, configSources: { env: { ...providerEnv, REELFORGE_SECRET_KEY: KEY } } });
-    expect(s.listProviders()[0]!.settings[0]).toMatchObject({ set: true, source: 'env' });
+    expect((await s.listProviders())[0]!.settings[0]).toMatchObject({ set: true, source: 'env' });
     await s.configureProvider('elevenlabs', { ELEVENLABS_API_KEY: 'sk_from_api' });
     expect(providerEnv.ELEVENLABS_API_KEY).toBe('sk_from_api');
-    expect(s.listProviders()[0]!.settings[0]).toMatchObject({ set: true, source: 'api' });
+    expect((await s.listProviders())[0]!.settings[0]).toMatchObject({ set: true, source: 'api' });
     expect(s.getConfig({ prefix: 'providers' }).settings[0]).toMatchObject({ key: 'providers.elevenlabs.apiKey', value: 'set', source: 'runtime', atRest: 'aes-256-gcm' });
     await s.updateConfig({ 'providers.elevenlabs.apiKey': null });
     expect(providerEnv.ELEVENLABS_API_KEY).toBe('sk_from_env');
-    expect(s.listProviders()[0]!.settings[0]).toMatchObject({ set: true, source: 'env' });
+    expect((await s.listProviders())[0]!.settings[0]).toMatchObject({ set: true, source: 'env' });
   });
 });
 
