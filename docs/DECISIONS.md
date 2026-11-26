@@ -3216,3 +3216,14 @@ webhook tells the receiver where to fetch the file, so it would be gone); counti
 when it is issued (an issued link is not a delivery); a separate store for the admin's own values, which would need a
 migration for little gain over tighten-only.
 
+### D-139 --- Readability warnings before a render: text under 12 px, and pane text under the WCAG contrast minimum
+
+**Status:** DECIDED (agent, 2026-11-26, #313 design gate; reversible). Number assigned at merge.\
+**Decision:** project validation warns when a built-in template would set body text under 12 px at the output size
+or any variant's size, and when a pane's own colour leaves its headline under 3:1 (large text) or its body under
+4.5:1 against the theme's text colours, or a lower third's text under 4.5:1 against its background (WCAG 2.2 SC
+1.4.3). Warnings, not errors. *Why:* rendering many sizes from one manifest showed a 728x90 banner with 5 px body
+text and white headlines on a near-white pane; both shipped silently. The 12 px floor is a studio default (below it
+words blur on a phone screen); the contrast numbers are WCAG's. *Rejected:* changing text colours automatically (it
+overrides a brand's choice without saying so); failing validation (some designs use a low-contrast word on purpose).
+
