@@ -1124,6 +1124,32 @@ export const ConfigSchema = z.object({
           'Warn when a sound effect is less than this many dB louder than the music and voice under it (RMS over its first half second, or all of it when shorter; -20 to 30, #459): the render records an `sfx.masked` warning in `audio.qa` with the cue, its time and a volume that would clear it, and `checks.sfx` is `warn`. Lower it to warn less, raise it to ask for more headroom. A warning only: the render still succeeds.',
       }),
     }),
+    qa: z.object({
+      video: setting(z.enum(['off', 'warn', 'fail']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_VIDEO',
+        default: 'warn',
+        description:
+          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`), black pictures (`render.qa.blackSeconds`) and photosensitive flashes (more than three general or red flashes a second over a quarter of the picture, WCAG 2.2 SC 2.3.1), measured on every frame in one FFmpeg decode pass. `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`, `checks.flash`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
+      }),
+      freezeSeconds: setting(z.number().min(0.5).max(3600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_FREEZE_SECONDS',
+        default: 3,
+        description:
+          'A picture that does not change for this long (seconds, 0.5 to 3600) is reported as frozen: viewers read a still that long as a stuck video. Raise it for deliberate holds such as slides.',
+      }),
+      blackSeconds: setting(z.number().min(0.1).max(3600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_BLACK_SECONDS',
+        default: 0.5,
+        description:
+          'Black pictures lasting this long (seconds, 0.1 to 3600) are reported; a fade through black is shorter. Not checked on transparent output.',
+      }),
+    }),
     ffmpegPath: setting(nonEmpty(), {
       kind: 'path',
       scope: 'startup',

@@ -48,6 +48,7 @@ import {
 } from '@renderweld/project-schema';
 import { BUNDLED_FONTS } from './fonts';
 import { FRAMES_DEFAULT_WIDTH, FRAMES_MAX_BYTES, FRAMES_MAX_WIDTH, FRAMES_MIN_WIDTH, framesCacheDir, planFrames, sceneSpans, type FramesRequest, type PlannedTile } from './frames';
+import type { VideoQaManifest } from './videoqa';
 import { audioChecks, type AudioManifest } from './audio';
 import { OLD_SERVER_NAMES, PRODUCT_NAME, SERVER_NAME } from './product';
 import { AssetStore, assetUsableBy, stageStream } from './assets';
@@ -281,6 +282,8 @@ export interface RenderSummary {
   storage: { driver: string; prefix: string };
   /** The render's audio (#301): what the file carries, the loudness preset, what was measured after the final encode, QA. */
   audio?: RenderAudio;
+  /** Picture checks (#294, render.qa.*): frozen and black stretches, with the scenes they touch. Absent when off or audio-only. */
+  videoQa?: VideoQaManifest;
 }
 
 export interface RenderAudio {
@@ -1940,6 +1943,7 @@ export class ReelforgeService {
       theme: (project) => this.themes.resolve(project.theme),
       assets: (project, pid) => this.resolveAssets(project, pid),
       audioDefaults: () => this.settings.current.config.render.audio,
+      videoQa: () => this.settings.current.config.render.qa,
     };
   }
 
@@ -2077,6 +2081,7 @@ export class ReelforgeService {
       ...(req.captionsMode ? { captionsMode: req.captionsMode } : {}),
       ...(req.audio ? { audio: req.audio } : {}),
       audioDefaults: this.settings.current.config.render.audio,
+      videoQa: this.settings.current.config.render.qa,
       ...(req.captionsDefault ? { captionsDefault: req.captionsDefault } : {}),
       gifMaxBytes: this.settings.current.config.render.formats.gifMaxBytes,
     });
@@ -2182,6 +2187,7 @@ export class ReelforgeService {
       scenes: Array<{ file: string }>;
       captions?: CaptionManifest;
       audio?: Partial<AudioManifest>;
+      videoQa?: VideoQaManifest;
     }>(projectId, runId);
     if (!m) throw notFound('render', runId);
     const base = `/v1/renders/${runId}/output`;
@@ -2246,6 +2252,7 @@ export class ReelforgeService {
       ...(await this.downloadLink(projectId, runId, outFile)),
       ...(captions ? { captions } : {}),
       ...(m.audio?.loudness && m.audio.track ? { audio: renderAudio(m.audio as AudioManifest) } : {}),
+      ...(m.videoQa ? { videoQa: m.videoQa } : {}),
       storage: { driver: this.storage.driver.id, prefix: renderPrefix(projectId, runId) },
     };
   }
