@@ -201,7 +201,7 @@ export function renderToolsDoc(): string {
   const out: string[] = [
     frontMatter({
       title: 'MCP tool reference',
-      description: `All ${TOOLS.length} MCP tools of ReelForge Studio, grouped by task, with their scopes, arguments and REST equivalents.`,
+      description: `All ${TOOLS.length} MCP tools of RenderWeld, grouped by task, with their scopes, arguments and REST equivalents.`,
       folder: 'mcp',
       slug: 'tools',
       order: 2,
@@ -211,7 +211,7 @@ export function renderToolsDoc(): string {
     '',
     GENERATED,
     '',
-    `ReelForge Studio offers **${TOOLS.length} tools** at \`/mcp\`, generated here from the server's tool registry.`,
+    `RenderWeld offers **${TOOLS.length} tools** at \`/mcp\`, generated here from the server's tool registry.`,
     'Every tool has a REST equivalent under `/v1` with the same scope. Tool names are **experimental until v1.0**.',
     'Errors come back as a tool result with `isError: true` and `{ "error": { "code", "message", "details" } }`.',
     '',
@@ -244,7 +244,7 @@ export function renderEndpointsDoc(): string {
   const out: string[] = [
     frontMatter({
       title: 'REST endpoint reference',
-      description: `Every REST /v1 route of ReelForge Studio with its scope and the MCP tool that does the same.`,
+      description: `Every REST /v1 route of RenderWeld with its scope and the MCP tool that does the same.`,
       folder: 'api',
       slug: 'endpoints',
       order: 2,
@@ -289,7 +289,7 @@ export function renderTemplatesDoc(): string {
   return [
     frontMatter({
       title: 'Built-in templates',
-      description: 'The scene templates ReelForge Studio ships with: engine, duration range and what each one draws.',
+      description: 'The scene templates RenderWeld ships with: engine, duration range and what each one draws.',
       folder: 'manifest',
       slug: 'templates',
       order: 2,

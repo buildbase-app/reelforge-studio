@@ -1,6 +1,6 @@
 ---
 title: "Licence key"
-description: "How ReelForge Studio activates with your BuildBase licence key: what is sent, the daily check, 14 days offline, moving servers, and what happens without a key."
+description: "How RenderWeld activates with your BuildBase licence key: what is sent, the daily check, 14 days offline, moving servers, and what happens without a key."
 folder: install
 slug: licence
 order: 2
@@ -9,18 +9,18 @@ tags: [install, licence]
 
 # Licence key
 
-ReelForge is **source-available**: the code is public to read, and the licence
+RenderWeld is **source-available**: the code is public to read, and the licence
 decides how you may use it.
 
 | You want to... | You need |
 | --- | --- |
 | Run it for yourself as a hobby, for study, research or evaluation | A free **Personal** key (PolyForm Noncommercial 1.0.0) |
 | Make videos for anything that earns money: a monetised channel, client work, ads, a business | A **Commercial** licence (one-time, per seat or server) |
-| Resell, rebrand or offer ReelForge as a hosted service | Not permitted under either licence |
+| Resell, rebrand or offer RenderWeld as a hosted service | Not permitted under either licence |
 
-Both keys come from <https://reelforge.buildbase.app/pricing> and are delivered
+Both keys come from <https://renderweld.com/pricing> and are delivered
 through BuildBase. Remotion, one of the four engines, is not covered by either
-ReelForge licence: companies of more than three people need their own Remotion
+RenderWeld licence: companies of more than three people need their own Remotion
 licence (<https://www.remotion.dev/license>).
 
 ## What the key unlocks
@@ -44,12 +44,12 @@ curl -X POST -H "Authorization: Bearer $ADMIN_KEY" -H 'content-type: application
   -d '{"key":"ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2"}' http://127.0.0.1:4321/v1/licence
 
 # the CLI in the container (a running server reads it after a restart):
-docker compose exec reelforge reelforge licence activate ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2
+docker compose exec reelforge renderweld licence activate ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2
 
-# or before the start: REELFORGE_LICENCE_KEY / REELFORGE_LICENCE_KEY_FILE
+# or before the start: RENDERWELD_LICENCE_KEY / RENDERWELD_LICENCE_KEY_FILE
 ```
 
-`GET /v1/licence`, `get_licence` and `reelforge licence status` show the status
+`GET /v1/licence`, `get_licence` and `renderweld licence status` show the status
 (`valid`, `grace`, `invalid`, `unlicensed`), the reason, the last check, how long
 the server keeps working offline and the activations used. The key itself is only
 ever shown as its first group.
@@ -84,7 +84,7 @@ Setting the system clock back does not extend the period.
 
 The activation belongs to the database, so moving the data volume or database
 moves it. For a new installation, free the old one first with
-`deactivate_licence`, `DELETE /v1/licence` or `reelforge licence deactivate`,
+`deactivate_licence`, `DELETE /v1/licence` or `renderweld licence deactivate`,
 then activate on the new server. A key over its activation limit answers
 `limit_reached`.
 
@@ -93,4 +93,4 @@ then activate on the new server. A key over its activation limit answers
 The published release image fixes the licence check on. A build from source for
 noncommercial development (`pnpm dev`, or
 `docker build --build-arg REELFORGE_EDITION=dev .`) can set
-`REELFORGE_LICENCE_MODE=off`. Commercial use always needs a Commercial key.
+`RENDERWELD_LICENCE_MODE=off`. Commercial use always needs a Commercial key.

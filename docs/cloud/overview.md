@@ -1,6 +1,6 @@
 ---
 title: "Deploy on any cloud"
-description: "Where ReelForge Studio runs: one image on any container platform, the reference architecture for one server or an api and workers, which cloud services fit each part, and what is tested."
+description: "Where RenderWeld runs: one image on any container platform, the reference architecture for one server or an api and workers, which cloud services fit each part, and what is tested."
 folder: deploy
 slug: deploy-overview
 order: 1
@@ -9,7 +9,7 @@ tags: [deploy, cloud]
 
 # Deploy on any cloud
 
-ReelForge Studio is **one container image** that you run on your own
+RenderWeld is **one container image** that you run on your own
 infrastructure. It needs a place to run the container, somewhere to keep files,
 and (for more than one instance) a database. Everything in the studio comes from
 this repository; the only outside service it ever needs is the BuildBase licence
@@ -41,7 +41,7 @@ Back up one volume.
 `api` instances behind a load balancer take requests and queue jobs; `worker`
 instances claim jobs from the database and render. This needs a shared
 PostgreSQL or MySQL database, shared object storage (or one shared volume with
-`storage.localShared`), and the same `REELFORGE_SECRET_KEY` on every instance.
+`storage.localShared`), and the same `RENDERWELD_SECRET_KEY` on every instance.
 The roles refuse to start without them and say what is missing
 ([queue-and-scaling.md](../providers/queue-and-scaling.md)).
 
@@ -105,7 +105,7 @@ worked (SUPPORT.md) so the page can say "tested".
 - **CPU after the response.** Renders, webhook deliveries, the outbox relay and
   the licence check run in the background. Platforms that throttle CPU between
   requests (Cloud Run's request-based billing, scale-to-zero web services) must
-  keep CPU allocated for every ReelForge instance.
+  keep CPU allocated for every RenderWeld instance.
 - **A writable data directory** (`/data`): caches, render staging and the URL
   signing key with remote storage; everything with local storage. Atomic rename
   is needed, so use a local disk or block volume, not an object-storage FUSE
@@ -113,14 +113,14 @@ worked (SUPPORT.md) so the page can say "tested".
 - **Shared memory.** Chromium wants a large `/dev/shm`
   (`--shm-size=1g`, or a memory `emptyDir` on Kubernetes). Platforms that do not
   let you size it (Fargate, Cloud Run, Container Apps) get the engines'
-  `--disable-dev-shm-usage` where ReelForge controls the flags. VERIFY a render
+  `--disable-dev-shm-usage` where RenderWeld controls the flags. VERIFY a render
   of every engine on such a platform.
 - **Chromium's sandbox.** The image keeps it on and needs the seccomp profile
   `deployment/seccomp/chrome.json` (Docker, Kubernetes with a Localhost
   profile). Managed platforms where you cannot set a seccomp profile may refuse
   the user namespaces it needs; html, hyperframes and motion-canvas renders then
   fail with a message naming the profile. The opt-out is
-  `REELFORGE_CHROMIUM_NO_SANDBOX=1` (logged, shown in `get_capabilities`); the
+  `RENDERWELD_CHROMIUM_NO_SANDBOX=1` (logged, shown in `get_capabilities`); the
   platform's VM or microVM is then the isolation boundary
   ([HARDENING.md](../security/HARDENING.md)).
 - **Long requests.** Keep the load balancer idle timeout above 120 s for
@@ -132,10 +132,10 @@ worked (SUPPORT.md) so the page can say "tested".
 
 ## Secrets on every platform
 
-The secrets ReelForge reads: `REELFORGE_SECRET_KEY` (required by the release
+The secrets RenderWeld reads: `RENDERWELD_SECRET_KEY` (required by the release
 image; the same on every instance; back it up), `DATABASE_URL`,
-`REELFORGE_BOOTSTRAP_KEY` (first admin key), `REELFORGE_LICENCE_KEY`, storage,
-broker and email credentials, `REELFORGE_METRICS_TOKEN`, `REELFORGE_OTLP_HEADERS`.
+`RENDERWELD_BOOTSTRAP_KEY` (first admin key), `RENDERWELD_LICENCE_KEY`, storage,
+broker and email credentials, `RENDERWELD_METRICS_TOKEN`, `RENDERWELD_OTLP_HEADERS`.
 Each one can be given three ways:
 
 1. `<NAME>_FILE=/run/secrets/...`: a file the platform mounts (Kubernetes and
@@ -147,7 +147,7 @@ Each one can be given three ways:
    NAME=secret:version`).
 3. For runtime settings only (provider keys, email credentials, storage keys,
    the licence key): set by an agent with an owner key using `update_config` /
-   `PATCH /v1/config`, stored AES-256-GCM encrypted with `REELFORGE_SECRET_KEY`.
+   `PATCH /v1/config`, stored AES-256-GCM encrypted with `RENDERWELD_SECRET_KEY`.
 
 `get_config` shows only `set` / `not set` and where a secret came from, never
 the value.

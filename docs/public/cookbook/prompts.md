@@ -1,6 +1,6 @@
 ---
 title: "Prompt cookbook"
-description: "Prompts that work with ReelForge Studio over MCP, and the tools an agent calls for each: a reel from a brief, brand themes, voice-over, music, fixes and batch renders."
+description: "Prompts that work with RenderWeld over MCP, and the tools an agent calls for each: a reel from a brief, brand themes, voice-over, music, fixes and batch renders."
 folder: cookbook
 slug: prompts
 order: 1
@@ -9,9 +9,9 @@ tags: [cookbook, mcp, agents]
 
 # Prompt cookbook
 
-Plain-language prompts for an agent connected to ReelForge over MCP, with the
+Plain-language prompts for an agent connected to RenderWeld over MCP, with the
 tools it will typically call. The agent decides the exact calls; these are what
-the server offers for each job. Prefix a prompt with "Use reelforge:" if your
+the server offers for each job. Prefix a prompt with "Use renderweld:" if your
 client has several MCP servers.
 
 ## Ask before assuming
