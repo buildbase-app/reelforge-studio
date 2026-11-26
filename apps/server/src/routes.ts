@@ -22,6 +22,8 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'GET', path: '/v1/me', scope: 'read', tool: 'get_me' },
   { method: 'GET', path: '/v1/schema/project', scope: 'read', tool: 'get_project_schema' },
   { method: 'GET', path: '/v1/templates', scope: 'read', tool: 'list_templates' },
+  { method: 'GET', path: '/v1/skills', scope: 'read', tool: 'get_skill', note: 'The list; MCP: get_skill without name.' },
+  { method: 'GET', path: '/v1/skills/:name', scope: 'read', tool: 'get_skill', note: 'REST answers with the Markdown (text/markdown); MCP: get_skill { name } returns it in JSON.' },
   { method: 'GET', path: '/v1/themes', scope: 'read', tool: 'list_themes' },
   { method: 'POST', path: '/v1/themes', scope: 'write', tool: 'create_theme' },
   { method: 'GET', path: '/v1/themes/:id', scope: 'read', tool: 'get_theme' },

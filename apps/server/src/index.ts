@@ -6,6 +6,7 @@ export * from './registry';
 export * from './server';
 export * from './routes';
 export * from './readiness';
+export { BUILT_IN_SKILLS, SKILL_ORDER, type Skill } from './skills/index';
 export { StructuredLogger, secretValues, type LogFields, type LogFn, type LogsExporter, type StructuredLoggerOptions } from './observability/logger';
 export * from './observability/redact';
 export * from './observability/telemetry';
