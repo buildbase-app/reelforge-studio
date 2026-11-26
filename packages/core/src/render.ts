@@ -2,6 +2,8 @@ import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import {
   PipelineError,
+  SEEK_GRID,
+  SEEK_MAX_DIFF,
   assemble,
   assertDecodable,
   avDurations,
@@ -10,6 +12,8 @@ import {
   concatClips,
   detectVideoIssues,
   encodersOf,
+  frameGrid,
+  gridDifference,
   formatSettings,
   encodeAudioOnly,
   probe,
@@ -34,7 +38,7 @@ import {
 } from '@renderweld/project-schema';
 import { audioChecks, audioPass, resolveAudioPlan, verifyAudio, type AudioDefaults } from './audio';
 import { captionPass } from './captions';
-import { VIDEO_QA_DEFAULTS, lowMotionOutsideFreezes, sceneTimes, videoQaIssues, type VideoQaIssue, type VideoQaManifest, type VideoQaSettings } from './videoqa';
+import { VIDEO_QA_DEFAULTS, lowMotionOutsideFreezes, sceneTimes, seekSamples, videoQaIssues, type SeekResult, type VideoQaIssue, type VideoQaManifest, type VideoQaSettings } from './videoqa';
 import { writeJsonAtomic } from './fsutil';
 import { MP4_SPEC, checkFormatOutput, isAudioOnly, packageFormat, planFor } from './output-formats';
 import type { Logger, ResolvedAsset } from './plugins';
@@ -305,6 +309,55 @@ export interface FinishRenderInput {
 }
 
 /**
+ * The seek check (#294): render a few frames again on their own (the engine starts at the frame, as a chunk of a split
+ * scene does) and compare each with the same frame of the finished video. A frame that cannot be rendered or read is
+ * recorded with its error; the render itself goes on.
+ */
+async function checkSeek(f: { input: RenderPipelineInput; clips: SceneClip[]; output: OutputSettings; tmp: string; video: string; count: number }): Promise<SeekResult[]> {
+  const { input, output } = f;
+  const samples = seekSamples(f.clips, (engine) => input.registry.engine(engine).capabilities?.().frameRanges === true, f.count);
+  if (!samples.length) return [];
+  const scenes = new Map(timeline(input.project).map((s) => [s.id, s]));
+  const fps = fpsValue(output.fps);
+  const dir = join(f.tmp, 'work', 'seek');
+  const results: SeekResult[] = [];
+  try {
+    for (const s of samples) {
+      if (input.signal.aborted) throw new PipelineError('qa:seek', 'cancelled');
+      const seconds = Math.round((s.timelineFrame / fps) * 1000) / 1000;
+      const out = join(dir, `${s.sceneId}-f${s.sceneFrame}.mp4`);
+      try {
+        const clip = await renderSceneClip({
+          ...input,
+          scene: scenes.get(s.sceneId)!,
+          output,
+          ...(input.project.brief?.platform ? { platform: input.project.brief.platform } : {}),
+          out,
+          workDir: join(dir, `work-${s.sceneId}-f${s.sceneFrame}`),
+          progress: () => undefined,
+          frameRange: [s.sceneFrame, s.sceneFrame],
+        });
+        const [full, alone] = await Promise.all([
+          frameGrid({ ffmpeg: input.tools.ffmpeg, input: f.video, frame: s.timelineFrame, fps, signal: input.signal }),
+          frameGrid({ ffmpeg: input.tools.ffmpeg, input: out, frame: 0, fps, signal: input.signal }),
+        ]);
+        const diff = gridDifference(full, alone);
+        input.log(`seek check: frame ${s.sceneFrame} of scene "${s.sceneId}" alone vs in the video: up to ${diff.maxDiff} levels apart (mean ${diff.meanDiff})`);
+        results.push({ ...s, seconds, ...diff, renderMillis: clip.millis });
+      } catch (e) {
+        if (input.signal.aborted) throw e;
+        const message = (e as Error).message.split('\n')[0]!.slice(0, 300);
+        input.log(`seek check: frame ${s.sceneFrame} of scene "${s.sceneId}" could not be checked: ${message}`);
+        results.push({ ...s, seconds, error: message });
+      }
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  return results;
+}
+
+/**
  * Assemble the clips with music/voice/sfx → probe and decode the result →
  * poster frame → render manifest (last) → rename `tmp` to `finalDir`. Shared
  * by the single-worker pipeline and the fan-out join (D-097). Leaves `tmp` in
@@ -406,7 +459,10 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
       })
     );
     const lows = measured.motion ? lowMotionOutsideFreezes(measured.motion.lows, measured.freezes, lowMotionSeconds) : [];
-    const issues = videoQaIssues({ ...measured, lows, loop: measured.motion?.loop }, sceneTimes(clips, fpsValue(output.fps)), qa.video === 'fail' ? 'error' : 'warning');
+    // The seek check renders frames again, so it runs on renders only (a preview is about speed) and never with alpha.
+    const seekFrames = qa.seekFrames ?? VIDEO_QA_DEFAULTS.seekFrames;
+    const seeks = input.kind === 'render' && !spec.alpha && seekFrames > 0 ? await ffmpegSpan('seek check', () => checkSeek({ input, clips, output, tmp, video: finalTmp, count: seekFrames })) : undefined;
+    const issues = videoQaIssues({ ...measured, lows, loop: measured.motion?.loop, ...(seeks ? { seeks } : {}) }, sceneTimes(clips, fpsValue(output.fps)), qa.video === 'fail' ? 'error' : 'warning');
     for (const i of issues) log(`picture qa (${i.severity}): ${i.message}`);
     if (qa.video === 'fail' && issues.length) throw new PipelineError('qa:video', issues.map((i) => i.message).join('; '));
     videoQa = {
@@ -418,6 +474,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
       ...(measured.motion
         ? { motion: { floor: motionFloor, lowSeconds: lowMotionSeconds, energyPerSecond: measured.motion.energyPerSecond, lows, ...(measured.motion.loop ? { loop: measured.motion.loop } : {}) } }
         : {}),
+      ...(seeks?.length ? { seek: { grid: SEEK_GRID, maxDiff: SEEK_MAX_DIFF, frames: seeks } } : {}),
       issues,
     };
   }
@@ -530,6 +587,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
       flash: pictureCheck('video.flash', true),
       motion: pictureCheck('video.motion', !!videoQa?.motion && videoQa.motion.lowSeconds > 0),
       loop: pictureCheck('video.loop', !!videoQa?.motion?.loop),
+      seek: pictureCheck('video.seek', !!videoQa?.seek?.frames.some((s) => s.maxDiff !== undefined)),
     },
     ...(videoQa ? { videoQa } : {}),
     ...(f.streamCopy ? { join: { method: 'concat demuxer, video stream copy', clips: clips.length } } : {}),
