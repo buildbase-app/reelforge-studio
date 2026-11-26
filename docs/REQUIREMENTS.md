@@ -77,7 +77,7 @@ Priority scale: **P0** required for MVP; **P1** important after MVP;
 -   **FR-050 P0:** Every bundled asset has documented provenance and
     license.
 -   **FR-051 P0:** User-provided assets are not represented as cleared
-    for use by ReelForge.
+    for use by RenderWeld.
 -   **FR-052 P1:** UI can warn when an asset lacks license metadata.
 -   **FR-053 P1:** Attribution requirements can be exported with a
     project.
