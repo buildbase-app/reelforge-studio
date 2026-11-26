@@ -112,7 +112,7 @@ export function resolveBrowser(
   if (!found) {
     throw new PipelineError(
       'setup',
-      'No Chromium found for Motion Canvas rendering. Set REELFORGE_CHROMIUM_PATH to a Chrome or ' +
+      'No Chromium found for Motion Canvas rendering. Set RENDERWELD_CHROMIUM_PATH to a Chrome or ' +
         `Chromium binary. Tried: ${candidates.join(', ') || '(nothing)'}`
     );
   }
