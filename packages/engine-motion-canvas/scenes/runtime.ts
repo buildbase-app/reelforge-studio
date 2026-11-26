@@ -1,5 +1,5 @@
 import { Renderer, RendererResult, Vector2, type Project } from '@motion-canvas/core';
-import { loadFontFaces } from '@reelforge/project-schema/media';
+import { loadFontFaces } from '@renderweld/project-schema/media';
 import type {} from '../src/protocol';
 
 /**

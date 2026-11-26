@@ -217,10 +217,10 @@ S3 sinks (not built).
 Commands:
 
 ```bash
-pnpm --filter @reelforge/core exec vitest run test/audit.test.ts
-TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://... pnpm --filter @reelforge/db test
-pnpm --filter @reelforge/server exec vitest run test/enterprise.test.ts test/parity.test.ts
-REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @reelforge/server exec vitest run test/enterprise.test.ts
+pnpm --filter @renderweld/core exec vitest run test/audit.test.ts
+TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/db test
+pnpm --filter @renderweld/server exec vitest run test/enterprise.test.ts test/parity.test.ts
+REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/enterprise.test.ts
 DB=postgres e2e/docker/run.sh        # OTEL_IMAGE selects a collector mirror
 ```
 

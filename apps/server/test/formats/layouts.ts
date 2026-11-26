@@ -13,12 +13,12 @@ import { execFile } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import type { EnginePlugin, ResolvedAsset } from '@reelforge/core';
-import { renderHtmlScene } from '@reelforge/engine-html';
-import { renderMotionCanvasScene } from '@reelforge/engine-motion-canvas';
-import { renderRemotionScene } from '@reelforge/engine-remotion';
-import { resolveTools } from '@reelforge/media-pipeline';
-import { clearOfLowerThird, frameLayout, layoutPanes, layoutSceneProps, lowerThirdBox, toLayoutSpec, type LayoutSceneProps, type OutputSettings, type RenderScene } from '@reelforge/project-schema';
+import type { EnginePlugin, ResolvedAsset } from '@renderweld/core';
+import { renderHtmlScene } from '@renderweld/engine-html';
+import { renderMotionCanvasScene } from '@renderweld/engine-motion-canvas';
+import { renderRemotionScene } from '@renderweld/engine-remotion';
+import { resolveTools } from '@renderweld/media-pipeline';
+import { clearOfLowerThird, frameLayout, layoutPanes, layoutSceneProps, lowerThirdBox, toLayoutSpec, type LayoutSceneProps, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
 import { THEME, frameRgb, type Format } from './matrix';
 
 const run = promisify(execFile);

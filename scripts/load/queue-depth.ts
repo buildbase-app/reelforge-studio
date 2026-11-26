@@ -25,8 +25,8 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { loadavg, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { DEFAULT_WORKSPACE_ID, newId, type JobRecord } from '@reelforge/core';
-import { Database, prepareDatabase, sqlNames } from '@reelforge/db';
+import { DEFAULT_WORKSPACE_ID, newId, type JobRecord } from '@renderweld/core';
+import { Database, prepareDatabase, sqlNames } from '@renderweld/db';
 import { env, envNum, hostFingerprint, LoadAvgSampler, num, round, sh, sleep, summary } from './lib';
 
 const repo = resolve(import.meta.dirname, '../..');

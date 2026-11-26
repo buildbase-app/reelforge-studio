@@ -7,8 +7,8 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import type { KineticTitleProps, SceneMedia, ThemeTokens } from '@reelforge/project-schema';
-import { fitText, frameLayout } from '@reelforge/project-schema/layout';
+import type { KineticTitleProps, SceneMedia, ThemeTokens } from '@renderweld/project-schema';
+import { fitText, frameLayout } from '@renderweld/project-schema/layout';
 import { BackgroundMedia, Logo } from './Media';
 
 type ThemeLike = Pick<ThemeTokens, 'colors' | 'fontFamily' | 'headingWeight'>;

@@ -7,8 +7,8 @@
  * status event (as QUE-14 does), prints "claim gated" and lets it go on only
  * after SIGTERM has started the shutdown: SIGTERM in the claim gap (#172).
  */
-import { DEFAULT_WORKSPACE_ID, PluginRegistry, scrubSecretEnv, type Repositories } from '@reelforge/core';
-import { Database, createPrismaRepositories } from '@reelforge/db';
+import { DEFAULT_WORKSPACE_ID, PluginRegistry, scrubSecretEnv, type Repositories } from '@renderweld/core';
+import { Database, createPrismaRepositories } from '@renderweld/db';
 import { fakeEngine } from '../../../../packages/core/test/helpers';
 import { onceArgs, runWorkerOnce } from '../../src/worker';
 

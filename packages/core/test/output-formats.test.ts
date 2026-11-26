@@ -10,7 +10,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { alphaStats, checkAvSync, encodersOf, measureEbur128, probe, probeAudio, resolveTools, zipEntries, zipPngHeader } from '@reelforge/media-pipeline';
+import { alphaStats, checkAvSync, encodersOf, measureEbur128, probe, probeAudio, resolveTools, zipEntries, zipPngHeader } from '@renderweld/media-pipeline';
 import { PluginRegistry, ReelforgeService, createMemoryRepositories } from '../src/index';
 import { fakeEngine, makeTone, tempDir } from './helpers';
 

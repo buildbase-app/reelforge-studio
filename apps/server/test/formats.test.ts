@@ -16,14 +16,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { chromium } from 'playwright-core';
-import { buildDocument, htmlTitle } from '@reelforge/engine-html';
-import { buildComposition } from '@reelforge/engine-hyperframes';
-import { checkExpectation, probe, resolveTools } from '@reelforge/media-pipeline';
-import type { ResolvedAsset } from '@reelforge/core';
-import { FIT_TEXT_SCRIPT, frameLayout, htmlTitleProps, layoutPanes, layoutSceneDom, layoutSceneProps, toLayoutSpec, type OutputSettings } from '@reelforge/project-schema';
+import { buildDocument, htmlTitle } from '@renderweld/engine-html';
+import { buildComposition } from '@renderweld/engine-hyperframes';
+import { checkExpectation, probe, resolveTools } from '@renderweld/media-pipeline';
+import type { ResolvedAsset } from '@renderweld/core';
+import { FIT_TEXT_SCRIPT, frameLayout, htmlTitleProps, layoutPanes, layoutSceneDom, layoutSceneProps, toLayoutSpec, type OutputSettings } from '@renderweld/project-schema';
 import { LAYOUT_ENGINES, LAYOUT_FORMATS, LAYOUT_SAMPLES, LAYOUT_STRESS_SAMPLES, renderLayout, type LayoutSample } from './formats/layouts';
 import { FORMATS, FORMAT_4K, SAMPLES, THEME, checkOverflow, engines, frameRgb, renderSample, scaled, type Format } from './formats/matrix';
-import { envValue } from '@reelforge/core';
+import { envValue } from '@renderweld/core';
 
 const run = promisify(execFile);
 

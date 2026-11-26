@@ -19,8 +19,8 @@
  *
  *   DB_URL=postgresql://...?connection_limit=2 RUNNERS=10 WORK_MS=0 node --import tsx scripts/load/queue-worker.ts
  */
-import { JobRunner, type JobContext } from '@reelforge/core';
-import { Database, createNotifyListener, notifyChannel } from '@reelforge/db';
+import { JobRunner, type JobContext } from '@renderweld/core';
+import { Database, createNotifyListener, notifyChannel } from '@renderweld/db';
 import { sleep } from './lib';
 
 const e = process.env;

@@ -1,4 +1,4 @@
-import { fpsArg, parseFrameRate } from '@reelforge/project-schema';
+import { fpsArg, parseFrameRate } from '@renderweld/project-schema';
 
 /**
  * A frame rate as the media pipeline takes it (#302): a number (30, or

@@ -18,7 +18,7 @@ import {
   zipPngHeader,
   type FormatPlan,
   type Tools,
-} from '@reelforge/media-pipeline';
+} from '@renderweld/media-pipeline';
 import {
   AUDIO_ONLY_FORMATS,
   formatSpec,
@@ -31,7 +31,7 @@ import {
   type FormatSpec,
   type FrameRate,
   type Project,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import type { PluginRegistry } from './registry';
 
 /**

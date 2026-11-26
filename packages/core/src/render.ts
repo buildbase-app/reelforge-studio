@@ -15,7 +15,7 @@ import {
   run,
   toolVersion,
   type Tools,
-} from '@reelforge/media-pipeline';
+} from '@renderweld/media-pipeline';
 import {
   fpsValue,
   framesToSeconds,
@@ -30,7 +30,7 @@ import {
   type RenderAudioOptions,
   type ThemeTokens,
   type TimelineScene,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import { audioPass, resolveAudioPlan, verifyAudio, type AudioDefaults } from './audio';
 import { captionPass } from './captions';
 import { writeJsonAtomic } from './fsutil';

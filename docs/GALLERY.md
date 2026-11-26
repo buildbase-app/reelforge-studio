@@ -89,7 +89,7 @@ the manifest JSON), `prompt` (what the agent was asked), `toolsCalled`,
 3. `pnpm gallery sketch my-reel` shows the agent-written scenes in a PNG
    without a render; then `pnpm gallery render my-reel && pnpm gallery check my-reel`.
 4. Look at `<out>/my-reel/contact.png` against the design rules below before
-   it ships. `pnpm --filter @reelforge/gallery test` checks the rules that can
+   it ships. `pnpm --filter @renderweld/gallery test` checks the rules that can
    be checked mechanically.
 
 ### Scene designs
@@ -212,7 +212,7 @@ edit in the console (hide a reel, change its order) shows on the next request.
 
 ## Tests
 
-`pnpm --filter @reelforge/gallery test`: the catalog (100+ valid manifests,
+`pnpm --filter @renderweld/gallery test`: the catalog (100+ valid manifests,
 four engines, both themes, no network in scenes, the design rules,
 determinism, the committed files match the catalog), the quality-gate parsers,
 budgets, the music synthesiser, rendering over a fake MCP studio (idempotency

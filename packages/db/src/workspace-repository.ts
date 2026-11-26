@@ -1,4 +1,4 @@
-import type { WorkspaceLimits, WorkspaceRecord, WorkspaceRepository, WorkspaceStatus } from '@reelforge/core';
+import type { WorkspaceLimits, WorkspaceRecord, WorkspaceRepository, WorkspaceStatus } from '@renderweld/core';
 import type { PrismaClient } from './generated/sqlite/client';
 
 /** Prisma unique-constraint violation (P2002). */

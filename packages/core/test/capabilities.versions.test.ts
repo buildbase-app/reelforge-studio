@@ -30,8 +30,8 @@ vi.mock('node:child_process', async (importOriginal) => {
   };
 });
 
-vi.mock('@reelforge/media-pipeline', async (importOriginal) => {
-  const real = await importOriginal<typeof import('@reelforge/media-pipeline')>();
+vi.mock('@renderweld/media-pipeline', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@renderweld/media-pipeline')>();
   return {
     ...real,
     // The stubbed probe: counts calls and answers like `<bin> -version`.

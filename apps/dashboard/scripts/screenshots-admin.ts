@@ -12,13 +12,13 @@
  *     database (params.seededHistory: true) so the chart has a history. They
  *     have no renders behind them, so they add nothing to the engine timings.
  *
- *   REELFORGE_CHROMIUM_PATH=... pnpm --filter @reelforge/dashboard screenshots:admin [outDir]
+ *   REELFORGE_CHROMIUM_PATH=... pnpm --filter @renderweld/dashboard screenshots:admin [outDir]
  */
 import { mkdirSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { join, resolve } from 'node:path';
-import { ElevenLabsTts } from '@reelforge/core';
-import { htmlEngine } from '@reelforge/engine-html';
+import { ElevenLabsTts } from '@renderweld/core';
+import { htmlEngine } from '@renderweld/engine-html';
 import { chromium, type Page } from 'playwright';
 import { htmlReel, startStudio } from '../test/harness';
 

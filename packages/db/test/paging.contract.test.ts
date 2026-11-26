@@ -9,8 +9,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { framesToSeconds, parseProject, totalFrames, type Project } from '@reelforge/project-schema';
-import { createMemoryRepositories, readPage, parsePageQuery, type AssetRecord, type JobRecord, type PageAfter, type PageRequest, type Repositories } from '@reelforge/core';
+import { framesToSeconds, parseProject, totalFrames, type Project } from '@renderweld/project-schema';
+import { createMemoryRepositories, readPage, parsePageQuery, type AssetRecord, type JobRecord, type PageAfter, type PageRequest, type Repositories } from '@renderweld/core';
 import { Database, availableTestDatabases, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-db-paging-'));

@@ -1,6 +1,6 @@
-import { chromiumSandbox, type EnginePlugin } from '@reelforge/core';
-import { PipelineError } from '@reelforge/media-pipeline';
-import { TEMPLATES } from '@reelforge/project-schema';
+import { chromiumSandbox, type EnginePlugin } from '@renderweld/core';
+import { PipelineError } from '@renderweld/media-pipeline';
+import { TEMPLATES } from '@renderweld/project-schema';
 import { motionCanvasVersion, renderMotionCanvasScene, resolveBrowser } from './render';
 
 export interface MotionCanvasEngineOptions {

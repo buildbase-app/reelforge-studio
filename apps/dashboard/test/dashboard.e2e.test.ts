@@ -5,7 +5,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { fakeEngine } from '../../../packages/core/test/helpers';
 import { BUDGET_GZIP_BYTES } from '../build';
 import { htmlReel, startStudio } from './harness';
-import { envValue } from '@reelforge/core';
+import { envValue } from '@renderweld/core';
 
 /**
  * The dashboard in a real browser against a real studio (fake engines, real

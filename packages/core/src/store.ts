@@ -4,7 +4,7 @@ import {
   framesToSeconds,
   totalFrames,
   type Project,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import { ApiError, notFound } from './errors';
 import { KeyedMutex } from './fsutil';
 import type { PageRequest } from './paging';

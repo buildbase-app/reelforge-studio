@@ -326,7 +326,7 @@ reversible.\
 Projects with every version, API keys, jobs with their events and log lines,
 custom themes, provider settings, asset metadata and an audit log live in a
 database behind the interfaces in `packages/core/src/repositories.ts`.
-`ReelforgeService` and the stores only see those interfaces; `@reelforge/db`
+`ReelforgeService` and the stores only see those interfaces; `@renderweld/db`
 implements them with Prisma 7.10.1 and driver adapters (better-sqlite3, pg,
 mariadb); `createMemoryRepositories()` implements them in memory for unit
 tests. One contract suite (`packages/db/test/contract.test.ts`) runs against
@@ -350,7 +350,7 @@ Prisma needs one `datasource` provider per schema and its generated client and
 query compiler are provider specific. Prisma's multi-file schema splits models
 across files but still has one provider, so it does not solve this.
 `packages/db/prisma/base.prisma` is the only file edited by hand;
-`pnpm --filter @reelforge/db schemas` renders `prisma/{sqlite,postgresql,mysql}/schema.prisma`
+`pnpm --filter @renderweld/db schemas` renders `prisma/{sqlite,postgresql,mysql}/schema.prisma`
 by replacing the provider and three column-type placeholders (`@@TEXT@@`,
 `@@LONGTEXT@@`, `@@ID@@`, which only differ on MySQL: TEXT / LONGTEXT /
 VARCHAR(191)). The three generated clients (`src/generated/<provider>`, about
@@ -365,7 +365,7 @@ types (the three model APIs are identical).
 **Status:** DECIDED (reversible).\
 Migrations are SQL generated per provider with `prisma migrate diff` from the
 last migrated schema snapshot (`migrations/<provider>/schema.prisma`) to the
-current schema (`pnpm --filter @reelforge/db migration <name>`; no database
+current schema (`pnpm --filter @renderweld/db migration <name>`; no database
 needed), committed under `migrations/<provider>/<NNNN_name>/migration.sql` with
 the same ids for all three, and embedded in `src/generated/migrations.ts` (a
 bundled build needs no files beside it). At start (or `reelforge migrate`,
@@ -907,7 +907,7 @@ only when required (`WHEN_REQUIRED`), because newer SDK defaults break several
 S3-compatible services. **Azure Blob** uses `@azure/storage-blob` 12.34.0 and
 `@azure/identity` 4.14.1 (MIT); **GCS native** `@google-cloud/storage` 8.4.0
 (Apache-2.0; 9.0.0 was 9 days old). The SDKs are dependencies of
-`@reelforge/core`, but each driver imports its SDK with `import()` only when
+`@renderweld/core`, but each driver imports its SDK with `import()` only when
 it is selected, so a local-storage server never loads them (the files are in
 the image, about +40 MB of `node_modules`; no LGPL module among them).
 **Key layout** is the same everywhere: `assets/<assetId>/file.<ext>` and
@@ -2185,7 +2185,7 @@ tools (`get_captions` / `update_captions`), multiple languages per render, audio
 
 **Status:** DECIDED (reversible).\
 Built-in templates scaled from the width only, so a 16:9 headline was about 200 px tall at 1920x1080 and ran off
-the frame (#287). Now `@reelforge/project-schema/layout` (no dependencies, imported by the Remotion and Motion
+the frame (#287). Now `@renderweld/project-schema/layout` (no dependencies, imported by the Remotion and Motion
 Canvas browser bundles and hashed into their cache keys) gives every engine the same `frameLayout(width, height,
 platform)`: the unit is `min(width, height) / 100`; orientation `portrait`/`square`/`landscape`; direction `row`
 from 4:3 and wider, `column` below; a type scale in units; and `safeAreaInsets()`: action safe 3.5 % and title
@@ -2430,7 +2430,7 @@ How to run it and what it shows: [docs/public/install/dashboard.md](public/insta
 ### D-115 --- The dashboard is static files in the studio, a client of the public REST API with an API-key sign-in; off by default
 
 **Status:** DECIDED (reversible).\
-**Where it runs.** `apps/dashboard` builds (esbuild, `pnpm --filter @reelforge/dashboard build`, also in the
+**Where it runs.** `apps/dashboard` builds (esbuild, `pnpm --filter @renderweld/dashboard build`, also in the
 Docker `build` stage) into `apps/dashboard/dist`: one `index.html`, one JS module and one stylesheet with
 content-hashed names, the mark as the icon. The server serves them at `/dashboard` from a new file
 (`apps/server/src/dashboard.ts`, mounted with one line in `app.ts`), so the dashboard ships in the one image and
@@ -2582,7 +2582,7 @@ template per engine, `html-layout` and `hyperframes-layout`, takes the same prop
 `pip` with corner, width, aspect and margin, `grid` with columns and rows or none, then picked per frame for cells
 closest to square), `panes` (media asset + fit mode + focus + start offset, colour, label, headline, body) and an
 optional `lowerThird` (name, title, alignment, brand colours). The geometry is pure functions in
-`@reelforge/project-schema/layout` (`layoutPanes`, `pipInset`, `lowerThirdBox`, `clearOfLowerThird`, `fitMedia`):
+`@renderweld/project-schema/layout` (`layoutPanes`, `pipInset`, `lowerThirdBox`, `clearOfLowerThird`, `fitMedia`):
 every size is in layout units (D-108), and the inset, the lower third and pane text are placed from the safe areas,
 so a scene reflows for each output size and variant (D-109). Pane text stays in the content safe area; a pane that
 lies wholly in a tall frame's app-overlay zone (a bottom grid row on 9:16) keeps its text in title safe and says so
@@ -2730,7 +2730,7 @@ the composition's DOM into its own wrapper after the first frame is ready and a 
 animations (observed: paused animations running again from 0 ms). A frame depends only on its number, so
 frame-range chunks keep `frameRanges: true`. **Motion Canvas** draws on a canvas, so `motion-canvas-layout`
 builds the scene from Motion Canvas nodes; everything that decides where things go comes from
-`@reelforge/project-schema/layout`: `layoutPanes`, `clearOfLowerThird`, `lowerThirdBox`, `fitMedia`, and the new
+`@renderweld/project-schema/layout`: `layoutPanes`, `clearOfLowerThird`, `lowerThirdBox`, `fitMedia`, and the new
 `LAYOUT_STYLE` (type sizes, padding, radii, the blur-fill darkening and scale, animation delays, durations and
 cubic-bezier easings), which the DOM builder now reads too, so the two cannot drift. Text wraps in Motion Canvas's
 layout (the browser's flexbox and line breaking) and shrinks with the same binary search and minimum as the DOM

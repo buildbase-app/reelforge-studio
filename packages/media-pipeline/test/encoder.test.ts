@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { MIN_SCENE_FRAMES } from '@reelforge/project-schema';
+import { MIN_SCENE_FRAMES } from '@renderweld/project-schema';
 import {
   DEFAULT_ENCODER_SETTINGS,
   H264_ARGS,

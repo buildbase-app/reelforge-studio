@@ -3,7 +3,7 @@
 // (`node --import tsx render-missing-font.mts <dir>`), so every connect() of
 // the render (CLI, browser, anything they start) is seen.
 import { join } from 'node:path';
-import { builtinTheme } from '@reelforge/project-schema';
+import { builtinTheme } from '@renderweld/project-schema';
 import { renderHyperframesScene } from '../../src/index';
 
 const dir = process.argv[2]!;

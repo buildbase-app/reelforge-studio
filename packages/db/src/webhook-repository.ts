@@ -1,4 +1,4 @@
-import { conflict, type DeliveryStatus, type WebhookAttemptRecord, type WebhookDeliveryRecord, type WebhookEndpointRecord, type WebhookRepository } from '@reelforge/core';
+import { conflict, type DeliveryStatus, type WebhookAttemptRecord, type WebhookDeliveryRecord, type WebhookEndpointRecord, type WebhookRepository } from '@renderweld/core';
 import type { PrismaClient } from './generated/sqlite/client';
 
 const iso = (d: Date) => d.toISOString();

@@ -20,8 +20,8 @@ import {
   type WebhookDeliveryRecord,
   type WebhookEndpointRecord,
   type WorkspaceRouter,
-} from '@reelforge/core';
-import { parseProject, type Project } from '@reelforge/project-schema';
+} from '@renderweld/core';
+import { parseProject, type Project } from '@renderweld/project-schema';
 import { Database, MIGRATIONS, applyMigrations, availableTestDatabases, createTestDatabase, prepareDatabase, type RawClient, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-db-ws-'));

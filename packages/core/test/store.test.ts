@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { afterAll, describe, expect, it } from 'vitest';
-import { parseProject, type Project } from '@reelforge/project-schema';
+import { parseProject, type Project } from '@renderweld/project-schema';
 import { ApiError, ProjectStore, applyMergePatch, KeyedMutex, createMemoryRepositories } from '../src/index';
 import { tempDir } from './helpers';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { builtinTheme, type OutputSettings, type RenderScene, type SceneMedia } from '@reelforge/project-schema';
+import { builtinTheme, type OutputSettings, type RenderScene, type SceneMedia } from '@renderweld/project-schema';
 import { remotionLayoutInput } from '../src/index';
 
 /** remotion-layout (#287): the shared layout markup with pictures from the render's asset origin. */

@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import pg from 'pg';
-import { PROBE_PREFIX, parseDispatchPayload, type DispatchListener, type DispatchListenerHandlers, type DispatchListenerStatus } from '@reelforge/core';
+import { PROBE_PREFIX, parseDispatchPayload, type DispatchListener, type DispatchListenerHandlers, type DispatchListenerStatus } from '@renderweld/core';
 import { parseDatabaseUrl, redactDatabaseUrl } from './url';
 
 /**

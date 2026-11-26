@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ALPHA_CLIP_ARGS, run } from '@reelforge/media-pipeline';
-import { TEMPLATES, type RenderScene } from '@reelforge/project-schema';
+import { ALPHA_CLIP_ARGS, run } from '@renderweld/media-pipeline';
+import { TEMPLATES, type RenderScene } from '@renderweld/project-schema';
 import { checkKey, type EnginePlugin, type EngineRenderContext, type ClipResult } from '../src/index';
 
 export function tempDir(prefix = 'reelforge-core-'): { dir: string; cleanup: () => void } {
@@ -80,7 +80,7 @@ export function fakeEngine(
 }
 
 export async function makeTone(file: string, seconds: number) {
-  const { resolveTools } = await import('@reelforge/media-pipeline');
+  const { resolveTools } = await import('@renderweld/media-pipeline');
   await run(resolveTools().ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', `sine=frequency=440:duration=${seconds}`, '-c:a', 'libmp3lame', file], 'fixture');
 }
 

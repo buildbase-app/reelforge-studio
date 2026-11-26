@@ -18,7 +18,7 @@ import {
   resolveConfig,
   type ConfigIssue,
 } from '../src/index';
-import { DEFAULT_ENCODER_SETTINGS, encoderSettings, h264Args, setEncoderSettings } from '@reelforge/media-pipeline';
+import { DEFAULT_ENCODER_SETTINGS, encoderSettings, h264Args, setEncoderSettings } from '@renderweld/media-pipeline';
 import { fakeEngine, tempDir } from './helpers';
 
 const { dir, cleanup } = tempDir('reelforge-config-');

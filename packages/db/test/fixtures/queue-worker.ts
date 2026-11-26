@@ -7,7 +7,7 @@
  *   MODE=quota   at START_AT (epoch ms) tries COUNT quota-limited inserts for KEY_ID (limit LIMIT); prints how many succeeded
  */
 import { appendFileSync } from 'node:fs';
-import { JobRunner, newId } from '@reelforge/core';
+import { JobRunner, newId } from '@renderweld/core';
 import { Database } from '../../src/index';
 
 const env = process.env;

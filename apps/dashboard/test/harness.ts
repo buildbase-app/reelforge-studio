@@ -2,9 +2,9 @@ import { serve, type ServerType } from '@hono/node-server';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PluginRegistry, ReelforgeService, type EnginePlugin } from '@reelforge/core';
-import { prepareDatabase } from '@reelforge/db';
-import { createApp, loadConfig } from '@reelforge/server';
+import { PluginRegistry, ReelforgeService, type EnginePlugin } from '@renderweld/core';
+import { prepareDatabase } from '@renderweld/db';
+import { createApp, loadConfig } from '@renderweld/server';
 import { buildDashboard } from '../build';
 
 /**

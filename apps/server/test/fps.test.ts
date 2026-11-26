@@ -10,9 +10,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { envValue, ReelforgeService, createMemoryRepositories, type EnginePlugin } from '@reelforge/core';
-import { assertDecodable, checkExpectation, checkTimestamps, normaliseClip, probe, resolveTools } from '@reelforge/media-pipeline';
-import { builtinTheme, fpsLabel, fpsValue, sceneFrames, type FrameRate, type OutputSettings, type RenderScene } from '@reelforge/project-schema';
+import { envValue, ReelforgeService, createMemoryRepositories, type EnginePlugin } from '@renderweld/core';
+import { assertDecodable, checkExpectation, checkTimestamps, normaliseClip, probe, resolveTools } from '@renderweld/media-pipeline';
+import { builtinTheme, fpsLabel, fpsValue, sceneFrames, type FrameRate, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
 import { createDefaultRegistry } from '../src/registry';
 
 const browser = envValue('REELFORGE_CHROMIUM_PATH');

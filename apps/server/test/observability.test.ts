@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, resolveConfig, ConfigError } from '@reelforge/core';
+import { PluginRegistry, resolveConfig, ConfigError } from '@renderweld/core';
 import { Redactor, StructuredLogger, routeOf, secretValues, parseOtlpHeaders, startServer, type StartedServer } from '../src/index';
 import { REST_ROUTES, INFRA_ROUTES } from '../src/routes';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';

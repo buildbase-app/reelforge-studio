@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { cancelRender, continueRender, delayRender } from 'remotion';
-import type { FontFaceSpec } from '@reelforge/project-schema';
-import { FONT_LOAD_TIMEOUT_MS, loadFontFaces } from '@reelforge/project-schema/media';
+import type { FontFaceSpec } from '@renderweld/project-schema';
+import { FONT_LOAD_TIMEOUT_MS, loadFontFaces } from '@renderweld/project-schema/media';
 
 /**
  * Fonts before frames (#303): the scene's font faces (project font assets and

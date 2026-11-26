@@ -117,7 +117,7 @@ COPY packages ./packages
 RUN pnpm prebuild:engines
 # The web dashboard (D-115): static files in apps/dashboard/dist, served at /dashboard
 # when dashboard.enabled is on. Only dist/ goes into the runtime tree.
-RUN pnpm --filter @reelforge/dashboard build
+RUN pnpm --filter @renderweld/dashboard build
 # The runtime tree: package manifests, sources, the engines' scene sources (their
 # hash selects the pre-built bundle) and the bundles. No tests, Prisma tooling or docs.
 RUN mkdir /out \

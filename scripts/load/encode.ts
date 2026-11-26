@@ -24,9 +24,9 @@ import { cpus, loadavg, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { renderHtmlScene } from '@reelforge/engine-html';
-import { DEFAULT_ENCODER_SETTINGS, encoderSettings, h264Args, inputThreadArgs, filterThreadArgs, resolveTools, setEncoderSettings, type EncoderSettings } from '@reelforge/media-pipeline';
-import { builtinTheme, type RenderScene } from '@reelforge/project-schema';
+import { renderHtmlScene } from '@renderweld/engine-html';
+import { DEFAULT_ENCODER_SETTINGS, encoderSettings, h264Args, inputThreadArgs, filterThreadArgs, resolveTools, setEncoderSettings, type EncoderSettings } from '@renderweld/media-pipeline';
+import { builtinTheme, type RenderScene } from '@renderweld/project-schema';
 import { env, envNum, hostFingerprint, round, sleep } from './lib';
 
 const repo = resolve(import.meta.dirname, '../..');

@@ -4,10 +4,10 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer';
-import { PipelineError } from '@reelforge/media-pipeline';
-import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, envValue, type AssetServer, type ResolvedAsset } from '@reelforge/core';
-import type { Tools } from '@reelforge/media-pipeline';
-import { BUILTIN_THEMES, TEMPLATES, domThemeCss, fpsRational, fpsValue, framesToSeconds, layoutSceneDom, layoutSceneProps, mediaKey, mediaUrlAt, type OutputSettings, type RenderScene, type SceneMedia, type ThemeTokens } from '@reelforge/project-schema';
+import { PipelineError } from '@renderweld/media-pipeline';
+import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, envValue, type AssetServer, type ResolvedAsset } from '@renderweld/core';
+import type { Tools } from '@renderweld/media-pipeline';
+import { BUILTIN_THEMES, TEMPLATES, domThemeCss, fpsRational, fpsValue, framesToSeconds, layoutSceneDom, layoutSceneProps, mediaKey, mediaUrlAt, type OutputSettings, type RenderScene, type SceneMedia, type ThemeTokens } from '@renderweld/project-schema';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const compositionsDir = resolve(here, '../compositions');
@@ -82,8 +82,8 @@ function sourceHash(): string {
   };
   walk(compositionsDir);
   // The compositions import the shared layout and media modules (#287, #299); a change to them must rebuild the bundle.
-  h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/layout')));
-  h.update(readFileSync(createRequire(import.meta.url).resolve('@reelforge/project-schema/media')));
+  h.update(readFileSync(createRequire(import.meta.url).resolve('@renderweld/project-schema/layout')));
+  h.update(readFileSync(createRequire(import.meta.url).resolve('@renderweld/project-schema/media')));
   return h.digest('hex');
 }
 

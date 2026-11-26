@@ -1,7 +1,7 @@
 /**
  * Repository contract: the same suite against every implementation.
  *
- *   memory      always (createMemoryRepositories in @reelforge/core)
+ *   memory      always (createMemoryRepositories in @renderweld/core)
  *   sqlite      always
  *   postgresql  when TEST_POSTGRES_URL is set (a fresh schema per run)
  *   mysql       when TEST_MYSQL_URL is set (a fresh database per run)
@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parseProject, type Project } from '@reelforge/project-schema';
+import { parseProject, type Project } from '@renderweld/project-schema';
 import {
   AuditLog,
   JobRunner,
@@ -23,7 +23,7 @@ import {
   importFilesystemV01,
   type JobRecord,
   type Repositories,
-} from '@reelforge/core';
+} from '@renderweld/core';
 import { Database, availableTestDatabases, createTestDatabase, prepareDatabase, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-db-contract-'));

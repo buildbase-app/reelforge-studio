@@ -4,7 +4,7 @@ import { createReadStream } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import { PipelineError, probeMedia, videoFramesAt, type FrameRate, type Tools } from '@reelforge/media-pipeline';
+import { PipelineError, probeMedia, videoFramesAt, type FrameRate, type Tools } from '@renderweld/media-pipeline';
 import {
   assetRefsInMarkup,
   mediaKey,
@@ -15,7 +15,7 @@ import {
   type RenderScene,
   type SceneMedia,
   type TemplateDefinition,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import { defaultTreeAdapter as ta, parse, parseFragment, serialize, type DefaultTreeAdapterMap } from 'parse5';
 import { sniffContentType } from './assets';
 import { FontError, bundledFontFaces, fontFaceDescriptors, readFontInfo } from './fonts';

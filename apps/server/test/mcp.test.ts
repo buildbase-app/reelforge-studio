@@ -3,9 +3,9 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, RemotionLambdaBackend, ElevenLabsTts } from '@reelforge/core';
+import { PluginRegistry, RemotionLambdaBackend, ElevenLabsTts } from '@renderweld/core';
 import { BRIEF_ESSENTIALS, TOOLS, WORKFLOW_GUIDE, startServer, type StartedServer } from '../src/index';
-import { parseProject } from '@reelforge/project-schema';
+import { parseProject } from '@renderweld/project-schema';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 import { testDatabase } from './serverProcess';
 

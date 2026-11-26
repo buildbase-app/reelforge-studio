@@ -2,7 +2,7 @@ import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterAll, describe, expect, it } from 'vitest';
-import { resolveTools } from '@reelforge/media-pipeline';
+import { resolveTools } from '@renderweld/media-pipeline';
 import { FasterWhisperStt, cleanSttWords, resolveCommand, whisperLanguage, type SttSettings } from '../src/index';
 import { tempDir } from './helpers';
 

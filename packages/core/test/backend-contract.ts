@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { parseProject, type Project } from '@reelforge/project-schema';
+import { parseProject, type Project } from '@renderweld/project-schema';
 import { RENDER_BACKEND_KINDS, type BackendContext, type RenderBackend, type RenderRequest } from '../src/index';
 
 export const CapabilitiesShape = z.strictObject({

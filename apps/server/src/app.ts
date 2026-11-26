@@ -17,7 +17,7 @@ import {
   type ReelforgeService,
   type RequestContext,
   type Scope,
-} from '@reelforge/core';
+} from '@renderweld/core';
 import busboy from 'busboy';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';

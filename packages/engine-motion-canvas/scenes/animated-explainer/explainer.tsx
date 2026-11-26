@@ -10,8 +10,8 @@ import {
   useScene,
   waitFor,
 } from '@motion-canvas/core';
-import { frameLayout } from '@reelforge/project-schema/layout';
-import { fitMedia, logoBox, mediaKey, mediaUrlAt, type FitMode, type LogoCorner, type MediaBox, type SceneMedia } from '@reelforge/project-schema/media';
+import { frameLayout } from '@renderweld/project-schema/layout';
+import { fitMedia, logoBox, mediaKey, mediaUrlAt, type FitMode, type LogoCorner, type MediaBox, type SceneMedia } from '@renderweld/project-schema/media';
 
 interface ThemeVars {
   colors: { background: string; text: string; mutedText: string; accent: string; accent2: string };

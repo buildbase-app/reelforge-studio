@@ -1,4 +1,4 @@
-import type { OnceOutcome, PluginRegistry } from '@reelforge/core';
+import type { OnceOutcome, PluginRegistry } from '@renderweld/core';
 import { startServer } from './server';
 
 /**

@@ -1,7 +1,7 @@
 import { constants, existsSync } from 'node:fs';
 import { access, statfs } from 'node:fs/promises';
-import { browserVersion, chromiumSandbox, envValue, type ReelforgeService } from '@reelforge/core';
-import { toolVersion } from '@reelforge/media-pipeline';
+import { browserVersion, chromiumSandbox, envValue, type ReelforgeService } from '@renderweld/core';
+import { toolVersion } from '@renderweld/media-pipeline';
 import type { Observability } from './observability/telemetry';
 
 /** One dependency in GET /readyz (D-053). */

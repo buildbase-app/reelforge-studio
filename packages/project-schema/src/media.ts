@@ -1,7 +1,7 @@
 /**
  * Media for templates (#299): staged-asset descriptions, logo boxes and the
  * background layers of DOM templates. No dependencies, so the Remotion and
- * Motion Canvas browser bundles import it (`@reelforge/project-schema/media`,
+ * Motion Canvas browser bundles import it (`@renderweld/project-schema/media`,
  * hashed into their cache keys). Fit modes and `fitMedia` live in layout.ts
  * (#287) and are re-exported here so existing imports keep working.
  */

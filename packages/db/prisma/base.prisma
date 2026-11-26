@@ -1,10 +1,10 @@
 // ReelForge database schema: the ONE source of truth for every provider.
 //
-// Prisma needs one schema per provider, so `pnpm --filter @reelforge/db schemas`
+// Prisma needs one schema per provider, so `pnpm --filter @renderweld/db schemas`
 // writes prisma/{sqlite,postgresql,mysql}/schema.prisma from this file,
 // replacing the placeholders below. Edit this file, never the generated ones.
-// Then run `pnpm --filter @reelforge/db generate` and
-// `pnpm --filter @reelforge/db migration <name>` (see docs/DECISIONS.md D-022).
+// Then run `pnpm --filter @renderweld/db generate` and
+// `pnpm --filter @renderweld/db migration <name>` (see docs/DECISIONS.md D-022).
 //
 // Placeholders (column types that differ between databases):
 //   @@TEXT@@      text up to 64 KB:   MySQL TEXT,     PostgreSQL text (default)

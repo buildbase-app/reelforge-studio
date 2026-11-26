@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createMemoryRepositories, type JobRecord, type Repositories } from '@reelforge/core';
+import { createMemoryRepositories, type JobRecord, type Repositories } from '@renderweld/core';
 import { Database, MIGRATIONS, availableTestDatabases, createTestDatabase, pgIdent, prepareDatabase, splitStatements, type TestDatabase } from '../src/index';
 
 const tmp = mkdtempSync(join(tmpdir(), 'reelforge-db-run-lookup-'));

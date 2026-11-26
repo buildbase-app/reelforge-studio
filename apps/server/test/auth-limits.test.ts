@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { LOCAL_SEAL_FILE, PluginRegistry, ReelforgeService, createMemoryRepositories, parseBuildInfo, resolveConfig, type Repositories } from '@reelforge/core';
+import { LOCAL_SEAL_FILE, PluginRegistry, ReelforgeService, createMemoryRepositories, parseBuildInfo, resolveConfig, type Repositories } from '@renderweld/core';
 import { createApp, loadConfig, startServer } from '../src/index';
 import { PreAuthGuard, limiterClient } from '../src/authGuard';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';

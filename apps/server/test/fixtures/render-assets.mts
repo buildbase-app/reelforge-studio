@@ -8,7 +8,7 @@
 // <dir> holds quad.png, clip.mp4, tone.m4a, logo.svg and brand.woff2 (a font the theme uses, #303).
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { ReelforgeService, createMemoryRepositories } from '@reelforge/core';
+import { ReelforgeService, createMemoryRepositories } from '@renderweld/core';
 import { createDefaultRegistry } from '../../src/registry';
 
 const dir = process.argv[2]!;

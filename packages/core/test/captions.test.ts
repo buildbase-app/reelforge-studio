@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { hasLibass, probe, resolveTools, run } from '@reelforge/media-pipeline';
-import { BUILTIN_THEMES, formatSrt, parseProject, type CaptionCue } from '@reelforge/project-schema';
+import { hasLibass, probe, resolveTools, run } from '@renderweld/media-pipeline';
+import { BUILTIN_THEMES, formatSrt, parseProject, type CaptionCue } from '@renderweld/project-schema';
 import {
   ElevenLabsTts,
   PluginRegistry,

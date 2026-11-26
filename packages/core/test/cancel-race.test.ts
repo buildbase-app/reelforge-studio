@@ -1,5 +1,5 @@
-import { BUILTIN_THEMES, type TimelineScene } from '@reelforge/project-schema';
-import { resolveTools } from '@reelforge/media-pipeline';
+import { BUILTIN_THEMES, type TimelineScene } from '@renderweld/project-schema';
+import { resolveTools } from '@renderweld/media-pipeline';
 import { describe, expect, it } from 'vitest';
 import { PluginRegistry } from '../src/index';
 import { renderSceneClip } from '../src/render';

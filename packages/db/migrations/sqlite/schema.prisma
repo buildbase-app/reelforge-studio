@@ -1,4 +1,4 @@
-// GENERATED from prisma/base.prisma for sqlite. Do not edit; run `pnpm --filter @reelforge/db schemas`.
+// GENERATED from prisma/base.prisma for sqlite. Do not edit; run `pnpm --filter @renderweld/db schemas`.
 generator client {
   provider     = "prisma-client"
   output       = "../../src/generated/sqlite"

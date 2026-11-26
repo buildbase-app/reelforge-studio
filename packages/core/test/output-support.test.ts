@@ -5,7 +5,7 @@
  */
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parseProject } from '@reelforge/project-schema';
+import { parseProject } from '@renderweld/project-schema';
 import { H264_LEVEL_6_2, PluginRegistry, ReelforgeService, createMemoryRepositories, h264OutputProblems, outputSupportIssues, type EnginePlugin } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
 

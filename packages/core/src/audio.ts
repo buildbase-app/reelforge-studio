@@ -12,7 +12,7 @@ import {
   type AvSync,
   type LoudnessMeasurement,
   type Tools,
-} from '@reelforge/media-pipeline';
+} from '@renderweld/media-pipeline';
 import {
   framesToSeconds,
   LOUDNESS_TARGETS,
@@ -23,7 +23,7 @@ import {
   type OutputSettings,
   type Project,
   type RenderAudioOptions,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import type { ResolvedAsset } from './plugins';
 
 /**

@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ElevenLabsTts, PluginRegistry, RemotionLambdaBackend, ReelforgeService } from '@reelforge/core';
-import { prepareDatabase, type Database } from '@reelforge/db';
+import { ElevenLabsTts, PluginRegistry, RemotionLambdaBackend, ReelforgeService } from '@renderweld/core';
+import { prepareDatabase, type Database } from '@renderweld/db';
 import { createApp, loadConfig, type ServerConfig } from '../src/index';
 import { testDatabase } from './serverProcess';
 import { fakeEngine, makeTone, tempDir } from '../../../packages/core/test/helpers';

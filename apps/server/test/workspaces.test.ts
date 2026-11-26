@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ElevenLabsTts, runInWorkspace, type WorkspaceRouter } from '@reelforge/core';
+import { PluginRegistry, ElevenLabsTts, runInWorkspace, type WorkspaceRouter } from '@renderweld/core';
 import { REST_ROUTES, TOOLS, startServer, type StartedServer } from '../src/index';
 import { fakeEngine, makeTone, tempDir } from '../../../packages/core/test/helpers';
 import { testDatabase } from './serverProcess';

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PluginRegistry, encodeCursor, type JobRecord } from '@reelforge/core';
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PluginRegistry, encodeCursor, type JobRecord } from '@renderweld/core';
 import { startServer, type StartedServer } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 import { testDatabase } from './serverProcess';

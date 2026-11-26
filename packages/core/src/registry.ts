@@ -2,7 +2,7 @@ import {
   templatePropsJsonSchema,
   type TemplateCatalog,
   type TemplateDefinition,
-} from '@reelforge/project-schema';
+} from '@renderweld/project-schema';
 import { ApiError } from './errors';
 import type { EnginePlugin, ProviderPlugin, RenderBackend, SpeechToTextPlugin, StorageDriver, TemplateInfo } from './plugins';
 

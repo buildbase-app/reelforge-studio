@@ -64,7 +64,7 @@ describe('migration scripts', () => {
   });
 });
 
-describe('generated files are up to date (else: pnpm --filter @reelforge/db generate / migration)', () => {
+describe('generated files are up to date (else: pnpm --filter @renderweld/db generate / migration)', () => {
   it('per-provider schemas match prisma/base.prisma', () => {
     const base = readFileSync(join(root, 'prisma/base.prisma'), 'utf8');
     for (const p of PROVIDERS) expect(readFileSync(join(root, 'prisma', p, 'schema.prisma'), 'utf8')).toBe(renderSchema(base, p));

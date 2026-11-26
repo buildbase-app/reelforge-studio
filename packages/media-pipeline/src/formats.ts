@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, open, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
-import { OUTPUT_FILES, type FormatSpec } from '@reelforge/project-schema';
+import { OUTPUT_FILES, type FormatSpec } from '@renderweld/project-schema';
 import { encoderSettings, encoderThreadArgs, PipelineError, run } from './ffmpeg';
 import { rateArg, rateFraction, rateValue, type Rate } from './rate';
 

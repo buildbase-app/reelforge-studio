@@ -827,6 +827,15 @@ manifest) and the image labels (`title`, `url`, `vendor`, `app.renderweld.editio
 RenderWeld. Not yet: the image name and `source` URL (they follow the GitHub rename, #409), the OTel
 `service.name` default, and messages that still suggest `REELFORGE_*` variables (both names work).
 
+### Internal packages are `@renderweld/*` (2026-11-25, issue #414, phase 5 of #408)
+
+The 11 workspace packages (`apps/*`, `packages/*`, `scripts/gallery`) are `@renderweld/*`, with every import,
+`pnpm --filter` name, script, test and doc updated. No behaviour change. The lockfile changed only in the
+workspace names; none of the packages was ever published to npm (both scopes are unregistered), so there are
+no deprecation stubs and no alias. A filter that names an old package matches nothing and pnpm exits 0, so the
+`--filter @reelforge/*` lines in `.github/workflows/ci.yml` (maintainer-only) have to change with this phase,
+or CI skips those steps silently. [RENAMED.md](RENAMED.md#workspace-packages-contributors) lists the names.
+
 ## 4. Infrastructure inventory (no secrets)
 
 | Thing | Value |
