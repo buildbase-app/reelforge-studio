@@ -384,7 +384,7 @@ export const ConfigSchema = z.object({
       scope: 'runtime',
       env: 'REELFORGE_RENDER_CONCURRENCY',
       default: 1,
-      description: 'Renders at the same time. Each keeps about 1 to 1.5 CPU cores busy and peaks at about 0.8 GB (1080x1920) or 1.7 GB (3840x2160), measured with the html engine (docs/SCALE.md); more renders than cores / 1.5 only slow each one down. A lower value lets running renders finish.',
+      description: 'Renders at the same time. Measured best: the number of vCPUs; memory about 0.3 GB plus 0.6 GB per render for 1080x1920 (docs/public/install/sizing.md, `pnpm bench:docker`). More than the vCPUs only slows each render: on 1 vCPU two at once finished fewer an hour than one. A lower value lets running renders finish.',
     }),
     maxInflightRequests: setting(z.number().int().min(0).max(100_000), {
       kind: 'integer',
