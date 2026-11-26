@@ -34,7 +34,7 @@ import {
 } from '@renderweld/project-schema';
 import { audioChecks, audioPass, resolveAudioPlan, verifyAudio, type AudioDefaults } from './audio';
 import { captionPass } from './captions';
-import { VIDEO_QA_DEFAULTS, sceneTimes, videoQaIssues, type VideoQaIssue, type VideoQaManifest, type VideoQaSettings } from './videoqa';
+import { VIDEO_QA_DEFAULTS, lowMotionOutsideFreezes, sceneTimes, videoQaIssues, type VideoQaIssue, type VideoQaManifest, type VideoQaSettings } from './videoqa';
 import { writeJsonAtomic } from './fsutil';
 import { MP4_SPEC, checkFormatOutput, isAudioOnly, packageFormat, planFor } from './output-formats';
 import type { Logger, ResolvedAsset } from './plugins';
@@ -389,13 +389,37 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
   let videoQa: VideoQaManifest | undefined;
   if (qa.video !== 'off' && !audioOnly) {
     const blackSeconds = spec.alpha ? 0 : qa.blackSeconds;
+    // The loop seam is measured only on the whole timeline of a project marked output.loop (a preview is not the loop).
+    const loop = project.output.loop === true && fullTimeline;
+    const lowMotionSeconds = qa.lowMotionSeconds ?? VIDEO_QA_DEFAULTS.lowMotionSeconds;
+    const motionFloor = qa.motionFloor ?? VIDEO_QA_DEFAULTS.motionFloor;
     const measured = await ffmpegSpan('ffmpeg picture check', () =>
-      detectVideoIssues({ ffmpeg: tools.ffmpeg, input: finalTmp, durationSeconds: framesToSeconds(assembled.totalFrames, output.fps), freezeSeconds: qa.freezeSeconds, blackSeconds, flashFps: fpsValue(output.fps), signal })
+      detectVideoIssues({
+        ffmpeg: tools.ffmpeg,
+        input: finalTmp,
+        durationSeconds: framesToSeconds(assembled.totalFrames, output.fps),
+        freezeSeconds: qa.freezeSeconds,
+        blackSeconds,
+        flashFps: fpsValue(output.fps),
+        motion: { fps: fpsValue(output.fps), floor: motionFloor, lowSeconds: lowMotionSeconds, loop },
+        signal,
+      })
     );
-    const issues = videoQaIssues(measured, sceneTimes(clips, fpsValue(output.fps)), qa.video === 'fail' ? 'error' : 'warning');
+    const lows = measured.motion ? lowMotionOutsideFreezes(measured.motion.lows, measured.freezes, lowMotionSeconds) : [];
+    const issues = videoQaIssues({ ...measured, lows, loop: measured.motion?.loop }, sceneTimes(clips, fpsValue(output.fps)), qa.video === 'fail' ? 'error' : 'warning');
     for (const i of issues) log(`picture qa (${i.severity}): ${i.message}`);
     if (qa.video === 'fail' && issues.length) throw new PipelineError('qa:video', issues.map((i) => i.message).join('; '));
-    videoQa = { mode: qa.video, thresholds: { freezeSeconds: qa.freezeSeconds, blackSeconds: blackSeconds || null }, freezes: measured.freezes, blacks: measured.blacks, flashes: measured.flashes, issues };
+    videoQa = {
+      mode: qa.video,
+      thresholds: { freezeSeconds: qa.freezeSeconds, blackSeconds: blackSeconds || null },
+      freezes: measured.freezes,
+      blacks: measured.blacks,
+      flashes: measured.flashes,
+      ...(measured.motion
+        ? { motion: { floor: motionFloor, lowSeconds: lowMotionSeconds, energyPerSecond: measured.motion.energyPerSecond, lows, ...(measured.motion.loop ? { loop: measured.motion.loop } : {}) } }
+        : {}),
+      issues,
+    };
   }
   const pictureCheck = (rule: VideoQaIssue['rule'], ran: boolean) => (!videoQa || !ran ? 'skipped' : videoQa.issues.some((i) => i.rule === rule) ? 'warn' : 'pass');
 
@@ -504,6 +528,8 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
       freeze: pictureCheck('video.freeze', true),
       black: pictureCheck('video.black', videoQa?.thresholds.blackSeconds != null),
       flash: pictureCheck('video.flash', true),
+      motion: pictureCheck('video.motion', !!videoQa?.motion && videoQa.motion.lowSeconds > 0),
+      loop: pictureCheck('video.loop', !!videoQa?.motion?.loop),
     },
     ...(videoQa ? { videoQa } : {}),
     ...(f.streamCopy ? { join: { method: 'concat demuxer, video stream copy', clips: clips.length } } : {}),

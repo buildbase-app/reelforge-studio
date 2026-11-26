@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { detectVideoIssues, parseVideoQa, resolveTools, run } from '@renderweld/media-pipeline';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories, sceneTimes, videoQaIssues, type VideoQaManifest } from '../src/index';
+import { PluginRegistry, ReelforgeService, createMemoryRepositories, lowMotionOutsideFreezes, sceneTimes, videoQaIssues, type VideoQaManifest } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
 
 /**
@@ -17,18 +17,18 @@ const scene = (id: string, engine: 'remotion' | 'motion-canvas', frames: number)
   engine === 'remotion'
     ? { id, engine, template: 'kinetic-title', durationFrames: frames, props: { headline: id } }
     : { id, engine, template: 'animated-explainer', durationFrames: frames, props: { title: id, points: ['one'] } };
-const project = (projectId: string, scenes: unknown[]) => ({
+const project = (projectId: string, scenes: unknown[], loop?: boolean) => ({
   schemaVersion: '0.1',
   projectId,
   title: projectId,
-  output: { width: 320, height: 568, fps: 30, format: 'mp4' },
+  output: { width: 320, height: 568, fps: 30, format: 'mp4', ...(loop === undefined ? {} : { loop }) },
   audio: { musicTrack: null, voiceTrack: null },
   assets: [],
   scenes,
 });
 /** A project with a light background (a dark one would count as black), or the one given. */
-async function create(projectId: string, scenes: unknown[], background = '#f2f0ea') {
-  await svc.createProject(project(projectId, scenes));
+async function create(projectId: string, scenes: unknown[], background = '#f2f0ea', loop?: boolean) {
+  await svc.createProject(project(projectId, scenes, loop));
   await svc.setTheme(projectId, { base: 'default', tokens: { colors: { background } } });
 }
 
@@ -44,6 +44,10 @@ beforeAll(async () => {
   await create('moving', [scene('hook', 'remotion', 60), scene('body', 'remotion', 90)]);
   await create('stuck', [scene('hook', 'remotion', 60), scene('still', 'motion-canvas', 150), scene('outro', 'remotion', 45)]);
   await create('dark', [scene('opening', 'motion-canvas', 60), scene('rest', 'remotion', 60)], '#000000');
+  // The fake remotion picture steps 5 luma levels a frame and wraps every 40 frames: the last frame is far from the first.
+  await create('loop-jump', [scene('hook', 'remotion', 45), scene('outro', 'remotion', 45)], undefined, true);
+  // One colour from start to end: the loop joins (it is also a still, which the other checks report).
+  await create('loop-joined', [scene('card', 'motion-canvas', 60)], undefined, true);
 }, 60_000);
 
 describe('detectVideoIssues', () => {
@@ -75,14 +79,36 @@ describe('detectVideoIssues', () => {
     expect(flash).toMatchObject({ rule: 'video.flash', severity: 'error', scenes: ['c'], startSeconds: 4.2, durationSeconds: 1.3 });
     expect(flash!.message).toContain('flashes at up to 5 a second over a quarter of the picture or more, from 4.20 s to 5.50 s (scene "c"): more than three a second can trigger seizures');
   });
+
+  it('VQA-07 a stretch that barely moves is reported outside the frozen part only; a loop that jumps names the last and first scenes', () => {
+    const times = [{ sceneId: 'a', start: 0, end: 2 }, { sceneId: 'b', start: 2, end: 8 }, { sceneId: 'c', start: 8, end: 10 }];
+    const low = { startSeconds: 1, endSeconds: 9, durationSeconds: 8, peakMotion: 0.31 };
+    // A freeze in the middle leaves 1-3 s and 6-9 s; with 3 s as the minimum only the second is still worth reporting.
+    expect(lowMotionOutsideFreezes([low], [{ startSeconds: 3, endSeconds: 6, durationSeconds: 3 }], 3)).toEqual([{ startSeconds: 6, endSeconds: 9, durationSeconds: 3, peakMotion: 0.31 }]);
+    expect(lowMotionOutsideFreezes([low], [{ startSeconds: 0, endSeconds: 10, durationSeconds: 10 }], 1)).toEqual([]);
+    expect(lowMotionOutsideFreezes([low], [], 3)).toEqual([low]);
+    const issues = videoQaIssues({ freezes: [], blacks: [], lows: [low], loop: { seamMotion: 40, typicalMotion: 5, jump: true } }, times, 'warning');
+    expect(issues.map((i) => i.rule)).toEqual(['video.motion', 'video.loop']);
+    expect(issues[0]).toMatchObject({ scenes: ['a', 'b', 'c'], startSeconds: 1, durationSeconds: 8 });
+    expect(issues[0]!.message).toContain('the picture barely moves for 8.00 s, from 1.00 s to 9.00 s');
+    expect(issues[0]!.message).toContain('raise render.qa.lowMotionSeconds if the hold is deliberate');
+    expect(issues[1]).toMatchObject({ scenes: ['c', 'a'], startSeconds: 10, durationSeconds: 0 });
+    expect(issues[1]!.message).toContain('the loop does not join: going from the last frame back to the first changes the picture by 40 luma levels, against 5');
+    expect(videoQaIssues({ freezes: [], blacks: [], loop: { seamMotion: 0.2, typicalMotion: 5, jump: false } }, times, 'warning')).toEqual([]);
+  });
 });
 
 describe('renders', () => {
   it('VQA-03 a picture that keeps moving passes both checks', async () => {
     const { done, manifest } = await render('moving');
     expect(done.status, JSON.stringify(done.error)).toBe('succeeded');
-    expect(manifest!.checks).toMatchObject({ freeze: 'pass', black: 'pass', flash: 'pass' });
+    expect(manifest!.checks).toMatchObject({ freeze: 'pass', black: 'pass', flash: 'pass', motion: 'pass', loop: 'skipped' });
     expect(manifest!.videoQa).toMatchObject({ mode: 'warn', thresholds: { freezeSeconds: 3, blackSeconds: 0.5 }, freezes: [], blacks: [], flashes: [], issues: [] });
+    // Five luma levels a frame on the 32x32 grid, in each of the five seconds; no loop asked for.
+    expect(manifest!.videoQa!.motion).toMatchObject({ floor: 0.4, lowSeconds: 3, lows: [] });
+    expect(manifest!.videoQa!.motion!.energyPerSecond).toHaveLength(5);
+    expect(Math.min(...manifest!.videoQa!.motion!.energyPerSecond)).toBeGreaterThan(3);
+    expect(manifest!.videoQa!.motion!.loop).toBeUndefined();
   }, 120_000);
 
   it('VQA-04 a 5 s still scene is reported as frozen, with its scene and times, in the manifest and the render summary', async () => {
@@ -94,6 +120,8 @@ describe('renders', () => {
     expect(issue!.startSeconds).toBeCloseTo(2, 1);
     expect(issue!.durationSeconds).toBeGreaterThan(4.8);
     expect(issue!.message).toContain('(scene "still"): a still that long reads as a frozen video');
+    // The same pictures are not reported a second time as barely moving.
+    expect(manifest!.checks.motion).toBe('pass');
     expect((await svc.getRender(done.result!.renderId as string)).videoQa?.issues).toHaveLength(1);
   }, 120_000);
 
@@ -111,6 +139,20 @@ describe('renders', () => {
     expect(preview.manifest!.checks).toMatchObject({ freeze: 'pass', black: 'pass' });
   }, 120_000);
 
+  it('VQA-08 output.loop: a video whose end does not match its start gets a loop warning; one that joins passes', async () => {
+    const jump = await render('loop-jump');
+    expect(jump.done.status, JSON.stringify(jump.done.error)).toBe('succeeded');
+    expect(jump.manifest!.checks.loop).toBe('warn');
+    expect(jump.manifest!.videoQa!.motion!.loop).toMatchObject({ jump: true });
+    expect(jump.manifest!.videoQa!.issues.find((i) => i.rule === 'video.loop')).toMatchObject({ scenes: ['outro', 'hook'], startSeconds: 3 });
+    const joined = await render('loop-joined');
+    expect(joined.manifest!.checks.loop).toBe('pass');
+    expect(joined.manifest!.videoQa!.motion!.loop).toMatchObject({ seamMotion: 0, jump: false });
+    // A preview of one of the two scenes is not the whole loop, so the seam is not checked.
+    const preview = await render('loop-jump', { preview: 'hook' });
+    expect(preview.manifest!.checks.loop).toBe('skipped');
+  }, 120_000);
+
   it('VQA-06 render.qa.video: fail fails the render with the reason; off skips the pass; thresholds are live', async () => {
     await svc.updateConfig({ 'render.qa.video': 'fail' });
     const failed = await render('stuck');
@@ -120,7 +162,7 @@ describe('renders', () => {
     expect((await render('stuck')).manifest!.checks.freeze).toBe('pass');
     await svc.updateConfig({ 'render.qa.video': 'off', 'render.qa.freezeSeconds': null });
     const off = await render('stuck');
-    expect(off.manifest!.checks).toMatchObject({ freeze: 'skipped', black: 'skipped', flash: 'skipped' });
+    expect(off.manifest!.checks).toMatchObject({ freeze: 'skipped', black: 'skipped', flash: 'skipped', motion: 'skipped', loop: 'skipped' });
     expect(off.manifest!.videoQa).toBeUndefined();
     await svc.updateConfig({ 'render.qa.video': null });
   }, 240_000);
