@@ -45,9 +45,9 @@ Every limit is a runtime setting (config file, environment, or `update_config`
 | Running jobs per key | `limits.maxRunningJobsPerKey` (`RENDERWELD_MAX_RUNNING_JOBS_PER_KEY`) | `0` (no limit; claiming is fair across keys anyway) | the key's next job waits while other keys' jobs use the free slots |
 | Estimated queue wait of a new render or preview | `limits.maxEstimatedWaitSeconds` (`RENDERWELD_MAX_ESTIMATED_WAIT_SECONDS`) | `0` (off) | `429 queue_full`, `Retry-After` = the estimate's excess over the limit (30 s to 1 h), `details` with the estimate and the queued jobs ahead |
 | Job priority a key may ask for | the key's `maxPriority` (`create_key` / `update_key`, admin only; CLI `--max-priority`) | unset: each type's default (previews `interactive`, renders `standard`), so a key can lower a job's class but not raise it | `403 priority_not_allowed` |
-| Render or preview length | `limits.maxRenderSeconds` (`RENDERWELD_MAX_RENDER_SECONDS`) | `180` (schema maximum) | `422 render_limit_exceeded` |
+| Render or preview length | `limits.maxRenderSeconds` (`RENDERWELD_MAX_RENDER_SECONDS`) | `180` (up to `14400`, 4 hours) | `422 render_limit_exceeded` |
 | Frames per render or preview | `limits.maxRenderFrames` (`RENDERWELD_MAX_RENDER_FRAMES`) | `5400` (180 s at 30 fps, 90 s at 60 fps) | `422 render_limit_exceeded` |
-| Scenes per render | `limits.maxScenes` (`RENDERWELD_MAX_SCENES`) | `50` (schema maximum) | `422 render_limit_exceeded` |
+| Scenes per render | `limits.maxScenes` (`RENDERWELD_MAX_SCENES`) | `50` (up to `2000`) | `422 render_limit_exceeded` |
 | Longest output side | `limits.maxRenderDimension` (`RENDERWELD_MAX_RENDER_DIMENSION`) | `3840` px | `422 render_limit_exceeded` |
 | Frame rate | `limits.maxRenderFps` (`RENDERWELD_MAX_RENDER_FPS`) | `60` | `422 render_limit_exceeded` |
 | Time per html or hyperframes scene | `render.sceneTimeoutSeconds` (start-up) | `900` | the render fails (see above) |
@@ -55,6 +55,8 @@ Every limit is a runtime setting (config file, environment, or `update_config`
 | Provider calls per key per UTC day (`run_provider`, `generate_voice`) | `limits.providerRunsPerKeyPerDay` (`RENDERWELD_PROVIDER_RUNS_PER_KEY_PER_DAY`) | `500` | `429 provider_limit_exceeded`, `Retry-After` until midnight UTC |
 | Provider calls per UTC day, whole server | `limits.providerRunsPerDay` (`RENDERWELD_PROVIDER_RUNS_PER_DAY`) | `0` (no limit: providers run on your own accounts) | `429 provider_budget_exhausted`, `Retry-After` until midnight UTC |
 | Requests per key per minute | `limits.rateLimitPerMinute` | `300` | `429 rate_limited` |
+| Messages in one JSON-RPC batch on `/mcp` | fixed | `10`; each message costs one unit of the key's (and workspace's) rate limit, so a batch cannot multiply it | `400 batch_too_large`; `429 rate_limited` when the batch runs past the budget, before any call runs |
+| Requests in progress per api instance | `limits.maxInflightRequests` (`RENDERWELD_MAX_INFLIGHT_REQUESTS`) | `64` | `503 overloaded`, `Retry-After: 1`. Not counted: health, readiness, metrics, GET long-polls (`?wait=`) and event streams, and a single MCP `get_job` call with `waitSeconds`. Every other MCP request counts, although MCP clients accept event streams on every POST |
 
 Details:
 
