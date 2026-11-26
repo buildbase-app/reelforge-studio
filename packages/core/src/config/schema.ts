@@ -1392,6 +1392,16 @@ export const ConfigSchema = z.object({
       }),
     }),
   }),
+  skills: z.object({
+    dir: setting(nonEmpty().max(1024).optional(), {
+      kind: 'path',
+      scope: 'startup',
+      env: 'REELFORGE_SKILLS_DIR',
+      defaultText: '(none: the built-in skills only)',
+      description:
+        "A folder of extra skills for agents: your house rules, or a skills pack. Each is `<name>.md` or `<name>/SKILL.md` with `name` and `description` front matter (`title` optional), at most 256 KiB, up to 200 skills. Served by `get_skill`, `GET /v1/skills` and the `renderweld://skills` resources beside the built-in ones; one with a built-in's name replaces it. Read at start-up: a file that cannot be used stops the start with its name.",
+    }),
+  }),
   logging: z.object({
     level: setting(z.enum(['debug', 'info', 'warn', 'error']), {
       kind: 'enum',
