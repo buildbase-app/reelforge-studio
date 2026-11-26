@@ -689,7 +689,7 @@ Creates a workspace for a team or customer: its projects, assets, themes, jobs, 
 | --- | --- | --- | --- |
 | `id` | string | yes |  |
 | `name` | string | no |  |
-| `limits` | object | no | rendersPerDay, rendersPerMonth, rateLimitPerMinute, storageBytes; 0 or null: unlimited. |
+| `limits` | object | no | rendersPerDay, rendersPerMonth, rateLimitPerMinute, storageBytes; retentionMaxAgeHours and retentionKeepLast for a stricter retention than the instance's storage.retention (#487); 0 or null: unlimited / the instance's. |
 | `adminKey` | boolean \| object | no |  |
 
 ### `update_workspace`
