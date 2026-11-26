@@ -37,11 +37,38 @@ Setting up a client: [Connect an agent](/docs/start/connect-an-agent).
    `reorder_scenes`, `set_theme` and `set_audio`. Every edit returns the start
    frame and duration of every scene.
 5. `validate_project` until `ok: true`. Warnings are fine, but read them.
-6. Optionally `preview_scene` for a quick low-resolution look.
+6. Look before the final render: `preview_scene` (low resolution), then
+   `get_frames` with the preview's job id. It returns one labelled contact
+   sheet: the first frame, the middle of every scene, both frames of every cut
+   and the last frame, taken from the stored file. `overlay: "safe"` tints what
+   lies outside the safe area for the size and platform. Fix what you see and
+   preview again.
 7. `render_project`, then `get_job` with `waitSeconds` (a long poll) until the
-   job has `succeeded` or `failed`, then `get_render_output`. Give the user its
-   `downloadUrl`: it works without a key for about an hour. If the job failed,
-   read `get_job_logs`, fix the project and render again (or `retry_job`).
+   job has `succeeded` or `failed`, then `get_render_output` and `get_frames`.
+   Give the user its `downloadUrl`: it works without a key for about an hour. If
+   the job failed, read `get_job_logs`, fix the project and render again (or
+   `retry_job`).
+
+### get_frames
+
+| Argument | Default | What it does |
+| --- | --- | --- |
+| `renderId` or `jobId` | | A finished render or preview (mp4, mov, webm or gif) |
+| `at` | the automatic selection | Up to 24 times in seconds, `{ frame }` indices or `{ sceneId, position: start \| mid \| end }` |
+| `everySeconds` | | One frame every N seconds from 0 (at least 0.25; at most 24 frames) |
+| `width` | 360 | Tile width in pixels, 120 to 720 (never above the video's width) |
+| `layout` | `sheet` | `sheet`: one JPEG; `separate`: one JPEG per frame |
+| `overlay` | `none` | `safe`: tint outside the content safe area and outline it (the video is not changed) |
+
+The automatic selection keeps at most 24 tiles. It keeps the first and last
+frame, then every scene's middle, then whole cut pairs, and lists what it left
+out in `omitted`. Each tile is labelled `scene · position · frame · time`, and
+the JSON lists the same per tile. Images stay under 1 MB: tiles shrink if a
+busy frame needs it. Frames are exact: each one is seeked to by its index, and a
+test checks the pixels of every tile. Answers are cached per render. REST:
+`GET /v1/renders/:id/frames?at=1.5,3&frames=0,45&scenes=hook:mid&every=2.5&width=360&layout=sheet&overlay=safe`
+returns the same JSON with base64 images, and `format=jpeg` returns the sheet
+itself.
 
 Ask the user before anything that costs money (a media provider: those calls
 need `acknowledgeCost: true`) or deletes data.

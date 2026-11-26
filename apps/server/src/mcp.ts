@@ -30,6 +30,21 @@ interface ToolDef {
 }
 
 const projectId = z.string().describe('Project id (the manifest\'s projectId).');
+
+/** get_frames: the local image files of a result, for its `extra` (never part of the JSON answer). */
+const framePaths = new WeakMap<object, string[]>();
+
+/** The render id from renderId, or from jobId once that job has succeeded. */
+async function renderIdOf(service: ReelforgeService, renderId: string | undefined, jobId: string | undefined): Promise<string> {
+  if (renderId) return renderId;
+  if (jobId) {
+    const job = await service.getJob(jobId);
+    if (job.status !== 'succeeded') throw new ApiError('job_not_finished', 409, `job ${jobId} is ${job.status}; call get_job with waitSeconds: 45 until it succeeds`, { error: job.error });
+    const id = job.result?.renderId;
+    if (typeof id === 'string') return id;
+  }
+  throw new ApiError('bad_request', 400, 'give renderId or jobId');
+}
 const expectedVersion = z
   .number()
   .int()
@@ -555,7 +570,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_render_output',
     title: 'Get a render output',
     description:
-      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. checks.freeze, checks.black and checks.flash are "warn" when the picture froze, went black or flashes more than three times a second (a seizure risk); videoQa.issues names the times and scenes: fix those scenes. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha).',
+      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. checks.freeze, checks.black and checks.flash are "warn" when the picture froze, went black or flashes more than three times a second (a seizure risk); videoQa.issues names the times and scenes: fix those scenes. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha). To see every scene and cut, call get_frames.',
     scope: 'read',
     input: { renderId: z.string().optional(), jobId: z.string().optional(), includePoster: z.boolean().optional() },
     annotations: { readOnlyHint: true },
@@ -575,6 +590,51 @@ export const TOOLS: ToolDef[] = [
       if (args.includePoster === false || !result.posterUrl) return [];
       const { path } = await service.renderFile(result.renderId, 'poster.png');
       return [{ type: 'image', data: (await readFile(path)).toString('base64'), mimeType: 'image/png' }];
+    },
+  },
+  {
+    name: 'get_frames',
+    title: 'Look at frames of a render',
+    description:
+      'Stills of exact frames of a finished render or preview, so you can SEE what you made before calling it done: one labelled contact sheet (default) or one image per frame, taken from the stored file (no re-render). ' +
+      'Default selection ("auto"): the first frame, the middle of every scene, both frames of every cut (last frame of a scene, first of the next) and the last frame, at most 24. ' +
+      'Or at: times in seconds, { frame } indices or { sceneId, position: start|mid|end }; or everySeconds. Each tile is labelled scene · position · frame · time, and the JSON lists the same. ' +
+      'overlay "safe" tints what lies outside the safe area for the render\'s size and platform (text there is covered by the app or cut off). width is the tile width (default 360, the width of a phone; 120 to 720). ' +
+      'Use it after preview_scene and before render_project, and on every final render: fix what you see, preview again. Give renderId, or jobId of a succeeded job.',
+    scope: 'read',
+    input: {
+      renderId: z.string().max(64).optional(),
+      jobId: z.string().max(191).optional(),
+      at: z
+        .array(
+          z.union([
+            z.number().min(0).describe('A time in seconds.'),
+            z.object({ seconds: z.number().min(0) }),
+            z.object({ frame: z.number().int().min(0) }),
+            z.object({ sceneId: z.string().max(200), position: z.enum(['start', 'mid', 'end']).optional() }),
+          ])
+        )
+        .min(1)
+        .max(24)
+        .optional()
+        .describe('Frames to show instead of the automatic selection.'),
+      everySeconds: z.number().min(0.25).optional().describe('One frame every N seconds from 0 (at most 24 frames).'),
+      width: z.number().int().min(120).max(720).optional().describe('Tile width in pixels (default 360).'),
+      layout: z.enum(['sheet', 'separate']).optional().describe('sheet (default): one image; separate: one image per frame.'),
+      overlay: z.enum(['none', 'safe']).optional().describe('safe: tint what lies outside the safe area (default none). The video is never changed.'),
+    },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => {
+      const renderId = await renderIdOf(service, a.renderId, a.jobId);
+      const { images, ...rest } = await service.getFrames(renderId, { at: a.at, everySeconds: a.everySeconds, width: a.width, layout: a.layout, overlay: a.overlay });
+      const result = { ...rest, images: images.map(({ mimeType, bytes }) => ({ mimeType, bytes })) };
+      framePaths.set(result, images.map((i) => i.path));
+      return result;
+    },
+    extra: async (result) => {
+      const out: CallToolResult['content'] = [];
+      for (const path of framePaths.get(result) ?? []) out.push({ type: 'image', data: (await readFile(path)).toString('base64'), mimeType: 'image/jpeg' });
+      return out;
     },
   },
   {
@@ -1204,9 +1264,14 @@ done with tools; there is no UI.
    Never assume approval. Apply changes with update_captions (etag from
    get_captions); when the user approves, update_captions { approve: true }.
 8. validate_project until ok: true (warnings are fine but read them).
-9. Optional quick look: preview_scene (low resolution), then get_render_output.
+9. Look before the final render: preview_scene (low resolution), then
+   get_frames { jobId } for a labelled contact sheet of every scene and both
+   sides of every cut (overlay: "safe" shows where text is covered or cut off).
+   Fix what you see (overflowing or tiny text, empty scenes, bad cuts) and
+   preview again.
 10. render_project -> get_job with waitSeconds 45 (repeat while running) until succeeded/failed ->
-   get_render_output. Give the user downloadUrl (works without a key for ~1 h).
+   get_render_output, then get_frames on the final render.
+   Give the user downloadUrl (works without a key for ~1 h).
    Read checks: freeze, black or flash = "warn" means a scene froze, went
    black or flashes more than three times a second (a seizure risk);
    videoQa.issues names it, with the times. Fix it and render again.
@@ -1276,6 +1341,7 @@ const DELIVERY_CHECKLIST = [
   'No placeholder text remains (lorem ipsum, TODO, example.com).',
   'validate_project returns no errors; warnings are understood.',
   'After rendering: get_render_output shows checks metadata/decode/duration = pass.',
+  'get_frames on the preview or render: every scene and both sides of every cut look right at phone size; no text outside the safe area (overlay "safe"), cut off or too small.',
 ];
 
 function buildServer(service: ReelforgeService, auth: AuthContext, config: ServerConfig): McpServer {
@@ -1512,7 +1578,8 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
             content: {
               type: 'text',
               text:
-                `Review this RenderWeld project against the checklist. For each item answer pass / fail / unknown with a one-line reason, then list concrete fixes as tool calls (update_scene, set_theme, ...).\n\n` +
+                `Review this RenderWeld project against the checklist. For each item answer pass / fail / unknown with a one-line reason, then list concrete fixes as tool calls (update_scene, set_theme, ...). ` +
+                `Look at the pictures, not only the manifest: if it has a preview or render (list_renders), call get_frames on the newest one (overlay: "safe") and judge every tile.\n\n` +
                 `Checklist:\n${DELIVERY_CHECKLIST.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n` +
                 `Validation report:\n${JSON.stringify(report, null, 2)}\n\nManifest (version ${p.meta.version}):\n${JSON.stringify(p.manifest, null, 2)}`,
             },
