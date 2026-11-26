@@ -815,6 +815,23 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_MCP_OAUTH_JWKS_URL',
         description: 'The issuer\'s JWKS. Default: `jwks_uri` from its metadata (`/.well-known/oauth-authorization-server`, then OpenID discovery).',
       }),
+      workspaceClaim: setting(z.string().regex(/^[A-Za-z0-9_:./-]{1,100}$/, 'a claim name such as renderweld_workspace').optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_MCP_OAUTH_WORKSPACE_CLAIM',
+        example: 'renderweld_workspace',
+        description:
+          'The access-token claim that names the workspace a token acts in (#479), e.g. a custom claim your authorization server adds per client or organisation. Set: every token must carry it as a string naming an existing workspace (`401 invalid_token` otherwise; a suspended workspace gives `403 workspace_suspended`, as for its keys), and everything the token reads or writes stays in that workspace. Unset: tokens act in the default workspace.',
+      }),
+      blockedSubjects: setting(z.array(z.string().min(1).max(255).regex(/^[^\s,]+$/, 'a token subject (sub), without spaces or commas')).max(1000), {
+        kind: 'list',
+        scope: 'runtime',
+        env: 'REELFORGE_MCP_OAUTH_BLOCKED_SUBJECTS',
+        default: [],
+        example: 'auth0|65f0c2,user-42',
+        description:
+          'Access-token subjects (`sub`) refused on `/mcp` at once, before their tokens expire (#479): for a lost device or a person who left, while your authorization server stops issuing them tokens. A blocked token gets `401 invalid_token`. Runtime: `update_config` (owner) applies it on the next request and audits the change. At most 1000.',
+      }),
     }),
   }),
   audit: z.object({
