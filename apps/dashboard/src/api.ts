@@ -63,6 +63,8 @@ export interface RenderSummary {
   downloadUrlExpiresAt: string;
   downloadVia: 'bucket' | 'server';
   storage?: { driver: string; prefix: string };
+  /** When the render was first downloaded and when the sweep may delete it (#487); older servers send none. */
+  retention?: RenderRetention;
   /** Present on renders with the audio pipeline (#301); older servers and renders have none. */
   audio?: RenderAudio;
   captions?: {
@@ -73,6 +75,14 @@ export interface RenderSummary {
     files: Array<{ format: string; file: string; downloadUrl: string; downloadUrlExpiresAt: string }>;
     qa: { ok: boolean; issues: Array<{ cue: number; rule: string; message: string }> };
   };
+}
+
+export interface RenderRetention {
+  downloadedAt: string | null;
+  deletesAt: string | null;
+  deleteReason?: 'deleted_after_download' | 'older_than_workspace_retention' | 'older_than_renderDays';
+  deleteAfterDownloadMinutes?: number;
+  keepLast?: number;
 }
 
 export interface RenderAudio {
