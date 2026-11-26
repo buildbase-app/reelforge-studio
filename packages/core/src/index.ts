@@ -49,3 +49,4 @@ export * from './fonts';
 export * from './workspace';
 export * from './workspace-admin';
 export * from './frames';
+export * from './videoqa';

@@ -8,3 +8,5 @@ export * from './audio';
 export * from './frames';
 export * from './media';
 export * from './sheet';
+export * from './videoqa';
+export * from './flashes';

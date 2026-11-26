@@ -288,6 +288,7 @@ that was run; "partial" says what is missing.
 | §7 Resources and prompts `brief_intake`, `make_reel`, `plan_reel`, `review_reel` | done | MCP tests |
 | Skills for agents (#313): 12 built-in craft skills, public (D-132), `skills.dir` for more, `get_skill`, `/v1/skills`, resources, `renderweld skills export` | done | `apps/server/test/skills.test.ts` (SKL-01..15) |
 | Agent visual review: `get_frames` / `GET /v1/renders/:id/frames` (#379): labelled contact sheet or separate stills, auto / at / every, safe-area overlay | done | `packages/core/test/frames.test.ts` (FRM-01..07), `apps/server/test/frames.test.ts` (FRM-10..13, pixel check per tile). Not yet: a sheet stored with every render, platform-zone tints from #385, findings drawn on tiles |
+| Picture checks after the encode (#294): frozen and black stretches per render, `render.qa.*`, warn or fail | done (first two gates) | `packages/core/test/videoqa.test.ts` (VQA-01..06); motion energy, loop seam, seek determinism and flashes still open |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |
 | §8 API keys: random 32 bytes, hashed, scopes, CLI, admin API, bootstrap key | done | `RENDERWELD_BOOTSTRAP_KEY` or `_FILE`; CLI `pnpm keys:create` / `renderweld keys create` in Docker (picked up without restart); admin tools create/list/revoke |
