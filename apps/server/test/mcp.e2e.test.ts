@@ -223,14 +223,15 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
 
     const out = await ok(agent, 'get_render_output', { jobId: job.id });
     expect(out.data.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', avSync: 'pass', loudness: 'skipped', freeze: 'pass', black: 'warn', flash: 'pass' });
-    // The picture checks (#294) on real engines: the Motion Canvas explainer shows about two seconds of its empty dark
-    // background before its title appears, and the Remotion kinetic-title outro about half a second before its
-    // headline springs in; both read as a gap. Nothing freezes or flashes.
+    // The picture checks (#294) on real engines: the Motion Canvas explainer shows one to two seconds of its empty
+    // dark background before its title appears (1.80 s in CI, 1.07 s on a slower machine), which always reads as a
+    // gap. The Remotion kinetic-title outro shows about half a second before its headline springs in: 0.53 s in CI,
+    // just under the 0.5 s threshold elsewhere, so it is reported on some machines and not others. Nothing freezes
+    // or flashes. (The thresholds themselves are tested exactly in packages/core/test/videoqa.test.ts.)
     const qa = JSON.stringify(out.data.videoQa);
-    expect(out.data.videoQa.issues.map((i: any) => [i.rule, i.severity, i.scenes]), qa).toEqual([
-      ['video.black', 'warning', ['how-it-works']],
-      ['video.black', 'warning', ['outro']],
-    ]);
+    const found = out.data.videoQa.issues.map((i: any) => [i.rule, i.severity, i.scenes]);
+    expect(found[0], qa).toEqual(['video.black', 'warning', ['how-it-works']]);
+    expect(found.slice(1), qa).toEqual(found.length > 1 ? [['video.black', 'warning', ['outro']]] : []);
     for (const black of out.data.videoQa.issues) {
       expect(black.durationSeconds, qa).toBeGreaterThanOrEqual(0.5);
       expect(black.message).toContain('nothing on screen that long reads as a gap');
