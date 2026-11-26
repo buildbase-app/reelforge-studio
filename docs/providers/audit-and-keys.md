@@ -30,7 +30,7 @@ the entry stays in the database.
 | signed webhook | **not built** (comes with E3, as an `AuditSink` plugin) | — | — |
 | S3 object export | **not built** (comes with storage #27, as an `AuditSink` plugin) | — | — |
 
-Example configuration (`REELFORGE_CONFIG` file; environment names in docs/CONFIG.md):
+Example configuration (`RENDERWELD_CONFIG` file; environment names in docs/CONFIG.md):
 
 ```yaml
 audit:
@@ -78,7 +78,7 @@ calls (listing projects, polling jobs) are not logged.
 | `data` | `via` (`rest` / `mcp`), HTTP status, error code, `idempotentReplay`, and action details such as the changed config keys (`from`/`to`, secrets as `set` / `not set`) |
 
 **Never logged:** API key secrets (created or rotated), provider keys, the
-licence key (only masked: first group), `REELFORGE_SECRET_KEY`, database
+licence key (only masked: first group), `RENDERWELD_SECRET_KEY`, database
 passwords, request bodies (manifests, uploaded files, provider parameters).
 Callers only ever pass names and `set` / `cleared` markers, and every entry
 also passes through `redactSecrets` (properties named like a secret, `rf_`
@@ -102,7 +102,7 @@ today), so teams need no data migration.
 | How | Format | Size |
 | --- | --- | --- |
 | `GET /v1/audit?format=jsonl` (or `csv`, or `Accept: text/csv`) with the same filters as below | streamed download (`Content-Disposition: attachment`), read from the database 1000 entries at a time: memory stays flat | up to 100 000 entries per request; narrow `from`/`to` for more |
-| `reelforge audit export --format csv --out audit.csv [filters]` (in the container: `docker exec <c> reelforge audit export ...`) | streamed to a file (mode 0600) | any range |
+| `renderweld audit export --format csv --out audit.csv [filters]` (in the container: `docker exec <c> renderweld audit export ...`) | streamed to a file (mode 0600) | any range |
 | `list_audit_events { format: "jsonl" \| "csv" }` (MCP) | text in the tool result | up to 10 000 entries |
 | `GET /v1/audit` / `list_audit_events` (no format) | JSON page, newest first, `nextCursor` for the next page | 100 per page (max 1000) |
 
@@ -122,7 +122,7 @@ curl -s -H "Authorization: Bearer $ADMIN" \
 
 | Action | REST | MCP | CLI |
 | --- | --- | --- | --- |
-| create (optional `expiresAt` or `expiresInDays`, `rateLimitPerMinute`, `rendersPerDay`, `rendersPerMonth`, `ipAllowlist`) | `POST /v1/keys` | `create_key` | `reelforge keys create --name N --scopes read,render --expires-in 30d --rate-limit 60 --renders-per-day 20 --ip-allow 10.0.0.0/8` |
+| create (optional `expiresAt` or `expiresInDays`, `rateLimitPerMinute`, `rendersPerDay`, `rendersPerMonth`, `ipAllowlist`) | `POST /v1/keys` | `create_key` | `renderweld keys create --name N --scopes read,render --expires-in 30d --rate-limit 60 --renders-per-day 20 --ip-allow 10.0.0.0/8` |
 | list / show (status, last used, limits, usage) | `GET /v1/keys`, `GET /v1/keys/:id` | `list_keys`, `get_key` | `keys list`, `keys show <id>` |
 | change name, expiry, limits, allowlist (`null` / `none` clears) | `PATCH /v1/keys/:id` | `update_key` | `keys update <id> --rate-limit none` |
 | rotate (new secret once; old one valid for `graceHours`, default `keys.rotationGraceHours` = 24) | `POST /v1/keys/:id/rotate` | `rotate_key` | `keys rotate <id> --grace-hours 2` |
@@ -168,7 +168,7 @@ Latest run: **2026-11-21**, branch `claude/enterprise-audit-keys`.
 Where: *unit* `packages/core/test/audit.test.ts`; *contract*
 `packages/db/test/contract.test.ts` on memory, SQLite, PostgreSQL 17 and MySQL
 8.4; *server* `apps/server/test/enterprise.test.ts` (real HTTP, REST and MCP,
-injected clock; also run with `REELFORGE_TEST_DB=postgres` and `mysql`) and
+injected clock; also run with `RENDERWELD_TEST_DB=postgres` and `mysql`) and
 `apps/server/test/parity.test.ts`; *Docker* `e2e/docker/run.sh` step
 `audit.mjs` (an agent in a separate container over MCP; release image,
 hardened flags) on SQLite and PostgreSQL, with an OpenTelemetry Collector
@@ -220,7 +220,7 @@ Commands:
 pnpm --filter @renderweld/core exec vitest run test/audit.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/db test
 pnpm --filter @renderweld/server exec vitest run test/enterprise.test.ts test/parity.test.ts
-REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/enterprise.test.ts
+RENDERWELD_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/enterprise.test.ts
 DB=postgres e2e/docker/run.sh        # OTEL_IMAGE selects a collector mirror
 ```
 

@@ -34,7 +34,7 @@ tools from their makers).
 ## Disclosure line (top of every post)
 
 ```text
-Disclosure: I made this. ReelForge is a commercial, source-available product: free for personal use, a one-time paid licence for commercial use.
+Disclosure: I made this. RenderWeld is a commercial, source-available product: free for personal use, a one-time paid licence for commercial use.
 ```
 
 ## r/SideProject
@@ -42,7 +42,7 @@ Disclosure: I made this. ReelForge is a commercial, source-available product: fr
 Title: `I built a video studio my coding agent drives over MCP (self-hosted)`
 
 ```text
-Disclosure: I made this. ReelForge is a commercial, source-available product: free for personal use, a one-time paid licence for commercial use.
+Disclosure: I made this. RenderWeld is a commercial, source-available product: free for personal use, a one-time paid licence for commercial use.
 
 What it is: a server you run in Docker. Your AI agent connects over MCP (or a script over REST), writes a manifest of scenes with their timing, and the server renders each scene with one of four engines (Remotion, Motion Canvas, HTML/CSS, HyperFrames), joins them to the frame and checks the MP4 with ffprobe.
 
@@ -54,7 +54,7 @@ What I learned building it:
 Not done yet: captions aren't rendered, only Linux is tested, Codex isn't proven.
 
 Tutorials and proofs: https://github.com/buildbase-app/reelforge-studio/tree/main/docs/tutorials
-Site: https://reelforge.buildbase.app/agents?utm_source=reddit&utm_medium=community&utm_campaign=launch-2026-12&utm_content=1204-r-sideproject
+Site: https://renderweld.com/agents?utm_source=reddit&utm_medium=community&utm_campaign=launch-2026-12&utm_content=1204-r-sideproject
 
 Happy to answer anything about the build.
 ```
@@ -64,13 +64,13 @@ Happy to answer anything about the build.
 Title: `Claude Code made a 4-engine video over MCP: the tool calls, timings and what went wrong`
 
 ```text
-Disclosure: I made the studio in this post. ReelForge is a commercial, source-available product: free for personal use, a one-time paid licence for commercial use.
+Disclosure: I made the studio in this post. RenderWeld is a commercial, source-available product: free for personal use, a one-time paid licence for commercial use.
 
 I wanted to see how well Claude Code drives a video renderer through MCP alone, with its built-in tools switched off. The setup:
 
-claude mcp add --transport http reelforge http://127.0.0.1:4321/mcp --header "Authorization: Bearer $REELFORGE_API_KEY"
+claude mcp add --transport http renderweld http://127.0.0.1:4321/mcp --header "Authorization: Bearer $RENDERWELD_API_KEY"
 
-Headless, I ran it with --strict-mcp-config, --tools "" and --allowedTools mcp__reelforge, so only the studio's tools were available.
+Headless, I ran it with --strict-mcp-config, --tools "" and --allowedTools mcp__renderweld, so only the studio's tools were available.
 
 In the recorded multi-engine run, Claude called list_templates, create_project, validate_project, render_project, get_job three times (long-polling with waitSeconds 45) and get_render_output: 8 tool calls, 9 turns. The 9 s, 1080x1920 reel rendered in 107.6 s on a shared 4-core machine.
 
@@ -82,14 +82,14 @@ Curious how others structure MCP tools so agents don't loop.
 ```
 
 UTM link if a site link is wanted:
-`https://reelforge.buildbase.app/agents?utm_source=reddit&utm_medium=community&utm_campaign=launch-2026-12&utm_content=1205-r-claudeai`
+`https://renderweld.com/agents?utm_source=reddit&utm_medium=community&utm_campaign=launch-2026-12&utm_content=1205-r-claudeai`
 
 ## r/mcp
 
 Title: `An MCP server for rendering video: 61 tools, a parity test against REST, and long-poll jobs`
 
 ```text
-Disclosure: I made this. ReelForge is a commercial, source-available product: free for personal use, a one-time paid licence for commercial use.
+Disclosure: I made this. RenderWeld is a commercial, source-available product: free for personal use, a one-time paid licence for commercial use.
 
 Design notes from building a self-hosted MCP server that renders short videos:
 - One service layer, two transports: every REST route under /v1 has an MCP tool, enforced by a test.
@@ -104,7 +104,7 @@ Proven clients: Claude Code, an MCP SDK script and a local model. Codex config i
 
 ## r/selfhosted (hold, see the table)
 
-Title (only if allowed): `[Paid, source-available] ReelForge: self-hosted short-video studio driven by your AI agent`
+Title (only if allowed): `[Paid, source-available] RenderWeld: self-hosted short-video studio driven by your AI agent`
 
 ```text
 Disclosure: I made this, and it is not open source. It is source-available (PolyForm Noncommercial): free for personal use, a one-time paid licence for commercial use. The release image checks a licence key once a day (only the key and a random instance id are sent; 14 days offline grace).

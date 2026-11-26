@@ -25,7 +25,7 @@ the latest result. Nothing is called supported without a passing case.
 
 ## What runs where
 
-One image, three roles (`server.role`, `REELFORGE_ROLE`, start-up only):
+One image, three roles (`server.role`, `RENDERWELD_ROLE`, start-up only):
 
 | Role | Serves | Renders | Use |
 | --- | --- | --- | --- |
@@ -80,36 +80,36 @@ All start-up only unless marked; environment names and defaults in
 
 | Setting | Env | Default | Meaning |
 | --- | --- | --- | --- |
-| `server.role` | `REELFORGE_ROLE` | `all` | `all`, `api` or `worker` (above) |
-| `server.workerConcurrency` | `REELFORGE_WORKER_CONCURRENCY` | `limits.renderConcurrency` | renders one worker runs at a time; scale out with more workers rather than raising it |
-| `queue.driver` | `REELFORGE_QUEUE_DRIVER` | `auto` | `inprocess`, `database`; `auto` = `database` for `api`/`worker`, else `inprocess` |
-| `queue.leaseSeconds` | `REELFORGE_QUEUE_LEASE_SECONDS` | `60` | a claimed job is the worker's this long without a heartbeat; renewed every quarter of it |
-| `queue.maxAttempts` | `REELFORGE_QUEUE_MAX_ATTEMPTS` | `3` | claims per job before a lost lease fails it (`lease_expired`) |
-| `queue.pollIntervalMs` | `REELFORGE_QUEUE_POLL_INTERVAL_MS` | `1000` | idle claim poll; also how often a long-poll re-reads a job running elsewhere; backs off to 30 s on database errors |
-| `queue.shutdownGraceSeconds` | `REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS` | `30` | on SIGTERM: wait this long for running renders, then hand them back to the queue |
-| `queue.pollMaxIntervalMs` | `REELFORGE_QUEUE_POLL_MAX_INTERVAL_MS` | `5000` | longest wait between empty polls (doubling from `queue.pollIntervalMs`); a claimed job resets it. Equal to `queue.pollIntervalMs`: no backoff |
-| `queue.dispatch` | `REELFORGE_QUEUE_DISPATCH` | `poll` | `poll`, `notify` (PostgreSQL LISTEN/NOTIFY; [below](#queue-dispatch-poll-and-notify-d-105)), `sqs` or `redis` ([below](#queue-dispatch-sqs-and-redis-streams-d-105)). Same value on every instance |
-| `queue.dispatchFallbackSeconds` | `REELFORGE_QUEUE_DISPATCH_FALLBACK_SECONDS` | `30` | `notify`, `sqs`, `redis`: idle workers still poll this often, so a lost message delays a job by at most this; with `sqs`/`redis` also the outbox relay's sweep |
-| `queue.sqs.*` | `REELFORGE_QUEUE_SQS_*` | — | `queueUrl` (required with `sqs`), `region`, `endpoint`, `accessKeyId` / `secretAccessKey` / `sessionToken` (runtime secrets; unset: AWS default chain), `visibilityTimeoutSeconds` (30) |
-| `queue.redis.*` | `REELFORGE_QUEUE_REDIS_*` | — | `url` (required with `redis`, secret, `rediss://` for TLS), `password` (runtime secret), `tlsCaFile`, `stream` (`reelforge:jobs`), `group` (`reelforge-workers`), `claimIdleSeconds` (30), `maxLength` (100 000) |
-| `queue.notifyJitterMs` | `REELFORGE_QUEUE_NOTIFY_JITTER_MS` | `50` | `notify`: random delay before a woken worker claims; it skips the claim when others took the announced jobs meanwhile |
-| `database.directUrl` | `REELFORGE_DATABASE_DIRECT_URL` (`DATABASE_DIRECT_URL`, `_FILE`) | `database.url` | a direct session connection to PostgreSQL for the `notify` LISTEN connection; required when `database.url` is PgBouncer in transaction mode |
-| `storage.localShared` | `REELFORGE_STORAGE_LOCAL_SHARED` | `false` | the data directory is one shared volume (NFS, EFS, Azure Files, RWX PVC) mounted by every instance |
-| `limits.rateLimitStore` | `REELFORGE_RATE_LIMIT_STORE` | `auto` | `memory` (per instance) or `database` (shared); `auto` = `database` with the database queue |
-| `limits.renderConcurrency` | `REELFORGE_RENDER_CONCURRENCY` | `1` | runtime; used by workers when `server.workerConcurrency` is unset |
-| `database.workerConnectionLimit` | `REELFORGE_DB_WORKER_CONNECTION_LIMIT` | `3` | pool size of a `worker` process whose database URL has no `?connection_limit=`; `0` = the driver default (10) ([Connection pooling](#connection-pooling)) |
-| `database.readUrl` | `REELFORGE_DATABASE_READ_URL` / `DATABASE_READ_URL` (or `_FILE`) | unset | a read replica for the lag-tolerant lists only ([Read replica](#read-replica)); refused with SQLite |
+| `server.role` | `RENDERWELD_ROLE` | `all` | `all`, `api` or `worker` (above) |
+| `server.workerConcurrency` | `RENDERWELD_WORKER_CONCURRENCY` | `limits.renderConcurrency` | renders one worker runs at a time; scale out with more workers rather than raising it |
+| `queue.driver` | `RENDERWELD_QUEUE_DRIVER` | `auto` | `inprocess`, `database`; `auto` = `database` for `api`/`worker`, else `inprocess` |
+| `queue.leaseSeconds` | `RENDERWELD_QUEUE_LEASE_SECONDS` | `60` | a claimed job is the worker's this long without a heartbeat; renewed every quarter of it |
+| `queue.maxAttempts` | `RENDERWELD_QUEUE_MAX_ATTEMPTS` | `3` | claims per job before a lost lease fails it (`lease_expired`) |
+| `queue.pollIntervalMs` | `RENDERWELD_QUEUE_POLL_INTERVAL_MS` | `1000` | idle claim poll; also how often a long-poll re-reads a job running elsewhere; backs off to 30 s on database errors |
+| `queue.shutdownGraceSeconds` | `RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS` | `30` | on SIGTERM: wait this long for running renders, then hand them back to the queue |
+| `queue.pollMaxIntervalMs` | `RENDERWELD_QUEUE_POLL_MAX_INTERVAL_MS` | `5000` | longest wait between empty polls (doubling from `queue.pollIntervalMs`); a claimed job resets it. Equal to `queue.pollIntervalMs`: no backoff |
+| `queue.dispatch` | `RENDERWELD_QUEUE_DISPATCH` | `poll` | `poll`, `notify` (PostgreSQL LISTEN/NOTIFY; [below](#queue-dispatch-poll-and-notify-d-105)), `sqs` or `redis` ([below](#queue-dispatch-sqs-and-redis-streams-d-105)). Same value on every instance |
+| `queue.dispatchFallbackSeconds` | `RENDERWELD_QUEUE_DISPATCH_FALLBACK_SECONDS` | `30` | `notify`, `sqs`, `redis`: idle workers still poll this often, so a lost message delays a job by at most this; with `sqs`/`redis` also the outbox relay's sweep |
+| `queue.sqs.*` | `RENDERWELD_QUEUE_SQS_*` | — | `queueUrl` (required with `sqs`), `region`, `endpoint`, `accessKeyId` / `secretAccessKey` / `sessionToken` (runtime secrets; unset: AWS default chain), `visibilityTimeoutSeconds` (30) |
+| `queue.redis.*` | `RENDERWELD_QUEUE_REDIS_*` | — | `url` (required with `redis`, secret, `rediss://` for TLS), `password` (runtime secret), `tlsCaFile`, `stream` (`reelforge:jobs`), `group` (`reelforge-workers`), `claimIdleSeconds` (30), `maxLength` (100 000) |
+| `queue.notifyJitterMs` | `RENDERWELD_QUEUE_NOTIFY_JITTER_MS` | `50` | `notify`: random delay before a woken worker claims; it skips the claim when others took the announced jobs meanwhile |
+| `database.directUrl` | `RENDERWELD_DATABASE_DIRECT_URL` (`DATABASE_DIRECT_URL`, `_FILE`) | `database.url` | a direct session connection to PostgreSQL for the `notify` LISTEN connection; required when `database.url` is PgBouncer in transaction mode |
+| `storage.localShared` | `RENDERWELD_STORAGE_LOCAL_SHARED` | `false` | the data directory is one shared volume (NFS, EFS, Azure Files, RWX PVC) mounted by every instance |
+| `limits.rateLimitStore` | `RENDERWELD_RATE_LIMIT_STORE` | `auto` | `memory` (per instance) or `database` (shared); `auto` = `database` with the database queue |
+| `limits.renderConcurrency` | `RENDERWELD_RENDER_CONCURRENCY` | `1` | runtime; used by workers when `server.workerConcurrency` is unset |
+| `database.workerConnectionLimit` | `RENDERWELD_DB_WORKER_CONNECTION_LIMIT` | `3` | pool size of a `worker` process whose database URL has no `?connection_limit=`; `0` = the driver default (10) ([Connection pooling](#connection-pooling)) |
+| `database.readUrl` | `RENDERWELD_DATABASE_READ_URL` / `DATABASE_READ_URL` (or `_FILE`) | unset | a read replica for the lag-tolerant lists only ([Read replica](#read-replica)); refused with SQLite |
 
-Every instance needs the same `REELFORGE_SECRET_KEY`: it decrypts the secret
+Every instance needs the same `RENDERWELD_SECRET_KEY`: it decrypts the secret
 settings in the database and, with the database queue, is the key that signs
 download links (so a link made on one api instance verifies on another, D-077).
 Runtime settings changed with `update_config` on one instance reach the others
 within 15 s.
 
 **Least privilege.** The database user needs `SELECT, INSERT, UPDATE, DELETE`
-on the ReelForge tables, plus DDL (`CREATE`, `ALTER`, `INDEX`, `REFERENCES`) for
+on the RenderWeld tables, plus DDL (`CREATE`, `ALTER`, `INDEX`, `REFERENCES`) for
 whoever runs the migrations (on start by default, or one `--migrate-only` step
-with a more privileged user, then `REELFORGE_MIGRATE_ON_START=0` on the
+with a more privileged user, then `RENDERWELD_MIGRATE_ON_START=0` on the
 instances). The queue uses row locks (`SELECT ... FOR UPDATE SKIP LOCKED`), which
 need no extra grant. Storage permissions: docs/providers/storage.md. Workers
 need no Kubernetes API access (`automountServiceAccountToken: false`).
@@ -122,6 +122,7 @@ scale e2e starts):
 
 ```bash
 export POSTGRES_PASSWORD=$(openssl rand -hex 16)
+# docker-compose.yml reads the old REELFORGE_* names; the server accepts RENDERWELD_* too (RENAMED.md)
 export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)
 export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
 export S3_BUCKET=my-renders S3_REGION=eu-central-1 S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=...
@@ -133,15 +134,15 @@ The essentials, for any orchestrator:
 ```yaml
 # every instance
 DATABASE_URL_FILE: /run/secrets/database-url     # postgresql://... or mysql://...
-REELFORGE_SECRET_KEY_FILE: /run/secrets/secret-key
-REELFORGE_STORAGE_DRIVER: s3                       # or azure / gcs
-REELFORGE_S3_BUCKET: my-renders
+RENDERWELD_SECRET_KEY_FILE: /run/secrets/secret-key
+RENDERWELD_STORAGE_DRIVER: s3                       # or azure / gcs
+RENDERWELD_S3_BUCKET: my-renders
 # api instances
-REELFORGE_ROLE: api
+RENDERWELD_ROLE: api
 # worker instances
-REELFORGE_ROLE: worker
-REELFORGE_WORKER_CONCURRENCY: "1"
-REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS: "300"     # and a longer stop grace period
+RENDERWELD_ROLE: worker
+RENDERWELD_WORKER_CONCURRENCY: "1"
+RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS: "300"     # and a longer stop grace period
 ```
 
 ## Example: Kubernetes
@@ -156,7 +157,7 @@ scale to zero on the queue, apply the KEDA overlay instead
 ([Autoscaling with KEDA](#autoscaling-with-keda)).
 
 - Pods: `runAsNonRoot`, `runAsUser/Group 10001`, `fsGroup 10001`,
-  `seccompProfile: RuntimeDefault` (with `REELFORGE_CHROMIUM_NO_SANDBOX=1`, the
+  `seccompProfile: RuntimeDefault` (with `RENDERWELD_CHROMIUM_NO_SANDBOX=1`, the
   image default; the Localhost profile `deployment/seccomp/chrome.json` turns
   Chromium's sandbox on, see the comment in `api.yaml`); containers:
   `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, `drop: [ALL]`;
@@ -164,7 +165,7 @@ scale to zero on the queue, apply the KEDA overlay instead
   (caches and render staging; the files live in the bucket).
 - Probes: startup and liveness on `/healthz`, readiness on `/readyz` (a worker
   leaves rotation while the database or storage is down or while it drains).
-- Workers: `terminationGracePeriodSeconds: 330` > `REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS: 300`.
+- Workers: `terminationGracePeriodSeconds: 330` > `RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS: 300`.
 - PDBs: api `minAvailable: 1`, workers `maxUnavailable: 1`.
 
 ```bash
@@ -184,7 +185,7 @@ follow).
 
 ## Autoscaling
 
-`reelforge_jobs_queued` is the **cluster-wide** number of queued jobs: every
+`renderweld_jobs_queued` is the **cluster-wide** number of queued jobs: every
 instance on the database queue reports the same value. Since #195 (D-106) one
 instance counts it every lease/4 (the housekeeping holder) and stores it in the
 `InstanceLease` row, where the others read it every lease/2, so it lags the
@@ -195,14 +196,14 @@ prometheus-adapter (rule for its `externalRules`):
 
 ```yaml
 externalRules:
-  - seriesQuery: 'reelforge_jobs_queued{namespace!=""}'
+  - seriesQuery: 'renderweld_jobs_queued{namespace!=""}'
     resources: { overrides: { namespace: { resource: namespace } } }
-    name: { as: reelforge_jobs_queued }
-    metricsQuery: 'max(reelforge_jobs_queued{<<.LabelMatchers>>}) by (namespace)'
+    name: { as: renderweld_jobs_queued }
+    metricsQuery: 'max(renderweld_jobs_queued{<<.LabelMatchers>>}) by (namespace)'
 ```
 
 `max`, not `sum`: every pod reports the same queue. KEDA works the same way
-(Prometheus scaler, `query: max(reelforge_jobs_queued{namespace="reelforge"})`,
+(Prometheus scaler, `query: max(renderweld_jobs_queued{namespace="reelforge"})`,
 `threshold: "1"`). Scale down slowly (`stabilizationWindowSeconds: 600` in
 `hpa.yaml`): a removed worker hands its render back, which restarts it.
 The External metric path is **untested** (the KEDA recipe below is the tested
@@ -213,23 +214,23 @@ Metrics added by this work (labels bounded, never ids or worker names):
 
 | Prometheus name | Type | Labels | Meaning |
 | --- | --- | --- | --- |
-| `reelforge_jobs_queued` | gauge | — | queued jobs; database queue: all instances |
-| `reelforge_jobs_running` | gauge | — | jobs this instance runs |
-| `reelforge_server_role` | gauge | `reelforge_role` (`all`/`api`/`worker`) | 1 for this instance's role |
-| `reelforge_jobs_requeued_total` | counter | `reelforge_reason` (`lease_expired`, `released`) | jobs handed back to the queue |
-| `reelforge_queue_errors_total` | counter | `reelforge_operation` (`claim`, `heartbeat`, `recover`, `housekeeping`) | failed queue operations (database trouble; `housekeeping`: reading or taking the housekeeping lease) |
-| `reelforge_queue_claims_total` | counter | `reelforge_trigger` (`poll`, `fallback`, `wake`, `local`), `reelforge_result` (`job`, `empty`) | claim attempts: empty `poll` claims are idle polling, empty `wake` claims the cost of a message |
-| `reelforge_queue_dispatch_published_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`enqueue`, `requeue`, `release`, `fanout`, `join`, `outbox`) | ready messages this instance's transactions sent |
-| `reelforge_queue_dispatch_received_total` | counter | `reelforge_dispatch_driver`, `reelforge_dispatch_kind` (`ready`, `claimed`) | messages this worker received |
-| `reelforge_queue_dispatch_duplicates_total` | counter | `reelforge_dispatch_driver` | ready messages for a job this worker was already about to claim (no-ops) |
-| `reelforge_queue_dispatch_fallback_claims_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`fallback`, `degraded`) | jobs claimed by the poll instead of a message; steadily above 0 with `fallback` means messages are lost |
-| `reelforge_queue_dispatch_publish_failures_total` | counter | `reelforge_dispatch_driver` | outbox publishes to a broker that failed and are retried (`sqs`, `redis`) |
+| `renderweld_jobs_queued` | gauge | — | queued jobs; database queue: all instances |
+| `renderweld_jobs_running` | gauge | — | jobs this instance runs |
+| `renderweld_server_role` | gauge | `renderweld_role` (`all`/`api`/`worker`) | 1 for this instance's role |
+| `renderweld_jobs_requeued_total` | counter | `renderweld_reason` (`lease_expired`, `released`) | jobs handed back to the queue |
+| `renderweld_queue_errors_total` | counter | `renderweld_operation` (`claim`, `heartbeat`, `recover`, `housekeeping`) | failed queue operations (database trouble; `housekeeping`: reading or taking the housekeeping lease) |
+| `renderweld_queue_claims_total` | counter | `renderweld_trigger` (`poll`, `fallback`, `wake`, `local`), `renderweld_result` (`job`, `empty`) | claim attempts: empty `poll` claims are idle polling, empty `wake` claims the cost of a message |
+| `renderweld_queue_dispatch_published_total` | counter | `renderweld_dispatch_driver`, `renderweld_reason` (`enqueue`, `requeue`, `release`, `fanout`, `join`, `outbox`) | ready messages this instance's transactions sent |
+| `renderweld_queue_dispatch_received_total` | counter | `renderweld_dispatch_driver`, `renderweld_dispatch_kind` (`ready`, `claimed`) | messages this worker received |
+| `renderweld_queue_dispatch_duplicates_total` | counter | `renderweld_dispatch_driver` | ready messages for a job this worker was already about to claim (no-ops) |
+| `renderweld_queue_dispatch_fallback_claims_total` | counter | `renderweld_dispatch_driver`, `renderweld_reason` (`fallback`, `degraded`) | jobs claimed by the poll instead of a message; steadily above 0 with `fallback` means messages are lost |
+| `renderweld_queue_dispatch_publish_failures_total` | counter | `renderweld_dispatch_driver` | outbox publishes to a broker that failed and are retried (`sqs`, `redis`) |
 
 ## Autoscaling with KEDA
 
 Issue #153, D-101. [KEDA](https://keda.sh) reads the queue straight from the
 `Job` table, so workers scale **from 0 to N and back** without Prometheus (a
-pool at zero has no pod left to report `reelforge_jobs_queued`, so the metric
+pool at zero has no pod left to report `renderweld_jobs_queued`, so the metric
 path above cannot wake it).
 
 ```bash
@@ -253,7 +254,7 @@ The query (PostgreSQL; MySQL without the quotes and the cast):
 SELECT COUNT(*)::float / 1 FROM "Job" WHERE queue = 'database' AND status IN ('queued', 'running')
 ```
 
-- `/ 1` is `REELFORGE_WORKER_CONCURRENCY` (1 in `worker.yaml`): change both
+- `/ 1` is `RENDERWELD_WORKER_CONCURRENCY` (1 in `worker.yaml`): change both
   together. Desired pods = `ceil(value / targetQueryValue)` with
   `targetQueryValue: "1"`; `activationTargetQueryValue: "0"` wakes the pool for
   one job.
@@ -277,7 +278,7 @@ SELECT COUNT(*)::float / 1 FROM "Job" WHERE queue = 'database' AND status IN ('q
   transaction-mode PgBouncer, if it complains about prepared statements.
 - While the licence does not allow renders, workers claim nothing (#154) and
   queued jobs keep up to `maxReplicaCount` idle workers running: watch
-  `reelforge_licence_state`.
+  `renderweld_licence_state`.
 
 **Prometheus scaler** (clusters that already scrape the api): replace the
 trigger with the one below. The api keeps reporting the queue while the workers
@@ -288,7 +289,7 @@ are at zero; set `minReplicaCount: 1` if your Prometheus only scrapes workers.
     - type: prometheus
       metadata:
         serverAddress: http://prometheus.monitoring.svc:9090
-        query: max(reelforge_jobs_queued{namespace="reelforge"}) + sum(reelforge_jobs_running{namespace="reelforge"})
+        query: max(renderweld_jobs_queued{namespace="reelforge"}) + sum(renderweld_jobs_running{namespace="reelforge"})
         threshold: "1"
         activationThreshold: "0"
 ```
@@ -374,7 +375,7 @@ goes.
   says why.
 - **Database down**: claims, heartbeats and recovery fail with exponential
   backoff (to 30 s, jittered), one warning per operation per minute,
-  `reelforge_queue_errors_total`, `/readyz` 503 with `database: unreachable`;
+  `renderweld_queue_errors_total`, `/readyz` 503 with `database: unreachable`;
   the process keeps running and resumes when the database answers. Queries
   time out after 10 s (PostgreSQL connect timeout; MySQL's driver default 1 s
   connect / 10 s acquire); each `/readyz` probe is capped at 5 s.
@@ -400,14 +401,14 @@ backed-off poll.
 
 **`notify` (PostgreSQL).** Every transaction that makes a job claimable (enqueue, `retry_job`, a
 fan-out's units and join, a job queued again after a lost lease or handed back on shutdown) runs
-`SELECT pg_notify('reelforge_jobs', 'r:<job id>')` inside that same transaction; the claim of a job
+`SELECT pg_notify('renderweld_jobs', 'r:<job id>')` inside that same transaction; the claim of a job
 queued less than 2 s ago (`max(2 s, 4 × queue.notifyJitterMs)`) runs `pg_notify(..., 'c:<job id>')`
 (older jobs are not announced: no idle worker is still about to claim them, and draining a backlog
 must not broadcast every claim). PostgreSQL delivers a notification when its transaction commits and
 drops it when it rolls back, so the message can never announce a job that does not exist (a start
 refused by a quota or cap rolls back its NOTIFY, NTF-01) and is sent exactly when the job becomes
 visible. Payloads carry the job id only. Deployments sharing one database in different schemas
-(`?schema=`) get their own channel (`reelforge_jobs_<hash>`, NTF-03).
+(`?schema=`) get their own channel (`renderweld_jobs_<hash>`, NTF-03).
 
 Each claiming instance (`worker`, `all`, `worker --once`) holds **one dedicated session connection**
 (node-postgres, outside the Prisma pool) that `LISTEN`s, on `database.directUrl` or else
@@ -429,7 +430,7 @@ or unknown) cost at most one ordinary claim, which takes whatever the fair order
 - **Fallback poll.** While the listener is connected, an idle worker still claims every
   `queue.dispatchFallbackSeconds` (30 s), so a lost message (a dropped connection, a job queued by
   a process started without `queue.dispatch: notify`) delays a job by at most that (DSP-06).
-  `reelforge_queue_dispatch_fallback_claims_total{reelforge_reason="fallback"}` counts such jobs.
+  `renderweld_queue_dispatch_fallback_claims_total{renderweld_reason="fallback"}` counts such jobs.
 - **Lost connection.** The listener reconnects with backoff (0.5 s doubling to 30 s) and pings its
   connection every `queue.dispatchFallbackSeconds`; meanwhile the worker polls like `poll`
   (`queue.pollIntervalMs` with backoff), and after reconnecting it claims once for whatever was
@@ -525,10 +526,10 @@ not used). The semantics, the same for both brokers (`packages/core/src/dispatch
 `relay` (`failing`, `published`, `failed`, `dropped`, `lastError`). Status `error` when the listener
 is disconnected or the last publish failed.
 
-**Metrics** (driver label `sqs` or `redis`): `reelforge_queue_dispatch_published_total{reason="outbox"}`
+**Metrics** (driver label `sqs` or `redis`): `renderweld_queue_dispatch_published_total{reason="outbox"}`
 counts ids the relay sent (the transaction's outbox write is not counted again),
 `..._publish_failures_total`, `..._received_total{kind="ready"}`, `..._duplicates_total`,
-`..._fallback_claims_total`, and `reelforge_queue_claims_total{trigger="wake"}`.
+`..._fallback_claims_total`, and `renderweld_queue_claims_total{trigger="wake"}`.
 
 ### Setup: SQS
 
@@ -541,15 +542,15 @@ counts ids the relay sent (the transaction's outbox write is not counted again),
    `sqs:ChangeMessageVisibility`, `sqs:GetQueueAttributes` (the connect check). Prefer the ambient
    identity (IRSA, an instance or task role); otherwise `queue.sqs.accessKeyId` /
    `secretAccessKey` (secrets: `_FILE`, or set at runtime through `update_config`, stored encrypted
-   with `REELFORGE_SECRET_KEY`; a change applies to the next SQS call).
+   with `RENDERWELD_SECRET_KEY`; a change applies to the next SQS call).
 3. On every instance:
 
 ```yaml
-REELFORGE_QUEUE_DISPATCH: sqs
-REELFORGE_QUEUE_SQS_QUEUE_URL: https://sqs.eu-west-1.amazonaws.com/123456789012/reelforge-jobs
-# REELFORGE_QUEUE_SQS_REGION: eu-west-1               # default: the region in the URL
-# REELFORGE_QUEUE_SQS_ENDPOINT: https://vpce-...       # VPC endpoint (or LocalStack)
-# REELFORGE_QUEUE_SQS_VISIBILITY_TIMEOUT_SECONDS: "30"
+RENDERWELD_QUEUE_DISPATCH: sqs
+RENDERWELD_QUEUE_SQS_QUEUE_URL: https://sqs.eu-west-1.amazonaws.com/123456789012/reelforge-jobs
+# RENDERWELD_QUEUE_SQS_REGION: eu-west-1               # default: the region in the URL
+# RENDERWELD_QUEUE_SQS_ENDPOINT: https://vpce-...       # VPC endpoint (or LocalStack)
+# RENDERWELD_QUEUE_SQS_VISIBILITY_TIMEOUT_SECONDS: "30"
 ```
 
 Cost: idle workers long-poll (20 s), so about 3 requests per idle worker per minute, plus one send,
@@ -564,12 +565,12 @@ one receive and one delete per job.
 2. On every instance:
 
 ```yaml
-REELFORGE_QUEUE_DISPATCH: redis
-REELFORGE_QUEUE_REDIS_URL_FILE: /run/secrets/redis-url     # rediss://reelforge@redis:6380/0
-REELFORGE_QUEUE_REDIS_PASSWORD_FILE: /run/secrets/redis-password
-# REELFORGE_QUEUE_REDIS_TLS_CA_FILE: /etc/ssl/private-ca.pem
-# REELFORGE_QUEUE_REDIS_STREAM: reelforge:jobs            # one key per deployment sharing a server
-# REELFORGE_QUEUE_REDIS_CLAIM_IDLE_SECONDS: "30"
+RENDERWELD_QUEUE_DISPATCH: redis
+RENDERWELD_QUEUE_REDIS_URL_FILE: /run/secrets/redis-url     # rediss://reelforge@redis:6380/0
+RENDERWELD_QUEUE_REDIS_PASSWORD_FILE: /run/secrets/redis-password
+# RENDERWELD_QUEUE_REDIS_TLS_CA_FILE: /etc/ssl/private-ca.pem
+# RENDERWELD_QUEUE_REDIS_STREAM: reelforge:jobs            # one key per deployment sharing a server
+# RENDERWELD_QUEUE_REDIS_CLAIM_IDLE_SECONDS: "30"
 ```
 
 The password can also be set at runtime (`update_config`, stored encrypted); a change reconnects.
@@ -594,7 +595,7 @@ slow scale-down of `keda/scaledobject.yaml`.
       metadata:
         queueURL: https://sqs.eu-west-1.amazonaws.com/123456789012/reelforge-jobs
         awsRegion: eu-west-1
-        queueLength: "1"                        # jobs per worker (REELFORGE_WORKER_CONCURRENCY)
+        queueLength: "1"                        # jobs per worker (RENDERWELD_WORKER_CONCURRENCY)
         activationQueueLength: "0"
         scaleOnInFlight: "true"                 # count messages a worker holds until its claim acknowledges them
       authenticationRef: { name: reelforge-sqs }   # TriggerAuthentication: pod identity (IRSA) or keys
@@ -730,11 +731,11 @@ not per key: a key that floods the queue raises it for everyone, which is what
 `maxQueuedJobsPerKey` bounds. `get_capabilities` reports
 `limits.jobs.maxEstimatedWaitSeconds` and `limits.priority` (classes, defaults,
 the calling key's maximum, `batchAgingSeconds`). Refusals are counted as
-`reelforge_limits_rejections_total{reelforge_limit_reason="queue_wait"}` and
+`renderweld_limits_rejections_total{renderweld_limit_reason="queue_wait"}` and
 audited as `limit.rejected`.
 
-**Queue-wait SLO:** `reelforge_job_queue_wait_seconds` (histogram, labels
-`reelforge_job_type` and `reelforge_job_priority` only) is recorded by the
+**Queue-wait SLO:** `renderweld_job_queue_wait_seconds` (histogram, labels
+`renderweld_job_type` and `renderweld_job_priority` only) is recorded by the
 instance that claims, at a render's or preview's first claim; fan-out units and
 joins are not measured (their queue position is their render's). The SLO, at
 the maximum number of worker replicas: **p95 below 60 s for previews and below
@@ -748,7 +749,7 @@ the maximum number of worker replicas: **p95 below 60 s for previews and below
 
 Issue #156, D-097. Off by default (`render.fanOut: off`): one worker renders
 every scene and assembles the video, byte for byte as before. With
-`render.fanOut: scenes` (runtime setting, `REELFORGE_RENDER_FAN_OUT`) and the
+`render.fanOut: scenes` (runtime setting, `RENDERWELD_RENDER_FAN_OUT`) and the
 database queue, one long render uses several workers at once:
 
 1. The `render` job (the parent) is claimed as usual. For the `local` backend,
@@ -996,7 +997,7 @@ considered (rejected in D-090: privileges some managed databases withhold).
 Issue #154, D-098. **One deployment = one shared database = one licence
 activation**, however many `api` and `worker` instances run, scale and restart.
 All instances on one database share the stored licence state (`LicenceState`,
-sealed with `REELFORGE_SECRET_KEY`, D-089) and its random instance id, which is
+sealed with `RENDERWELD_SECRET_KEY`, D-089) and its random instance id, which is
 the only identity sent to the licence server with the key. A second database
 (another region with its own database, a staging copy) is a second deployment
 and takes a second activation. How many deployments each licence tier allows is
@@ -1006,7 +1007,7 @@ a pricing decision (#91), not a setting: there is deliberately no configurable
 | Role | Talks to the licence server | What it does |
 | --- | --- | --- |
 | `all` | yes | activates once, validates once a day, backoff on errors and `429` (one instance: the same contract as before) |
-| `api` | yes, **single flight per deployment** | the automatic checks (start, daily, key change) are taken with one atomic compare-and-set on `LicenceState.nextCheckAt` (a 2-minute lease); the instance that wins calls the licence server and stores the answer, the others read it. N api instances make about one call a day, not N. `activate_licence` / `POST /v1/licence` and `reelforge licence status --check` still check at once |
+| `api` | yes, **single flight per deployment** | the automatic checks (start, daily, key change) are taken with one atomic compare-and-set on `LicenceState.nextCheckAt` (a 2-minute lease); the instance that wins calls the licence server and stores the answer, the others read it. N api instances make about one call a day, not N. `activate_licence` / `POST /v1/licence` and `renderweld licence status --check` still check at once |
 | `worker` | **never** | reads the stored state every 60 s, verifies its seal and applies it exactly like the api (valid and grace allow renders; invalid, expired, `clock_skew` or an untrusted state refuse). While renders are not allowed it **claims no render or preview job** (they stay queued); the api's enqueue gate is unchanged |
 
 - A restarted or newly scaled instance reads the stored answer and makes no
@@ -1017,16 +1018,16 @@ a pricing decision (#91), not a setting: there is deliberately no configurable
 - A worker that starts before any api instance has checked waits:
   `licence: checking (waiting_for_api)` in its log and `/readyz`, and it claims
   nothing until a check is stored. Workers do not need the licence key, but they
-  need the **same `REELFORGE_SECRET_KEY`** as the api instances, otherwise the
+  need the **same `RENDERWELD_SECRET_KEY`** as the api instances, otherwise the
   seal does not verify (`state_untrusted`) and they claim nothing.
 - Where to look: `GET /v1/licence` / `get_licence` show the deployment's
   `instanceId`, `checkedBy` (the server name, `<hostname>-<random>` as in
   `Job.workerId`, of the instance that ran the last check) and `checksLicenceServer`; each instance's `/readyz` admin view
   has a `licence` block (status, reason, why a worker is not claiming), the
   queue dependency shows `paused: the licence does not allow renders (...)`,
-  and `reelforge_licence_state` is exported by every instance.
+  and `renderweld_licence_state` is exported by every instance.
 - Freeing an activation (moving to a new database): `deactivate_licence` /
-  `DELETE /v1/licence` / `reelforge licence deactivate` on an api instance (docs/DEPLOY.md#licence).
+  `DELETE /v1/licence` / `renderweld licence deactivate` on an api instance (docs/DEPLOY.md#licence).
 
 ## Resource limits across instances (D-090, D-091)
 
@@ -1052,12 +1053,12 @@ the estimate's excess for `maxEstimatedWaitSeconds`), `403 priority_not_allowed`
 `Retry-After` until midnight UTC), `422 render_limit_exceeded` (every exceeded
 limit in `details.limits`), `413 too_large` for uploads. MCP tools return the
 same `code`, `message` and `details` as a tool error. Each refusal is counted in
-`reelforge_limits_rejections_total{reelforge_limit_reason}` and written to the
+`renderweld_limits_rejections_total{renderweld_limit_reason}` and written to the
 audit log as `limit.rejected` (result `denied`).
 
 ## Connection pooling
 
-Decision D-104; measurements: [docs/PERFORMANCE.md](../PERFORMANCE.md) (#151). Every ReelForge
+Decision D-104; measurements: [docs/PERFORMANCE.md](../PERFORMANCE.md) (#151). Every RenderWeld
 process opens its own pool per database URL. Prisma 7 uses the driver's pool: node-postgres
 `max` and the mariadb connector's `connectionLimit`, both **10** by default; `?connection_limit=N`
 in the URL sets it (`packages/db/src/url.ts`, `database.ts`). A thousand workers at the default
@@ -1085,7 +1086,7 @@ sandbox and PostgreSQL never saw more than 22 connections at 200 workers).
 | `worker` | **2-3** | **3** when the URL has no `connection_limit` (`database.workerConnectionLimit`) | a worker runs one claim loop, one heartbeat, progress writes (2/s per running render) and the licence/settings re-reads; #151 drained 5 000 jobs with 200 workers at 2 each with every job exactly once. Raise it with `server.workerConcurrency` > 1 (about 1 + 2 per concurrent render) |
 | `api` | **10** (the driver default) | 10 | one event loop; #151's two api instances at 10 each were CPU-bound, not pool-bound (≤ 21 connections for ~300-750 req/s) |
 | `all` | 10 | 10 | one instance does both |
-| CLI (`reelforge migrate`, `keys`, ...) | 1-2 | 10 | short-lived; count them in the headroom |
+| CLI (`renderweld migrate`, `keys`, ...) | 1-2 | 10 | short-lived; count them in the headroom |
 
 Set it per role in the URL (`DATABASE_URL_FILE` per Deployment): `...?connection_limit=10` for
 the api, nothing for workers (the default of 3 applies) or `...?connection_limit=2`. The worker
@@ -1093,12 +1094,12 @@ default applies to `database.readUrl` too. It never applies to the `api` or `all
 
 **Migrations on the direct port.** Run migrations once, on a direct connection to the
 database (not through PgBouncer or RDS Proxy), then start every instance with
-`REELFORGE_MIGRATE_ON_START=0`:
+`RENDERWELD_MIGRATE_ON_START=0`:
 
 ```bash
 docker run --rm -e DATABASE_URL=postgresql://reelforge:...@db:5432/reelforge \
   ghcr.io/buildbase-app/reelforge-studio apps/server/node_modules/.bin/tsx apps/server/src/main.ts --migrate-only
-# or: reelforge migrate (a Kubernetes Job / init container with the direct URL)
+# or: renderweld migrate (a Kubernetes Job / init container with the direct URL)
 ```
 
 The migrator's PostgreSQL lock is `pg_advisory_xact_lock` (transaction-scoped, one key per
@@ -1117,7 +1118,7 @@ is an overlay for the scale compose file: a pinned `edoburu/pgbouncer` image (1.
 from `mirror.gcr.io`), the settings in
 [deployment/compose/pgbouncer.env](../../deployment/compose/pgbouncer.env), a one-shot `migrate`
 service on `postgres:5432`, and api/workers on `pgbouncer:6432` with
-`REELFORGE_MIGRATE_ON_START=0`. The Docker scale e2e runs the same image and settings
+`RENDERWELD_MIGRATE_ON_START=0`. The Docker scale e2e runs the same image and settings
 (`SCALE=1 POOLER=pgbouncer e2e/docker/run.sh`).
 
 ```bash
@@ -1142,10 +1143,10 @@ max_prepared_statements = 200   ; protocol-level prepared statements (0 also wor
 ignore_startup_parameters = extra_float_digits
 ```
 
-What ReelForge needs from it, and why it works (sources: [PgBouncer configuration](https://www.pgbouncer.org/config.html),
+What RenderWeld needs from it, and why it works (sources: [PgBouncer configuration](https://www.pgbouncer.org/config.html),
 read 2026-11-22; measurements: #151):
 
-- **Transaction mode** gives a server connection to a client only for one transaction. ReelForge
+- **Transaction mode** gives a server connection to a client only for one transaction. RenderWeld
   keeps all state inside transactions: claims (`SELECT ... FOR UPDATE SKIP LOCKED` + update),
   quotas and caps (one transaction under a row lock), fenced writes, the migrator's
   transaction-scoped advisory lock. It uses no session `SET`, SQL `PREPARE`, `LISTEN` or session
@@ -1154,7 +1155,7 @@ read 2026-11-22; measurements: #151):
 - **`max_prepared_statements`** (PgBouncer default 200): with a non-zero value PgBouncer tracks
   protocol-level named prepared statements. Prisma's pg adapter also worked with 0 (#151).
 - **`?schema=` behind PgBouncer transaction mode is safe since #191.** PgBouncer 1.26.1 on
-  PostgreSQL 17 does **not** keep a client's `search_path` (sent by ReelForge as the startup
+  PostgreSQL 17 does **not** keep a client's `search_path` (sent by RenderWeld as the startup
   parameter `options=-c search_path=...`) under concurrency: four concurrent `psql` sessions with
   four different values through one pool each saw other clients' values in 3-7 of 300
   statements (2026-11-22), and the PgBouncer documentation says the same for PostgreSQL before
@@ -1174,7 +1175,7 @@ read 2026-11-22; measurements: #151):
   pooler at the same time (PGB-04) or on the direct port (PGB-05). Do not list `options` in
   `ignore_startup_parameters`: that drops the schema for the direct-connection case and changes
   nothing here.
-- **Upgrade every process before sharing a pool.** ReelForge versions before #191 still run the
+- **Upgrade every process before sharing a pool.** RenderWeld versions before #191 still run the
   unqualified SQL: with `?schema=` behind a transaction-mode pooler they can read or claim another
   schema's rows. A server started with a non-default `?schema=` probes at start whether it goes
   through a transaction-mode pooler (two short connections: a backend pid that changes between two
@@ -1184,7 +1185,7 @@ read 2026-11-22; measurements: #151):
   upgrades and for your own SQL through the pooler (psql, reporting tools), which must name the
   schema too.
 - **No `ALTER ROLE ... SET search_path` without `?schema=`.** #188 suggested it; it does not work
-  with ReelForge, before or after #191: without `?schema=` Prisma's model queries use `public`, so
+  with RenderWeld, before or after #191: without `?schema=` Prisma's model queries use `public`, so
   migrations would land in the role's schema and every model query would fail with
   ``The table `public.Workspace` does not exist`` (checked 2026-11-22 on the old code). Since
   #191 migrations always land in the URL's schema (default `public`), whatever the role's
@@ -1219,9 +1220,9 @@ all read 2026-11-22. **Untested here** (no AWS account in CI): VERIFY before rec
   `DatabaseConnectionsCurrentlySessionPinned` in CloudWatch and size the proxy for it. Whether
   a bound parameter counts toward the "text size" is not stated (VERIFY).
 - **PostgreSQL pins** on session `SET`, SQL `PREPARE`, `LISTEN`, session advisory locks and
-  sequence functions such as `nextval`; **not** on `pg_advisory_xact_lock`. ReelForge's queries
+  sequence functions such as `nextval`; **not** on `pg_advisory_xact_lock`. RenderWeld's queries
   use none of the session-level ones. `?schema=` (startup `options`) is untested with the proxy;
-  since #191 no ReelForge statement depends on `search_path`, but the startup parameter itself
+  since #191 no RenderWeld statement depends on `search_path`, but the startup parameter itself
   may pin or be refused (VERIFY).
 - **MySQL pins** on prepared statements ("whether the prepared statement uses SQL text or the
   binary protocol") and on `GET_LOCK`. The mariadb connector behind Prisma's adapter may use
@@ -1229,7 +1230,7 @@ all read 2026-11-22. **Untested here** (no AWS account in CI): VERIFY before rec
   migrations (`GET_LOCK`) on the direct endpoint in any case. RDS Proxy's `caching_sha2_password`
   support for MySQL needs TLS (`?ssl=true`).
 - The proxy queues or rejects clients over its limit instead of failing the database; size the
-  ReelForge side with the sizing rule against the proxy's `MaxConnectionsPercent` of the writer.
+  RenderWeld side with the sizing rule against the proxy's `MaxConnectionsPercent` of the writer.
 
 ### Cloud SQL (Google Cloud)
 
@@ -1257,8 +1258,8 @@ Decision D-104. `database.readUrl` (`REELFORGE_DATABASE_READ_URL`, alias `DATABA
 or `..._FILE`) points at a read replica of `database.url` (a streaming replica, an Aurora
 reader, a Cloud SQL read replica, a MySQL replica). **Unset (the default): every query goes to
 `database.url`, as before.** Same kind as the primary; SQLite refuses it at start ("SQLite is
-one local file and has no read replica"), and so do `reelforge config check` and a replica of
-another kind. ReelForge only connects to the replica (one `SELECT 1` at start; a replica that
+one local file and has no read replica"), and so do `renderweld config check` and a replica of
+another kind. RenderWeld only connects to the replica (one `SELECT 1` at start; a replica that
 does not answer stops the start like the primary would); it never migrates it and never writes
 to it. Its pool follows the same rules as the primary's (`?connection_limit=`, the worker
 default). The start-up log names the reads it serves.
@@ -1303,7 +1304,7 @@ calls from workers; 2 api + 3 worker **server instances** on PostgreSQL 17 and
 on MySQL 8.4 (`licence.mode: required`, workers pointed at a second mock that
 must stay silent): 1 activate, 1 validate per simulated day with every instance
 re-reading every 100 ms, 0 worker calls; a revoked licence leaves a queued job
-unclaimed with the reason in `/readyz`, the log and `reelforge_licence_state`,
+unclaimed with the reason in `/readyz`, the log and `renderweld_licence_state`,
 and a new activation lets the workers claim it. Unit tests in
 `packages/core/test/licence.test.ts` (leader election, lease takeover, backoff
 across instances, worker seal check, waiting, grace, clock skew, 1 api + 50
@@ -1365,7 +1366,7 @@ default, on any machine that can pull ghcr.io/kedacore) records them in
 Found by the run and fixed here: under the base's `RuntimeDefault` seccomp
 profile every html render failed ("Chromium could not start its sandbox"):
 the image keeps Chromium's sandbox on (D-086) and the base's comment wrongly
-called `REELFORGE_CHROMIUM_NO_SANDBOX=1` the image default. Worker pods (and
+called `RENDERWELD_CHROMIUM_NO_SANDBOX=1` the image default. Worker pods (and
 the ScaledJob's) now use the Localhost profile `reelforge-chrome.json`
 (`deployment/seccomp/chrome.json` on every node, docs/DEPLOY.md#kubernetes);
 with it the sandbox runs in the kind pods. The api keeps `RuntimeDefault` (it
@@ -1463,7 +1464,7 @@ and a job that dies while its worker shuts down is handed back, never failed
 | SCA-08 | cancel on the api stops a render running on a worker | server (PostgreSQL, MySQL) | pass 2026-11-21 |
 | SCA-09 | closing a busy worker hands its job to another worker (attempt not counted) | server (PostgreSQL, MySQL) | pass 2026-11-21 |
 | SCA-10 | render quota (3/day) and per-key rate limit (5/min) hold across two api instances | server (PostgreSQL, MySQL) | pass 2026-11-21 |
-| SCA-11 | `/metrics`: role gauge, `reelforge_jobs_queued`, bounded labels | server (PostgreSQL, MySQL) | pass 2026-11-21 |
+| SCA-11 | `/metrics`: role gauge, `renderweld_jobs_queued`, bounded labels | server (PostgreSQL, MySQL) | pass 2026-11-21 |
 | SCA-12 | no secret key, API key or database password in any instance log | server (PostgreSQL, MySQL) | pass 2026-11-21 |
 | SCA-13 | webhooks (#66) with an api and two workers: `job.queued`, `job.started`, `job.succeeded` and `render.ready` delivered exactly once per job (distinct `webhook-id`s), although the api long-polled the jobs through the database | server (PostgreSQL, MySQL) | pass 2026-11-22 |
 | SCL-10 | Docker: worker on SQLite, worker on local storage and an unknown role refuse to start with a clear message (no password printed) | Docker | pass 2026-11-21 |
@@ -1478,7 +1479,7 @@ and a job that dies while its worker shuts down is handed back, never failed
 | PGB-01 | db contract suite through PgBouncer 1.26.1 (transaction mode, `pgbouncer.env`), default schema, a database per run (`TEST_POSTGRES_ISOLATION=database TEST_POSTGRES_POOLER=pgbouncer TEST_POSTGRES_URL=<pgbouncer>`): 296 passed | contract (PostgreSQL 17) | pass 2026-11-22 |
 | PGB-02 | server suite through PgBouncer, including `scaling.test.ts` (SCA-05..13: api + two workers, cancel, long-poll, quotas and rate limits across two api instances, graceful shutdown) and REP-06..08: 175 passed | server (PostgreSQL 17) | pass 2026-11-22 |
 | PGB-03 | `?schema=` behind PgBouncer on PostgreSQL 17: per-client `search_path` is not kept under concurrency (the contract suite with a schema per run fails with `relation ... does not exist`) | probe | finding 2026-11-22; fixed by #191 (PGB-04..08) |
-| PGB-04 | two schemas of one database through one PgBouncer 1.26.1 pool (transaction mode, `pgbouncer.env`): migrations of both at once through the pooler, then 4 enqueue loops (plain and through the admission statement) and 6 claim loops over 3 pools per schema, 160 jobs each: every job claimed exactly once (one attempt), by a worker of its own schema, no error (`schema-isolation.pgbouncer.test.ts`, `TEST_PGBOUNCER_URL`) | contract (PostgreSQL 17 + PgBouncer) | pass 2026-11-22 (local; CI has no PgBouncer). On the code before #191 (4 runs, with `public` holding a migrated ReelForge and empty): fails every time, 239-329 errors per schema (`relation "Job" does not exist`, `relation "RateLimitWindow" does not exist`, and claims whose raw read returned another schema's row: "No record was found for an update"); migrations through the pooler left one or both schemas without tables, their DDL having run in a third schema that an earlier client's `search_path` had left on a server connection |
+| PGB-04 | two schemas of one database through one PgBouncer 1.26.1 pool (transaction mode, `pgbouncer.env`): migrations of both at once through the pooler, then 4 enqueue loops (plain and through the admission statement) and 6 claim loops over 3 pools per schema, 160 jobs each: every job claimed exactly once (one attempt), by a worker of its own schema, no error (`schema-isolation.pgbouncer.test.ts`, `TEST_PGBOUNCER_URL`) | contract (PostgreSQL 17 + PgBouncer) | pass 2026-11-22 (local; CI has no PgBouncer). On the code before #191 (4 runs, with `public` holding a migrated RenderWeld and empty): fails every time, 239-329 errors per schema (`relation "Job" does not exist`, `relation "RateLimitWindow" does not exist`, and claims whose raw read returned another schema's row: "No record was found for an update"); migrations through the pooler left one or both schemas without tables, their DDL having run in a third schema that an earlier client's `search_path` had left on a server connection |
 | PGB-05 | the same with migrations on the direct port first (the documented recipe) | contract (PostgreSQL 17 + PgBouncer) | pass 2026-11-22 (local). Before #191: fails every time, 267-317 errors per schema, 8-26 of about 100 jobs claimed |
 | PGB-06 | the start-up probe: a direct connection is not a transaction pooler, PgBouncer transaction mode is; the warning only for `?schema=` through the pooler | contract (PostgreSQL 17 + PgBouncer) | pass 2026-11-22 (local; also a real `main.ts` start: the warning through PgBouncer, none on the direct port) |
 | PGB-07 | the warning: only a non-default PostgreSQL schema the probe finds pooled; no password in it | unit | pass 2026-11-22 |
@@ -1486,14 +1487,14 @@ and a job that dies while its worker shuts down is handed back, never failed
 | SQL-01 | source scan: no table in raw SQL in `packages/db/src` or `scripts/load` without a schema-qualifying helper (`tbl()`, `table()`, `pgTable()`); fails on the code before #191 (36 places) | unit | pass 2026-11-22 |
 | SQL-02 | the scan catches the known unqualified forms; the helper names the schema on PostgreSQL, refuses anything but a plain identifier, leaves MySQL and SQLite as they were; repositories on PostgreSQL without a schema are refused | unit | pass 2026-11-22 |
 | SQL-03 | every raw statement the claims, quota, cap and admission checks, row locks, NOTIFY and the migrator send, recorded on a schema per run (and on `public`), names that schema | contract (PostgreSQL 17) | pass 2026-11-22 |
-| SCL-19 | Docker, `POOLER=pgbouncer`: SCL-10..18 through PgBouncer 1.26.1 in transaction mode (the overlay's image and `pgbouncer.env`); migrations once with `--migrate-only` on the direct port, instances with `REELFORGE_MIGRATE_ON_START=0` (the api applies none); PostgreSQL sees only PgBouncer's connections, at most `DEFAULT_POOL_SIZE`; workers log `(pool 3)` | Docker | pass 2026-11-22 (also fixed for this run: `/readyz` detail and `/metrics` need an admin key and the metrics token since #146, which the script did not send yet) |
+| SCL-19 | Docker, `POOLER=pgbouncer`: SCL-10..18 through PgBouncer 1.26.1 in transaction mode (the overlay's image and `pgbouncer.env`); migrations once with `--migrate-only` on the direct port, instances with `RENDERWELD_MIGRATE_ON_START=0` (the api applies none); PostgreSQL sees only PgBouncer's connections, at most `DEFAULT_POOL_SIZE`; workers log `(pool 3)` | Docker | pass 2026-11-22 (also fixed for this run: `/readyz` detail and `/metrics` need an admin key and the metrics token since #146, which the script did not send yet) |
 | REP-01 | `database.readUrl` with SQLite is refused at once (no retries) naming the setting and the fix; a replica of another kind or a bad replica URL is refused; no password in the message | contract (SQLite) | pass 2026-11-22 |
 | REP-02 | replica = a database **without tables**: every write path and every read outside `READ_REPLICA_READS` works: projects (create, save, delete), keys, quota insert, claim, heartbeat, fenced progress and finish, cancel, recovery, counts, logs, rate limits and usage counters, idempotency, licence claim and compare-and-set, settings, provider settings, themes, assets, audit write and retention, webhooks, migrations and system state | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
 | REP-03 | the six reads of `READ_REPLICA_READS` fail on that replica (they do read it) | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
 | REP-04 | a migrated replica with other rows than the primary: lists answer from the replica, gets, counts and claims from the primary; nothing is written to the replica | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
 | REP-05 | pool size: the default (3) for a URL without `connection_limit`, the URL's value wins, the driver's 10 otherwise; with 12 queries at once the database sees at most that many new connections (`pg_stat_activity` / `PROCESSLIST`) | contract (PostgreSQL, MySQL) | pass 2026-11-22 |
 | REP-06 | the server refuses to start with a read URL on SQLite; no password printed | server | pass 2026-11-22 |
-| REP-07 | `worker` role: pool 3 by default, the URL's `connection_limit` wins, `REELFORGE_DB_WORKER_CONNECTION_LIMIT=0` gives 10; the `api` role keeps 10; the start-up log shows the pool | server (PostgreSQL, MySQL) | pass 2026-11-22 |
+| REP-07 | `worker` role: pool 3 by default, the URL's `connection_limit` wins, `RENDERWELD_DB_WORKER_CONNECTION_LIMIT=0` gives 10; the `api` role keeps 10; the start-up log shows the pool | server (PostgreSQL, MySQL) | pass 2026-11-22 |
 | REP-08 | server with a replica without tables, database queue and database rate limits: key with quota and rate limit, idempotent create (replayed), update, a render claimed and finished through the database queue, quota refusal, settings, themes, licence, webhooks, keys, `/readyz` all work; the six list routes answer 500; the replica password is in no log | server (PostgreSQL, MySQL) | pass 2026-11-22 |
 | LIM-01 | per-key job cap: 8 concurrent inserts with cap 3 give exactly 3; other keys unaffected; finished jobs free a slot, running jobs count | contract (4 targets) | pass 2026-11-22 |
 | LIM-02 | total queue cap: 12 concurrent inserts by 2 keys and without a key, cap 5: exactly 5; running jobs do not count | contract (4 targets) | pass 2026-11-22 |
@@ -1509,7 +1510,7 @@ and a job that dies while its worker shuts down is handed back, never failed
 | LIM-12 | rate-limit counter: 40 concurrent hits from two pools (SQLite: one) on a new and on an existing window return each count 1..40 exactly once, so exactly L pass a limit L; `by` adds a batch; MySQL also without the insert-id hook (transaction fallback) (#196) | contract (4 targets) | pass 2026-11-23; fails on the code before #196 on all three databases (duplicate counts) |
 | LIM-13 | rate-limit counter: a new minute starts at 1, a late hit of the old minute still counts there, the raw statement and Prisma see one row per window (same stored `DATETIME`), the sweep removes old windows | contract (4 targets) | pass 2026-11-23 |
 | LIM-14 | rate-limit counter: one statement per check and no transaction, for a new window and an existing one (recording proxy over the Prisma client and the MySQL insert-id hook) | contract (3 databases) | pass 2026-11-23; fails on the code before #196 (2 statements) |
-| LIM-15 | `DatabaseRateLimiter` on a real database: 30 concurrent requests, limit 12: exactly 12 pass with `RateLimit-Remaining` 11..0; the others wait past the minute (the 13th: `Retry-After` 54 at 44.6 s before the minute ends); a key's own limit uses the same counter (`apps/server/test/rate-limit-store.test.ts`, `REELFORGE_TEST_DB`) | server (3 databases) | pass 2026-11-23 (#305) |
+| LIM-15 | `DatabaseRateLimiter` on a real database: 30 concurrent requests, limit 12: exactly 12 pass with `RateLimit-Remaining` 11..0; the others wait past the minute (the 13th: `Retry-After` 54 at 44.6 s before the minute ends); a key's own limit uses the same counter (`apps/server/test/rate-limit-store.test.ts`, `RENDERWELD_TEST_DB`) | server (3 databases) | pass 2026-11-23 (#305) |
 | LIM-16 | `DatabaseRateLimiter` sliding window (#305): 10 requests in the last second of a minute pass, 10 right after the boundary are all refused (the fixed window let all 20 through); the latest refusal's `Retry-After` admits the next request; a client that waits never gets more than the limit + 1 in any 60 s | server (3 databases) | pass 2026-11-23 |
 | LIM-17 | `slide()`: counts the window and reads the previous one; 30 concurrent slides from two pools (SQLite: one) on a new window and on a fresh key (no previous row; MySQL gap-lock deadlocks retried) return each count once and the right previous count; rows are ordinary windows (`hit()` adds, the sweep deletes) | contract (4 targets) | pass 2026-11-23 |
 | LIM-18 | `slide()`: 3 000 000 and 2 500 001 come back exactly (MySQL packs both into one insert id), also without the insert-id hook | contract (4 targets) | pass 2026-11-23 |
@@ -1533,7 +1534,7 @@ and a job that dies while its worker shuts down is handed back, never failed
 | PRIS-05 | admission refusal: `429 queue_full`, `details` (limit, estimate, priority, queued ahead and oldest wait, claims per minute, `retryAfterSeconds`), audited as `queue_wait`; a preview with nothing ahead admitted; `0` off; capabilities report it | service (memory) | pass 2026-11-22 |
 | PRS-01 | REST and MCP: preview `interactive`, render `batch` on request, escalation `403 priority_not_allowed` on both; an admin sets `maxPriority: interactive` (REST `POST /v1/keys`), a non-admin cannot; null takes it back | server (SQLite, PostgreSQL, MySQL) | pass 2026-11-22 |
 | PRS-02 | REST `429 queue_full` with `Retry-After: 30` and `details` once a queued render waited longer than `maxEstimatedWaitSeconds: 1`; the same over MCP; a preview still admitted and first in the queue; REST and MCP `get_capabilities` report it | server (SQLite, PostgreSQL, MySQL) | pass 2026-11-22 |
-| PRS-03 | `/metrics`: `reelforge_job_queue_wait_seconds` histogram with only `reelforge_job_type` and `reelforge_job_priority` (+ `le`), values from fixed sets, buckets at 60 and 300; the Grafana panel and the alert rules query it | server (SQLite, PostgreSQL, MySQL) | pass 2026-11-22 |
+| PRS-03 | `/metrics`: `renderweld_job_queue_wait_seconds` histogram with only `renderweld_job_type` and `renderweld_job_priority` (+ `le`), values from fixed sets, buckets at 60 and 300; the Grafana panel and the alert rules query it | server (SQLite, PostgreSQL, MySQL) | pass 2026-11-22 |
 | PRI-ALERT | `promtool check rules` and `promtool test rules` on `deployment/observability/alerts.yml` (preview p95 117 s fires after 10 min, renders inside the SLO do not; renders p95 570 s fire) | Docker e2e (`e2e/docker/run.sh`) and local promtool v3.7.3 | pass 2026-11-22 (local) |
 
 Commands:
@@ -1542,14 +1543,14 @@ Commands:
 pnpm --filter @renderweld/core exec vitest run test/jobs.queue.test.ts test/limits.test.ts test/fanout.queue.test.ts test/fanout.service.test.ts test/fanout.chunks.test.ts
 # render fan-out e2e (FAN-30/31/32): real engines, PostgreSQL, MinIO (e2e/minio/build-image.sh), an api + 3 worker processes
 FANOUT_E2E=1 TEST_POSTGRES_URL=postgresql://... FANOUT_E2E_S3_ENDPOINT=http://127.0.0.1:9000 FANOUT_E2E_S3_ACCESS_KEY=... FANOUT_E2E_S3_SECRET_KEY=... \
-  REELFORGE_CHROMIUM_PATH=... pnpm --filter @renderweld/server exec vitest run test/fanout.e2e.test.ts
+  RENDERWELD_CHROMIUM_PATH=... pnpm --filter @renderweld/server exec vitest run test/fanout.e2e.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://...?allowPublicKeyRetrieval=true \
   pnpm --filter @renderweld/db exec vitest run test/queue.contract.test.ts test/queue.processes.test.ts test/limits.contract.test.ts test/priority.contract.test.ts
 pnpm --filter @renderweld/core exec vitest run test/priority.test.ts
-REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/priority.test.ts
+RENDERWELD_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/priority.test.ts
 docker run --rm -v "$PWD/deployment/observability:/w:ro" -w /w --entrypoint promtool prom/prometheus:v3.7.3 test rules alerts.test.yml
 TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/scaling.test.ts
-REELFORGE_TEST_DB=mysql TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/server exec vitest run test/scaling.test.ts
+RENDERWELD_TEST_DB=mysql TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/server exec vitest run test/scaling.test.ts
 SCALE=1 E2E_PREFIX=que PORT=4335 e2e/docker/run.sh
 ```
 
@@ -1599,7 +1600,7 @@ cases: `apps/server/test/dispatch.test.ts`.
 | DSP-29 | neither the SQS secret key nor the Redis password appears in any log line | server, PostgreSQL 17 | pass 2026-11-23 |
 
 CI: the contract, process and server cases run wherever `TEST_POSTGRES_URL` /
-`TEST_MYSQL_URL` / `REELFORGE_TEST_DB` are set (the HEAVY tier's database jobs);
+`TEST_MYSQL_URL` / `RENDERWELD_TEST_DB` are set (the HEAVY tier's database jobs);
 on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 `SCALE=1 e2e/docker/run.sh` to the HEAVY tier's Docker job is a change to
 `.github/workflows/` for a maintainer.
@@ -1609,25 +1610,25 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 | Symptom | Cause and fix |
 | --- | --- |
 | `refusing to start: server.role "worker" needs a shared database: SQLite ...` | set `DATABASE_URL(_FILE)` to PostgreSQL or MySQL, or use `server.role: all` for one instance |
-| `... needs storage every instance can read: storage.driver is "local" ...` | use `storage.driver` `s3`/`azure`/`gcs`; or, if `/data` really is one shared volume on every instance, `REELFORGE_STORAGE_LOCAL_SHARED=true` |
-| `... needs the database job queue, but queue.driver is "inprocess"` | remove `REELFORGE_QUEUE_DRIVER` (auto) or set it to `database` |
+| `... needs storage every instance can read: storage.driver is "local" ...` | use `storage.driver` `s3`/`azure`/`gcs`; or, if `/data` really is one shared volume on every instance, `RENDERWELD_STORAGE_LOCAL_SHARED=true` |
+| `... needs the database job queue, but queue.driver is "inprocess"` | remove `RENDERWELD_QUEUE_DRIVER` (auto) or set it to `database` |
 | jobs stay `queued` | no worker is running or healthy: check `/readyz` on the workers (`dependencies.queue`, `storage`, `database`); `queue: not claiming jobs: storage ... is unavailable` in a worker log means the bucket is down |
 | a job failed with `lease_expired` | its worker stopped renewing the lease `queue.maxAttempts` times: workers killed (OOM: raise the memory limit), nodes drained without a grace period, or the database unreachable for longer than `queue.leaseSeconds`. Check the worker logs, then `retry_job` |
 | `queue: claim failed (retrying with backoff): ...` | the database is unreachable or overloaded; the worker retries with backoff up to 30 s; `/readyz` reports it |
 | renders restart after a deploy | the old workers' grace period was too short for the running renders: raise `queue.shutdownGraceSeconds` and the orchestrator's stop grace period (Kubernetes `terminationGracePeriodSeconds`) above the longest render |
 | `404 this instance is a worker` | an API call reached a worker: point the load balancer / Service at the `api` instances only |
-| a signed download link from one api instance is refused by another | the instances have different `REELFORGE_SECRET_KEY` values (the database queue derives the signing key from it) |
+| a signed download link from one api instance is refused by another | the instances have different `RENDERWELD_SECRET_KEY` values (the database queue derives the signing key from it) |
 | a setting changed with `update_config` is not used yet on another instance | it is re-read every 15 s; start-up settings need a restart of every instance |
 | ScaledObject `reelforge-worker` not Ready, KEDA operator log `error parsing postgresql metadata` or `unrecognized configuration parameter` | KEDA cannot use `database-url`: Prisma-only URL parameters (`connection_limit`, ...) or a `mysql://` URL for the MySQL scaler. Give KEDA its own key (plain PostgreSQL URL, or a Go-driver DSN for MySQL) in the `TriggerAuthentication` |
 | workers stay at 0 although jobs are queued (KEDA) | `kubectl -n reelforge describe scaledobject reelforge-worker` (conditions, events) and the KEDA operator's log; the query must return a number (`SELECT ... FROM "Job"` is case-sensitive on PostgreSQL) |
-| html renders fail with "Chromium could not start its sandbox" on Kubernetes | the worker pod runs without the Localhost seccomp profile, or the profile is not on that node: put `deployment/seccomp/chrome.json` at `<kubelet dir>/seccomp/reelforge-chrome.json` on every node (or opt out with `REELFORGE_CHROMIUM_NO_SANDBOX=1`, logged) |
-| HPA shows `<unknown>` for `reelforge_jobs_queued` | no External metrics adapter: install prometheus-adapter with the rule above (or KEDA); until then the worker HPA scales on CPU |
+| html renders fail with "Chromium could not start its sandbox" on Kubernetes | the worker pod runs without the Localhost seccomp profile, or the profile is not on that node: put `deployment/seccomp/chrome.json` at `<kubelet dir>/seccomp/reelforge-chrome.json` on every node (or opt out with `RENDERWELD_CHROMIUM_NO_SANDBOX=1`, logged) |
+| HPA shows `<unknown>` for `renderweld_jobs_queued` | no External metrics adapter: install prometheus-adapter with the rule above (or KEDA); until then the worker HPA scales on CPU |
 | workers do not claim and log `queue: not claiming jobs: the licence does not allow renders (checking, waiting_for_api)` | no api (or all) instance has checked the licence on this database yet: start one with the licence key, or activate it there |
-| workers log `the stored licence state failed its integrity check` (`state_untrusted`) | the worker's `REELFORGE_SECRET_KEY` differs from the api instances': use the same value everywhere |
+| workers log `the stored licence state failed its integrity check` (`state_untrusted`) | the worker's `RENDERWELD_SECRET_KEY` differs from the api instances': use the same value everywhere |
 | `refusing to start ... queue.dispatch "notify": a test notification ... did not arrive on the LISTEN connection` | the worker's listen connection goes through a pooler that does not keep sessions (PgBouncer transaction mode): set `database.directUrl` to PostgreSQL itself |
 | `queue.dispatch "notify" needs PostgreSQL` | MySQL or SQLite: use `queue.dispatch: poll` |
 | `/readyz` `dispatch: error`, log `dispatch listener (notify) disconnected` | the LISTEN connection dropped; the worker polls until it reconnects (backoff to 30 s). Persistent: check that `database.directUrl` is reachable and that no idle-session timeout kills it |
-| `reelforge_queue_dispatch_fallback_claims_total{reelforge_reason="fallback"}` keeps growing | jobs are queued without a message: an instance (often the api) runs without the same `REELFORGE_QUEUE_DISPATCH`, or connections drop often |
+| `renderweld_queue_dispatch_fallback_claims_total{renderweld_reason="fallback"}` keeps growing | jobs are queued without a message: an instance (often the api) runs without the same `RENDERWELD_QUEUE_DISPATCH`, or connections drop often |
 | `/readyz` `dispatch.relay.failing: true`, log `dispatch outbox: publishing ... to sqs failed` | the broker refuses or cannot be reached (credentials, permissions, network). Jobs still run through the fallback poll; the outbox retries. Check `lastError` (`AccessDenied`, `NonExistentQueue`, `ECONNREFUSED`, `WRONGPASS`) |
 | log `dispatch: sqs not reachable (...)` / `redis not reachable (...)` on a worker | the worker polls the database until the broker answers; same checks as above |
 | SQS messages pile up in a dead-letter queue | a redrive policy with a small `maxReceiveCount`: given-back messages count as receives. Remove it or raise it; nothing is lost (the database is the record) |
@@ -1659,7 +1660,7 @@ on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 - Pooling: only PgBouncer 1.26.1 was run (load test and Docker e2e); RDS Proxy and Cloud SQL
   managed pooling are documented from their documentation, untested. The PgBouncer scale e2e
   is not in CI (`.github/workflows/` is maintainer-only).
-- Read replica: replica lag is not measured or bounded by ReelForge (no fallback to the primary
+- Read replica: replica lag is not measured or bounded by RenderWeld (no fallback to the primary
   when the replica lags or is down after start: the six lists fail until it is back); `/readyz`
   does not probe the replica. Tested with a second database fed by the test, not a streaming
   replica container.

@@ -28,31 +28,31 @@ published: false
 tags: mcp, ai, video, selfhosted
 ---
 
-*Disclosure: I build ReelForge, the studio in this post. It is a commercial, source-available product: free for personal use, a one-time paid licence for commercial use. Everything below is reproducible from the public repo.*
+*Disclosure: I build RenderWeld, the studio in this post. It is a commercial, source-available product: free for personal use, a one-time paid licence for commercial use. Everything below is reproducible from the public repo.*
 
 Coding agents are good at a loop: read what a tool can do, write a plan, check it, run it, inspect the result. I wanted that loop for short vertical videos, so I built a server an agent can drive over the Model Context Protocol. This post shows the whole loop with Claude Code, including the parts that went wrong.
 
 ## 1. Run the studio and give the agent a key
 
-ReelForge Studio is a server you run yourself. From a checkout (local development; this skips the licence check):
+RenderWeld is a server you run yourself. From a checkout (local development; this skips the licence check):
 
     pnpm install
-    export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
+    export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
     pnpm keys:create --name agent --scopes read,write,render   # prints rf_... once
     pnpm dev
 
 Or with Docker, which is the tested install path and needs a licence key (the Personal one is free):
 
     git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
-    export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)
+    export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)
     docker compose up -d --build
-    docker compose exec reelforge reelforge licence activate <YOUR-LICENCE-KEY>
-    docker compose exec reelforge reelforge keys create --name agent --scopes read,write,render
+    docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>
+    docker compose exec reelforge renderweld keys create --name agent --scopes read,write,render
 
 The key has only `read,write,render`: the agent can make and render projects but not manage keys or settings. Then:
 
-    claude mcp add --transport http reelforge http://127.0.0.1:4321/mcp \
-      --header "Authorization: Bearer $REELFORGE_API_KEY"
+    claude mcp add --transport http renderweld http://127.0.0.1:4321/mcp \
+      --header "Authorization: Bearer $RENDERWELD_API_KEY"
 
 ## 2. What the agent sees
 
@@ -103,7 +103,7 @@ For scripts and CI, run Claude Code with only the studio's tools:
 
     claude -p "$(cat prompt.txt)" \
       --mcp-config mcp.json --strict-mcp-config \
-      --tools "" --allowedTools mcp__reelforge \
+      --tools "" --allowedTools mcp__renderweld \
       --max-turns 25 --output-format stream-json --verbose > transcript.jsonl
 
 `--strict-mcp-config` ignores your other MCP servers, `--tools ""` turns off shell and file tools, and `--max-turns` bounds the cost. The task above needs about 8 to 12 turns.
@@ -122,10 +122,10 @@ The same studio is proven with an MCP SDK script, plain REST (curl), and a local
 
 ## Licensing
 
-ReelForge is source-available, not open source: the code is public under PolyForm Noncommercial 1.0.0, personal use is free, and commercial use needs a one-time Commercial licence. Remotion needs its own licence for companies of more than three people.
+RenderWeld is source-available, not open source: the code is public under PolyForm Noncommercial 1.0.0, personal use is free, and commercial use needs a one-time Commercial licence. Remotion needs its own licence for companies of more than three people.
 
 - Tutorials, every agent with every engine, with proofs: https://github.com/buildbase-app/reelforge-studio/tree/main/docs/tutorials
-- Connect your agent: https://reelforge.buildbase.app/agents?utm_source=devto&utm_medium=article&utm_campaign=launch-2026-12&utm_content=1207-mcp-article
+- Connect your agent: https://renderweld.com/agents?utm_source=devto&utm_medium=article&utm_campaign=launch-2026-12&utm_content=1207-mcp-article
 
 If you build MCP servers for long-running work, I'd like to know how you handle waiting and errors.
 ```

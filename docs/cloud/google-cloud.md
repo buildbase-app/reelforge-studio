@@ -1,6 +1,6 @@
 ---
 title: "Deploy on Google Cloud"
-description: "ReelForge Studio on Google Cloud: GKE or Cloud Run, Cloud SQL, Cloud Storage with workload identity, Secret Manager; least-privilege IAM, egress, scaling, backups and cost notes. Pub/Sub is not a dispatch option."
+description: "RenderWeld on Google Cloud: GKE or Cloud Run, Cloud SQL, Cloud Storage with workload identity, Secret Manager; least-privilege IAM, egress, scaling, backups and cost notes. Pub/Sub is not a dispatch option."
 folder: deploy
 slug: google-cloud
 order: 3
@@ -28,9 +28,9 @@ driver, so nothing is lost without a broker.
 
 ```mermaid
 flowchart LR
-  lb[External Application Load Balancer<br/>or Cloud Run URL] --> api[GKE Deployment or Cloud Run service<br/>reelforge api]
+  lb[External Application Load Balancer<br/>or Cloud Run URL] --> api[GKE Deployment or Cloud Run service<br/>RenderWeld api]
   api --> sql[(Cloud SQL for PostgreSQL<br/>private IP)]
-  wrk[GKE Deployment + KEDA<br/>or Cloud Run worker pool<br/>reelforge worker] --> sql
+  wrk[GKE Deployment + KEDA<br/>or Cloud Run worker pool<br/>renderweld worker] --> sql
   api --> gcs[(Cloud Storage bucket<br/>uniform access, private)]
   wrk --> gcs
   sm[Secret Manager] -. mounted as files .-> api
@@ -39,16 +39,16 @@ flowchart LR
   api -. OTLP .-> col[OpenTelemetry Collector] -.-> mon[Cloud Monitoring, Cloud Trace]
 ```
 
-| Part | Google Cloud service | ReelForge settings |
+| Part | Google Cloud service | RenderWeld settings |
 | --- | --- | --- |
-| api | GKE Deployment behind a Gateway / Ingress, or a Cloud Run service | `REELFORGE_ROLE=api`, `REELFORGE_PUBLIC_URL`, `REELFORGE_TRUST_PROXY=true` |
-| workers | GKE Deployment (KEDA overlay), or a Cloud Run worker pool | `REELFORGE_ROLE=worker`, `REELFORGE_WORKER_CONCURRENCY=1` |
+| api | GKE Deployment behind a Gateway / Ingress, or a Cloud Run service | `RENDERWELD_ROLE=api`, `RENDERWELD_PUBLIC_URL`, `RENDERWELD_TRUST_PROXY=true` |
+| workers | GKE Deployment (KEDA overlay), or a Cloud Run worker pool | `RENDERWELD_ROLE=worker`, `RENDERWELD_WORKER_CONCURRENCY=1` |
 | database | Cloud SQL for PostgreSQL 13+ (or MySQL 8.0+) | `DATABASE_URL` (secret) |
-| files | Cloud Storage, uniform bucket-level access, public access prevention on | `REELFORGE_STORAGE_DRIVER=gcs`, `REELFORGE_GCS_BUCKET`, optional `REELFORGE_GCS_PREFIX`, `REELFORGE_GCS_KMS_KEY_NAME` |
+| files | Cloud Storage, uniform bucket-level access, public access prevention on | `RENDERWELD_STORAGE_DRIVER=gcs`, `RENDERWELD_GCS_BUCKET`, optional `RENDERWELD_GCS_PREFIX`, `RENDERWELD_GCS_KMS_KEY_NAME` |
 | identity | Workload Identity Federation for GKE; Cloud Run's service identity | leave `storage.gcs.credentialsJson` unset: Application Default Credentials |
-| job wake-up (optional) | Memorystore for Redis, or PostgreSQL `notify` | `REELFORGE_QUEUE_DISPATCH=redis` or `notify` |
+| job wake-up (optional) | Memorystore for Redis, or PostgreSQL `notify` | `RENDERWELD_QUEUE_DISPATCH=redis` or `notify` |
 | secrets | Secret Manager | files (`_FILE`) through the Secret Manager add-on (GKE) or Cloud Run secret volumes |
-| logs, metrics, traces | Cloud Logging (stdout), an OpenTelemetry Collector to Cloud Monitoring and Cloud Trace | `REELFORGE_OTLP_ENDPOINT` |
+| logs, metrics, traces | Cloud Logging (stdout), an OpenTelemetry Collector to Cloud Monitoring and Cloud Trace | `RENDERWELD_OTLP_ENDPOINT` |
 
 One small instance is a Compute Engine VM with Docker and the
 [VPS recipe](../DEPLOY.md#3-vps-with-caddy-automatic-https) (SQLite and local
@@ -58,14 +58,14 @@ Run use Cloud SQL and Cloud Storage even for one instance.
 ## Settings
 
 ```bash
-REELFORGE_PUBLIC_URL=https://studio.example.com
-REELFORGE_TRUST_PROXY=true
-REELFORGE_STORAGE_DRIVER=gcs
-REELFORGE_GCS_BUCKET=acme-reelforge
-REELFORGE_GCS_PREFIX=studio
-REELFORGE_RATE_LIMIT_STORE=database
-# optional: REELFORGE_QUEUE_DISPATCH=notify (Cloud SQL PostgreSQL) or redis + REELFORGE_QUEUE_REDIS_URL_FILE
-# secrets as files: DATABASE_URL_FILE, REELFORGE_SECRET_KEY_FILE, REELFORGE_BOOTSTRAP_KEY_FILE, REELFORGE_LICENCE_KEY_FILE
+RENDERWELD_PUBLIC_URL=https://studio.example.com
+RENDERWELD_TRUST_PROXY=true
+RENDERWELD_STORAGE_DRIVER=gcs
+RENDERWELD_GCS_BUCKET=acme-reelforge
+RENDERWELD_GCS_PREFIX=studio
+RENDERWELD_RATE_LIMIT_STORE=database
+# optional: RENDERWELD_QUEUE_DISPATCH=notify (Cloud SQL PostgreSQL) or redis + RENDERWELD_QUEUE_REDIS_URL_FILE
+# secrets as files: DATABASE_URL_FILE, RENDERWELD_SECRET_KEY_FILE, RENDERWELD_BOOTSTRAP_KEY_FILE, RENDERWELD_LICENCE_KEY_FILE
 ```
 
 `DATABASE_URL`: connect to the instance's **private IP**
@@ -75,7 +75,7 @@ native sidecar, or a second container on Cloud Run) and use
 `postgresql://reelforge:<password>@127.0.0.1:5432/reelforge`. With `notify`
 dispatch, `LISTEN` needs a session connection: direct, or the Auth Proxy; not
 Cloud SQL Managed Connection Pooling in transaction mode (then set
-`REELFORGE_DATABASE_DIRECT_URL` to a direct URL). Pooling notes:
+`RENDERWELD_DATABASE_DIRECT_URL` to a direct URL). Pooling notes:
 [queue-and-scaling.md](../providers/queue-and-scaling.md#cloud-sql-google-cloud).
 
 ## IAM (least privilege)
@@ -89,8 +89,8 @@ upload, resumable upload, read, metadata, list, copy, delete) as a custom role:
 
 ```json
 {
-  "title": "ReelForge storage",
-  "description": "Objects in the ReelForge bucket: read, write, list, delete.",
+  "title": "RenderWeld storage",
+  "description": "Objects in the RenderWeld bucket: read, write, list, delete.",
   "stage": "GA",
   "includedPermissions": [
     "storage.objects.create",
@@ -114,13 +114,13 @@ but moves the bytes through the api. With GKE's direct workload identity
 principal (no Google service account) there is no service account to sign with:
 either link the Kubernetes service account to a Google service account (the
 `iam.gke.io/gcp-service-account` annotation) or set
-`REELFORGE_STORAGE_DOWNLOADS=proxy`. VERIFY.
+`RENDERWELD_STORAGE_DOWNLOADS=proxy`. VERIFY.
 
 Other grants:
 
 | Who | Role | On | When |
 | --- | --- | --- | --- |
-| the workload | `roles/secretmanager.secretAccessor` | each ReelForge secret | always (or grant it to the Secret Manager add-on's identity, per its docs) |
+| the workload | `roles/secretmanager.secretAccessor` | each RenderWeld secret | always (or grant it to the Secret Manager add-on's identity, per its docs) |
 | the workload | `roles/cloudsql.client` | the project | only with the Cloud SQL Auth Proxy or a connector |
 | the Cloud Storage service agent | `roles/cloudkms.cryptoKeyEncrypterDecrypter` | the CMEK key | only with `storage.gcs.kmsKeyName` |
 | the workload | `roles/logging.logWriter`, `roles/monitoring.metricWriter`, `roles/cloudtrace.agent` | the project | for the OpenTelemetry Collector's identity, if it runs as the workload |
@@ -181,14 +181,14 @@ ports).
    `deployment/seccomp/chrome.json` on every node as
    `/var/lib/kubelet/seccomp/reelforge-chrome.json` (a DaemonSet that copies it).
    **Autopilot** does not let you place node files, so use
-   `REELFORGE_CHROMIUM_NO_SANDBOX=1` there (VERIFY what Autopilot allows).
+   `RENDERWELD_CHROMIUM_NO_SANDBOX=1` there (VERIFY what Autopilot allows).
 2. Enable Workload Identity Federation for GKE on the cluster and node pools;
    grant roles as above.
 3. Secrets: the Secret Manager add-on for GKE (CSI) mounting files at
    `/run/secrets/reelforge`, or External Secrets Operator syncing the
    `reelforge` Secret.
 4. `kubectl apply -k deployment/kubernetes/` (HPA on CPU and
-   `reelforge_jobs_queued`) or `-k deployment/kubernetes/keda/` (KEDA on the `Job`
+   `renderweld_jobs_queued`) or `-k deployment/kubernetes/keda/` (KEDA on the `Job`
    table, scale to zero; tested on kind). KEDA's PostgreSQL scaler needs a
    route to Cloud SQL (private IP, or the Auth Proxy as its own Deployment).
 5. Ingress: a GKE Gateway or Ingress with a BackendConfig / policy timeout of
@@ -212,7 +212,7 @@ gcloud run deploy reelforge-api \
   --port=4321 --service-account=reelforge@PROJECT_ID.iam.gserviceaccount.com \
   --network=VPC --subnet=SUBNET --vpc-egress=private-ranges-only \
   --update-secrets=/run/secrets/db/url=reelforge-database-url:latest,/run/secrets/key/value=reelforge-secret-key:latest \
-  --set-env-vars=REELFORGE_ROLE=api,REELFORGE_STORAGE_DRIVER=gcs,REELFORGE_GCS_BUCKET=acme-reelforge,REELFORGE_TRUST_PROXY=true,DATABASE_URL_FILE=/run/secrets/db/url,REELFORGE_SECRET_KEY_FILE=/run/secrets/key/value
+  --set-env-vars=RENDERWELD_ROLE=api,RENDERWELD_STORAGE_DRIVER=gcs,RENDERWELD_GCS_BUCKET=acme-reelforge,RENDERWELD_TRUST_PROXY=true,DATABASE_URL_FILE=/run/secrets/db/url,RENDERWELD_SECRET_KEY_FILE=/run/secrets/key/value
 ```
 
 - `--no-cpu-throttling` (instance-based billing) is required: with request-based
@@ -221,7 +221,7 @@ gcloud run deploy reelforge-api \
   in the background.
 - Each secret gets its own directory (Cloud Run does not mount two secrets at
   one path).
-- `REELFORGE_PUBLIC_URL` is the service URL or your domain mapping.
+- `RENDERWELD_PUBLIC_URL` is the service URL or your domain mapping.
 
 **workers**, two options (both VERIFY):
 
@@ -233,37 +233,37 @@ gcloud run deploy reelforge-api \
   job queue, because workers serve no requests).
 
 For a pool that scales with the queue, use GKE with KEDA. Cloud Run Jobs could
-run `reelforge worker --once` per job, but the launcher that starts an execution
+run `renderweld worker --once` per job, but the launcher that starts an execution
 per queued job is not built (issue #28).
 
 Cloud Run limits that matter: the container filesystem is in memory, so render
 staging in `/data` uses the instance's memory (give workers 8 GiB or more, or
 mount an in-memory volume with a size limit); `/dev/shm` cannot be sized; you
 cannot set a seccomp profile. If html, hyperframes or motion-canvas renders fail
-with the sandbox message, set `REELFORGE_CHROMIUM_NO_SANDBOX=1` (the gen2
+with the sandbox message, set `RENDERWELD_CHROMIUM_NO_SANDBOX=1` (the gen2
 microVM is then the boundary). Do not use a Cloud Storage FUSE volume for
 `/data` (no atomic rename).
 
 ## Observability
 
-- Cloud Logging collects stdout from GKE and Cloud Run. ReelForge's JSON lines
+- Cloud Logging collects stdout from GKE and Cloud Run. RenderWeld's JSON lines
   name the level `level`, not `severity`, so Cloud Logging shows them at the
   default severity unless your log router or collector maps the field.
 - Metrics and traces: run an OpenTelemetry Collector (GKE Deployment, or a Cloud
   Run sidecar) with Google Cloud exporters, and set
-  `REELFORGE_OTLP_ENDPOINT=http://<collector>:4318`. ReelForge does not sign
+  `RENDERWELD_OTLP_ENDPOINT=http://<collector>:4318`. RenderWeld does not sign
   requests with Google credentials itself. Or scrape `/metrics` with Google
-  Cloud Managed Service for Prometheus (`REELFORGE_METRICS_TOKEN`, or
-  `REELFORGE_METRICS_ALLOW_ANONYMOUS=true` on a private network).
+  Cloud Managed Service for Prometheus (`RENDERWELD_METRICS_TOKEN`, or
+  `RENDERWELD_METRICS_ALLOW_ANONYMOUS=true` on a private network).
 
 ## Backups
 
 - **Cloud SQL:** automated backups and point-in-time recovery; an on-demand
-  backup before each ReelForge upgrade.
+  backup before each RenderWeld upgrade.
 - **Cloud Storage:** soft delete (on by default for new buckets, VERIFY the
   retention on yours) and optionally Object Versioning; renders are never
-  overwritten by ReelForge.
-- **Secret Manager:** keep `REELFORGE_SECRET_KEY` versions; destroying the
+  overwritten by RenderWeld.
+- **Secret Manager:** keep `RENDERWELD_SECRET_KEY` versions; destroying the
   version in use makes the stored secrets of a restored database unreadable.
 
 ## Cost notes
