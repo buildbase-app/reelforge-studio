@@ -56,7 +56,7 @@ Every limit is a runtime setting (config file, environment, or `update_config`
 | Provider calls per UTC day, whole server | `limits.providerRunsPerDay` (`RENDERWELD_PROVIDER_RUNS_PER_DAY`) | `0` (no limit: providers run on your own accounts) | `429 provider_budget_exhausted`, `Retry-After` until midnight UTC |
 | Requests per key per minute | `limits.rateLimitPerMinute` | `300` | `429 rate_limited` |
 | Messages in one JSON-RPC batch on `/mcp` | fixed | `10`; each message costs one unit of the key's (and workspace's) rate limit, so a batch cannot multiply it | `400 batch_too_large`; `429 rate_limited` when the batch runs past the budget, before any call runs |
-| Requests in progress per api instance | `limits.maxInflightRequests` (`REELFORGE_MAX_INFLIGHT_REQUESTS`) | `64` | `503 overloaded`, `Retry-After: 1`. Not counted: health, readiness, metrics, GET long-polls (`?wait=`) and event streams, and a single MCP `get_job` call with `waitSeconds`. Every other MCP request counts, although MCP clients accept event streams on every POST |
+| Requests in progress per api instance | `limits.maxInflightRequests` (`RENDERWELD_MAX_INFLIGHT_REQUESTS`) | `64` | `503 overloaded`, `Retry-After: 1`. Not counted: health, readiness, metrics, GET long-polls (`?wait=`) and event streams, and a single MCP `get_job` call with `waitSeconds`. Every other MCP request counts, although MCP clients accept event streams on every POST |
 
 Details:
 
