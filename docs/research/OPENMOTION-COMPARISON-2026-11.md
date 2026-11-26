@@ -1,5 +1,7 @@
 # OpenMotion and ReelForge Studio: motion reel engines compared (November 2026)
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](../RENAMED.md) maps each old name to the new one.
+
 **Date:** 2026-11-24. **Issue:** epic #285 (tracks C and E). **Scope:** motion graphics and
 component-based reels only: templates, components, animation, type, layout, captions, audio sync,
 agents driving them, rendering and scale. Generated footage, avatars, stock video and the image,

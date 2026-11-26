@@ -30,7 +30,7 @@ pnpm docs:sync --env fsyqdskf                          # publish the pages to Bu
 ```
 
 `pnpm capture` with no option runs every step against
-https://reelforge-dev.buildbase.app and https://reelforge.buildbase.app.
+https://dev.renderweld.com and https://renderweld.com.
 
 | Option | Meaning |
 | --- | --- |
@@ -45,7 +45,7 @@ https://reelforge-dev.buildbase.app and https://reelforge.buildbase.app.
 | `--out <dir>` | Work directory (default `out/capture`, git-ignored): images, videos, raw recordings, `results.json` |
 
 Needs Node 22, ffmpeg 6+ with libwebp, libx264 and libvpx-vp9, and for the
-studio step what the studio needs (`REELFORGE_CHROMIUM_PATH`, or Playwright's
+studio step what the studio needs (`RENDERWELD_CHROMIUM_PATH`, or Playwright's
 Chromium is used) plus `claude` and `jq` for the `claude mcp add` and REST
 views. `CAPTURE_CHROMIUM_PATH` picks another Chromium for the captures. One
 browser runs at a time; at most two encodes run beside it.
@@ -76,7 +76,7 @@ browser runs at a time; at most two encodes run beside it.
   1280x720 (720x1280), at most about 4 MB each, with JPEG and WebP posters;
   raw recordings are deleted.
 - **studio** (`steps/studio.mjs`): starts the studio from this checkout
-  (licence mode off, a throwaway data directory), runs `pnpm reelforge keys
+  (licence mode off, a throwaway data directory), runs `pnpm renderweld keys
   create`, `pnpm start`, `claude mcp add` and `claude mcp list` (in a
   throwaway `HOME`), `curl /readyz` and `/metrics`, and a REST render of
   `fixtures/contact-sheet-reel.json` (one scene per built-in template) with
@@ -114,7 +114,7 @@ key.
   400 KB at 1x CSS width; the encoder lowers quality, then size, to fit.
 - **Videos: the store**, `public/walkthroughs/<slug>.<hash8>.{mp4,webm,jpg}`
   (immutable cache, like `public/reels/`), linked from the walkthroughs page as
-  https://reelforge.buildbase.app/walkthroughs/…. BuildBase Assets take images
+  https://renderweld.com/walkthroughs/…. BuildBase Assets take images
   only, and R2 is not enabled yet; **once R2 is on (#89) the videos move there**
   and `VIDEO_BASE` in `scripts/capture/docs.mjs` changes. Posters are
   BuildBase assets like the screenshots.
@@ -126,7 +126,7 @@ names, masking, budgets, the upload plan against a fake asset API
 (first run, re-run with no writes, changed image replaced, lost manifest,
 duplicates), redaction and the generated pages; and an end-to-end test that
 captures two pages from a local static server (skipped without a browser or
-ffmpeg unless `REELFORGE_REQUIRE_BROWSER=1`).
+ffmpeg unless `RENDERWELD_REQUIRE_BROWSER=1`).
 
 ## Re-capture later
 

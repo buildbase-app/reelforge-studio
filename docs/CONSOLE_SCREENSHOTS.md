@@ -20,8 +20,8 @@ hidden), and use the browser at 1440 px wide.
 | 3 | Hosted sign-in page | **Users** > **Authentication**, page and security settings | Session length, two-factor optional, sign-up open |
 | 4 | Stripe credentials | **Billing** > **Credentials** | Test keys saved (values masked), webhook configuration |
 | 5 | Selling overview | **Billing** > **Selling**, tab **Overview** | The checklist and "Before going live" list |
-| 6 | Own store | **Billing** > **Selling**, tab **Settings** | Own store on, shown as "ReelForge"; terms and refund policy links |
-| 7 | Items | **Billing** > **Selling**, tab **Items** | ReelForge Personal (free) and ReelForge Commercial (Solo, Studio, Agency) published |
+| 6 | Own store | **Billing** > **Selling**, tab **Settings** | Own store on, shown as "RenderWeld"; terms and refund policy links |
+| 7 | Items | **Billing** > **Selling**, tab **Items** | RenderWeld Personal (free) and RenderWeld Commercial (Solo, Studio, Agency) published |
 | 8 | Item type | **Billing** > **Item types**, `reelforge-licence` | Fixed or free prices, licence keys, files, up to 4 variants |
 | 9 | Orders | **Billing** > **Selling**, tab **Orders** | Test orders paid (crop buyer emails) |
 | 10 | Webhooks | **Settings** > **Webhooks** | The store endpoint `…/api/webhooks/buildbase`, all events, enabled |

@@ -1,6 +1,6 @@
 ---
 title: "REST API overview"
-description: "The ReelForge Studio REST API under /v1: authentication and scopes, the error format and every error code, idempotency keys, rate limits, versions and job progress."
+description: "The RenderWeld REST API under /v1: authentication and scopes, the error format and every error code, idempotency keys, rate limits, versions and job progress."
 folder: api
 slug: rest-api
 order: 1
@@ -22,7 +22,7 @@ curl -s -H "Authorization: Bearer $KEY" $RF/v1/capabilities
 ## Authentication and scopes
 
 Every `/v1` request needs `Authorization: Bearer rf_...`. Keys are created by the
-CLI (`reelforge keys create`), the bootstrap variable `REELFORGE_BOOTSTRAP_KEY`,
+CLI (`renderweld keys create`), the bootstrap variable `RENDERWELD_BOOTSTRAP_KEY`,
 or an admin over `POST /v1/keys`. They are stored as salted hashes and shown once.
 
 | Scope | Allows |

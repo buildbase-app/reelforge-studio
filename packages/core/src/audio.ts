@@ -3,13 +3,17 @@ import { join } from 'node:path';
 import {
   PipelineError,
   assertAudioSupport,
+  audioDuration,
   checkAvSync,
+  levelEnvelope,
   measureEbur128,
   measureLoudness,
   mixAudio,
   normaliseLoudness,
   speechSegments,
+  windowLevelDb,
   type AvSync,
+  type LevelEnvelope,
   type LoudnessMeasurement,
   type Tools,
 } from '@renderweld/media-pipeline';
@@ -38,8 +42,10 @@ export interface AudioDefaults {
   loudness: LoudnessPreset;
   loudnessQa: 'warn' | 'fail';
   mutedTrack: 'silent' | 'none';
+  /** Warn when a sound effect is less than this many dB over the music and voice under it (#459). */
+  sfxMaskingDb?: number;
 }
-export const AUDIO_DEFAULTS: AudioDefaults = { loudness: 'social', loudnessQa: 'warn', mutedTrack: 'silent' };
+export const AUDIO_DEFAULTS: AudioDefaults = { loudness: 'social', loudnessQa: 'warn', mutedTrack: 'silent', sfxMaskingDb: 3 };
 
 export interface AudioPlan {
   mute: boolean;
@@ -49,6 +55,7 @@ export interface AudioPlan {
   loudness: LoudnessPreset;
   qa: AudioDefaults['loudnessQa'];
   mutedTrack: AudioDefaults['mutedTrack'];
+  sfxMaskingDb: number;
 }
 
 /** What one render plays: the render's `audio` option, else the manifest, else the server defaults. */
@@ -62,6 +69,7 @@ export function resolveAudioPlan(project: Project, overrides: RenderAudioOptions
     loudness: overrides.loudness ?? a.loudness ?? defaults.loudness,
     qa: defaults.loudnessQa,
     mutedTrack: defaults.mutedTrack,
+    sfxMaskingDb: defaults.sfxMaskingDb ?? AUDIO_DEFAULTS.sfxMaskingDb!,
   };
 }
 
@@ -97,9 +105,34 @@ export interface AudioLoudness {
 }
 
 export interface AudioQaIssue {
-  rule: 'loudness.integrated' | 'loudness.truePeak' | 'loudness.lra';
+  rule: 'loudness.integrated' | 'loudness.truePeak' | 'loudness.lra' | 'sfx.masked';
   severity: 'warn' | 'fail';
   message: string;
+  /** sfx.masked: the cue (index in audio.sfx), its asset and time, its margin over the bed and a volume that would clear it. */
+  cue?: number;
+  asset?: string;
+  atSeconds?: number;
+  marginDb?: number;
+  suggestedVolume?: number;
+}
+
+/**
+ * How far each sound effect stands out of the music and voice under it (#459):
+ * the cue's own level (its file at its volume and the sfx bus gain) and the
+ * level of the mix without sound effects, both RMS over the cue's first
+ * `windowSeconds` (its length, 0.05 to 0.5 s). Measured on the stems before
+ * normalisation, which changes every bus by the same gain.
+ */
+export interface SfxAudibility {
+  cue: number;
+  asset: string;
+  atSeconds: number;
+  windowSeconds: number;
+  cueDb: number | null;
+  /** null: nothing plays under the cue. */
+  bedDb: number | null;
+  /** cueDb - bedDb; null when either side is silent. */
+  marginDb: number | null;
 }
 
 /** The render manifest's `audio` section (the track fields keep their earlier shape). */
@@ -115,6 +148,8 @@ export interface AudioManifest {
   ducking: (DuckingSettings & { windows: Array<[number, number]> }) | null;
   loudness: AudioLoudness;
   avSync?: Omit<AvSync, 'problems'>;
+  /** Present when sound effects play over music or a voice (#459). */
+  sfxAudibility?: { thresholdDb: number; cues: SfxAudibility[] };
   qa?: { ok: boolean; mode: AudioPlan['qa']; issues: AudioQaIssue[] };
   mixArgs?: string[];
 }
@@ -192,6 +227,25 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
     signal,
   });
   manifest.mixArgs = mixed.args.map((x) => (x.startsWith('/') ? '<file>' : x));
+  if (sfx.length && (music || voice)) {
+    manifest.sfxAudibility = await measureSfxAudibility({
+      tools,
+      signal,
+      workDir: i.workDir,
+      totalSeconds: i.totalSeconds,
+      thresholdDb: plan.sfxMaskingDb,
+      cues: sfx.map((s, k) => ({ cue: k, asset: s.asset, file: file(s.asset), volume: s.volume, atSeconds: framesToSeconds(s.atFrame, fps) })),
+      sfxGainDb: gainDb.sfx,
+      bed: {
+        music: music ? { file: file(music.asset), volume: music.volume, ...(music.fadeInSeconds !== undefined ? { fadeInSeconds: music.fadeInSeconds } : {}), fadeOutSeconds: music.fadeOutSeconds } : null,
+        voice: voice ? { file: file(voice.asset), volume: voice.volume, startSeconds: framesToSeconds(voice.startFrame, fps) } : null,
+        gainDb,
+        ducking: ducking ? { depthDb: ducking.depthDb, attackMs: ducking.attackMs, releaseMs: ducking.releaseMs, windows: ducking.windows } : null,
+      },
+    });
+    const masked = manifest.sfxAudibility.cues.filter((c) => c.marginDb !== null && c.marginDb < plan.sfxMaskingDb).length;
+    log(`audio: ${sfx.length} sound effect(s) measured against the bed, ${masked} under ${plan.sfxMaskingDb} dB over it`);
+  }
   if (!music && !voice && !sfx.length) {
     manifest.track = 'silent';
     manifest.loudness.reason = plan.mute ? 'muted' : i.fullTimeline ? 'no audio tracks' : 'scene subset preview';
@@ -215,12 +269,108 @@ export async function audioPass(i: AudioPassInput): Promise<AudioPassResult> {
   return { file: norm.out, noAudio: false, manifest };
 }
 
+/** The window a cue is judged on: its first half second, or all of it when shorter (never under 50 ms). */
+const SFX_WINDOW = { min: 0.05, max: 0.5 } as const;
+/** sfx volumes stop at 2 (+6 dB, packages/project-schema). */
+const SFX_MAX_VOLUME = 2;
+
+export interface SfxAudibilityInput {
+  tools: Tools;
+  signal?: AbortSignal;
+  workDir: string;
+  totalSeconds: number;
+  thresholdDb: number;
+  cues: Array<{ cue: number; asset: string; file: string; volume: number; atSeconds: number }>;
+  sfxGainDb: number;
+  /** The mix without sound effects, as mixAudio takes it. */
+  bed: Pick<Parameters<typeof mixAudio>[0], 'music' | 'voice' | 'gainDb' | 'ducking'>;
+}
+
+/**
+ * Measure each sound effect against what plays under it (#459): mix the bed
+ * (music and voice, with their volumes, fades, bus gains and ducking) once
+ * without the sound effects, read its level and each effect file's level per
+ * 10 ms, and compare the two over the cue's first window. No model, no new
+ * dependency: FFmpeg's astats on the stems the mixer already has.
+ */
+export async function measureSfxAudibility(i: SfxAudibilityInput): Promise<{ thresholdDb: number; cues: SfxAudibility[] }> {
+  const bedFile = join(i.workDir, 'bed.wav');
+  await mixAudio({ ffmpeg: i.tools.ffmpeg, ffprobe: i.tools.ffprobe, out: bedFile, totalSeconds: i.totalSeconds, ...i.bed, sfx: [], ...(i.signal ? { signal: i.signal } : {}) });
+  const bed = await levelEnvelope(i.tools.ffmpeg, bedFile, { ...(i.signal ? { signal: i.signal } : {}) });
+  const files = new Map<string, Promise<{ env: LevelEnvelope; seconds: number }>>();
+  const effect = (f: string) => {
+    if (!files.has(f)) {
+      files.set(
+        f,
+        Promise.all([levelEnvelope(i.tools.ffmpeg, f, { ...(i.signal ? { signal: i.signal } : {}) }), audioDuration(i.tools.ffprobe, f)]).then(([env, seconds]) => ({ env, seconds }))
+      );
+    }
+    return files.get(f)!;
+  };
+  const cues: SfxAudibility[] = [];
+  for (const c of i.cues) {
+    if (c.atSeconds >= i.totalSeconds) continue; // after the end: never heard, and not this check's business
+    const { env, seconds } = await effect(c.file);
+    const windowSeconds = r2(Math.min(Math.max(Math.min(seconds, SFX_WINDOW.max), SFX_WINDOW.min), i.totalSeconds - c.atSeconds));
+    const own = windowLevelDb(env, 0, windowSeconds);
+    const cueDb = own === null || c.volume <= 0 ? null : Number((own + 20 * Math.log10(c.volume) + i.sfxGainDb).toFixed(1));
+    const under = windowLevelDb(bed, c.atSeconds, windowSeconds);
+    const bedDb = under === null ? null : Number(under.toFixed(1));
+    cues.push({ cue: c.cue, asset: c.asset, atSeconds: r2(c.atSeconds), windowSeconds, cueDb, bedDb, marginDb: cueDb === null || bedDb === null ? null : Number((cueDb - bedDb).toFixed(1)) });
+  }
+  return { thresholdDb: i.thresholdDb, cues };
+}
+
+/**
+ * The audio checks of a render manifest and get_render_output: `loudness` from
+ * the integrated-loudness and true-peak rules (the loudness range is guidance
+ * only), `sfx` from the masking rule (#459).
+ */
+export function audioChecks(a: Pick<AudioManifest, 'loudness' | 'qa' | 'sfxAudibility'>): { loudness: 'pass' | 'warn' | 'skipped'; sfx: 'pass' | 'warn' | 'skipped' } {
+  const issues = a.qa?.issues ?? [];
+  return {
+    loudness: a.loudness.measured ? (issues.some((x) => x.rule === 'loudness.integrated' || x.rule === 'loudness.truePeak') ? 'warn' : 'pass') : 'skipped',
+    sfx: a.sfxAudibility ? (issues.some((x) => x.rule === 'sfx.masked') ? 'warn' : 'pass') : 'skipped',
+  };
+}
+
+/** The sfx.masked warnings of a render: every cue less than the threshold over its bed, with a volume that would clear it. */
+export function sfxMaskingIssues(m: Pick<AudioManifest, 'sfx' | 'sfxAudibility'>): AudioQaIssue[] {
+  const a = m.sfxAudibility;
+  if (!a) return [];
+  return a.cues.flatMap((c) => {
+    if (c.marginDb === null || c.marginDb >= a.thresholdDb) return [];
+    const volume = m.sfx[c.cue]?.volume ?? 1;
+    // Aim 3 dB past the threshold, so a small change in the mix does not bring the warning back.
+    const needed = volume * Math.pow(10, (a.thresholdDb + 3 - c.marginDb) / 20);
+    const suggestedVolume = Math.round(Math.min(needed, SFX_MAX_VOLUME) * 100) / 100;
+    const level = c.marginDb < 0 ? `${Math.abs(c.marginDb)} dB under` : `only ${c.marginDb} dB over`;
+    const fix =
+      needed <= SFX_MAX_VOLUME
+        ? `raise its volume to about ${suggestedVolume} (now ${volume}), or lower the music (audio.music.volume or audio.gainDb.music)`
+        : `raise its volume to ${SFX_MAX_VOLUME} (now ${volume}) and lower the music by about ${Math.ceil(20 * Math.log10(needed / SFX_MAX_VOLUME))} dB (audio.music.volume or audio.gainDb.music), or raise audio.gainDb.sfx`;
+    return [
+      {
+        rule: 'sfx.masked' as const,
+        severity: 'warn' as const,
+        message: `sound effect ${c.cue} ("${c.asset}" at ${c.atSeconds} s) is ${level} the music and voice under it (first ${c.windowSeconds} s; wanted at least ${a.thresholdDb} dB over), so it will barely be heard: ${fix}`,
+        cue: c.cue,
+        asset: c.asset,
+        atSeconds: c.atSeconds,
+        marginDb: c.marginDb,
+        suggestedVolume,
+      },
+    ];
+  });
+}
+
 /**
  * Measure the finished file and apply the audio QA rules: integrated loudness
  * within the preset's tolerance, true peak at or under the ceiling (each a
  * failure in `fail` mode, else a warning), loudness range over the guidance
- * (always a warning), and A/V sync (start at 0, durations within one frame;
- * always a failure, returned as `syncProblems`).
+ * (always a warning), sound effects masked by the bed (#459, always a
+ * warning, from the measurement audioPass made), and A/V sync (start at 0,
+ * durations within one frame; always a failure, returned as `syncProblems`).
  */
 export async function verifyAudio(
   tools: Tools,
@@ -260,6 +410,7 @@ export async function verifyAudio(
       }
     }
   }
+  if (m.track === 'mixed') issues.push(...sfxMaskingIssues(m));
   m.qa = { ok: issues.length === 0 && syncProblems.length === 0, mode, issues };
   return { manifest: m, failures: issues.filter((x) => x.severity === 'fail').map((x) => x.message), syncProblems };
 }
