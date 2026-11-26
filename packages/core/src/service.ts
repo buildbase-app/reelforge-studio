@@ -194,10 +194,10 @@ const JOB_EVENTS: Record<string, string> = { queued: 'job.queued', running: 'job
 /** Most audit entries one MCP export returns (REST streams up to MAX_AUDIT_EXPORT). */
 export const MAX_MCP_EXPORT = 10_000;
 
-/** Render and preview jobs count towards a key's render quota. */
 /** list_jobs filters (GET /v1/jobs?status=&type=). */
 export const LIST_JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'cancelled'] as const;
 export const LIST_JOB_TYPES = ['render', 'preview', 'render_unit', 'render_join'] as const;
+/** Render and preview jobs count towards a key's render quota. */
 const QUOTA_JOB_TYPES = ['render', 'preview'];
 /** Validation errors for exceeded render limits start with this (a preview of some scenes is checked on its own). */
 const RENDER_LIMIT_PREFIX = 'render limit: ';
