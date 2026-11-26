@@ -131,8 +131,8 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
   });
   dependencies.browser = await timed(async () => {
     const path = envValue('REELFORGE_CHROMIUM_PATH');
-    if (!path) return { status: 'not_configured', required: false, detail: 'REELFORGE_CHROMIUM_PATH is not set; engines that need Chromium may not render (see engines)' };
-    if (!existsSync(path)) return { status: 'error', required: false, path, detail: `REELFORGE_CHROMIUM_PATH does not exist: ${path}` };
+    if (!path) return { status: 'not_configured', required: false, detail: 'RENDERWELD_CHROMIUM_PATH is not set; engines that need Chromium may not render (see engines)' };
+    if (!existsSync(path)) return { status: 'error', required: false, path, detail: `RENDERWELD_CHROMIUM_PATH does not exist: ${path}` };
     const version = browserVersion(path);
     return { status: 'ok', required: false, path, ...(version ? { version } : {}) };
   });
