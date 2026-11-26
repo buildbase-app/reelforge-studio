@@ -1,6 +1,6 @@
 # Storage providers
 
-Where ReelForge Studio keeps asset and render files (issue #27; decisions
+Where RenderWeld keeps asset and render files (issue #27; decisions
 D-065..D-069 in [DECISIONS.md](../DECISIONS.md); every setting in
 [CONFIG.md](../CONFIG.md#storage)). Metadata stays in the database; only the
 bytes move.
@@ -41,7 +41,7 @@ No service is called "supported" without a passing case below.
 
 ### Example configurations
 
-Config file (`REELFORGE_CONFIG`); every key also has an environment variable
+Config file (`RENDERWELD_CONFIG`); every key also has an environment variable
 (CONFIG.md), and every secret a `_FILE` variant. Prefer `_FILE` secrets or
 the ambient identity over keys in the file.
 
@@ -53,7 +53,7 @@ storage:
     endpoint: http://minio:9000        # plain http only for internal hosts
     bucket: reelforge
     forcePathStyle: true
-# REELFORGE_S3_ACCESS_KEY_ID_FILE=/run/secrets/s3id  REELFORGE_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3secret
+# RENDERWELD_S3_ACCESS_KEY_ID_FILE=/run/secrets/s3id  RENDERWELD_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3secret
 ```
 
 ```yaml
@@ -87,7 +87,7 @@ storage:
     accountUrl: https://acmereelforge.blob.core.windows.net
     container: reelforge
     managedIdentityClientId: 00000000-0000-0000-0000-000000000000   # user-assigned only
-# or: REELFORGE_AZURE_STORAGE_CONNECTION_STRING_FILE=/run/secrets/azure (with AccountKey for signed URLs)
+# or: RENDERWELD_AZURE_STORAGE_CONNECTION_STRING_FILE=/run/secrets/azure (with AccountKey for signed URLs)
 ```
 
 ```yaml
@@ -97,7 +97,7 @@ storage:
   gcs: { bucket: acme-reelforge, kmsKeyName: "projects/p/locations/eu/keyRings/r/cryptoKeys/k" }
 ```
 
-Moving existing files: `reelforge storage migrate --to s3` (run it again until
+Moving existing files: `renderweld storage migrate --to s3` (run it again until
 it copies nothing), then set `storage.driver` and restart.
 
 ### Permissions (least privilege)
@@ -155,8 +155,8 @@ connection string works with downloads through the server.
   than D days deleted, renders of running jobs never; unfinished uploads,
   staging and unused cache cleaned. Sweep every `sweepIntervalMinutes`, or on
   demand: `run_storage_cleanup` / `POST /v1/storage/cleanup` (`dryRun`),
-  `reelforge storage cleanup [--dry-run]`. Status: `get_storage` /
-  `GET /v1/storage` / `reelforge storage status`.
+  `renderweld storage cleanup [--dry-run]`. Status: `get_storage` /
+  `GET /v1/storage` / `renderweld storage status`.
 - One render or preview on request (#312): `delete_render` /
   `DELETE /v1/renders/:id` (write scope). It removes every file of that render
   (manifest first), this instance's cached copies, and on local storage its
@@ -171,7 +171,7 @@ connection string works with downloads through the server.
 Commands: `pnpm --filter @renderweld/core test` (local, units), with the
 emulators: `TEST_S3_ENDPOINT=http://127.0.0.1:19000 TEST_S3_ACCESS_KEY_ID=…
 TEST_S3_SECRET_ACCESS_KEY=… TEST_AZURE_CONNECTION_STRING="<Azurite>"
-TEST_GCS_ENDPOINT=http://127.0.0.1:4443 REELFORGE_REQUIRE_STORAGE=s3,azure,gcs`;
+TEST_GCS_ENDPOINT=http://127.0.0.1:4443 RENDERWELD_REQUIRE_STORAGE=s3,azure,gcs`;
 Docker: `STORAGE=s3 E2E_PREFIX=sto PORT=4332 e2e/docker/run.sh`. Results below
 are from 2026-11-21 (MinIO built from source commit 7aac2a2, Azurite latest,
 fake-gcs-server latest; see "How the emulators ran").
@@ -208,7 +208,7 @@ fake-gcs-server latest; see "How the emulators ran").
 | STO-30 | release image on MinIO: `get_storage` driver s3, health ok, usage | Docker e2e (`storage.mjs`) | | ✔ | | | pass |
 | STO-31 | release image: render → objects in MinIO (S3 API) → MinIO-signed `downloadUrl` → download → ffprobe 1080×1920 H.264 | Docker e2e | | ✔ | | | pass |
 | STO-32 | Range on the signed URL (206) and through `GET /v1/renders/:id/output` (206) | Docker e2e | | ✔ | | | pass |
-| STO-33 | `reelforge storage migrate --to s3` in the container: first run copies, second copies 0; a pre-migration render downloads from MinIO | Docker e2e | | ✔ | | | pass |
+| STO-33 | `renderweld storage migrate --to s3` in the container: first run copies, second copies 0; a pre-migration render downloads from MinIO | Docker e2e | | ✔ | | | pass |
 | STO-34 | `run_storage_cleanup` dry run then real run; objects gone from MinIO; newest kept | Docker e2e | | ✔ | | | pass |
 | STO-36 | release image on MinIO: an asset uploaded over MCP is stored in the bucket | Docker e2e | | ✔ | | | pass |
 | STO-35 | release image on local storage: the full MCP journey (render, signed download, ffprobe) | Docker e2e (existing journey) | ✔ | | | | pass |
@@ -237,10 +237,10 @@ copied 19 objects then 0; the render in MinIO probed as H.264 1080×1920, 30 fps
 | Symptom | Cause and fix |
 | --- | --- |
 | Server does not start: `storage.s3.bucket ... set storage.s3.bucket` | The driver's required setting is missing (STO-15). |
-| `/readyz` 503, `storage: unavailable (s3): bucket "x" is not reachable (HTTP 403)` | Wrong keys or missing `s3:ListBucket`. `HTTP 404`: the bucket does not exist (create it; ReelForge never creates buckets). |
+| `/readyz` 503, `storage: unavailable (s3): bucket "x" is not reachable (HTTP 403)` | Wrong keys or missing `s3:ListBucket`. `HTTP 404`: the bucket does not exist (create it; RenderWeld never creates buckets). |
 | `plain http:// is only allowed for internal hosts` | Use `https://`, or an internal name/address for a self-hosted endpoint. |
 | MinIO: `The specified bucket does not exist` with a virtual-host URL | Set `forcePathStyle: true`. |
-| `XAmzContentSHA256Mismatch` / checksum errors on an S3-compatible service | An old gateway; ReelForge already sends checksums only when required. Report the service and version. |
+| `XAmzContentSHA256Mismatch` / checksum errors on an S3-compatible service | An old gateway; RenderWeld already sends checksums only when required. Report the service and version. |
 | Download links go through the server (`downloadVia: "server"`) | `storage.downloads: proxy`, or the driver could not sign (log: `could not sign a download URL`): GCS without `signBlob`, Azure SAS-only connection string. |
 | Signed links stop working before `downloadUrlExpiresAt` | Made with temporary credentials (IAM role, STS) that expired first. Use longer-lived credentials for signing, or `storage.downloads: proxy`. |
 | Renders slow on remote storage | Every render is uploaded once and copied server-side (Azure: copied through the server). Keep the server close to the bucket (same region). |

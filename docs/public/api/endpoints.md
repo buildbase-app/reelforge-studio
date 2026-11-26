@@ -1,6 +1,6 @@
 ---
 title: "REST endpoint reference"
-description: "Every REST /v1 route of ReelForge Studio with its scope and the MCP tool that does the same."
+description: "Every REST /v1 route of RenderWeld with its scope and the MCP tool that does the same."
 folder: "api"
 slug: "endpoints"
 order: 2

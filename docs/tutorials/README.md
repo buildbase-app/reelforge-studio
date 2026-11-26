@@ -2,11 +2,17 @@
 
 # Tutorials: every agent with every engine
 
-ReelForge Studio is driven by agents over MCP or REST and renders with four
+RenderWeld is driven by agents over MCP or REST and renders with four
 engines. Each cell below is a step-by-step tutorial **and** a reproducible
 proof: the same prompt or script, run against a real studio, with the output
 checked by ffprobe. A cell is ✅ only after such a run passed; everything else
 says why it is not proven.
+
+The proofs were recorded before ReelForge was renamed RenderWeld, so the
+prompts and commands keep the names those runs used: the MCP server entry is
+called `reelforge` (tools `mcp__reelforge__*`), and the example scripts read
+`REELFORGE_URL` and `REELFORGE_API_KEY`. Everything works under those names.
+They change when the cells are proved again (`pnpm tutorials:prove`).
 
 | Agent | Remotion | Motion Canvas | HTML | HyperFrames | Multi-engine |
 | --- | --- | --- | --- | --- | --- |
@@ -44,13 +50,13 @@ same MCP endpoint: [mcp-sdk/other-clients.md](mcp-sdk/other-clients.md)
    git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
    export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)   # keep a copy
    docker compose up -d --build
-   docker compose exec reelforge reelforge licence activate <YOUR-LICENCE-KEY>
+   docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>
    ```
 
 2. **Create a key for your agent** (printed once):
 
    ```bash
-   docker compose exec reelforge reelforge keys create --name claude --scopes read,write,render
+   docker compose exec reelforge renderweld keys create --name claude --scopes read,write,render
    export REELFORGE_API_KEY=rf_...
    ```
 
@@ -67,13 +73,13 @@ same MCP endpoint: [mcp-sdk/other-clients.md](mcp-sdk/other-clients.md)
    how to download and check the MP4.
 
 Developing on the studio itself instead? `pnpm dev` from a checkout runs
-without a licence (`REELFORGE_LICENCE_MODE=off`, local development only); see
+without a licence (`RENDERWELD_LICENCE_MODE=off`, local development only); see
 step 1B of any tutorial.
 
 ## Reproduce a proof
 
 ```bash
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
+export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm tutorials:prove rest html            # one cell
 pnpm tutorials:prove mcp-sdk all          # a whole row
 pnpm tutorials:prove claude-code remotion --record   # also update docs/tutorials/proofs/
