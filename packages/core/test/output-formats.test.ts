@@ -98,7 +98,9 @@ describe('every output format through the service (#302)', () => {
       await create(manifest(c.id, c.output, { captions: 'sidecar', ...(c.alpha ? {} : { engines: ['remotion', 'html'] }) }));
       const r = await renderOk(c.id);
       expect(r).toMatchObject({ file: c.file, contentType: c.type, alpha: c.alpha, frames: FRAMES, width: W, height: H });
-      expect(r.files).toEqual(expect.arrayContaining([c.file, 'poster.png', 'render-manifest.json', 'captions.srt', 'captions.vtt', 'captions.ass']));
+      expect(r.files).toEqual(expect.arrayContaining([c.file, 'poster.png', 'contact-sheet.jpg', 'render-manifest.json', 'captions.srt', 'captions.vtt', 'captions.ass']));
+      // The stored contact sheet (#379) runs to the last frame of every format, alpha included.
+      expect(r.contactSheet!.tiles.at(-1)).toMatchObject({ frame: FRAMES - 1, position: 'last' });
       expect(r.outputUrl).toBe(`https://studio.example.com/v1/renders/${r.renderId}/output?file=${c.file}`);
       expect(r.downloadUrl).toContain(`file=${c.file}`);
       const f = await svc.renderFile(r.renderId);
@@ -127,7 +129,9 @@ describe('every output format through the service (#302)', () => {
     await create(manifest('gif', { format: 'gif' }, { captions: 'both', engines: ['remotion', 'html'] }));
     const r = await renderOk('gif');
     expect(r).toMatchObject({ file: 'final.gif', contentType: 'image/gif', format: 'gif' });
-    expect(r.files).toEqual(expect.arrayContaining(['final.gif', 'poster.png', 'captions.srt']));
+    expect(r.files).toEqual(expect.arrayContaining(['final.gif', 'poster.png', 'contact-sheet.jpg', 'captions.srt']));
+    // From the master before it is removed: the timeline's frames, not the GIF's 15 a second.
+    expect(r.contactSheet!.tiles.at(-1)).toMatchObject({ frame: FRAMES - 1, position: 'last' });
     const f = await svc.renderFile(r.renderId);
     const info = await probe(tools.ffprobe, f.path);
     expect(info.videoCodec).toBe('gif');
@@ -161,7 +165,7 @@ describe('every output format through the service (#302)', () => {
     expect([info.videoCodec, info.pixelFormat]).toEqual(['png', 'rgba']);
     expect(alpha!.min).toBeLessThan(5);
     expect(alpha!.max).toBeGreaterThan(250);
-    expect(r.files).toEqual(expect.arrayContaining(['frames.zip', 'captions.srt']));
+    expect(r.files).toEqual(expect.arrayContaining(['frames.zip', 'contact-sheet.jpg', 'captions.srt']));
     expect(r.audio).toMatchObject({ track: 'none', reason: 'png-sequence has no audio', checks: { avSync: 'skipped', loudness: 'skipped' } });
     expect(r.frameRate).toBe('30/1');
     evidence.push(`| png-sequence | png + alpha | frames.zip | ${info.videoCodec} | ${info.pixelFormat} | ${alpha!.min}-${alpha!.max} | ${entries.length} entries | ${SECONDS.toFixed(6)} | none |`);
@@ -185,6 +189,8 @@ describe('every output format through the service (#302)', () => {
       expect(r).toMatchObject({ file: `final.${format}`, contentType: type, format });
       expect(r.posterUrl).toBeUndefined();
       expect(r.files).not.toContain('poster.png');
+      expect(r.contactSheet).toBeUndefined();
+      expect(r.files).not.toContain('contact-sheet.jpg');
       expect(r.files).toEqual(expect.arrayContaining([`final.${format}`, 'captions.srt', 'captions.vtt']));
       const f = await svc.renderFile(r.renderId);
       const a = await probeAudio(tools.ffprobe, f.path);

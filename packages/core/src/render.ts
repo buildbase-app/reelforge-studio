@@ -22,8 +22,10 @@ import {
   type Tools,
 } from '@renderweld/media-pipeline';
 import {
+  fpsArg,
   fpsValue,
   framesToSeconds,
+  safeAreaInsets,
   SCHEMA_VERSION,
   timeline,
   formatSpec,
@@ -40,6 +42,7 @@ import { audioChecks, audioPass, resolveAudioPlan, verifyAudio, type AudioDefaul
 import { captionPass } from './captions';
 import { VIDEO_QA_DEFAULTS, lowMotionOutsideFreezes, sceneTimes, seekSamples, videoQaIssues, type SeekResult, type VideoQaIssue, type VideoQaManifest, type VideoQaSettings } from './videoqa';
 import { writeJsonAtomic } from './fsutil';
+import { CONTACT_SHEET_DEFAULTS, CONTACT_SHEET_FILE, framesImageWithinBudget, planContactSheet, sceneSpans, type ContactSheetManifest, type ContactSheetSettings } from './frames';
 import { MP4_SPEC, checkFormatOutput, isAudioOnly, packageFormat, planFor } from './output-formats';
 import type { Logger, ResolvedAsset } from './plugins';
 import type { PluginRegistry } from './registry';
@@ -73,6 +76,8 @@ export interface RenderPipelineInput {
   audioDefaults?: AudioDefaults;
   /** The server's `render.qa.*` settings: picture checks after the encode (default: VIDEO_QA_DEFAULTS). */
   videoQa?: VideoQaSettings;
+  /** The server's `render.contactSheet.*` settings: the sheet stored with the render (default: CONTACT_SHEET_DEFAULTS). */
+  contactSheet?: ContactSheetSettings;
   /** The server's captions.defaultMode when the job was queued (projects without captions.mode). */
   captionsDefault?: CaptionMode;
   /** GIF output larger than this fails its check (render.formats.gifMaxBytes; 0: no limit). */
@@ -309,6 +314,32 @@ export interface FinishRenderInput {
 }
 
 /**
+ * The contact sheet stored with every render and preview (#379, render.contactSheet.*): get_frames' automatic
+ * selection (or one frame every N seconds) from the assembled picture, labelled, as one JPEG under 1 MB. Made here so
+ * an agent, a reviewer or the dashboard sees every scene and both sides of every cut without asking for it.
+ */
+async function storeContactSheet(f: { input: RenderPipelineInput; settings: ContactSheetSettings; video: string; out: string; output: OutputSettings; clips: SceneClip[]; frames: number }): Promise<ContactSheetManifest> {
+  const { settings, output } = f;
+  const plan = planContactSheet(settings, { frames: f.frames, fps: fpsValue(output.fps), scenes: sceneSpans(f.clips) });
+  const overlay = settings.overlay === 'safe' ? safeAreaInsets(output.width, output.height, f.input.project.brief?.platform).content : undefined;
+  const r = await framesImageWithinBudget({ ffmpeg: f.input.tools.ffmpeg, input: f.video, frameRate: fpsArg(output.fps), width: output.width, height: output.height, tiles: plan.tiles, tileWidth: settings.width, overlay, layout: 'sheet', out: f.out, signal: f.input.signal });
+  return {
+    file: CONTACT_SHEET_FILE,
+    mode: plan.mode === 'every' ? 'every' : 'auto',
+    ...(plan.everySeconds !== undefined ? { everySeconds: plan.everySeconds } : {}),
+    overlay: settings.overlay,
+    tileWidth: r.tileWidth,
+    tileHeight: r.tileHeight,
+    columns: r.columns,
+    rows: r.rows,
+    labels: r.labels,
+    bytes: r.bytes[0]!,
+    tiles: plan.tiles,
+    ...(plan.omitted.length ? { omitted: plan.omitted } : {}),
+  };
+}
+
+/**
  * The seek check (#294): render a few frames again on their own (the engine starts at the frame, as a chunk of a split
  * scene does) and compare each with the same frame of the finished video. A frame that cannot be rendered or read is
  * recorded with its error; the render itself goes on.
@@ -491,6 +522,23 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
       run(tools.ffmpeg, ['-hide_banner', '-v', 'error', '-y', ...(o.vp9Alpha ? ['-c:v', 'libvpx-vp9'] : []), '-i', from, '-vf', `select=eq(n\\,${o.frame ?? 0}),scale=${o.width ?? 270}:-2`, '-frames:v', '1', poster!], 'poster')
     );
   let posterFrame = 0;
+  // The stored contact sheet (#379), from the assembled picture at the timeline's frames: made before a GIF's or PNG
+  // zip's master is removed. A sheet that cannot be made is logged and left out; it never fails the render.
+  const sheetSettings = input.contactSheet ?? CONTACT_SHEET_DEFAULTS;
+  let contactSheet: ContactSheetManifest | undefined;
+  const makeContactSheet = async () => {
+    if (sheetSettings.select === 'off' || audioOnly) return;
+    try {
+      contactSheet = await ffmpegSpan('ffmpeg contact sheet', () =>
+        storeContactSheet({ input, settings: sheetSettings, video: finalTmp, out: join(tmp, CONTACT_SHEET_FILE), output, clips, frames: assembled.totalFrames })
+      );
+      log(`contact sheet: ${contactSheet.tiles.length} frames, ${contactSheet.columns}x${contactSheet.rows} tiles of ${contactSheet.tileWidth}x${contactSheet.tileHeight}, ${contactSheet.bytes} bytes`);
+    } catch (e) {
+      if (signal.aborted) throw e;
+      await rm(join(tmp, CONTACT_SHEET_FILE), { force: true });
+      log(`contact sheet left out: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   const problems: string[] = [];
   if (fmt) {
     // Other formats (#302): GIF / PNG zip from the master, then the format's own checks.
@@ -508,6 +556,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     posterFrame = Math.floor((fmt.kind === 'animation' ? pkg.frames : assembled.totalFrames) / 2);
     if (fmt.kind === 'audio') poster = null;
     else await makePoster(fmt.kind === 'image-sequence' ? finalTmp : outputTmp, { frame: posterFrame, width: 540, vp9Alpha: spec.codec === 'vp9' && spec.alpha });
+    await makeContactSheet();
     if (fmt.master && !fmt.master.final) await rm(finalTmp, { force: true });
   } else {
     const probed = await ffmpegSpan('ffprobe output', () => probe(tools.ffprobe, finalTmp));
@@ -550,6 +599,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
 
     // A small poster from the first frame (for agents and thumbnails).
     await makePoster(finalTmp);
+    await makeContactSheet();
   }
 
   const engineVersions: Record<string, string> = {};
@@ -590,6 +640,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
       seek: pictureCheck('video.seek', !!videoQa?.seek?.frames.some((s) => s.maxDiff !== undefined)),
     },
     ...(videoQa ? { videoQa } : {}),
+    ...(contactSheet ? { contactSheet } : {}),
     ...(f.streamCopy ? { join: { method: 'concat demuxer, video stream copy', clips: clips.length } } : {}),
     project,
   };

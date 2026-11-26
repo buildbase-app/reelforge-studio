@@ -1,4 +1,6 @@
+import { rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { framesImage, type FramesImageOptions, type FramesImageResult } from '@renderweld/media-pipeline';
 import { badRequest } from './errors';
 
 /**
@@ -17,6 +19,37 @@ export const FRAMES_MAX_WIDTH = 720;
 /** The image (or all images of a `separate` answer) stays under this many bytes. */
 export const FRAMES_MAX_BYTES = 1_000_000;
 export const FRAMES_MIN_EVERY_SECONDS = 0.25;
+
+/** The contact sheet stored with every render and preview (#379), next to poster.png. */
+export const CONTACT_SHEET_FILE = 'contact-sheet.jpg';
+
+/** The server's render.contactSheet.* settings. */
+export interface ContactSheetSettings {
+  /** `auto`: get_frames' automatic selection; `every`: one frame every `everySeconds`; `off`: no sheet. */
+  select: 'auto' | 'every' | 'off';
+  everySeconds: number;
+  width: number;
+  overlay: 'none' | 'safe';
+}
+export const CONTACT_SHEET_DEFAULTS: ContactSheetSettings = { select: 'auto', everySeconds: 2.5, width: FRAMES_DEFAULT_WIDTH, overlay: 'none' };
+
+/** What the render manifest records of the stored contact sheet (#379). */
+export interface ContactSheetManifest {
+  file: typeof CONTACT_SHEET_FILE;
+  mode: 'auto' | 'every';
+  /** `every` only: the interval used (widened when the setting would give more than 24 frames). */
+  everySeconds?: number;
+  overlay: 'none' | 'safe';
+  tileWidth: number;
+  tileHeight: number;
+  columns: number;
+  rows: number;
+  labels: boolean;
+  bytes: number;
+  tiles: PlannedTile[];
+  /** `auto` only: frames left out to stay within 24 tiles (get_frames with `at` shows them). */
+  omitted?: PlannedTile[];
+}
 
 /** Where get_frames caches one render's images: removed with the render (project delete, retention cleanup). */
 export const framesCacheDir = (cacheDir: string, runId: string) => join(cacheDir, 'frames', runId);
@@ -138,4 +171,35 @@ export function planFrames(req: FramesRequest, video: { frames: number; fps: num
   for (const m of mids) add([m]);
   for (const pair of cuts) add(pair);
   return { mode: 'auto', tiles: [...chosen.values()].sort((a, b) => a.frame - b.frame), omitted: omitted.sort((a, b) => a.frame - b.frame) };
+}
+
+/**
+ * The frames of the stored contact sheet: get_frames' plan for the render.contactSheet.* settings. An interval that
+ * would give more than FRAMES_MAX_TILES frames is widened to the smallest that fits (0.01 s steps), so a long video
+ * still gets a sheet; `everySeconds` is the interval used.
+ */
+export function planContactSheet(s: ContactSheetSettings, video: { frames: number; fps: number; scenes: SceneSpan[] }): FramesPlan & { everySeconds?: number } {
+  if (s.select !== 'every') return planFrames({}, video);
+  const seconds = (video.frames - 1) / video.fps;
+  const count = (every: number) => Math.floor(seconds / every + 1e-9) + 1;
+  let everySeconds = Math.max(s.everySeconds, FRAMES_MIN_EVERY_SECONDS);
+  if (count(everySeconds) > FRAMES_MAX_TILES) {
+    everySeconds = Math.ceil((seconds / FRAMES_MAX_TILES) * 100) / 100;
+    while (count(everySeconds) > FRAMES_MAX_TILES) everySeconds = Math.round(everySeconds * 100 + 1) / 100;
+  }
+  return { ...planFrames({ everySeconds }, video), everySeconds };
+}
+
+/**
+ * framesImage with the tiles shrunk by 0.7 (at most 4 times, never under 60 px) until the images fit `maxBytes`:
+ * a busy 4K frame compresses less than a flat one. `bytes` is the size of each file, in order.
+ */
+export async function framesImageWithinBudget(o: FramesImageOptions, maxBytes = FRAMES_MAX_BYTES): Promise<FramesImageResult & { bytes: number[] }> {
+  for (let tileWidth = o.tileWidth, tries = 0; ; tileWidth = Math.floor(tileWidth * 0.7), tries++) {
+    await rm(o.out, { recursive: true, force: true });
+    const r = await framesImage({ ...o, tileWidth });
+    const bytes: number[] = [];
+    for (const f of r.files) bytes.push((await stat(f)).size);
+    if (bytes.reduce((a, b) => a + b, 0) <= maxBytes || tries >= 4 || tileWidth * 0.7 < 60) return { ...r, bytes };
+  }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FRAMES_MAX_TILES, planFrames, sceneSpans } from '../src/frames';
+import { CONTACT_SHEET_DEFAULTS, FRAMES_MAX_TILES, planContactSheet, planFrames, sceneSpans } from '../src/frames';
 
 /** get_frames selection (#379): which frames an agent looks at. */
 const three = sceneSpans([
@@ -71,6 +71,20 @@ describe('planFrames', () => {
   it('FRM-06 everySeconds: one frame per interval from 0, capped at 24 with the interval to use', () => {
     expect(planFrames({ everySeconds: 1 }, video).tiles.map((t) => t.frame)).toEqual([0, 30, 60, 90]);
     expect(() => planFrames({ everySeconds: 1 }, { frames: 1800, fps: 30, scenes: [] })).toThrow('everySeconds 1 gives 60 frames; at most 24: use at least 2.61');
+  });
+
+  it('FRM-08 the stored sheet: auto is get_frames\' default; every widens an interval that would give more than 24 frames', () => {
+    expect(planContactSheet(CONTACT_SHEET_DEFAULTS, video)).toEqual(planFrames({}, video));
+    const every = { ...CONTACT_SHEET_DEFAULTS, select: 'every' as const };
+    expect(planContactSheet(every, video)).toMatchObject({ mode: 'every', everySeconds: 2.5, tiles: [{ frame: 0 }, { frame: 75 }] });
+    // A minute at 2.5 s is 24 frames and fits; at 1 s it would be 60, so the interval becomes the smallest that fits.
+    const minute = { frames: 1800, fps: 30, scenes: [] };
+    expect(planContactSheet(every, minute).tiles).toHaveLength(24);
+    const wide = planContactSheet({ ...every, everySeconds: 1 }, minute);
+    expect(wide.everySeconds).toBe(2.5);
+    expect(wide.tiles).toHaveLength(FRAMES_MAX_TILES);
+    // An hour still gets a sheet.
+    expect(planContactSheet(every, { frames: 108_000, fps: 30, scenes: [] }).tiles).toHaveLength(24);
   });
 
   it('FRM-07 refuses what cannot be shown', () => {

@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { join, resolve, sep } from 'node:path';
-import { MAX_ZIP_ENTRIES, assHasAlpha, encodersOf, framesImage, missingEncoders, resolveTools, setEncoderSettings, setFormatSettings, toolPaths, toolVersionAsync, type Tools } from '@renderweld/media-pipeline';
+import { MAX_ZIP_ENTRIES, assHasAlpha, encodersOf, missingEncoders, resolveTools, setEncoderSettings, setFormatSettings, toolPaths, toolVersionAsync, type Tools } from '@renderweld/media-pipeline';
 import {
   CAPTION_MODES,
   captionMode,
@@ -47,7 +47,7 @@ import {
   safeAreaInsets,
 } from '@renderweld/project-schema';
 import { BUNDLED_FONTS } from './fonts';
-import { FRAMES_DEFAULT_WIDTH, FRAMES_MAX_BYTES, FRAMES_MAX_WIDTH, FRAMES_MIN_WIDTH, framesCacheDir, planFrames, sceneSpans, type FramesRequest, type PlannedTile } from './frames';
+import { CONTACT_SHEET_FILE, FRAMES_DEFAULT_WIDTH, FRAMES_MAX_WIDTH, FRAMES_MIN_WIDTH, framesCacheDir, framesImageWithinBudget, planFrames, sceneSpans, type ContactSheetManifest, type FramesRequest, type PlannedTile } from './frames';
 import type { VideoQaManifest } from './videoqa';
 import { audioChecks, type AudioManifest } from './audio';
 import { OLD_SERVER_NAMES, PRODUCT_NAME, SERVER_NAME } from './product';
@@ -287,6 +287,11 @@ export interface RenderSummary {
   audio?: RenderAudio;
   /** Picture checks (#294, render.qa.*): frozen and black stretches, with the scenes they touch. Absent when off or audio-only. */
   videoQa?: VideoQaManifest;
+  /**
+   * The labelled contact sheet stored with the render (#379, render.contactSheet.*): its links and the frame of each
+   * tile, in reading order. Absent when off, for audio-only output, when it could not be made and before #379.
+   */
+  contactSheet?: Omit<ContactSheetManifest, 'file'> & { file: typeof CONTACT_SHEET_FILE; url: string; downloadUrl: string; downloadUrlExpiresAt: string; downloadVia: 'bucket' | 'server' };
 }
 
 export interface RenderAudio {
@@ -1954,6 +1959,7 @@ export class ReelforgeService {
       assets: (project, pid) => this.resolveAssets(project, pid),
       audioDefaults: () => this.settings.current.config.render.audio,
       videoQa: () => this.settings.current.config.render.qa,
+      contactSheet: () => this.settings.current.config.render.contactSheet,
     };
   }
 
@@ -2092,6 +2098,7 @@ export class ReelforgeService {
       ...(req.audio ? { audio: req.audio } : {}),
       audioDefaults: this.settings.current.config.render.audio,
       videoQa: this.settings.current.config.render.qa,
+      contactSheet: this.settings.current.config.render.contactSheet,
       ...(req.captionsDefault ? { captionsDefault: req.captionsDefault } : {}),
       gifMaxBytes: this.settings.current.config.render.formats.gifMaxBytes,
     });
@@ -2203,6 +2210,7 @@ export class ReelforgeService {
       captions?: CaptionManifest;
       audio?: Partial<AudioManifest>;
       videoQa?: VideoQaManifest;
+      contactSheet?: ContactSheetManifest;
     }>(projectId, runId);
     if (!m) throw notFound('render', runId);
     const base = `/v1/renders/${runId}/output`;
@@ -2244,6 +2252,11 @@ export class ReelforgeService {
         qa: { ok: qa.ok, maxCps: qa.maxCps, issues: qa.issues },
       };
     }
+    // The stored contact sheet (#379): only the name this server writes.
+    let contactSheet: RenderSummary['contactSheet'];
+    if (m.contactSheet?.file === CONTACT_SHEET_FILE) {
+      contactSheet = { ...m.contactSheet, file: CONTACT_SHEET_FILE, url: this.url(`${base}?file=${CONTACT_SHEET_FILE}`), ...(await this.downloadLink(projectId, runId, CONTACT_SHEET_FILE)) };
+    }
     return {
       renderId: runId,
       projectId,
@@ -2260,7 +2273,7 @@ export class ReelforgeService {
       file: outFile,
       contentType: contentTypeFor(outFile),
       ...(m.output.frameRate ? { frameRate: m.output.frameRate } : {}),
-      files: [outFile, ...(poster ? [poster] : []), 'render-manifest.json', ...(captions?.files.map((f) => f.file) ?? []), ...m.scenes.map((s) => s.file)],
+      files: [outFile, ...(poster ? [poster] : []), ...(contactSheet ? [CONTACT_SHEET_FILE] : []), 'render-manifest.json', ...(captions?.files.map((f) => f.file) ?? []), ...m.scenes.map((s) => s.file)],
       outputUrl: this.url(outFile === 'final.mp4' ? base : `${base}?file=${outFile}`),
       ...(poster ? { posterUrl: this.url(`${base}?file=poster.png`) } : {}),
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
@@ -2268,6 +2281,7 @@ export class ReelforgeService {
       ...(captions ? { captions } : {}),
       ...(m.audio?.loudness && m.audio.track ? { audio: renderAudio(m.audio as AudioManifest) } : {}),
       ...(m.videoQa ? { videoQa: m.videoQa } : {}),
+      ...(contactSheet ? { contactSheet } : {}),
       storage: { driver: this.storage.driver.id, prefix: renderPrefix(projectId, runId) },
     };
   }
@@ -2334,8 +2348,8 @@ export class ReelforgeService {
   /** A file of a render in storage (default: its output, final.mp4 or another format's file, #302): its key, type and size, for streaming. */
   async renderObject(runId: string, fileArg?: string): Promise<{ key: string; contentType: string; bytes: number; file: string }> {
     const file = fileArg ?? (await this.getRender(runId)).file;
-    if (!isSafeRelativePath(file) || !(/^(poster\.png|render-manifest\.json|clips\/[\w.-]+\.(mp4|mov))$/.test(file) || OUTPUT_FILE_PATTERN.test(file) || CAPTION_FILE_PATTERN.test(file))) {
-      throw badRequest('file must be the output (final.mp4|mov|webm|gif|m4a|wav or frames.zip), poster.png, render-manifest.json, captions[.<language>].srt|vtt|ass, descriptions[.<language>].vtt or clips/<name>.mp4|mov');
+    if (!isSafeRelativePath(file) || !(/^(poster\.png|contact-sheet\.jpg|render-manifest\.json|clips\/[\w.-]+\.(mp4|mov))$/.test(file) || OUTPUT_FILE_PATTERN.test(file) || CAPTION_FILE_PATTERN.test(file))) {
+      throw badRequest('file must be the output (final.mp4|mov|webm|gif|m4a|wav or frames.zip), poster.png, contact-sheet.jpg, render-manifest.json, captions[.<language>].srt|vtt|ass, descriptions[.<language>].vtt or clips/<name>.mp4|mov');
     }
     const { projectId } = await this.findRender(runId);
     const key = renderPrefix(projectId, runId) + file;
@@ -2394,22 +2408,8 @@ export class ReelforgeService {
       try {
         const input = (await this.renderFile(runId, file)).path;
         await mkdir(dir, { recursive: true });
-        // Shrink the tiles until the images fit the byte budget (a busy 4K frame compresses less).
-        for (let tileWidth = width, tries = 0; ; tileWidth = Math.floor(tileWidth * 0.7), tries++) {
-          await rm(out, { recursive: true, force: true });
-          const r = await framesImage({ ffmpeg: this.tools().ffmpeg, input, frameRate, width: m.output.width, height: m.output.height, tiles: plan.tiles, tileWidth, overlay, layout, out });
-          let bytes = 0;
-          const images: FramesShape['images'] = [];
-          for (const f of r.files) {
-            const b = (await stat(f)).size;
-            bytes += b;
-            images.push({ file: f.slice(dir.length + 1), bytes: b });
-          }
-          if (bytes <= FRAMES_MAX_BYTES || tries >= 4 || tileWidth * 0.7 < 60) {
-            shape = { tileWidth: r.tileWidth, tileHeight: r.tileHeight, columns: r.columns, rows: r.rows, labels: r.labels, images };
-            break;
-          }
-        }
+        const r = await framesImageWithinBudget({ ffmpeg: this.tools().ffmpeg, input, frameRate, width: m.output.width, height: m.output.height, tiles: plan.tiles, tileWidth: width, overlay, layout, out });
+        shape = { tileWidth: r.tileWidth, tileHeight: r.tileHeight, columns: r.columns, rows: r.rows, labels: r.labels, images: r.files.map((f, i) => ({ file: f.slice(dir.length + 1), bytes: r.bytes[i]! })) };
         await writeJsonAtomic(meta, shape);
       } finally {
         const next = this.framesQueue.shift();

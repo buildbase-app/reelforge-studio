@@ -102,7 +102,10 @@ export async function framesImage(o: FramesImageOptions): Promise<FramesImageRes
       const at = t.frame === 0 ? 0 : (t.frame - 0.5) / fps;
       args.push('-ss', at.toFixed(6), '-i', resolve(o.input));
     }
-    const font = Math.max(10, Math.round(tileHeight / 22));
+    // Label size from the tile's height, and small enough that the longest label fits its width (a glyph of the
+    // default font is at most about 0.6 em wide on average, plus the box padding on both sides).
+    const longest = Math.max(...o.tiles.map((t) => t.label.length));
+    const font = Math.max(10, Math.round(Math.min(tileHeight / 22, tileWidth / (0.6 * longest + 1.5))));
     const graph: string[] = [];
     for (const [i, t] of o.tiles.entries()) {
       const steps = [`trim=end_frame=1`, `setpts=PTS-STARTPTS`];

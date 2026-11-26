@@ -37,11 +37,11 @@ const manifest = {
 const starts = { hook: 0, middle: 60, outro: 135 };
 const codeOf = (f: number) => (f - (f >= starts.outro ? starts.outro : f >= starts.middle ? starts.middle : starts.hook)) % 40;
 
-/** Mean luma of a JPEG's top-left corner (clear of labels and overlay), mapped back to the painted code. */
-function codeIn(jpeg: Buffer): number {
+/** Mean luma of a JPEG's top-left corner (clear of labels and overlay), or of the tile whose corner is at left, top, mapped back to the painted code. */
+function codeIn(jpeg: Buffer, left = 0, top = 0): number {
   const file = join(dir, `tile-${Math.random().toString(36).slice(2)}.jpg`);
   writeFileSync(file, jpeg);
-  const r = spawnSync('ffmpeg', ['-hide_banner', '-i', file, '-vf', 'crop=16:16:4:4,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-', '-f', 'null', '-'], { encoding: 'utf8' });
+  const r = spawnSync('ffmpeg', ['-hide_banner', '-i', file, '-vf', `crop=16:16:${left + 4}:${top + 4},signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`, '-f', 'null', '-'], { encoding: 'utf8' });
   const y = Number(/YAVG=([\d.]+)/.exec(r.stdout)?.[1]);
   // The JPEG is full range: 16..235 became 0..255.
   return Math.round((y * 219) / 255 / 5);
@@ -148,6 +148,52 @@ describe('MCP get_frames', () => {
     expect(Buffer.from(images[0].data, 'base64').length).toBe(body.images[0].bytes);
     const missing: any = await client.callTool({ name: 'get_frames', arguments: {} });
     expect(missing.isError).toBe(true);
+    await client.close();
+  });
+});
+
+describe('stored contact sheet', () => {
+  it('FRM-15 every render stores a labelled sheet of the automatic tiles, each the frame it names; its links work with a read key or signed', async () => {
+    const summary = await (await rest(`/v1/renders/${renderId}`, reader)).json();
+    const sheet = summary.contactSheet;
+    expect(sheet).toMatchObject({ file: 'contact-sheet.jpg', mode: 'auto', overlay: 'none', labels: true, tileWidth: 360, tileHeight: 640 });
+    expect(summary.files).toContain('contact-sheet.jpg');
+    // The same frames, labels and layout get_frames gives by default.
+    const frames = await (await rest(`/v1/renders/${renderId}/frames`, reader)).json();
+    expect(sheet.tiles).toEqual(frames.tiles.map(({ index: _index, ...t }: any) => t));
+    expect([sheet.columns, sheet.rows]).toEqual([frames.columns, frames.rows]);
+    const file = await rest(`/v1/renders/${renderId}/output?file=contact-sheet.jpg`, reader);
+    expect(file.status).toBe(200);
+    expect(file.headers.get('content-type')).toBe('image/jpeg');
+    const jpeg = Buffer.from(await file.arrayBuffer());
+    expect(jpeg.length).toBe(sheet.bytes);
+    expect(jpeg.length).toBeLessThan(1_000_000);
+    // Tiles left to right, top to bottom, with a padding of tileWidth / 90 around each.
+    const pad = Math.max(2, Math.round(sheet.tileWidth / 90));
+    sheet.tiles.forEach((t: any, i: number) => {
+      const [col, row] = [i % sheet.columns, Math.floor(i / sheet.columns)];
+      expect(codeIn(jpeg, pad + col * (sheet.tileWidth + pad), pad + row * (sheet.tileHeight + pad)), `frame ${t.frame}`).toBe(codeOf(t.frame));
+    });
+    const signed = await fetch(new URL(sheet.downloadUrl, server.url));
+    expect(signed.status).toBe(200);
+    expect(Buffer.from(await signed.arrayBuffer()).equals(jpeg)).toBe(true);
+    expect(JSON.stringify(summary)).not.toContain(dir);
+  });
+
+  it('FRM-16 get_render_output lists the sheet, and attaches it only with includeContactSheet', async () => {
+    const client = new Client({ name: 'frames-test', version: '0.0.0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${reader}` } } }));
+    const plain: any = await client.callTool({ name: 'get_render_output', arguments: { renderId } });
+    expect(plain.isError).toBeFalsy();
+    const body = JSON.parse(plain.content.find((c: any) => c.type === 'text').text);
+    expect(body.contactSheet).toMatchObject({ file: 'contact-sheet.jpg', tiles: expect.any(Array) });
+    expect(plain.content.filter((c: any) => c.type === 'image').map((c: any) => c.mimeType)).toEqual(['image/png']);
+    const both: any = await client.callTool({ name: 'get_render_output', arguments: { renderId, includeContactSheet: true } });
+    expect(both.content.filter((c: any) => c.type === 'image').map((c: any) => c.mimeType)).toEqual(['image/png', 'image/jpeg']);
+    const only: any = await client.callTool({ name: 'get_render_output', arguments: { renderId, includePoster: false, includeContactSheet: true } });
+    const images = only.content.filter((c: any) => c.type === 'image');
+    expect(images.map((c: any) => c.mimeType)).toEqual(['image/jpeg']);
+    expect(Buffer.from(images[0].data, 'base64').length).toBe(body.contactSheet.bytes);
     await client.close();
   });
 });
