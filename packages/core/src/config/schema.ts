@@ -1132,6 +1132,14 @@ export const ConfigSchema = z.object({
         description:
           'What a muted render (`audio.mute`) carries: `silent`, a valid silent AAC track (safest: some players and upload pipelines expect an audio stream); `none`, no audio stream at all.',
       }),
+      sfxMaskingDb: setting(z.number().min(-20).max(30), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_AUDIO_SFX_MASKING_DB',
+        default: 3,
+        description:
+          'Warn when a sound effect is less than this many dB louder than the music and voice under it (RMS over its first half second, or all of it when shorter; -20 to 30, #459): the render records an `sfx.masked` warning in `audio.qa` with the cue, its time and a volume that would clear it, and `checks.sfx` is `warn`. Lower it to warn less, raise it to ask for more headroom. A warning only: the render still succeeds.',
+      }),
     }),
     ffmpegPath: setting(nonEmpty(), {
       kind: 'path',
