@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { join, resolve, sep } from 'node:path';
-import { MAX_ZIP_ENTRIES, assHasAlpha, encodersOf, missingEncoders, resolveTools, setEncoderSettings, setFormatSettings, toolPaths, toolVersionAsync, type Tools } from '@renderweld/media-pipeline';
+import { MAX_ZIP_ENTRIES, assHasAlpha, encodersOf, framesImage, missingEncoders, resolveTools, setEncoderSettings, setFormatSettings, toolPaths, toolVersionAsync, type Tools } from '@renderweld/media-pipeline';
 import {
   CAPTION_MODES,
   captionMode,
@@ -44,8 +44,10 @@ import {
   type ValidationIssue,
   type ValidationWarning,
   type ThemeTokens,
+  safeAreaInsets,
 } from '@renderweld/project-schema';
 import { BUNDLED_FONTS } from './fonts';
+import { FRAMES_DEFAULT_WIDTH, FRAMES_MAX_BYTES, FRAMES_MAX_WIDTH, FRAMES_MIN_WIDTH, framesCacheDir, planFrames, sceneSpans, type FramesRequest, type PlannedTile } from './frames';
 import { audioChecks, type AudioManifest } from './audio';
 import { OLD_SERVER_NAMES, PRODUCT_NAME, SERVER_NAME } from './product';
 import { AssetStore, assetUsableBy, stageStream } from './assets';
@@ -1094,6 +1096,8 @@ export class ReelforgeService {
   }
 
   async deleteProject(id: string) {
+    // Listed before the delete: get_frames' cached stills of these renders go too.
+    const runs = await this.storage.renders.listRuns(id).catch(() => []);
     await this.projects.delete(id);
     for (const [run, pid] of this.renderIndex) if (pid === id && run.startsWith(this.rk(''))) this.renderIndex.delete(run);
     // Its queued and running renders and previews stop (#419): a render that finished after the delete would
@@ -1107,6 +1111,7 @@ export class ReelforgeService {
     // A cancelled render stops within a moment here (a heartbeat on another worker); then its folder goes too.
     await Promise.all(stopping.map((jobId) => this.jobs.waitFor(jobId, DELETE_WAIT_MS).catch(() => undefined)));
     await this.removeProjectFiles(id);
+    for (const run of runs) await rm(framesCacheDir(this.cacheDir, run.runId), { recursive: true, force: true });
   }
 
   /** What is left of a deleted project: its local folder, or its renders in remote storage (manifests first). */
@@ -2316,6 +2321,90 @@ export class ReelforgeService {
     return { path: await this.storage.localFile(o.key, o.bytes), contentType: o.contentType };
   }
 
+  /** get_frames runs FFmpeg; at most this many at once per instance, the rest wait their turn. */
+  private framesSlots = 2;
+  private framesQueue: Array<() => void> = [];
+
+  /**
+   * get_frames (GET /v1/renders/:id/frames, read, #379): stills of exact frames of a finished render or preview,
+   * as one labelled contact sheet (default) or one JPEG per frame, from the stored output (no re-render). See
+   * frames.ts for the selection. `overlay: "safe"` tints what lies outside the content safe area of the render's
+   * size and platform. Images stay under FRAMES_MAX_BYTES (tiles shrink if needed) and are cached per render.
+   */
+  async getFrames(runId: string, req: FramesRequest = {}): Promise<FramesResult> {
+    const { projectId } = await this.findRender(runId);
+    const m = await this.storage.renders.readManifest<{
+      kind: string;
+      output: { file?: string; format?: string; width: number; height: number; fps: number; frameRate?: string; frames: number };
+      scenes: Array<{ sceneId: string; startFrame: number; frames: number }>;
+      project?: { brief?: { platform?: string } };
+    }>(projectId, runId);
+    if (!m) throw notFound('render', runId);
+    const file = m.output.file ?? 'final.mp4';
+    if (!/^final\.(mp4|mov|webm|gif)$/.test(file)) throw badRequest(`render ${runId} is ${file}, not a video; get_frames needs an mp4, mov, webm or gif output`);
+    const width = req.width ?? FRAMES_DEFAULT_WIDTH;
+    if (!Number.isInteger(width) || width < FRAMES_MIN_WIDTH || width > FRAMES_MAX_WIDTH) throw badRequest(`width must be a whole number from ${FRAMES_MIN_WIDTH} to ${FRAMES_MAX_WIDTH}`);
+    const layout = req.layout ?? 'sheet';
+    const overlayKind = req.overlay ?? 'none';
+    const frameRate = m.output.frameRate ?? String(m.output.fps);
+    const plan = planFrames(req, { frames: m.output.frames, fps: m.output.fps, scenes: sceneSpans(m.scenes ?? []) });
+    const overlay = overlayKind === 'safe' ? safeAreaInsets(m.output.width, m.output.height, m.project?.brief?.platform).content : undefined;
+
+    const key = createHash('sha256')
+      .update(JSON.stringify({ v: 1, frames: plan.tiles.map((t) => [t.frame, t.label]), width, layout, overlay }))
+      .digest('hex')
+      .slice(0, 32);
+    const dir = framesCacheDir(this.cacheDir, runId);
+    const out = join(dir, layout === 'sheet' ? `${key}.jpg` : key);
+    const meta = join(dir, `${key}.json`);
+    let shape = await readJson<FramesShape>(meta).catch(() => undefined);
+    // A cache entry whose images were cleared is made again.
+    if (shape && !shape.images.every((i) => existsSync(join(dir, i.file)))) shape = undefined;
+    if (!shape) {
+      await new Promise<void>((go) => (this.framesSlots > 0 ? (this.framesSlots--, go()) : this.framesQueue.push(go)));
+      try {
+        const input = (await this.renderFile(runId, file)).path;
+        await mkdir(dir, { recursive: true });
+        // Shrink the tiles until the images fit the byte budget (a busy 4K frame compresses less).
+        for (let tileWidth = width, tries = 0; ; tileWidth = Math.floor(tileWidth * 0.7), tries++) {
+          await rm(out, { recursive: true, force: true });
+          const r = await framesImage({ ffmpeg: this.tools().ffmpeg, input, frameRate, width: m.output.width, height: m.output.height, tiles: plan.tiles, tileWidth, overlay, layout, out });
+          let bytes = 0;
+          const images: FramesShape['images'] = [];
+          for (const f of r.files) {
+            const b = (await stat(f)).size;
+            bytes += b;
+            images.push({ file: f.slice(dir.length + 1), bytes: b });
+          }
+          if (bytes <= FRAMES_MAX_BYTES || tries >= 4 || tileWidth * 0.7 < 60) {
+            shape = { tileWidth: r.tileWidth, tileHeight: r.tileHeight, columns: r.columns, rows: r.rows, labels: r.labels, images };
+            break;
+          }
+        }
+        await writeJsonAtomic(meta, shape);
+      } finally {
+        const next = this.framesQueue.shift();
+        if (next) next();
+        else this.framesSlots++;
+      }
+    }
+    return {
+      renderId: runId,
+      kind: m.kind,
+      mode: plan.mode,
+      layout,
+      overlay: overlayKind,
+      video: { width: m.output.width, height: m.output.height, fps: m.output.fps, frameRate, frames: m.output.frames, durationSeconds: Math.round((m.output.frames / m.output.fps) * 1000) / 1000 },
+      tileWidth: shape.tileWidth,
+      tileHeight: shape.tileHeight,
+      ...(layout === 'sheet' ? { columns: shape.columns, rows: shape.rows } : {}),
+      labels: shape.labels,
+      tiles: plan.tiles.map((t, index) => ({ index, ...t })),
+      ...(plan.omitted.length ? { omitted: plan.omitted } : {}),
+      images: shape.images.map((i) => ({ path: join(dir, i.file), mimeType: 'image/jpeg' as const, bytes: i.bytes })),
+    };
+  }
+
   // ---- storage --------------------------------------------------------------
 
   /** Driver, where the bytes go (no secrets), health, usage, retention policy and the last sweep. */
@@ -2959,4 +3048,32 @@ export function voiceWords(raw: unknown): Array<{ text: string; start: number; e
     out.push({ text: text.trim(), start: Math.round(start * 1000) / 1000, end: Math.round(end * 1000) / 1000 });
   }
   return out;
+}
+
+/** What getFrames caches beside the images. */
+interface FramesShape {
+  tileWidth: number;
+  tileHeight: number;
+  columns: number;
+  rows: number;
+  labels: boolean;
+  images: Array<{ file: string; bytes: number }>;
+}
+
+/** getFrames' answer; `images[].path` is a local file the REST and MCP layers read and never return. */
+export interface FramesResult {
+  renderId: string;
+  kind: string;
+  mode: 'auto' | 'at' | 'every';
+  layout: 'sheet' | 'separate';
+  overlay: 'none' | 'safe';
+  video: { width: number; height: number; fps: number; frameRate: string; frames: number; durationSeconds: number };
+  tileWidth: number;
+  tileHeight: number;
+  columns?: number;
+  rows?: number;
+  labels: boolean;
+  tiles: Array<PlannedTile & { index: number }>;
+  omitted?: PlannedTile[];
+  images: Array<{ path: string; mimeType: 'image/jpeg'; bytes: number }>;
 }
