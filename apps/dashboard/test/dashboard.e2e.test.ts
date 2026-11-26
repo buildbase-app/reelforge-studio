@@ -318,6 +318,33 @@ describe.runIf(hasBrowser)('dashboard in a browser', () => {
     await context.close();
   }, 120_000);
 
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 360, height: 740 }]) {
+    it(`a render's page shows when it was first downloaded and when its files go (#487, ${viewport.width} px, no axe violations)`, async () => {
+      const { context, page, requests } = await open('light', viewport);
+      await signIn(page, studio.keys.read);
+      // The retention fields come from servers with #487; this one may predate it, so the answer gets them added.
+      const downloadedAt = new Date(Date.now() - 10 * 60_000).toISOString();
+      const deletesAt = new Date(Date.now() + 50 * 60_000).toISOString();
+      await page.route(
+        (u) => u.pathname === `/v1/renders/${ids.render}`,
+        async (route) => {
+          const res = await route.fetch();
+          const json = { ...(await res.json()), retention: { downloadedAt, deletesAt, deleteReason: 'deleted_after_download', deleteAfterDownloadMinutes: 60 } };
+          await route.fulfill({ response: res, json });
+        }
+      );
+      await page.goto(`${studio.url}/dashboard/#/renders/${ids.render}`);
+      const row = (label: string) => page.locator('dt', { hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd[1]');
+      await row('Deletion').waitFor();
+      expect(await row('First download').textContent()).not.toBe('Not yet');
+      expect(await row('Deletion').textContent()).toContain('· 60 min after the first download');
+      expect(await axe(page), `render with retention, ${viewport.width} px`).toEqual([]);
+      if (process.env.DASHBOARD_SHOTS) await page.screenshot({ path: join(process.env.DASHBOARD_SHOTS, `render-retention-${viewport.width}.png`), fullPage: true });
+      await checkClean(page, context, requests);
+      await context.close();
+    }, 60_000);
+  }
+
   it('a wrong key is refused with a message, and a 360 px screen has no axe violations', async () => {
     const { context, page } = await open('light', { width: 360, height: 740 });
     await page.goto(`${studio.url}/dashboard/`);
