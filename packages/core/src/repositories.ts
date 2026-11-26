@@ -91,7 +91,8 @@ export interface ProjectRepository {
  * `admin` manages its own workspace (keys, webhooks, audit). `owner` is instance-level (#304): workspaces, runtime
  * configuration, the licence, provider credentials and storage; it implies `admin` in its own workspace.
  */
-export const SCOPES = ['read', 'write', 'render', 'admin', 'owner'] as const;
+/** `approve` (#485): approve render plans when `render.approval` asks for it; `admin` and `owner` imply it. */
+export const SCOPES = ['read', 'write', 'render', 'approve', 'admin', 'owner'] as const;
 export type Scope = (typeof SCOPES)[number];
 
 export interface ApiKeyRecord {

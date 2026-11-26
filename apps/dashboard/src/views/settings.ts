@@ -268,7 +268,7 @@ export const configView: View = (ctx, main) => {
 
 // ---- API keys -------------------------------------------------------------------
 
-const SCOPES = ['read', 'write', 'render', 'admin'] as const;
+const SCOPES = ['read', 'write', 'render', 'approve', 'admin'] as const;
 
 /** #/settings/keys: list, create (secret shown once), rotate and revoke (admin). */
 export const keysView: View = (ctx, main) => {

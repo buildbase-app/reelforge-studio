@@ -11,6 +11,7 @@ An install that never creates a workspace has one, `default`, and works exactly 
 | Scope | Where it applies | What it allows |
 | --- | --- | --- |
 | `read`, `write`, `render` | the key's workspace | as before: read, edit and render that workspace's projects |
+| `approve` | the key's workspace | approve render plans when `render.approval` asks for it (`approve_render_plan`, #485); `admin` and `owner` imply it |
 | `admin` | the key's workspace | also that workspace's keys, webhooks and audit log, its own provider accounts (`configure_workspace_provider`), and everything a write or render key can do |
 | `owner` | the install | also workspaces (create, list, rename, change limits, suspend, delete, restore), runtime configuration (`get_config`, `update_config`), the licence, provider credentials, storage status and cleanup, `/readyz` details, every workspace's audit log, and owner keys |
 

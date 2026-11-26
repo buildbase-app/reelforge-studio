@@ -511,6 +511,15 @@ export const TOOLS: ToolDef[] = [
     run: async (a, { service }) => service.planRender(a.projectId, { variant: a.variant }),
   },
   {
+    name: 'approve_render_plan',
+    title: 'Approve a render plan',
+    description:
+      'Approves the plan plan_render returned (planId, and the same variant), when the server asks for approvals (render.approval; render_project answers 409 approval_required). Returns a single-use approvalToken for render_project, valid for render.approval.tokenMinutes and only for this plan: if the project changes, plan and approve again. Needs the approve scope (admin and owner imply it). Only approve when the user, having seen the plan, said yes.',
+    scope: 'approve',
+    input: { projectId: z.string(), planId: z.string(), variant: z.string().optional() },
+    run: async (a, { service, auth }) => service.approveRenderPlan(a.projectId, a.planId, { variant: a.variant }, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
     name: 'render_project',
     title: 'Render the project',
     description:
@@ -522,6 +531,7 @@ export const TOOLS: ToolDef[] = [
       projectId,
       backend: z.string().optional().describe('Render backend id; default from the manifest ("local").'),
       variant: z.string().optional().describe('Render only this output variant (an id from the manifest\'s variants). Omit to render every variant, or output when the manifest has none.'),
+      approvalToken: z.string().optional().describe('When render.approval asks for one (409 approval_required): the token approve_render_plan returned for this plan.'),
       priority: priorityArg('render', 'standard'),
       captions: z
         .enum(['off', 'burned', 'sidecar', 'both'])
@@ -536,7 +546,7 @@ export const TOOLS: ToolDef[] = [
     },
     run: async (a, { service }) => {
       const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}), ...(a.audio ? { audio: a.audio } : {}) };
-      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, opts));
+      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, { ...opts, approvalToken: a.approvalToken }));
     },
   },
   {
