@@ -1,9 +1,9 @@
-import type { FlashWindow, LoopSeam, MotionStretch, VideoInterval } from '@renderweld/media-pipeline';
+import { SEEK_GRID, SEEK_MAX_DIFF, type FlashWindow, type LoopSeam, type MotionStretch, type VideoInterval } from '@renderweld/media-pipeline';
 
 /**
  * Picture checks on a finished render (#294, render.qa.*): pictures that freeze, pictures that are black, flashes,
  * motion energy and pictures that barely move, and the loop seam of a looping video,
- * measured on every frame after the encode. Results go to the render manifest (`videoQa`, `checks.freeze`,
+ * measured on every frame after the encode; and the seek check, a few frames rendered again on their own. Results go to the render manifest (`videoQa`, `checks.freeze`,
  * `checks.black`) and get_render_output, so an agent that cannot watch its video still learns it froze.
  */
 export interface VideoQaSettings {
@@ -14,12 +14,14 @@ export interface VideoQaSettings {
   lowMotionSeconds: number;
   /** A frame that differs from the picture a second before by less than this (mean 8-bit luma levels on a 32x32 grid) counts as still. */
   motionFloor: number;
+  /** Frames of each render rendered again on their own and compared (scenes whose engine renders frame ranges); 0: off. */
+  seekFrames: number;
 }
 
-export const VIDEO_QA_DEFAULTS: VideoQaSettings = { video: 'warn', freezeSeconds: 3, blackSeconds: 0.5, lowMotionSeconds: 3, motionFloor: 0.4 };
+export const VIDEO_QA_DEFAULTS: VideoQaSettings = { video: 'warn', freezeSeconds: 3, blackSeconds: 0.5, lowMotionSeconds: 3, motionFloor: 0.4, seekFrames: 2 };
 
 export interface VideoQaIssue {
-  rule: 'video.freeze' | 'video.black' | 'video.flash' | 'video.motion' | 'video.loop';
+  rule: 'video.freeze' | 'video.black' | 'video.flash' | 'video.motion' | 'video.loop' | 'video.seek';
   severity: 'warning' | 'error';
   message: string;
   startSeconds: number;
@@ -41,7 +43,54 @@ export interface VideoQaManifest {
    * `output.loop`, the seam from the last frame back to the first.
    */
   motion?: { floor: number; lowSeconds: number; energyPerSecond: number[]; lows: MotionStretch[]; loop?: LoopSeam };
+  /** The seek check: each frame rendered on its own against the same frame of the video (SEEK_GRID luma grid). */
+  seek?: { grid: number; maxDiff: number; frames: SeekResult[] };
   issues: VideoQaIssue[];
+}
+
+/** A frame the seek check renders on its own: frame `sceneFrame` of a scene, frame `timelineFrame` of the video. */
+export interface SeekSample {
+  sceneId: string;
+  sceneFrame: number;
+  timelineFrame: number;
+}
+
+/** What the seek check found for one frame; `error` when it could not be rendered or read (the render goes on). */
+export interface SeekResult extends SeekSample {
+  seconds: number;
+  meanDiff?: number;
+  maxDiff?: number;
+  /** The engine's time for the frame on its own. */
+  renderMillis?: number;
+  error?: string;
+}
+
+/**
+ * The frames to check: `count` frames spread evenly over the clips whose engine renders frame ranges, never the first
+ * frame of a clip (the engine starts there in the render too, so it proves nothing). A chunk of a split scene counts
+ * as a clip of its own.
+ */
+export function seekSamples(
+  clips: ReadonlyArray<{ sceneId: string; engine: string; startFrame: number; frames: number; frameRange?: readonly [number, number] }>,
+  canSeek: (engine: string) => boolean,
+  count: number
+): SeekSample[] {
+  const spans = clips.filter((c) => c.frames > 1 && canSeek(c.engine));
+  const total = spans.reduce((n, c) => n + c.frames - 1, 0);
+  const k = Math.min(Math.max(0, Math.floor(count)), total);
+  const out: SeekSample[] = [];
+  for (let j = 0; j < k; j++) {
+    let at = Math.floor(((j + 0.5) * total) / k);
+    for (const c of spans) {
+      if (at < c.frames - 1) {
+        const offset = at + 1;
+        out.push({ sceneId: c.sceneId, sceneFrame: (c.frameRange?.[0] ?? 0) + offset, timelineFrame: c.startFrame + offset });
+        break;
+      }
+      at -= c.frames - 1;
+    }
+  }
+  return out;
 }
 
 /**
@@ -89,7 +138,7 @@ const sceneWords = (ids: string[]) => (ids.length === 0 ? '' : ids.length === 1 
 
 /** The issues for what was measured: one per stretch, naming its scenes and what to change. */
 export function videoQaIssues(
-  measured: { freezes: VideoInterval[]; blacks: VideoInterval[]; flashes?: FlashWindow[]; lows?: MotionStretch[]; loop?: LoopSeam },
+  measured: { freezes: VideoInterval[]; blacks: VideoInterval[]; flashes?: FlashWindow[]; lows?: MotionStretch[]; loop?: LoopSeam; seeks?: SeekResult[] },
   scenes: ReadonlyArray<{ sceneId: string; start: number; end: number }>,
   severity: VideoQaIssue['severity']
 ): VideoQaIssue[] {
@@ -152,6 +201,18 @@ export function videoQaIssues(
       endSeconds: end,
       durationSeconds: 0,
       scenes: [...new Set([last?.sceneId, first?.sceneId].filter((x): x is string => !!x))],
+    });
+  }
+  for (const s of measured.seeks ?? []) {
+    if (s.maxDiff === undefined || s.maxDiff <= SEEK_MAX_DIFF) continue;
+    issues.push({
+      rule: 'video.seek',
+      severity,
+      message: `frame ${s.sceneFrame} of scene "${s.sceneId}" (${fmt(s.seconds)} into the video) is not the same picture when the engine starts at it as in the full render: up to ${s.maxDiff} luma levels apart on a ${SEEK_GRID}x${SEEK_GRID} grid, where encoding alone stays under ${SEEK_MAX_DIFF}. The scene depends on the frames before it (random numbers without a seed, the clock, or state kept from frame to frame), so a render split into chunks (render.fanOut: scenes+chunks) can jump where the chunks meet. Work everything out from the frame number (in Remotion: useCurrentFrame, and random() with a seed)`,
+      startSeconds: s.seconds,
+      endSeconds: s.seconds,
+      durationSeconds: 0,
+      scenes: [s.sceneId],
     });
   }
   return issues.sort((a, b) => a.startSeconds - b.startSeconds);

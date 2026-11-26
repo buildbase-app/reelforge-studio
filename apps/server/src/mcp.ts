@@ -570,7 +570,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_render_output',
     title: 'Get a render output',
     description:
-      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. checks.freeze, checks.black and checks.flash are "warn" when the picture froze, went black or flashes more than three times a second (a seizure risk); checks.motion is "warn" when it barely moves for seconds, and checks.loop when a project with output.loop jumps where it repeats; videoQa.issues names the times and scenes: fix those scenes. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha). To see every scene and cut, call get_frames.',
+      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. checks.freeze, checks.black and checks.flash are "warn" when the picture froze, went black or flashes more than three times a second (a seizure risk); checks.motion is "warn" when it barely moves for seconds, checks.loop when a project with output.loop jumps where it repeats, and checks.seek when a frame rendered on its own differs from the video (the scene depends on earlier frames); videoQa.issues names the times and scenes: fix those scenes. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha). To see every scene and cut, call get_frames.',
     scope: 'read',
     input: { renderId: z.string().optional(), jobId: z.string().optional(), includePoster: z.boolean().optional() },
     annotations: { readOnlyHint: true },
@@ -1287,8 +1287,8 @@ done with tools; there is no UI.
    Read checks: freeze, black or flash = "warn" means a scene froze, went
    black or flashes more than three times a second (a seizure risk); motion =
    "warn" means it barely moves; loop = "warn" means a video with output.loop
-   jumps where it repeats. videoQa.issues names it, with the times. Fix it and
-   render again.
+   jumps where it repeats; seek = "warn" means a frame depends on the ones
+   before it. videoQa.issues names it, with the times. Fix it and render again.
    If it failed: get_job_logs, fix, render again (or retry_job).
    An error licence_required / licence_invalid is not a manifest problem: tell
    the user its message and fix (an admin activates with activate_licence).
