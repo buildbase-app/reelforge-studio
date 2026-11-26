@@ -570,9 +570,9 @@ export const TOOLS: ToolDef[] = [
     name: 'get_render_output',
     title: 'Get a render output',
     description:
-      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. checks.freeze, checks.black and checks.flash are "warn" when the picture froze, went black or flashes more than three times a second (a seizure risk); checks.motion is "warn" when it barely moves for seconds, checks.loop when a project with output.loop jumps where it repeats, and checks.seek when a frame rendered on its own differs from the video (the scene depends on earlier frames); videoQa.issues names the times and scenes: fix those scenes. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha). To see every scene and cut, call get_frames.',
+      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. checks.freeze, checks.black and checks.flash are "warn" when the picture froze, went black or flashes more than three times a second (a seizure risk); checks.motion is "warn" when it barely moves for seconds, checks.loop when a project with output.loop jumps where it repeats, and checks.seek when a frame rendered on its own differs from the video (the scene depends on earlier frames); videoQa.issues names the times and scenes: fix those scenes. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha). contactSheet (absent for audio-only output or when render.contactSheet.select is off) is the labelled sheet stored with every render and preview: every scene and both sides of every cut, with the frame of each tile and a signed downloadUrl; includeContactSheet: true attaches it as an image, so you can look at the whole video in one call. For other frames, call get_frames.',
     scope: 'read',
-    input: { renderId: z.string().optional(), jobId: z.string().optional(), includePoster: z.boolean().optional() },
+    input: { renderId: z.string().optional(), jobId: z.string().optional(), includePoster: z.boolean().optional(), includeContactSheet: z.boolean().optional() },
     annotations: { readOnlyHint: true },
     run: async (a, { service }) => {
       let renderId = a.renderId as string | undefined;
@@ -587,9 +587,16 @@ export const TOOLS: ToolDef[] = [
       return { ...summary, output: manifest.output, checks: manifest.checks, versions: manifest.versions };
     },
     extra: async (result, args, { service }) => {
-      if (args.includePoster === false || !result.posterUrl) return [];
-      const { path } = await service.renderFile(result.renderId, 'poster.png');
-      return [{ type: 'image', data: (await readFile(path)).toString('base64'), mimeType: 'image/png' }];
+      const images = [];
+      if (args.includePoster !== false && result.posterUrl) {
+        const { path } = await service.renderFile(result.renderId, 'poster.png');
+        images.push({ type: 'image' as const, data: (await readFile(path)).toString('base64'), mimeType: 'image/png' });
+      }
+      if (args.includeContactSheet === true && result.contactSheet) {
+        const { path } = await service.renderFile(result.renderId, result.contactSheet.file);
+        images.push({ type: 'image' as const, data: (await readFile(path)).toString('base64'), mimeType: 'image/jpeg' });
+      }
+      return images;
     },
   },
   {
@@ -1282,7 +1289,9 @@ done with tools; there is no UI.
    Fix what you see (overflowing or tiny text, empty scenes, bad cuts) and
    preview again.
 10. render_project -> get_job with waitSeconds 45 (repeat while running) until succeeded/failed ->
-   get_render_output, then get_frames on the final render.
+   get_render_output { includeContactSheet: true }: the sheet stored with
+   every render shows each scene and cut of the final file (get_frames for
+   other frames or overlay: "safe").
    Give the user downloadUrl (works without a key for ~1 h).
    Read checks: freeze, black or flash = "warn" means a scene froze, went
    black or flashes more than three times a second (a seizure risk); motion =

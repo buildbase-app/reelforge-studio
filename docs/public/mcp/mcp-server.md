@@ -44,8 +44,9 @@ Setting up a client: [Connect an agent](/docs/start/connect-an-agent).
    lies outside the safe area for the size and platform. Fix what you see and
    preview again.
 7. `render_project`, then `get_job` with `waitSeconds` (a long poll) until the
-   job has `succeeded` or `failed`, then `get_render_output` and `get_frames`.
-   Give the user its `downloadUrl`: it works without a key for about an hour. If
+   job has `succeeded` or `failed`, then `get_render_output` with
+   `includeContactSheet: true`: the contact sheet stored with every render and
+   preview shows every scene and cut of the final file. Give the user its `downloadUrl`: it works without a key for about an hour. If
    the job failed, read `get_job_logs`, fix the project and render again (or
    `retry_job`).
 
@@ -69,6 +70,20 @@ test checks the pixels of every tile. Answers are cached per render. REST:
 `GET /v1/renders/:id/frames?at=1.5,3&frames=0,45&scenes=hook:mid&every=2.5&width=360&layout=sheet&overlay=safe`
 returns the same JSON with base64 images, and `format=jpeg` returns the sheet
 itself.
+
+### The stored contact sheet
+
+Every render and preview also stores a sheet, `contact-sheet.jpg`, next to
+`poster.png`, so nobody has to ask for one. It has the automatic selection
+above, 360 px tiles and no overlay by default (`render.contactSheet.*` sets one
+frame every N seconds, the tile width, the safe-area overlay, or `off`). It is
+made from the finished picture before a GIF's or PNG sequence's master is
+removed, so its frames are the timeline's in every format. Audio-only output has
+none, and a sheet that cannot be made is logged and left out without failing
+the render. `get_render_output` and `GET /v1/renders/:id` return it as
+`contactSheet`: the file, `url` (needs the key), a signed `downloadUrl`, the
+layout and every tile's frame, scene and label. `includeContactSheet: true`
+attaches it as an image. The dashboard shows it on the render's page.
 
 Ask the user before anything that costs money (a media provider: those calls
 need `acknowledgeCost: true`) or deletes data.

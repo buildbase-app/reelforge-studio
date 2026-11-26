@@ -237,6 +237,11 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
       expect(black.message).toContain('nothing on screen that long reads as a gap');
     }
     expect(out.content.some((c) => c.type === 'image' && c.mimeType === 'image/png')).toBe(true);
+    // The contact sheet stored with the render (#379), from the real engines: first to last frame, one image on request.
+    expect(out.data.contactSheet).toMatchObject({ file: 'contact-sheet.jpg', mode: 'auto' });
+    expect([out.data.contactSheet.tiles[0].frame, out.data.contactSheet.tiles.at(-1).frame]).toEqual([0, 404]);
+    const withSheet = await ok(agent, 'get_render_output', { jobId: job.id, includePoster: false, includeContactSheet: true });
+    expect(withSheet.content.filter((c) => c.type === 'image').map((c: any) => c.mimeType)).toEqual(['image/jpeg']);
     expect(out.data.versions.engines).toMatchObject({ remotion: '4.0.545', 'motion-canvas': '3.17.2', hyperframes: 'hyperframes 0.9.77' });
 
     // Download with the same key from the URL the tool returned and check it independently.

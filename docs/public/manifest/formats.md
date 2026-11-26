@@ -101,6 +101,8 @@ sequence is one file per timeline frame; `get_render_output` gives the rate as
 
 **Posters.** An MP4's poster is its first frame, as before. Other formats take the middle frame (540 px wide, transparent where the render keeps alpha), because a first frame is often still empty and the dashboard shows MOV and PNG sequences as that still: browsers do not play ProRes.
 
+**Contact sheets.** Every render and preview in a format with pictures also stores `contact-sheet.jpg`: labelled stills of the first frame, every scene's middle, both frames of every cut and the last frame (`render.contactSheet.*`). For a GIF or a PNG sequence it is taken from the master, so its frame numbers are the timeline's, not the GIF's. The render manifest lists its tiles under `contactSheet`; see [the stored contact sheet](../mcp/mcp-server.md#the-stored-contact-sheet).
+
 **Previews** (`preview_scene`) are always H.264 MP4, whatever the format.
 Renders in other formats run on one worker (render fan-out joins MP4 only).
 

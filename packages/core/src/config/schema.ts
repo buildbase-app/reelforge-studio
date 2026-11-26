@@ -1191,6 +1191,39 @@ export const ConfigSchema = z.object({
           'Seek check (#294): this many frames of each render (0 to 20; 0: off), spread over the scenes whose engine renders frame ranges (Remotion), are rendered again on their own and compared with the same frames of the finished video. A frame that differs is reported as `video.seek`: the scene depends on the frames before it, so split renders (`render.fanOut: scenes+chunks`) can show a different picture. Each frame costs one more engine start (about 1 s with Remotion at 1080x1920). Not run for previews or transparent output.',
       }),
     }),
+    contactSheet: z.object({
+      select: setting(z.enum(['auto', 'every', 'off']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_CONTACT_SHEET',
+        default: 'auto',
+        description:
+          'A labelled contact sheet stored with every render and preview (#379), as `contact-sheet.jpg` next to `poster.png`, so an agent or a reviewer sees every scene without asking: `auto` picks the frames as `get_frames` does (the first frame, each scene\'s middle, both frames of every cut, the last frame; at most 24), `every` one frame every `render.contactSheet.everySeconds`, `off` stores none. `get_render_output` returns it (`contactSheet`, with a signed link; `includeContactSheet` attaches it) and the render manifest lists its frames. It is made from the finished picture with FFmpeg (no re-render); one that cannot be made is logged and left out, and never fails the render.',
+      }),
+      everySeconds: setting(z.number().min(0.25).max(600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_CONTACT_SHEET_EVERY_SECONDS',
+        default: 2.5,
+        description:
+          'With `render.contactSheet.select: every`: one frame every this many seconds from 0 (0.25 to 600). A video long enough to need more than 24 frames gets the smallest interval that fits, recorded in the manifest as `contactSheet.everySeconds`.',
+      }),
+      width: setting(z.number().int().min(120).max(720), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_CONTACT_SHEET_WIDTH',
+        default: 360,
+        description: 'Width of each tile of the stored contact sheet in pixels (120 to 720, never above the video\'s). Tiles shrink until the sheet is under 1 MB.',
+      }),
+      overlay: setting(z.enum(['none', 'safe']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_CONTACT_SHEET_OVERLAY',
+        default: 'none',
+        description:
+          '`safe` tints what lies outside the content safe area of the render\'s size and platform on every tile of the stored contact sheet, and outlines it, as `get_frames` does with `overlay: "safe"`. Only the sheet is tinted, never the video.',
+      }),
+    }),
     ffmpegPath: setting(nonEmpty(), {
       kind: 'path',
       scope: 'startup',
