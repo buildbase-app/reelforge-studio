@@ -10,3 +10,4 @@ export * from './media';
 export * from './sheet';
 export * from './videoqa';
 export * from './flashes';
+export * from './motion';

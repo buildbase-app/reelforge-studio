@@ -1148,7 +1148,7 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_RENDER_QA_VIDEO',
         default: 'warn',
         description:
-          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`), black pictures (`render.qa.blackSeconds`) and photosensitive flashes (more than three general or red flashes a second over a quarter of the picture, WCAG 2.2 SC 2.3.1), measured on every frame in one FFmpeg decode pass. `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`, `checks.flash`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
+          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`), black pictures (`render.qa.blackSeconds`), photosensitive flashes (more than three general or red flashes a second over a quarter of the picture, WCAG 2.2 SC 2.3.1), pictures that barely move (`render.qa.lowMotionSeconds`) and, for a project with `output.loop`, a jump where the video repeats, measured on every frame in one FFmpeg decode pass. `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`, `checks.flash`, `checks.motion`, `checks.loop`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
       }),
       freezeSeconds: setting(z.number().min(0.5).max(3600), {
         kind: 'number',
@@ -1165,6 +1165,22 @@ export const ConfigSchema = z.object({
         default: 0.5,
         description:
           'Black pictures lasting this long (seconds, 0.1 to 3600) are reported; a fade through black is shorter. Not checked on transparent output.',
+      }),
+      lowMotionSeconds: setting(z.number().min(0).max(3600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_LOW_MOTION_SECONDS',
+        default: 3,
+        description:
+          'Pictures that barely move for this long (seconds, 0 to 3600; 0: not reported) are reported as `video.motion`: every frame changes less than `render.qa.motionFloor`, so the video reads as stuck though it is not a perfect still (grain, a blinking cursor, a crawl too slow to see). Stretches already reported as frozen are left out. Motion energy per second is recorded in `videoQa.motion` either way.',
+      }),
+      motionFloor: setting(z.number().min(0.05).max(20), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_MOTION_FLOOR',
+        default: 0.4,
+        description:
+          'A frame that differs from the picture a second before by less than this counts as still for `render.qa.lowMotionSeconds`: the mean change of a 32x32 luma grid, in 8-bit levels (0.05 to 20). Measured on 1080x1920: heavy grain on a still 0.31, a blinking cursor 0.14, text drifting at 20 px/s 0.63, text sliding at 300 px/s 3.7. Smaller frames read grainier (0.57 at 540x960), so a grainy still there is not reported.',
       }),
     }),
     ffmpegPath: setting(nonEmpty(), {
