@@ -238,5 +238,17 @@ describe('storage through the service: atomic commit, runtime credentials, endpo
     expect(r?.renders.map((x) => x.renderId)).toEqual(['run_s1']);
     expect((await repos.audit.list({ limit: 10 })).find((a) => a.action === 'storage.cleanup')).toMatchObject({ actorType: 'system' });
     expect((await svc.getStorage()).lastSweep).toMatchObject({ deletedObjects: 2 });
+    // While the sweeper runs, get_storage says when it runs next (#487); stopped, it says nothing.
+    expect((await svc.getStorage()).retention.nextSweepAt).toBeNull();
+    const before = Date.now();
+    svc.storage.startSweeper();
+    try {
+      const next = Date.parse((await svc.getStorage()).retention.nextSweepAt!);
+      const every = svc.getConfig({ prefix: 'storage.retention.sweepIntervalMinutes' }).settings[0]!.value as number;
+      expect(next - before).toBeGreaterThan(0);
+      expect(next - before).toBeLessThanOrEqual(every * 60_000 + 1000);
+    } finally {
+      svc.storage.stopSweeper();
+    }
   });
 });

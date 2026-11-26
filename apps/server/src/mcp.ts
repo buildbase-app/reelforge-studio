@@ -904,7 +904,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_storage',
     title: 'Get storage driver, usage and health (owner)',
     description:
-      'Returns where asset and render files are stored: driver ("local", "s3", "azure", "gcs"), location (bucket/container, endpoint, prefix, credential source; never secrets), how download links are made (bucket-signed or through this server), health (can the store be reached), usage (assets, renders, unfinished uploads, local cache in objects and bytes), the retention policy (storage.retention.*, change it with update_config) and the last scheduled sweep. Needs the owner scope (instance-level, #304).',
+      'Returns where asset and render files are stored: driver ("local", "s3", "azure", "gcs"), location (bucket/container, endpoint, prefix, credential source; never secrets), how download links are made (bucket-signed or through this server), health (can the store be reached), usage (assets, renders, unfinished uploads, local cache in objects and bytes), the retention policy (storage.retention.*, change it with update_config) with retention.nextSweepAt and retention.workspaces (each workspace with its own retention, #487: its limits and what the sweep applies to it), and the last scheduled sweep. Needs the owner scope (instance-level, #304).',
     scope: 'owner',
     input: {},
     annotations: { readOnlyHint: true },
@@ -1027,6 +1027,20 @@ export const TOOLS: ToolDef[] = [
     run: async (_a, { service }) => service.getWorkspace(),
   },
   {
+    name: 'set_workspace_retention',
+    title: 'Tighten this workspace\'s retention (admin)',
+    description:
+      'Makes this key\'s workspace keep renders for less (#487): maxAgeHours (renders older than this are deleted), keepLast (the newest N per project the age rule always keeps) and deleteAfterDownloadMinutes (a render is deleted this long after the first download of its output; its download links then go through this server). Each is a whole number and must be tighter than the value in force; loosening or clearing one is the instance owner\'s (update_workspace limits). The instance\'s storage.retention stays the ceiling, and the sweep applies it every storage.retention.sweepIntervalMinutes. get_render_output\'s retention.deletesAt shows when a render goes. Confirm with the user first: deleted renders cannot be recovered. Needs the admin scope.',
+    scope: 'admin',
+    input: {
+      maxAgeHours: z.number().int().optional(),
+      keepLast: z.number().int().optional(),
+      deleteAfterDownloadMinutes: z.number().int().optional(),
+    },
+    annotations: { idempotentHint: true, destructiveHint: true },
+    run: async (a, { service, auth }) => service.setWorkspaceRetention(a, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
     name: 'list_workspaces',
     title: 'List workspaces (owner)',
     description: 'Every workspace of this install with its status (active, suspended, deleted with purgeAfter), its own limits and the limits in force. Needs the owner scope (instance-level, #304).',
@@ -1054,7 +1068,7 @@ export const TOOLS: ToolDef[] = [
     name: 'update_workspace',
     title: 'Rename, limit, suspend or resume a workspace (owner)',
     description:
-      'Changes a workspace\'s name or limits (null clears them: the workspaces.* defaults apply), or suspends it (suspended: true: its keys are refused with workspace_suspended and its queued jobs wait; its data stays) and resumes it (false). The default workspace cannot be suspended. Confirm suspending with the user first. Needs the owner scope.',
+      'Changes a workspace\'s name or limits (rendersPerDay, rendersPerMonth, rateLimitPerMinute, storageBytes, and the retention limits retentionMaxAgeHours, retentionKeepLast and retentionDeleteAfterDownloadMinutes; null clears them: the workspaces.* defaults apply), or suspends it (suspended: true: its keys are refused with workspace_suspended and its queued jobs wait; its data stays) and resumes it (false). The default workspace cannot be suspended. Confirm suspending with the user first. Needs the owner scope.',
     scope: 'owner',
     input: {
       workspaceId: z.string(),

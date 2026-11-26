@@ -99,7 +99,7 @@ import { ProjectStore, isProjectId } from './store';
 import { isRowId, parsePageQuery, readPage } from './paging';
 import { createStorageDriver, type StorageFactory } from './storage/factory';
 import { contentTypeFor, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix } from './storage/keys';
-import { StorageManager, type CleanupReport, type RetentionPolicy } from './storage/manager';
+import { StorageManager, renderDeletesAt, workspacePolicy, type CleanupReport, type RetentionPolicy, type WorkspaceRetention } from './storage/manager';
 import { ThemeStore } from './themes';
 import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
 import { ClaimRate, DEFAULT_PRIORITY, PRIORITIES, defaultPriority, isPriority, lowerPriority, priorityRank, type JobPriority } from './priority';
@@ -292,6 +292,8 @@ export interface RenderSummary {
   downloadUrlExpiresAt: string;
   /** "bucket": signed by the storage bucket (D-067); "server": a signed link to this server. */
   downloadVia: 'bucket' | 'server';
+  /** When the files go under the workspace's retention (#487). */
+  retention: RenderRetention;
   /** Present when the render had captions on (#300): whether they were burned in, the sidecar files and the quality check. */
   captions?: RenderCaptions;
   /** Where the files are: the storage driver and the render's key prefix in it (bucket and root: get_storage, admin). */
@@ -457,10 +459,7 @@ export class ReelforgeService {
       ...(isWorkspaceRouter(config.repositories)
         ? {
             workspaces: () => (config.repositories as WorkspaceRouter).workspaceIds(),
-            workspaceRetention: async (ws: string) => {
-              const l = (await (config.repositories as WorkspaceRouter).workspace(ws))?.limits;
-              return l && (l.retentionMaxAgeHours || l.retentionKeepLast) ? { maxAgeHours: l.retentionMaxAgeHours, keepLast: l.retentionKeepLast } : undefined;
-            },
+            workspaceRetention: (ws: string) => this.workspaceRetention(ws),
           }
         : {}),
       onSweep: (r) => this.auditCleanup(r, { actorType: 'system' }).then(() => undefined),
@@ -2475,6 +2474,7 @@ export class ReelforgeService {
       ...(poster ? { posterUrl: this.url(`${base}?file=poster.png`) } : {}),
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
       ...(await this.downloadLink(projectId, runId, outFile)),
+      retention: await this.renderRetention(projectId, runId, m.createdAt),
       ...(captions ? { captions } : {}),
       ...(m.audio?.loudness && m.audio.track ? { audio: renderAudio(m.audio as AudioManifest) } : {}),
       ...(m.videoQa ? { videoQa: m.videoQa } : {}),
@@ -2482,13 +2482,60 @@ export class ReelforgeService {
     };
   }
 
+  /** A workspace's own retention, from its limits (#487); undefined when it has none. */
+  private async workspaceRetention(ws: string): Promise<WorkspaceRetention | undefined> {
+    if (!isWorkspaceRouter(this.config.repositories)) return undefined;
+    const l = (await this.config.repositories.workspace(ws))?.limits;
+    if (!l || !(l.retentionMaxAgeHours || l.retentionKeepLast || l.retentionDeleteAfterDownloadMinutes)) return undefined;
+    return {
+      ...(l.retentionMaxAgeHours ? { maxAgeHours: l.retentionMaxAgeHours } : {}),
+      ...(l.retentionKeepLast ? { keepLast: l.retentionKeepLast } : {}),
+      ...(l.retentionDeleteAfterDownloadMinutes ? { deleteAfterDownloadMinutes: l.retentionDeleteAfterDownloadMinutes } : {}),
+    };
+  }
+
+  /**
+   * Record the first download of a render's output (#487), for delete-after-download and for get_render_output's
+   * `retention.downloadedAt`. Called by the download route once the output is being sent; posters, manifests and
+   * caption files do not count. Remembered per process so range requests do not stat storage each time.
+   */
+  async markDownloaded(runId: string, file: string): Promise<void> {
+    if (!OUTPUT_FILE_PATTERN.test(file)) return;
+    const memo = `${currentWorkspaceId()}:${runId}`;
+    if (this.downloaded.has(memo)) return;
+    const { projectId } = await this.findRender(runId);
+    const at = await this.storage.renders.markDownloaded(projectId, runId, file, new Date(this.now()).toISOString());
+    if (!at) return;
+    if (this.downloaded.size > 10_000) this.downloaded.clear();
+    this.downloaded.add(memo);
+  }
+  private readonly downloaded = new Set<string>();
+
+  /** When the sweep will delete this render under its workspace's policy (#487), and when it was first downloaded. */
+  private async renderRetention(projectId: string, runId: string, createdAt: string): Promise<RenderRetention> {
+    const own = await this.workspaceRetention(currentWorkspaceId());
+    const policy = workspacePolicy(this.storage.policy(), own);
+    const downloadedAt = await this.storage.renders.downloadedAt(projectId, runId);
+    const due = renderDeletesAt(policy, { createdAt, downloadedAt });
+    return {
+      downloadedAt,
+      deletesAt: due?.at ?? null,
+      ...(due ? { deleteReason: due.reason } : {}),
+      ...(policy.deleteAfterDownloadMinutes ? { deleteAfterDownloadMinutes: policy.deleteAfterDownloadMinutes } : {}),
+      ...(policy.keepLastRendersPerProject > 0 ? { keepLast: policy.keepLastRendersPerProject } : {}),
+    };
+  }
+
   /**
    * downloadUrl for a render file: signed by the bucket when the driver can
    * and storage.downloads allows it, else a signed link to this server (D-067).
+   * A workspace that deletes renders after their first download gets server links (#487): only this server sees a
+   * download, so a bucket link would never start the grace.
    */
   private async downloadLink(projectId: string, runId: string, file = 'final.mp4') {
     const ttl = this.config.signedUrlTtlSeconds ?? 3600;
-    const url = await this.storage.bucketUrl(renderPrefix(projectId, runId) + file, ttl, { filename: file.split('/').pop(), contentType: contentTypeFor(file) });
+    const tracked = Boolean((await this.workspaceRetention(currentWorkspaceId()))?.deleteAfterDownloadMinutes);
+    const url = tracked ? null : await this.storage.bucketUrl(renderPrefix(projectId, runId) + file, ttl, { filename: file.split('/').pop(), contentType: contentTypeFor(file) });
     if (url) return { downloadUrl: url, downloadUrlExpiresAt: new Date(Date.now() + Math.min(ttl, 7 * 24 * 3600) * 1000).toISOString(), downloadVia: 'bucket' as const };
     return { ...this.signedDownload(runId, file, ttl), downloadVia: 'server' as const };
   }
@@ -3257,6 +3304,10 @@ export class ReelforgeService {
   restoreWorkspace(id: string, actor?: Actor) {
     return this.admin().restore(id, actor);
   }
+  /** set_workspace_retention (#487): the caller's workspace, tighter only. */
+  setWorkspaceRetention(input: Record<string, unknown>, actor?: Actor) {
+    return this.admin().tightenRetention(input, actor);
+  }
 
   /**
    * Matching entries as JSON lines or CSV, streamed one database page (1000
@@ -3436,4 +3487,15 @@ export interface RenderJobEstimate {
   renderSeconds: number | null;
   bytes: number | null;
   basis: 'measured' | 'partial' | 'none';
+}
+
+/** get_render_output's `retention` (#487): when the render was first downloaded and when the sweep may delete it. */
+export interface RenderRetention {
+  /** The first download of its output through this server; null: not downloaded yet. */
+  downloadedAt: string | null;
+  /** The earliest time the sweep may delete it (it runs every storage.retention.sweepIntervalMinutes); null: kept until deleted by hand. A keep-last can keep it longer. */
+  deletesAt: string | null;
+  deleteReason?: 'deleted_after_download' | 'older_than_workspace_retention' | 'older_than_renderDays';
+  deleteAfterDownloadMinutes?: number;
+  keepLast?: number;
 }

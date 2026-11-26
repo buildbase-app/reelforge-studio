@@ -743,7 +743,12 @@ export function createApp(deps: AppDeps) {
   v1.get('/renders/:id/output', need('read'), async (c) => {
     // Without ?file= the render's output, in whatever format it was rendered (#302).
     const o = await service.renderObject(c.req.param('id'), c.req.query('file'));
-    return sendStored(c, service, o, o.file.split('/').pop()!);
+    const res = await sendStored(c, service, o, o.file.split('/').pop()!);
+    // The first download of the output starts a workspace's delete-after-download grace (#487): a whole-file answer,
+    // or a range that reaches the last byte (players fetch the end last). A failed write must not fail the download.
+    const whole = res.status === 200 || (res.status === 206 && res.headers.get('content-range')?.startsWith('bytes ') && res.headers.get('content-range')!.endsWith(`-${o.bytes - 1}/${o.bytes}`));
+    if (c.req.method === 'GET' && whole) await service.markDownloaded(c.req.param('id'), o.file).catch(() => undefined);
+    return res;
   });
 
   v1.get('/assets', need('read'), async (c) => c.json(await service.listAssets({ projectId: c.req.query('projectId') }, page(c))));
@@ -841,6 +846,7 @@ export function createApp(deps: AppDeps) {
 
   // ---- workspaces (#304) -------------------------------------------------------------
   v1.get('/workspace', need('read'), async (c) => c.json(await service.getWorkspace()));
+  v1.patch('/workspace/retention', need('admin'), json, async (c) => c.json(await service.setWorkspaceRetention(await body(c), actor(c))));
   v1.get('/workspaces', need('owner'), async (c) => c.json(await service.listWorkspaces()));
   v1.post('/workspaces', need('owner'), json, async (c) => {
     const r = await service.createWorkspace(await body(c), actor(c));
