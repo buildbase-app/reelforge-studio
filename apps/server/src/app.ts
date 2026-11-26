@@ -29,6 +29,7 @@ import type { ServerConfig } from './config';
 import { auditAction, auditTarget, matchRoute, restArgs, resultOf } from './audit';
 import { mountDashboard } from './dashboard';
 import { handleMcp, serverCard } from './mcp';
+import { findSkill, skillMarkdown, skillNames, skillsFor, skillSummary } from './skills/index';
 import { httpTelemetry } from './observability/http';
 import { StructuredLogger } from './observability/logger';
 import { Observability, observabilitySettings } from './observability/telemetry';
@@ -115,6 +116,8 @@ export function originAllowed(origin: string, hostHeader: string | undefined, co
 
 export function createApp(deps: AppDeps) {
   const { service, config, observability } = deps;
+  // skills.dir is a start-up setting: read once here, so a skill file that cannot be used stops the start.
+  const skills = skillsFor(config.skillsDir);
   const app = new Hono<Env>();
   const obs =
     observability ??
@@ -523,6 +526,13 @@ export function createApp(deps: AppDeps) {
   v1.get('/me', need('read'), async (c) => c.json(await service.getMe(c.get('auth'))));
   v1.get('/schema/project', need('read'), (c) => c.json(service.projectSchema()));
   v1.get('/templates', need('read'), (c) => c.json({ templates: service.listTemplates(c.req.query('engine')) }));
+  v1.get('/skills', need('read'), (c) => c.json({ skills: skills.map((s) => ({ ...skillSummary(s), url: `/v1/skills/${s.name}` })) }));
+  v1.get('/skills/:name', need('read'), (c) => {
+    const s = findSkill(skills, c.req.param('name'));
+    if (!s) return c.json(errorBody('not_found', `no skill "${c.req.param('name').slice(0, 64)}"; skills: ${skillNames(skills)}`), 404);
+    c.header('Content-Type', 'text/markdown; charset=utf-8');
+    return c.body(skillMarkdown(s));
+  });
 
   v1.get('/themes', need('read'), async (c) => c.json({ themes: await service.listThemes() }));
   v1.post('/themes', need('write'), json, async (c) => {

@@ -3098,3 +3098,26 @@ not found for any free set, and a licensing mistake in a sold image is expensive
 raising the default budget; bundling starter music (no verified redistribution rights); Twemoji
 (CC-BY 4.0, attribution on every use) and OpenMoji (CC-BY-SA, share-alike risk) for icons or emoji;
 Pixabay audio (no standalone redistribution); Piper's `en_US-lessac` voice (research-only licence).
+
+### D-132 --- Craft skills are public: the twelve skill texts ship in the studio, tested against the code
+
+**Status:** DECIDED (founder, 2026-11-25, #313; reversible). Number assigned at merge. Reverses the
+skill-text part of the 2026-11-23 decision on #313 and the "pacing rules" and "placing sound effects"
+items of D-128.\
+**Decision:** the craft skills an agent needs to make a video that does not look machine-made are
+public, in this repo and the public image, so an agent that knows nothing about video is guided at
+every step: `video-brief`, `script-timing`, `layout-and-type`, `motion-design`, `camera-language`,
+`physical-plausibility`, `sound-and-mix`, `voice-over`, `captions-and-accessibility`, `av-sync`,
+`brand-consistency` and `review-and-qa` (`apps/server/src/skills/`). Each is written for this studio,
+not copied: numbered rules with their numbers and published sources (Netflix and BBC timed text, WCAG
+2.2, EBU R 128, ITU-R BT.1359 and BT.1848, *The Illusion of Life*, gait and blink research), how to
+apply them with the tools, the signs of a generic video and a checklist. **What stays out:** what a
+video says, its structure, hooks, calls to action and music choice remain the user's (D-128); the
+curated blueprints, hook library and cookbook stay paid-pack material (#314). **Proof:** every number
+the studio also enforces is tied to its constant (caption limits, loudness targets, ducking defaults,
+safe areas, the short-scene warning), the arithmetic is checked, cross-references must point at real
+rules (SKL-12 to SKL-15), and two agents given only the skills answered ten production scenarios; the
+ambiguities they found were fixed before merge. *Why:* the founder wants any agent to get good results
+from the studio without prior knowledge; rules only in a paid pack leave the free path producing the
+videos the gates then reject. *Rejected:* keeping the texts private with only the gates public
+(2026-11-23); copying third-party skill files (licence and fit).

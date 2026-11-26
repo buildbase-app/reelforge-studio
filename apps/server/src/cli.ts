@@ -32,12 +32,14 @@
  *   renderweld webhooks test <id>          queue a webhook.test event (the running server delivers it)
  *   renderweld webhooks deliveries <id> [--status dead] [--limit N] [--json]
  *   renderweld webhooks replay <id> <deliveryId>
- *   renderweld worker --once [--job <id>] [--wait-ms N]   claim at most one job, render it, exit (D-100)
+ *   renderweld skills list [--json]
+  renderweld skills export <dir> [--prefix renderweld-] [--force]   (one <prefix><name>/SKILL.md per skill, for agent tools that load skill folders)
+  renderweld worker --once [--job <id>] [--wait-ms N]   claim at most one job, render it, exit (D-100)
  *
  * Uses DATABASE_URL (default: SQLite in REELFORGE_DATA_DIR, ./data) like the
  * server. The key is printed once.
  */
-import { createWriteStream, existsSync, realpathSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { userInfo } from 'node:os';
 import {
@@ -71,9 +73,10 @@ import {
   type StorageDriverId,
 } from '@renderweld/core';
 import { Database, parseDatabaseUrl, parseReadUrl, prepareDatabase } from '@renderweld/db';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { loadConfig, type ServerConfig } from './config';
 import { onceArgs, runWorkerOnce } from './worker';
+import { exportSkillFile, SKILL_NAME, skillsFor } from './skills/index';
 
 function arg(name: string, args: string[]): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -112,6 +115,55 @@ const USAGE = `usage:
   renderweld webhooks deliveries <id> [--status pending|delivering|succeeded|dead] [--limit N] [--json]
   renderweld webhooks replay <id> <deliveryId>
   renderweld worker --once [--job <id>] [--wait-ms N]   (exit 0 succeeded/cancelled/nothing queued, 1 failed, 75 handed back or still queued)`;
+
+/**
+ * \`renderweld skills list | export <dir>\`: the skills this server serves (the built-ins and skills.dir).
+ * Export writes one folder per skill with a SKILL.md, the layout Claude Code, Codex and other agent tools load,
+ * so an agent has the rules locally as well as over MCP. An existing SKILL.md that differs is kept unless --force.
+ */
+function skills(cmd: string | undefined, argv: string[], config: ServerConfig): void {
+  const all = skillsFor(config.skillsDir);
+  if (cmd === 'list') {
+    if (argv.includes('--json')) console.log(JSON.stringify(all.map(({ name, title, description, source }) => ({ name, title, description, source })), null, 2));
+    else for (const s of all) console.log(`${s.name.padEnd(28)} ${s.source.padEnd(8)} ${s.title}`);
+    return;
+  }
+  const dir = cmd === 'export' ? argv.find((a, i) => !a.startsWith('--') && argv[i - 1] !== '--prefix') : undefined;
+  if (!dir) {
+    console.log(usage());
+    process.exitCode = 1;
+    return;
+  }
+  const at = argv.indexOf('--prefix');
+  const prefix = at >= 0 ? (argv[at + 1] ?? '') : 'renderweld-';
+  if (prefix && !/^[a-z0-9]+(?:-[a-z0-9]+)*-?$/.test(prefix)) {
+    console.error(`--prefix "${prefix}": lowercase letters, digits and hyphens`);
+    process.exitCode = 1;
+    return;
+  }
+  const force = argv.includes('--force');
+  const plan = all.map((s) => {
+    const name = `${prefix}${s.name}`.slice(0, 64);
+    if (!SKILL_NAME.test(name)) throw new Error(`skill folder name "${name}" is not valid`);
+    const file = join(resolve(dir), name, 'SKILL.md');
+    const text = exportSkillFile(s, prefix);
+    const current = existsSync(file) ? readFileSync(file, 'utf8') : undefined;
+    return { file, name, text, state: current === undefined ? 'new' : current === text ? 'same' : 'changed' };
+  });
+  const blocked = plan.filter((p) => p.state === 'changed');
+  if (blocked.length && !force) {
+    console.error(`not overwriting ${blocked.length} changed file(s) (use --force):\n${blocked.map((p) => `  ${p.file}`).join('\n')}`);
+    process.exitCode = 1;
+    return;
+  }
+  for (const p of plan) {
+    if (p.state === 'same') continue;
+    mkdirSync(join(resolve(dir), p.name), { recursive: true });
+    writeFileSync(p.file, p.text);
+  }
+  const counts = (s: string) => plan.filter((p) => p.state === s).length;
+  console.log(`exported ${plan.length} skills to ${resolve(dir)} (${counts('new')} new, ${counts('changed')} updated, ${counts('same')} unchanged)`);
+}
 
 /**
  * \`renderweld storage ...\` (D-069): works on the configuration (file, env and
@@ -495,6 +547,7 @@ async function main(argv: string[]) {
   const log = (line: string) => console.log(line);
   if (group === 'licence' || group === 'license') return licence(cmd, rest, config);
   if (group === 'storage') return storage(cmd, rest, config);
+  if (group === 'skills') return skills(cmd, rest, config);
 
   if (group === 'migrate' && argv.includes('--status')) {
     const db = await Database.open({ url: config.databaseUrl });

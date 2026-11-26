@@ -8,6 +8,7 @@ import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag, renderAudioOptions,
 import { z } from 'zod';
 import type { ServerConfig } from './config';
 import { resourceMetadataUrl } from './oauth';
+import { findSkill, skillMarkdown, skillNames, skillsFor, skillsIndex, skillSummary } from './skills/index';
 
 /**
  * MCP tools are thin wrappers over ReelforgeService (the same methods the REST
@@ -166,6 +167,22 @@ export const TOOLS: ToolDef[] = [
     input: { engine: z.string().optional().describe('Only templates of this engine, e.g. "remotion".') },
     annotations: { readOnlyHint: true },
     run: async (a, { service }) => ({ templates: service.listTemplates(a.engine) }),
+  },
+  {
+    name: 'get_skill',
+    title: 'Read a craft skill',
+    description:
+      'Rules for one step of making a video, with numbers, so the result follows professional craft, published standards and the physical world instead of generic defaults. Built in: video-brief (what to ask before assuming), script-timing (words and reading time in frames), layout-and-type (safe areas for every aspect ratio, type size, contrast), motion-design (easing, durations, springs), camera-language (shot sizes, moves, cuts), physical-plausibility (gravity, weight, walking, blinking, artefacts in generated footage), sound-and-mix (loudness, ducking, sound-effect timing), voice-over (pace, pronunciation, consent), captions-and-accessibility (caption limits, flashing), av-sync (tolerances, frame arithmetic, lip sync), brand-consistency and review-and-qa. The operator may add more (skills.dir). Without name: the list. With name: the skill as Markdown. Also the resources renderweld://skills/<name>.',
+    scope: 'read',
+    input: { name: z.string().max(64).optional().describe('Skill name, e.g. "layout-and-type". Omit to list the skills.') },
+    annotations: { readOnlyHint: true },
+    run: async (a, { config }) => {
+      const skills = skillsFor(config.skillsDir);
+      if (!a.name) return { skills: skills.map((s) => ({ ...skillSummary(s), uri: resourceUri(`skills/${s.name}`) })) };
+      const s = findSkill(skills, a.name);
+      if (!s) throw new ApiError('not_found', 404, `no skill "${a.name}"; skills: ${skillNames(skills)}`);
+      return { ...skillSummary(s), markdown: skillMarkdown(s) };
+    },
   },
   {
     name: 'list_themes',
@@ -1184,6 +1201,8 @@ export const RESOURCES = [
   { name: 'project-schema', path: 'schema/project', title: 'Project manifest JSON Schema', description: 'JSON Schema of the current manifest version.', mimeType: 'application/json' },
   { name: 'templates', path: 'templates', title: 'Installed templates', description: 'Templates with engines, durations, theme tokens and props schemas.', mimeType: 'application/json' },
   { name: 'project', path: 'projects/{id}', title: 'Project manifest', description: 'The current manifest of a project.', mimeType: 'application/json' },
+  { name: 'skills', path: 'skills', title: 'Skills', description: 'Index of the skills: rules for every step of making a video (brief, timing, layout and type, motion, camera, physical plausibility, sound, voice, captions and accessibility, sync, brand, review), plus any the operator added.', mimeType: 'text/markdown' },
+  { name: 'skill', path: 'skills/{name}', title: 'Skill', description: 'One skill as Markdown: when to use it, numbered rules, how to apply them with these tools, signs of generic output, a checklist and sources.', mimeType: 'text/markdown' },
 ] as const;
 export type ResourcePath = (typeof RESOURCES)[number]['path'];
 
@@ -1212,6 +1231,10 @@ You decide the scenes; the server validates, renders and checks. Everything is
 done with tools; there is no UI.
 
 ## Steps
+0. Complete the brief with the user before anything else: the brief_intake
+   prompt (or get_skill video-brief) lists what to ask. Never assume the
+   size, length, platform, tone, captions, voice or music; ask in one message
+   with suggested defaults, and read the brief back for a yes.
 1. get_capabilities: engines that can render here (available: true), templates,
    themes, providers (configured? cost?), limits (supportedFps, maxProjectSeconds, maxScenes),
    licence (renderAllowed; if false, get_licence has the message and fix for the user).
@@ -1271,6 +1294,16 @@ done with tools; there is no UI.
   ]
 }
 
+## Skills
+Rules for every step, with numbers (timing in frames, safe areas, motion
+curves, camera moves, physics of moving things and people, loudness, voice,
+caption limits, sync tolerances, review checks). get_skill without a name lists
+them, with any the operator added; read the one for the step you are on with
+get_skill { name } (or the resource renderweld://skills/<name>). Built in:
+video-brief, script-timing, layout-and-type, motion-design, camera-language,
+physical-plausibility, sound-and-mix, voice-over, captions-and-accessibility,
+av-sync, brand-consistency, review-and-qa.
+
 ## Rules of thumb
 - Open with a hook; about 3 words per second of on-screen text.
 - Use only engines with available: true; never invent templates or props.
@@ -1314,9 +1347,11 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
     {
       instructions:
         `${PRODUCT_NAME} renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ` +
+        'First complete the brief with the user (prompt brief_intake, or get_skill video-brief): never assume the size, length, platform, tone, captions, voice or music. ' +
         'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
         'With captions, call get_captions and ask the user to approve them (update_captions approve: true) before render_project; never assume approval. ' +
         `Full guide with a minimal manifest: resource ${resourceUri('guide/workflow')} or prompt make_reel. ` +
+        `Rules for each step (brief, timing, layout and safe areas, motion, camera, physical plausibility, sound, voice, captions, sync, brand, review): get_skill or resource ${resourceUri('skills')}. ` +
         'Renders need a valid licence: get_capabilities.licence / get_licence say whether renders are allowed and, if not, what the user must do. ' +
         'Tools are experimental until v1.0.',
     }
@@ -1386,7 +1421,8 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
       return JSON.stringify(service.listTemplates(), null, 2);
     },
     'guide/workflow': async () => WORKFLOW_GUIDE,
-  } satisfies Record<Exclude<ResourcePath, 'projects/{id}'>, () => Promise<string>>;
+    skills: async () => skillsIndex(skillsFor(config.skillsDir), (name) => resourceUri(`skills/${name}`)),
+  } satisfies Record<Exclude<ResourcePath, 'projects/{id}' | 'skills/{name}'>, () => Promise<string>>;
   for (const r of RESOURCES) {
     for (const scheme of RESOURCE_SCHEMES) {
       const legacy = scheme !== RESOURCE_SCHEME;
@@ -1416,6 +1452,21 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
             requireRead();
             const p = await service.getProject(String(vars.id));
             return { contents: [{ uri: uri.href, mimeType: r.mimeType, text: JSON.stringify(p, null, 2) }] };
+          }
+        );
+      } else if (r.path === 'skills/{name}') {
+        server.registerResource(
+          name,
+          new ResourceTemplate(`${scheme}://${r.path}`, {
+            // Listed once, under the new scheme.
+            list: legacy ? undefined : async () => ({ resources: skillsFor(config.skillsDir).map((s) => ({ uri: resourceUri(`skills/${s.name}`), name: s.title, description: s.description, mimeType: r.mimeType })) }),
+          }),
+          meta,
+          async (uri, vars) => {
+            const skills = skillsFor(config.skillsDir);
+            const s = findSkill(skills, String(vars.name));
+            if (!s) throw new ApiError('not_found', 404, `no skill "${String(vars.name)}"; skills: ${skillNames(skills)}`);
+            return { contents: [{ uri: uri.href, mimeType: r.mimeType, text: skillMarkdown(s) }] };
           }
         );
       } else {
