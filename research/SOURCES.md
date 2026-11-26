@@ -1,5 +1,7 @@
 # Research Sources
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](../docs/RENAMED.md) maps each old name to the new one.
+
 Research date: **2026-11-20**. These are sources consulted for the
 knowledge pack. Always re-check live documentation before making
 implementation or licensing decisions.

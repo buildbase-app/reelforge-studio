@@ -31,7 +31,7 @@ import {
   type ThemeTokens,
   type TimelineScene,
 } from '@renderweld/project-schema';
-import { audioPass, resolveAudioPlan, verifyAudio, type AudioDefaults } from './audio';
+import { audioChecks, audioPass, resolveAudioPlan, verifyAudio, type AudioDefaults } from './audio';
 import { captionPass } from './captions';
 import { writeJsonAtomic } from './fsutil';
 import { MP4_SPEC, checkFormatOutput, isAudioOnly, packageFormat, planFor } from './output-formats';
@@ -480,7 +480,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     checks: {
       ...(formatChecks ?? { metadata: 'pass', decode: 'pass', duration: 'pass', ...(f.streamCopy ? { timestamps: 'pass', avDuration: 'pass' } : {}) }),
       avSync: audio.noAudio || audioOnly ? 'skipped' : 'pass',
-      loudness: audioQa.manifest.loudness.measured ? (audioQa.manifest.qa?.issues.some((x) => x.rule !== 'loudness.lra') ? 'warn' : 'pass') : 'skipped',
+      ...audioChecks(audioQa.manifest),
     },
     ...(f.streamCopy ? { join: { method: 'concat demuxer, video stream copy', clips: clips.length } } : {}),
     project,

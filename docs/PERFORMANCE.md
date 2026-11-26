@@ -14,7 +14,7 @@ once the dedicated run below exists.
 ## How to run it
 
 ```bash
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell   # api instances validate engines; the real reel renders
+export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell   # api instances validate engines; the real reel renders
 pnpm load:smoke          # about 30 s of load, direct connections, every scenario at small size (~2 min with start-up)
 pnpm load                # full: direct and PgBouncer, (a) (b) (c), 10/50/200 workers (~16 min)
 LOAD_POOLERS=pgbouncer LOAD_SCENARIOS=c LOAD_CLAIM_WORKERS=200 pnpm load   # one part
@@ -37,12 +37,12 @@ and an unexpected job (needs `TEST_POSTGRES_URL`; the percentile and report test
 
 | Part | What it is | Real or stand-in |
 | --- | --- | --- |
-| api instances | `LOAD_API_INSTANCES` (2) processes of `apps/server/src/main.ts`, `REELFORGE_ROLE=api`, `?connection_limit=10`, shared local storage, licence off, rate limit store `database` (the default with the database queue) | real server from source |
+| api instances | `LOAD_API_INSTANCES` (2) processes of `apps/server/src/main.ts`, `RENDERWELD_ROLE=api`, `?connection_limit=10`, shared local storage, licence off, rate limit store `database` (the default with the database queue) | real server from source |
 | load generator | [autocannon](https://github.com/mcollina/autocannon) 8.0.0, one instance per operation and api instance (client-side round robin stands in for an L4 balancer), 64 connections, closed loop | real HTTP |
 | (a) CRUD mix | `get_project` 25 %, `list_projects` 10 %, `update_project` 15 %, `create_project` 10 %, `get_job` 25 %, `list_renders` 15 % of the connections, REST, random key per request | real routes |
 | (a) variants | **many-keys**: 200 keys (6 000/min each, no 429 expected); **hot-key-default-limit**: one key at the default 300/min (429s expected, counted apart from errors); **steady-many-keys** vs **steady-hot-key-high-limit**: a mix without create and list (`get_project` 35 %, `update_project` 15 %, `get_job` 30 %, `list_renders` 20 %), so the cost per request stays put and only the key spread differs: the clean measure of the per-key `RateLimitWindow` hot row | real |
 | (b) renders | 500 `render_project` calls spread over 60 s with an idempotency key each (retried with the same key on errors), while the many-keys CRUD mix runs; 50 workers | the claim, lease heartbeat, progress writes (throttled to 2/s per job), events and fenced finish are the real `JobRunner` ([`scripts/load/queue-worker.ts`](../scripts/load/queue-worker.ts)); only the render is a stand-in (3 s of progress ticks) |
-| (b) real reel | one 1 s 1080×1920 html-engine reel on a real `REELFORGE_ROLE=worker` process, while the CRUD mix runs; ffprobe on the downloaded MP4 | real render |
+| (b) real reel | one 1 s 1080×1920 html-engine reel on a real `RENDERWELD_ROLE=worker` process, while the CRUD mix runs; ffprobe on the downloaded MP4 | real render |
 | (c) claims | 5 000 jobs inserted with the real `insert` (20 inserters), then 10/50/200 real `JobRunner`s (10 per process, own pool of 2 each) drain them with a no-op handler; then the same workers idle for 10 s | real queue |
 | exactly-once | after (b), the real reel and each (c): every accepted job `succeeded`, no job the client never got (duplicate enqueue), `running` events = attempts, at most one `succeeded` event, re-claims counted ([`scripts/load/check.ts`](../scripts/load/check.ts)) | SQL over all jobs |
 
@@ -62,7 +62,7 @@ enqueue time, first attempts only.
     settings default: `synchronous_commit=on`, `fsync=on`, `work_mem=4MB`, `max_wal_size=1GB`),
     PgBouncer 1.26.1 (`pool_mode=transaction`, `default_pool_size=20`,
     `max_prepared_statements=200`), 2 api instances × `connection_limit=10`, workers
-    `connection_limit=2` each, Node 22.23.5, ReelForge `main` at e49b8dc plus this branch, all on
+    `connection_limit=2` each, Node 22.23.5, RenderWeld `main` at e49b8dc plus this branch, all on
     the same 4 vCPU as the load generator. Run `2026-11-22T15:37:46Z` (`pnpm load`, full profile);
     the A/B runs named in the findings are the same command with the stated variables, the same day.
 
@@ -269,7 +269,7 @@ listed, in its order; 7 to 10 are what the run found besides.
    `limits.maxQueuedJobs` is set, then counts, inserts the job and its event, and commits: about
    five round trips from the api process while the lock is held. On a CPU-saturated api the hold
    time grows with event-loop lag. Measured with the total cap on (an earlier full run that
-   set `REELFORGE_MAX_QUEUED_JOBS=1000000` by mistake, otherwise the same, run 2026-11-22T15:22Z;
+   set `RENDERWELD_MAX_QUEUED_JOBS=1000000` by mistake, otherwise the same, run 2026-11-22T15:22Z;
    ~2 200 projects, so the api was more saturated): the `Workspace` lock waited **240 ms on average (direct) and
    376 ms (PgBouncer)**, enqueue latency p95 1.8 s / 2.4 s and queue wait p95 1.25 s / 1.69 s at
    only 8.3 enqueues/s. With the default caps (no total cap; 500 renders over 200 keys): no lock
@@ -285,7 +285,7 @@ listed, in its order; 7 to 10 are what the run found besides.
    instance during (a) (`LOAD_SCENARIOS=a LOAD_SECONDS=30 LOAD_SERVER_NODE_OPTIONS="--cpu-prof"`, run
    2026-11-22T15:19Z): Prisma's client runtime
    **24 %** of all samples (the largest single consumer; the query compiler and result mapping),
-   socket writes 10 %, garbage collection 9 %, node-postgres 7 %, ReelForge's own code ~7 %,
+   socket writes 10 %, garbage collection 9 %, node-postgres 7 %, RenderWeld's own code ~7 %,
    idle 18 %. At ~150 req/s per instance at ~95 % CPU the full mix costs ~6 ms of CPU per
    request on these cores (the steady mix ~2.4 ms). Scale api instances on CPU (as D-076 says);
    a dedicated run should show how many instances one PostgreSQL primary carries.
@@ -558,7 +558,7 @@ Nothing broke [^s]. Specifically:
 | Advisory locks | the migrator's `pg_advisory_xact_lock` (transaction-scoped) works through PgBouncer: migrations ran through it on a fresh database. The load test still migrates on the direct port, as #152 recommends |
 | `SKIP LOCKED` claims | claims are one transaction each: 2 000 queries from 20 concurrent clients (insert + claim + fenced finish) through PgBouncer, then the full (b) and (c) scenarios: every job exactly once |
 | Non-default schema (`?schema=`, sent as `options=-c search_path=...`) | **accepted by PgBouncer 1.26.1** without `ignore_startup_parameters`; migrations landed in the schema, and 200 queries from that client interleaved with 200 from a default-schema client on the same server pool each saw their own `current_schema()`. RENDER_SCALE §6.1 expected a refusal; older PgBouncer versions were not tried. Corrected by #152 (the `search_path` is not kept under concurrency), safe since #191 (every raw statement names its schema; see above) |
-| Session features | ReelForge uses no session `SET` or session advisory locks. `queue.dispatch: notify` (#158) uses `LISTEN` on one direct session connection per worker (`database.directUrl`): through PgBouncer 1.26.1 in transaction mode `LISTEN` is accepted but its notifications never arrive, which the worker's delivery check catches at start (NTF-04); `NOTIFY` inside the job transactions works through PgBouncer |
+| Session features | RenderWeld uses no session `SET` or session advisory locks. `queue.dispatch: notify` (#158) uses `LISTEN` on one direct session connection per worker (`database.directUrl`): through PgBouncer 1.26.1 in transaction mode `LISTEN` is accepted but its notifications never arrive, which the worker's delivery check catches at start (NTF-04); `NOTIFY` inside the job transactions works through PgBouncer |
 | Throughput | within the noise of this box: full mix 285 vs 297 req/s, steady 681 vs 757, claims at 200 workers 187 vs 219 |
 | Connections | server side ≤ 22 (pool 20 + the sampler) against 401 direct at 200 workers; idle DB CPU at 200 workers 17 % vs 47 % |
 
@@ -597,7 +597,7 @@ provider, instance type and disk):
 git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
 pnpm install --frozen-lockfile
 pnpm --filter @renderweld/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
-export REELFORGE_CHROMIUM_PATH=$(find ~/.cache/ms-playwright -type f -name chrome-headless-shell -perm -u+x | head -n 1)
+export RENDERWELD_CHROMIUM_PATH=$(find ~/.cache/ms-playwright -type f -name chrome-headless-shell -perm -u+x | head -n 1)
 LOAD_HARDWARE_NOTE="dedicated: <provider> <instance type>, <vCPU> vCPU, <RAM>, <disk>" \
 LOAD_API_INSTANCES=6 LOAD_CONNECTIONS=256 LOAD_SECONDS=300 LOAD_KEYS=1000 \
 LOAD_RENDERS=5000 LOAD_FAKE_WORKERS=200 LOAD_CLAIM_WORKERS=10,50,200,500 LOAD_CLAIM_JOBS=50000 \
