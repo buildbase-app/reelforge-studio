@@ -1,5 +1,7 @@
 # Affiliate program and creator selling: research and plan
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](../RENAMED.md) maps each old name to the new one.
+
 **Status:** research and plan only (2026-11-23). Nothing here is built or configured.
 **Epic:** #216. **Founder request (2026-11-23):** "add affiliate program and selling
 program into reelforge project so that we can sell and our end users can sell using our
