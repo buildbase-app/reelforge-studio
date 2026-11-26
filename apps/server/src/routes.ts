@@ -58,6 +58,7 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'GET', path: '/v1/renders/:id', scope: 'read', tool: 'get_render_output' },
   { method: 'GET', path: '/v1/renders/:id/captions', scope: 'read', tool: 'get_captions', note: 'MCP: get_captions with renderId.' },
   { method: 'GET', path: '/v1/renders/:id/frames', scope: 'read', tool: 'get_frames', note: 'Query: at=1.5,3 (seconds), frames=0,45, scenes=hook:mid,steps:end, every=2.5, width, layout, overlay. JSON with base64 images; format=jpeg returns the sheet itself. MCP returns the images as image content.' },
+  { method: 'DELETE', path: '/v1/renders/:id', scope: 'write', tool: 'delete_render' },
   {
     method: 'GET',
     path: '/v1/renders/:id/output',

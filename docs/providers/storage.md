@@ -157,6 +157,11 @@ connection string works with downloads through the server.
   demand: `run_storage_cleanup` / `POST /v1/storage/cleanup` (`dryRun`),
   `renderweld storage cleanup [--dry-run]`. Status: `get_storage` /
   `GET /v1/storage` / `renderweld storage status`.
+- One render or preview on request (#312): `delete_render` /
+  `DELETE /v1/renders/:id` (write scope). It removes every file of that render
+  (manifest first), this instance's cached copies, and on local storage its
+  folder. Its signed links stop working, and its job keeps its history.
+  Deleting a project removes all its renders.
 - Remote requests: `storage.connectTimeoutSeconds` (10),
   `storage.requestTimeoutSeconds` (120, socket inactivity), `storage.maxAttempts`
   (4, exponential backoff with jitter).
