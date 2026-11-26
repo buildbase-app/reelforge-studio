@@ -10,6 +10,7 @@ import {
   lookupAsset,
   markupAssetUses,
   rewriteSceneHtml,
+  videoSelectorsAsImages,
   sanitizeSvg,
   sceneAssetUses,
   stageSceneAssets,
@@ -213,5 +214,25 @@ describe('ASSET-STAGE staging checks every file and serves only what it staged (
   it('html rewrite: references become URLs; a staged video becomes an <img data-rf-video>', () => {
     const out = rewriteSceneHtml('<video src="asset:clip" data-media-start="2" autoplay class="v"></video><img src="asset:quad">', (k) => `http://o/t/${k}`, { videoAsImage: true, isVideo: (k) => k === 'clip@2' });
     expect(out).toBe('<img src="http://o/t/clip@2" class="v" data-rf-video="clip@2"><img src="http://o/t/quad">');
+  });
+
+  it('html rewrite (#448): CSS that selects `video` by tag also selects the <img> a clip became, at the same specificity', () => {
+    const out = rewriteSceneHtml('<style>video{object-fit:cover}</style><video src="asset:clip"></video>', (k) => `http://o/t/${k}`, { videoAsImage: true, isVideo: (k) => k === 'clip' });
+    expect(out).toBe('<style>video, img:where([data-rf-video]){object-fit:cover}</style><img src="http://o/t/clip" data-rf-video="clip">');
+    // No clip swapped: the style stays as written.
+    expect(rewriteSceneHtml('<style>video{a:b}</style><img src="asset:quad">', (k) => k, { videoAsImage: true, isVideo: () => false })).toBe('<style>video{a:b}</style><img src="quad">');
+  });
+
+  it('videoSelectorsAsImages (#448): only `video` type selectors, in every rule and nested block; values, comments and look-alikes untouched', () => {
+    const v = videoSelectorsAsImages;
+    expect(v('video{width:100%;height:100%;object-fit:cover}')).toBe('video, img:where([data-rf-video]){width:100%;height:100%;object-fit:cover}');
+    expect(v('.pane > video.clip:hover , h1 video{x:y}')).toBe('.pane > video.clip:hover, .pane > img:where([data-rf-video]).clip:hover , h1 video, h1 img:where([data-rf-video]){x:y}');
+    expect(v('div:not(video) p{x:y}')).toBe('div:not(video) p, div:not(img:where([data-rf-video])) p{x:y}');
+    expect(v('@media (min-width: 10px) { video { x: y } .a { b: c } }')).toBe('@media (min-width: 10px) { video, img:where([data-rf-video]) { x: y } .a { b: c } }');
+    // Look-alikes and non-selectors stay.
+    const same = '.video,#video,[data-kind="video"],video-wrap,.a-video{content:"video";background:url(video.png)}/* video{} */@keyframes video{from{opacity:0}}@import "video.css";';
+    expect(v(same)).toBe(same);
+    expect(v('a{b:c}')).toBe('a{b:c}');
+    expect(v('')).toBe('');
   });
 });

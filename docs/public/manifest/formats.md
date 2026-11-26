@@ -1,6 +1,6 @@
 ---
 title: "Formats and layouts"
-description: "Any output size, aspect ratio, frame rate and file format in ReelForge Studio: MP4, ProRes MOV with alpha, WebM (VP9, AV1), GIF, PNG sequences and audio only; exact NTSC rates, the sizes each engine renders, the layout unit, safe areas with their sources, fit-to-box text, how built-in templates reflow, layout primitives (split screen, picture-in-picture, lower thirds, grids), media fit modes, and the contact sheets that prove it."
+description: "Any output size, aspect ratio, frame rate and file format in RenderWeld: MP4, ProRes MOV with alpha, WebM (VP9, AV1), GIF, PNG sequences and audio only; exact NTSC rates, the sizes each engine renders, the layout unit, safe areas with their sources, fit-to-box text, how built-in templates reflow, layout primitives (split screen, picture-in-picture, lower thirds, grids), media fit modes, and the contact sheets that prove it."
 folder: "manifest"
 slug: "formats"
 order: 3
@@ -106,7 +106,7 @@ Renders in other formats run on one worker (render fan-out joins MP4 only).
 
 **Not offered: HEVC/H.265.** The FFmpeg in the image could encode it (x265),
 but HEVC's patent pools license encoders in products that are sold, and
-ReelForge is sold. Until that is cleared, ReelForge leaves HEVC out. AV1 and
+RenderWeld is sold. Until that is cleared, RenderWeld leaves HEVC out. AV1 and
 VP9 are royalty-free alternatives for small files.
 
 Quality settings per format are runtime settings (`render.formats.*`; change
@@ -400,7 +400,7 @@ colour on the frame and its distance from the geometry and from the html
 engine's, in pixels. To make them again:
 
 ```bash
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
+export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm formats:prove-layouts
 pnpm formats:prove-layouts --geometry
 ```
@@ -484,7 +484,7 @@ The measurements behind them, including render times on the machine that made
 them, are in `docs/proofs/formats/report.json`. To make them again:
 
 ```bash
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
+export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm formats:prove
 ```
 

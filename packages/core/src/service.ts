@@ -47,7 +47,7 @@ import {
 } from '@renderweld/project-schema';
 import { BUNDLED_FONTS } from './fonts';
 import type { VideoQaManifest } from './videoqa';
-import type { AudioManifest } from './audio';
+import { audioChecks, type AudioManifest } from './audio';
 import { OLD_SERVER_NAMES, PRODUCT_NAME, SERVER_NAME } from './product';
 import { AssetStore, assetUsableBy, stageStream } from './assets';
 import { CAPTION_FILE_PATTERN, captionFileNames, captionFontChoice, captionFontList, captionsEtag, type CaptionManifest } from './captions';
@@ -63,7 +63,7 @@ import { outputSupportIssues } from './output-support';
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
 import { KeyStore, hasScope, quotaWindows, type AuthContext, type KeyOptions, type PublicKey, type Scope } from './keys';
-import { DEFAULT_WORKSPACE_ID, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories } from './repositories';
+import { DEFAULT_WORKSPACE_ID, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories, type WorkspaceStatus } from './repositories';
 import { WORKSPACE_ID, currentWorkspaceId, isWorkspaceRouter, mergeAuditPages, runInWorkspace, workspaceKeyPrefix, type WorkspaceRouter } from './workspace';
 import { WorkspaceAdmin } from './workspace-admin';
 import {
@@ -291,9 +291,10 @@ export interface RenderAudio {
   /**
    * Which audio checks ran on the delivered file: A/V sync is skipped without
    * an audio stream (muted with mutedTrack "none", GIF, PNG sequence) and for
-   * audio-only files (no video); loudness is skipped when nothing was normalised.
+   * audio-only files (no video); loudness is skipped when nothing was normalised;
+   * sfx (#459) is skipped when no sound effect plays over music or a voice.
    */
-  checks: { avSync: 'pass' | 'skipped'; loudness: 'pass' | 'warn' | 'skipped' };
+  checks: { avSync: 'pass' | 'skipped'; loudness: 'pass' | 'warn' | 'skipped'; sfx: 'pass' | 'warn' | 'skipped' };
   preset: string;
   target: { integrated: number; truePeak: number } | null;
   normalisation: 'linear' | 'limited' | 'dynamic' | 'none';
@@ -329,10 +330,7 @@ function renderAudio(a: AudioManifest): RenderAudio {
   return {
     track: a.track,
     ...(a.loudness.reason ? { reason: a.loudness.reason } : {}),
-    checks: {
-      avSync: a.avSync ? 'pass' : 'skipped',
-      loudness: a.loudness.measured ? (a.qa?.issues.some((x) => x.rule !== 'loudness.lra') ? 'warn' : 'pass') : 'skipped',
-    },
+    checks: { avSync: a.avSync ? 'pass' : 'skipped', ...audioChecks(a) },
     preset: a.loudness.preset,
     target: t ? { integrated: t.integrated, truePeak: t.truePeakCeiling } : null,
     normalisation: a.loudness.normalisation,
@@ -389,6 +387,12 @@ export class ReelforgeService {
   readonly webhooks: WebhookService;
   /** Workspace management and per-workspace limits (#304); null when the repositories are bound to one workspace. */
   readonly workspaceAdmin: WorkspaceAdmin | null;
+  private readonly workspaceStatusOf: (id: string) => Promise<WorkspaceStatus | null>;
+
+  /** A workspace's status (active, suspended, deleted), or null when there is none by that id. Without workspace routing only the default exists. */
+  workspaceStatus(id: string): Promise<WorkspaceStatus | null> {
+    return this.workspaceStatusOf(id);
+  }
   private progressBuckets = new Map<string, number>();
   private licenceSeen: { status: string; reason: string | null } | null = null;
   private licenceTimer: NodeJS.Timeout | null = null;
@@ -454,6 +458,7 @@ export class ReelforgeService {
       audit: (e) => this.audit(e),
       rotationGraceHours: () => this.settings.current.config.keys.rotationGraceHours,
     });
+    this.workspaceStatusOf = router ? async (id: string) => (await router.workspace(id))?.status ?? null : async (id: string) => (id === DEFAULT_WORKSPACE_ID ? 'active' : null);
     this.workspaceAdmin = router
       ? new WorkspaceAdmin({ repos: router, keys: this.keys, settings: this.settings, storage: this.storage, dataDir: this.dataDir, audit: (e) => this.audit(e), now: this.now, log: config.log })
       : null;

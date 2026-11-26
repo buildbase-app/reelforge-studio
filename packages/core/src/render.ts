@@ -32,7 +32,7 @@ import {
   type ThemeTokens,
   type TimelineScene,
 } from '@renderweld/project-schema';
-import { audioPass, resolveAudioPlan, verifyAudio, type AudioDefaults } from './audio';
+import { audioChecks, audioPass, resolveAudioPlan, verifyAudio, type AudioDefaults } from './audio';
 import { captionPass } from './captions';
 import { VIDEO_QA_DEFAULTS, sceneTimes, videoQaIssues, type VideoQaIssue, type VideoQaManifest, type VideoQaSettings } from './videoqa';
 import { writeJsonAtomic } from './fsutil';
@@ -500,7 +500,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     checks: {
       ...(formatChecks ?? { metadata: 'pass', decode: 'pass', duration: 'pass', ...(f.streamCopy ? { timestamps: 'pass', avDuration: 'pass' } : {}) }),
       avSync: audio.noAudio || audioOnly ? 'skipped' : 'pass',
-      loudness: audioQa.manifest.loudness.measured ? (audioQa.manifest.qa?.issues.some((x) => x.rule !== 'loudness.lra') ? 'warn' : 'pass') : 'skipped',
+      ...audioChecks(audioQa.manifest),
       freeze: pictureCheck('video.freeze', true),
       black: pictureCheck('video.black', videoQa?.thresholds.blackSeconds != null),
       flash: pictureCheck('video.flash', true),

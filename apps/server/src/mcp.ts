@@ -1474,13 +1474,18 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
 }
 
 /** Stateless Streamable HTTP: a fresh server + transport per request, JSON responses. */
-export async function handleMcp(req: Request, auth: AuthContext, service: ReelforgeService, config: ServerConfig): Promise<Response> {
+/**
+ * Answer one MCP HTTP request. `parsedBody` is the JSON-RPC message (or batch) when the caller already read and
+ * parsed the body (POST /mcp does, to charge the rate limit per message); the transport then does not read it again.
+ */
+export async function handleMcp(req: Request, auth: AuthContext, service: ReelforgeService, config: ServerConfig, parsedBody?: unknown): Promise<Response> {
   const server = buildServer(service, auth, config);
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);
   try {
     return await transport.handleRequest(req, {
       authInfo: { token: 'redacted', clientId: auth.keyId, scopes: auth.scopes },
+      ...(parsedBody !== undefined ? { parsedBody } : {}),
     });
   } finally {
     void server.close().catch(() => undefined);

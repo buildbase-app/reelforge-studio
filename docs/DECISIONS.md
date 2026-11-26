@@ -1,5 +1,7 @@
 # Decisions, Assumptions, and Open Questions
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](RENAMED.md) maps each old name to the new one.
+
 This file separates explicit founder decisions from recommendations and
 unresolved questions.
 

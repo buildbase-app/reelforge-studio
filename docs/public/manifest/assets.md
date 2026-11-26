@@ -1,6 +1,6 @@
 ---
 title: "Images, video and audio in scenes"
-description: "How ReelForge Studio scenes use uploaded assets on every engine: asset ids in template props and asset:<id> in html, fit modes, frame-accurate video, SVG sanitising, the audio bed, limits and which project may use which asset."
+description: "How RenderWeld scenes use uploaded assets on every engine: asset ids in template props and asset:<id> in html, fit modes, frame-accurate video, SVG sanitising, the audio bed, limits and which project may use which asset."
 folder: "manifest"
 slug: "assets"
 order: 4
@@ -124,6 +124,15 @@ Remotion, Motion Canvas and the html engine then show picture `k` at frame
 whole render. HyperFrames seeks `<video>` elements itself, frame by frame. The
 tests check the frame numbers burnt into a test clip at 30, 29.97 and 23.976
 fps, from in-points and inside frame ranges.
+
+In the html engine that image replaces the element: `<video src="asset:clip">`
+renders as `<img data-rf-video="...">` with the same class, id and inline
+style. CSS that selects the clip by tag keeps working, because every rule
+whose selector uses `video` as a type (`video { object-fit: cover }`,
+`.pane > video`) also selects that image, in `<style>` and in the scene's
+`css`, at the same specificity. Script that calls video methods (`play()`,
+`currentTime`) has nothing to call: the frame is already the right picture.
+HyperFrames keeps the `<video>` element.
 
 ## Security
 
