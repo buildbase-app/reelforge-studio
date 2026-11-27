@@ -167,7 +167,7 @@ The proof run's actual calls are listed under [Proof](#proof).
 - `final.mp4`: H.264 1080x1920 at 30 fps, exactly 240 frames (8 s), with an AAC track (silent: no music was set).
 - Scenes: only the `hyperframes` engine (template `hyperframes-title`).
 
-HyperFrames (`hyperframes-title`): 1 to 12 s, headline up to 80 characters and a subline, a GSAP timeline rendered by the local HyperFrames renderer. Scenes render without network access: a composition cannot load remote scripts, fonts or images (import assets into the studio first).
+HyperFrames (`hyperframes-title`): 1 to 12 s, headline up to 80 characters and a subline, CSS keyframes seeked by the local HyperFrames renderer (GSAP is not bundled). Scenes render without network access: a composition cannot load remote scripts, fonts or images (import assets into the studio first).
 
 ## Troubleshooting
 
