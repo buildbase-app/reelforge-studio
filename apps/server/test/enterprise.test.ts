@@ -96,6 +96,12 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  // Renders the tests started (KEY-07's, the batch's) may still be running: in-process jobs outlive close(), and one
+  // still writing its clips would race the removal of the data directory. Stop them first, as limits.test.ts does.
+  if (server) {
+    for (const j of (await server.service.listJobs({}, { limit: 200 })).jobs) if (j.status === 'queued' || j.status === 'running') await server.service.cancelJob(j.id);
+    await server.service.jobs.idle();
+  }
   await server?.close();
   vi.restoreAllMocks();
   await dropDb();
