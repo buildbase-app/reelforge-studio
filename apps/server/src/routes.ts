@@ -47,6 +47,7 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'PATCH', path: '/v1/projects/:id/captions', scope: 'write', tool: 'update_captions', note: 'REST takes the etag in the body or as If-Match; expectedVersion in the body or query.' },
   { method: 'POST', path: '/v1/projects/:id/captions/transcribe', scope: 'render', tool: 'transcribe_captions' },
   { method: 'POST', path: '/v1/projects/:id/preview', scope: 'render', tool: 'preview_scene' },
+  { method: 'POST', path: '/v1/projects/:id/render-plan', scope: 'read', tool: 'plan_render' },
   { method: 'POST', path: '/v1/projects/:id/renders', scope: 'render', tool: 'render_project' },
   { method: 'GET', path: '/v1/projects/:id/renders', scope: 'read', tool: 'list_renders' },
   { method: 'GET', path: '/v1/jobs', scope: 'read', tool: 'list_jobs', note: 'Filters: ?projectId= and ?parentId= (the units and the join of a fanned-out render).' },

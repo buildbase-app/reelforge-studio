@@ -634,6 +634,10 @@ export function createApp(deps: AppDeps) {
     };
     return c.json(await service.idempotent(idemKey(c), 'preview_scene', { projectId, ...opts }, async () => ({ job: await service.preview(projectId, opts) })), 202);
   });
+  v1.post('/projects/:id/render-plan', need('read'), json, async (c) => {
+    const b = await body(c);
+    return c.json(await service.planRender(c.req.param('id'), { variant: b.variant }));
+  });
   v1.post('/projects/:id/renders', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
