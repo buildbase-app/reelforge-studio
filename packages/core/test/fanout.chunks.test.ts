@@ -286,7 +286,11 @@ describe('render.fanOut scenes+chunks in the service (fake engines)', () => {
     const before = engines.remotion.ranges.length;
     const retry = await api.waitForJob((await api.retryJob(first.id)).id, 60);
     expect(retry).toMatchObject({ status: 'succeeded', retryOf: first.id, result: { frames: 285 } });
-    expect(engines.remotion.ranges.length - before).toBe(5 - committed.length);
+    // The units not committed are rendered again (a whole scene has no range); the join then renders two single frames
+    // for the seek check (#294).
+    const rendered = engines.remotion.ranges.slice(before);
+    expect(rendered.filter((r) => r === null || r[1] > r[0])).toHaveLength(5 - committed.length);
+    expect(rendered.filter((r) => r !== null && r[1] === r[0])).toHaveLength(2);
     const reused = (await children(retry)).filter((k) => k.result?.reused).map((k) => JSON.stringify((k.params as { range?: number[] }).range ?? null));
     expect(reused.sort()).toEqual([...committed].sort());
     expect((await children(retry)).filter((k) => k.type === JOIN_JOB_TYPE)).toHaveLength(1);

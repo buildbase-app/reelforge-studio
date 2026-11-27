@@ -1,6 +1,6 @@
 ---
 title: "Deploy on AWS"
-description: "ReelForge Studio on AWS: ECS on Fargate or EKS, RDS for PostgreSQL, S3 with a task role or IRSA, SQS dispatch, Secrets Manager, CloudWatch or OTLP; least-privilege IAM, egress, scaling, backups and cost notes."
+description: "RenderWeld on AWS: ECS on Fargate or EKS, RDS for PostgreSQL, S3 with a task role or IRSA, SQS dispatch, Secrets Manager, CloudWatch or OTLP; least-privilege IAM, egress, scaling, backups and cost notes."
 folder: deploy
 slug: aws
 order: 2
@@ -20,9 +20,9 @@ actions were checked against AWS documentation on 2026-11-24
 
 ```mermaid
 flowchart LR
-  alb[ALB + ACM certificate] --> api[ECS service or EKS Deployment<br/>reelforge api, 2+ tasks]
+  alb[ALB + ACM certificate] --> api[ECS service or EKS Deployment<br/>RenderWeld api, 2+ tasks]
   api --> rds[(RDS for PostgreSQL)]
-  wrk[ECS service or EKS Deployment<br/>reelforge worker, 0..N] --> rds
+  wrk[ECS service or EKS Deployment<br/>renderweld worker, 0..N] --> rds
   api --> s3[(S3 bucket, private)]
   wrk --> s3
   api -- SendMessage --> sqs[[SQS standard queue]]
@@ -34,17 +34,17 @@ flowchart LR
   api -. OTLP .-> adot[ADOT collector] -.-> cwm[CloudWatch metrics, X-Ray]
 ```
 
-| Part | AWS service | ReelForge settings |
+| Part | AWS service | RenderWeld settings |
 | --- | --- | --- |
-| api | ECS service (Fargate) or EKS Deployment behind an ALB | `REELFORGE_ROLE=api`, `REELFORGE_PUBLIC_URL`, `REELFORGE_TRUST_PROXY=true` |
-| workers | ECS service (Fargate or EC2 capacity provider) or EKS Deployment / KEDA | `REELFORGE_ROLE=worker`, `REELFORGE_WORKER_CONCURRENCY=1` |
+| api | ECS service (Fargate) or EKS Deployment behind an ALB | `RENDERWELD_ROLE=api`, `RENDERWELD_PUBLIC_URL`, `RENDERWELD_TRUST_PROXY=true` |
+| workers | ECS service (Fargate or EC2 capacity provider) or EKS Deployment / KEDA | `RENDERWELD_ROLE=worker`, `RENDERWELD_WORKER_CONCURRENCY=1` |
 | database | RDS for PostgreSQL 13+ (or Aurora PostgreSQL; RDS for MySQL 8.0+ also works) | `DATABASE_URL` (secret) |
-| files | S3, one private bucket (Block Public Access on), optional SSE-KMS | `REELFORGE_STORAGE_DRIVER=s3`, `REELFORGE_S3_BUCKET`, `REELFORGE_S3_REGION`, optional `REELFORGE_S3_PREFIX`, `REELFORGE_S3_SSE=aws:kms`, `REELFORGE_S3_KMS_KEY_ID` |
+| files | S3, one private bucket (Block Public Access on), optional SSE-KMS | `RENDERWELD_STORAGE_DRIVER=s3`, `RENDERWELD_S3_BUCKET`, `RENDERWELD_S3_REGION`, optional `RENDERWELD_S3_PREFIX`, `RENDERWELD_S3_SSE=aws:kms`, `RENDERWELD_S3_KMS_KEY_ID` |
 | identity | ECS task role; EKS IRSA or EKS Pod Identity | leave every `*_ACCESS_KEY_ID` unset: the AWS SDK's default chain finds the role |
-| job wake-up (optional) | SQS **standard** queue, one per deployment | `REELFORGE_QUEUE_DISPATCH=sqs`, `REELFORGE_QUEUE_SQS_QUEUE_URL` |
+| job wake-up (optional) | SQS **standard** queue, one per deployment | `RENDERWELD_QUEUE_DISPATCH=sqs`, `RENDERWELD_QUEUE_SQS_QUEUE_URL` |
 | secrets | Secrets Manager | ECS `secrets`, or the Secrets Store CSI driver on EKS (`_FILE`) |
-| email (optional) | Amazon SES (API v2) | `REELFORGE_EMAIL_FROM`, `REELFORGE_SES_REGION` |
-| logs, metrics, traces | CloudWatch Logs (`awslogs`), AWS Distro for OpenTelemetry (ADOT) collector | `REELFORGE_OTLP_ENDPOINT=http://localhost:4318` (sidecar) |
+| email (optional) | Amazon SES (API v2) | `RENDERWELD_EMAIL_FROM`, `RENDERWELD_SES_REGION` |
+| logs, metrics, traces | CloudWatch Logs (`awslogs`), AWS Distro for OpenTelemetry (ADOT) collector | `RENDERWELD_OTLP_ENDPOINT=http://localhost:4318` (sidecar) |
 
 One instance is also fine on AWS: an EC2 instance with Docker and the
 [VPS recipe](../DEPLOY.md#3-vps-with-caddy-automatic-https), SQLite and local
@@ -56,16 +56,16 @@ Shared by api and workers (ECS `environment`, or the ConfigMap in
 `deployment/kubernetes/base/configmap.yaml`):
 
 ```bash
-REELFORGE_PUBLIC_URL=https://studio.example.com
-REELFORGE_TRUST_PROXY=true
-REELFORGE_STORAGE_DRIVER=s3
-REELFORGE_S3_BUCKET=acme-reelforge
-REELFORGE_S3_REGION=eu-west-1
-REELFORGE_S3_PREFIX=studio
-REELFORGE_QUEUE_DISPATCH=sqs                     # optional; default poll
-REELFORGE_QUEUE_SQS_QUEUE_URL=https://sqs.eu-west-1.amazonaws.com/111122223333/reelforge-jobs
-REELFORGE_RATE_LIMIT_STORE=database
-# secrets (Secrets Manager, below): DATABASE_URL, REELFORGE_SECRET_KEY, REELFORGE_BOOTSTRAP_KEY, REELFORGE_LICENCE_KEY
+RENDERWELD_PUBLIC_URL=https://studio.example.com
+RENDERWELD_TRUST_PROXY=true
+RENDERWELD_STORAGE_DRIVER=s3
+RENDERWELD_S3_BUCKET=acme-reelforge
+RENDERWELD_S3_REGION=eu-west-1
+RENDERWELD_S3_PREFIX=studio
+RENDERWELD_QUEUE_DISPATCH=sqs                     # optional; default poll
+RENDERWELD_QUEUE_SQS_QUEUE_URL=https://sqs.eu-west-1.amazonaws.com/111122223333/reelforge-jobs
+RENDERWELD_RATE_LIMIT_STORE=database
+# secrets (Secrets Manager, below): DATABASE_URL, RENDERWELD_SECRET_KEY, RENDERWELD_BOOTSTRAP_KEY, RENDERWELD_LICENCE_KEY
 ```
 
 `DATABASE_URL` for RDS:
@@ -73,7 +73,7 @@ REELFORGE_RATE_LIMIT_STORE=database
 (TLS to PostgreSQL is untested here: VERIFY). Migrations run on start and take
 a lock, so several instances starting together are safe; or run
 `--migrate-only` once as an ECS task with a DDL-capable user and set
-`REELFORGE_MIGRATE_ON_START=0` (DEPLOY.md, "Database").
+`RENDERWELD_MIGRATE_ON_START=0` (DEPLOY.md, "Database").
 
 ## IAM (least privilege)
 
@@ -232,14 +232,14 @@ and annotate the service account in
 ```
 
 plus a Pod Identity association for `reelforge/reelforge`. Then remove the
-`REELFORGE_S3_ACCESS_KEY_ID_FILE` / `..._SECRET_ACCESS_KEY_FILE` entries from
+`RENDERWELD_S3_ACCESS_KEY_ID_FILE` / `..._SECRET_ACCESS_KEY_FILE` entries from
 `api.yaml` and `worker.yaml` and the keys from the secret. The base sets
 `automountServiceAccountToken: false`; IRSA and Pod Identity inject their own
 projected token volume (VERIFY on your cluster that the token file named by
 `AWS_WEB_IDENTITY_TOKEN_FILE` or `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE` is
 present in the pod).
 
-**Database user**: `SELECT, INSERT, UPDATE, DELETE` on the ReelForge tables;
+**Database user**: `SELECT, INSERT, UPDATE, DELETE` on the RenderWeld tables;
 DDL only for the user that runs migrations. No AWS IAM permission is needed for
 password authentication (RDS IAM database authentication is not supported).
 
@@ -251,7 +251,7 @@ RDS Proxy); nothing inbound to workers except your Prometheus on 4321. Outbound:
 | From | To | Port | Why | Avoid the internet path |
 | --- | --- | --- | --- | --- |
 | api, workers | `s3.<region>.amazonaws.com` / `<bucket>.s3.<region>.amazonaws.com` | 443 | files | S3 gateway VPC endpoint (no NAT charge) |
-| api, workers | `sqs.<region>.amazonaws.com` | 443 | `queue.dispatch: sqs` | SQS interface endpoint; set `REELFORGE_QUEUE_SQS_ENDPOINT` to its URL if you do not use private DNS |
+| api, workers | `sqs.<region>.amazonaws.com` | 443 | `queue.dispatch: sqs` | SQS interface endpoint; set `RENDERWELD_QUEUE_SQS_ENDPOINT` to its URL if you do not use private DNS |
 | api, workers on EKS with IRSA | `sts.<region>.amazonaws.com` (or `sts.amazonaws.com`) | 443 | exchange the web identity token | STS interface endpoint |
 | api, workers on EKS Pod Identity | `169.254.170.23` | 80 | the node's Pod Identity agent | — (link-local) |
 | api, workers on ECS | `169.254.170.2` | 80 | task role credentials from the ECS agent | — (link-local) |
@@ -305,18 +305,18 @@ Two services from one task definition family each (api, worker). The worker:
         { "sourceVolume": "tmp", "containerPath": "/tmp" }
       ],
       "environment": [
-        { "name": "REELFORGE_ROLE", "value": "worker" },
-        { "name": "REELFORGE_WORKER_CONCURRENCY", "value": "1" },
-        { "name": "REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS", "value": "100" },
-        { "name": "REELFORGE_CHROMIUM_NO_SANDBOX", "value": "1" },
-        { "name": "REELFORGE_STORAGE_DRIVER", "value": "s3" },
-        { "name": "REELFORGE_S3_BUCKET", "value": "acme-reelforge" },
-        { "name": "REELFORGE_S3_REGION", "value": "eu-west-1" },
-        { "name": "REELFORGE_S3_PREFIX", "value": "studio" }
+        { "name": "RENDERWELD_ROLE", "value": "worker" },
+        { "name": "RENDERWELD_WORKER_CONCURRENCY", "value": "1" },
+        { "name": "RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS", "value": "100" },
+        { "name": "RENDERWELD_CHROMIUM_NO_SANDBOX", "value": "1" },
+        { "name": "RENDERWELD_STORAGE_DRIVER", "value": "s3" },
+        { "name": "RENDERWELD_S3_BUCKET", "value": "acme-reelforge" },
+        { "name": "RENDERWELD_S3_REGION", "value": "eu-west-1" },
+        { "name": "RENDERWELD_S3_PREFIX", "value": "studio" }
       ],
       "secrets": [
         { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:eu-west-1:111122223333:secret:reelforge/database-url" },
-        { "name": "REELFORGE_SECRET_KEY", "valueFrom": "arn:aws:secretsmanager:eu-west-1:111122223333:secret:reelforge/secret-key" }
+        { "name": "RENDERWELD_SECRET_KEY", "valueFrom": "arn:aws:secretsmanager:eu-west-1:111122223333:secret:reelforge/secret-key" }
       ],
       "healthCheck": {
         "command": ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4321/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))\""],
@@ -334,8 +334,8 @@ Two services from one task definition family each (api, worker). The worker:
 }
 ```
 
-The api is the same with `REELFORGE_ROLE=api`, `cpu` 1024 / `memory` 2048 (it
-never renders), `REELFORGE_PUBLIC_URL`, `REELFORGE_TRUST_PROXY=true`, the
+The api is the same with `RENDERWELD_ROLE=api`, `cpu` 1024 / `memory` 2048 (it
+never renders), `RENDERWELD_PUBLIC_URL`, `RENDERWELD_TRUST_PROXY=true`, the
 bootstrap and licence key secrets, and the ALB target group on port 4321 with
 health check path `/healthz` and an idle timeout of 120 s or more.
 
@@ -346,7 +346,7 @@ Fargate limits that matter (AWS task definition reference, read 2026-11-24):
   manages its own flags. VERIFY a render of every engine.
 - **No custom seccomp profile**, so Chromium's own sandbox probably cannot
   start: the task above sets the explicit opt-out
-  `REELFORGE_CHROMIUM_NO_SANDBOX=1`, and the Fargate microVM is the isolation
+  `RENDERWELD_CHROMIUM_NO_SANDBOX=1`, and the Fargate microVM is the isolation
   boundary. VERIFY whether the sandbox starts without the opt-out (then remove
   it). Prefer EKS on EC2 nodes with the Localhost profile if you render
   untrusted agent HTML at scale.
@@ -355,7 +355,7 @@ Fargate limits that matter (AWS task definition reference, read 2026-11-24):
   holds render staging and caches only (files live in S3); 50 GiB leaves room
   for long renders.
 - `stopTimeout` is at most 120 s on Fargate: keep
-  `REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS` below it (100 above). A render that
+  `RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS` below it (100 above). A render that
   runs longer is handed back to the queue and restarted by another worker.
 - **Fargate Spot** for workers: an interruption is a SIGTERM with a two-minute
   warning, handled like a scale-in (finish or hand back). The api should run on
@@ -366,7 +366,7 @@ With SQS dispatch, step scaling on the queue's
 `ApproximateNumberOfMessagesVisible` plus `ApproximateNumberOfMessagesNotVisible`
 works as a backlog signal, but running renders are not in the queue: keep the
 minimum task count at the pool you need under load, and scale in slowly. Without
-SQS, publish `reelforge_jobs_queued` + `reelforge_jobs_running` to CloudWatch
+SQS, publish `renderweld_jobs_queued` + `renderweld_jobs_running` to CloudWatch
 (ADOT, below) and target-track it. ECS RunTask per job (`worker --once` started
 by a launcher) is not built yet (issue #28).
 
@@ -379,7 +379,7 @@ no Helm chart). For EKS:
    seccomp reason). Put `deployment/seccomp/chrome.json` on every node as
    `/var/lib/kubelet/seccomp/reelforge-chrome.json` (a DaemonSet that copies it,
    or the launch template's user data). Without it html, hyperframes and
-   motion-canvas renders fail; the opt-out is `REELFORGE_CHROMIUM_NO_SANDBOX=1`.
+   motion-canvas renders fail; the opt-out is `RENDERWELD_CHROMIUM_NO_SANDBOX=1`.
 2. Identity: IRSA or Pod Identity (above); delete the S3 key entries.
 3. Secrets: the base reads them as files from the `reelforge` Secret. To keep
    them in Secrets Manager, use the Secrets Store CSI driver with the AWS
@@ -399,7 +399,7 @@ no Helm chart). For EKS:
 
 ## Secrets
 
-- `REELFORGE_SECRET_KEY` (`openssl rand -base64 32`): one Secrets Manager
+- `RENDERWELD_SECRET_KEY` (`openssl rand -base64 32`): one Secrets Manager
   secret, the same for every task. It decrypts settings stored in the database
   and signs download links across instances. **Losing it loses every secret
   stored over the API**; Secrets Manager keeps it, and its deletion has a
@@ -409,18 +409,18 @@ no Helm chart). For EKS:
   the injected value goes stale until the next deployment. Prefer a dedicated
   application user you rotate together with a redeploy.
 - On ECS the secrets arrive as environment variables (ECS `secrets`). That is
-  fine: ReelForge redacts them from logs and the API. On EKS, files.
+  fine: RenderWeld redacts them from logs and the API. On EKS, files.
 
 ## Observability
 
 - **Logs:** JSON lines on stdout go to CloudWatch Logs through `awslogs` (ECS) or
   Fluent Bit / the CloudWatch Observability add-on (EKS). CloudWatch Logs
   Insights parses the JSON fields.
-- **Metrics and traces:** ReelForge speaks OTLP/HTTP without AWS SigV4 signing,
+- **Metrics and traces:** RenderWeld speaks OTLP/HTTP without AWS SigV4 signing,
   so send it to the ADOT collector (an ECS sidecar or an EKS DaemonSet /
-  Deployment) at `REELFORGE_OTLP_ENDPOINT=http://localhost:4318` (sidecar) and
+  Deployment) at `RENDERWELD_OTLP_ENDPOINT=http://localhost:4318` (sidecar) and
   let the collector export to CloudWatch (EMF) and X-Ray, or to Amazon Managed
-  Service for Prometheus. Or scrape `/metrics` (set `REELFORGE_METRICS_TOKEN`).
+  Service for Prometheus. Or scrape `/metrics` (set `RENDERWELD_METRICS_TOKEN`).
   Exporter names: the ADOT documentation for your collector version.
 - Alerts: `deployment/observability/alerts.yml` (Prometheus rules) translates to
   CloudWatch alarms on the same metrics.
@@ -428,12 +428,12 @@ no Helm chart). For EKS:
 ## Backups
 
 - **RDS:** automated backups with point-in-time recovery (the retention you
-  need), plus a manual snapshot before every ReelForge upgrade (a newer schema is
+  need), plus a manual snapshot before every RenderWeld upgrade (a newer schema is
   refused by an older server; a failed MySQL migration cannot roll back).
 - **S3:** renders are never overwritten. Versioning plus a lifecycle rule for
   noncurrent versions protects against deletes; cross-region replication if you
-  need it. Retention inside ReelForge: `storage.retention.*`.
-- **Secrets Manager:** keep `REELFORGE_SECRET_KEY` with the database backups'
+  need it. Retention inside RenderWeld: `storage.retention.*`.
+- **Secrets Manager:** keep `RENDERWELD_SECRET_KEY` with the database backups'
   access policy; a database restored without it has unreadable stored secrets.
 - **SQS** holds only job ids; nothing to back up (the database is the record).
 

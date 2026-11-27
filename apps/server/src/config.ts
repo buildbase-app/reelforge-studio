@@ -47,6 +47,8 @@ export interface ServerConfig {
   resolved: ResolvedConfig;
   /** The built dashboard (default apps/dashboard/dist, D-115); tests point it at their own build. Not a setting. */
   dashboardAssetsDir?: string;
+  /** skills.dir: extra skills for agents beside the built-ins (skills/index.ts). Start-up. */
+  skillsDir?: string;
 }
 
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
@@ -82,6 +84,7 @@ export function serverConfigFrom(resolved: ResolvedConfig, sources: ConfigSource
     inflightWaitMs: c.limits.inflightWaitMs,
     logLevel: c.logging.level,
     logFormat: c.logging.format,
+    skillsDir: c.skills.dir ? resolve(c.skills.dir) : undefined,
     sources,
     resolved,
   };
