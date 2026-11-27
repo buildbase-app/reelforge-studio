@@ -109,7 +109,7 @@ untested against the real service), **untested**.
 | Audit sink `webhooks` | **tested** | `audit.sinks: [webhooks]` and an endpoint subscribed to `audit.entry` | — | WHK-28 |
 
 Every credential is a secret setting: `_FILE`, the config file, or set over
-`update_config` (stored AES-256-GCM encrypted with `REELFORGE_SECRET_KEY`);
+`update_config` (stored AES-256-GCM encrypted with `RENDERWELD_SECRET_KEY`);
 `get_config` shows only `set` / `not set`. Credentials are scrubbed by value
 from every delivery error, log line and audit entry (WHK-12, NTF-01..09).
 
@@ -128,13 +128,13 @@ webhooks:
   # allowHttp / allowPrivateNetworks: start-up only, for internal receivers (never over the API)
 notifications:
   email:
-    from: "ReelForge <studio@example.com>"
+    from: "RenderWeld <studio@example.com>"
     smtp:
       host: smtp.example.com
       port: 587
       security: starttls
       user: reelforge
-      # password: REELFORGE_SMTP_PASSWORD_FILE=/run/secrets/smtp
+      # password: RENDERWELD_SMTP_PASSWORD_FILE=/run/secrets/smtp
 ```
 
 Endpoints, by an admin agent over MCP (REST and CLI take the same fields):
@@ -148,6 +148,7 @@ Endpoints, by an admin agent over MCP (REST and CLI take the same fields):
 
 Mailpit for development: `docker compose --profile test up -d` and
 `REELFORGE_SMTP_HOST=mailpit REELFORGE_SMTP_PORT=1025 REELFORGE_SMTP_SECURITY=none`
+(`docker-compose.yml` passes these old names on; the server accepts `RENDERWELD_*` too)
 (UI on http://127.0.0.1:8025).
 
 ## Verifying signatures
@@ -203,7 +204,7 @@ or deletes an attempt.
 
 | Action | REST | MCP | CLI |
 | --- | --- | --- | --- |
-| list (and event types) | `GET /v1/webhooks` | `list_webhooks` | `reelforge webhooks list` |
+| list (and event types) | `GET /v1/webhooks` | `list_webhooks` | `renderweld webhooks list` |
 | create (secret shown once) | `POST /v1/webhooks` | `create_webhook` | `webhooks create --name N --url URL --events a,b [--type slack] [--to x@y --provider smtp]` |
 | show with delivery counts | `GET /v1/webhooks/:id` | `get_webhook` | `webhooks show <id>` |
 | change, enable/disable, rotate the secret | `PATCH /v1/webhooks/:id` | `update_webhook` | `webhooks update <id> [--events …] [--enable\|--disable] [--rotate-secret --grace-hours N]` |
@@ -217,9 +218,9 @@ or deletes an attempt.
 
 All but `get_webhook_log` need the admin scope; changes are audit-logged
 (`webhook.create`, `.update`, `.rotate_secret`, `.delete`, `.test`,
-`.delivery.replay`, `.resend`, `.disable`) without secrets. Metrics: `reelforge_webhook_deliveries_total{reelforge_channel,reelforge_outcome}`,
-`reelforge_webhook_delivery_duration_seconds{reelforge_channel}`,
-`reelforge_webhook_events_total{reelforge_event_type}` (no ids in labels);
+`.delivery.replay`, `.resend`, `.disable`) without secrets. Metrics: `renderweld_webhook_deliveries_total{renderweld_channel,renderweld_outcome}`,
+`renderweld_webhook_delivery_duration_seconds{renderweld_channel}`,
+`renderweld_webhook_events_total{renderweld_event_type}` (no ids in labels);
 traces: a `webhook.deliver <channel>` client span per attempt.
 
 ## Test cases
@@ -232,7 +233,7 @@ built-in provider; *contract (DB)* `packages/db/test/webhooks-contract.test.ts`
 on memory, SQLite, PostgreSQL 17 and MySQL 8.4; *server*
 `apps/server/test/webhooks.test.ts` (real HTTP, REST, MCP and the CLI; every
 signature verified with the official `standardwebhooks` library; also run with
-`REELFORGE_TEST_DB=postgres` and `mysql`) and `apps/server/test/parity.test.ts`;
+`RENDERWELD_TEST_DB=postgres` and `mysql`) and `apps/server/test/parity.test.ts`;
 *Docker* `e2e/docker/run.sh` step `webhooks.mjs` (an agent in a separate
 container over MCP; release image, hardened flags; receiver container
 `e2e/webhooks/receiver.mjs`; Mailpit v1.34.0): **ALL DOCKER E2E CHECKS PASSED** on SQLite (196 checks, 2026-11-21).
@@ -254,7 +255,7 @@ container over MCP; release image, hardened flags; receiver container
 | WHK-13 | secret rotation: both signatures during the grace window, only the new one after it; audited without the secret | unit; server (MCP) | pass 2026-11-21 |
 | WHK-14 | two workers on one outbox: each delivery sent exactly once (idempotent delivery ids) | unit; contract (claims from 4 concurrent workers, 3 DBs) | pass 2026-11-21 |
 | WHK-15 | emit never blocks or throws, even when the outbox cannot be written | unit | pass 2026-11-21 |
-| WHK-16 | validation: unknown events, missing url, bad recipients, unknown fields; no `REELFORGE_SECRET_KEY` -> `409 secret_key_required` | unit; server | pass 2026-11-21 |
+| WHK-16 | validation: unknown events, missing url, bad recipients, unknown fields; no `RENDERWELD_SECRET_KEY` -> `409 secret_key_required` | unit; server | pass 2026-11-21 |
 | WHK-17 | deleting an endpoint abandons its pending deliveries; retention deletes old finished deliveries with their attempts | unit; contract | pass 2026-11-21 |
 | WHK-18 | disabled endpoints get no deliveries; enabling clears the reason | unit | pass 2026-11-21 |
 | WHK-20 | REST lifecycle: create (secret once), list/get masked, update, test with wait, deliveries with attempt log, replay, 404s, validation | server; Docker (MCP) | pass 2026-11-21 |
@@ -309,7 +310,7 @@ Commands:
 pnpm --filter @renderweld/core exec vitest run test/webhooks.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/db exec vitest run test/webhooks-contract.test.ts
 pnpm --filter @renderweld/server exec vitest run test/webhooks.test.ts test/webhooks-ops.test.ts test/parity.test.ts
-REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/webhooks.test.ts
+RENDERWELD_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/webhooks.test.ts
 e2e/docker/run.sh                       # MAILPIT_IMAGE selects a Mailpit mirror
 ```
 
@@ -317,7 +318,7 @@ e2e/docker/run.sh                       # MAILPIT_IMAGE selects a Mailpit mirror
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `409 secret_key_required` on `create_webhook` | URLs and signing secrets are stored encrypted: set `REELFORGE_SECRET_KEY` (or `_FILE`) and restart |
+| `409 secret_key_required` on `create_webhook` | URLs and signing secrets are stored encrypted: set `RENDERWELD_SECRET_KEY` (or `_FILE`) and restart |
 | `400 url_not_allowed: only https:// URLs are allowed` | use https, or for an internal receiver set the start-up setting `webhooks.allowHttp: true` |
 | `400 url_not_allowed: refusing 10.x.x.x …` or deliveries dead with `refusing to connect to non-public address` | the target is private/loopback/link-local (SSRF guard). For an internal receiver set `webhooks.allowPrivateNetworks: true` at start-up (it cannot be changed over the API) |
 | the receiver says the signature is invalid | verify the **raw** body (before JSON parsing), with the secret including or excluding `whsec_` as your library expects; check the receiver's clock (5 min tolerance); after a rotation use the new secret |

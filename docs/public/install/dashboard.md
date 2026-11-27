@@ -1,6 +1,6 @@
 ---
 title: "Web dashboard"
-description: "Turn on the dashboard that ReelForge Studio serves at /dashboard: sign in with an API key, watch render jobs live, browse every render, read analytics, change runtime settings, manage keys and webhooks, and search the audit log."
+description: "Turn on the dashboard that RenderWeld serves at /dashboard: sign in with an API key, watch render jobs live, browse every render, read analytics, change runtime settings, manage keys and webhooks, and search the audit log."
 folder: install
 slug: dashboard
 order: 5
@@ -9,7 +9,7 @@ tags: [install, dashboard, security]
 
 # Web dashboard
 
-ReelForge Studio can serve a small web dashboard from the same server and the
+RenderWeld can serve a small web dashboard from the same server and the
 same Docker image. It runs on your machine, like the rest of the studio, and
 it uses the same REST API as your agents, with an API key you choose.
 
@@ -45,9 +45,9 @@ The dashboard is **off by default**. Turn it on with any of these (see the
 
 ```bash
 # environment
-docker run ... -e REELFORGE_DASHBOARD_ENABLED=true reelforge-studio
+docker run ... -e RENDERWELD_DASHBOARD_ENABLED=true reelforge-studio
 
-# config file (REELFORGE_CONFIG)
+# config file (RENDERWELD_CONFIG)
 dashboard:
   enabled: true
 
@@ -61,8 +61,8 @@ Then open `https://<your studio>/dashboard`. While it is off, every
 `/dashboard` path answers `404`.
 
 The dashboard answers only on the studio's own host names, the same check as
-`/mcp`: `localhost`, the host of `REELFORGE_PUBLIC_URL`, and
-`REELFORGE_ALLOWED_HOSTS`. If you reach the studio by another name, set one of
+`/mcp`: `localhost`, the host of `RENDERWELD_PUBLIC_URL`, and
+`RENDERWELD_ALLOWED_HOSTS`. If you reach the studio by another name, set one of
 those, or you get `403 forbidden_host`.
 
 ## Sign in
@@ -71,8 +71,8 @@ Sign in with an API key. Give the dashboard its own key, with only the scopes
 the people using it need:
 
 ```bash
-reelforge keys create --name dashboard --scopes read          # watch jobs, browse and download
-reelforge keys create --name dashboard-ops --scopes read,render   # also cancel and retry
+renderweld keys create --name dashboard --scopes read          # watch jobs, browse and download
+renderweld keys create --name dashboard-ops --scopes read,render   # also cancel and retry
 ```
 
 | Key scopes | Jobs and library | Cancel and retry |
@@ -162,7 +162,7 @@ The Docker image builds the dashboard for you. From a checkout:
 
 ```bash
 pnpm --filter @renderweld/dashboard build   # writes apps/dashboard/dist
-REELFORGE_DASHBOARD_ENABLED=true pnpm dev
+RENDERWELD_DASHBOARD_ENABLED=true pnpm dev
 ```
 
 The build fails if the JavaScript and CSS together are over 150 KB gzipped.

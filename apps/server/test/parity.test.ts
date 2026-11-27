@@ -79,10 +79,10 @@ describe('REST / MCP parity', () => {
     expect([...RESOURCE_SCHEMES]).toEqual(['renderweld', 'reelforge']);
     const card = serverCard({ serverVersion: '0.0.0' } as never, loadConfig({}));
     expect(card.resources).toEqual(RESOURCES.map((r) => `renderweld://${r.path}`));
-    expect(card.resources).toEqual(['renderweld://guide/workflow', 'renderweld://schema/project', 'renderweld://templates', 'renderweld://projects/{id}']);
+    expect(card.resources).toEqual(['renderweld://guide/workflow', 'renderweld://schema/project', 'renderweld://templates', 'renderweld://projects/{id}', 'renderweld://skills', 'renderweld://skills/{name}']);
     for (const r of RESOURCES) expect(card.resourceAliases[`reelforge://${r.path}`]).toBe(`renderweld://${r.path}`);
     // The data resources have the same REST reads.
-    for (const route of ['GET /v1/schema/project', 'GET /v1/templates', 'GET /v1/projects/:id']) expect(table).toContain(route);
+    for (const route of ['GET /v1/schema/project', 'GET /v1/templates', 'GET /v1/projects/:id', 'GET /v1/skills', 'GET /v1/skills/:name']) expect(table).toContain(route);
     // Tool names do not change with the rename.
     for (const t of TOOLS) expect(t.name).not.toMatch(/renderweld|reelforge/i);
   });

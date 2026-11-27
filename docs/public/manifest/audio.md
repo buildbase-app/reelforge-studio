@@ -1,6 +1,6 @@
 ---
 title: "Audio: loudness, mixing and toggles"
-description: "How ReelForge Studio mixes and finishes a render's audio: loudness presets and their sources, platform recommendations, ducking of music under the voice, fades, bus gains, the on/off toggles and muted renders, and the checks after the final encode."
+description: "How RenderWeld mixes and finishes a render's audio: loudness presets and their sources, platform recommendations, ducking of music under the voice, fades, bus gains, the on/off toggles and muted renders, and the checks after the final encode."
 folder: "manifest"
 slug: "audio"
 order: 4
@@ -105,7 +105,7 @@ The preset of a render is, first found wins:
 1. `render_project`'s `audio.loudness` (REST: `POST /v1/projects/:id/renders`
    with `{ "audio": { "loudness": "broadcast-ebu" } }`);
 2. the manifest's `audio.loudness`;
-3. the server setting `render.audio.loudness` (`REELFORGE_RENDER_AUDIO_LOUDNESS`,
+3. the server setting `render.audio.loudness` (`RENDERWELD_RENDER_AUDIO_LOUDNESS`,
    or at runtime with `update_config` / `PATCH /v1/config`), default `social`.
 
 ## Mixing
@@ -130,6 +130,35 @@ The preset of a render is, first found wins:
   edge fades (10 ms and 5 ms), and the whole mix 10 ms at both ends, so a sound
   that starts or stops on a non-zero sample, or a player that loops the reel,
   does not click.
+
+### Sound effects that cannot be heard
+
+An agent cannot listen, so every render with sound effects over music or a
+voice measures each cue against what plays under it. It compares two levels,
+both RMS over the cue's first half second (or all of it when shorter, at least
+50 ms):
+
+- the cue's own level: its file at its `volume` and the `sfx` bus gain;
+- the bed under it: the mix without sound effects (music and voice with their
+  volumes, fades, bus gains and ducking).
+
+A cue less than `render.audio.sfxMaskingDb` (default 3 dB) over the bed gets a
+warning in `audio.qa.issues`. The render still succeeds:
+
+```json
+{ "rule": "sfx.masked", "severity": "warn", "cue": 0, "asset": "whoosh", "atSeconds": 2.5,
+  "marginDb": -14.2, "suggestedVolume": 2,
+  "message": "sound effect 0 (\"whoosh\" at 2.5 s) is 14.2 dB under the music and voice under it (first 0.5 s; wanted at least 3 dB over), so it will barely be heard: raise its volume to 2 (now 0.5) and lower the music by about 8 dB (audio.music.volume or audio.gainDb.music), or raise audio.gainDb.sfx" }
+```
+
+`suggestedVolume` is the cue volume that puts it 3 dB past the threshold. A cue
+volume stops at 2, so when 2 is not enough, the message also says how much to
+lower the music. `checks.sfx` is `warn` when any cue is masked, `pass`
+otherwise, and `skipped` when no sound effect plays over music or a voice. Each
+cue's figures are in `audio.sfxAudibility` (`cueDb`, `bedDb`, `marginDb`,
+`windowSeconds`). The check needs no model: FFmpeg's `astats` on the stems the
+mixer already has. Ducking the music under sound effects is a separate mix
+feature; this check only reports.
 
 ### Ducking
 
@@ -202,5 +231,6 @@ when one reaches its frame limit, which would cut the audio short.
 `audio` in `render-manifest.json` has the tracks that played, `toggles`,
 `gainDb`, `ducking` (with the speech windows), `loudness` (`preset`, `target`,
 `input` as measured before normalisation, `normalisation`, `gainDb`, `limiter`, `measured`
-after the final encode), `avSync` and `qa` (`ok`, `mode`, `issues`).
-`get_render_output` repeats the essentials as `audio`.
+after the final encode), `avSync`, `sfxAudibility` (each sound effect against its
+bed) and `qa` (`ok`, `mode`, `issues`). `checks` has `avSync`, `loudness` and
+`sfx`. `get_render_output` repeats the essentials as `audio`.
