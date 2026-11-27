@@ -2,7 +2,7 @@
 
 **Status (2026-11-23): the test plan written before the build; not a test
 record.** Much of it is now covered by automated tests that run in CI (`pnpm
-typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test`: unit tests, repository
+typecheck && RENDERWELD_REQUIRE_BROWSER=1 pnpm test`: unit tests, repository
 contract tests on SQLite, PostgreSQL and MySQL, MCP and REST journeys against a
 real server with the real engines, the Docker end-to-end suite on the release
 image). The evidence lives with each feature, not here: test cases and results

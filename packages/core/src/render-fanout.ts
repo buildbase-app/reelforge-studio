@@ -12,6 +12,8 @@ import {
   type FrameRate,
 } from '@renderweld/project-schema';
 import type { AudioDefaults } from './audio';
+import type { VideoQaSettings } from './videoqa';
+import type { ContactSheetSettings } from './frames';
 import { describeUnit, JOIN_JOB_TYPE, UNIT_JOB_TYPE, type ChildSpec } from './fanout';
 import type { JobContext } from './jobs';
 import type { ResolvedAsset } from './plugins';
@@ -136,6 +138,10 @@ export interface FanOutDeps {
   assets(project: Project, projectId: string): Promise<Map<string, ResolvedAsset>>;
   /** The server's render.audio.* settings when the join runs. */
   audioDefaults?(): AudioDefaults;
+  /** The server's render.qa.* settings when the join runs. */
+  videoQa?(): VideoQaSettings;
+  /** The server's render.contactSheet.* settings when the join runs. */
+  contactSheet?(): ContactSheetSettings;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -364,6 +370,8 @@ export async function joinUnits(deps: FanOutDeps, ctx: JobContext): Promise<Join
         ...(p.captions ? { captionsMode: p.captions } : {}),
         ...(p.audio ? { audio: p.audio } : {}),
         ...(deps.audioDefaults ? { audioDefaults: deps.audioDefaults() } : {}),
+        ...(deps.videoQa ? { videoQa: deps.videoQa() } : {}),
+        ...(deps.contactSheet ? { contactSheet: deps.contactSheet() } : {}),
         ...(p.captionsDefault ? { captionsDefault: p.captionsDefault } : {}),
       },
       tmp,

@@ -61,6 +61,8 @@ export class ElevenLabsTts implements ProviderPlugin {
   readonly kind = 'tts' as const;
   readonly displayName = 'ElevenLabs text-to-speech';
   readonly env = ['ELEVENLABS_API_KEY'];
+  /** Each workspace may use its own ElevenLabs account (#480): the key comes from ctx.env. */
+  readonly scopedSettings = true;
   readonly params = elevenLabsParams;
   readonly costNote =
     'Calls the ElevenLabs API with the operator\'s key and uses their character quota (billed by ElevenLabs per character). ' +
@@ -71,8 +73,8 @@ export class ElevenLabsTts implements ProviderPlugin {
     private readonly baseUrl = 'https://api.elevenlabs.io'
   ) {}
 
-  configured(): boolean {
-    return Boolean(this.environment.ELEVENLABS_API_KEY);
+  configured(env: Readonly<Record<string, string | undefined>> = this.environment): boolean {
+    return Boolean(env.ELEVENLABS_API_KEY);
   }
 
   cacheKey(params: unknown): string {
@@ -81,8 +83,9 @@ export class ElevenLabsTts implements ProviderPlugin {
   }
 
   async run(params: unknown, ctx: ProviderRunContext): Promise<ProviderResult> {
-    const key = this.environment.ELEVENLABS_API_KEY;
-    if (!key) throw new ApiError('provider_not_configured', 409, 'ElevenLabs is not configured: the operator must set ELEVENLABS_API_KEY');
+    // The settings of the calling workspace when the service passes them (#480); never mixed with the instance's.
+    const key = (ctx.env ?? this.environment).ELEVENLABS_API_KEY;
+    if (!key) throw new ApiError('provider_not_configured', 409, 'ElevenLabs is not configured: set ELEVENLABS_API_KEY (configure_provider, or configure_workspace_provider for one workspace)');
     const p = elevenLabsParams.parse(params);
     const url = `${this.baseUrl}/v1/text-to-speech/${encodeURIComponent(p.voiceId)}/with-timestamps?output_format=${p.outputFormat}`;
     ctx.log(`elevenlabs: ${p.text.length} characters, voice ${p.voiceId}, model ${p.modelId}`);

@@ -44,7 +44,7 @@ export const OAUTH_SCOPES: Record<string, Scope> = {
   'reelforge:owner': 'owner',
 };
 
-export type OAuthResult = { ok: true; auth: AuthContext; subject: string } | { ok: false; error: 'invalid_token' | 'insufficient_scope'; description: string };
+export type OAuthResult = { ok: true; auth: AuthContext; subject: string; claims: Record<string, unknown> } | { ok: false; error: 'invalid_token' | 'insufficient_scope'; description: string };
 
 /** Accepted signature algorithms: asymmetric only (a shared-secret HS* token could be forged by anyone holding the secret). */
 const ALGS: Record<string, { hash: string; kty: string; opts?: { padding?: number; saltLength?: number; dsaEncoding?: 'ieee-p1363' } }> = {
@@ -162,6 +162,7 @@ export class OAuthVerifier {
     return {
       ok: true,
       subject: claims.sub,
+      claims,
       // The rate limit, quotas and audit trail count per subject, like per key.
       auth: { keyId: `oauth:${claims.sub}`.slice(0, 200), name: `oauth ${client ? `${client} for ` : ''}${claims.sub}`.slice(0, 200), scopes },
     };
