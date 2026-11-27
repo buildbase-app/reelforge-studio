@@ -1148,7 +1148,7 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_RENDER_QA_VIDEO',
         default: 'warn',
         description:
-          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`), black pictures (`render.qa.blackSeconds`), photosensitive flashes (more than three general or red flashes a second over a quarter of the picture, WCAG 2.2 SC 2.3.1), pictures that barely move (`render.qa.lowMotionSeconds`) and, for a project with `output.loop`, a jump where the video repeats, measured on every frame in one FFmpeg decode pass; and on renders, a few frames rendered again on their own (`render.qa.seekFrames`). `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`, `checks.flash`, `checks.motion`, `checks.loop`, `checks.seek`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
+          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`), black pictures (`render.qa.blackSeconds`), photosensitive flashes (more than three general or red flashes a second over a quarter of the picture, WCAG 2.2 SC 2.3.1), pictures that barely move (`render.qa.lowMotionSeconds`) and, for a project with `output.loop`, a jump where the video repeats, measured on every frame in one FFmpeg decode pass; and on renders, a few frames rendered again on their own (`render.qa.seekFrames`); and text that runs off the frame or out of its box (`render.qa.textSeconds`), sampled while DOM engines render. `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`, `checks.flash`, `checks.motion`, `checks.loop`, `checks.seek`, `checks.text`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
       }),
       freezeSeconds: setting(z.number().min(0.5).max(3600), {
         kind: 'number',
@@ -1189,6 +1189,14 @@ export const ConfigSchema = z.object({
         default: 2,
         description:
           'Seek check (#294): this many frames of each render (0 to 20; 0: off), spread over the scenes whose engine renders frame ranges (Remotion), are rendered again on their own and compared with the same frames of the finished video. A frame that differs is reported as `video.seek`: the scene depends on the frames before it, so split renders (`render.fanOut: scenes+chunks`) can show a different picture. Each frame costs one more engine start (about 1 s with Remotion at 1080x1920). Not run for previews or transparent output.',
+      }),
+      textSeconds: setting(z.number().min(0).max(3600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_TEXT_SECONDS',
+        default: 1,
+        description:
+          'Text overflow check (#294, #386): text cut by the edge of the frame, cut by a box that hides what overflows it, or running out of its own box for this long (seconds, 0 to 3600; 0: off) is reported as `video.text`, with the scene, the times, the text and its box. Text must be wholly in the frame or wholly out of it, so text sliding across an edge on its way in or out (well under a second) is not reported. The html engine samples the page at least 4 times a second while it renders (tolerance: 1 px across, a quarter of the font size down); HyperFrames scenes are checked at the same times after their render by the layout audit of HyperFrames (`hyperframes check`, 1 px tolerance), which adds about 7 % to their render time (a 5 s 1080x1920 title on 4 cores); Remotion and Motion Canvas scenes draw text without a DOM page, are listed in `videoQa.text.notSampledScenes` and are not checked. Elements inside `data-rf-decoration`, `data-layout-ignore` or `data-layout-allow-overflow` are left out.',
       }),
     }),
     contactSheet: z.object({
