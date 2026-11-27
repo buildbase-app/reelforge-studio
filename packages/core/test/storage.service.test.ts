@@ -221,6 +221,29 @@ describe('storage through the service: atomic commit, runtime credentials, endpo
     await expect(svc.updateConfig({ 'storage.driver': 's3' })).rejects.toMatchObject({ code: 'startup_only_setting' });
   });
 
+  it('STO-28 a render the retention sweep deletes leaves no local copy of a remote file behind (#487)', async () => {
+    const d = memoryStorage();
+    const svc = await ReelforgeService.create(registry(), {
+      repositories: createMemoryRepositories(),
+      dataDir: join(dir, 'sweep-cache'),
+      configSources: { env: { REELFORGE_LICENCE_MODE: 'off', REELFORGE_STORAGE_RETENTION_KEEP_LAST: '1' } },
+      storage: { factory: async () => d as unknown as StorageDriver, sweep: false },
+    });
+    for (const r of ['run_c1', 'run_c2']) {
+      await d.put(`projects/p/renders/${r}/final.mp4`, Buffer.from(r));
+      await d.put(`projects/p/renders/${r}/render-manifest.json`, Buffer.from('{}'));
+    }
+    // An engine, FFmpeg or a download fetched both outputs to the local cache.
+    const old = await svc.storage.localFile('projects/p/renders/run_c1/final.mp4');
+    const kept = await svc.storage.localFile('projects/p/renders/run_c2/final.mp4');
+    expect(existsSync(old) && existsSync(kept)).toBe(true);
+    const r = await svc.storage.sweep();
+    expect(r?.renders.map((x) => x.renderId)).toEqual(['run_c1']);
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(kept)).toBe(true);
+    expect((await d.list('projects/p/renders/run_c1/')).length).toBe(0);
+  });
+
   it('STO-27 the scheduled sweep applies the policy and is audit-logged as the system', async () => {
     const d = memoryStorage();
     const repos = createMemoryRepositories();
@@ -238,5 +261,17 @@ describe('storage through the service: atomic commit, runtime credentials, endpo
     expect(r?.renders.map((x) => x.renderId)).toEqual(['run_s1']);
     expect((await repos.audit.list({ limit: 10 })).find((a) => a.action === 'storage.cleanup')).toMatchObject({ actorType: 'system' });
     expect((await svc.getStorage()).lastSweep).toMatchObject({ deletedObjects: 2 });
+    // While the sweeper runs, get_storage says when it runs next (#487); stopped, it says nothing.
+    expect((await svc.getStorage()).retention.nextSweepAt).toBeNull();
+    const before = Date.now();
+    svc.storage.startSweeper();
+    try {
+      const next = Date.parse((await svc.getStorage()).retention.nextSweepAt!);
+      const every = svc.getConfig({ prefix: 'storage.retention.sweepIntervalMinutes' }).settings[0]!.value as number;
+      expect(next - before).toBeGreaterThan(0);
+      expect(next - before).toBeLessThanOrEqual(every * 60_000 + 1000);
+    } finally {
+      svc.storage.stopSweeper();
+    }
   });
 });

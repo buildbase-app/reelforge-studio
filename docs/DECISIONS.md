@@ -3199,3 +3199,19 @@ matching (it rewrites ordinary words that sound alike); provider pronunciation d
 ElevenLabs dictionaries (each provider has its own format and not every one has any; plain spoken text works with
 all of them); translating with `doNotTranslate` (the studio translates nothing, so the flag is stored for the agent
 or translation tool).
+
+### D-138 --- Delete after download, seen by this server; workspace admins can only tighten retention
+
+**Status:** DECIDED (agent, 2026-11-25, #487; reversible). Number assigned at merge.\
+**Decision:** a workspace limit `retentionDeleteAfterDownloadMinutes` deletes a render that many minutes after the
+first download of its output, whatever its age and keep-last. A download is a whole-file answer, or a range reaching
+the last byte, from the output route with a key or a signed link. It writes `downloaded.json` beside the render, once;
+the object's time is the record, so it works on every storage driver and is deleted with the render. Such a
+workspace's download links go through this server, not the bucket, because only the server sees a download.
+`get_render_output` reports `retention.downloadedAt` and `deletesAt`. A workspace admin may tighten its own retention
+(`set_workspace_retention`), never loosen or clear it; the owner keeps that through `update_workspace`. *Why:* a
+tenant under a data policy needs "keep nothing once delivered", and an owner's retention may be a commitment that
+someone inside the workspace must not undo. *Rejected:* deleting when the completion webhook is delivered (the
+webhook tells the receiver where to fetch the file, so it would be gone); counting a bucket-signed link as a download
+when it is issued (an issued link is not a delivery); a separate store for the admin's own values, which would need a
+migration for little gain over tighten-only.

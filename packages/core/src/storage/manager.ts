@@ -22,7 +22,7 @@ export interface CleanupReport {
   startedAt: string;
   durationMs: number;
   /** Renders deleted (or, in a dry run, that would be). `workspaceId` outside the default workspace (#304). */
-  renders: Array<{ workspaceId?: string; projectId: string; renderId: string; createdAt: string; objects: number; bytes: number; reason: 'older_than_renderDays' | 'older_than_workspace_retention' | 'beyond_keepLastRendersPerProject' }>;
+  renders: Array<{ workspaceId?: string; projectId: string; renderId: string; createdAt: string; objects: number; bytes: number; reason: 'older_than_renderDays' | 'older_than_workspace_retention' | 'beyond_keepLastRendersPerProject' | 'deleted_after_download'; downloadedAt?: string }>;
   /** Unfinished uploads (`.tmp-<runId>/`) and incomplete render directories older than tempHours. */
   temp: Array<{ workspaceId?: string; projectId: string; runId: string; createdAt: string; objects: number; bytes: number }>;
   /** Local staging directories of renders for remote storage, older than tempHours. */
@@ -41,7 +41,7 @@ export interface StorageManagerOptions {
   /** Run ids of renders that are queued or running (never cleaned up). */
   activeRunIds: () => Promise<Set<string>>;
   /** A workspace's own, stricter retention (#487); the instance policy is the ceiling. */
-  workspaceRetention?: (workspaceId: string) => Promise<{ maxAgeHours?: number; keepLast?: number } | undefined>;
+  workspaceRetention?: (workspaceId: string) => Promise<WorkspaceRetention | undefined>;
   /**
    * Workspaces whose files the sweep, cleanup and usage cover (#304); unset: only the caller's. Each one's files
    * are under its own key prefix (workspaceKeyPrefix), which `driver` applies for the workspace of the call.
@@ -86,6 +86,7 @@ export class StorageManager {
   readonly stagingRoot: string;
   private current: StorageDriver | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private sweepStartedMs: number | null = null;
   private running: Promise<CleanupReport> | null = null;
   private lastSweep: { at: string; deletedObjects: number; freedBytes: number; error?: string } | null = null;
 
@@ -261,9 +262,41 @@ export class StorageManager {
       health: { ...health, checkedAt: new Date(started).toISOString(), latencyMs: this.now() - started },
       usage,
       ...(usageError ? { usageError } : {}),
-      retention: { ...this.policy(), sweepIntervalMinutes: cfg.retention.sweepIntervalMinutes },
+      retention: {
+        ...this.policy(),
+        sweepIntervalMinutes: cfg.retention.sweepIntervalMinutes,
+        nextSweepAt: this.nextSweepAt(),
+        workspaces: await this.workspacePolicies(),
+      },
       lastSweep: this.lastSweep,
     };
+  }
+
+  /** When the scheduled sweep runs next; null when it is off. */
+  private nextSweepAt(): string | null {
+    const minutes = this.opts.settings.config.storage.retention.sweepIntervalMinutes;
+    if (!this.timer || this.sweepStartedMs === null || minutes <= 0) return null;
+    const every = minutes * 60_000;
+    const runs = Math.floor((this.now() - this.sweepStartedMs) / every) + 1;
+    return new Date(this.sweepStartedMs + runs * every).toISOString();
+  }
+
+  /**
+   * Each workspace with its own retention (#487) and the policy the sweep applies to it: the owner sees every
+   * tenant's data policy in one place (get_storage).
+   */
+  private async workspacePolicies(): Promise<Array<{ workspaceId: string; own: WorkspaceRetention; applied: { maxAgeHours: number | null; keepLast: number | null; deleteAfterDownloadMinutes: number | null } }>> {
+    if (!this.opts.workspaces || !this.opts.workspaceRetention) return [];
+    const out = [];
+    const instance = this.policy();
+    for (const workspaceId of await this.opts.workspaces()) {
+      const own = await this.opts.workspaceRetention(workspaceId);
+      if (!own) continue;
+      const p = workspacePolicy(instance, own);
+      const hours = p.maxAgeHours ?? (p.renderDays > 0 ? p.renderDays * 24 : null);
+      out.push({ workspaceId, own, applied: { maxAgeHours: hours, keepLast: p.keepLastRendersPerProject || null, deleteAfterDownloadMinutes: p.deleteAfterDownloadMinutes ?? null } });
+    }
+    return out;
   }
 
   /**
@@ -315,7 +348,7 @@ export class StorageManager {
   private async cleanupRenders(
     report: CleanupReport,
     dryRun: boolean,
-    policy: RetentionPolicy & { maxAgeHours?: number },
+    policy: WorkspacePolicy,
     active: Set<string>,
     runs: StoredRun[],
     startedMs: number,
@@ -325,7 +358,9 @@ export class StorageManager {
     const remove = async (run: StoredRun) => {
       if (dryRun) return true;
       try {
-        await this.renders.deleteRun(run);
+        // Its objects, its folder on local storage and the local copies of a remote render (#487: a retention policy
+        // that deletes a render must not leave its bytes in <cacheDir>/storage until cacheDays).
+        await this.deleteRender(run);
         // get_frames' cached stills of this render go with it.
         await rm(framesCacheDir(this.opts.cacheDir, run.runId), { recursive: true, force: true });
         return true;
@@ -335,9 +370,28 @@ export class StorageManager {
       }
     };
 
+    const record = (run: StoredRun, reason: CleanupReport['renders'][number]['reason']) => {
+      report.renders.push({ ...tag, projectId: run.projectId, renderId: run.runId, createdAt: run.createdAt, objects: run.objects, bytes: run.bytes, reason, ...(run.downloadedAt ? { downloadedAt: run.downloadedAt } : {}) });
+      report.totals.renders++;
+      report.totals.objects += run.objects;
+      report.totals.bytes += run.bytes;
+    };
+
+    // Delivered renders first (#487): the grace after the first download is over, whatever the age or keep-last.
+    const gone = new Set<string>();
+    if (policy.deleteAfterDownloadMinutes) {
+      const graceMs = policy.deleteAfterDownloadMinutes * 60_000;
+      for (const run of runs) {
+        if (!run.complete || !run.downloadedAt || active.has(run.runId)) continue;
+        if (startedMs - Date.parse(run.downloadedAt) < graceMs) continue;
+        gone.add(`${run.projectId}/${run.runId}`);
+        if (await remove(run)) record(run, 'deleted_after_download');
+      }
+    }
+
     // Finished renders, newest first per project.
     const byProject = new Map<string, StoredRun[]>();
-    for (const r of runs.filter((x) => x.complete)) byProject.set(r.projectId, [...(byProject.get(r.projectId) ?? []), r]);
+    for (const r of runs.filter((x) => x.complete && !gone.has(`${x.projectId}/${x.runId}`))) byProject.set(r.projectId, [...(byProject.get(r.projectId) ?? []), r]);
     const { renderDays, keepLastRendersPerProject: keep } = policy;
     const maxAgeMs = policy.maxAgeHours ? policy.maxAgeHours * 3600 * 1000 : renderDays * DAY;
     if (maxAgeMs > 0 || keep > 0) {
@@ -349,12 +403,7 @@ export class StorageManager {
           const age = startedMs - Date.parse(run.createdAt);
           const reason = maxAgeMs > 0 ? (age > maxAgeMs ? (policy.maxAgeHours ? 'older_than_workspace_retention' : 'older_than_renderDays') : null) : 'beyond_keepLastRendersPerProject';
           if (!reason) continue;
-          if (await remove(run)) {
-            report.renders.push({ ...tag, projectId: run.projectId, renderId: run.runId, createdAt: run.createdAt, objects: run.objects, bytes: run.bytes, reason });
-            report.totals.renders++;
-            report.totals.objects += run.objects;
-            report.totals.bytes += run.bytes;
-          }
+          if (await remove(run)) record(run, reason);
         }
       }
     }
@@ -404,6 +453,7 @@ export class StorageManager {
     this.stopSweeper();
     const minutes = this.opts.settings.config.storage.retention.sweepIntervalMinutes;
     if (minutes <= 0) return;
+    this.sweepStartedMs = this.now();
     this.timer = setInterval(() => void this.sweep(), minutes * 60_000);
     this.timer.unref();
   }
@@ -437,10 +487,40 @@ export class StorageManager {
  * retention. A maximum age keeps the shorter of the two (hours), a keep-last the smaller; the instance's policy is
  * the ceiling, so a workspace can keep less than the instance, never more.
  */
-export function workspacePolicy(policy: RetentionPolicy, own: { maxAgeHours?: number; keepLast?: number } | undefined): RetentionPolicy & { maxAgeHours?: number } {
+export function workspacePolicy(policy: RetentionPolicy, own: WorkspaceRetention | undefined): WorkspacePolicy {
   if (!own) return policy;
   const instanceHours = policy.renderDays > 0 ? policy.renderDays * 24 : Infinity;
   const hours = own.maxAgeHours && own.maxAgeHours > 0 ? Math.min(own.maxAgeHours, instanceHours) : undefined;
   const keep = own.keepLast && own.keepLast > 0 ? (policy.keepLastRendersPerProject > 0 ? Math.min(own.keepLast, policy.keepLastRendersPerProject) : own.keepLast) : policy.keepLastRendersPerProject;
-  return { ...policy, keepLastRendersPerProject: keep, ...(hours !== undefined && hours !== instanceHours ? { maxAgeHours: hours } : {}) };
+  const afterDownload = own.deleteAfterDownloadMinutes && own.deleteAfterDownloadMinutes > 0 ? own.deleteAfterDownloadMinutes : undefined;
+  return {
+    ...policy,
+    keepLastRendersPerProject: keep,
+    ...(hours !== undefined && hours !== instanceHours ? { maxAgeHours: hours } : {}),
+    ...(afterDownload ? { deleteAfterDownloadMinutes: afterDownload } : {}),
+  };
+}
+
+/** A workspace's own retention (its limits, #487). */
+export interface WorkspaceRetention {
+  maxAgeHours?: number;
+  keepLast?: number;
+  deleteAfterDownloadMinutes?: number;
+}
+
+/** The policy the sweep applies in one workspace. */
+export type WorkspacePolicy = RetentionPolicy & { maxAgeHours?: number; deleteAfterDownloadMinutes?: number };
+
+/**
+ * When the sweep may delete one render under a policy (#487), or null when nothing would: the earlier of its
+ * maximum age and the end of the grace after its first download. A keep-last can still keep it past its maximum age.
+ */
+export function renderDeletesAt(policy: WorkspacePolicy, run: { createdAt: string; downloadedAt?: string | null }): { at: string; reason: 'deleted_after_download' | 'older_than_workspace_retention' | 'older_than_renderDays' } | null {
+  const options: Array<{ ms: number; reason: 'deleted_after_download' | 'older_than_workspace_retention' | 'older_than_renderDays' }> = [];
+  const maxAgeMs = policy.maxAgeHours ? policy.maxAgeHours * 3600 * 1000 : policy.renderDays * DAY;
+  if (maxAgeMs > 0) options.push({ ms: Date.parse(run.createdAt) + maxAgeMs, reason: policy.maxAgeHours ? 'older_than_workspace_retention' : 'older_than_renderDays' });
+  if (policy.deleteAfterDownloadMinutes && run.downloadedAt) options.push({ ms: Date.parse(run.downloadedAt) + policy.deleteAfterDownloadMinutes * 60_000, reason: 'deleted_after_download' });
+  if (!options.length) return null;
+  const first = options.reduce((a, b) => (b.ms < a.ms ? b : a));
+  return { at: new Date(first.ms).toISOString(), reason: first.reason };
 }
