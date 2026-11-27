@@ -26,43 +26,113 @@ export interface Ctx {
 export type View = (ctx: Ctx, main: HTMLElement, arg?: string) => (() => void) | void;
 
 // sessionStorage only, and only when asked: it ends with the tab and is never sent anywhere by the browser.
+// It holds the keys of every workspace signed in on this tab, as a JSON list (an older single key still reads).
 const STORE = 'reelforge.dashboard.key';
 const root = document.getElementById('app')!;
-let session: { api: Api; me: Me } | null = null;
+
+/** One signed-in key and the workspace it works in (requests always run in the key's own workspace, #304). */
+interface Session {
+  api: Api;
+  key: string;
+  me: Me;
+  workspace: { id: string; name: string };
+  keep: boolean;
+}
+/** Every key signed in on this tab; `session` is the one in use. Switching changes which key the pages call with. */
+let sessions: Session[] = [];
+let session: Session | null = null;
 let shell: { main: HTMLElement; nav: Record<string, HTMLAnchorElement> } | null = null;
 let dispose: (() => void) | void;
+/** Sign in to one more workspace without leaving the ones already open. */
+let adding = false;
 
-function stored(): string | null {
+function stored(): string[] {
   try {
-    return sessionStorage.getItem(STORE);
+    const raw = sessionStorage.getItem(STORE);
+    if (!raw) return [];
+    if (!raw.startsWith('[')) return [raw];
+    const list = JSON.parse(raw) as unknown;
+    return Array.isArray(list) ? list.filter((k): k is string => typeof k === 'string' && k.length > 0) : [];
   } catch {
-    return null;
+    return [];
   }
 }
-function remember(key: string | null): void {
+function remember(): void {
   try {
-    if (key) sessionStorage.setItem(STORE, key);
+    const keep = sessions.filter((s) => s.keep).map((s) => s.key);
+    if (keep.length) sessionStorage.setItem(STORE, JSON.stringify(keep));
     else sessionStorage.removeItem(STORE);
   } catch {
-    // storage blocked: the key stays in memory only
+    // storage blocked: the keys stay in memory only
   }
 }
 
 async function signIn(key: string, keep: boolean): Promise<void> {
   const api = new Api(key);
   const me = await api.get<Me>('/v1/me');
-  session = { api, me };
-  remember(keep ? key : null);
+  // The key's workspace; a server without workspaces has one, named Default.
+  const workspace = await api.get<{ id: string; name: string }>('/v1/workspace').catch(() => ({ id: 'default', name: 'Default' }));
+  const next: Session = { api, key, me, workspace: { id: workspace.id, name: workspace.name }, keep };
+  // The same key again replaces its session; another key of the same workspace is a separate entry.
+  sessions = [...sessions.filter((s) => s.me.id !== me.id), next];
+  adding = false;
+  use(next);
+  remember();
+}
+
+/** Make `s` the key the pages use, and show the same page for it. */
+function use(s: Session): void {
+  dispose?.();
+  dispose = undefined;
+  session = s;
+  shell = null;
   route();
 }
 
+/** Sign the current key out; another signed-in workspace takes over, or the sign-in page shows. */
 function signOut(message?: string): void {
   dispose?.();
   dispose = undefined;
+  sessions = sessions.filter((s) => s !== session);
+  remember();
+  const next = sessions.at(-1);
+  if (next && !message) return use(next);
+  if (next && message) {
+    session = next;
+    shell = null;
+    route(message);
+    return;
+  }
   session = null;
   shell = null;
-  remember(null);
   route(message);
+}
+
+/** The workspace picker: every signed-in key, then "Sign in to another workspace". Only shown with workspaces to pick. */
+function workspacePicker(current: Session): HTMLElement {
+  const select = h(
+    'select',
+    {
+      id: 'workspace',
+      class: 'ws-select',
+      onchange: () => {
+        if (select.value === '+') {
+          select.value = current.me.id;
+          adding = true;
+          dispose?.();
+          dispose = undefined;
+          shell = null;
+          route();
+          return;
+        }
+        const s = sessions.find((x) => x.me.id === select.value);
+        if (s && s !== session) use(s);
+      },
+    },
+    ...sessions.map((s) => h('option', { value: s.me.id, selected: s === current }, sessions.some((o) => o !== s && o.workspace.id === s.workspace.id) ? `${s.workspace.name} (${s.me.name})` : s.workspace.name)),
+    h('option', { value: '+' }, 'Sign in to another workspace…')
+  );
+  return h('div', { class: 'ws' }, h('label', { for: 'workspace', class: 'ws-label' }, 'Workspace'), select);
 }
 
 function buildShell(me: Me): NonNullable<typeof shell> {
@@ -87,6 +157,7 @@ function buildShell(me: Me): NonNullable<typeof shell> {
       h(
         'div',
         { class: 'who' },
+        session ? workspacePicker(session) : null,
         h('span', { class: 'who-key' }, h('span', { class: 'who-name' }, me.name), h('span', { class: 'who-scope' }, scopeText(me.scopes))),
         h('button', { type: 'button', class: 'btn btn-quiet', onclick: () => signOut() }, 'Sign out')
       )
@@ -117,10 +188,22 @@ const ROUTES: Array<[RegExp, View, Section]> = [
 function route(message?: string): void {
   dispose?.();
   dispose = undefined;
-  if (!session) {
+  if (!session || adding) {
     shell = null;
-    document.title = 'Sign in · RenderWeld';
-    loginView(root, { onSubmit: signIn, message });
+    document.title = adding ? 'Add a workspace · RenderWeld' : 'Sign in · RenderWeld';
+    loginView(root, {
+      onSubmit: signIn,
+      message,
+      ...(adding && session
+        ? {
+            heading: 'Sign in to another workspace',
+            onCancel: () => {
+              adding = false;
+              route();
+            },
+          }
+        : {}),
+    });
     return;
   }
   const hit = ROUTES.map(([re, view, section]) => ({ m: re.exec(location.hash), view, section })).find((r) => r.m);
@@ -160,5 +243,11 @@ let focusOnRoute = false;
 window.addEventListener('hashchange', () => route());
 
 const saved = stored();
-if (saved) signIn(saved, true).catch(() => signOut('Your saved key no longer works. Sign in again.'));
-else route();
+if (saved.length) {
+  // Every kept key, in order; one that no longer works is dropped with a message.
+  (async () => {
+    let failed = 0;
+    for (const key of saved) await signIn(key, true).catch(() => failed++);
+    if (failed) route(failed === saved.length ? 'Your saved key no longer works. Sign in again.' : 'A saved key no longer works and was signed out.');
+  })();
+} else route();

@@ -3140,6 +3140,49 @@ terms on that tenant's account. *Rejected:* a per-provider `sharedWithWorkspaces
 workspace has its own (surprising for the other workspaces); falling back to the instance's for settings a
 workspace left out (it could pair one tenant's key with another account's options).
 
+### D-134 --- Render plans estimate from this install's own renders, per megapixel-frame per engine; never a guess
+
+**Status:** DECIDED (agent, 2026-11-25, #485; reversible). Number assigned at merge.\
+**Decision:** `plan_render` (`POST /v1/projects/:id/render-plan`, read scope) answers before `render_project`
+with every output the same call would render, each with an estimated render time and file size. The rates
+come from the manifests of the workspace's 50 newest successful renders: the median milliseconds per
+megapixel-frame of scene rendering per engine, the median ratio of the whole render to its scenes (assembly,
+encode, checks), and the median output bytes per megapixel-second. A size or length never rendered before is
+estimated by scaling, an engine with no sample uses the median of the others and says `partial`, and a
+workspace with no render says `none` with a null estimate. The queue wait is the queued jobs at the measured
+claim rate. Nothing is queued or charged, and the result carries a `planId` of the project version and options.
+*Why:* agents and users should see what a render costs before they start it (competitors ship dry runs and
+quotes, #485). Rates from the install's own hardware hold on any machine or cloud, where a fixed table would
+not (the backend contract already refuses to guess, #125). *Deferred:* the approval token (`render.approval`, an
+`approve` scope) is a separate change on #485.
+
+### D-135 --- Render approval: a signed, single-use token per plan; off by default; a new `approve` scope
+
+**Status:** DECIDED (agent, 2026-11-25, #485; reversible). Number assigned at merge.\
+**Decision:** `render.approval.mode` is `off` (default), `above` (the plan's estimated render time is over
+`render.approval.aboveSeconds`, or cannot be estimated yet) or `always`. When it applies, `render_project`
+answers `409 approval_required` with the plan until it gets an `approvalToken`. `approve_render_plan` (scope
+`approve`, which `admin` and `owner` imply) re-plans, checks the plan id is still current, and returns a token
+signed with the instance's URL signer over workspace, project, plan id and a nonce. It expires after
+`render.approval.tokenMinutes` and is spent when a render starts, through the shared counter table (one use
+across every instance). A changed project changes the plan id, so an old token and an old plan id are refused.
+*Why:* an operator can require a human yes before expensive renders without a second service. A plan id plus a
+signature needs no new table, and the counter makes "single-use" hold across api instances. *Rejected:* letting
+any `render` key approve (no separation of duties); stateless tokens without the spend counter (replayable
+until they expire).
+
+### D-136 --- Retention per workspace: two more workspace limits, stricter than the instance only
+
+**Status:** DECIDED (agent, 2026-11-25, #487; reversible). Number assigned at merge.\
+**Decision:** a workspace's limits take `retentionMaxAgeHours` and `retentionKeepLast` (owner, `update_workspace`).
+They are stored with the other limits (no migration), shown in `effectiveLimits`, and applied by the storage sweep
+in that workspace only. They are always the stricter of the workspace's and the instance's `storage.retention`: the
+shorter maximum age and the smaller keep-last. A workspace can keep less than the instance, never more.
+Deletions show the reason `older_than_workspace_retention`. *Why:* a tenant with a strict data policy (a health or
+legal client) needs a short retention without imposing it on every tenant. *Not yet (#487):* zero retention
+(delete once the result is delivered), delete-after-first-download, and a workspace admin setting it without the
+owner. These need download and delivery tracking and are a follow-up.
+
 ### D-137 --- Project glossary: the user's spellings and pronunciations, applied by exact match only
 
 **Status:** DECIDED (agent, 2026-11-25, #486; reversible). Number assigned at merge.\

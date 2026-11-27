@@ -36,6 +36,7 @@ export * from './migrate';
 export * from './layout';
 export * from './layouts';
 export * from './layout-dom';
+export * from './textqa';
 export * from './media';
 export * from './assetRefs';
 export { projectV01, V01_SCHEMA_VERSION, type ProjectV01, type ProjectV01Input } from './v01';

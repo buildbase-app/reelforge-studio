@@ -1136,6 +1136,11 @@ export function createPrismaRepositories(prisma: PrismaClient, workspaceId: stri
         });
         return rows.map(toJob);
       },
+      async jobOfRun(runId) {
+        // The same index as projectOfRun.
+        const row = await prisma.job.findFirst({ where: { ...ws, runId } });
+        return row ? toJob(row) : null;
+      },
       async projectOfRun(runId) {
         // Index (workspaceId, runId), migration 0009; the workspace scope stays: another workspace's run is not found.
         const row = await prisma.job.findFirst({ where: { ...ws, runId, projectId: { not: null } }, select: { projectId: true } });
