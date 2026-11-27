@@ -22,7 +22,8 @@ export const fakeFrameLuma = (n: number) => 16 + (n % 40) * 5;
  */
 export function fakeEngine(
   id: string,
-  opts: { delayPerFrameMs?: number; fail?: boolean; frameRanges?: boolean; alpha?: boolean } = {}
+  /** impure: claims frame ranges but paints a range from its own start, as a scene with state kept between frames does. */
+  opts: { delayPerFrameMs?: number; fail?: boolean; frameRanges?: boolean; alpha?: boolean; impure?: boolean } = {}
 ): EnginePlugin & { renders: RenderScene[]; ranges: Array<readonly [number, number] | null> } {
   const renders: RenderScene[] = [];
   const ranges: Array<readonly [number, number] | null> = [];
@@ -54,7 +55,7 @@ export function fakeEngine(
       }
       const size = `size=${ctx.output.width}x${ctx.output.height}:rate=${ctx.output.fps}`;
       const source = opts.frameRanges
-        ? `nullsrc=${size},format=yuv420p,geq=lum='16+mod(N+${first}\\,40)*5':cb=128:cr=128`
+        ? `nullsrc=${size},format=yuv420p,geq=lum='16+mod(N+${opts.impure ? 0 : first}\\,40)*5':cb=128:cr=128`
         : `color=c=${ctx.theme.colors.background.replace('#', '0x')}:${size}`;
       if (ctx.alpha) {
         if (!opts.alpha) throw new Error('fake engine without alpha was asked for it');

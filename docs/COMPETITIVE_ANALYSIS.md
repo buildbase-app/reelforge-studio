@@ -10,7 +10,7 @@ rank competitors or estimate market share.
 
 ## Initial differentiation hypotheses
 
-ReelForge should test whether buyers value: 1. First-class integration
+RenderWeld should test whether buyers value: 1. First-class integration
 of **both Remotion and Motion Canvas**. 2. Self-hosted/source-code
 ownership and a clear deployment experience. 3. A shared, portable
 project schema that can be planned by multiple agents. 4. Polished,

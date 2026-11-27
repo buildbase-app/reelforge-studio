@@ -196,6 +196,11 @@ export const output = z
     /** Container (#302): mp4, mov, webm, gif, png-sequence (a zip of PNG frames), m4a or wav (audio only). */
     format: outputFormat,
     ...outputFormatFields,
+    /**
+     * The video is meant to repeat (a loop on a page or a feed, #294): the picture checks compare the last frame
+     * with the first and report a jump where it repeats (`checks.loop`). Nothing about the render changes.
+     */
+    loop: z.boolean().optional(),
   })
   .strict()
   .refine((o) => o.width % 2 === 0 && o.height % 2 === 0, {

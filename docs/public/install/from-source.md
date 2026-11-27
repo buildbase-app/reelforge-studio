@@ -1,6 +1,6 @@
 ---
 title: "Run from source"
-description: "Run ReelForge Studio with Node 22 and pnpm for development: requirements, the dev server, keys and the test suite."
+description: "Run RenderWeld with Node 22 and pnpm for development: requirements, the dev server, keys and the test suite."
 folder: install
 slug: from-source
 order: 3
@@ -33,22 +33,22 @@ covers every platform and problem. By hand:
 git clone https://github.com/buildbase-app/reelforge-studio.git
 cd reelforge-studio
 pnpm install
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
+export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm keys:create --name me          # prints an rf_... key once
 pnpm dev                            # REST http://127.0.0.1:4321/v1, MCP http://127.0.0.1:4321/mcp
 ```
 
-`pnpm dev` restarts on code changes and sets `REELFORGE_LICENCE_MODE=off`, which
+`pnpm dev` restarts on code changes and sets `RENDERWELD_LICENCE_MODE=off`, which
 is for noncommercial development only. `pnpm start` runs without watching.
-Data goes to `./data` (`REELFORGE_DATA_DIR`).
+Data goes to `./data` (`RENDERWELD_DATA_DIR`).
 
 ## Useful commands
 
 ```bash
-pnpm reelforge keys list                  # API keys
-pnpm reelforge config check               # validate the configuration
-pnpm reelforge config show                # the effective configuration (secrets redacted)
-pnpm reelforge migrate --status           # database migrations
+pnpm renderweld keys list                  # API keys
+pnpm renderweld config check               # validate the configuration
+pnpm renderweld config show                # the effective configuration (secrets redacted)
+pnpm renderweld migrate --status           # database migrations
 pnpm spike                                # a standalone two-engine render, no server
 pnpm typecheck && pnpm test               # the checks CI runs
 ```
