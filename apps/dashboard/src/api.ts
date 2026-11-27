@@ -63,6 +63,8 @@ export interface RenderSummary {
   downloadUrlExpiresAt: string;
   downloadVia: 'bucket' | 'server';
   storage?: { driver: string; prefix: string };
+  /** When the render was first downloaded and when the sweep may delete it (#487); older servers send none. */
+  retention?: RenderRetention;
   /** Present on renders with the audio pipeline (#301); older servers and renders have none. */
   audio?: RenderAudio;
   captions?: {
@@ -75,6 +77,14 @@ export interface RenderSummary {
   };
   /** The labelled sheet stored with the render (#379); absent when off, audio-only or on older servers. */
   contactSheet?: { file: string; tiles: Array<{ frame: number; seconds: number; sceneId: string | null; label: string }> };
+}
+
+export interface RenderRetention {
+  downloadedAt: string | null;
+  deletesAt: string | null;
+  deleteReason?: 'deleted_after_download' | 'older_than_workspace_retention' | 'older_than_renderDays';
+  deleteAfterDownloadMinutes?: number;
+  keepLast?: number;
 }
 
 export interface RenderAudio {

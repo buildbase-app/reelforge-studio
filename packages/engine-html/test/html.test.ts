@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PipelineError, checkExpectation, frameStats, probe, resolveTools } from '@renderweld/media-pipeline';
 import { builtinTheme, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
-import { CSP, buildDocument, chromiumSandbox, escapeHtml, htmlEngine, htmlTitle, renderHtmlScene } from '../src/index';
+import { CSP, buildDocument, chromiumSandbox, escapeHtml, htmlEngine, htmlSceneTimeoutMs, htmlTitle, renderHtmlScene } from '../src/index';
 
 const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
@@ -44,6 +44,21 @@ describe('document builder', () => {
   });
 });
 
+describe('scene timeout', () => {
+  it('is whole milliseconds at every size, so AbortSignal.timeout accepts it (4096x1716 failed every render)', () => {
+    const cap = 900_000;
+    for (const [frames, w, h] of [[72, 4096, 1716], [3, 2560, 1440], [30, 2560, 1080], [45, 1080, 1920], [30, 3840, 2160], [7, 1366, 768]] as const) {
+      const ms = htmlSceneTimeoutMs(frames, w, h, undefined, cap);
+      expect(Number.isInteger(ms), `${w}x${h}`).toBe(true);
+      expect(() => AbortSignal.timeout(ms)).not.toThrow();
+      // Never shorter than the time the formula gives.
+      expect(ms).toBeGreaterThanOrEqual(30_000 + frames * 1000 * Math.max(1, (w * h) / (1920 * 1080)) - 1e-6);
+    }
+    expect(htmlSceneTimeoutMs(10_000, 3840, 2160, undefined, cap)).toBe(cap);
+    expect(htmlSceneTimeoutMs(10, 1920, 1080, 12_345.6, cap)).toBe(12_346);
+  });
+});
+
 describe('security: document shell (SEC-01)', () => {
   it('SECT-40 markup that sets its own page policy is refused; the CSP stays the first element of <head>', async () => {
     const { parse } = await import('parse5');
@@ -78,6 +93,14 @@ describe.skipIf(!hasBrowser)('renderHtmlScene (needs RENDERWELD_CHROMIUM_PATH)',
     expect(checkExpectation(info, { width: 360, height: 640, fps: 30, frames: 45, audio: false })).toEqual([]);
     const first = await frameStats(tools.ffmpeg, out, 0);
     expect(first.yMax - first.yMin).toBeGreaterThan(40);
+  }, 120_000);
+
+  it('renders a size whose pixels are not a whole multiple of 1080p (2560x1440)', async () => {
+    const scene: RenderScene = { id: 'qhd', engine: 'html', template: 'html-title', durationFrames: 3, props: { headline: 'QHD' } };
+    const out = join(dir, 'qhd.mp4');
+    const res = await renderHtmlScene({ scene, output: { ...output, width: 2560, height: 1440 }, theme, out, ffmpeg: tools.ffmpeg });
+    expect(res.frames).toBe(3);
+    expect(checkExpectation(await probe(tools.ffprobe, out), { width: 2560, height: 1440, fps: 30, frames: 3, audio: false })).toEqual([]);
   }, 120_000);
 
   it('seeks CSS animations deterministically (frame N shows the animation at N/fps)', async () => {
