@@ -140,6 +140,17 @@ export function sceneSource(scene: RenderScene, durationSeconds: number, staged?
  * currentTime = frame / fps, take a PNG screenshot and pipe it to FFmpeg.
  * Deterministic: time never advances on its own.
  */
+/**
+ * How long one html scene may take: 30 s plus 1 s per frame at 1080p and less, more for larger frames (a 4K
+ * screenshot is four times the pixels), capped by render.sceneTimeoutSeconds. Whole milliseconds:
+ * AbortSignal.timeout refuses a fraction, and a size whose pixels are not a whole multiple of 1080p (4096x1716,
+ * 2560x1440) made one and failed every such render.
+ */
+export function htmlSceneTimeoutMs(frames: number, width: number, height: number, override?: number, capMs = sceneTimeoutCapMs()): number {
+  const perFrameMs = 1000 * Math.max(1, (width * height) / (1920 * 1080));
+  return Math.ceil(Math.min(override ?? 30_000 + frames * perFrameMs, capMs));
+}
+
 export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRenderResult> {
   const started = Date.now();
   const { scene, output } = opts;
@@ -232,9 +243,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   }
 
   mkdirSync(dirname(opts.out), { recursive: true });
-  // 1 s per frame at 1080p and less, more for larger frames (a 4K screenshot is four times the pixels).
-  const perFrameMs = 1000 * Math.max(1, (output.width * output.height) / (1920 * 1080));
-  const timeoutMs = Math.min(opts.timeoutMs ?? 30_000 + frames * perFrameMs, sceneTimeoutCapMs());
+  const timeoutMs = htmlSceneTimeoutMs(frames, output.width, output.height, opts.timeoutMs);
   const timeout = AbortSignal.timeout(timeoutMs);
   // The page leaving its document (meta refresh, a link) fails the render (D-085).
   const navigation = new AbortController();
