@@ -10,7 +10,7 @@ import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 /**
  * Read replica and the worker pool default on the server (issue #152, D-104).
  * Ids REP-nn in docs/providers/queue-and-scaling.md#read-replica. The replica
- * cases need PostgreSQL or MySQL (REELFORGE_TEST_DB=postgres|mysql, or
+ * cases need PostgreSQL or MySQL (RENDERWELD_TEST_DB=postgres|mysql, or
  * TEST_POSTGRES_URL / TEST_MYSQL_URL set); the SQLite refusal runs always.
  */
 const { dir, cleanup } = tempDir('reelforge-replica-');

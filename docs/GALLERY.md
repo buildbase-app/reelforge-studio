@@ -220,4 +220,4 @@ keys, replace, resume, retry), publishing to a fake Records API (create,
 idempotent upsert, hidden → published) and the R2 upload against a fake
 Cloudflare API. `test/e2e.test.ts` renders two short reels end to end against
 a real studio process (skips without `RENDERWELD_CHROMIUM_PATH` unless
-`REELFORGE_REQUIRE_BROWSER=1`).
+`RENDERWELD_REQUIRE_BROWSER=1`).

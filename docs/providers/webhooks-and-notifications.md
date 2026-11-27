@@ -232,7 +232,7 @@ built-in provider; *contract (DB)* `packages/db/test/webhooks-contract.test.ts`
 on memory, SQLite, PostgreSQL 17 and MySQL 8.4; *server*
 `apps/server/test/webhooks.test.ts` (real HTTP, REST, MCP and the CLI; every
 signature verified with the official `standardwebhooks` library; also run with
-`REELFORGE_TEST_DB=postgres` and `mysql`) and `apps/server/test/parity.test.ts`;
+`RENDERWELD_TEST_DB=postgres` and `mysql`) and `apps/server/test/parity.test.ts`;
 *Docker* `e2e/docker/run.sh` step `webhooks.mjs` (an agent in a separate
 container over MCP; release image, hardened flags; receiver container
 `e2e/webhooks/receiver.mjs`; Mailpit v1.34.0): **ALL DOCKER E2E CHECKS PASSED** on SQLite (196 checks, 2026-11-21).
@@ -309,7 +309,7 @@ Commands:
 pnpm --filter @renderweld/core exec vitest run test/webhooks.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/db exec vitest run test/webhooks-contract.test.ts
 pnpm --filter @renderweld/server exec vitest run test/webhooks.test.ts test/webhooks-ops.test.ts test/parity.test.ts
-REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/webhooks.test.ts
+RENDERWELD_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/webhooks.test.ts
 e2e/docker/run.sh                       # MAILPIT_IMAGE selects a Mailpit mirror
 ```
 

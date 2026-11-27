@@ -7,7 +7,7 @@
  *   azure   TEST_AZURE_CONNECTION_STRING (Azurite)
  *   gcs     TEST_GCS_ENDPOINT (fake-gcs-server)
  *
- * REELFORGE_REQUIRE_STORAGE=s3,azure,gcs turns a missing target into a failure instead of a skip.
+ * RENDERWELD_REQUIRE_STORAGE=s3,azure,gcs turns a missing target into a failure instead of a skip.
  */
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
@@ -33,7 +33,7 @@ import { tempDir } from './helpers';
 
 const tmp = tempDir('reelforge-storage-');
 afterAll(() => tmp.cleanup());
-const required = (process.env.REELFORGE_REQUIRE_STORAGE ?? '').split(',').filter(Boolean);
+const required = (process.env.RENDERWELD_REQUIRE_STORAGE ?? '').split(',').filter(Boolean);
 const run = randomBytes(4).toString('hex');
 const MiB = 1024 * 1024;
 const SECRETS: string[] = [];
@@ -131,7 +131,7 @@ const targets: Target[] = [
 ];
 
 it('every required storage target is configured', () => {
-  for (const name of required) expect(targets.find((t) => t.name === name)?.available, `${name} required by REELFORGE_REQUIRE_STORAGE but not configured`).toBe(true);
+  for (const name of required) expect(targets.find((t) => t.name === name)?.available, `${name} required by RENDERWELD_REQUIRE_STORAGE but not configured`).toBe(true);
 });
 
 /** A driver whose chosen operations fail (to test atomic commits and resumable migrations). */

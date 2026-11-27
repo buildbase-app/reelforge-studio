@@ -11,7 +11,7 @@ import { HF_CSP, buildComposition, hyperframesEngine, hyperframesEnv, hyperframe
 
 const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
-const requireBrowser = process.env.REELFORGE_REQUIRE_BROWSER === '1';
+const requireBrowser = process.env.RENDERWELD_REQUIRE_BROWSER === '1';
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-hf-'));
 // Best effort: renders reap their processes (SECT-38), but a cleanup problem must not fail the suite.
 afterAll(() => {
@@ -138,7 +138,7 @@ describe('security: composition isolation (SEC-01, SEC-02)', () => {
 });
 
 describe('browser requirement', () => {
-  it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => expect(hasBrowser).toBe(true));
+  it.runIf(requireBrowser)('RENDERWELD_REQUIRE_BROWSER=1: a browser must be configured', () => expect(hasBrowser).toBe(true));
 });
 
 describe.skipIf(!hasBrowser)('renderHyperframesScene with the local HyperFrames renderer (needs RENDERWELD_CHROMIUM_PATH)', () => {

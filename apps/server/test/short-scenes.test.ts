@@ -6,7 +6,7 @@
  * key frame at each cut; and a four-engine project of 6-frame scenes with
  * music and burned captions validates (with a short-scene warning) and
  * renders end to end with the exact frame count.
- * Needs RENDERWELD_CHROMIUM_PATH (skips without; fails under REELFORGE_REQUIRE_BROWSER=1).
+ * Needs RENDERWELD_CHROMIUM_PATH (skips without; fails under RENDERWELD_REQUIRE_BROWSER=1).
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,7 +25,7 @@ const cacheDir = resolve(import.meta.dirname, '../../../.render-cache');
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 describe('browser requirement', () => {
-  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
+  it.runIf(process.env.RENDERWELD_REQUIRE_BROWSER === '1')('RENDERWELD_REQUIRE_BROWSER=1: a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });

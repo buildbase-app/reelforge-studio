@@ -126,7 +126,7 @@ names, masking, budgets, the upload plan against a fake asset API
 (first run, re-run with no writes, changed image replaced, lost manifest,
 duplicates), redaction and the generated pages; and an end-to-end test that
 captures two pages from a local static server (skipped without a browser or
-ffmpeg unless `REELFORGE_REQUIRE_BROWSER=1`).
+ffmpeg unless `RENDERWELD_REQUIRE_BROWSER=1`).
 
 ## Re-capture later
 

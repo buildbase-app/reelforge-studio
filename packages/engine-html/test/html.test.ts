@@ -10,7 +10,7 @@ import { CSP, buildDocument, chromiumSandbox, escapeHtml, htmlEngine, htmlSceneT
 
 const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
-const requireBrowser = process.env.REELFORGE_REQUIRE_BROWSER === '1';
+const requireBrowser = process.env.RENDERWELD_REQUIRE_BROWSER === '1';
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-html-'));
 // Chrome can still be flushing its profile when the suite ends; retry ENOTEMPTY/EBUSY.
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
@@ -74,7 +74,7 @@ describe('security: document shell (SEC-01)', () => {
 });
 
 describe('browser requirement', () => {
-  it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
+  it.runIf(requireBrowser)('RENDERWELD_REQUIRE_BROWSER=1: a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });

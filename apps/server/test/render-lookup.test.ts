@@ -9,7 +9,7 @@ import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 import { testDatabase } from './serverProcess';
 
 /**
- * #184 on the server's database (REELFORGE_TEST_DB=sqlite|postgres|mysql):
+ * #184 on the server's database (RENDERWELD_TEST_DB=sqlite|postgres|mysql):
  * - get_render after a restart (cold in-process index) reads the render's project from its job by run id: no
  *   project is read and storage is only touched under the owning project (no full scan);
  * - list_jobs with parentId lists one render's children, paged, with the filter bound into the cursor.

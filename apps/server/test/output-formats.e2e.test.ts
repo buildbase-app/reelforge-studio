@@ -4,7 +4,7 @@
  * (ProRes 4444) and WebM (VP9 alpha); a Remotion scene in an alpha render is
  * refused with 422 before a job is queued; the output route and a signed
  * download serve the format's file with its content type. Skips without a
- * browser unless REELFORGE_REQUIRE_BROWSER=1.
+ * browser unless RENDERWELD_REQUIRE_BROWSER=1.
  */
 import { existsSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -24,7 +24,7 @@ let app: ReturnType<typeof createApp>;
 let key: string;
 
 describe('browser requirement', () => {
-  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
+  it.runIf(process.env.RENDERWELD_REQUIRE_BROWSER === '1')('RENDERWELD_REQUIRE_BROWSER=1: a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });

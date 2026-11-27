@@ -7,7 +7,7 @@
  * client sends is checked too: the key and an instance id, nothing else (docs/PRIVACY.md).
  *
  * Needs strace (ptrace allowed) and RENDERWELD_CHROMIUM_PATH; skips without them, fails without them under
- * REELFORGE_REQUIRE_EGRESS=1.
+ * RENDERWELD_REQUIRE_EGRESS=1.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -31,7 +31,7 @@ const dir = mkdtempSync(join(tmpdir(), 'renderweld-egress-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 describe('egress requirement', () => {
-  it.runIf(process.env.REELFORGE_REQUIRE_EGRESS === '1')('REELFORGE_REQUIRE_EGRESS=1: strace and a browser must be available', () => {
+  it.runIf(process.env.RENDERWELD_REQUIRE_EGRESS === '1')('RENDERWELD_REQUIRE_EGRESS=1: strace and a browser must be available', () => {
     expect(hasStrace, 'strace with ptrace allowed').toBe(true);
     expect(hasBrowser, 'RENDERWELD_CHROMIUM_PATH').toBe(true);
   });

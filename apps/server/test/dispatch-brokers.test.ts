@@ -10,7 +10,7 @@ import { TcpProxy, createRedisTestUser, createSqsTestQueue } from '../../../pack
 /**
  * Broker dispatch (`queue.dispatch` `sqs` / `redis`; D-105, issue #158) in the
  * server: the start-up guard (always), and an api with a worker on PostgreSQL
- * or MySQL (REELFORGE_TEST_DB, or TEST_POSTGRES_URL / TEST_MYSQL_URL) per
+ * or MySQL (RENDERWELD_TEST_DB, or TEST_POSTGRES_URL / TEST_MYSQL_URL) per
  * broker that is configured: SQS on LocalStack (TEST_SQS_ENDPOINT) and Redis
  * (TEST_REDIS_URL). Renders woken through the broker within a second,
  * `/readyz` and metrics, the broker cut off and back (enqueue still accepted,

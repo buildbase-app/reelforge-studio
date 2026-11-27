@@ -193,12 +193,12 @@ RUN ln -s /opt/chrome-headless-shell/chrome-headless-shell /usr/local/bin/chrome
 ARG RENDERWELD_EDITION=release
 ARG LICENCE_SERVER_URL=https://api.console.buildbase.app
 ARG LICENCE_ORG_ID=6b01478bb42d2c444e99fcd8
-ARG REELFORGE_VERSION=0.1.0
+ARG RENDERWELD_VERSION=0.1.0
 ARG VCS_REF=unknown
 RUN set -e; \
     case "$RENDERWELD_EDITION" in release|dev) ;; *) echo "RENDERWELD_EDITION must be release or dev" >&2; exit 1 ;; esac; \
     if [ "$RENDERWELD_EDITION" = release ]; then \
-      node -e 'const e = process.env; process.stdout.write(JSON.stringify({ edition: "release", version: e.REELFORGE_VERSION, revision: e.VCS_REF, locked: { "licence.mode": "required", "licence.serverUrl": e.LICENCE_SERVER_URL, "licence.orgId": e.LICENCE_ORG_ID } }, null, 2) + "\n")' \
+      node -e 'const e = process.env; process.stdout.write(JSON.stringify({ edition: "release", version: e.RENDERWELD_VERSION, revision: e.VCS_REF, locked: { "licence.mode": "required", "licence.serverUrl": e.LICENCE_SERVER_URL, "licence.orgId": e.LICENCE_ORG_ID } }, null, 2) + "\n")' \
         > /app/packages/core/build-info.json; \
       printf '%s\n' "/** Release image (written by the Dockerfile; D-089). */" "export const IMAGE_EDITION = 'release' as 'dev' | 'release';" \
         > /app/packages/core/src/config/image-edition.ts; \
@@ -213,7 +213,7 @@ LABEL org.opencontainers.image.title="RenderWeld" \
       org.opencontainers.image.vendor="RenderWeld" \
       org.opencontainers.image.source="https://github.com/buildbase-app/reelforge-studio" \
       org.opencontainers.image.licenses="LicenseRef-PolyForm-Noncommercial-1.0.0" \
-      org.opencontainers.image.version="${REELFORGE_VERSION}" \
+      org.opencontainers.image.version="${RENDERWELD_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       app.renderweld.edition="${RENDERWELD_EDITION}"
 

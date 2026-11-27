@@ -343,17 +343,17 @@ Load the Chromium path first (`set -a; . ./.env.local; set +a` does it, or expor
 | --- | --- | --- |
 | Typecheck | `pnpm typecheck` | nothing |
 | Everything CI's fast job runs | `pnpm test` | FFmpeg; browser tests skip without Chromium |
-| Browser required (as CI) | `REELFORGE_REQUIRE_BROWSER=1 pnpm test` | a missing browser fails instead of skipping |
+| Browser required (as CI) | `RENDERWELD_REQUIRE_BROWSER=1 pnpm test` | a missing browser fails instead of skipping |
 | One package | `pnpm --filter @renderweld/core test`, or `pnpm exec vitest run test/x.test.ts` in it | |
 | Setup helpers | `pnpm test:dev` | nothing |
 | Docs | `pnpm test:docs`, `pnpm docs:reference --check`, `pnpm docs:config --check` | nothing |
-| PostgreSQL contract + server | `TEST_POSTGRES_URL=... pnpm --filter @renderweld/db test`; `REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=... pnpm --filter @renderweld/server test` | `pnpm dev:setup --postgres` |
-| MySQL contract + server | the same with `TEST_MYSQL_URL` and `REELFORGE_TEST_DB=mysql` | `pnpm dev:setup --mysql` |
+| PostgreSQL contract + server | `TEST_POSTGRES_URL=... pnpm --filter @renderweld/db test`; `RENDERWELD_TEST_DB=postgres TEST_POSTGRES_URL=... pnpm --filter @renderweld/server test` | `pnpm dev:setup --postgres` |
+| MySQL contract + server | the same with `TEST_MYSQL_URL` and `RENDERWELD_TEST_DB=mysql` | `pnpm dev:setup --mysql` |
 | Docker e2e | `e2e/docker/run.sh` (`DB=postgres`, `EDITION=dev`, `SCALE=1`, see the file's header) | Docker, about 4 GB |
 | Kubernetes e2e | `e2e/k8s/` | kind, Docker |
 
-The project rule before a PR: `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test`
-(AGENTS.md). `REELFORGE_REQUIRE_BROWSER` works as well.
+The project rule before a PR: `pnpm typecheck && RENDERWELD_REQUIRE_BROWSER=1 pnpm test`
+(AGENTS.md). `RENDERWELD_REQUIRE_BROWSER` works as well.
 
 ## The dashboard
 
@@ -450,5 +450,6 @@ ReelForge Studio is now RenderWeld ([RENAMED.md](RENAMED.md)). The old names
 are no longer read (D-140): not the `REELFORGE_*` settings, the `reelforge` command or the `reelforge://` URIs.
 Use the `RENDERWELD_*` names. Internal names keep their
 old spelling: the repository, the `reelforge.db` file, the `reelforge-data`
-volume, the `reelforge-whisper` program and the test switches
-`REELFORGE_REQUIRE_BROWSER`, `REELFORGE_REQUIRE_EGRESS`, `REELFORGE_REQUIRE_STORAGE` and `REELFORGE_TEST_DB`.
+volume and the `reelforge-whisper` program. The test switches are
+`RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_REQUIRE_EGRESS`, `RENDERWELD_REQUIRE_STORAGE` and `RENDERWELD_TEST_DB`,
+and the image's version build argument is `RENDERWELD_VERSION`.

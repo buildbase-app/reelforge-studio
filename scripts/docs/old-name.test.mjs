@@ -9,8 +9,8 @@
 // - an old MCP resource (reelforge://), CLI call (reelforge keys ...), OAuth
 //   scope (reelforge:read ...), metric or label (reelforge_*) or trace
 //   attribute (reelforge.job.id ...);
-// - any REELFORGE_* variable (none is read any more), except the contributor-only
-//   test switches and the image's build argument in TEST_SWITCHES;
+// - any REELFORGE_* variable (none is read any more, test switches and build
+//   arguments included);
 // - "Render Weld", "Renderweld", or "open source" said of RenderWeld.
 //
 // Lowercase identifiers that are data or deployment identity (the
@@ -40,9 +40,6 @@ const SKIP = [
 /** Lines that explain the rename itself. */
 const NOTE_LINE = /old names?|formerly|renamed from reelforge|is now renderweld|is now \*\*renderweld|reelforge is now|reelforge was renamed|replaces reelforge|no longer read/i;
 
-/** Contributor-only test switches; internal names, never renamed (D-140). */
-const TEST_SWITCHES = new Set(['REELFORGE_REQUIRE_BROWSER', 'REELFORGE_REQUIRE_EGRESS', 'REELFORGE_REQUIRE_STORAGE', 'REELFORGE_TEST_DB', 'REELFORGE_VERSION']);
-
 /** The compose files a reader copies settings from. */
 const COMPOSE_FILES = ['docker-compose.yml', 'deployment/compose/docker-compose.scale.yml', 'deployment/compose/docker-compose.pgbouncer.yml', 'scripts/dev/compose.yml'];
 
@@ -61,7 +58,7 @@ const RULES = [
   ['old OAuth scope', (l) => l.match(/\breelforge:(?:read|write|render|admin|owner)\b/)?.[0]],
   ['old metric or label', (l) => l.match(/\breelforge_(?!migrations\b|data\b)[a-z][a-z0-9_]*/)?.[0]],
   ['old trace attribute', (l) => l.match(new RegExp(`\\breelforge\\.${ATTR}\\b[\\w.]*`))?.[0]],
-  ['old variable name', (l) => [...l.matchAll(/\bREELFORGE_[A-Z0-9_]*[A-Z0-9]\b/g)].map((m) => m[0]).find((n) => !TEST_SWITCHES.has(n))],
+  ['old variable name', (l) => l.match(/\bREELFORGE_[A-Z0-9_]*[A-Z0-9]\b/)?.[0]],
   ['misspelt name', (l) => l.replace(/~~[^~]*~~/g, '').match(/\bRender[ -]Weld\b|\bRenderweld\b|\bRENDERWELD\b(?!_)/)?.[0]],
   [
     '"open source" said of RenderWeld (it is source-available)',
@@ -130,6 +127,7 @@ describe('the docs say RenderWeld (#415)', () => {
       'Alert on reelforge_jobs_queued.',
       'Filter on reelforge.job.id.',
       'Set REELFORGE_RENDER_ENCODER_THREADS=2.',
+      'REELFORGE_REQUIRE_BROWSER=1 pnpm test',
       'echo "REELFORGE_SECRET_KEY=$(openssl rand -base64 32)" >> .env',
       'Never write Render Weld.',
       'RenderWeld is open source.',
@@ -140,7 +138,7 @@ describe('the docs say RenderWeld (#415)', () => {
       'docker compose exec renderweld renderweld keys create',
       'echo "RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)" >> .env',
       'Back up the `reelforge-data` volume.',
-      'REELFORGE_TEST_DB=postgres pnpm test',
+      'RENDERWELD_TEST_DB=postgres pnpm test',
       'REELFORGE_RENDER_CONCURRENCY was the old name of RENDERWELD_RENDER_CONCURRENCY and is no longer read.',
       'RenderWeld is source-available, not open source.',
       'Never split: ~~Render Weld~~',

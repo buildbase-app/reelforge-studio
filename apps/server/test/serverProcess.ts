@@ -7,7 +7,7 @@ const repo = resolve(__dirname, '../../..');
 const tsx = join(repo, 'node_modules/.bin/tsx');
 
 /**
- * The database a server test runs against: REELFORGE_TEST_DB=sqlite (default:
+ * The database a server test runs against: RENDERWELD_TEST_DB=sqlite (default:
  * the SQLite file in the data directory), postgres (TEST_POSTGRES_URL) or
  * mysql (TEST_MYSQL_URL), each a fresh empty database.
  */

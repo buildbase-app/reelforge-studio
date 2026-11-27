@@ -37,7 +37,7 @@ const cacheDir = resolve(import.meta.dirname, '../../../.render-cache');
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 describe('browser requirement', () => {
-  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('has a browser when REELFORGE_REQUIRE_BROWSER=1', () => {
+  it.runIf(process.env.RENDERWELD_REQUIRE_BROWSER === '1')('has a browser when RENDERWELD_REQUIRE_BROWSER=1', () => {
     expect(hasBrowser, 'set RENDERWELD_CHROMIUM_PATH to a Chrome Headless Shell binary').toBe(true);
   });
 });

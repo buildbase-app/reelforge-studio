@@ -235,7 +235,7 @@ many keys).
 
 ## 10. STATUS (2026-11-21, rows for later work added through 2026-11-23)
 
-Evidence: `pnpm typecheck` and `REELFORGE_REQUIRE_BROWSER=1 pnpm test` on Linux
+Evidence: `pnpm typecheck` and `RENDERWELD_REQUIRE_BROWSER=1 pnpm test` on Linux
 x64 with Chrome Headless Shell 157 and FFmpeg 6.1; Docker image built and run
 with Docker 29.10. "Done" means implemented and covered by a test or a command
 that was run; "partial" says what is missing.

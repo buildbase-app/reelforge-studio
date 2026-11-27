@@ -17,10 +17,10 @@ import { htmlReel, startStudio } from './harness';
  */
 const executablePath = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(executablePath && existsSync(executablePath));
-const requireBrowser = process.env.REELFORGE_REQUIRE_BROWSER === '1';
+const requireBrowser = process.env.RENDERWELD_REQUIRE_BROWSER === '1';
 const axeSource = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
 
-it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => expect(hasBrowser).toBe(true));
+it.runIf(requireBrowser)('RENDERWELD_REQUIRE_BROWSER=1: a browser must be configured', () => expect(hasBrowser).toBe(true));
 
 describe.runIf(hasBrowser)('dashboard in a browser', () => {
   let studio: Awaited<ReturnType<typeof startStudio>>;

@@ -11,9 +11,9 @@ import { remotionEngine, renderRemotionScene } from '../src/index';
 // it at a preinstalled one so the test does not depend on network access.
 const hasBrowser = Boolean(process.env.RENDERWELD_CHROMIUM_PATH && existsSync(process.env.RENDERWELD_CHROMIUM_PATH));
 
-// In CI REELFORGE_REQUIRE_BROWSER=1 turns a missing browser into a failure instead of a skip.
+// In CI RENDERWELD_REQUIRE_BROWSER=1 turns a missing browser into a failure instead of a skip.
 describe('browser requirement', () => {
-  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('a browser must be configured', () => {
+  it.runIf(process.env.RENDERWELD_REQUIRE_BROWSER === '1')('a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });

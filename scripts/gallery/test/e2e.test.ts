@@ -17,14 +17,14 @@ import { transcodeOne } from '../src/transcode';
  * (against an in-memory fake of the Records API).
  *
  * Needs a Chromium (RENDERWELD_CHROMIUM_PATH); skips without one unless
- * REELFORGE_REQUIRE_BROWSER=1, which turns a missing browser into a failure.
+ * RENDERWELD_REQUIRE_BROWSER=1, which turns a missing browser into a failure.
  */
 const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
-const requireBrowser = process.env.REELFORGE_REQUIRE_BROWSER === '1';
+const requireBrowser = process.env.RENDERWELD_REQUIRE_BROWSER === '1';
 
 describe('browser requirement', () => {
-  it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
+  it.runIf(requireBrowser)('RENDERWELD_REQUIRE_BROWSER=1: a browser must be configured', () => {
     expect(hasBrowser, `RENDERWELD_CHROMIUM_PATH=${browser ?? '(unset)'}`).toBe(true);
   });
 });

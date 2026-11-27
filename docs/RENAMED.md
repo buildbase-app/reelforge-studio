@@ -23,9 +23,9 @@ Every `REELFORGE_*` environment variable is now `RENDERWELD_*`: drop
 | `REELFORGE_LICENSE_MODE`, `REELFORGE_LICENSE_KEY` (US spelling) | removed; use `RENDERWELD_LICENCE_MODE`, `RENDERWELD_LICENCE_KEY` |
 
 [CONFIG.md](CONFIG.md) lists each setting under its name. Other aliases
-(`DATABASE_URL`, `ELEVENLABS_API_KEY`, `OTEL_*`, ...) are unchanged. The test
-switches `REELFORGE_REQUIRE_BROWSER`, `REELFORGE_REQUIRE_EGRESS`, `REELFORGE_REQUIRE_STORAGE` and
-`REELFORGE_TEST_DB` are contributor-only and keep their old names.
+(`DATABASE_URL`, `ELEVENLABS_API_KEY`, `OTEL_*`, ...) are unchanged. The
+contributor-only test switches are renamed too: `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_REQUIRE_EGRESS`,
+`RENDERWELD_REQUIRE_STORAGE`, `RENDERWELD_TEST_DB`, and the image's build argument `RENDERWELD_VERSION`.
 
 ## Config file
 

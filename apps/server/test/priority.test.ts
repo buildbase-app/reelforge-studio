@@ -2,7 +2,7 @@
  * Overload protection over REST and MCP (issue #155, D-103): the priority argument and its per-key maximum,
  * admission by estimated wait (429 queue_full with Retry-After and details), get_capabilities, and the queue-wait
  * histogram with bounded labels plus the Grafana panel and alert rules that use it. Runs on the database of
- * REELFORGE_TEST_DB (SQLite by default). Test ids PRS-nn (docs/providers/queue-and-scaling.md).
+ * RENDERWELD_TEST_DB (SQLite by default). Test ids PRS-nn (docs/providers/queue-and-scaling.md).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

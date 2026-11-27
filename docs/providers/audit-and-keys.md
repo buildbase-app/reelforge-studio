@@ -168,7 +168,7 @@ Latest run: **2026-11-21**, branch `claude/enterprise-audit-keys`.
 Where: *unit* `packages/core/test/audit.test.ts`; *contract*
 `packages/db/test/contract.test.ts` on memory, SQLite, PostgreSQL 17 and MySQL
 8.4; *server* `apps/server/test/enterprise.test.ts` (real HTTP, REST and MCP,
-injected clock; also run with `REELFORGE_TEST_DB=postgres` and `mysql`) and
+injected clock; also run with `RENDERWELD_TEST_DB=postgres` and `mysql`) and
 `apps/server/test/parity.test.ts`; *Docker* `e2e/docker/run.sh` step
 `audit.mjs` (an agent in a separate container over MCP; release image,
 hardened flags) on SQLite and PostgreSQL, with an OpenTelemetry Collector
@@ -220,7 +220,7 @@ Commands:
 pnpm --filter @renderweld/core exec vitest run test/audit.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/db test
 pnpm --filter @renderweld/server exec vitest run test/enterprise.test.ts test/parity.test.ts
-REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/enterprise.test.ts
+RENDERWELD_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/enterprise.test.ts
 DB=postgres e2e/docker/run.sh        # OTEL_IMAGE selects a collector mirror
 ```
 

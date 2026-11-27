@@ -12,7 +12,7 @@ import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 /**
  * Several instances (issue #36, D-075..D-079): the start-up guard for the
  * api/worker roles (always), and an api instance with two workers on one
- * PostgreSQL or MySQL database (REELFORGE_TEST_DB=postgres|mysql, or
+ * PostgreSQL or MySQL database (RENDERWELD_TEST_DB=postgres|mysql, or
  * TEST_POSTGRES_URL / TEST_MYSQL_URL set): REST on the api, renders on the
  * workers, cancel and long-poll across instances, quotas and rate limits held
  * across two api instances, graceful worker shutdown, metrics, no secrets in

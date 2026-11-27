@@ -3238,9 +3238,9 @@ names: `RENDERWELD_*` settings (no `REELFORGE_*` twin, no `REELFORGE_LICENSE_*` 
 `renderweld` (a buyer sees it in their tracing tools). The compose service is `renderweld`, which the
 public site's install steps use. Names a buyer never types stay as they are: the repository and image names (the
 owner renames those), the SQLite file `reelforge.db`, the `reelforge-data` volume, Kubernetes objects, database
-users, the `reelforge-whisper` program, the `REELFORGE_VERSION` build
-argument and the contributor-only test switches (`REELFORGE_REQUIRE_BROWSER`, `REELFORGE_REQUIRE_EGRESS`, `REELFORGE_REQUIRE_STORAGE`,
-`REELFORGE_TEST_DB`). *Why:* no buyer and no user ever ran the studio under the old names, so the window D-127
+users and the `reelforge-whisper` program. The contributor-only test switches and the image's version build
+argument move with CI to `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_REQUIRE_EGRESS`, `RENDERWELD_REQUIRE_STORAGE`,
+`RENDERWELD_TEST_DB` and `RENDERWELD_VERSION`. *Why:* no buyer and no user ever ran the studio under the old names, so the window D-127
 promised protects no one and keeps two names on every surface; renaming internal names would move data for no
 reader. *Rejected:* keeping the aliases until a dated removal (nobody to protect); renaming every lowercase
 identifier too (data and deployment identity would move, and no buyer sees them).
