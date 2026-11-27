@@ -358,7 +358,9 @@ export class StorageManager {
     const remove = async (run: StoredRun) => {
       if (dryRun) return true;
       try {
-        await this.renders.deleteRun(run);
+        // Its objects, its folder on local storage and the local copies of a remote render (#487: a retention policy
+        // that deletes a render must not leave its bytes in <cacheDir>/storage until cacheDays).
+        await this.deleteRender(run);
         // get_frames' cached stills of this render go with it.
         await rm(framesCacheDir(this.opts.cacheDir, run.runId), { recursive: true, force: true });
         return true;
