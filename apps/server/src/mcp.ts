@@ -142,7 +142,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_me',
     title: 'Get the calling API key',
     description:
-      'Returns the API key this call uses: id, name, scopes (read, write, render, admin), expiry, limits and its render usage today and this month. Never the secret. Use it to see what this key may do before calling a tool that needs another scope.',
+      'Returns the API key this call uses: id, name, scopes (read, write, render, approve, admin), expiry, limits and its render usage today and this month. Never the secret. Use it to see what this key may do before calling a tool that needs another scope.',
     scope: 'read',
     input: {},
     annotations: { readOnlyHint: true },
@@ -501,6 +501,25 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'plan_render',
+    title: 'Plan a render (estimate before rendering)',
+    description:
+      'Before render_project: what the same call would render (each output with its size, frames, length and format; every variant when the project has variants and no variant is given), whether the project validates, and for each output an estimated render time and file size measured from this workspace\'s newest successful renders (basis "measured"; "partial" when an engine has no sample yet; "none" with no sample: then render or preview once). Also the queue it would join (jobs queued, measured claim rate, estimated wait) and the backend\'s cost note. Nothing is queued and nothing is charged. Show the user the estimate before an expensive render.',
+    scope: 'read',
+    input: { projectId: z.string(), variant: z.string().optional().describe('One of the project\'s variants; leave out for what render_project would render.') },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => service.planRender(a.projectId, { variant: a.variant }),
+  },
+  {
+    name: 'approve_render_plan',
+    title: 'Approve a render plan',
+    description:
+      'Approves the plan plan_render returned (planId, and the same variant), when the server asks for approvals (render.approval; render_project answers 409 approval_required). Returns a single-use approvalToken for render_project, valid for render.approval.tokenMinutes and only for this plan: if the project changes, plan and approve again. Needs the approve scope (admin and owner imply it). Only approve when the user, having seen the plan, said yes.',
+    scope: 'approve',
+    input: { projectId: z.string(), planId: z.string(), variant: z.string().optional() },
+    run: async (a, { service, auth }) => service.approveRenderPlan(a.projectId, a.planId, { variant: a.variant }, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
     name: 'render_project',
     title: 'Render the project',
     description:
@@ -512,6 +531,8 @@ export const TOOLS: ToolDef[] = [
       projectId,
       backend: z.string().optional().describe('Render backend id; default from the manifest ("local").'),
       variant: z.string().optional().describe('Render only this output variant (an id from the manifest\'s variants). Omit to render every variant, or output when the manifest has none.'),
+      approvalToken: z.string().optional().describe('When render.approval asks for one (409 approval_required): the token approve_render_plan returned for this plan.'),
+      planId: z.string().optional().describe('The planId from plan_render: each job keeps its output\'s estimate, and get_render_output reports it next to the actual render time. Refused when the project changed since the plan.'),
       priority: priorityArg('render', 'standard'),
       captions: z
         .enum(['off', 'burned', 'sidecar', 'both'])
@@ -526,7 +547,7 @@ export const TOOLS: ToolDef[] = [
     },
     run: async (a, { service }) => {
       const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}), ...(a.audio ? { audio: a.audio } : {}) };
-      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, opts));
+      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, { ...opts, approvalToken: a.approvalToken, planId: a.planId }));
     },
   },
   {
@@ -934,9 +955,9 @@ export const TOOLS: ToolDef[] = [
     name: 'create_key',
     title: 'Create an API key (admin)',
     description:
-      'Creates an API key in this key\'s workspace with the given scopes (read, write, render, admin; owner only from an owner key) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.',
+      'Creates an API key in this key\'s workspace with the given scopes (read, write, render, approve, admin; owner only from an owner key) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.',
     scope: 'admin',
-    input: { name: z.string(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).min(1), ...keyLimits },
+    input: { name: z.string(), scopes: z.array(z.enum(['read', 'write', 'render', 'approve', 'admin'])).min(1), ...keyLimits },
     run: async (a, { service, auth }) => ({
       ...(await service.createKey(a.name, a.scopes, keyOpts(a), { actorType: 'api_key', actorId: auth.keyId })),
       note: 'store this key now; it is not shown again',
@@ -1031,7 +1052,7 @@ export const TOOLS: ToolDef[] = [
       id: z.string(),
       name: z.string().optional(),
       limits: z.record(z.string(), z.number().int().nullable()).optional().describe('rendersPerDay, rendersPerMonth, rateLimitPerMinute, storageBytes; retentionMaxAgeHours and retentionKeepLast for a stricter retention than the instance\'s storage.retention (#487); 0 or null: unlimited / the instance\'s.'),
-      adminKey: z.union([z.boolean(), z.object({ name: z.string().optional(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).optional() })]).optional(),
+      adminKey: z.union([z.boolean(), z.object({ name: z.string().optional(), scopes: z.array(z.enum(['read', 'write', 'render', 'approve', 'admin'])).optional() })]).optional(),
     },
     annotations: { idempotentHint: false },
     run: async (a, { service, auth }) => service.createWorkspace(a, { actorType: 'api_key', actorId: auth.keyId }),
@@ -1302,6 +1323,8 @@ done with tools; there is no UI.
    sides of every cut (overlay: "safe" shows where text is covered or cut off).
    Fix what you see (overflowing or tiny text, empty scenes, bad cuts) and
    preview again.
+   Before a long or many-size render, plan_render shows each output with its
+   estimated render time, file size and the queue wait; tell the user.
 10. render_project -> get_job with waitSeconds 45 (repeat while running) until succeeded/failed ->
    get_render_output { includeContactSheet: true }: the sheet stored with
    every render shows each scene and cut of the final file (get_frames for
@@ -1388,7 +1411,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
       instructions:
         `${PRODUCT_NAME} renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ` +
         'First complete the brief with the user (prompt brief_intake, or get_skill video-brief): never assume the size, length, platform, tone, captions, voice or music. ' +
-        'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
+        'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> plan_render (estimate) -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
         'With captions, call get_captions and ask the user to approve them (update_captions approve: true) before render_project; never assume approval. ' +
         `Full guide with a minimal manifest: resource ${resourceUri('guide/workflow')} or prompt make_reel. ` +
         `Rules for each step (brief, timing, layout and safe areas, motion, camera, physical plausibility, sound, voice, captions, sync, brand, review): get_skill or resource ${resourceUri('skills')}. ` +

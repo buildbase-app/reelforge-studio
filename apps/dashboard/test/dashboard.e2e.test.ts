@@ -283,6 +283,47 @@ describe.runIf(hasBrowser)('dashboard in a browser', () => {
     }, 60_000);
   }
 
+  it('switches between workspaces: each signed-in key sees only its own workspace, sign out keeps the other (no axe violations)', async () => {
+    // A second workspace with its own admin key (owner tool), and nothing in it yet.
+    const created = await studio.call('POST', '/v1/workspaces', { id: 'acme', name: 'Acme', adminKey: true }, studio.keys.admin);
+    expect(created.status).toBe(201);
+    const acmeKey = created.json.key as string;
+    const { context, page } = await open('light');
+    await signIn(page, studio.keys.render);
+    const picker = page.getByLabel('Workspace');
+    expect(await picker.evaluate((el: HTMLSelectElement) => el.selectedOptions[0]!.textContent)).toBe('Default');
+    await page.locator('tr[data-job]').first().waitFor();
+    // Add the other workspace without leaving this one.
+    await picker.selectOption('+');
+    await page.getByRole('heading', { level: 1, name: 'Sign in to another workspace' }).waitFor();
+    expect(await axe(page), 'add workspace').toEqual([]);
+    await page.getByRole('button', { name: 'Back to the dashboard' }).click();
+    await page.getByRole('heading', { level: 1, name: 'Jobs' }).waitFor();
+    await picker.selectOption('+');
+    await page.getByLabel('API key').fill(acmeKey);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.getByRole('heading', { level: 1, name: 'Jobs' }).waitFor();
+    // Acme's jobs page: its own, empty; the picker lists both and shows Acme.
+    await page.getByText('No jobs yet.').waitFor();
+    expect(await page.getByLabel('Workspace').evaluate((el: HTMLSelectElement) => [...el.options].map((o) => o.textContent))).toEqual(['Default', 'Acme', 'Sign in to another workspace…']);
+    expect(await page.getByLabel('Workspace').evaluate((el: HTMLSelectElement) => el.selectedOptions[0]!.textContent)).toBe('Acme');
+    expect(await axe(page), 'jobs with the workspace picker').toEqual([]);
+    // Back to Default: its jobs again, on the same page.
+    await page.getByLabel('Workspace').selectOption({ label: 'Default' });
+    await page.locator('tr[data-job]').first().waitFor();
+    // Signing out of Default leaves Acme signed in.
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await page.getByText('No jobs yet.').waitFor();
+    expect(await page.getByLabel('Workspace').evaluate((el: HTMLSelectElement) => el.selectedOptions[0]!.textContent)).toBe('Acme');
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await page.getByRole('heading', { level: 1, name: 'Sign in to the dashboard' }).waitFor();
+    // At 360 px the picker fits without a horizontal scroll.
+    await page.setViewportSize({ width: 360, height: 740 });
+    await signIn(page, studio.keys.render);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await context.close();
+  }, 120_000);
+
   it('a wrong key is refused with a message, and a 360 px screen has no axe violations', async () => {
     const { context, page } = await open('light', { width: 360, height: 740 });
     await page.goto(`${studio.url}/dashboard/`);

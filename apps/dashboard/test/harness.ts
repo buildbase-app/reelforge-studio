@@ -23,7 +23,8 @@ export async function startStudio(engines: EnginePlugin[], opts: { dashboard?: b
   for (const e of engines) registry.registerEngine(e);
   opts.register?.(registry);
   const service = await ReelforgeService.create(registry, {
-    repositories: db.repositories(),
+    // The routing bundle, as the server uses (#304): workspace tools work and each key sees its own workspace.
+    repositories: db.workspaceRepositories(),
     dataDir: config.dataDir,
     configSources: { env: { ...env, REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', REELFORGE_LICENCE_MODE: 'off' } },
   });

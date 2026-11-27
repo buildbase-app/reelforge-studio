@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
@@ -68,6 +68,7 @@ import { KeyStore, hasScope, quotaWindows, type AuthContext, type KeyOptions, ty
 import { DEFAULT_WORKSPACE_ID, type JobStatus, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories, type WorkspaceStatus } from './repositories';
 import { WORKSPACE_ID, currentWorkspaceId, isWorkspaceRouter, mergeAuditPages, runInWorkspace, workspaceKeyPrefix, type WorkspaceRouter } from './workspace';
 import { WorkspaceAdmin } from './workspace-admin';
+import { estimateOutput, planId, renderRates, type PlanOutput, type RenderSample } from './render-plan';
 import {
   AuditLog,
   MAX_AUDIT_EXPORT,
@@ -102,6 +103,9 @@ import { WebhookService, jobPayload, renderDedupeKey, renderOutcome, renderSumma
 import type { AuditEntry } from './repositories';
 import type { JobEvent, JobUsage } from './jobs';
 import { Analytics, type AnalyticsSummary } from './analytics';
+
+/** Successful renders a render plan reads its rates from (#485). */
+const RENDER_PLAN_SAMPLE = 50;
 
 export interface ServiceConfig {
   /**
@@ -250,6 +254,11 @@ export interface ValidationReport {
 }
 
 export interface RenderSummary {
+  /**
+   * The plan's estimate for this render, next to what it took (#485): only for renders started from a plan
+   * (render_project with planId, or with an approval). ratio = actual / estimated, for calibrating estimates.
+   */
+  estimate?: RenderJobEstimate & { actualSeconds: number; ratio: number | null };
   renderId: string;
   projectId: string;
   kind: string;
@@ -1219,6 +1228,152 @@ export class ReelforgeService {
     };
   }
 
+  /**
+   * The render plan (#485): before render_project, what the same call would render (every output with its frames,
+   * length, size and format), whether it validates, how long each output should take and how large it should be,
+   * measured from this workspace's newest successful renders, and the queue it would join. A sample without a render
+   * of an engine says so (`basis`); nothing is guessed. `planId` names the project version and options it was made for.
+   */
+  async planRender(projectId: string, opts: { variant?: unknown } = {}) {
+    const stored = await this.projects.get(projectId);
+    const project = stored.manifest;
+    const variantIds = project.variants?.map((v) => v.id) ?? [];
+    if (opts.variant !== undefined && (typeof opts.variant !== 'string' || !variantIds.includes(opts.variant))) {
+      throw badRequest(`variant must be one of the project's variants: ${variantIds.join(', ') || '(the project has none)'}`);
+    }
+    const targets: Array<string | null> = typeof opts.variant === 'string' ? [opts.variant] : variantIds.length ? variantIds : [null];
+    const validation = await this.validateManifest(project, projectId);
+    const rates = renderRates(await this.renderSamples(RENDER_PLAN_SAMPLE));
+    const outputs = targets.map((variant) => {
+      const p = variant ? withVariant(project, variant) : project;
+      const out: PlanOutput = {
+        variant,
+        width: p.output.width,
+        height: p.output.height,
+        fps: p.output.fps,
+        frames: totalFrames(p),
+        seconds: framesToSeconds(totalFrames(p), p.output.fps),
+        format: formatSpec(p.output).format,
+        scenes: p.scenes.map((s) => ({ engine: s.engine, frames: sceneFrames(s, p.output.fps) })),
+      };
+      const { scenes: _scenes, ...shown } = out;
+      return { ...shown, estimate: estimateOutput(out, rates) };
+    });
+    const known = outputs.map((o) => o.estimate.renderSeconds);
+    const queued = await this.repos.jobs.countQueued();
+    const claimsPerSecond = await this.claimRate.perSecond();
+    const sampleEngines = Object.keys(rates.msPerMegapixelFrame);
+    return {
+      planId: planId(projectId, stored.meta.version, { variant: opts.variant ?? null }),
+      projectId,
+      projectVersion: stored.meta.version,
+      valid: validation.ok,
+      errors: validation.errors,
+      warnings: validation.warnings,
+      outputs,
+      total: {
+        outputs: outputs.length,
+        renderSeconds: known.every((s) => s !== null) ? Math.round(known.reduce((n, s) => n! + s!, 0)! * 10) / 10 : null,
+        bytes: outputs.every((o) => o.estimate.bytes !== null) ? outputs.reduce((n, o) => n + o.estimate.bytes!, 0) : null,
+      },
+      queue: {
+        queued,
+        claimsPerSecond: Math.round(claimsPerSecond * 1000) / 1000,
+        // Seconds before the first of these jobs starts: the queue ahead at the measured claim rate.
+        estimatedWaitSeconds: queued === 0 ? 0 : claimsPerSecond > 0 ? Math.ceil(queued / claimsPerSecond) : null,
+      },
+      basis: {
+        renders: rates.renders,
+        engines: sampleEngines,
+        note: rates.renders
+          ? `From the ${rates.renders} newest successful renders of this workspace; times are one render alone on one slot, before any queue wait.`
+          : 'No successful render in this workspace yet: render or preview once, and later plans estimate from it.',
+      },
+      ...(validation.estimate ? { backend: validation.estimate } : {}),
+    };
+  }
+
+  /**
+   * Approve a render plan (#485): the caller (scope `approve`; `admin` and `owner` imply it) gets a single-use token
+   * that lets render_project start exactly this plan, the project version and options it was made for, before it
+   * expires (`render.approval.tokenMinutes`). A plan id of an older version is refused: plan again and show it.
+   */
+  async approveRenderPlan(projectId: string, planIdArg: unknown, opts: { variant?: unknown } = {}, actor?: Actor) {
+    await this.projects.get(projectId); // not found first, as every project route answers another workspace
+    if (typeof planIdArg !== 'string' || !/^plan_[0-9a-f]{24}$/.test(planIdArg)) throw badRequest('planId must be the planId plan_render returned');
+    const plan = await this.planRender(projectId, opts);
+    if (plan.planId !== planIdArg) {
+      throw new ApiError('plan_changed', 409, 'the project or the options changed since this plan: call plan_render again, show the user the new plan, and approve that one', { planId: plan.planId });
+    }
+    if (!plan.valid) throw new ApiError('plan_invalid', 409, 'this plan does not validate, so its render would be refused: fix the errors first', { errors: plan.errors });
+    const nonce = randomBytes(12).toString('hex');
+    const ttl = this.settings.current.config.render.approval.tokenMinutes * 60;
+    const { expires, sig } = this.signer.sign(approvalParts(currentWorkspaceId(), projectId, plan.planId, nonce), ttl);
+    await this.audit({
+      actorType: actor?.actorType ?? 'system',
+      ...(actor?.actorId ? { actorId: actor.actorId } : {}),
+      action: 'render.approve',
+      targetType: 'project',
+      targetId: projectId,
+      data: { planId: plan.planId, projectVersion: plan.projectVersion, renderSeconds: plan.total.renderSeconds, outputs: plan.total.outputs },
+    });
+    return { approvalToken: `rap.${nonce}.${expires}.${sig}`, planId: plan.planId, projectVersion: plan.projectVersion, expiresAt: new Date(expires * 1000).toISOString(), total: plan.total };
+  }
+
+  /**
+   * render_project's approval gate (`render.approval`, #485): off by default. When the plan needs approval, the
+   * token must be one approve_render_plan made for this workspace, project and plan (version and options), not
+   * expired and not used before; it is spent here, so a render is started once per approval.
+   */
+  private async requireApproval(projectId: string, variant: unknown, token: unknown): Promise<Awaited<ReturnType<ReelforgeService['planRender']>> | undefined> {
+    const cfg = this.settings.current.config.render.approval;
+    if (cfg.mode === 'off') return undefined;
+    const plan = await this.planRender(projectId, { variant });
+    const needed = cfg.mode === 'always' || plan.total.renderSeconds === null || plan.total.renderSeconds > cfg.aboveSeconds;
+    if (!needed) return plan;
+    const why = cfg.mode === 'always' ? 'every render needs an approval here (render.approval.mode always)' : plan.total.renderSeconds === null ? 'its render time cannot be estimated yet (render.approval.mode above)' : `its estimated render time, ${plan.total.renderSeconds} s, is over ${cfg.aboveSeconds} s (render.approval.mode above)`;
+    if (token === undefined || token === null || token === '') {
+      throw new ApiError('approval_required', 409, `this render needs an approval: ${why}. Show the user the plan, and ask someone with the approve scope to call approve_render_plan with its planId; then call render_project again with approvalToken.`, { plan });
+    }
+    const m = typeof token === 'string' ? /^rap\.([0-9a-f]{24})\.(\d{1,12})\.([\w-]{20,})$/.exec(token) : null;
+    if (!m || !this.signer.verify(approvalParts(currentWorkspaceId(), projectId, plan.planId, m[1]!), Number(m[2]), m[3]!)) {
+      throw new ApiError('approval_invalid', 409, 'approvalToken is not an approval of this plan: it is for another project or plan, the project changed since, or it expired. Plan again and ask for a new approval.', { plan });
+    }
+    const spent = await this.repos.rateLimits.reserve([{ key: `render-approval:${m[1]}`, windowStart: new Date(Number(m[2]) * 1000).toISOString(), limit: 1 }]);
+    if (!spent.ok) throw new ApiError('approval_used', 409, 'this approvalToken already started a render; each approval starts one. Ask for a new approval.', { plan });
+    return plan;
+  }
+
+  /** The newest successful renders of this workspace, as samples for render plans (manifest + stored output size). */
+  private async renderSamples(limit: number): Promise<RenderSample[]> {
+    const jobs = (await this.repos.jobs.page({ status: 'succeeded', type: 'render' }, { limit })).filter((j) => j.projectId && typeof j.result?.renderId === 'string');
+    const sizes = new Map<string, Map<string, number>>();
+    const samples: RenderSample[] = [];
+    for (const j of jobs) {
+      const runId = j.result!.renderId as string;
+      const m = await this.storage.renders
+        .readManifest<{ wallClockMillis?: number; output?: { width?: number; height?: number; frames?: number; durationSeconds?: number }; scenes?: Array<{ engine?: unknown; frames?: unknown; millis?: unknown }> }>(j.projectId!, runId)
+        .catch(() => undefined);
+      if (!m?.output || typeof m.wallClockMillis !== 'number') continue;
+      if (!sizes.has(j.projectId!)) {
+        const runs = await this.storage.renders.listRuns(j.projectId!).catch(() => []);
+        sizes.set(j.projectId!, new Map(runs.filter((r) => r.outputBytes !== undefined).map((r) => [r.runId, r.outputBytes!])));
+      }
+      samples.push({
+        width: Number(m.output.width),
+        height: Number(m.output.height),
+        frames: Number(m.output.frames),
+        seconds: Number(m.output.durationSeconds),
+        wallClockMillis: m.wallClockMillis,
+        ...(sizes.get(j.projectId!)!.has(runId) ? { outputBytes: sizes.get(j.projectId!)!.get(runId)! } : {}),
+        scenes: (m.scenes ?? [])
+          .filter((s) => typeof s.engine === 'string' && typeof s.frames === 'number' && typeof s.millis === 'number')
+          .map((s) => ({ engine: s.engine as string, frames: s.frames as number, millis: s.millis as number })),
+      });
+    }
+    return samples;
+  }
+
   /** The backend's estimate for a render, or undefined for an unknown backend (reported by validation) or a failing plugin. */
   private estimateOn(backendId: string, req: EstimateRequest): BackendEstimate | undefined {
     try {
@@ -1647,10 +1802,10 @@ export class ReelforgeService {
   // ---- renders --------------------------------------------------------------
 
   /** One render at `output`, or (with `variant`) at one of the project's output variants. */
-  async startRender(id: string, opts: { backend?: string; priority?: unknown; captions?: unknown; audio?: unknown; variant?: string } = {}): Promise<JobRecord> {
+  async startRender(id: string, opts: { backend?: string; priority?: unknown; captions?: unknown; audio?: unknown; variant?: string; estimate?: RenderJobEstimate } = {}): Promise<JobRecord> {
     const captions = this.parseCaptionOverride(opts.captions);
     const audio = this.parseAudioOverride(opts.audio);
-    return this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: opts.variant });
+    return this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: opts.variant, estimate: opts.estimate });
   }
 
   /** render_project's `audio` override (#298, #301): { mute, voice, music, sfx, loudness }, validated before anything is queued. */
@@ -1678,12 +1833,23 @@ export class ReelforgeService {
    * one of them (quota, queue caps), the jobs already queued for the batch are
    * cancelled and the refusal is returned.
    */
-  async renderProject(id: string, opts: { backend?: string; priority?: unknown; variant?: unknown; captions?: unknown; audio?: unknown } = {}): Promise<{ job: JobRecord; jobs?: JobRecord[]; batchId?: string }> {
+  async renderProject(id: string, opts: { backend?: string; priority?: unknown; variant?: unknown; captions?: unknown; audio?: unknown; approvalToken?: unknown; planId?: unknown } = {}): Promise<{ job: JobRecord; jobs?: JobRecord[]; batchId?: string }> {
     if (opts.variant !== undefined && typeof opts.variant !== 'string') throw badRequest('variant must be the id of one of the project\'s variants');
+    let plan = await this.requireApproval(id, opts.variant, opts.approvalToken);
+    // With planId (or an approval), each job keeps its output's estimate; get_render_output reports it next to the actual time.
+    if (!plan && opts.planId !== undefined) {
+      plan = await this.planRender(id, { variant: opts.variant });
+      if (plan.planId !== opts.planId) throw new ApiError('plan_changed', 409, 'the project or the options changed since this plan: call plan_render again', { planId: plan.planId });
+    }
+    const estimateOf = (variant: string | null) => {
+      const o = plan?.outputs.find((x) => x.variant === variant);
+      return o ? { planId: plan!.planId, ...o.estimate } : undefined;
+    };
     const { manifest } = await this.projects.get(id);
     const variants = manifest.variants ?? [];
     if (opts.variant !== undefined || variants.length === 0) {
-      return { job: await this.startRender(id, { backend: opts.backend, priority: opts.priority, captions: opts.captions, audio: opts.audio, ...(opts.variant ? { variant: opts.variant } : {}) }) };
+      const estimate = estimateOf(typeof opts.variant === 'string' ? opts.variant : null);
+      return { job: await this.startRender(id, { backend: opts.backend, priority: opts.priority, captions: opts.captions, audio: opts.audio, ...(opts.variant ? { variant: opts.variant } : {}), ...(estimate ? { estimate } : {}) }) };
     }
     // The same refusals as one render, before anything is queued: priority, licence, then every variant's limits.
     const captions = this.parseCaptionOverride(opts.captions);
@@ -1701,7 +1867,7 @@ export class ReelforgeService {
     const batchId = newId('bat');
     const jobs: JobRecord[] = [];
     try {
-      for (const v of variants) jobs.push(await this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: v.id, batchId }));
+      for (const v of variants) jobs.push(await this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: v.id, batchId, estimate: estimateOf(v.id) }));
     } catch (e) {
       for (const j of jobs) await this.jobs.cancel(j.id).catch(() => undefined);
       throw e;
@@ -1772,8 +1938,8 @@ export class ReelforgeService {
     return requested;
   }
 
-  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, extra: { captions?: CaptionMode; audio?: RenderAudioOptions; variant?: string; batchId?: string } = {}) {
-    const { captions, audio, variant, batchId } = extra;
+  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, extra: { captions?: CaptionMode; audio?: RenderAudioOptions; variant?: string; batchId?: string; estimate?: RenderJobEstimate } = {}) {
+    const { captions, audio, variant, batchId, estimate } = extra;
     const priority = this.resolvePriority(kind, requestedPriority);
     await this.renderGate(kind, id);
     const { manifest: stored, meta } = await this.projects.get(id);
@@ -1826,6 +1992,7 @@ export class ReelforgeService {
           ...(variant ? { variant } : {}),
           ...(batchId ? { batchId } : {}),
           ...(audio ? { audio } : {}),
+          ...(estimate ? { estimate } : {}),
         },
         { projectId: id, priority, ...(apiKeyId ? { apiKeyId } : {}) },
         quota
@@ -2230,6 +2397,7 @@ export class ReelforgeService {
     const m = await this.storage.renders.readManifest<{
       kind: string;
       createdAt: string;
+      wallClockMillis?: number;
       output: { durationSeconds: number; frames: number; width: number; height: number; fps: number; frameRate?: string; file?: string; poster?: string; format?: string; codec?: string; alpha?: boolean };
       scenes: Array<{ file: string }>;
       captions?: CaptionManifest;
@@ -2282,7 +2450,14 @@ export class ReelforgeService {
     if (m.contactSheet?.file === CONTACT_SHEET_FILE) {
       contactSheet = { ...m.contactSheet, file: CONTACT_SHEET_FILE, url: this.url(`${base}?file=${CONTACT_SHEET_FILE}`), ...(await this.downloadLink(projectId, runId, CONTACT_SHEET_FILE)) };
     }
+    const planned = (await this.repos.jobs.jobOfRun(runId))?.params.estimate as RenderJobEstimate | undefined;
+    const actualSeconds = typeof m.wallClockMillis === 'number' ? Math.round(m.wallClockMillis / 100) / 10 : null;
+    const estimate =
+      planned && actualSeconds !== null
+        ? { ...planned, actualSeconds, ratio: planned.renderSeconds ? Math.round((actualSeconds / planned.renderSeconds) * 100) / 100 : null }
+        : undefined;
     return {
+      ...(estimate ? { estimate } : {}),
       renderId: runId,
       projectId,
       kind: m.kind,
@@ -3189,6 +3364,11 @@ export class ReelforgeService {
 
 /** Provider word timestamps ({ word | text, start, end } in seconds) as manifest caption words; anything malformed is dropped. */
 /** What a signed download link signs: the default workspace keeps the parts of earlier versions (old links stay valid). */
+/** What an approval token signs (#485): the workspace, project, plan and the token's own nonce. */
+function approvalParts(workspaceId: string, projectId: string, planId: string, nonce: string): string[] {
+  return ['render-approval', workspaceId, projectId, planId, nonce];
+}
+
 function signedParts(workspaceId: string, runId: string, file: string): string[] {
   return workspaceId === DEFAULT_WORKSPACE_ID ? [runId, file] : [`ws:${workspaceId}`, runId, file];
 }
@@ -3233,4 +3413,12 @@ export interface FramesResult {
   tiles: Array<PlannedTile & { index: number }>;
   omitted?: PlannedTile[];
   images: Array<{ path: string; mimeType: 'image/jpeg'; bytes: number }>;
+}
+
+/** A render job's estimate from its plan (#485), kept in the job's params and reported by get_render_output. */
+export interface RenderJobEstimate {
+  planId: string;
+  renderSeconds: number | null;
+  bytes: number | null;
+  basis: 'measured' | 'partial' | 'none';
 }
