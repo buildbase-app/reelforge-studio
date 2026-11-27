@@ -115,6 +115,16 @@ the limit; the key is shown as its first group only.
   must let `api.console.buildbase.app` through without re-signing it
   (`NODE_EXTRA_CA_CERTS` does not apply to the licence check; it still applies
   to everything else).
+- **One major version per key.** A key covers the major version it was
+  bought for (D-142): a key for RenderWeld 1 works on every 1.x image and is
+  refused on 2.0 (`invalid`, reason `wrong_version`). The release image knows
+  which BuildBase items were sold for its major version (`licence.itemIds`,
+  fixed by the build from 1.0.0; build arg `LICENCE_ITEM_IDS`). The licence
+  server names the item a key was bought for, and a key for any other item is
+  refused; its activation is given back at once, so the buyer's server on the
+  older version keeps its slot. Upgrading to a new major version needs a key
+  for it; until then keep running the older image. 0.x images accept a key for
+  any item.
 - **Offline.** If the licence server cannot be reached, renders keep working
   for **14 days after the last successful check** (`grace`, with a warning in
   `get_capabilities`, `/v1/licence` and the log). After that they are refused

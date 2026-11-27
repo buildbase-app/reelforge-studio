@@ -1666,6 +1666,15 @@ export const ConfigSchema = z.object({
       default: '6b01478bb42d2c444e99fcd8',
       description: 'BuildBase organisation that issued the key (RenderWeld production). A test environment is `<orgId>-<environment key>`.',
     }),
+    itemIds: setting(z.array(z.string().regex(/^[A-Za-z0-9_-]{1,100}$/, 'a BuildBase item id')).max(50), {
+      kind: 'list',
+      scope: 'startup',
+      env: 'RENDERWELD_LICENCE_ITEM_IDS',
+      default: [],
+      example: 'itm_renderweld1_personal,itm_renderweld1_commercial',
+      description:
+        'The BuildBase items whose keys this image accepts: the items sold for its major version (a key covers one major version, D-142). A key bought for another item is refused (`wrong_version`) and its activation is given back. Empty: any item of `licence.orgId`. A release build of version 1.0.0 or later fixes a non-empty list (build arg `LICENCE_ITEM_IDS`).',
+    }),
   }),
 });
 

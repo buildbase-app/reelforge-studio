@@ -353,6 +353,7 @@ logging:
 | `licence.offlineGraceDays` | `RENDERWELD_LICENCE_OFFLINE_GRACE_DAYS` | integer | `14` | startup |  | Days the server keeps rendering past the last successful licence check while the licence server cannot be reached (D-028). At most 14; a lower value only shortens it. |
 | `licence.serverUrl` | `RENDERWELD_LICENCE_SERVER_URL` | url | `https://api.console.buildbase.app` | startup |  | Licence server (BuildBase). Change only for a mock server in tests. |
 | `licence.orgId` | `RENDERWELD_LICENCE_ORG_ID` | string | `6b01478bb42d2c444e99fcd8` | startup |  | BuildBase organisation that issued the key (RenderWeld production). A test environment is `<orgId>-<environment key>`. |
+| `licence.itemIds` | `RENDERWELD_LICENCE_ITEM_IDS` | list (comma-separated in env) | (empty) | startup |  | The BuildBase items whose keys this image accepts: the items sold for its major version (a key covers one major version, D-142). A key bought for another item is refused (`wrong_version`) and its activation is given back. Empty: any item of `licence.orgId`. A release build of version 1.0.0 or later fixes a non-empty list (build arg `LICENCE_ITEM_IDS`). Example: `itm_renderweld1_personal,itm_renderweld1_commercial`. |
 
 ## Not in the schema
 
