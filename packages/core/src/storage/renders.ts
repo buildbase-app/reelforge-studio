@@ -2,7 +2,8 @@ import { readdir } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import type { StorageDriver } from '../plugins';
 import type { StorageObject } from '../plugins';
-import { mapLimit, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix, rendersPrefix, streamToBuffer, TEMP_RUN_PREFIX } from './keys';
+import { OUTPUT_FILE_PATTERN } from '../output-formats';
+import { DOWNLOAD_MARKER, mapLimit, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix, rendersPrefix, streamToBuffer, TEMP_RUN_PREFIX } from './keys';
 
 /** One render directory as stored: complete when its manifest exists. */
 export interface StoredRun {
@@ -14,8 +15,12 @@ export interface StoredRun {
   objects: number;
   bytes: number;
   keys: string[];
+  /** Bytes of the delivered file (`final.*` or `frames.zip`), when the run has one (render plans, #485). */
+  outputBytes?: number;
   /** When the render was committed (the manifest's write time), else the newest object's. */
   createdAt: string;
+  /** When its output was first downloaded (the download marker's time, #487); absent: never. */
+  downloadedAt?: string;
 }
 
 /** Group listed objects `projects/<id>/renders/<run>/<file>` into runs; other keys are ignored. */
@@ -34,9 +39,12 @@ export function groupRuns(objects: StorageObject[]): StoredRun[] {
     r.objects++;
     r.bytes += o.bytes;
     r.keys.push(o.key);
+    if (OUTPUT_FILE_PATTERN.test(file)) r.outputBytes = o.bytes;
     if (file === RENDER_MANIFEST) {
       r.complete = !r.temp;
       r.createdAt = o.modifiedAt;
+    } else if (file === DOWNLOAD_MARKER) {
+      r.downloadedAt = o.modifiedAt;
     } else if (!r.complete && o.modifiedAt > r.createdAt) r.createdAt = o.modifiedAt;
   }
   return [...runs.values()];
@@ -76,6 +84,25 @@ export class RenderStore {
     const key = renderPrefix(projectId, runId) + RENDER_MANIFEST;
     if (!(await this.driver().stat(key))) return undefined;
     return JSON.parse((await streamToBuffer(await this.driver().get(key))).toString('utf8')) as T;
+  }
+
+  /** When the render's output was first downloaded (#487), or null. */
+  async downloadedAt(projectId: string, runId: string): Promise<string | null> {
+    return (await this.driver().stat(renderPrefix(projectId, runId) + DOWNLOAD_MARKER))?.modifiedAt ?? null;
+  }
+
+  /**
+   * Record the first download of a render's output (#487): a small marker beside it, written once. Returns when the
+   * first download happened. A render that is gone (deleted meanwhile) gets no marker.
+   */
+  async markDownloaded(projectId: string, runId: string, file: string, at: string): Promise<string | null> {
+    const prefix = renderPrefix(projectId, runId);
+    const d = this.driver();
+    const seen = await d.stat(prefix + DOWNLOAD_MARKER);
+    if (seen) return seen.modifiedAt;
+    if (!(await d.stat(prefix + RENDER_MANIFEST))) return null;
+    await d.put(prefix + DOWNLOAD_MARKER, Buffer.from(JSON.stringify({ firstDownloadAt: at, file }) + '\n'), { contentType: 'application/json' });
+    return (await d.stat(prefix + DOWNLOAD_MARKER))?.modifiedAt ?? at;
   }
 
   /** Delete a render: the manifest first, so a partly deleted render is never listed as complete. */

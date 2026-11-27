@@ -14,8 +14,23 @@ interface Actor {
   actorId?: string;
 }
 
-const LIMIT_KEYS = ['rendersPerDay', 'rendersPerMonth', 'rateLimitPerMinute', 'storageBytes'] as const;
-const LIMIT_MAX: Record<(typeof LIMIT_KEYS)[number], number> = { rendersPerDay: 1_000_000, rendersPerMonth: 10_000_000, rateLimitPerMinute: 1_000_000, storageBytes: 1e15 };
+const LIMIT_KEYS = ['rendersPerDay', 'rendersPerMonth', 'rateLimitPerMinute', 'storageBytes', 'retentionMaxAgeHours', 'retentionKeepLast', 'retentionDeleteAfterDownloadMinutes'] as const;
+const LIMIT_MAX: Record<(typeof LIMIT_KEYS)[number], number> = {
+  rendersPerDay: 1_000_000,
+  rendersPerMonth: 10_000_000,
+  rateLimitPerMinute: 1_000_000,
+  storageBytes: 1e15,
+  retentionMaxAgeHours: 87_600,
+  retentionKeepLast: 10_000,
+  retentionDeleteAfterDownloadMinutes: 525_600,
+};
+
+/** set_workspace_retention's fields and the limits they write (#487). */
+const RETENTION_FIELDS = {
+  maxAgeHours: 'retentionMaxAgeHours',
+  keepLast: 'retentionKeepLast',
+  deleteAfterDownloadMinutes: 'retentionDeleteAfterDownloadMinutes',
+} as const;
 /** Job types that count against render limits (the same as the per-key render quotas). */
 export const WORKSPACE_RENDER_TYPES = ['render', 'preview'];
 const USAGE_TTL_MS = 60_000;
@@ -72,7 +87,8 @@ export class WorkspaceAdmin {
     const def = this.d.settings.current.config.workspaces;
     const out: WorkspaceLimits = {};
     for (const k of LIMIT_KEYS) {
-      const v = w?.limits?.[k] ?? def[k];
+      // Retention has no workspaces.* default: the instance's storage.retention applies (#487).
+      const v = w?.limits?.[k] ?? (def as Partial<Record<(typeof LIMIT_KEYS)[number], number>>)[k];
       if (v && v > 0) out[k] = v;
     }
     return out;
@@ -171,6 +187,50 @@ export class WorkspaceAdmin {
     const { updatedAt: _u, ...changed } = patch;
     await this.audit(actor, input.suspended === true ? 'workspace.suspend' : input.suspended === false ? 'workspace.resume' : 'workspace.update', id, { changed });
     return this.view(updated);
+  }
+
+  /**
+   * A workspace admin tightens its own workspace's retention (#487, set_workspace_retention): a shorter maximum age, a
+   * smaller keep-last, or a shorter grace after the first download. Never looser: raising or clearing a value may undo
+   * a data-policy commitment, so that stays the owner's (update_workspace limits). The instance's storage.retention is
+   * still the ceiling. Unset fields are left as they are.
+   */
+  async tightenRetention(input: Record<string, unknown>, actor?: Actor): Promise<WorkspaceView> {
+    const id = currentWorkspaceId();
+    const fields = Object.keys(input).filter((k) => input[k] !== undefined);
+    if (!fields.length) throw badRequest(`send at least one of ${Object.keys(RETENTION_FIELDS).join(', ')}`);
+    const unknown = fields.find((k) => !(k in RETENTION_FIELDS));
+    if (unknown) throw badRequest(`unknown field "${unknown}"; use ${Object.keys(RETENTION_FIELDS).join(', ')}`);
+    return this.mutex.run(`retention:${id}`, async () => {
+      let current = await this.d.repos.workspaces.get(id);
+      if (current?.status === 'deleted') throw new ApiError('conflict', 409, `workspace "${id}" is deleted`);
+      const limits: WorkspaceLimits = { ...(current?.limits ?? {}) };
+      const changed: Record<string, { from: number | null; to: number }> = {};
+      for (const field of fields as Array<keyof typeof RETENTION_FIELDS>) {
+        const key = RETENTION_FIELDS[field];
+        const n = input[field];
+        const max = LIMIT_MAX[key];
+        if (n === null || n === 0) throw new ApiError('forbidden', 403, `${field}: clearing retention keeps renders longer; only the instance owner can loosen it (update_workspace limits.${key})`);
+        if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > max) throw badRequest(`${field} must be a whole number from 1 to ${max}`);
+        const had = limits[key];
+        if (had && n > had) throw new ApiError('forbidden', 403, `${field}: ${n} keeps renders longer than the workspace's ${had}; a workspace admin can only tighten retention, the instance owner can loosen it (update_workspace limits.${key})`);
+        if (had !== n) changed[field] = { from: had ?? null, to: n };
+        limits[key] = n;
+      }
+      const at = this.nowIso();
+      if (!current) {
+        // The default workspace has no row until something is stored for it.
+        if (id !== DEFAULT_WORKSPACE_ID) throw notFound('workspace', id);
+        current = { id, name: 'Default', status: 'active', createdAt: at, limits };
+        if (!(await this.d.repos.workspaces.create(current))) current = await this.d.repos.workspaces.update(id, { limits, updatedAt: at });
+      } else {
+        current = await this.d.repos.workspaces.update(id, { limits, updatedAt: at });
+      }
+      if (!current) throw notFound('workspace', id);
+      this.d.repos.invalidateWorkspaces();
+      await this.audit(actor, 'workspace.retention.tighten', id, { changed });
+      return this.view(current);
+    });
   }
 
   /** Soft delete: keys stop working and jobs stop being claimed at once; rows and files go after the grace period. */

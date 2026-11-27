@@ -96,7 +96,7 @@ describe('MCP OAuth 2.1 resource server', () => {
         resource: AUDIENCE,
         authorization_servers: [ISSUER],
         // The RenderWeld scope names first, the old ReelForge names still accepted (#413).
-        scopes_supported: ['renderweld:read', 'renderweld:write', 'renderweld:render', 'renderweld:admin', 'renderweld:owner', 'reelforge:read', 'reelforge:write', 'reelforge:render', 'reelforge:admin', 'reelforge:owner'],
+        scopes_supported: ['renderweld:read', 'renderweld:write', 'renderweld:render', 'renderweld:approve', 'renderweld:admin', 'renderweld:owner', 'reelforge:read', 'reelforge:write', 'reelforge:render', 'reelforge:admin', 'reelforge:owner'],
         resource_name: 'RenderWeld MCP',
         bearer_methods_supported: ['header'],
       });

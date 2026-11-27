@@ -63,12 +63,12 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   {
     title: 'Rendering and jobs',
     intro: 'Renders run as jobs: queued, running, then succeeded, failed or cancelled. get_analytics_summary aggregates them over a time range.',
-    tools: ['preview_scene', 'render_project', 'get_job', 'list_jobs', 'get_job_logs', 'cancel_job', 'retry_job', 'get_render_output', 'get_frames', 'list_renders', 'delete_render', 'get_analytics_summary'],
+    tools: ['preview_scene', 'plan_render', 'approve_render_plan', 'render_project', 'get_job', 'list_jobs', 'get_job_logs', 'cancel_job', 'retry_job', 'get_render_output', 'get_frames', 'list_renders', 'delete_render', 'get_analytics_summary'],
   },
   {
     title: 'Workspaces',
     intro: 'Every key belongs to one workspace and sees only its projects, assets, themes, jobs, renders, keys, webhooks and audit log (#304, docs/WORKSPACES.md). Managing workspaces needs the instance-level owner scope.',
-    tools: ['get_workspace', 'list_workspaces', 'create_workspace', 'update_workspace', 'delete_workspace', 'restore_workspace'],
+    tools: ['get_workspace', 'set_workspace_retention', 'list_workspaces', 'create_workspace', 'update_workspace', 'delete_workspace', 'restore_workspace'],
   },
   {
     title: 'Licence',

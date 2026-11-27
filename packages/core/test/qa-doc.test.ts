@@ -74,12 +74,12 @@ describe('docs/QA.md matches the code', () => {
     expect(f).toContain(`a change of at least ${FLASH_RULES.minLuminanceChange} in relative luminance with the darker side below ${FLASH_RULES.darkerBelow.toFixed(2)}`);
     expect(f).toContain(`saturated red (R/(R+G+B) at least ${FLASH_RULES.redRatio}) changes by more than ${FLASH_RULES.redChange} in (R-G-B) x ${FLASH_RULES.redScale}`);
     expect(f).toContain(`only flashing over ${pct(FLASH_RULES.minArea)} of the picture counts`);
+    expect(row('video.flash (sustained)')).toContain(`at least ${FLASH_RULES.extendedMinTransitionsPerSecond} transitions (two flashes) in every one-second window for ${FLASH_RULES.extendedSeconds} s or more`);
     expect(row('video.motion')).toContain(`by ${setting('render.qa.motionFloor')} or more for ${setting('render.qa.lowMotionSeconds')} s or more (mean change of a ${MOTION_GRID} x ${MOTION_GRID} luma grid`);
     expect(row('video.loop')).toContain(`over ${SEAM_MIN} levels and over ${SEAM_RATIO} times the 95th percentile`);
     expect(row('video.loop')).toContain(`(${MOTION_GRID} x ${MOTION_GRID} luma grid)`);
     expect(row('video.seek')).toContain(`${setting('render.qa.seekFrames')} frames of each render`);
     expect(row('video.seek')).toContain(`by more than ${SEEK_MAX_DIFF} levels in any cell of a ${SEEK_GRID} x ${SEEK_GRID} luma grid`);
-    expect(row('video.flash (sustained)')).toContain(`at least ${FLASH_RULES.extendedMinTransitionsPerSecond} transitions (two flashes) in every one-second window for ${FLASH_RULES.extendedSeconds} s or more`);
     for (const key of ['render.qa.video', 'render.qa.freezeSeconds', 'render.qa.blackSeconds']) {
       expect(SETTINGS_BY_KEY.get(key), key).toBeDefined();
       expect(doc).toContain(key);
