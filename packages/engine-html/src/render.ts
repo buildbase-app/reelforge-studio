@@ -14,6 +14,7 @@ import {
   sceneAssetUses,
   sceneTimeoutCapMs,
   stageSceneAssets,
+  videoSelectorsAsImages,
   type EnginePlugin,
   type ResolvedAsset,
   type StagedSceneAssets,
@@ -90,7 +91,7 @@ export const chromiumSandbox = coreChromiumSandbox;
 export function resolveHtmlBrowser(explicit?: string): string {
   const p = explicit ?? envValue('REELFORGE_CHROMIUM_PATH');
   if (p && existsSync(p)) return p;
-  throw new PipelineError('setup', `No Chromium for the html engine: set REELFORGE_CHROMIUM_PATH (tried ${p ?? '(unset)'})`);
+  throw new PipelineError('setup', `No Chromium for the html engine: set RENDERWELD_CHROMIUM_PATH (tried ${p ?? '(unset)'})`);
 }
 
 /** The html + css to render for a scene: agent source, or a built-in template; `asset:` references point at `assetBase`. */
@@ -102,7 +103,10 @@ export function sceneSource(scene: RenderScene, durationSeconds: number, staged?
   if (scene.html !== undefined) {
     if (!staged) return { html: scene.html, css: scene.css ?? '' };
     const isVideo = (key: string) => staged.items.get(key)?.frames !== undefined;
-    return { html: rewriteSceneHtml(scene.html, url, { videoAsImage: true, isVideo }), css: rewriteAssetRefs(scene.css ?? '', url) };
+    const html = rewriteSceneHtml(scene.html, url, { videoAsImage: true, isVideo });
+    const css = rewriteAssetRefs(scene.css ?? '', url);
+    // Clips became <img data-rf-video>: rules that select `video` by tag select those too (#448).
+    return { html, css: html.includes('data-rf-video=') ? videoSelectorsAsImages(css) : css };
   }
   if (scene.template === 'html-title') {
     const props = htmlTitleProps.parse(scene.props);

@@ -693,6 +693,15 @@ progress.settled::-moz-progress-bar {
   display: grid;
   gap: 16px;
 }
+.sheet-panel {
+  margin-bottom: 16px;
+}
+.contact-sheet {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
 .render-grid-3 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1428,6 +1437,17 @@ details.group[open] .chev {
   .stack td.row-actions {
     grid-column: 1 / -1;
   }
+  /* The header is hidden here: a cell that needs its column name to make sense carries it. */
+  .stack td[data-label] {
+    text-align: left;
+  }
+  .stack td[data-label]::before {
+    content: attr(data-label) " ";
+    color: var(--text-2);
+  }
+  .stack td[data-label] > .checks {
+    display: inline-flex;
+  }
   .stack td.row-actions {
     margin-left: -8px;
     text-align: left;
@@ -1507,4 +1527,14 @@ details.group[open] .chev {
     transition: none !important;
     animation: none !important;
   }
+}
+
+/* Assets: image previews */
+.asset-thumb {
+  display: block;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: var(--surface);
 }

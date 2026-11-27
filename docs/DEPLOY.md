@@ -1,6 +1,6 @@
-# Deploying ReelForge Studio
+# Deploying RenderWeld
 
-ReelForge Studio is one Node.js server (REST `/v1` + MCP `/mcp`) that renders
+RenderWeld is one Node.js server (REST `/v1` + MCP `/mcp`) that renders
 in-process with FFmpeg and Chrome Headless Shell. Metadata (projects and their
 versions, keys, jobs, themes, provider settings, asset metadata, audit log)
 lives in a database: **SQLite on the data volume by default**, or your own
@@ -24,9 +24,9 @@ secret, is in **[CONFIG.md](CONFIG.md)** (generated from the schema, so it
 cannot drift). Sources, lowest to highest precedence (D-029):
 
 1. defaults;
-2. a config file: `REELFORGE_CONFIG=/etc/reelforge/reelforge.yaml` (YAML or
+2. a config file: `RENDERWELD_CONFIG=/etc/renderweld/renderweld.yaml` (YAML or
    JSON, nested by key; unknown keys are refused, so typos fail at start);
-3. environment variables `REELFORGE_*`; existing names (`DATABASE_URL`,
+3. environment variables `RENDERWELD_*`; existing names (`DATABASE_URL`,
    `ELEVENLABS_API_KEY`, `FFMPEG_PATH`, `FFPROBE_PATH`, `REMOTION_LAMBDA_*`)
    keep working as aliases. **Every secret also as `<NAME>_FILE`** (Docker /
    Kubernetes secrets; the file must be readable by UID 10001);
@@ -40,24 +40,24 @@ The ones most deployments set:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `REELFORGE_DATA_DIR` | `./data` (`/data` in Docker) | Asset and render files, caches, the URL signing key, and the SQLite database by default |
-| `DATABASE_URL` / `REELFORGE_DATABASE_URL` (`_FILE`) | `file:<data>/reelforge.db` (SQLite) | `postgresql://...` or `mysql://...` (MariaDB too). See [Database](#database) |
-| `REELFORGE_SECRET_KEY` (`_FILE`) | (none) | **Set it; the release image does not start without it** (#305). Encrypts provider keys and other secrets stored in the database (AES-256-GCM). `openssl rand -base64 32`. It also keys the seal of the stored licence state. Without it a dev build refuses to store secrets over the API. Back it up: stored secrets cannot be read without it |
-| `REELFORGE_BOOTSTRAP_KEY` (`_FILE`) | (none) | First admin API key, stored hashed on first start if no key exists: `rf_` followed by at least 32 URL-safe characters with at least 8 distinct characters and 2.75 bits of entropy per character (`echo rf_$(openssl rand -hex 24)`); a weaker key stops the server at start |
-| `REELFORGE_HOST`, `REELFORGE_PORT` | `127.0.0.1` (`0.0.0.0` in Docker), `4321` | Bind address and port |
-| `REELFORGE_PUBLIC_URL` | (none) | `https://studio.example.com`: output links; allowed as Host on `/mcp` |
-| `REELFORGE_ALLOWED_HOSTS` | (none) | Extra host names accepted on `/mcp` (runtime-changeable) |
-| `REELFORGE_RENDER_CONCURRENCY` | `1` | Renders at the same time (runtime-changeable) |
+| `RENDERWELD_DATA_DIR` | `./data` (`/data` in Docker) | Asset and render files, caches, the URL signing key, and the SQLite database by default |
+| `DATABASE_URL` / `RENDERWELD_DATABASE_URL` (`_FILE`) | `file:<data>/reelforge.db` (SQLite) | `postgresql://...` or `mysql://...` (MariaDB too). See [Database](#database) |
+| `RENDERWELD_SECRET_KEY` (`_FILE`) | (none) | **Set it; the release image does not start without it** (#305). Encrypts provider keys and other secrets stored in the database (AES-256-GCM). `openssl rand -base64 32`. It also keys the seal of the stored licence state. Without it a dev build refuses to store secrets over the API. Back it up: stored secrets cannot be read without it |
+| `RENDERWELD_BOOTSTRAP_KEY` (`_FILE`) | (none) | First admin API key, stored hashed on first start if no key exists: `rf_` followed by at least 32 URL-safe characters with at least 8 distinct characters and 2.75 bits of entropy per character (`echo rf_$(openssl rand -hex 24)`); a weaker key stops the server at start |
+| `RENDERWELD_HOST`, `RENDERWELD_PORT` | `127.0.0.1` (`0.0.0.0` in Docker), `4321` | Bind address and port |
+| `RENDERWELD_PUBLIC_URL` | (none) | `https://studio.example.com`: output links; allowed as Host on `/mcp` |
+| `RENDERWELD_ALLOWED_HOSTS` | (none) | Extra host names accepted on `/mcp` (runtime-changeable) |
+| `RENDERWELD_RENDER_CONCURRENCY` | `1` | Renders at the same time (runtime-changeable) |
 | `ELEVENLABS_API_KEY` (`_FILE`) | (none) | ElevenLabs TTS; or set by an admin agent with `configure_provider` / `update_config` (`providers.elevenlabs.apiKey`), stored encrypted |
-| `REELFORGE_LICENCE_KEY` (`_FILE`) | (none) | Your licence key; or set by an admin agent with `activate_licence` / `POST /v1/licence` (stored encrypted). Renders need an activated key, see [Licence](#licence) |
+| `RENDERWELD_LICENCE_KEY` (`_FILE`) | (none) | Your licence key; or set by an admin agent with `activate_licence` / `POST /v1/licence` (stored encrypted). Renders need an activated key, see [Licence](#licence) |
 
 Check a configuration without starting the server, and print the effective one
 (secrets redacted, runtime values from the database included):
 
 ```bash
-reelforge config check [--file /etc/reelforge/reelforge.yaml]   # exit 1 with every problem
-reelforge config show [--json] [--offline]
-# Docker: docker exec <container> reelforge config check
+renderweld config check [--file /etc/renderweld/renderweld.yaml]   # exit 1 with every problem
+renderweld config show [--json] [--offline]
+# Docker: docker exec <container> renderweld config check
 ```
 
 Example with a config file and secrets in Docker:
@@ -65,12 +65,12 @@ Example with a config file and secrets in Docker:
 ```bash
 openssl rand -base64 32 > secret_key && chmod 444 secret_key   # readable by UID 10001
 docker run -d -p 127.0.0.1:4321:4321 -v reelforge-data:/data \
-  -v $PWD/reelforge.yaml:/config/reelforge.yaml:ro -e REELFORGE_CONFIG=/config/reelforge.yaml \
-  -v $PWD/secret_key:/run/secrets/secret_key:ro -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secret_key \
-  -e REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) reelforge-studio
+  -v $PWD/renderweld.yaml:/config/renderweld.yaml:ro -e RENDERWELD_CONFIG=/config/renderweld.yaml \
+  -v $PWD/secret_key:/run/secrets/secret_key:ro -e RENDERWELD_SECRET_KEY_FILE=/run/secrets/secret_key \
+  -e RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) reelforge-studio
 ```
 
-**Secrets at rest.** With `REELFORGE_SECRET_KEY` set, provider keys and other
+**Secrets at rest.** With `RENDERWELD_SECRET_KEY` set, provider keys and other
 secrets stored in the database are AES-256-GCM ciphertext (key derived with
 HKDF-SHA256; each value bound to its setting name). Plain-text provider
 settings from earlier versions (or a v0.1 `secrets.json`) are encrypted once
@@ -82,7 +82,7 @@ the API, logged, or put in error messages.
 
 ### Licence
 
-ReelForge activates with the licence key from your purchase (D-028). Without
+RenderWeld activates with the licence key from your purchase (D-028). Without
 a valid licence everything works except **new renders and previews**
 (`render_project`, `preview_scene`, `retry_job` answer `403 licence_required`
 or `licence_invalid` with what is wrong and how to fix it); projects, renders
@@ -94,12 +94,12 @@ Set the key one of these ways:
 # an admin agent (MCP): activate_licence { "key": "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2" }
 curl -X POST -H "Authorization: Bearer $ADMIN_KEY" -H 'content-type: application/json' \
   -d '{"key":"ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2"}' https://studio.example.com/v1/licence
-docker exec <container> reelforge licence activate ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2
-# or before the start: REELFORGE_LICENCE_KEY / REELFORGE_LICENCE_KEY_FILE
+docker exec <container> renderweld licence activate ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2
+# or before the start: RENDERWELD_LICENCE_KEY / RENDERWELD_LICENCE_KEY_FILE
 ```
 
-The first two store it encrypted, so they need `REELFORGE_SECRET_KEY`.
-`GET /v1/licence` / `get_licence` / `reelforge licence status` show the
+The first two store it encrypted, so they need `RENDERWELD_SECRET_KEY`.
+`GET /v1/licence` / `get_licence` / `renderweld licence status` show the
 status (`valid`, `grace`, `invalid`, `unlicensed`), the reason, the last
 check, how long the server keeps working offline, and activations used of
 the limit; the key is shown as its first group only.
@@ -115,7 +115,7 @@ the limit; the key is shown as its first group only.
   for **14 days after the last successful check** (`grace`, with a warning in
   `get_capabilities`, `/v1/licence` and the log). After that they are refused
   until a check succeeds; `POST /v1/licence` with an empty body (or
-  `activate_licence {}`) checks at once. `REELFORGE_LICENCE_OFFLINE_GRACE_DAYS`
+  `activate_licence {}`) checks at once. `RENDERWELD_LICENCE_OFFLINE_GRACE_DAYS`
   can only shorten the period. Setting the system clock back does not extend
   it: the server records the latest time it has seen (at every start, every
   check and hourly while running), and a clock more than 10 minutes behind
@@ -126,13 +126,13 @@ the limit; the key is shown as its first group only.
   autoscale. Only `api`/`all` instances call the licence server, and between
   them about once a day (single flight on the shared state); workers never
   call it and claim no render job while the stored state disallows renders.
-  Give every instance the same `REELFORGE_SECRET_KEY`. Separate databases
+  Give every instance the same `RENDERWELD_SECRET_KEY`. Separate databases
   (other regions, staging) are separate deployments and take separate
   activations. Details: docs/providers/queue-and-scaling.md#licence-across-instances.
 - **Moving to another server.** The activation belongs to the database (the
   instance id is stored there), so moving the data volume / database moves the
   activation. For a new installation, free the old one first:
-  `deactivate_licence` / `DELETE /v1/licence` / `reelforge licence deactivate`,
+  `deactivate_licence` / `DELETE /v1/licence` / `renderweld licence deactivate`,
   then activate on the new server. A key over its activation limit answers
   `limit_reached`.
 - **Release image.** The published image fixes `licence.mode: required` and the
@@ -141,10 +141,10 @@ the limit; the key is shown as its first group only.
   tries to change them, and `update_config` refuses them
   (`build_locked_setting`). See "Release image and editions" below.
 - **Development and CI.** In a build from source (`pnpm dev`, which sets it,
-  or `--build-arg REELFORGE_EDITION=dev`) `REELFORGE_LICENCE_MODE=off` lets
+  or `--build-arg REELFORGE_EDITION=dev`) `RENDERWELD_LICENCE_MODE=off` lets
   renders run without a licence. That is for noncommercial development only
   (LICENSING.md); commercial use always needs a Commercial key.
-- **CLI and a running server.** `reelforge licence ...` works on the database
+- **CLI and a running server.** `renderweld licence ...` works on the database
   directly; a running server reads a key stored by the CLI after a restart
   (use the API to change a running server).
 
@@ -152,10 +152,10 @@ the limit; the key is shown as its first group only.
 
 The only step outside an agent is the first admin key. Either:
 
-- set `REELFORGE_BOOTSTRAP_KEY` (or `REELFORGE_BOOTSTRAP_KEY_FILE`) before the
-  first start: `export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)`; or
+- set `RENDERWELD_BOOTSTRAP_KEY` (or `RENDERWELD_BOOTSTRAP_KEY_FILE`) before the
+  first start: `export RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)`; or
 - run the CLI: `pnpm keys:create --name admin --scopes admin` (Docker:
-  `docker exec <container> reelforge keys create --name admin --scopes admin`).
+  `docker exec <container> renderweld keys create --name admin --scopes admin`).
   The running server picks up CLI-created keys without a restart.
 
 After that an agent with the admin key can create, list and revoke keys
@@ -167,14 +167,15 @@ read and change the runtime configuration (`get_config` / `update_config`,
 ### MCP OAuth
 
 MCP clients that only speak OAuth (remote connectors) can sign in through your
-own authorization server instead of holding an API key (#305, D-112). ReelForge
+own authorization server instead of holding an API key (#305, D-112). RenderWeld
 is the **resource server** of the MCP authorization spec: it never issues tokens
 or sees passwords. Set:
 
 ```bash
-REELFORGE_MCP_OAUTH_ISSUER=https://auth.example.com/realms/studio   # exactly the tokens' `iss`
-REELFORGE_MCP_OAUTH_AUDIENCE=https://studio.example.com/mcp         # default: REELFORGE_PUBLIC_URL + /mcp
-# REELFORGE_MCP_OAUTH_JWKS_URL=...   # default: jwks_uri from the issuer's metadata
+RENDERWELD_MCP_OAUTH_ISSUER=https://auth.example.com/realms/studio   # exactly the tokens' `iss`
+RENDERWELD_MCP_OAUTH_AUDIENCE=https://studio.example.com/mcp         # default: RENDERWELD_PUBLIC_URL + /mcp
+# RENDERWELD_MCP_OAUTH_JWKS_URL=...   # default: jwks_uri from the issuer's metadata
+# RENDERWELD_MCP_OAUTH_WORKSPACE_CLAIM=renderweld_workspace   # several workspaces: the claim that names a token's workspace
 ```
 
 `/.well-known/oauth-protected-resource` (and `.../mcp`) then names the issuer
@@ -185,13 +186,32 @@ by a key in its JWKS (cached 10 minutes, refetched for a new `kid` at most every
 30 s), `iss` equal to the issuer, `aud` containing the audience (configure your
 authorization server to put the MCP URL there: the RFC 8707 `resource`
 parameter MCP clients send), `exp` in the future (60 s leeway). Scopes come from
-`scope` or `scp`: `reelforge:read`, `reelforge:write`, `reelforge:render`,
-`reelforge:admin` and `reelforge:owner`; a token with none of them gets `403
-insufficient_scope`. `reelforge:admin` administers the default workspace;
-`reelforge:owner` is the instance owner (configuration, licence, providers,
+`scope` or `scp`: `renderweld:read`, `renderweld:write`, `renderweld:render`,
+`renderweld:admin` and `renderweld:owner`; a token with none of them gets `403
+insufficient_scope`. `renderweld:admin` administers the default workspace;
+`renderweld:owner` is the instance owner (configuration, licence, providers,
 storage, workspaces), so grant it in your authorization server only to the
-people who run the install. The
-rate limit and the audit trail count per subject (`oauth:<sub>`). API keys keep
+people who run the install.
+
+With several workspaces (#304), set `RENDERWELD_MCP_OAUTH_WORKSPACE_CLAIM` to
+the name of a claim your authorization server adds to each token. Use a string
+holding the workspace id: per client, per organisation or per group. Every token
+must then carry it (#479):
+
+- No claim, or a workspace that doesn't exist or was deleted: `401
+  invalid_token`, with the reason.
+- A suspended workspace: `403 workspace_suspended`, as for its keys.
+- Otherwise, everything the token reads and writes stays in that workspace,
+  exactly like an API key made there.
+
+Without the setting, tokens act in the default workspace. The rate limit and the
+audit trail count per subject (`oauth:<sub>`).
+
+To cut off one person or device before its tokens expire (a lost laptop, someone
+who left), add its subject to `security.oauth.blockedSubjects` with
+`update_config` (owner). The change is audited and applies on the next request:
+the subject's tokens get `401 invalid_token`. Also stop your authorization server
+from issuing it new tokens. API keys keep
 working on `/mcp` and are the only credential for REST. Opaque (non-JWT) tokens
 and token introspection are not supported yet. Outbound: the issuer's metadata
 and JWKS URLs (docs/PRIVACY.md).
@@ -204,7 +224,7 @@ Shell (`npx playwright-core install chromium-headless-shell`, or
 
 ```bash
 pnpm install
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
+export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm keys:create --name me          # copy the rf_... key
 pnpm dev                            # http://127.0.0.1:4321 (restarts on code changes)
 # or: pnpm start
@@ -218,17 +238,17 @@ docker run -d --name reelforge -p 127.0.0.1:4321:4321 --shm-size=1g \
   --read-only --tmpfs /tmp:size=1g --cap-drop ALL --security-opt no-new-privileges \
   --security-opt seccomp=deployment/seccomp/chrome.json \
   -v reelforge-data:/data \
-  -e REELFORGE_SECRET_KEY="$(cat secret_key)" \
-  -e REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) \
+  -e RENDERWELD_SECRET_KEY="$(cat secret_key)" \
+  -e RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) \
   reelforge-studio
-docker exec reelforge reelforge keys create --name agent   # a non-admin key for the agent
+docker exec reelforge renderweld keys create --name agent   # a non-admin key for the agent
 ```
 
 `secret_key` is a file you made once with `openssl rand -base64 32 > secret_key`
 and keep (prefer `-v $PWD/secret_key:/run/secrets/secret_key:ro -e
-REELFORGE_SECRET_KEY_FILE=/run/secrets/secret_key`, which keeps it out of
+RENDERWELD_SECRET_KEY_FILE=/run/secrets/secret_key`, which keeps it out of
 `docker inspect`). Without it the release image stops at start with
-`REELFORGE_SECRET_KEY is not set: the release edition does not start without it`.
+`RENDERWELD_SECRET_KEY is not set: the release edition does not start without it`.
 
 The image (the Dockerfile's default `release` target, see "Release image and
 editions"): `node:22-bookworm-slim` pinned by digest, Debian bookworm's FFmpeg
@@ -257,7 +277,8 @@ docker build --network host \
   -t reelforge-studio .
 ```
 
-`docker compose`:
+`docker compose` (`docker-compose.yml` reads the old `REELFORGE_*` names from the
+shell and `.env`; the server accepts `RENDERWELD_*` too, see [RENAMED.md](RENAMED.md)):
 
 ```bash
 export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)      # required; keep a copy (stored secrets need it)
@@ -277,10 +298,10 @@ target with `REELFORGE_EDITION=release` (D-039). It writes
 | --- | --- |
 | `licence.mode` | `required` |
 | `licence.serverUrl` | `https://api.console.buildbase.app` (build arg `LICENCE_SERVER_URL`) |
-| `licence.orgId` | `6b01478bb42d2c444e99fcd8`, the ReelForge production organisation (build arg `LICENCE_ORG_ID`) |
+| `licence.orgId` | `6b01478bb42d2c444e99fcd8`, the RenderWeld production organisation (build arg `LICENCE_ORG_ID`) |
 
-`get_config` shows them with source `build` (`reelforge config show` too, and
-`reelforge config check` prints `edition: release`). A config file or
+`get_config` shows them with source `build` (`renderweld config show` too, and
+`renderweld config check` prints `edition: release`). A config file or
 environment variable that sets a different value stops the server at start
 with an error naming the key; `update_config` / `PATCH /v1/config` refuse them
 with `409 build_locked_setting`. In the release image the licence calls also
@@ -305,7 +326,7 @@ the code, answers with a fake server behind DNS plus their own CA in
 drafted in docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md), or freezes the
 clock while the server is stopped. A release image whose `build-info.json` is
 removed or replaced by a dev one refuses to start, and the stored licence state
-is sealed with a key derived from `REELFORGE_SECRET_KEY`, so editing the
+is sealed with a key derived from `RENDERWELD_SECRET_KEY`, so editing the
 database row does not work either (D-089, docs/security/HARDENING.md). Doing any of that for commercial use breaks
 the licence (LICENSING.md, COMMERCIAL-LICENSE.md); the real protection is the
 licence terms plus updates and support for licensed keys only.
@@ -331,7 +352,7 @@ release, a pre-production deployment goes through the penetration test gate in
 **Chromium's sandbox.** Chromium sandboxes its renderers with user, PID and
 network namespaces. Docker's default seccomp profile only allows those with
 `CAP_SYS_ADMIN`, so in a default container the sandbox cannot start ("No usable
-sandbox"). The image keeps the sandbox on (`REELFORGE_CHROMIUM_NO_SANDBOX=0`,
+sandbox"). The image keeps the sandbox on (`RENDERWELD_CHROMIUM_NO_SANDBOX=0`,
 D-086), so run it with the profile below; without it, html, hyperframes and
 motion-canvas renders fail with a message naming the profile.
 `deployment/seccomp/chrome.json` is Docker's default profile (moby/profiles
@@ -342,11 +363,11 @@ nested PID namespace). The trade-off: unprivileged user namespaces expose more
 kernel surface to the container, in exchange for isolating the renderers that
 run agent-sent HTML. **Remotion always starts Chrome with `--no-sandbox`**
 (hard-coded in `@remotion/renderer` on Linux), so Remotion scenes, which render
-only ReelForge's own templates with agent-supplied props, run without it
+only RenderWeld's own templates with agent-supplied props, run without it
 whatever you set. `get_capabilities` reports `security.chromiumSandbox` per
 engine and a warning. Hosts whose kernel or AppArmor policy blocks
 unprivileged user namespaces (Ubuntu 23.10+ hosts restrict them for
-unconfined programs) can set `REELFORGE_CHROMIUM_NO_SANDBOX=1`: an explicit
+unconfined programs) can set `RENDERWELD_CHROMIUM_NO_SANDBOX=1`: an explicit
 opt-out, logged at start and shown in `get_capabilities` and the admin view of
 `/readyz`. Agent-supplied scenes then run in a browser with the server's
 privileges. Render processes never get the server's secrets either way, and
@@ -364,7 +385,7 @@ spec:
     fsGroup: 10001
     seccompProfile:
       type: Localhost
-      localhostProfile: reelforge-chrome.json   # or RuntimeDefault, with the opt-out REELFORGE_CHROMIUM_NO_SANDBOX=1
+      localhostProfile: reelforge-chrome.json   # or RuntimeDefault, with the opt-out RENDERWELD_CHROMIUM_NO_SANDBOX=1
   containers:
     - name: reelforge
       image: ghcr.io/buildbase-app/reelforge-studio:<version>
@@ -398,9 +419,9 @@ namespace, then allows (#305, D-110):
 
 | Pods | Direction | Allowed | Edit |
 | --- | --- | --- | --- |
-| all ReelForge pods | egress | DNS to `kube-dns` in `kube-system` (UDP/TCP 53) | another resolver: change the selector |
-| all ReelForge pods | egress | the database (TCP 5432, 6432 for PgBouncer, 3306) on private ranges | narrow to your database's address, or a `namespaceSelector` for an in-cluster one |
-| all ReelForge pods | egress | Redis for `queue.dispatch: redis` (TCP 6379/6380) on private ranges | your broker's address; delete the rule if you do not use Redis. `notify` uses the database connection; SQS is HTTPS |
+| all RenderWeld pods | egress | DNS to `kube-dns` in `kube-system` (UDP/TCP 53) | another resolver: change the selector |
+| all RenderWeld pods | egress | the database (TCP 5432, 6432 for PgBouncer, 3306) on private ranges | narrow to your database's address, or a `namespaceSelector` for an in-cluster one |
+| all RenderWeld pods | egress | Redis for `queue.dispatch: redis` (TCP 6379/6380) on private ranges | your broker's address; delete the rule if you do not use Redis. `notify` uses the database connection; SQS is HTTPS |
 | workers, worker-once jobs | egress | HTTPS (443) to public addresses: the storage endpoint | your S3/Blob/GCS endpoint's CIDRs, an S3 VPC endpoint, or a `namespaceSelector` for in-cluster MinIO (its port) |
 | api | egress | HTTPS (443) to public addresses: storage, the licence server `api.console.buildbase.app` (only api instances call it, D-098), SQS, and the providers, webhook, email and OTLP endpoints you configured (docs/PRIVACY.md) | the CIDRs of those services, or an egress proxy |
 | api | ingress | TCP 4321 from the `ingress-nginx` and `monitoring` namespaces | your ingress controller's / gateway's namespace |
@@ -508,7 +529,7 @@ not run yet.)
 2. On the server:
 
    ```bash
-   git clone <your copy of the repo> reelforge && cd reelforge
+   git clone <your copy of the repo> renderweld && cd renderweld
    cat > .env <<EOF
    REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
    REELFORGE_DOMAIN=studio.example.com
@@ -551,13 +572,13 @@ what leaves the server: [ISOLATION.md](ISOLATION.md).
 Logs are JSON lines on stdout by default (request id, key id, route, status,
 duration; secrets redacted), Prometheus scrapes `GET /metrics` on the normal
 port, and traces, logs or metrics go to any OpenTelemetry (OTLP/HTTP) endpoint
-once you set `REELFORGE_OTLP_ENDPOINT`. `GET /readyz` reports the database,
+once you set `RENDERWELD_OTLP_ENDPOINT`. `GET /readyz` reports the database,
 storage, FFmpeg, the browser and the telemetry exporters (status only without
 a key; the full report with an admin API key). Providers, settings,
 Prometheus/Grafana/Grafana Cloud/Datadog/Honeycomb examples, tested cases and
 troubleshooting: [providers/observability.md](providers/observability.md).
-`/metrics` needs `REELFORGE_METRICS_TOKEN` (sent as `Authorization: Bearer`);
-without one it answers 401 unless `REELFORGE_METRICS_ALLOW_ANONYMOUS=true`
+`/metrics` needs `RENDERWELD_METRICS_TOKEN` (sent as `Authorization: Bearer`);
+without one it answers 401 unless `RENDERWELD_METRICS_ALLOW_ANONYMOUS=true`
 (D-088).
 
 ## Storage
@@ -566,7 +587,7 @@ Asset and render files live in the data directory by default. For a cluster,
 or to keep files out of the server, set `storage.driver` to `s3` (AWS S3, R2,
 B2, Wasabi, DigitalOcean Spaces, MinIO, GCS via HMAC), `azure` or `gcs`, with
 keys as `_FILE` secrets or the cloud's identity (IAM role, workload or managed
-identity). Move existing files with `reelforge storage migrate --to <driver>`
+identity). Move existing files with `renderweld storage migrate --to <driver>`
 (idempotent; run it until it copies nothing), then switch and restart. The
 data volume is still needed for the SQLite database (unless PostgreSQL/MySQL),
 the URL signing key, render staging and caches. Provider matrix, permissions,
@@ -580,7 +601,7 @@ load balancer; they enqueue jobs and never render) and **`worker`** instances
 (they claim jobs from the database queue and render; they serve only
 `/healthz`, `/readyz` and `/metrics`). This needs PostgreSQL or MySQL, shared
 storage (`storage.driver` `s3`/`azure`/`gcs`, or one shared volume with
-`REELFORGE_STORAGE_LOCAL_SHARED=true`) and the same `REELFORGE_SECRET_KEY`
+`RENDERWELD_STORAGE_LOCAL_SHARED=true`) and the same `RENDERWELD_SECRET_KEY`
 everywhere; the `api`/`worker` roles refuse to start otherwise and say why.
 A crashed worker's job is re-queued after its lease (`queue.leaseSeconds`);
 `docker stop` / a Kubernetes rollout lets running renders finish for
@@ -591,7 +612,7 @@ database, so they hold across instances.
 ```bash
 # compose: one api, three workers, PostgreSQL, an S3 bucket
 docker compose -f deployment/compose/docker-compose.scale.yml up -d --scale worker=3
-# Kubernetes: api + worker Deployments, HPAs (CPU; workers also on reelforge_jobs_queued), PDBs
+# Kubernetes: api + worker Deployments, HPAs (CPU; workers also on renderweld_jobs_queued), PDBs
 kubectl apply -k deployment/kubernetes/
 # or workers that scale to zero on the job queue with KEDA (ScaledObject; keda/scaledjob/ for worker --once)
 kubectl apply -k deployment/kubernetes/keda/
@@ -608,7 +629,7 @@ replicas, test cases and troubleshooting:
 
 **How big:** a 1080x1920 render peaks at about 0.8 GB and keeps 1.1 to 1.5
 cores busy; a 3840x2160 one at about 1.7 GB. Set
-`REELFORGE_WORKER_CONCURRENCY` to about `vCPU / 1.5` (check memory for 4K),
+`RENDERWELD_WORKER_CONCURRENCY` to about `vCPU / 1.5` (check memory for 4K),
 match it in the KEDA query, and keep the H.264 encoder's memory bounds
 (`render.encoderThreads`, `render.encoderLookahead`) at their defaults unless
 you measured otherwise. An api instance answers `503 overloaded` with
@@ -624,7 +645,7 @@ from a shared host.
 
 ## Database
 
-ReelForge picks the database from the `DATABASE_URL` scheme. Nothing to set up
+RenderWeld picks the database from the `DATABASE_URL` scheme. Nothing to set up
 for the default.
 
 | Database | `DATABASE_URL` example | Tested |
@@ -648,24 +669,24 @@ for the default.
   and the migration's tables are).
 - **Migrations** run on start. To run them separately (an init container, a
   release step, a database user without DDL rights for the app):
-  `reelforge migrate` (Docker: `docker exec reelforge reelforge migrate`, or
+  `renderweld migrate` (Docker: `docker exec reelforge renderweld migrate`, or
   `docker run --rm -e DATABASE_URL=... reelforge-studio apps/server/node_modules/.bin/tsx apps/server/src/main.ts --migrate-only`),
-  then start with `REELFORGE_MIGRATE_ON_START=0`. `reelforge migrate --status`
+  then start with `RENDERWELD_MIGRATE_ON_START=0`. `renderweld migrate --status`
   lists applied and pending migrations (exit code 2 if any are pending).
   Several instances starting at once are safe: migrations take a lock
   (PostgreSQL advisory lock, MySQL `GET_LOCK`, SQLite write lock). An older
-  ReelForge refuses to start on a database migrated by a newer one.
+  RenderWeld refuses to start on a database migrated by a newer one.
 - **Upgrading from v0.1** (filesystem data, before the database): on the first
   start the server imports `projects/`, `keys.json`, `themes/`, `jobs/` (with
-  logs), `secrets.json` and asset metadata from `REELFORGE_DATA_DIR` into the
+  logs), `secrets.json` and asset metadata from `RENDERWELD_DATA_DIR` into the
   database, once. Existing keys keep working (their hashes are copied). The old
   JSON files are left in place as a backup; delete them once you have checked
-  the import. `reelforge import-v01 [--data-dir DIR]` runs it again on demand
+  the import. `renderweld import-v01 [--data-dir DIR]` runs it again on demand
   (rows that exist are kept, never overwritten).
 - **Pool size:** each process opens up to 10 connections (PostgreSQL, MySQL;
   the drivers' default); set `?connection_limit=N` in the URL to change it. A
   `worker` role process uses **3** when its URL has none
-  (`REELFORGE_DB_WORKER_CONNECTION_LIMIT`, `0` for the driver default). Budget
+  (`RENDERWELD_DB_WORKER_CONNECTION_LIMIT`, `0` for the driver default). Budget
   the connections with the sizing rule
   `api instances × connection_limit + workers × 3 (+ CLI runs, headroom) ≤ pooler pool`
   (or ≤ `max_connections` without a pooler). Recommended: workers 2-3, api 10.
@@ -675,9 +696,9 @@ for the default.
   since #191 (every statement names its schema, as the per-client
   `search_path` is not kept under concurrency); upgrade every instance before
   they share the pool. Do not rely on `ALTER ROLE ... SET search_path`
-  without `?schema=`: ReelForge uses `public` then. Run migrations on
+  without `?schema=`: RenderWeld uses `public` then. Run migrations on
   the **direct** port (`--migrate-only` with a URL to the database itself,
-  then `REELFORGE_MIGRATE_ON_START=0` on every instance). Compose overlay:
+  then `RENDERWELD_MIGRATE_ON_START=0` on every instance). Compose overlay:
   `docker compose -f deployment/compose/docker-compose.scale.yml -f deployment/compose/docker-compose.pgbouncer.yml up -d`.
   Statement pooling is not supported (the queue and quotas use transactions).
 - **RDS Proxy / Cloud SQL** (untested, from their documentation, read
@@ -689,7 +710,7 @@ for the default.
   `max_prepared_statements` 0; for MySQL it is a thread pool that does not
   reduce connections. Notes and sources:
   [providers/queue-and-scaling.md](providers/queue-and-scaling.md#rds-proxy-aws).
-- **Read replica** (optional): `REELFORGE_DATABASE_READ_URL` /
+- **Read replica** (optional): `RENDERWELD_DATABASE_READ_URL` /
   `DATABASE_READ_URL` (or `_FILE`) sends six lag-tolerant list reads
   (`list_projects`, `list_project_versions`, `list_jobs`, `list_assets`,
   `list_themes`, `list_audit_events`) to a replica of the same kind; job
@@ -733,20 +754,20 @@ the database alone can be backed up online.
 
 | Database | Backup (online) | Restore (server stopped) |
 | --- | --- | --- |
-| SQLite | `reelforge backup /data/backups/reelforge-$(date +%F).db` (Docker: `docker exec reelforge reelforge backup /data/backups/rf.db`): a consistent copy while the server runs (`VACUUM INTO`). Do not just copy the file while the server runs: `-wal` holds recent writes | stop the server, replace `reelforge.db` with the backup and delete `reelforge.db-wal`/`-shm`, start |
+| SQLite | `renderweld backup /data/backups/reelforge-$(date +%F).db` (Docker: `docker exec reelforge renderweld backup /data/backups/rf.db`): a consistent copy while the server runs (`VACUUM INTO`). Do not just copy the file while the server runs: `-wal` holds recent writes | stop the server, replace `reelforge.db` with the backup and delete `reelforge.db-wal`/`-shm`, start |
 | PostgreSQL | `pg_dump -Fc -d "$URL" -f reelforge.dump` (compose: `docker compose exec -T postgres pg_dump -U reelforge -Fc reelforge > reelforge.dump`) | `pg_restore --clean --if-exists -d "$URL" reelforge.dump` |
 | MySQL | `mysqldump --single-transaction --routines reelforge > reelforge.sql` (compose: `docker compose exec -T mysql sh -c 'mysqldump -ureelforge -p"$MYSQL_PASSWORD" --single-transaction reelforge' > reelforge.sql`) | `mysql reelforge < reelforge.sql` |
 
 Data directory: `tar -C /var/lib/docker/volumes/reelforge-data/_data -czf data.tgz .`
 or `docker run --rm -v reelforge-data:/data -v "$PWD":/b alpine tar -C /data -czf /b/data.tgz .`.
-Restore a backup with the same ReelForge version (or older than the one you
+Restore a backup with the same RenderWeld version (or older than the one you
 upgrade to): a newer database schema is refused by an older server. A failed
 MySQL migration cannot be rolled back automatically (MySQL commits DDL
 statement by statement): restore the backup taken before the upgrade.
 
 ## Persistent volume notes
 
-- Files live under `REELFORGE_DATA_DIR`: `projects/<id>/assets/` and
+- Files live under `RENDERWELD_DATA_DIR`: `projects/<id>/assets/` and
   `projects/<id>/renders/<runId>/`, `assets/<id>/` (uploaded/imported,
   content-addressed), `cache/` (engine bundles, provider results),
   `signing.key`, and `reelforge.db` (+ `-wal`, `-shm`) when SQLite is used.

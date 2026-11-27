@@ -1,6 +1,6 @@
 ---
 title: "Connect an agent"
-description: "Connect Claude Code, OpenAI Codex, Cursor or any MCP client to your ReelForge Studio server with an API key."
+description: "Connect Claude Code, OpenAI Codex, Cursor or any MCP client to your RenderWeld server with an API key."
 folder: start
 slug: connect-an-agent
 order: 2
@@ -20,7 +20,7 @@ Every agent talks to **your** server with an API key you create.
 Create a key with only the scopes the agent needs:
 
 ```bash
-docker compose exec reelforge reelforge keys create --name claude --scopes read,write,render
+docker compose exec reelforge renderweld keys create --name claude --scopes read,write,render
 ```
 
 **Tested:** the official MCP TypeScript SDK client over Streamable HTTP with a
@@ -31,7 +31,7 @@ each client's documented format; check them against your client's version.
 ## Claude Code
 
 ```bash
-claude mcp add --transport http reelforge https://studio.example.com/mcp \
+claude mcp add --transport http renderweld https://studio.example.com/mcp \
   --header "Authorization: Bearer rf_..."
 ```
 
@@ -43,11 +43,11 @@ slash commands in clients that support MCP prompts.
 `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.reelforge]
+[mcp_servers.renderweld]
 url = "https://studio.example.com/mcp"
 http_headers = { Authorization = "Bearer rf_..." }
 # or keep the key out of the file:
-# bearer_token_env_var = "REELFORGE_API_KEY"
+# bearer_token_env_var = "RENDERWELD_API_KEY"
 ```
 
 ## Cursor
@@ -57,7 +57,7 @@ http_headers = { Authorization = "Bearer rf_..." }
 ```json
 {
   "mcpServers": {
-    "reelforge": {
+    "renderweld": {
       "url": "https://studio.example.com/mcp",
       "headers": { "Authorization": "Bearer rf_..." }
     }
@@ -76,7 +76,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 const client = new Client({ name: 'my-agent', version: '1.0.0' });
 await client.connect(
   new StreamableHTTPClientTransport(new URL('https://studio.example.com/mcp'), {
-    requestInit: { headers: { Authorization: `Bearer ${process.env.REELFORGE_API_KEY}` } },
+    requestInit: { headers: { Authorization: `Bearer ${process.env.RENDERWELD_API_KEY}` } },
   })
 );
 const caps = await client.callTool({ name: 'get_capabilities', arguments: {} });
@@ -98,6 +98,6 @@ DNS rebinding). A `403 forbidden_host` means: set `REELFORGE_PUBLIC_URL`.
 
 ## An agent with no other docs
 
-An agent can read the MCP resource `reelforge://guide/workflow`, or use the
+An agent can read the MCP resource `renderweld://guide/workflow`, or use the
 prompt `make_reel`: the whole workflow, a minimal valid manifest and rules of
 thumb, served by your own server.

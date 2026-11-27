@@ -1,6 +1,6 @@
 # Showcase gallery
 
-119 short vertical reels made with ReelForge Studio, the pipeline that renders
+119 short vertical reels made with RenderWeld, the pipeline that renders
 them, and how they reach the store's `/gallery` pages. Issue #43; plan in
 `docs/research/SITE_PLAN.md` §B.7.
 
@@ -21,15 +21,15 @@ pnpm gallery publish           BuildBase Collection "gallery" (Records API)  ─
 
 ```bash
 pnpm i
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
-export REELFORGE_CHROMIUM_NO_SANDBOX=1        # only in a container without user namespaces
+export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
+export RENDERWELD_CHROMIUM_NO_SANDBOX=1        # only in a container without user namespaces
 export REELFORGE_GALLERY_OUT=/tmp/gallery
 pnpm gallery render                            # all 119; or: pnpm gallery render <slug> <slug>
 pnpm gallery check && pnpm gallery transcode
 ```
 
 `render` starts a local studio for the job (`apps/server/src/main.ts`, its own
-data directory under `<out>/.studio`, `REELFORGE_LICENCE_MODE=off` for this
+data directory under `<out>/.studio`, `RENDERWELD_LICENCE_MODE=off` for this
 local job only, a key with `read,write,render` made by the CLI) and talks to it
 over **MCP**, the way an agent does. To use a studio that is already running,
 pass `--server http://host:4321 --key-file key.txt`.
@@ -170,19 +170,19 @@ max-age=31536000, immutable` and its content type, plus each reel's manifest
 as `gallery/<slug>/manifest.<hash>.json`. Hashed keys never change, so the
 step skips what its ledger (`<out>/web/r2-uploaded.json`) says is uploaded and
 can be re-run. `<out>/web/urls.json` has every public URL under
-`REELFORGE_GALLERY_MEDIA_URL` (default `https://media.reelforge.buildbase.app`,
+`REELFORGE_GALLERY_MEDIA_URL` (default `https://media.renderweld.com`,
 the planned custom domain on the bucket).
 
 Behind an HTTPS proxy, run Node with `NODE_USE_ENV_PROXY=1` so `fetch` uses
 it. Status 2026-11-21: R2 is not enabled on the Cloudflare account yet (API error
 10042, "enable R2 through the Cloudflare Dashboard"). The upload waits on that
-founder action, then the custom domain `media.reelforge.buildbase.app` on the
+founder action, then the custom domain `media.renderweld.com` on the
 bucket.
 
 ## Publish (BuildBase Collection)
 
 ```bash
-BUILDBASE_API_TOKEN_FILE=dev-env.key pnpm gallery publish [--dry-run] [--base-url https://media.reelforge.buildbase.app]
+BUILDBASE_API_TOKEN_FILE=dev-env.key pnpm gallery publish [--dry-run] [--base-url https://media.renderweld.com]
 ```
 
 Creates the Collection `gallery` (live version v1 with the fields below) when
@@ -219,5 +219,5 @@ budgets, the music synthesiser, rendering over a fake MCP studio (idempotency
 keys, replace, resume, retry), publishing to a fake Records API (create,
 idempotent upsert, hidden → published) and the R2 upload against a fake
 Cloudflare API. `test/e2e.test.ts` renders two short reels end to end against
-a real studio process (skips without `REELFORGE_CHROMIUM_PATH` unless
-`REELFORGE_REQUIRE_BROWSER=1`).
+a real studio process (skips without `RENDERWELD_CHROMIUM_PATH` unless
+`RENDERWELD_REQUIRE_BROWSER=1`).
