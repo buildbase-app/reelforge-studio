@@ -12,7 +12,7 @@ import {
   type FrameRate,
 } from '@renderweld/project-schema';
 import type { AudioDefaults } from './audio';
-import type { VideoQaSettings } from './videoqa';
+import { textCheckOn, type VideoQaSettings } from './videoqa';
 import type { ContactSheetSettings } from './frames';
 import { describeUnit, JOIN_JOB_TYPE, UNIT_JOB_TYPE, type ChildSpec } from './fanout';
 import type { JobContext } from './jobs';
@@ -262,6 +262,7 @@ export async function renderUnit(deps: FanOutDeps, ctx: JobContext): Promise<Rec
       workDir: join(work, 'work'),
       progress: (n, total) => ctx.progress('render', (0.85 * Math.min(n, total)) / Math.max(1, total), `${n}/${total} frames`),
       ...(p.range ? { frameRange: p.range } : {}),
+      ...(textCheckOn(deps.videoQa?.()) ? { textCheck: true } : {}),
     });
     if (ctx.signal.aborted) throw new PipelineError('unit', 'cancelled');
     // Normalise once here, so the join can stream-copy (D-097).

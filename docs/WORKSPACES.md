@@ -11,6 +11,7 @@ An install that never creates a workspace has one, `default`, and works exactly 
 | Scope | Where it applies | What it allows |
 | --- | --- | --- |
 | `read`, `write`, `render` | the key's workspace | as before: read, edit and render that workspace's projects |
+| `approve` | the key's workspace | approve render plans when `render.approval` asks for it (`approve_render_plan`, #485); `admin` and `owner` imply it |
 | `admin` | the key's workspace | also that workspace's keys, webhooks and audit log, its own provider accounts (`configure_workspace_provider`), and everything a write or render key can do |
 | `owner` | the install | also workspaces (create, list, rename, change limits, suspend, delete, restore), runtime configuration (`get_config`, `update_config`), the licence, provider credentials, storage status and cleanup, `/readyz` details, every workspace's audit log, and owner keys |
 
@@ -68,6 +69,18 @@ change the instance-wide default with `update_config` or the environment, or set
 | Renders and previews per UTC day / month, across all the workspace's keys | `workspaces.rendersPerDay`, `workspaces.rendersPerMonth` | `429 workspace_quota_exceeded` with `Retry-After` |
 | Requests per minute, across all the workspace's keys | `workspaces.rateLimitPerMinute` | `429 rate_limited`, `details.scope: "workspace"` |
 | Bytes of assets and renders stored | `workspaces.storageBytes` | `507 storage_limit_exceeded` on upload and render start |
+| Retention: renders and previews older than N hours are deleted, the newest N of each project kept (`retentionMaxAgeHours`, `retentionKeepLast`) | none: the instance's `storage.retention.*` | deleted by the storage sweep (reason `older_than_workspace_retention`) |
+
+Retention per workspace (#487) is for a tenant under a stricter data policy (a health or legal client that may keep
+nothing past a day) without forcing it on every tenant. It can only be stricter than the instance's
+`storage.retention`: the shorter maximum age and the smaller keep-last win, so a workspace never keeps more than the
+instance allows. The sweep runs every `storage.retention.sweepIntervalMinutes` (60), so a render may outlive its
+limit by up to that; `run_storage_cleanup { dryRun: true }` lists what the next run deletes and why.
+
+```bash
+curl -X PATCH "$URL/v1/workspaces/acme" -H "Authorization: Bearer $OWNER_KEY" -H 'content-type: application/json' \
+  -d '{"limits": {"retentionMaxAgeHours": 24}}'
+```
 
 Per-key limits (`rateLimitPerMinute`, `rendersPerDay`, ...) still apply on top.
 

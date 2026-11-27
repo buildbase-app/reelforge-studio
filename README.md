@@ -62,7 +62,7 @@ databases and running the studio next to the store site
 ## What works today
 
 - **Server** (`apps/server`): REST `/v1` and MCP `/mcp` (official MCP SDK,
-  Streamable HTTP) over the same handlers; <!-- mcp-tool-count -->80<!-- /mcp-tool-count --> MCP tools (generated list:
+  Streamable HTTP) over the same handlers; <!-- mcp-tool-count -->82<!-- /mcp-tool-count --> MCP tools (generated list:
   [docs/public/mcp/tools.md](docs/public/mcp/tools.md)), resources (incl. a workflow guide), prompts
   `make_reel`/`plan_reel`/`review_reel`; API keys with scopes, expiry, rotation and
   quotas; per-key rate limit; jobs with progress (SSE), logs, cancel and retry;
@@ -128,6 +128,32 @@ RenderWeld itself is **source-available**, not open source (`LICENSING.md`):
 - Reselling, rebranding, redistributing or hosting RenderWeld for others is not
   permitted under either licence; the name and logo are not licensed
   (`TRADEMARK.md`). Required notices: `NOTICE`.
+
+## Built with BuildBase
+
+RenderWeld's licence keys, public docs and demo gallery run on
+[BuildBase](https://buildbase.app), a backend for SaaS apps (sign-in,
+workspaces, billing and selling, content, notifications and agent access). The
+studio has no BuildBase SDK dependency; it calls BuildBase's HTTP API:
+
+- **[Licence keys](https://docs.buildbase.app/billing/orders#license-keys)**:
+  the server validates, activates and deactivates its key with BuildBase's
+  licence API (`packages/core/src/licence.ts`). The Personal and Commercial
+  keys are BuildBase licence keys.
+- **[Docs](https://docs.buildbase.app/content/blogs-and-docs)**:
+  `pnpm docs:sync` publishes `docs/public/` to BuildBase Docs
+  (`scripts/docs/sync-buildbase.mjs`).
+- **[Collections](https://docs.buildbase.app/collections/overview)**:
+  `pnpm gallery publish` stores one record per demo reel in the `gallery`
+  collection (`scripts/gallery/src/publish.ts`).
+- **[Blueprints](https://docs.buildbase.app/blueprints/overview)**: the
+  console setup page (`docs/public/install/buildbase-console-setup.md`) is
+  built from blueprint exports by `pnpm capture`
+  (`scripts/capture/steps/console.mjs`).
+
+The public site (sign-in, buying and claiming keys, docs, gallery) is built on
+BuildBase too: see
+[its README](https://github.com/buildbase-app/reelforge-selling-public-site#built-with-buildbase).
 
 ## Layout
 
