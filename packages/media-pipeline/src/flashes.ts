@@ -7,16 +7,36 @@
  * - Relative luminance per cell: L = 0.2126 R + 0.7152 G + 0.0722 B on linearised sRGB (WCAG 2.2 definition).
  * - A transition is a change of at least 0.1 in L, the darker side below 0.80, and opposite to the cell's previous
  *   transition (a flash is a pair of opposing transitions).
- * - Saturated red (R / (R + G + B) >= 0.8): a red transition is a change of more than 20 in (R - G - B) x 320, the
- *   method of EA IRIS and WCAG 2.0 (WCAG 2.2 states it as a CIE 1976 u'v' change of more than 0.2).
+ * - Saturated red (R / (R + G + B) >= 0.8): a red transition is a change of more than 20 in (R - G - B) x 320,
+ *   WCAG 2.0's working definition (Understanding SC 2.3.1, note 3). WCAG 2.1 and 2.2 replaced it with a CIE 1976
+ *   u'v' change of more than 0.2, not measured yet.
  * - Area: a frame counts as a flash transition only when the cells that make the same transition on it cover at
  *   least a quarter of the picture (the 25 % of a 10-degree field rule, taken on the whole frame as analysers do for
  *   video). Small flashing elements pass.
  * - A failure is more than 6 transitions (more than three flashes) in any one-second window.
  */
 export const FLASH_GRID = 8;
+
+/** The thresholds above, fixed by the standard (sources and dates: docs/QA.md#picture). */
+export const FLASH_RULES = {
+  /** Smallest change in relative luminance that is a transition. */
+  minLuminanceChange: 0.1,
+  /** The darker side of a transition must be below this relative luminance. */
+  darkerBelow: 0.8,
+  /** A cell is saturated red when R / (R + G + B) is at least this. */
+  redRatio: 0.8,
+  /** (R - G - B) is scaled by this before the red change is measured. */
+  redScale: 320,
+  /** A red transition is a change of more than this in the scaled (R - G - B). */
+  redChange: 20,
+  /** Share of the picture the cells making the same transition must cover. */
+  minArea: 0.25,
+  /** Most transitions allowed in any one second (three flashes; a flash is two). */
+  maxTransitionsPerSecond: 6,
+} as const;
+
 const CELLS = FLASH_GRID * FLASH_GRID;
-const AREA_CELLS = Math.ceil(CELLS * 0.25);
+const AREA_CELLS = Math.ceil(CELLS * FLASH_RULES.minArea);
 
 export interface FlashWindow {
   startSeconds: number;
@@ -113,12 +133,12 @@ export function analyseFlashes(grid: Uint8Array, fps: number): FlashWindow[] {
       const b = linear(grid[o + 2]!);
       lum[c]![f] = 0.2126 * r + 0.7152 * g + 0.0722 * b;
       const sum = r + g + b;
-      red[c]![f] = sum > 0 && r / sum >= 0.8 ? Math.max(0, (r - g - b) * 320) : 0;
+      red[c]![f] = sum > 0 && r / sum >= FLASH_RULES.redRatio ? Math.max(0, (r - g - b) * FLASH_RULES.redScale) : 0;
     }
   }
   return [
-    ...windows(frameTransitions(lum, frames, 0.1, 0.8), fps, 6, 'general'),
+    ...windows(frameTransitions(lum, frames, FLASH_RULES.minLuminanceChange, FLASH_RULES.darkerBelow), fps, FLASH_RULES.maxTransitionsPerSecond, 'general'),
     // Red transitions: a change of more than 20 in (R - G - B) x 320, in either direction.
-    ...windows(frameTransitions(red, frames, 20.000001, Infinity), fps, 6, 'red'),
+    ...windows(frameTransitions(red, frames, FLASH_RULES.redChange + 1e-6, Infinity), fps, FLASH_RULES.maxTransitionsPerSecond, 'red'),
   ].sort((a, b) => a.startSeconds - b.startSeconds);
 }

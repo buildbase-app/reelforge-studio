@@ -62,6 +62,11 @@ describe('faster-whisper provider (fake programs)', () => {
     expect(env).toContain(`HF_HOME=${join(dir, 'hf')}`);
     expect(env).not.toContain('secret-value');
     await expect(s.transcribe({ file: 'voice.mp3', language: 'auto', settings: settings() }, ctx())).rejects.toMatchObject({ code: 'bad_request' });
+    // A glossary prompt (#486) is one "--initial-prompt=..." argument, so even one that starts with "-" stays a value.
+    await s.transcribe({ file: audio, language: 'en', settings: settings(), prompt: '--model huge, RenderWeld.' }, ctx());
+    const withPrompt = readFileSync(join(dir, 'fake-whisper.args'), 'utf8').trim().split('\n');
+    expect(withPrompt.at(-1)).toBe('--initial-prompt=--model huge, RenderWeld.');
+    expect(withPrompt.filter((a) => a === '--model')).toHaveLength(1);
   });
 
   it('stops a program that runs too long or prints too much, and reports failures without a shell', async () => {

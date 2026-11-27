@@ -2,6 +2,7 @@ import { readdir } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import type { StorageDriver } from '../plugins';
 import type { StorageObject } from '../plugins';
+import { OUTPUT_FILE_PATTERN } from '../output-formats';
 import { DOWNLOAD_MARKER, mapLimit, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix, rendersPrefix, streamToBuffer, TEMP_RUN_PREFIX } from './keys';
 
 /** One render directory as stored: complete when its manifest exists. */
@@ -14,6 +15,8 @@ export interface StoredRun {
   objects: number;
   bytes: number;
   keys: string[];
+  /** Bytes of the delivered file (`final.*` or `frames.zip`), when the run has one (render plans, #485). */
+  outputBytes?: number;
   /** When the render was committed (the manifest's write time), else the newest object's. */
   createdAt: string;
   /** When its output was first downloaded (the download marker's time, #487); absent: never. */
@@ -36,6 +39,7 @@ export function groupRuns(objects: StorageObject[]): StoredRun[] {
     r.objects++;
     r.bytes += o.bytes;
     r.keys.push(o.key);
+    if (OUTPUT_FILE_PATTERN.test(file)) r.outputBytes = o.bytes;
     if (file === RENDER_MANIFEST) {
       r.complete = !r.temp;
       r.createdAt = o.modifiedAt;
