@@ -171,6 +171,14 @@ export interface ProviderRunContext {
   putAsset(input: PutAssetInput): Promise<StoredAsset>;
   /** fetch, injectable for tests. */
   fetch: typeof fetch;
+  /**
+   * The calling workspace's own provider settings for this call, by the names in `env` (#480,
+   * configure_workspace_provider). A provider with `scopedSettings` reads its key from here when it is set, so
+   * that workspace's calls go to its own account. Absent when the call uses the instance's settings (the default
+   * workspace, or a workspace that may share them: `providers.shareWithWorkspaces`): the provider then reads the
+   * environment it was built with, as before.
+   */
+  env?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface ProviderResult {
@@ -186,8 +194,17 @@ export interface ProviderPlugin {
   id: string;
   kind: 'tts' | 'avatar' | 'music' | 'stock' | 'image';
   displayName: string;
-  /** Has the operator configured it (API key set)? */
-  configured(): boolean;
+  /**
+   * Is it configured (API key set)? With `env`, decide from those settings (one workspace's, see
+   * ProviderRunContext.env); without, from the instance's.
+   */
+  configured(env?: Readonly<Record<string, string | undefined>>): boolean;
+  /**
+   * True when the provider reads its settings from `ctx.env` and `configured(env)`, so a workspace can bring
+   * its own account (#480). Without it, only the instance's settings are used, and a workspace that may not
+   * share them cannot use the provider.
+   */
+  scopedSettings?: boolean;
   /** Shown to agents before they call it. */
   costNote: string;
   /** Environment variables the operator sets to configure it. */

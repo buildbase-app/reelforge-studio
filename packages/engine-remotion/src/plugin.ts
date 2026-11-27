@@ -33,7 +33,7 @@ export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
       return {
         ok: false,
         reason:
-          'no browser: set REELFORGE_CHROMIUM_PATH to a Chrome Headless Shell binary (the server does not let Remotion download one at render time)',
+          'no browser: set RENDERWELD_CHROMIUM_PATH to a Chrome Headless Shell binary (the server does not let Remotion download one at render time)',
       };
     },
     async render(scene, ctx) {

@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { REST_ROUTES, TOOLS, TOOL_ALIASES } from '@renderweld/server';
+import { BUILT_IN_SKILLS, REST_ROUTES, TOOLS, TOOL_ALIASES } from '@renderweld/server';
 import { TEMPLATES, templateDurationLabel } from '@renderweld/project-schema';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -28,7 +28,7 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   {
     title: 'Start here',
     intro: 'What this server can do, the manifest schema and the installed templates. Call these before anything else.',
-    tools: ['get_capabilities', 'get_me', 'get_project_schema', 'list_templates'],
+    tools: ['get_capabilities', 'get_me', 'get_project_schema', 'list_templates', 'get_skill'],
   },
   {
     title: 'Projects',
@@ -58,12 +58,12 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   {
     title: 'Media providers',
     intro: 'Optional providers the operator configures with their own keys. Calls that cost money ask for acknowledgeCost.',
-    tools: ['list_providers', 'configure_provider', 'run_provider', 'generate_voice'],
+    tools: ['list_providers', 'configure_provider', 'configure_workspace_provider', 'run_provider', 'generate_voice'],
   },
   {
     title: 'Rendering and jobs',
     intro: 'Renders run as jobs: queued, running, then succeeded, failed or cancelled. get_analytics_summary aggregates them over a time range.',
-    tools: ['preview_scene', 'plan_render', 'render_project', 'get_job', 'list_jobs', 'get_job_logs', 'cancel_job', 'retry_job', 'get_render_output', 'list_renders', 'get_analytics_summary'],
+    tools: ['preview_scene', 'plan_render', 'render_project', 'get_job', 'list_jobs', 'get_job_logs', 'cancel_job', 'retry_job', 'get_render_output', 'get_frames', 'list_renders', 'delete_render', 'get_analytics_summary'],
   },
   {
     title: 'Workspaces',
@@ -201,7 +201,7 @@ export function renderToolsDoc(): string {
   const out: string[] = [
     frontMatter({
       title: 'MCP tool reference',
-      description: `All ${TOOLS.length} MCP tools of ReelForge Studio, grouped by task, with their scopes, arguments and REST equivalents.`,
+      description: `All ${TOOLS.length} MCP tools of RenderWeld, grouped by task, with their scopes, arguments and REST equivalents.`,
       folder: 'mcp',
       slug: 'tools',
       order: 2,
@@ -211,7 +211,7 @@ export function renderToolsDoc(): string {
     '',
     GENERATED,
     '',
-    `ReelForge Studio offers **${TOOLS.length} tools** at \`/mcp\`, generated here from the server's tool registry.`,
+    `RenderWeld offers **${TOOLS.length} tools** at \`/mcp\`, generated here from the server's tool registry.`,
     'Every tool has a REST equivalent under `/v1` with the same scope. Tool names are **experimental until v1.0**.',
     'Errors come back as a tool result with `isError: true` and `{ "error": { "code", "message", "details" } }`.',
     '',
@@ -244,7 +244,7 @@ export function renderEndpointsDoc(): string {
   const out: string[] = [
     frontMatter({
       title: 'REST endpoint reference',
-      description: `Every REST /v1 route of ReelForge Studio with its scope and the MCP tool that does the same.`,
+      description: `Every REST /v1 route of RenderWeld with its scope and the MCP tool that does the same.`,
       folder: 'api',
       slug: 'endpoints',
       order: 2,
@@ -289,7 +289,7 @@ export function renderTemplatesDoc(): string {
   return [
     frontMatter({
       title: 'Built-in templates',
-      description: 'The scene templates ReelForge Studio ships with: engine, duration range and what each one draws.',
+      description: 'The scene templates RenderWeld ships with: engine, duration range and what each one draws.',
       folder: 'manifest',
       slug: 'templates',
       order: 2,
@@ -327,8 +327,71 @@ export function withToolCount(text: string, path = 'the file'): string {
   return text.replace(TOOL_COUNT_MARKER, `<!-- mcp-tool-count -->${TOOLS.length}<!-- /mcp-tool-count -->`);
 }
 
+/** Every built-in skill, from apps/server/src/skills, with how agents read them and how to add your own. */
+export function renderSkillsDoc(): string {
+  const out: string[] = [
+    frontMatter({
+      title: 'Skills for agents',
+      description: `The ${BUILT_IN_SKILLS.length} built-in skills an agent reads over MCP or REST, one for every step of making a video (brief, timing, layout and type, motion, camera, physical plausibility, sound, voice, captions and accessibility, sync, brand, review), and how to add your own.`,
+      folder: 'mcp',
+      slug: 'skills',
+      order: 3,
+      tags: ['mcp', 'reference', 'skills'],
+    }),
+    '# Skills for agents',
+    '',
+    GENERATED,
+    '',
+    'A skill is a short set of rules, with numbers, for one step of making a video: what to ask before building, timing in frames, where text may go at every aspect ratio, motion curves and durations, camera moves and cuts, how moving things and people behave so the result does not look fake, loudness and voice, caption limits, sync tolerances, brand consistency and the checks before delivery.',
+    'Each rule carries its number and its source (published standards such as EBU, ITU, WCAG and Netflix or BBC timed text; animation and cinematography practice; physics) and says which tools and fields apply it here. Where the studio enforces a number, a test keeps the skill and the check identical.',
+    'An agent that reads the skill for the step it is on makes fewer of the defaults that make a video look generic.',
+    '',
+    '## Reading them',
+    '',
+    '| Where | How |',
+    '| --- | --- |',
+    '| MCP | `get_skill` without `name` lists them; `get_skill { name }` returns one as Markdown. Resources `renderweld://skills` (the index) and `renderweld://skills/<name>`. |',
+    '| REST | `GET /v1/skills` (the list) and `GET /v1/skills/:name` (`text/markdown`). Both need the `read` scope. |',
+    '| Agent tools | `renderweld skills export <dir>` writes `<dir>/renderweld-<name>/SKILL.md` for each skill, the folder layout Claude Code (`.claude/skills/`), Codex and other agent tools load. `--prefix` changes the folder prefix; a changed file is kept unless `--force`. `renderweld skills list` prints them. |',
+    '',
+    'The workflow guide (`renderweld://guide/workflow`, the `make_reel` prompt) starts with the brief and points to the skills.',
+    '',
+    '## Adding your own',
+    '',
+    'Set `skills.dir` (`RENDERWELD_SKILLS_DIR`) to a folder of skills: your house rules, or a skills pack. They are served beside the built-in ones, and one with a built-in\'s name replaces it.',
+    '',
+    '- Each skill is `<name>.md` or `<name>/SKILL.md`, the Agent Skills format: front matter with `name` (lowercase letters, digits and hyphens, matching the file or folder name) and `description` (at most 1024 characters; say when to use it), `title` optional, then Markdown.',
+    '- At most 256 KiB a skill and 200 skills.',
+    '- The folder is read at start-up. A file that cannot be used stops the start with its name, so a broken pack is never served half-loaded.',
+    '',
+    '```markdown',
+    '---',
+    'name: house-style',
+    'description: Our lower thirds, logo placement and words we never use. Use for every video for the Acme brand.',
+    '---',
+    '# House style',
+    '',
+    '1. The logo sits bottom right, 4 % of the short side, on every scene.',
+    '```',
+    '',
+    '## The built-in skills',
+    '',
+    '| Skill | Use it for |',
+    '| --- | --- |',
+    ...BUILT_IN_SKILLS.map((s) => `| [\`${s.name}\`](#${s.name}) | ${cell(s.description)} |`),
+    '',
+  ];
+  for (const s of BUILT_IN_SKILLS) {
+    // The skill's own H1 becomes this page's H2 (with an anchor by name); its sections move down one level.
+    const body = s.body.replace(/^# .*\n+/, '').replace(/^(#{2,5}) /gm, '#$1 ').trimEnd();
+    out.push(`<a id="${s.name}"></a>`, '', `## ${s.title}`, '', `\`${s.name}\`: ${s.description}`, '', body, '');
+  }
+  return out.join('\n');
+}
+
 export const OUTPUTS: Array<{ path: string; render: () => string }> = [
   { path: 'docs/public/mcp/tools.md', render: renderToolsDoc },
+  { path: 'docs/public/mcp/skills.md', render: renderSkillsDoc },
   { path: 'docs/public/api/endpoints.md', render: renderEndpointsDoc },
   { path: 'docs/public/manifest/templates.md', render: renderTemplatesDoc },
   ...TOOL_COUNT_FILES.map((path) => ({

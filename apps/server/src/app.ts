@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createReadStream, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import {
@@ -13,6 +14,7 @@ import {
   runInWorkspace,
   runWithRequest,
   type AuthContext,
+  type FrameAt,
   type KeyOptions,
   type ReelforgeService,
   type RequestContext,
@@ -27,6 +29,7 @@ import type { ServerConfig } from './config';
 import { auditAction, auditTarget, matchRoute, restArgs, resultOf } from './audit';
 import { mountDashboard } from './dashboard';
 import { handleMcp, serverCard } from './mcp';
+import { findSkill, skillMarkdown, skillNames, skillsFor, skillSummary } from './skills/index';
 import { httpTelemetry } from './observability/http';
 import { StructuredLogger } from './observability/logger';
 import { Observability, observabilitySettings } from './observability/telemetry';
@@ -45,6 +48,9 @@ export interface AppDeps {
   /** HTTP client for the OAuth issuer's metadata and JWKS (tests: a local mock issuer). */
   fetch?: typeof fetch;
 }
+
+/** Most messages in one JSON-RPC batch on /mcp; each costs one rate-limit unit. */
+export const MCP_MAX_BATCH = 10;
 
 export function errorBody(code: string, message: string, details?: unknown) {
   return { error: { code, message, ...(details === undefined ? {} : { details }) } };
@@ -110,6 +116,8 @@ export function originAllowed(origin: string, hostHeader: string | undefined, co
 
 export function createApp(deps: AppDeps) {
   const { service, config, observability } = deps;
+  // skills.dir is a start-up setting: read once here, so a skill file that cannot be used stops the start.
+  const skills = skillsFor(config.skillsDir);
   const app = new Hono<Env>();
   const obs =
     observability ??
@@ -196,11 +204,19 @@ export function createApp(deps: AppDeps) {
    * Check the client address budget, then the bearer key (expiry, revocation, IP allowlist) or, on /mcp with
    * OAuth on, the access token; then the per-key (or per OAuth subject) rate limit and the workspace's budget.
    *
-   * TODO(#304): OAuth access tokens (D-112) act in the default workspace, like keys made before workspaces. To give
-   * them other workspaces, map a token claim to the workspace in OAuthVerifier (e.g. "reelforge:workspace",
-   * configurable), refuse a token whose workspace does not exist or is not active (as KeyStore.authenticate does
-   * through workspaceStatus), and set AuthContext.workspaceId from it; every repository call is then scoped by it.
+   * OAuth access tokens (D-112) act in the default workspace, unless security.oauth.workspaceClaim names the claim
+   * that carries their workspace (#479): then the token must name an existing workspace, a suspended one is refused
+   * as for its keys, and AuthContext.workspaceId scopes every call the token makes.
    */
+  const workspaceClaim = config.resolved.config.security.oauth.workspaceClaim;
+  const tokenWorkspace = async (claims: Record<string, unknown>): Promise<{ workspaceId: string } | { status: 401 | 403; code: string; message: string }> => {
+    const raw = claims[workspaceClaim!];
+    if (typeof raw !== 'string' || !raw || raw.length > 64) return { status: 401, code: 'invalid_token', message: `the token has no "${workspaceClaim}" claim naming its workspace` };
+    const status = await service.workspaceStatus(raw);
+    if (status === null || status === 'deleted') return { status: 401, code: 'invalid_token', message: `the token names workspace "${raw}", which does not exist` };
+    if (status === 'suspended') return { status: 403, code: 'workspace_suspended', message: `the workspace of this token (${raw}) is suspended; ask the instance owner` };
+    return { workspaceId: raw };
+  };
   const authorize = async (c: Context, opts: { oauth?: boolean } = {}): Promise<{ auth: AuthContext } | { response: Response }> => {
     const ctx = currentRequest();
     // Before any database work: a flood or a key-guessing run from one address stops here (#305).
@@ -217,6 +233,20 @@ export function createApp(deps: AppDeps) {
         }
         challenge(c, true, { error: v.error, description: v.description, ...(v.error === 'insufficient_scope' ? { scope: 'reelforge:read' } : {}) });
         return { response: c.json(errorBody(v.error, `access token refused: ${v.description}`), v.error === 'insufficient_scope' ? 403 : 401) };
+      }
+      // A blocked subject (#479) is refused before its token expires; the list is a runtime setting, read live.
+      if (service.settings.current.config.security.oauth.blockedSubjects.includes(v.subject)) {
+        const message = 'this token\'s subject is blocked on this server (security.oauth.blockedSubjects)';
+        challenge(c, true, { error: 'invalid_token', description: message });
+        return { response: c.json(errorBody('invalid_token', `access token refused: ${message}`), 401) };
+      }
+      if (workspaceClaim) {
+        const ws = await tokenWorkspace(v.claims);
+        if (!('workspaceId' in ws)) {
+          if (ws.status === 401) challenge(c, true, { error: 'invalid_token', description: ws.message });
+          return { response: c.json(errorBody(ws.code, `access token refused: ${ws.message}`), ws.status) };
+        }
+        return limit(c, { ...v.auth, workspaceId: ws.workspaceId });
       }
       return limit(c, v.auth);
     }
@@ -426,6 +456,20 @@ export function createApp(deps: AppDeps) {
   app.get('/.well-known/oauth-protected-resource/mcp', metadata);
 
   // ---- MCP ------------------------------------------------------------------------
+  /** Charge `n` more rate-limit units to a key (and its workspace): the extra messages of a JSON-RPC batch on /mcp. */
+  const charge = async (c: Context, auth: AuthContext, n: number): Promise<Response | undefined> => {
+    const wsLimit = auth.workspaceId ? await service.workspaceAdmin?.rateLimitOf(auth.workspaceId) : undefined;
+    for (let i = 0; i < n; i++) {
+      const d = await limiter.take(auth.keyId, auth.rateLimitPerMinute);
+      if (!d.allowed) return limited(c, 'key', d);
+      if (wsLimit) {
+        const w = await limiter.take(`workspace:${auth.workspaceId}`, wsLimit);
+        if (!w.allowed) return limited(c, 'workspace', w);
+      }
+    }
+    return undefined;
+  };
+
   app.all('/mcp', async (c) => {
     // DNS-rebinding protection: the Host (and Origin, when a browser sends one) must be ours.
     const host = hostName(c.req.header('host'));
@@ -446,7 +490,30 @@ export function createApp(deps: AppDeps) {
     if (c.req.method !== 'POST') return handleMcp(c.req.raw, auth, service, config);
     let answered: Response | undefined;
     const refused = await json(c, async () => {
-      answered = await handleMcp(c.req.raw, auth, service, config);
+      // A JSON-RPC batch runs one call per message, so it costs one rate-limit unit per message, not one per HTTP
+      // request; authorize() took the first. Batches are capped (MCP 2025-06-18 dropped batching; older clients
+      // may still send them).
+      const text = await c.req.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = undefined;
+      }
+      if (Array.isArray(parsed)) {
+        if (parsed.length > MCP_MAX_BATCH) {
+          answered = c.json(errorBody('batch_too_large', `a JSON-RPC batch on /mcp holds at most ${MCP_MAX_BATCH} messages (got ${parsed.length}); send them in several requests`), 400);
+          return;
+        }
+        const over = parsed.length > 1 ? await charge(c, auth, parsed.length - 1) : undefined;
+        if (over) {
+          answered = over;
+          return;
+        }
+      }
+      // Not JSON: the transport reads the text again and answers with its JSON-RPC parse error.
+      const req = parsed === undefined ? new Request(c.req.raw.url, { method: 'POST', headers: c.req.raw.headers, body: text }) : c.req.raw;
+      answered = await handleMcp(req, auth, service, config, parsed);
     });
     return answered ?? refused ?? c.res;
   });
@@ -455,10 +522,17 @@ export function createApp(deps: AppDeps) {
   const v1 = new Hono<Env>();
   v1.use('*', authenticate);
 
-  v1.get('/capabilities', need('read'), (c) => c.json(service.capabilities()));
+  v1.get('/capabilities', need('read'), async (c) => c.json(await service.capabilitiesFor()));
   v1.get('/me', need('read'), async (c) => c.json(await service.getMe(c.get('auth'))));
   v1.get('/schema/project', need('read'), (c) => c.json(service.projectSchema()));
   v1.get('/templates', need('read'), (c) => c.json({ templates: service.listTemplates(c.req.query('engine')) }));
+  v1.get('/skills', need('read'), (c) => c.json({ skills: skills.map((s) => ({ ...skillSummary(s), url: `/v1/skills/${s.name}` })) }));
+  v1.get('/skills/:name', need('read'), (c) => {
+    const s = findSkill(skills, c.req.param('name'));
+    if (!s) return c.json(errorBody('not_found', `no skill "${c.req.param('name').slice(0, 64)}"; skills: ${skillNames(skills)}`), 404);
+    c.header('Content-Type', 'text/markdown; charset=utf-8');
+    return c.body(skillMarkdown(s));
+  });
 
   v1.get('/themes', need('read'), async (c) => c.json({ themes: await service.listThemes() }));
   v1.post('/themes', need('write'), json, async (c) => {
@@ -572,7 +646,9 @@ export function createApp(deps: AppDeps) {
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
 
-  v1.get('/jobs', need('read'), async (c) => c.json(await service.listJobs({ projectId: c.req.query('projectId'), parentId: c.req.query('parentId') }, page(c))));
+  v1.get('/jobs', need('read'), async (c) =>
+    c.json(await service.listJobs({ projectId: c.req.query('projectId'), parentId: c.req.query('parentId'), status: c.req.query('status'), type: c.req.query('type') }, page(c)))
+  );
   v1.get('/jobs/:id', need('read'), async (c) => {
     // ?wait=N long-polls up to N seconds (max 50) for the job to finish.
     const wait = Number(c.req.query('wait') ?? 0);
@@ -612,9 +688,52 @@ export function createApp(deps: AppDeps) {
   });
 
   v1.get('/renders/:id', need('read'), async (c) => c.json(await service.getRender(c.req.param('id'))));
+  v1.delete('/renders/:id', need('write'), async (c) => {
+    await service.deleteRender(c.req.param('id'));
+    return c.body(null, 204);
+  });
   v1.get('/renders/:id/captions', need('read'), async (c) => {
     const language = c.req.query('language');
     return c.json(await service.getCaptions({ renderId: c.req.param('id'), ...(language ? { language } : {}) }));
+  });
+  v1.get('/renders/:id/frames', need('read'), async (c) => {
+    const q = (k: string) => c.req.query(k);
+    const list = (k: string) => (q(k) ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const num = (k: string, v: string) => {
+      const n = Number(v);
+      if (v === '' || !Number.isFinite(n)) throw new ApiError('bad_request', 400, `${k}: "${v.slice(0, 40)}" is not a number`);
+      return n;
+    };
+    const at: FrameAt[] = [
+      ...list('at').map((s) => num('at', s)),
+      ...list('frames').map((s) => ({ frame: num('frames', s) })),
+      ...list('scenes').map((s) => {
+        const [sceneId, position] = s.split(':');
+        if (position !== undefined && !['start', 'mid', 'end'].includes(position)) throw new ApiError('bad_request', 400, `scenes: position must be start, mid or end (got "${position.slice(0, 20)}")`);
+        return { sceneId: sceneId!, ...(position ? { position: position as 'start' | 'mid' | 'end' } : {}) };
+      }),
+    ];
+    const layout = q('layout');
+    const overlay = q('overlay');
+    if (layout !== undefined && layout !== 'sheet' && layout !== 'separate') throw new ApiError('bad_request', 400, 'layout must be sheet or separate');
+    if (overlay !== undefined && overlay !== 'none' && overlay !== 'safe') throw new ApiError('bad_request', 400, 'overlay must be none or safe');
+    const format = q('format') ?? 'json';
+    if (format !== 'json' && format !== 'jpeg') throw new ApiError('bad_request', 400, 'format must be json or jpeg');
+    if (format === 'jpeg' && layout === 'separate') throw new ApiError('bad_request', 400, 'format=jpeg returns one image: use layout=sheet');
+    const r = await service.getFrames(c.req.param('id'), {
+      ...(at.length ? { at } : {}),
+      ...(q('every') !== undefined ? { everySeconds: num('every', q('every')!) } : {}),
+      ...(q('width') !== undefined ? { width: num('width', q('width')!) } : {}),
+      ...(layout ? { layout } : {}),
+      ...(overlay ? { overlay } : {}),
+    });
+    if (format === 'jpeg') {
+      c.header('Content-Type', 'image/jpeg');
+      c.header('Cache-Control', 'private, max-age=3600');
+      return c.body(new Uint8Array(await readFile(r.images[0]!.path)));
+    }
+    const images = await Promise.all(r.images.map(async (i) => ({ mimeType: i.mimeType, bytes: i.bytes, data: (await readFile(i.path)).toString('base64') })));
+    return c.json({ ...r, images });
   });
   v1.get('/renders/:id/output', need('read'), async (c) => {
     // Without ?file= the render's output, in whatever format it was rendered (#302).
@@ -624,6 +743,13 @@ export function createApp(deps: AppDeps) {
 
   v1.get('/assets', need('read'), async (c) => c.json(await service.listAssets({ projectId: c.req.query('projectId') }, page(c))));
   v1.get('/assets/:id', need('read'), async (c) => c.json(await service.getAsset(c.req.param('id'))));
+  v1.get('/assets/:id/file', need('read'), async (c) => {
+    const o = await service.assets.object(c.req.param('id'));
+    // Uploaded content on this origin: never sniffed, never run (a sanitised SVG still gets no script or origin).
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('Content-Security-Policy', "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; media-src 'self'");
+    return sendStored(c, service, o, o.name);
+  });
   v1.post(
     '/assets',
     need('write'),
@@ -639,10 +765,15 @@ export function createApp(deps: AppDeps) {
     }
   );
 
-  v1.get('/providers', need('read'), (c) => c.json({ providers: service.listProviders() }));
+  v1.get('/providers', need('read'), async (c) => c.json({ providers: await service.listProviders() }));
   v1.put('/providers/:id/config', need('owner'), json, async (c) => {
     const b = await body(c);
-    return c.json(await service.configureProvider(c.req.param('id'), b.values, actor(c)));
+    if (b.workspaceId !== undefined && typeof b.workspaceId !== 'string') throw new ApiError('bad_request', 400, 'workspaceId must be a workspace id');
+    return c.json(await service.configureProvider(c.req.param('id'), b.values, actor(c), b.workspaceId as string | undefined));
+  });
+  v1.put('/providers/:id/workspace-config', need('admin'), json, async (c) => {
+    const b = await body(c);
+    return c.json(await service.configureWorkspaceProvider(c.req.param('id'), b.values, actor(c)));
   });
   v1.post('/providers/:id/run', need('render'), json, async (c) => {
     const b = await body(c);

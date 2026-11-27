@@ -8,6 +8,7 @@ import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag, renderAudioOptions,
 import { z } from 'zod';
 import type { ServerConfig } from './config';
 import { resourceMetadataUrl } from './oauth';
+import { findSkill, skillMarkdown, skillNames, skillsFor, skillsIndex, skillSummary } from './skills/index';
 
 /**
  * MCP tools are thin wrappers over ReelforgeService (the same methods the REST
@@ -29,6 +30,21 @@ interface ToolDef {
 }
 
 const projectId = z.string().describe('Project id (the manifest\'s projectId).');
+
+/** get_frames: the local image files of a result, for its `extra` (never part of the JSON answer). */
+const framePaths = new WeakMap<object, string[]>();
+
+/** The render id from renderId, or from jobId once that job has succeeded. */
+async function renderIdOf(service: ReelforgeService, renderId: string | undefined, jobId: string | undefined): Promise<string> {
+  if (renderId) return renderId;
+  if (jobId) {
+    const job = await service.getJob(jobId);
+    if (job.status !== 'succeeded') throw new ApiError('job_not_finished', 409, `job ${jobId} is ${job.status}; call get_job with waitSeconds: 45 until it succeeds`, { error: job.error });
+    const id = job.result?.renderId;
+    if (typeof id === 'string') return id;
+  }
+  throw new ApiError('bad_request', 400, 'give renderId or jobId');
+}
 const expectedVersion = z
   .number()
   .int()
@@ -120,7 +136,7 @@ export const TOOLS: ToolDef[] = [
     scope: 'read',
     input: {},
     annotations: { readOnlyHint: true },
-    run: async (_a, { service }) => service.capabilities(),
+    run: async (_a, { service }) => service.capabilitiesFor(),
   },
   {
     name: 'get_me',
@@ -151,6 +167,22 @@ export const TOOLS: ToolDef[] = [
     input: { engine: z.string().optional().describe('Only templates of this engine, e.g. "remotion".') },
     annotations: { readOnlyHint: true },
     run: async (a, { service }) => ({ templates: service.listTemplates(a.engine) }),
+  },
+  {
+    name: 'get_skill',
+    title: 'Read a craft skill',
+    description:
+      'Rules for one step of making a video, with numbers, so the result follows professional craft, published standards and the physical world instead of generic defaults. Built in: video-brief (what to ask before assuming), script-timing (words and reading time in frames), layout-and-type (safe areas for every aspect ratio, type size, contrast), motion-design (easing, durations, springs), camera-language (shot sizes, moves, cuts), physical-plausibility (gravity, weight, walking, blinking, artefacts in generated footage), sound-and-mix (loudness, ducking, sound-effect timing), voice-over (pace, pronunciation, consent), captions-and-accessibility (caption limits, flashing), av-sync (tolerances, frame arithmetic, lip sync), brand-consistency and review-and-qa. The operator may add more (skills.dir). Without name: the list. With name: the skill as Markdown. Also the resources renderweld://skills/<name>.',
+    scope: 'read',
+    input: { name: z.string().max(64).optional().describe('Skill name, e.g. "layout-and-type". Omit to list the skills.') },
+    annotations: { readOnlyHint: true },
+    run: async (a, { config }) => {
+      const skills = skillsFor(config.skillsDir);
+      if (!a.name) return { skills: skills.map((s) => ({ ...skillSummary(s), uri: resourceUri(`skills/${s.name}`) })) };
+      const s = findSkill(skills, a.name);
+      if (!s) throw new ApiError('not_found', 404, `no skill "${a.name}"; skills: ${skillNames(skills)}`);
+      return { ...skillSummary(s), markdown: skillMarkdown(s) };
+    },
   },
   {
     name: 'list_themes',
@@ -548,9 +580,9 @@ export const TOOLS: ToolDef[] = [
     name: 'get_render_output',
     title: 'Get a render output',
     description:
-      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha).',
+      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. checks.freeze, checks.black and checks.flash are "warn" when the picture froze, went black or flashes more than three times a second (a seizure risk); checks.motion is "warn" when it barely moves for seconds, checks.loop when a project with output.loop jumps where it repeats, and checks.seek when a frame rendered on its own differs from the video (the scene depends on earlier frames); videoQa.issues names the times and scenes: fix those scenes. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha). contactSheet (absent for audio-only output or when render.contactSheet.select is off) is the labelled sheet stored with every render and preview: every scene and both sides of every cut, with the frame of each tile and a signed downloadUrl; includeContactSheet: true attaches it as an image, so you can look at the whole video in one call. For other frames, call get_frames.',
     scope: 'read',
-    input: { renderId: z.string().optional(), jobId: z.string().optional(), includePoster: z.boolean().optional() },
+    input: { renderId: z.string().optional(), jobId: z.string().optional(), includePoster: z.boolean().optional(), includeContactSheet: z.boolean().optional() },
     annotations: { readOnlyHint: true },
     run: async (a, { service }) => {
       let renderId = a.renderId as string | undefined;
@@ -565,9 +597,61 @@ export const TOOLS: ToolDef[] = [
       return { ...summary, output: manifest.output, checks: manifest.checks, versions: manifest.versions };
     },
     extra: async (result, args, { service }) => {
-      if (args.includePoster === false || !result.posterUrl) return [];
-      const { path } = await service.renderFile(result.renderId, 'poster.png');
-      return [{ type: 'image', data: (await readFile(path)).toString('base64'), mimeType: 'image/png' }];
+      const images = [];
+      if (args.includePoster !== false && result.posterUrl) {
+        const { path } = await service.renderFile(result.renderId, 'poster.png');
+        images.push({ type: 'image' as const, data: (await readFile(path)).toString('base64'), mimeType: 'image/png' });
+      }
+      if (args.includeContactSheet === true && result.contactSheet) {
+        const { path } = await service.renderFile(result.renderId, result.contactSheet.file);
+        images.push({ type: 'image' as const, data: (await readFile(path)).toString('base64'), mimeType: 'image/jpeg' });
+      }
+      return images;
+    },
+  },
+  {
+    name: 'get_frames',
+    title: 'Look at frames of a render',
+    description:
+      'Stills of exact frames of a finished render or preview, so you can SEE what you made before calling it done: one labelled contact sheet (default) or one image per frame, taken from the stored file (no re-render). ' +
+      'Default selection ("auto"): the first frame, the middle of every scene, both frames of every cut (last frame of a scene, first of the next) and the last frame, at most 24. ' +
+      'Or at: times in seconds, { frame } indices or { sceneId, position: start|mid|end }; or everySeconds. Each tile is labelled scene · position · frame · time, and the JSON lists the same. ' +
+      'overlay "safe" tints what lies outside the safe area for the render\'s size and platform (text there is covered by the app or cut off). width is the tile width (default 360, the width of a phone; 120 to 720). ' +
+      'Use it after preview_scene and before render_project, and on every final render: fix what you see, preview again. Give renderId, or jobId of a succeeded job.',
+    scope: 'read',
+    input: {
+      renderId: z.string().max(64).optional(),
+      jobId: z.string().max(191).optional(),
+      at: z
+        .array(
+          z.union([
+            z.number().min(0).describe('A time in seconds.'),
+            z.object({ seconds: z.number().min(0) }),
+            z.object({ frame: z.number().int().min(0) }),
+            z.object({ sceneId: z.string().max(200), position: z.enum(['start', 'mid', 'end']).optional() }),
+          ])
+        )
+        .min(1)
+        .max(24)
+        .optional()
+        .describe('Frames to show instead of the automatic selection.'),
+      everySeconds: z.number().min(0.25).optional().describe('One frame every N seconds from 0 (at most 24 frames).'),
+      width: z.number().int().min(120).max(720).optional().describe('Tile width in pixels (default 360).'),
+      layout: z.enum(['sheet', 'separate']).optional().describe('sheet (default): one image; separate: one image per frame.'),
+      overlay: z.enum(['none', 'safe']).optional().describe('safe: tint what lies outside the safe area (default none). The video is never changed.'),
+    },
+    annotations: { readOnlyHint: true },
+    run: async (a, { service }) => {
+      const renderId = await renderIdOf(service, a.renderId, a.jobId);
+      const { images, ...rest } = await service.getFrames(renderId, { at: a.at, everySeconds: a.everySeconds, width: a.width, layout: a.layout, overlay: a.overlay });
+      const result = { ...rest, images: images.map(({ mimeType, bytes }) => ({ mimeType, bytes })) };
+      framePaths.set(result, images.map((i) => i.path));
+      return result;
+    },
+    extra: async (result) => {
+      const out: CallToolResult['content'] = [];
+      for (const path of framePaths.get(result) ?? []) out.push({ type: 'image', data: (await readFile(path)).toString('base64'), mimeType: 'image/jpeg' });
+      return out;
     },
   },
   {
@@ -580,6 +664,16 @@ export const TOOLS: ToolDef[] = [
     run: async (a, { service }) => ({ renders: await service.listRenders(a.projectId) }),
   },
   {
+    name: 'delete_render',
+    title: 'Delete a render',
+    description:
+      'Deletes one finished render or preview with all its files (video, poster, captions, scene clips, manifest) from storage. Its job stays in the history; get_render_output then answers not_found. Cannot be undone; confirm with the user first. To delete every render of a project, delete the project.',
+    scope: 'write',
+    input: { renderId: z.string().max(64).describe('The render id (run_... or prv_...).') },
+    annotations: { destructiveHint: true },
+    run: async (a, { service }) => service.deleteRender(a.renderId),
+  },
+  {
     name: 'list_jobs',
     title: 'List jobs',
     description:
@@ -589,10 +683,12 @@ export const TOOLS: ToolDef[] = [
     input: {
       projectId: projectId.optional(),
       parentId: z.string().max(191).optional().describe('Only the children of this job: the render_unit jobs and the render_join job of a fanned-out render (render.fanOut), given the render job\'s id.'),
+      status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']).optional().describe('Only jobs in this state, e.g. succeeded for finished renders.'),
+      type: z.enum(['render', 'preview', 'render_unit', 'render_join']).optional().describe('Only jobs of this type.'),
       ...pageArgs,
     },
     annotations: { readOnlyHint: true },
-    run: async (a, { service }) => service.listJobs({ projectId: a.projectId, parentId: a.parentId }, { limit: a.limit, cursor: a.cursor }),
+    run: async (a, { service }) => service.listJobs({ projectId: a.projectId, parentId: a.parentId, status: a.status, type: a.type }, { limit: a.limit, cursor: a.cursor }),
   },
   {
     name: 'retry_job',
@@ -682,11 +778,12 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_providers',
     title: 'List media providers',
-    description: 'Media providers (TTS, ...) installed on this server, whether the operator configured them, and their cost notes.',
+    description:
+      'Media providers (TTS, ...) installed on this server, whether each is configured for your workspace, where its settings come from (settingsFrom: "workspace" = your workspace\'s own account, "instance" = the operator\'s, "none"), whether a workspace may bring its own (perWorkspace), and their cost notes.',
     scope: 'read',
     input: {},
     annotations: { readOnlyHint: true },
-    run: async (_a, { service }) => ({ providers: service.listProviders() }),
+    run: async (_a, { service }) => ({ providers: await service.listProviders() }),
   },
   {
     name: 'configure_provider',
@@ -697,8 +794,21 @@ export const TOOLS: ToolDef[] = [
     input: {
       providerId: z.string(),
       values: z.record(z.string(), z.string().nullable()).describe('Setting name -> value, or null to clear.'),
+      workspaceId: z.string().optional().describe("Set this workspace's own settings instead of the instance's (#480): its provider calls then use its own account."),
     },
-    run: async (a, { service, auth }) => service.configureProvider(a.providerId, a.values, { actorType: 'api_key', actorId: auth.keyId }),
+    run: async (a, { service, auth }) => service.configureProvider(a.providerId, a.values, { actorType: 'api_key', actorId: auth.keyId }, a.workspaceId),
+  },
+  {
+    name: 'configure_workspace_provider',
+    title: "Configure your workspace's own provider account",
+    description:
+      'Sets or clears your workspace\'s own setting for a provider, such as its ELEVENLABS_API_KEY (#480). Your workspace\'s provider calls then use that account (its bill, its voices, its data terms); no other workspace ever sees or uses it, and clearing it falls back to the instance\'s settings only when the operator shares them (providers.shareWithWorkspaces). Stored encrypted (needs REELFORGE_SECRET_KEY on the server), never returned; list_providers then shows settingsFrom "workspace". Only providers with perWorkspace: true accept it. Needs the admin scope of the workspace. Only do this with a key the user gave you for this purpose.',
+    scope: 'admin',
+    input: {
+      providerId: z.string(),
+      values: z.record(z.string(), z.string().nullable()).describe('Setting name -> value, or null to clear.'),
+    },
+    run: async (a, { service, auth }) => service.configureWorkspaceProvider(a.providerId, a.values, { actorType: 'api_key', actorId: auth.keyId }),
   },
   {
     name: 'get_config',
@@ -1134,6 +1244,8 @@ export const RESOURCES = [
   { name: 'project-schema', path: 'schema/project', title: 'Project manifest JSON Schema', description: 'JSON Schema of the current manifest version.', mimeType: 'application/json' },
   { name: 'templates', path: 'templates', title: 'Installed templates', description: 'Templates with engines, durations, theme tokens and props schemas.', mimeType: 'application/json' },
   { name: 'project', path: 'projects/{id}', title: 'Project manifest', description: 'The current manifest of a project.', mimeType: 'application/json' },
+  { name: 'skills', path: 'skills', title: 'Skills', description: 'Index of the skills: rules for every step of making a video (brief, timing, layout and type, motion, camera, physical plausibility, sound, voice, captions and accessibility, sync, brand, review), plus any the operator added.', mimeType: 'text/markdown' },
+  { name: 'skill', path: 'skills/{name}', title: 'Skill', description: 'One skill as Markdown: when to use it, numbered rules, how to apply them with these tools, signs of generic output, a checklist and sources.', mimeType: 'text/markdown' },
 ] as const;
 export type ResourcePath = (typeof RESOURCES)[number]['path'];
 
@@ -1162,6 +1274,10 @@ You decide the scenes; the server validates, renders and checks. Everything is
 done with tools; there is no UI.
 
 ## Steps
+0. Complete the brief with the user before anything else: the brief_intake
+   prompt (or get_skill video-brief) lists what to ask. Never assume the
+   size, length, platform, tone, captions, voice or music; ask in one message
+   with suggested defaults, and read the brief back for a yes.
 1. get_capabilities: engines that can render here (available: true), templates,
    themes, providers (configured? cost?), limits (supportedFps, maxProjectSeconds, maxScenes),
    licence (renderAllowed; if false, get_licence has the message and fix for the user).
@@ -1191,11 +1307,23 @@ done with tools; there is no UI.
    Never assume approval. Apply changes with update_captions (etag from
    get_captions); when the user approves, update_captions { approve: true }.
 8. validate_project until ok: true (warnings are fine but read them).
-9. Optional quick look: preview_scene (low resolution), then get_render_output.
+9. Look before the final render: preview_scene (low resolution), then
+   get_frames { jobId } for a labelled contact sheet of every scene and both
+   sides of every cut (overlay: "safe" shows where text is covered or cut off).
+   Fix what you see (overflowing or tiny text, empty scenes, bad cuts) and
+   preview again.
    Before a long or many-size render, plan_render shows each output with its
    estimated render time, file size and the queue wait; tell the user.
 10. render_project -> get_job with waitSeconds 45 (repeat while running) until succeeded/failed ->
-   get_render_output. Give the user downloadUrl (works without a key for ~1 h).
+   get_render_output { includeContactSheet: true }: the sheet stored with
+   every render shows each scene and cut of the final file (get_frames for
+   other frames or overlay: "safe").
+   Give the user downloadUrl (works without a key for ~1 h).
+   Read checks: freeze, black or flash = "warn" means a scene froze, went
+   black or flashes more than three times a second (a seizure risk); motion =
+   "warn" means it barely moves; loop = "warn" means a video with output.loop
+   jumps where it repeats; seek = "warn" means a frame depends on the ones
+   before it. videoQa.issues names it, with the times. Fix it and render again.
    If it failed: get_job_logs, fix, render again (or retry_job).
    An error licence_required / licence_invalid is not a manifest problem: tell
    the user its message and fix (an admin activates with activate_licence).
@@ -1217,6 +1345,16 @@ done with tools; there is no UI.
       "durationSeconds": 2 }
   ]
 }
+
+## Skills
+Rules for every step, with numbers (timing in frames, safe areas, motion
+curves, camera moves, physics of moving things and people, loudness, voice,
+caption limits, sync tolerances, review checks). get_skill without a name lists
+them, with any the operator added; read the one for the step you are on with
+get_skill { name } (or the resource renderweld://skills/<name>). Built in:
+video-brief, script-timing, layout-and-type, motion-design, camera-language,
+physical-plausibility, sound-and-mix, voice-over, captions-and-accessibility,
+av-sync, brand-consistency, review-and-qa.
 
 ## Rules of thumb
 - Open with a hook; about 3 words per second of on-screen text.
@@ -1252,6 +1390,7 @@ const DELIVERY_CHECKLIST = [
   'No placeholder text remains (lorem ipsum, TODO, example.com).',
   'validate_project returns no errors; warnings are understood.',
   'After rendering: get_render_output shows checks metadata/decode/duration = pass.',
+  'get_frames on the preview or render: every scene and both sides of every cut look right at phone size; no text outside the safe area (overlay "safe"), cut off or too small.',
 ];
 
 function buildServer(service: ReelforgeService, auth: AuthContext, config: ServerConfig): McpServer {
@@ -1260,9 +1399,11 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
     {
       instructions:
         `${PRODUCT_NAME} renders short videos at any size and aspect ratio (vertical 1080x1920 by default; 16:9, 1:1, 4:5, 4K and others on request) from a JSON manifest. You decide the scenes; the server validates, renders and checks. ` +
+        'First complete the brief with the user (prompt brief_intake, or get_skill video-brief): never assume the size, length, platform, tone, captions, voice or music. ' +
         'Workflow: get_capabilities -> list_templates/list_themes -> create_project -> add_scene/update_scene/set_theme/set_audio -> validate_project -> plan_render (estimate) -> render_project -> get_job (poll) -> get_render_output (downloadUrl works without a key). ' +
         'With captions, call get_captions and ask the user to approve them (update_captions approve: true) before render_project; never assume approval. ' +
         `Full guide with a minimal manifest: resource ${resourceUri('guide/workflow')} or prompt make_reel. ` +
+        `Rules for each step (brief, timing, layout and safe areas, motion, camera, physical plausibility, sound, voice, captions, sync, brand, review): get_skill or resource ${resourceUri('skills')}. ` +
         'Renders need a valid licence: get_capabilities.licence / get_licence say whether renders are allowed and, if not, what the user must do. ' +
         'Tools are experimental until v1.0.',
     }
@@ -1332,7 +1473,8 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
       return JSON.stringify(service.listTemplates(), null, 2);
     },
     'guide/workflow': async () => WORKFLOW_GUIDE,
-  } satisfies Record<Exclude<ResourcePath, 'projects/{id}'>, () => Promise<string>>;
+    skills: async () => skillsIndex(skillsFor(config.skillsDir), (name) => resourceUri(`skills/${name}`)),
+  } satisfies Record<Exclude<ResourcePath, 'projects/{id}' | 'skills/{name}'>, () => Promise<string>>;
   for (const r of RESOURCES) {
     for (const scheme of RESOURCE_SCHEMES) {
       const legacy = scheme !== RESOURCE_SCHEME;
@@ -1362,6 +1504,21 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
             requireRead();
             const p = await service.getProject(String(vars.id));
             return { contents: [{ uri: uri.href, mimeType: r.mimeType, text: JSON.stringify(p, null, 2) }] };
+          }
+        );
+      } else if (r.path === 'skills/{name}') {
+        server.registerResource(
+          name,
+          new ResourceTemplate(`${scheme}://${r.path}`, {
+            // Listed once, under the new scheme.
+            list: legacy ? undefined : async () => ({ resources: skillsFor(config.skillsDir).map((s) => ({ uri: resourceUri(`skills/${s.name}`), name: s.title, description: s.description, mimeType: r.mimeType })) }),
+          }),
+          meta,
+          async (uri, vars) => {
+            const skills = skillsFor(config.skillsDir);
+            const s = findSkill(skills, String(vars.name));
+            if (!s) throw new ApiError('not_found', 404, `no skill "${String(vars.name)}"; skills: ${skillNames(skills)}`);
+            return { contents: [{ uri: uri.href, mimeType: r.mimeType, text: skillMarkdown(s) }] };
           }
         );
       } else {
@@ -1470,7 +1627,8 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
             content: {
               type: 'text',
               text:
-                `Review this RenderWeld project against the checklist. For each item answer pass / fail / unknown with a one-line reason, then list concrete fixes as tool calls (update_scene, set_theme, ...).\n\n` +
+                `Review this RenderWeld project against the checklist. For each item answer pass / fail / unknown with a one-line reason, then list concrete fixes as tool calls (update_scene, set_theme, ...). ` +
+                `Look at the pictures, not only the manifest: if it has a preview or render (list_renders), call get_frames on the newest one (overlay: "safe") and judge every tile.\n\n` +
                 `Checklist:\n${DELIVERY_CHECKLIST.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n` +
                 `Validation report:\n${JSON.stringify(report, null, 2)}\n\nManifest (version ${p.meta.version}):\n${JSON.stringify(p.manifest, null, 2)}`,
             },
@@ -1483,13 +1641,18 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
 }
 
 /** Stateless Streamable HTTP: a fresh server + transport per request, JSON responses. */
-export async function handleMcp(req: Request, auth: AuthContext, service: ReelforgeService, config: ServerConfig): Promise<Response> {
+/**
+ * Answer one MCP HTTP request. `parsedBody` is the JSON-RPC message (or batch) when the caller already read and
+ * parsed the body (POST /mcp does, to charge the rate limit per message); the transport then does not read it again.
+ */
+export async function handleMcp(req: Request, auth: AuthContext, service: ReelforgeService, config: ServerConfig, parsedBody?: unknown): Promise<Response> {
   const server = buildServer(service, auth, config);
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);
   try {
     return await transport.handleRequest(req, {
       authInfo: { token: 'redacted', clientId: auth.keyId, scopes: auth.scopes },
+      ...(parsedBody !== undefined ? { parsedBody } : {}),
     });
   } finally {
     void server.close().catch(() => undefined);
