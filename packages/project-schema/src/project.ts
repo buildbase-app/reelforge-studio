@@ -15,6 +15,7 @@ import {
   type OutputVariant,
 } from './common';
 import { formatSpecIssues } from './output-formats';
+import { projectGlossary } from './glossary';
 import {
   BUILTIN_CATALOG,
   MAX_SOURCE_BYTES,
@@ -242,6 +243,8 @@ const projectShape = z
     render: renderSettings.default({ backend: 'local' }),
     audio: audio.default({ voice: null, music: null, sfx: [] }),
     captions: projectCaptions.default({ enabled: false }),
+    /** Exact spellings for captions and speech-to-text, pronunciations for the voice (#486, docs/CAPTIONS.md#glossary). */
+    glossary: projectGlossary.optional(),
     assets: z.array(asset).default([]),
     scenes: z.array(scene).min(1).max(MAX_SCENES),
   })

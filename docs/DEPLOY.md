@@ -187,7 +187,7 @@ by a key in its JWKS (cached 10 minutes, refetched for a new `kid` at most every
 authorization server to put the MCP URL there: the RFC 8707 `resource`
 parameter MCP clients send), `exp` in the future (60 s leeway). Scopes come from
 `scope` or `scp`: `renderweld:read`, `renderweld:write`, `renderweld:render`,
-`renderweld:admin` and `renderweld:owner`; a token with none of them gets `403
+`renderweld:approve` (render plans, #485), `renderweld:admin` and `renderweld:owner`; a token with none of them gets `403
 insufficient_scope`. `renderweld:admin` administers the default workspace;
 `renderweld:owner` is the instance owner (configuration, licence, providers,
 storage, workspaces), so grant it in your authorization server only to the

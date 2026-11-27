@@ -91,7 +91,8 @@ export interface ProjectRepository {
  * `admin` manages its own workspace (keys, webhooks, audit). `owner` is instance-level (#304): workspaces, runtime
  * configuration, the licence, provider credentials and storage; it implies `admin` in its own workspace.
  */
-export const SCOPES = ['read', 'write', 'render', 'admin', 'owner'] as const;
+/** `approve` (#485): approve render plans when `render.approval` asks for it; `admin` and `owner` imply it. */
+export const SCOPES = ['read', 'write', 'render', 'approve', 'admin', 'owner'] as const;
 export type Scope = (typeof SCOPES)[number];
 
 export interface ApiKeyRecord {
@@ -349,6 +350,8 @@ export interface JobRepository {
    * a scan of projects or jobs.
    */
   projectOfRun(runId: string): Promise<string | null>;
+  /** The render or preview job that produces render `runId` in this workspace (get_render_output's estimate, #485). */
+  jobOfRun(runId: string): Promise<JobRecord | null>;
   /** Jobs whose status is queued or running. */
   listUnfinished(): Promise<JobRecord[]>;
 
@@ -713,6 +716,20 @@ export interface WorkspaceLimits {
   rateLimitPerMinute?: number;
   /** Bytes of assets and renders the workspace may store; uploads and renders are refused above it. */
   storageBytes?: number;
+  /**
+   * Retention stricter than the instance's `storage.retention` (#487), for a tenant under its own data policy:
+   * renders and previews older than this many hours are deleted by the sweep. The instance's `renderDays` stays
+   * the ceiling: a workspace can keep less, never more.
+   */
+  retentionMaxAgeHours?: number;
+  /** The newest N renders of each project the sweep always keeps, as `keepLastRendersPerProject`, never more than the instance's. */
+  retentionKeepLast?: number;
+  /**
+   * Delete a render this many minutes after the first download of its output (#487), whatever its age and the
+   * keep-last. The grace lets a retry or a second device fetch it again. Downloads are seen by this server only, so
+   * the workspace's download links go through it, not through the bucket.
+   */
+  retentionDeleteAfterDownloadMinutes?: number;
 }
 
 export interface WorkspaceRecord {

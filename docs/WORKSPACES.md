@@ -11,6 +11,7 @@ An install that never creates a workspace has one, `default`, and works exactly 
 | Scope | Where it applies | What it allows |
 | --- | --- | --- |
 | `read`, `write`, `render` | the key's workspace | as before: read, edit and render that workspace's projects |
+| `approve` | the key's workspace | approve render plans when `render.approval` asks for it (`approve_render_plan`, #485); `admin` and `owner` imply it |
 | `admin` | the key's workspace | also that workspace's keys, webhooks and audit log, its own provider accounts (`configure_workspace_provider`), and everything a write or render key can do |
 | `owner` | the install | also workspaces (create, list, rename, change limits, suspend, delete, restore), runtime configuration (`get_config`, `update_config`), the licence, provider credentials, storage status and cleanup, `/readyz` details, every workspace's audit log, and owner keys |
 
@@ -68,6 +69,56 @@ change the instance-wide default with `update_config` or the environment, or set
 | Renders and previews per UTC day / month, across all the workspace's keys | `workspaces.rendersPerDay`, `workspaces.rendersPerMonth` | `429 workspace_quota_exceeded` with `Retry-After` |
 | Requests per minute, across all the workspace's keys | `workspaces.rateLimitPerMinute` | `429 rate_limited`, `details.scope: "workspace"` |
 | Bytes of assets and renders stored | `workspaces.storageBytes` | `507 storage_limit_exceeded` on upload and render start |
+| Retention: renders and previews older than N hours are deleted, the newest N of each project kept (`retentionMaxAgeHours`, `retentionKeepLast`) | none: the instance's `storage.retention.*` | deleted by the storage sweep (reason `older_than_workspace_retention`) |
+| Delete after download: a render goes N minutes after the first download of its output (`retentionDeleteAfterDownloadMinutes`) | none | deleted by the storage sweep (reason `deleted_after_download`) |
+
+Retention per workspace (#487) is for a tenant under a stricter data policy (a health or legal client that may keep
+nothing past a day) without forcing it on every tenant. It can only be stricter than the instance's
+`storage.retention`: the shorter maximum age and the smaller keep-last win, so a workspace never keeps more than the
+instance allows. The sweep runs every `storage.retention.sweepIntervalMinutes` (60), so a render may outlive its
+limit by up to that; `run_storage_cleanup { dryRun: true }` lists what the next run deletes and why.
+
+```bash
+curl -X PATCH "$URL/v1/workspaces/acme" -H "Authorization: Bearer $OWNER_KEY" -H 'content-type: application/json' \
+  -d '{"limits": {"retentionMaxAgeHours": 24}}'
+```
+
+**Delete after download.** With `retentionDeleteAfterDownloadMinutes`, a render's files are deleted that many minutes
+after the first download of its output, whatever its age and the keep-last. The grace lets a retry or a second device
+fetch it again; 60 is a sensible start.
+
+- A download is a whole-file answer, or a range that reaches the last byte (a video player fetches the end last), from
+  `GET /v1/renders/:id/output` with a key or with a signed `downloadUrl`. The poster, the render manifest and caption
+  files don't count.
+- Only this server sees a download, so the workspace's `downloadUrl`s point at this server, not at the bucket
+  (`downloadVia: "server"`).
+- The first download writes `downloaded.json` beside the render, whatever the policy. Its time is when the download
+  happened, so the record works on every storage driver and goes with the render.
+- `get_render_output` answers `retention`: `downloadedAt`, `deletesAt` (the earliest time the sweep may delete it,
+  null when nothing would) and `deleteReason`.
+
+**Keeping nothing.** Combine a short grace with a short maximum age:
+`{"retentionDeleteAfterDownloadMinutes": 10, "retentionMaxAgeHours": 1}`. A render is gone 10 minutes after it is
+fetched, and within the hour if nobody fetches it. Add a `storage.retention.sweepIntervalMinutes` of 5 or 10 for a
+tighter bound.
+
+The studio doesn't delete a render when its completion webhook is delivered. The webhook only says where to fetch the
+file, so the receiver would find it already gone.
+
+**A workspace admin tightens its own retention** with `set_workspace_retention` (`PATCH /v1/workspace/retention`,
+admin scope): `maxAgeHours`, `keepLast` and `deleteAfterDownloadMinutes`, each a whole number tighter than the value
+in force. Loosening or clearing one is refused with `403 forbidden`, because it may undo a data-policy commitment, so
+that stays the owner's (`update_workspace` limits). The owner's own workspace works the same way. Each change is
+audited as `workspace.retention.tighten`.
+
+The owner sees every tenant's policy in one place: `get_storage` (`GET /v1/storage`) answers `retention.workspaces`,
+each workspace with its own retention, its limits (`own`) and what the sweep applies (`applied`, with the instance's
+policy as the ceiling), and `retention.nextSweepAt`.
+
+```bash
+curl -X PATCH "$URL/v1/workspace/retention" -H "Authorization: Bearer $WORKSPACE_ADMIN_KEY" -H 'content-type: application/json' \
+  -d '{"deleteAfterDownloadMinutes": 60, "maxAgeHours": 24}'
+```
 
 Per-key limits (`rateLimitPerMinute`, `rendersPerDay`, ...) still apply on top.
 

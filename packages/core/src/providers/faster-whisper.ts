@@ -169,6 +169,8 @@ export class FasterWhisperStt implements SpeechToTextPlugin {
     const language = whisperLanguage(req.language);
     const args = ['--input', req.file, '--model', s.model, '--compute-type', s.computeType, '--device', s.device, '--language', language, '--output', 'json'];
     if (s.modelDir) args.push('--model-dir', s.modelDir);
+    // One argument with "=", so a prompt that starts with "-" is never read as an option (#486).
+    if (req.prompt) args.push(`--initial-prompt=${req.prompt}`);
     const extra: Record<string, string | undefined> = { HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1' };
     for (const name of STT_ENV_PASSTHROUGH) if (this.env[name]) extra[name] = this.env[name];
     ctx.log(`stt: ${this.id} model ${s.model} (${s.computeType}, ${s.device}), language ${language}`);

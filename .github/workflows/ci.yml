@@ -70,6 +70,12 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Two halves side by side: typecheck + package unit tests, and the SQLite
+        # server tests + the spike. In one job they took 18-26 minutes of 30.
+        suite: [unit, server]
     env:
       # A missing browser fails the engine and end-to-end tests instead of skipping them.
       REELFORGE_REQUIRE_BROWSER: '1'
@@ -84,8 +90,14 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      - name: Use only Ubuntu's apt sources
+        # FFmpeg and Chrome's libraries come from Ubuntu's archive. The runner image
+        # also lists packages.microsoft.com, and a 403 from it failed `apt-get update`.
+        run: grep -lr packages.microsoft.com /etc/apt/sources.list.d/ | xargs -r sudo rm -f
       - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends ffmpeg
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Cache Chrome Headless Shell
@@ -100,16 +112,19 @@ jobs:
           test -n "$BIN"
           echo "REELFORGE_CHROMIUM_PATH=$BIN" >> "$GITHUB_ENV"
       - name: Typecheck
+        if: matrix.suite == 'unit'
         run: pnpm typecheck
       - name: Unit tests (schema, core, db, media pipeline, engines)
+        if: matrix.suite == 'unit'
         run: pnpm -r --filter '!@renderweld/server' run test
       - name: Server tests + MCP and REST end-to-end on SQLite (real server process, all engines)
+        if: matrix.suite == 'server'
         run: pnpm --filter @renderweld/server run test
       - name: End-to-end spike (Remotion + Motion Canvas -> MP4)
-        if: env.HEAVY == 'true'
+        if: matrix.suite == 'server' && env.HEAVY == 'true'
         run: pnpm spike
       - name: Upload sample render
-        if: env.HEAVY == 'true' && always()
+        if: matrix.suite == 'server' && env.HEAVY == 'true' && always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sample-reel
@@ -166,8 +181,14 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      - name: Use only Ubuntu's apt sources
+        # FFmpeg and Chrome's libraries come from Ubuntu's archive. The runner image
+        # also lists packages.microsoft.com, and a 403 from it failed `apt-get update`.
+        run: grep -lr packages.microsoft.com /etc/apt/sources.list.d/ | xargs -r sudo rm -f
       - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends ffmpeg
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Cache Chrome Headless Shell

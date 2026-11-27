@@ -195,6 +195,7 @@ export function createWorkspaceRouter(opts: WorkspaceRouterOptions): WorkspaceRo
     list: async (filter) => tagJobs(currentWorkspaceId(), await here().jobs.list(filter)),
     page: async (filter, req) => tagJobs(currentWorkspaceId(), await here().jobs.page(filter, req)),
     projectOfRun: (runId) => here().jobs.projectOfRun(runId),
+    jobOfRun: (runId) => here().jobs.jobOfRun(runId),
     listUnfinished: async () => (await Promise.all((await workspaceIds()).map(async (ws) => tagJobs(ws, await bind(ws).jobs.listUnfinished())))).flat(),
     claim: async (o) => {
       const candidates = o.id !== undefined ? [await jobWorkspace(o.id)] : await workspaceIds({ active: true });

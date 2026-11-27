@@ -9,6 +9,8 @@ export const PROJECTS_PREFIX = 'projects/';
 export const TEMP_RUN_PREFIX = '.tmp-';
 /** The object whose presence marks a render as complete; written last. */
 export const RENDER_MANIFEST = 'render-manifest.json';
+/** Written beside a render on the first download of its output (#487); its time is when that happened. Never served. */
+export const DOWNLOAD_MARKER = 'downloaded.json';
 
 export const rendersPrefix = (projectId: string) => `${PROJECTS_PREFIX}${projectId}/renders/`;
 export const renderPrefix = (projectId: string, runId: string) => `${rendersPrefix(projectId)}${runId}/`;
