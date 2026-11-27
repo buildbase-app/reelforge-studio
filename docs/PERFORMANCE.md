@@ -299,10 +299,11 @@ listed, in its order; 7 to 10 are what the run found besides.
    idle 18 %. At ~150 req/s per instance at ~95 % CPU the full mix costs ~6 ms of CPU per
    request on these cores (the steady mix ~2.4 ms). Scale api instances on CPU (as D-076 says);
    a dedicated run should show how many instances one PostgreSQL primary carries.
-10. **An api instance needs a browser to accept a render.** `render_project` validates engine
-    availability on the instance that takes the call, so an `api` role without Chrome Headless
-    Shell refuses renders (422, "no browser") although it never renders. The release image
-    always has one, so this only bites a slimmed api image; noted for #150/#158.
+10. **An api instance needed a browser to accept a render** (fixed, #197). `render_project`
+    validated engine availability on the instance that takes the call, so an `api` role without
+    Chrome Headless Shell refused renders (422, "no browser") although it never renders. Since
+    #197 an api instance of the database queue skips that check and each worker checks its
+    engines when a render starts (`engine_unavailable`), so an api image needs no browser.
 
 ## list_projects paging (#179): before and after
 

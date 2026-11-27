@@ -53,7 +53,7 @@ the outcome, so a receiver never has to poll to learn that something went wrong
 | Event | Outcome | `error.code` |
 | --- | --- | --- |
 | `render.ready` | stored; fetch it with `get_render_output` | — |
-| `render.failed` | the pipeline or an engine failed | `render_failed`, `job_failed`, `asset_missing`, … (the job's code) |
+| `render.failed` | the pipeline or an engine failed, or the worker cannot run an engine of the project (#197) | `render_failed`, `job_failed`, `asset_missing`, `engine_unavailable`, … (the job's code) |
 | `render.timeout` | the job ran longer than `render.timeoutSeconds` (3600, runtime; `0` = no limit; units and the join of a fanned-out render each get the limit) and was stopped | `render_timeout` |
 | `render.cancelled` | `cancel_job`, or a shutdown that could not hand the job back | `cancelled` |
 | `render.qa_failed` | an output quality gate refused it; **reserved** for the QA gates of #294 (codes `qa_failed` or `qa_*`) | `qa_*` |
