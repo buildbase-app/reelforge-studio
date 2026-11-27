@@ -11,7 +11,7 @@ export type ChannelType = (typeof CHANNEL_TYPES)[number];
 export const EMAIL_PROVIDERS = ['smtp', 'resend', 'postmark', 'ses', 'sendgrid'] as const;
 export type EmailProviderId = (typeof EMAIL_PROVIDERS)[number];
 
-/** A value encrypted with the config cipher (REELFORGE_SECRET_KEY), or plain where nothing is secret. */
+/** A value encrypted with the config cipher (RENDERWELD_SECRET_KEY), or plain where nothing is secret. */
 export interface SealedValue {
   value: string;
   scheme: string;

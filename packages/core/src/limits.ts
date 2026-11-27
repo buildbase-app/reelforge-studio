@@ -13,7 +13,7 @@ import type { ResolvedConfig } from './config/load';
  * runtime change applies to the next request.
  */
 
-/** Why a request was refused by a limit: the `reason` label of reelforge.limits.rejections (a fixed set). */
+/** Why a request was refused by a limit: the `reason` label of renderweld.limits.rejections (a fixed set). */
 export type LimitReason =
   | 'render_limit'
   | 'jobs_per_key'

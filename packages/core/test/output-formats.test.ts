@@ -11,11 +11,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { alphaStats, checkAvSync, encodersOf, measureEbur128, probe, probeAudio, resolveTools, zipEntries, zipPngHeader } from '@renderweld/media-pipeline';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories } from '../src/index';
+import { PluginRegistry, RenderWeldService, createMemoryRepositories } from '../src/index';
 import { fakeEngine, makeTone, tempDir } from './helpers';
 
 const { dir, cleanup } = tempDir('reelforge-output-formats-');
-let svc: ReelforgeService;
+let svc: RenderWeldService;
 const tools = resolveTools();
 const W = 192;
 const H = 108;
@@ -25,11 +25,11 @@ const remotion = fakeEngine('remotion');
 
 beforeAll(async () => {
   await makeTone(join(dir, 'tone.mp3'), 3);
-  svc = await ReelforgeService.create(new PluginRegistry().registerEngine(remotion).registerEngine(html), {
+  svc = await RenderWeldService.create(new PluginRegistry().registerEngine(remotion).registerEngine(html), {
     repositories: createMemoryRepositories(),
     dataDir: join(dir, 'data'),
     publicUrl: 'https://studio.example.com/',
-    configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
   });
 });
 afterAll(async () => {
@@ -75,8 +75,8 @@ async function renderOk(projectId: string, opts: { variant?: string; captions?: 
 /** One row of the evidence table: what ffprobe says about the delivered file. */
 const evidence: string[] = [];
 afterAll(() => {
-  // REELFORGE_FORMATS_EVIDENCE=<file> writes the table (Markdown) for a pull request.
-  const out = process.env.REELFORGE_FORMATS_EVIDENCE;
+  // RENDERWELD_FORMATS_EVIDENCE=<file> writes the table (Markdown) for a pull request.
+  const out = process.env.RENDERWELD_FORMATS_EVIDENCE;
   if (out && evidence.length) writeFileSync(out, ['| format | codec | file | ffprobe codec / profile | pix_fmt | alpha min-max | frames | duration (s) | audio |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- |', ...evidence].join('\n') + '\n');
 });
 

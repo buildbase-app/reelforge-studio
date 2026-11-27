@@ -18,7 +18,6 @@ import {
   type EnginePlugin,
   type ResolvedAsset,
   type StagedSceneAssets,
-  envValue,
 } from '@renderweld/core';
 import { PipelineError, startPngEncoder, type Tools } from '@renderweld/media-pipeline';
 import {
@@ -99,7 +98,7 @@ export function htmlEngineVersion(): string {
 export const chromiumSandbox = coreChromiumSandbox;
 
 export function resolveHtmlBrowser(explicit?: string): string {
-  const p = explicit ?? envValue('REELFORGE_CHROMIUM_PATH');
+  const p = explicit ?? process.env.RENDERWELD_CHROMIUM_PATH;
   if (p && existsSync(p)) return p;
   throw new PipelineError('setup', `No Chromium for the html engine: set RENDERWELD_CHROMIUM_PATH (tried ${p ?? '(unset)'})`);
 }
@@ -399,7 +398,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
         stage,
         'Chromium could not start its sandbox on this machine (e.g. Ubuntu 23.10+ restricts unprivileged user namespaces). ' +
           'Enable user namespaces for Chrome (see Chromium docs/security/apparmor-userns-restrictions.md), or run RenderWeld in a container ' +
-          'and set REELFORGE_CHROMIUM_NO_SANDBOX=1.',
+          'and set RENDERWELD_CHROMIUM_NO_SANDBOX=1.',
         msg.slice(0, 2000)
       );
     }
@@ -457,7 +456,7 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         file: res.out,
         frames: res.frames,
         engineVersion: htmlEngineVersion(),
-        browserVersion: browserVersion(opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH')) ?? res.browser,
+        browserVersion: browserVersion(opts.browserExecutable ?? process.env.RENDERWELD_CHROMIUM_PATH) ?? res.browser,
         millis: res.millis,
         ...(res.text ? { text: res.text } : {}),
       };

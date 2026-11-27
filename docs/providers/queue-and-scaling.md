@@ -122,9 +122,8 @@ scale e2e starts):
 
 ```bash
 export POSTGRES_PASSWORD=$(openssl rand -hex 16)
-# docker-compose.yml reads the old REELFORGE_* names; the server accepts RENDERWELD_* too (RENAMED.md)
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)
-export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)
+export RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
 export S3_BUCKET=my-renders S3_REGION=eu-central-1 S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=...
 docker compose -f deployment/compose/docker-compose.scale.yml up -d --scale worker=3
 ```
@@ -1254,7 +1253,7 @@ and [MySQL](https://docs.cloud.google.com/sql/docs/mysql/managed-connection-pool
 
 ## Read replica
 
-Decision D-104. `database.readUrl` (`REELFORGE_DATABASE_READ_URL`, alias `DATABASE_READ_URL`,
+Decision D-104. `database.readUrl` (`RENDERWELD_DATABASE_READ_URL`, alias `DATABASE_READ_URL`,
 or `..._FILE`) points at a read replica of `database.url` (a streaming replica, an Aurora
 reader, a Cloud SQL read replica, a MySQL replica). **Unset (the default): every query goes to
 `database.url`, as before.** Same kind as the primary; SQLite refuses it at start ("SQLite is
@@ -1510,7 +1509,7 @@ and a job that dies while its worker shuts down is handed back, never failed
 | LIM-12 | rate-limit counter: 40 concurrent hits from two pools (SQLite: one) on a new and on an existing window return each count 1..40 exactly once, so exactly L pass a limit L; `by` adds a batch; MySQL also without the insert-id hook (transaction fallback) (#196) | contract (4 targets) | pass 2026-11-23; fails on the code before #196 on all three databases (duplicate counts) |
 | LIM-13 | rate-limit counter: a new minute starts at 1, a late hit of the old minute still counts there, the raw statement and Prisma see one row per window (same stored `DATETIME`), the sweep removes old windows | contract (4 targets) | pass 2026-11-23 |
 | LIM-14 | rate-limit counter: one statement per check and no transaction, for a new window and an existing one (recording proxy over the Prisma client and the MySQL insert-id hook) | contract (3 databases) | pass 2026-11-23; fails on the code before #196 (2 statements) |
-| LIM-15 | `DatabaseRateLimiter` on a real database: 30 concurrent requests, limit 12: exactly 12 pass with `RateLimit-Remaining` 11..0; the others wait past the minute (the 13th: `Retry-After` 54 at 44.6 s before the minute ends); a key's own limit uses the same counter (`apps/server/test/rate-limit-store.test.ts`, `RENDERWELD_TEST_DB`) | server (3 databases) | pass 2026-11-23 (#305) |
+| LIM-15 | `DatabaseRateLimiter` on a real database: 30 concurrent requests, limit 12: exactly 12 pass with `RateLimit-Remaining` 11..0; the others wait past the minute (the 13th: `Retry-After` 54 at 44.6 s before the minute ends); a key's own limit uses the same counter (`apps/server/test/rate-limit-store.test.ts`, `REELFORGE_TEST_DB`) | server (3 databases) | pass 2026-11-23 (#305) |
 | LIM-16 | `DatabaseRateLimiter` sliding window (#305): 10 requests in the last second of a minute pass, 10 right after the boundary are all refused (the fixed window let all 20 through); the latest refusal's `Retry-After` admits the next request; a client that waits never gets more than the limit + 1 in any 60 s | server (3 databases) | pass 2026-11-23 |
 | LIM-17 | `slide()`: counts the window and reads the previous one; 30 concurrent slides from two pools (SQLite: one) on a new window and on a fresh key (no previous row; MySQL gap-lock deadlocks retried) return each count once and the right previous count; rows are ordinary windows (`hit()` adds, the sweep deletes) | contract (4 targets) | pass 2026-11-23 |
 | LIM-18 | `slide()`: 3 000 000 and 2 500 001 come back exactly (MySQL packs both into one insert id), also without the insert-id hook | contract (4 targets) | pass 2026-11-23 |
@@ -1547,10 +1546,10 @@ FANOUT_E2E=1 TEST_POSTGRES_URL=postgresql://... FANOUT_E2E_S3_ENDPOINT=http://12
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://...?allowPublicKeyRetrieval=true \
   pnpm --filter @renderweld/db exec vitest run test/queue.contract.test.ts test/queue.processes.test.ts test/limits.contract.test.ts test/priority.contract.test.ts
 pnpm --filter @renderweld/core exec vitest run test/priority.test.ts
-RENDERWELD_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/priority.test.ts
+REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/priority.test.ts
 docker run --rm -v "$PWD/deployment/observability:/w:ro" -w /w --entrypoint promtool prom/prometheus:v3.7.3 test rules alerts.test.yml
 TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/scaling.test.ts
-RENDERWELD_TEST_DB=mysql TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/server exec vitest run test/scaling.test.ts
+REELFORGE_TEST_DB=mysql TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/server exec vitest run test/scaling.test.ts
 SCALE=1 E2E_PREFIX=que PORT=4335 e2e/docker/run.sh
 ```
 
@@ -1600,7 +1599,7 @@ cases: `apps/server/test/dispatch.test.ts`.
 | DSP-29 | neither the SQS secret key nor the Redis password appears in any log line | server, PostgreSQL 17 | pass 2026-11-23 |
 
 CI: the contract, process and server cases run wherever `TEST_POSTGRES_URL` /
-`TEST_MYSQL_URL` / `RENDERWELD_TEST_DB` are set (the HEAVY tier's database jobs);
+`TEST_MYSQL_URL` / `REELFORGE_TEST_DB` are set (the HEAVY tier's database jobs);
 on SQLite-only runs the cluster cases of `scaling.test.ts` skip. Adding
 `SCALE=1 e2e/docker/run.sh` to the HEAVY tier's Docker job is a change to
 `.github/workflows/` for a maintainer.

@@ -7,11 +7,10 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { PipelineError, checkExpectation, frameStats, probe, resolveTools } from '@renderweld/media-pipeline';
 import { builtinTheme, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
 import { CSP, buildDocument, chromiumSandbox, escapeHtml, htmlEngine, htmlTitle, renderHtmlScene } from '../src/index';
-import { envValue } from '@renderweld/core';
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
-const requireBrowser = envValue('REELFORGE_REQUIRE_BROWSER') === '1';
+const requireBrowser = process.env.REELFORGE_REQUIRE_BROWSER === '1';
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-html-'));
 // Chrome can still be flushing its profile when the suite ends; retry ENOTEMPTY/EBUSY.
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
@@ -34,7 +33,7 @@ describe('document builder', () => {
     expect(htmlTitle({ headline: '<script>alert(1)</script>' }, 2).html).not.toContain('<script>');
   });
   it('keeps the Chromium sandbox on unless root or explicitly disabled', () => {
-    expect(chromiumSandbox({ REELFORGE_CHROMIUM_NO_SANDBOX: '1' })).toBe(false);
+    expect(chromiumSandbox({ RENDERWELD_CHROMIUM_NO_SANDBOX: '1' })).toBe(false);
     if (process.getuid?.() !== 0) expect(chromiumSandbox({})).toBe(true);
   });
   it('reports itself as a plugin with the html-title template', () => {
@@ -65,7 +64,7 @@ describe('browser requirement', () => {
   });
 });
 
-describe.skipIf(!hasBrowser)('renderHtmlScene (needs REELFORGE_CHROMIUM_PATH)', () => {
+describe.skipIf(!hasBrowser)('renderHtmlScene (needs RENDERWELD_CHROMIUM_PATH)', () => {
   const tools = hasBrowser ? resolveTools() : (null as never);
 
   it('renders the built-in html-title template: exact frames, non-empty first frame', async () => {

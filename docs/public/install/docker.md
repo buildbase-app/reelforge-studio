@@ -34,22 +34,20 @@ How many renders one container does at 1, 2 and 4 vCPU, and the
 ```bash
 git clone https://github.com/buildbase-app/reelforge-studio.git
 cd reelforge-studio
-echo "REELFORGE_SECRET_KEY=$(openssl rand -base64 32)" >> .env   # keep a copy
+echo "RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)" >> .env   # keep a copy
 docker compose up -d --build
-docker compose ps                                                 # reelforge ... (healthy)
-docker compose exec reelforge renderweld keys create --name admin --scopes admin
+docker compose ps                                                 # renderweld ... (healthy)
+docker compose exec renderweld renderweld keys create --name admin --scopes admin
 ```
 
 Instead of the CLI you can set the first admin key before the first start:
-`echo "REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)" >> .env`. It is stored
+`echo "RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)" >> .env`. It is stored
 hashed when no key exists yet.
 
-The port is published on `127.0.0.1:4321` only. Change it with `REELFORGE_PORT`.
+The port is published on `127.0.0.1:4321` only. Change it with `RENDERWELD_PORT`.
 
-`docker-compose.yml` reads its settings (`REELFORGE_SECRET_KEY`, `REELFORGE_PORT`,
-`REELFORGE_PUBLIC_URL`, ...) under their old names, so `.env` uses those; the
-server itself accepts the `RENDERWELD_*` names too
-([Renamed from ReelForge](renamed-from-reelforge.md)).
+`docker-compose.yml` reads its settings (`RENDERWELD_SECRET_KEY`, `RENDERWELD_PORT`,
+`RENDERWELD_PUBLIC_URL`, ...) from the shell and `.env`.
 
 ## Plain docker run
 
@@ -57,16 +55,16 @@ server itself accepts the `RENDERWELD_*` names too
 docker build -t reelforge-studio .
 docker run -d --name reelforge -p 127.0.0.1:4321:4321 --shm-size=1g \
   --read-only --tmpfs /tmp:size=1g --cap-drop ALL --security-opt no-new-privileges \
-  --security-opt seccomp=deployment/seccomp/chrome.json -e REELFORGE_CHROMIUM_NO_SANDBOX=0 \
-  -e REELFORGE_SECRET_KEY="$(openssl rand -base64 32)" \
+  --security-opt seccomp=deployment/seccomp/chrome.json -e RENDERWELD_CHROMIUM_NO_SANDBOX=0 \
+  -e RENDERWELD_SECRET_KEY="$(openssl rand -base64 32)" \
   -v reelforge-data:/data \
   reelforge-studio
 docker exec reelforge renderweld keys create --name admin --scopes admin
 ```
 
-The container does not start without `REELFORGE_SECRET_KEY`. Keep the value you pass: start the container with the
+The container does not start without `RENDERWELD_SECRET_KEY`. Keep the value you pass: start the container with the
 same one every time. Secrets can also come from files: every secret setting has
-a `_FILE` variant (`REELFORGE_SECRET_KEY_FILE=/run/secrets/secret_key`); the file
+a `_FILE` variant (`RENDERWELD_SECRET_KEY_FILE=/run/secrets/secret_key`); the file
 must be readable by UID 10001.
 
 ## What is in the image
@@ -96,7 +94,7 @@ namespaces Chromium's sandbox needs), so the `html`, `hyperframes` and
 
 Hosts whose kernel or AppArmor policy blocks unprivileged user namespaces (Ubuntu
 23.10 and later restrict them for unconfined programs) need
-`REELFORGE_CHROMIUM_NO_SANDBOX=1` in `.env` instead.
+`RENDERWELD_CHROMIUM_NO_SANDBOX=1` in `.env` instead.
 
 ## TLS with Caddy
 
@@ -104,8 +102,8 @@ For agents on other machines, the compose file has a Caddy profile with
 automatic HTTPS:
 
 ```bash
-echo "REELFORGE_DOMAIN=studio.example.com" >> .env
-echo "REELFORGE_PUBLIC_URL=https://studio.example.com" >> .env
+echo "RENDERWELD_DOMAIN=studio.example.com" >> .env
+echo "RENDERWELD_PUBLIC_URL=https://studio.example.com" >> .env
 docker compose --profile tls up -d --build
 ```
 
@@ -137,7 +135,7 @@ One render at a time is the default. Each render needs, at its peak (measured wi
 | 1080x1920 | about 0.8 GB | 1 to 1.5 cores while it runs |
 | 3840x2160 | about 1.7 GB | 1 to 1.5 cores, about 3 times as long |
 
-To render several at once, set `REELFORGE_RENDER_CONCURRENCY` to about the number of cores divided by 1.5,
+To render several at once, set `RENDERWELD_RENDER_CONCURRENCY` to about the number of cores divided by 1.5,
 and check the memory for 4K. Renders are CPU-bound, so more than that only makes each render slower. The
 H.264 encoder keeps its memory low by default (`RENDERWELD_RENDER_ENCODER_THREADS=2`,
 `RENDERWELD_RENDER_ENCODER_LOOKAHEAD=20`). Sizing for many workers, and the measurements behind these numbers:
@@ -146,16 +144,16 @@ H.264 encoder keeps its memory low by default (`RENDERWELD_RENDER_ENCODER_THREAD
 ## Backups
 
 Back up the database **and** the data volume (asset and render files are not in
-the database), and keep `REELFORGE_SECRET_KEY` with them: without it the stored
+the database), and keep `RENDERWELD_SECRET_KEY` with them: without it the stored
 secrets in a restored database cannot be read.
 
 ```bash
 # SQLite, while the server runs (a consistent copy):
-docker compose exec reelforge renderweld backup /data/backups/renderweld-$(date +%F).db
+docker compose exec renderweld renderweld backup /data/backups/renderweld-$(date +%F).db
 # PostgreSQL in the compose project:
 docker compose exec -T postgres pg_dump -U reelforge -Fc reelforge > reelforge.dump
 # the data volume (compose names it <project>_reelforge-data; --volumes-from finds it):
-docker run --rm --volumes-from "$(docker compose ps -q reelforge)" -v "$PWD":/b alpine tar -C /data -czf /b/data.tgz .
+docker run --rm --volumes-from "$(docker compose ps -q renderweld)" -v "$PWD":/b alpine tar -C /data -czf /b/data.tgz .
 ```
 
 Restore with the same RenderWeld version or an older one than you upgrade to: an

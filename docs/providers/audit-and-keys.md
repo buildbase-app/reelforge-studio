@@ -25,7 +25,7 @@ the entry stays in the database.
 | --- | --- | --- | --- |
 | `database` | **tested** (SQLite, PostgreSQL, MySQL) | always on; `audit.retentionDays` (default 365, `0` keeps everything) | SNK-01, AUD-01..07 |
 | `stdout` | **tested** | `audit.sinks: [stdout]`: one JSON line per entry, `{"type":"audit", ...entry}` on the server's stdout | SNK-02 (unit, server, Docker: parsed from the container log) |
-| `otlp` | **tested** (OpenTelemetry Collector 0.140.1) | `audit.sinks: [otlp]`, `audit.otlpEndpoint: http://collector:4318/v1/logs`; OTLP/HTTP JSON logs, scope `reelforge.audit`, batched (100 entries or 1 s), 5 s timeout | SNK-03 (unit, Docker with a real collector), SNK-04 |
+| `otlp` | **tested** (OpenTelemetry Collector 0.140.1) | `audit.sinks: [otlp]`, `audit.otlpEndpoint: http://collector:4318/v1/logs`; OTLP/HTTP JSON logs, scope `renderweld.audit`, batched (100 entries or 1 s), 5 s timeout | SNK-03 (unit, Docker with a real collector), SNK-04 |
 | plugin (`AuditSink`) | **tested** (interface) | an object `{ id, write(entry), close?() }` passed in `ServiceConfig.auditSinks`, selected by its id in `audit.sinks` | SNK-05, SNK-04 |
 | signed webhook | **not built** (comes with E3, as an `AuditSink` plugin) | — | — |
 | S3 object export | **not built** (comes with storage #27, as an `AuditSink` plugin) | — | — |
@@ -168,7 +168,7 @@ Latest run: **2026-11-21**, branch `claude/enterprise-audit-keys`.
 Where: *unit* `packages/core/test/audit.test.ts`; *contract*
 `packages/db/test/contract.test.ts` on memory, SQLite, PostgreSQL 17 and MySQL
 8.4; *server* `apps/server/test/enterprise.test.ts` (real HTTP, REST and MCP,
-injected clock; also run with `RENDERWELD_TEST_DB=postgres` and `mysql`) and
+injected clock; also run with `REELFORGE_TEST_DB=postgres` and `mysql`) and
 `apps/server/test/parity.test.ts`; *Docker* `e2e/docker/run.sh` step
 `audit.mjs` (an agent in a separate container over MCP; release image,
 hardened flags) on SQLite and PostgreSQL, with an OpenTelemetry Collector
@@ -220,7 +220,7 @@ Commands:
 pnpm --filter @renderweld/core exec vitest run test/audit.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/db test
 pnpm --filter @renderweld/server exec vitest run test/enterprise.test.ts test/parity.test.ts
-RENDERWELD_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/enterprise.test.ts
+REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/enterprise.test.ts
 DB=postgres e2e/docker/run.sh        # OTEL_IMAGE selects a collector mirror
 ```
 

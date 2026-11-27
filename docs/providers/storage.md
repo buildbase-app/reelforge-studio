@@ -171,7 +171,7 @@ connection string works with downloads through the server.
 Commands: `pnpm --filter @renderweld/core test` (local, units), with the
 emulators: `TEST_S3_ENDPOINT=http://127.0.0.1:19000 TEST_S3_ACCESS_KEY_ID=…
 TEST_S3_SECRET_ACCESS_KEY=… TEST_AZURE_CONNECTION_STRING="<Azurite>"
-TEST_GCS_ENDPOINT=http://127.0.0.1:4443 RENDERWELD_REQUIRE_STORAGE=s3,azure,gcs`;
+TEST_GCS_ENDPOINT=http://127.0.0.1:4443 REELFORGE_REQUIRE_STORAGE=s3,azure,gcs`;
 Docker: `STORAGE=s3 E2E_PREFIX=sto PORT=4332 e2e/docker/run.sh`. Results below
 are from 2026-11-21 (MinIO built from source commit 7aac2a2, Azurite latest,
 fake-gcs-server latest; see "How the emulators ran").

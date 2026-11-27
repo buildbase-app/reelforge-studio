@@ -39,7 +39,7 @@ if (PHASE === 'setup') {
   const secrets = [...Object.values(creds)];
   // ---- providers over update_config ---------------------------------------------------------
   const cfg = await raw('update_config', { settings: {
-    'notifications.email.from': 'ReelForge E2E <studio@example.com>',
+    'notifications.email.from': 'RenderWeld E2E <studio@example.com>',
     'notifications.email.resend.apiKey': creds.resend, 'notifications.email.postmark.serverToken': creds.postmark, 'notifications.email.sendgrid.apiKey': creds.sendgrid,
     'notifications.email.ses.region': 'eu-west-1', 'notifications.email.ses.accessKeyId': creds.sesId, 'notifications.email.ses.secretAccessKey': creds.sesSecret,
     'webhooks.retryBaseSeconds': 1, 'webhooks.maxAttempts': 3, 'webhooks.timeoutSeconds': 5,
@@ -109,7 +109,7 @@ if (PHASE === 'setup') {
   check('NTF-04 SMTP: Mailpit caught the email (read over its HTTP API)', !!mail && /ready/.test(mail.Subject), mail ? `${mail.Subject} -> ${mail.To[0].Address}` : 'none');
   if (mail) {
     const full = await (await fetch(`${MAILPIT}/api/v1/message/${mail.ID}`)).json();
-    check('the email is plain text with the event details and a stable Message-ID', /e2e-webhooks/.test(full.Text) && /msg_[a-z0-9]+@reelforge\.local/.test(full.MessageID ?? ''), full.MessageID);
+    check('the email is plain text with the event details and a stable Message-ID', /e2e-webhooks/.test(full.Text) && /msg_[a-z0-9]+@renderweld\.local/.test(full.MessageID ?? ''), full.MessageID);
   }
   const mailDone = await until(async () => { for (const m of Object.values(mails)) if ((await counts(m.webhook.id)).succeeded < 1) return false; return true; }, 60_000);
   check('every email channel shows a succeeded delivery', !!mailDone);

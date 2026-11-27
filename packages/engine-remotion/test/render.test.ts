@@ -6,15 +6,14 @@ import { PipelineError, checkExpectation, framePsnr, frameStats, probe, resolveT
 import { builtinTheme } from '@renderweld/project-schema';
 import type { OutputSettings, RenderScene as Scene } from '@renderweld/project-schema';
 import { remotionEngine, renderRemotionScene } from '../src/index';
-import { envValue } from '@renderweld/core';
 
 // Remotion downloads its own browser when none is configured; in CI we point
 // it at a preinstalled one so the test does not depend on network access.
-const hasBrowser = Boolean(envValue('REELFORGE_CHROMIUM_PATH') && existsSync(envValue('REELFORGE_CHROMIUM_PATH')));
+const hasBrowser = Boolean(process.env.RENDERWELD_CHROMIUM_PATH && existsSync(process.env.RENDERWELD_CHROMIUM_PATH));
 
 // In CI REELFORGE_REQUIRE_BROWSER=1 turns a missing browser into a failure instead of a skip.
 describe('browser requirement', () => {
-  it.runIf(envValue('REELFORGE_REQUIRE_BROWSER') === '1')('a browser must be configured', () => {
+  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });
@@ -34,7 +33,7 @@ const scene: Scene = {
   assets: [],
 };
 
-describe.skipIf(!hasBrowser)('renderRemotionScene (needs REELFORGE_CHROMIUM_PATH)', () => {
+describe.skipIf(!hasBrowser)('renderRemotionScene (needs RENDERWELD_CHROMIUM_PATH)', () => {
   it('renders the exact frame count at the requested size and frame rate', async () => {
     const tools = resolveTools();
     const out = join(dir, 'rm.mp4');

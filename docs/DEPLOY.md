@@ -141,7 +141,7 @@ the limit; the key is shown as its first group only.
   tries to change them, and `update_config` refuses them
   (`build_locked_setting`). See "Release image and editions" below.
 - **Development and CI.** In a build from source (`pnpm dev`, which sets it,
-  or `--build-arg REELFORGE_EDITION=dev`) `RENDERWELD_LICENCE_MODE=off` lets
+  or `--build-arg RENDERWELD_EDITION=dev`) `RENDERWELD_LICENCE_MODE=off` lets
   renders run without a licence. That is for noncommercial development only
   (LICENSING.md); commercial use always needs a Commercial key.
 - **CLI and a running server.** `renderweld licence ...` works on the database
@@ -277,21 +277,20 @@ docker build --network host \
   -t reelforge-studio .
 ```
 
-`docker compose` (`docker-compose.yml` reads the old `REELFORGE_*` names from the
-shell and `.env`; the server accepts `RENDERWELD_*` too, see [RENAMED.md](RENAMED.md)):
+`docker compose` (`docker-compose.yml` reads these from the shell and `.env`):
 
 ```bash
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)      # required; keep a copy (stored secrets need it)
-export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)   # optional, see "The first key"
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)      # required; keep a copy (stored secrets need it)
+export RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)   # optional, see "The first key"
 docker compose up -d --build
-docker compose ps                                          # reelforge ... (healthy)
-# Tested here with a prebuilt image: REELFORGE_IMAGE=reelforge-studio:latest docker compose up -d --no-build
+docker compose ps                                          # renderweld ... (healthy)
+# Tested here with a prebuilt image: RENDERWELD_IMAGE=reelforge-studio:latest docker compose up -d --no-build
 ```
 
 ## Release image and editions
 
 `docker build .` builds the **release** image: the Dockerfile's default
-target with `REELFORGE_EDITION=release` (D-039). It writes
+target with `RENDERWELD_EDITION=release` (D-039). It writes
 `/app/packages/core/build-info.json` (root-owned, read-only), which fixes:
 
 | Setting | Value in the release image |
@@ -311,7 +310,7 @@ works as documented in docs/CONFIG.md.
 | Build | How | Licence settings |
 | --- | --- | --- |
 | Release (published) | `docker build .` | fixed: `required`, BuildBase production |
-| Dev image | `docker build --build-arg REELFORGE_EDITION=dev .` | configurable; `off` for noncommercial development only (LICENSING.md) |
+| Dev image | `docker build --build-arg RENDERWELD_EDITION=dev .` | configurable; `off` for noncommercial development only (LICENSING.md) |
 | Source image | `docker build --target dev .` (whole repo, dev dependencies, `pnpm dev`) | configurable, as `pnpm dev` |
 | Test build of the release edition | `--build-arg LICENCE_SERVER_URL=http://licence:8080 --build-arg LICENCE_ORG_ID=...-mocklice` (e2e/docker/run.sh) | fixed, pointing at the mock licence server |
 
@@ -531,9 +530,9 @@ not run yet.)
    ```bash
    git clone <your copy of the repo> renderweld && cd renderweld
    cat > .env <<EOF
-   REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
-   REELFORGE_DOMAIN=studio.example.com
-   REELFORGE_PUBLIC_URL=https://studio.example.com
+   RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+   RENDERWELD_DOMAIN=studio.example.com
+   RENDERWELD_PUBLIC_URL=https://studio.example.com
    EOF
    docker compose --profile tls up -d --build
    ```

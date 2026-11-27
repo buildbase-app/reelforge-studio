@@ -410,13 +410,13 @@ export class KeyStore {
   }
 
   /**
-   * Bootstrap: when no key exists and REELFORGE_BOOTSTRAP_KEY is set, store it
+   * Bootstrap: when no key exists and RENDERWELD_BOOTSTRAP_KEY is set, store it
    * as an admin key named "bootstrap". Does nothing once any key exists.
    */
   async bootstrap(plainKey: string | undefined): Promise<boolean> {
     if (!plainKey) return false;
     const weak = weakKeyReason(plainKey);
-    if (weak) throw new ApiError('bad_request', 400, `REELFORGE_BOOTSTRAP_KEY ${weak}`);
+    if (weak) throw new ApiError('bad_request', 400, `RENDERWELD_BOOTSTRAP_KEY ${weak}`);
     if ((await this.count()) > 0) return false;
     // The install's first key runs the instance (#304): owner, in the default workspace.
     await this.create('bootstrap', ['admin', 'owner'], { plainKey }, { actorType: 'system' });

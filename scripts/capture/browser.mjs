@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 
 /**
  * Playwright's bundled Chromium, or CAPTURE_CHROMIUM_PATH; when the bundled
- * one is not installed, the studio's REELFORGE_CHROMIUM_PATH. Uses
+ * one is not installed, the studio's RENDERWELD_CHROMIUM_PATH. Uses
  * HTTPS_PROXY when set (never for 127.0.0.1).
  */
 export async function launch() {
@@ -19,8 +19,8 @@ export async function launch() {
   try {
     return await chromium.launch(opts);
   } catch (e) {
-    if (!process.env.REELFORGE_CHROMIUM_PATH) throw e;
-    return chromium.launch({ ...opts, executablePath: process.env.REELFORGE_CHROMIUM_PATH });
+    if (!process.env.RENDERWELD_CHROMIUM_PATH) throw e;
+    return chromium.launch({ ...opts, executablePath: process.env.RENDERWELD_CHROMIUM_PATH });
   }
 }
 

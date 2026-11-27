@@ -28,13 +28,12 @@ import {
   renderPrefix,
   streamToBuffer,
   type StorageDriver,
-  envValue,
 } from '../src/index';
 import { tempDir } from './helpers';
 
 const tmp = tempDir('reelforge-storage-');
 afterAll(() => tmp.cleanup());
-const required = (envValue('REELFORGE_REQUIRE_STORAGE') ?? '').split(',').filter(Boolean);
+const required = (process.env.REELFORGE_REQUIRE_STORAGE ?? '').split(',').filter(Boolean);
 const run = randomBytes(4).toString('hex');
 const MiB = 1024 * 1024;
 const SECRETS: string[] = [];
@@ -287,7 +286,7 @@ for (const target of targets) {
       await put('p2', 'run_b1', 'final.mp4');
       await put('p2', 'run_b1', RENDER_MANIFEST);
       await put('p1', '.tmp-run_crashed', 'final.mp4'); // an unfinished upload
-      const cfg = await settings({ REELFORGE_STORAGE_RETENTION_KEEP_LAST: '1', REELFORGE_STORAGE_RETENTION_RENDER_DAYS: '3' });
+      const cfg = await settings({ RENDERWELD_STORAGE_RETENTION_KEEP_LAST: '1', RENDERWELD_STORAGE_RETENTION_RENDER_DAYS: '3' });
       const manager = new StorageManager({
         factory: async () => driver,
         settings: cfg,

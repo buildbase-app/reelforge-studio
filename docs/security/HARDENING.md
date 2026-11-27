@@ -168,7 +168,7 @@ scrape_configs:
       type: Bearer
       credentials_file: /etc/prometheus/reelforge-metrics-token
     static_configs:
-      - targets: ['reelforge:4321']
+      - targets: ['renderweld:4321']
 ```
 
 ## Keys, imports and logs
@@ -257,7 +257,7 @@ Unit and integration tests are named `SECT-xx` (`security` in the test name):
 | AUTH-01..10 | `apps/server/test/auth-limits.test.ts` | limits before the key lookup (#305): an invalid-key flood is cut off after the failure budget with no further key lookups (counted on the repository); missing keys count, `ip_not_allowed` does not; IPv6 per /64; `/readyz` answers a locked-out address anonymously without a lookup; the per-address budget refuses before the lookup and is a runtime setting; `RateLimit-*` on every keyed response, `Retry-After` and `error.details.scope`/`hint` on a 429; lockouts double up to the maximum and start over after a quiet period; bounded memory; a release build without the secret key does not start, a dev build warns and seals with a local key |
 | OAUTH-12 | `apps/server/test/mcp-oauth.test.ts` | `security.oauth.blockedSubjects` (#479): a blocked subject gets `401 invalid_token` on its next request (runtime setting, no restart); other subjects and API keys unaffected; unblocking restores it; subjects with spaces or commas are refused |
 | OAUTH-11 | `apps/server/test/mcp-oauth.test.ts` | `security.oauth.workspaceClaim` (#479): a token acts only in the workspace its claim names (lists, reads, writes); a missing or non-string claim, an unknown or a deleted workspace gets `401 invalid_token` with a challenge, a suspended one `403 workspace_suspended`; API keys unaffected |
-| OAUTH-01..08 | `apps/server/test/mcp-oauth.test.ts` | MCP OAuth (#305, D-112) against a local mock issuer: protected-resource metadata; `resource_metadata` in `/mcp` challenges only; RS256 and ES256 tokens accepted and scoped, API keys unchanged; wrong audience, wrong issuer, expired, foreign signature, `alg: none`, HS256 and missing ReelForge scope refused (`invalid_token` / `insufficient_scope`); key rotation refetches the JWKS at most every 30 s; without an issuer nothing changes and nothing is fetched |
+| OAUTH-01..08 | `apps/server/test/mcp-oauth.test.ts` | MCP OAuth (#305, D-112) against a local mock issuer: protected-resource metadata; `resource_metadata` in `/mcp` challenges only; RS256 and ES256 tokens accepted and scoped, API keys unchanged; wrong audience, wrong issuer, expired, foreign signature, `alg: none`, HS256 and missing RenderWeld scope refused (`invalid_token` / `insufficient_scope`); key rotation refetches the JWKS at most every 30 s; without an issuer nothing changes and nothing is fetched |
 | SECT-20..25 | `apps/server/test/security.test.ts` | `/metrics` needs a token; minimal anonymous `/readyz`, full for admins; `/mcp` Origin with scheme and port; presigned URL redaction |
 | SECT-30..38 | `packages/engine-hyperframes/test/hyperframes.test.ts` | CSP placement and refusals; CLI environment; deny-all sink; with a browser: no request or UDP packet reaches a local canary from a document, navigation, WebRTC or a remote asset; navigation fails fast; no process of a render remains after success, cancel or timeout |
 | SECT-40 | `packages/engine-html/test/html.test.ts` | html scenes: policy elements refused, CSP first in `<head>` |

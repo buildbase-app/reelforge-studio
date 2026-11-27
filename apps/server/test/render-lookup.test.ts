@@ -25,7 +25,7 @@ let adminKey: string;
 let runId: string;
 let dropDb: () => Promise<void> = async () => undefined;
 const registry = () => new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas'));
-const start = () => startServer({ dataDir, port: 0, host: '127.0.0.1' }, { registry: registry(), env: { ...env, REELFORGE_LICENCE_MODE: 'off' }, quiet: true });
+const start = () => startServer({ dataDir, port: 0, host: '127.0.0.1' }, { registry: registry(), env: { ...env, RENDERWELD_LICENCE_MODE: 'off' }, quiet: true });
 
 beforeAll(async () => {
   const database = await testDatabase(dir);

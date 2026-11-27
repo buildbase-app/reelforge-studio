@@ -430,7 +430,7 @@ No arguments.
 
 **Configure a media provider (owner)**. Scope: `owner`. REST: `PUT /v1/providers/:id/config`.
 
-Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider's setting names). Values are stored encrypted in the server database (needs REELFORGE_SECRET_KEY on the server) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the owner scope (instance-level, #304). Only do this with a key the user gave you for this purpose.
+Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider's setting names). Values are stored encrypted in the server database (needs RENDERWELD_SECRET_KEY on the server) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the owner scope (instance-level, #304). Only do this with a key the user gave you for this purpose.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -442,7 +442,7 @@ Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers
 
 **Configure your workspace's own provider account**. Scope: `admin`. REST: `PUT /v1/providers/:id/workspace-config`.
 
-Sets or clears your workspace's own setting for a provider, such as its ELEVENLABS_API_KEY (#480). Your workspace's provider calls then use that account (its bill, its voices, its data terms); no other workspace ever sees or uses it, and clearing it falls back to the instance's settings only when the operator shares them (providers.shareWithWorkspaces). Stored encrypted (needs REELFORGE_SECRET_KEY on the server), never returned; list_providers then shows settingsFrom "workspace". Only providers with perWorkspace: true accept it. Needs the admin scope of the workspace. Only do this with a key the user gave you for this purpose.
+Sets or clears your workspace's own setting for a provider, such as its ELEVENLABS_API_KEY (#480). Your workspace's provider calls then use that account (its bill, its voices, its data terms); no other workspace ever sees or uses it, and clearing it falls back to the instance's settings only when the operator shares them (providers.shareWithWorkspaces). Stored encrypted (needs RENDERWELD_SECRET_KEY on the server), never returned; list_providers then shows settingsFrom "workspace". Only providers with perWorkspace: true accept it. Needs the admin scope of the workspace. Only do this with a key the user gave you for this purpose.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -754,7 +754,7 @@ No arguments.
 
 **Set and activate the licence key (owner)**. Scope: `owner`, idempotent. REST: `POST /v1/licence`.
 
-Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the owner scope (instance-level, #304).
+Stores the licence key (encrypted; needs RENDERWELD_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the owner scope (instance-level, #304).
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -776,7 +776,7 @@ Configuration, storage, API keys and the audit log. These need a key with the ad
 
 **Get the server configuration (owner)**. Scope: `owner`, read-only. REST: `GET /v1/config`.
 
-Returns every server setting with its effective value and where it comes from: source "default", "file" (REELFORGE_CONFIG), "env" (origin names the variable) or "runtime" (set with update_config, stored in the database; wins over the others). scope "runtime" settings can be changed with update_config; scope "startup" ones only in the config file or environment, then a restart. Secrets are only "set" / "not set". Optional prefix filters keys, e.g. "limits". Needs the owner scope (instance-level, #304).
+Returns every server setting with its effective value and where it comes from: source "default", "file" (RENDERWELD_CONFIG), "env" (origin names the variable) or "runtime" (set with update_config, stored in the database; wins over the others). scope "runtime" settings can be changed with update_config; scope "startup" ones only in the config file or environment, then a restart. Secrets are only "set" / "not set". Optional prefix filters keys, e.g. "limits". Needs the owner scope (instance-level, #304).
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -786,7 +786,7 @@ Returns every server setting with its effective value and where it comes from: s
 
 **Change runtime settings (owner)**. Scope: `owner`. REST: `PATCH /v1/config`.
 
-Changes runtime settings at once and stores them in the database (they survive restarts and override the config file and environment). settings maps dotted keys from get_config to values, e.g. { "limits.rateLimitPerMinute": 120 }; null clears a runtime value (the file/env/default applies again). All or nothing: start-up-only keys (port, database URL, data directory, ...) are refused with where to set them. Secrets (provider keys, licence key) are stored encrypted and need REELFORGE_SECRET_KEY on the server. Every change is audit-logged. Needs the owner scope (instance-level, #304). Only change what the user asked for.
+Changes runtime settings at once and stores them in the database (they survive restarts and override the config file and environment). settings maps dotted keys from get_config to values, e.g. { "limits.rateLimitPerMinute": 120 }; null clears a runtime value (the file/env/default applies again). All or nothing: start-up-only keys (port, database URL, data directory, ...) are refused with where to set them. Secrets (provider keys, licence key) are stored encrypted and need RENDERWELD_SECRET_KEY on the server. Every change is audit-logged. Needs the owner scope (instance-level, #304). Only change what the user asked for.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |

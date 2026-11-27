@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService } from '@renderweld/core';
+import { PluginRegistry, RenderWeldService } from '@renderweld/core';
 import { prepareDatabase, type Database } from '@renderweld/db';
 import { REST_ROUTES, TOOLS, createApp, loadConfig, type ServerConfig } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
@@ -12,7 +12,7 @@ import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
  */
 const { dir, cleanup } = tempDir('reelforge-analytics-');
 let db: Database;
-let service: ReelforgeService;
+let service: RenderWeldService;
 let admin: string;
 let reader: string;
 let config: ServerConfig;
@@ -20,13 +20,13 @@ let app: ReturnType<typeof createApp>;
 let renderId = '';
 
 beforeAll(async () => {
-  config = loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data') });
+  config = loadConfig({ RENDERWELD_DATA_DIR: join(dir, 'data') });
   db = (await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir })).db;
   const registry = new PluginRegistry().registerEngine(fakeEngine('html')).registerEngine(fakeEngine('remotion', { fail: true }));
-  service = await ReelforgeService.create(registry, {
+  service = await RenderWeldService.create(registry, {
     repositories: db.repositories(),
     dataDir: config.dataDir,
-    configSources: { env: { REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { RENDERWELD_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', RENDERWELD_LICENCE_MODE: 'off' } },
   });
   admin = (await service.keys.create('admin', ['admin', 'owner'])).key;
   reader = (await service.keys.create('viewer', ['read'])).key;

@@ -97,7 +97,7 @@ describe('faster-whisper provider (fake programs)', () => {
 
 // ---- the real program (optional image layer, deployment/stt) ------------------------
 
-const realCommand = resolveCommand(process.env.REELFORGE_STT_COMMAND ?? 'reelforge-whisper');
+const realCommand = resolveCommand(process.env.RENDERWELD_STT_COMMAND ?? 'reelforge-whisper');
 const tools = resolveTools();
 const hasFlite = /\bflite\b/.test(spawnSync(tools.ffmpeg, ['-hide_banner', '-filters'], { encoding: 'utf8' }).stdout ?? '');
 
@@ -111,7 +111,7 @@ describe.skipIf(!realCommand || !hasFlite)('faster-whisper provider (the real pr
       {
         file: wav,
         language: 'auto',
-        settings: settings({ command: realCommand!, model: process.env.REELFORGE_STT_MODEL ?? 'small', ...(process.env.REELFORGE_STT_MODEL_DIR ? { modelDir: process.env.REELFORGE_STT_MODEL_DIR } : {}), timeoutSeconds: 300 }),
+        settings: settings({ command: realCommand!, model: process.env.RENDERWELD_STT_MODEL ?? 'small', ...(process.env.RENDERWELD_STT_MODEL_DIR ? { modelDir: process.env.RENDERWELD_STT_MODEL_DIR } : {}), timeoutSeconds: 300 }),
       },
       ctx()
     );

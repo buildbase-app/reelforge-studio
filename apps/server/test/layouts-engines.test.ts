@@ -30,7 +30,7 @@ import { makeNumberedClip, readBars, readPicture } from '../../../packages/media
 import { LAYOUT_FORMATS, LAYOUT_SAMPLES, LAYOUT_STRESS_SAMPLES, checkGeometry, renderGeometryFrame } from './formats/layouts';
 import { THEME } from './formats/matrix';
 
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-layouts-engines-'));
 const cacheDir = resolve(import.meta.dirname, '../../../.render-cache');
@@ -38,7 +38,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retry
 
 describe('browser requirement', () => {
   it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('has a browser when REELFORGE_REQUIRE_BROWSER=1', () => {
-    expect(hasBrowser, 'set REELFORGE_CHROMIUM_PATH to a Chrome Headless Shell binary').toBe(true);
+    expect(hasBrowser, 'set RENDERWELD_CHROMIUM_PATH to a Chrome Headless Shell binary').toBe(true);
   });
 });
 

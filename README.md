@@ -48,12 +48,12 @@ claude mcp add --transport http renderweld http://127.0.0.1:4321/mcp \
 Or with Docker (`docs/DEPLOY.md`):
 
 ```bash
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)    # required; keep a copy
-export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
-docker compose up -d --build      # then use $REELFORGE_BOOTSTRAP_KEY as the admin key
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)    # required; keep a copy
+export RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+docker compose up -d --build      # then use $RENDERWELD_BOOTSTRAP_KEY as the admin key
 ```
 
-Developers: `pnpm typecheck`, `pnpm test` (`RENDERWELD_REQUIRE_BROWSER=1` in
+Developers: `pnpm typecheck`, `pnpm test` (`REELFORGE_REQUIRE_BROWSER=1` in
 CI), `pnpm spike` (standalone two-engine render). Local setup, test tiers,
 databases and running the studio next to the store site
 (`scripts/dev/both.sh`): [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). See also

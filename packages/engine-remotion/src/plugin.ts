@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs';
-import { browserVersion, envValue, type EnginePlugin } from '@renderweld/core';
+import { browserVersion, type EnginePlugin } from '@renderweld/core';
 import { TEMPLATES } from '@renderweld/project-schema';
 import { remotionVersion, renderRemotionScene } from './render';
 
 export interface RemotionEngineOptions {
-  /** Chrome Headless Shell binary; defaults to REELFORGE_CHROMIUM_PATH. */
+  /** Chrome Headless Shell binary; defaults to RENDERWELD_CHROMIUM_PATH. */
   browserExecutable?: string;
   /** Parallel browser tabs per render. */
   concurrency?: number;
@@ -12,7 +12,7 @@ export interface RemotionEngineOptions {
 
 /** The Remotion engine as a plugin (templates: kinetic-title, remotion-layout). */
 export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
-  const browser = () => opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH');
+  const browser = () => opts.browserExecutable ?? process.env.RENDERWELD_CHROMIUM_PATH;
   return {
     id: 'remotion',
     displayName: 'Remotion',

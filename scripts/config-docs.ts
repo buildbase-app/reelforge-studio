@@ -8,7 +8,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { IMAGE_DEFAULTS_ENV, SETTINGS, envNames, isLegacyEnvName, type SettingDef } from '@renderweld/core';
+import { IMAGE_DEFAULTS_ENV, SETTINGS, envNames, type SettingDef } from '@renderweld/core';
 
 const out = join(dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'CONFIG.md');
 // Backslashes first, so an escaped pipe in the source cannot end a table cell.
@@ -21,13 +21,9 @@ function defaultText(d: SettingDef): string {
   return `\`${String(d.default)}\``;
 }
 
-/** The RENDERWELD_* name first, other aliases, then the old REELFORGE_* names as aliases (#412, docs/RENAMED.md). */
+/** The RENDERWELD_* name first, then other aliases. */
 function envText(d: SettingDef): string {
-  const code = (n: string) => `\`${n}\``;
-  const names = envNames(d);
-  const current = names.filter((n) => !isLegacyEnvName(n)).map(code).join(', ');
-  const legacy = names.filter(isLegacyEnvName);
-  const text = legacy.length ? `${current}; old name${legacy.length > 1 ? 's' : ''} ${legacy.map(code).join(', ')}` : current;
+  const text = envNames(d).map((n) => `\`${n}\``).join(', ');
   return d.secret ? `${text} (each also as \`_FILE\`)` : text;
 }
 
@@ -54,32 +50,27 @@ const lines: string[] = [
   'Precedence, lowest to highest (D-029):',
   '',
   '1. **default** (below)',
-  '2. **file**: the YAML or JSON file named by `RENDERWELD_CONFIG` (old name `REELFORGE_CONFIG`), nested by key',
+  '2. **file**: the YAML or JSON file named by `RENDERWELD_CONFIG`, nested by key',
   '   (`limits.rateLimitPerMinute` is `limits: { rateLimitPerMinute: 120 }`); unknown keys are refused',
-  '3. **env**: the environment variables below; the `RENDERWELD_` name wins over older aliases;',
+  '3. **env**: the environment variables below; the `RENDERWELD_` name wins over other aliases;',
   '   every secret can also be read from a file named by `<NAME>_FILE` (Docker/Kubernetes secrets)',
-  '',
-  '**Renamed from ReelForge** ([RENAMED.md](RENAMED.md)): every `RENDERWELD_*` variable below also works under its old',
-  'name `REELFORGE_*` (and `REELFORGE_*_FILE`). The old name alone logs one warning at start naming the new one; both',
-  'names set to different values stop the server with an error naming both; both set to the same value is fine.',
-  'The old names keep working until a removal date announced in the release notes, at least 90 days after the rename ships.',
   '4. **runtime**: values set over the API (`PATCH /v1/config`, MCP `update_config`, admin scope), stored in the',
   '   database; only settings with scope **runtime**. `null` clears a runtime value.',
   '',
   '**Release images** (the published Docker image, D-039) fix `licence.mode` (`required`), `licence.serverUrl` and',
   '`licence.orgId` at build time: their source is **build**, and a config file, environment variable or',
   '`update_config` that tries to change them is refused (`build_locked_setting`). Builds from source (`pnpm dev`,',
-  '`--build-arg REELFORGE_EDITION=dev`) keep every setting configurable; `licence.mode: off` there is for',
+  '`--build-arg RENDERWELD_EDITION=dev`) keep every setting configurable; `licence.mode: off` there is for',
   'noncommercial development only (LICENSING.md).',
   '',
   'Scope **startup** settings are read once at start; changing them at runtime is refused with an error that says',
   'where to set them. `GET /v1/config` / MCP `get_config` show each effective value and its source; secrets show',
-  'only `set` / `not set`. Secrets set at runtime are stored encrypted (AES-256-GCM) with `REELFORGE_SECRET_KEY`;',
+  'only `set` / `not set`. Secrets set at runtime are stored encrypted (AES-256-GCM) with `RENDERWELD_SECRET_KEY`;',
   'without it the server refuses to store them. Check a configuration without starting the server:',
   '`renderweld config check [--file PATH]`; print the effective one: `renderweld config show` (both name the variable that',
-  'supplied each value; `reelforge` is the old name of the command).',
+  'supplied each value).',
   '',
-  'Example `renderweld.yaml` (any file name works; `reelforge.yaml` too):',
+  'Example `renderweld.yaml` (any file name works):',
   '',
   '```yaml',
   'server:',
@@ -107,9 +98,9 @@ lines.push(
   '',
   '| Env | Description |',
   '| --- | --- |',
-  '| `RENDERWELD_CONFIG`; old name `REELFORGE_CONFIG` | Path of the config file (YAML or JSON). Both set to different files is an error. |',
-  `| \`${IMAGE_DEFAULTS_ENV}\` | Set by the Docker image: its own defaults (\`NAME=value\`, space-separated), which give way to any value set under either name. |`,
-  '| `RENDERWELD_LICENCE_KEY_INPUT`; old name `REELFORGE_LICENCE_KEY_INPUT` | The key for `renderweld licence activate` when none is given on the command line. |',
+  '| `RENDERWELD_CONFIG` | Path of the config file (YAML or JSON). |',
+  `| \`${IMAGE_DEFAULTS_ENV}\` | Set by the Docker image: its own defaults (\`NAME=value\`, space-separated), which give way to any value set under any of the setting\'s names. |`,
+  '| `RENDERWELD_LICENCE_KEY_INPUT` | The key for `renderweld licence activate` when none is given on the command line. |',
   '| Provider settings declared by plugins | Set with `configure_provider` / `PUT /v1/providers/:id/config` (stored encrypted, like `providers.*`) or the environment variable the provider names. |',
   '| `HYPERFRAMES_NO_TELEMETRY`, `DO_NOT_TRACK`, `CHECKPOINT_DISABLE` | Telemetry opt-outs for third-party tools, set in the Docker image. |',
   ''

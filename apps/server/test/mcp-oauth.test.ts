@@ -8,7 +8,7 @@ import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories, createMemoryWorkspaceRepositories, runInWorkspace, type Repositories } from '@renderweld/core';
+import { PluginRegistry, RenderWeldService, createMemoryRepositories, createMemoryWorkspaceRepositories, runInWorkspace, type Repositories } from '@renderweld/core';
 import { createApp, loadConfig } from '../src/index';
 import { OAuthVerifier, looksLikeJwt, resourceMetadataUrl, scopesFromClaims } from '../src/oauth';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
@@ -45,7 +45,7 @@ class MockIssuer {
     const alg = o.alg ?? 'RS256';
     const now = Math.floor(Date.now() / 1000);
     const header = { alg, typ: 'at+jwt', kid: o.kid ?? (alg === 'ES256' ? 'ec-1' : 'rsa-1') };
-    const body = { iss: ISSUER, aud: AUDIENCE, sub: 'user-42', client_id: 'claude-desktop', iat: now, exp: now + 300, scope: 'reelforge:read', ...claims };
+    const body = { iss: ISSUER, aud: AUDIENCE, sub: 'user-42', client_id: 'claude-desktop', iat: now, exp: now + 300, scope: 'renderweld:read', ...claims };
     const enc = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
     const input = `${enc(header)}.${enc(body)}`;
     const key = o.key ?? (alg === 'ES256' ? this.ec.privateKey : this.rsa.privateKey);
@@ -58,13 +58,13 @@ const rpc = (method: string, params: Record<string, unknown> = {}) => JSON.strin
 
 async function setup(env: Record<string, string>, issuer?: MockIssuer, repositories: Repositories = createMemoryRepositories()) {
   const config = loadConfig({
-    REELFORGE_DATA_DIR: join(dir, `d${Math.random().toString(36).slice(2)}`),
-    REELFORGE_PUBLIC_URL: 'https://studio.example.com',
-    REELFORGE_SECRET_KEY: 'mcp-oauth-secret-key-0123456789abcdef',
-    REELFORGE_LICENCE_MODE: 'off',
+    RENDERWELD_DATA_DIR: join(dir, `d${Math.random().toString(36).slice(2)}`),
+    RENDERWELD_PUBLIC_URL: 'https://studio.example.com',
+    RENDERWELD_SECRET_KEY: 'mcp-oauth-secret-key-0123456789abcdef',
+    RENDERWELD_LICENCE_MODE: 'off',
     ...env,
   });
-  const service = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), {
+  const service = await RenderWeldService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), {
     repositories,
     dataDir: config.dataDir,
     publicUrl: config.publicUrl,
@@ -85,7 +85,7 @@ describe('MCP OAuth 2.1 resource server', () => {
   const issuer = new MockIssuer();
   let s: Awaited<ReturnType<typeof setup>>;
   beforeAll(async () => {
-    s = await setup({ REELFORGE_MCP_OAUTH_ISSUER: ISSUER }, issuer);
+    s = await setup({ RENDERWELD_MCP_OAUTH_ISSUER: ISSUER }, issuer);
   });
 
   it('OAUTH-01 protected-resource metadata (RFC 9728) names the issuer, the resource and the scopes', async () => {
@@ -95,8 +95,8 @@ describe('MCP OAuth 2.1 resource server', () => {
       expect(await r.json()).toMatchObject({
         resource: AUDIENCE,
         authorization_servers: [ISSUER],
-        // The RenderWeld scope names first, the old ReelForge names still accepted (#413).
-        scopes_supported: ['renderweld:read', 'renderweld:write', 'renderweld:render', 'renderweld:approve', 'renderweld:admin', 'renderweld:owner', 'reelforge:read', 'reelforge:write', 'reelforge:render', 'reelforge:admin', 'reelforge:owner'],
+        // Only the RenderWeld scope names; the old reelforge:* names are gone (D-140).
+        scopes_supported: ['renderweld:read', 'renderweld:write', 'renderweld:render', 'renderweld:approve', 'renderweld:admin', 'renderweld:owner'],
         resource_name: 'RenderWeld MCP',
         bearer_methods_supported: ['header'],
       });
@@ -128,7 +128,7 @@ describe('MCP OAuth 2.1 resource server', () => {
     expect(JSON.stringify(await write.json())).toMatch(/scope|forbidden/i);
   });
 
-  it('OAUTH-04 refused tokens: wrong audience, wrong issuer, expired, bad signature, alg none / HS256, no ReelForge scope', async () => {
+  it('OAUTH-04 refused tokens: wrong audience, wrong issuer, expired, bad signature, alg none / HS256, no RenderWeld scope', async () => {
     const cases: Array<[string, string, number, RegExp]> = [
       ['audience', issuer.token({ aud: 'https://other.example.com/mcp' }), 401, /not for this server/],
       ['issuer', issuer.token({ iss: 'https://evil.example.test' }), 401, /wrong issuer/],
@@ -136,7 +136,7 @@ describe('MCP OAuth 2.1 resource server', () => {
       ['signature', issuer.token({}, { key: issuer.stranger.privateKey }), 401, /bad signature/],
       ['none', issuer.token({}, { alg: 'none' }), 401, /not accepted/],
       ['HS256', issuer.token({}, { alg: 'HS256' }).replace(/\.[^.]*$/, '.c2ln'), 401, /not accepted/],
-      ['scope', issuer.token({ scope: 'openid profile' }), 403, /none of renderweld:read, .*reelforge:read/],
+      ['scope', issuer.token({ scope: 'openid profile' }), 403, /none of renderweld:read, renderweld:write, renderweld:render, renderweld:approve, renderweld:admin, renderweld:owner$/],
     ];
     for (const [name, token, status, message] of cases) {
       const r = await s.mcp(token);
@@ -167,14 +167,14 @@ describe('MCP OAuth 2.1 resource server', () => {
 
   it('OAUTH-09 workspaces (#304): a token acts in the default workspace, never in another, and is never an owner', async () => {
     const repos = createMemoryWorkspaceRepositories();
-    const w = await setup({ REELFORGE_MCP_OAUTH_ISSUER: ISSUER }, issuer, repos);
+    const w = await setup({ RENDERWELD_MCP_OAUTH_ISSUER: ISSUER }, issuer, repos);
     await repos.workspaces.create({ id: 'alpha', name: 'alpha', status: 'active', createdAt: new Date().toISOString() });
     repos.invalidateWorkspaces();
     const reel = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
     // This server has the Remotion engine only.
     const sample = { ...reel, projectId: 'alpha-only-oauth', scenes: reel.scenes.filter((x: { engine: string }) => x.engine === 'remotion') };
     await runInWorkspace('alpha', () => w.service.createProject(sample));
-    const admin = issuer.token({ scope: 'reelforge:read reelforge:write reelforge:admin' });
+    const admin = issuer.token({ scope: 'renderweld:read renderweld:write renderweld:admin' });
     const call = async (name: string, args: Record<string, unknown> = {}) => {
       const r = await w.mcp(admin, 'tools/call', { name, arguments: args });
       expect(r.status, name).toBe(200);
@@ -189,7 +189,7 @@ describe('MCP OAuth 2.1 resource server', () => {
       expect(r.isError, name).toBe(true);
       expect(JSON.parse(r.text).error.code, name).toBe('not_found');
     }
-    // reelforge:admin is a workspace admin: instance settings need the owner scope (reelforge:owner, OAUTH-10).
+    // renderweld:admin is a workspace admin: instance settings need the owner scope (renderweld:owner, OAUTH-10).
     const cfg = await call('get_config');
     expect(JSON.parse(cfg.text).error.code).toBe('forbidden');
     // What the token writes lands in the default workspace.
@@ -199,16 +199,16 @@ describe('MCP OAuth 2.1 resource server', () => {
     expect(await repos.forWorkspace('alpha').projects.get('alpha-only-oauth')).not.toBeNull();
   });
 
-  it('OAUTH-10 reelforge:owner makes a token the instance owner; reelforge:admin alone does not (#304)', async () => {
-    const w = await setup({ REELFORGE_MCP_OAUTH_ISSUER: ISSUER }, issuer, createMemoryWorkspaceRepositories());
+  it('OAUTH-10 renderweld:owner makes a token the instance owner; renderweld:admin alone does not (#304)', async () => {
+    const w = await setup({ RENDERWELD_MCP_OAUTH_ISSUER: ISSUER }, issuer, createMemoryWorkspaceRepositories());
     const call = async (token: string, name: string, args: Record<string, unknown> = {}) => {
       const r = await w.mcp(token, 'tools/call', { name, arguments: args });
       expect(r.status, name).toBe(200);
       const body = (await r.json()) as { result: { isError?: boolean; content: Array<{ text: string }> } };
       return { isError: body.result.isError, json: JSON.parse(body.result.content[0]!.text) };
     };
-    const admin = issuer.token({ scope: 'reelforge:read reelforge:admin' });
-    const owner = issuer.token({ scope: 'reelforge:owner' });
+    const admin = issuer.token({ scope: 'renderweld:read renderweld:admin' });
+    const owner = issuer.token({ scope: 'renderweld:owner' });
     for (const name of ['get_config', 'list_workspaces', 'get_storage']) {
       expect((await call(admin, name)).json.error?.code, name).toBe('forbidden');
       const r = await call(owner, name);
@@ -220,19 +220,19 @@ describe('MCP OAuth 2.1 resource server', () => {
     expect(JSON.stringify((await call(owner, 'get_config', { prefix: 'limits.rateLimitPerMinute' })).json)).toContain('777');
     // The metadata advertises it.
     const meta = (await (await w.app.request('/.well-known/oauth-protected-resource', { headers: { host: 'studio.example.com' } })).json()) as { scopes_supported: string[] };
-    expect(meta.scopes_supported).toContain('reelforge:owner');
+    expect(meta.scopes_supported).toContain('renderweld:owner');
   });
 
   it('OAUTH-11 security.oauth.workspaceClaim (#479): a token acts in the workspace its claim names; no claim, an unknown or a deleted workspace is 401, a suspended one 403', async () => {
     const repos = createMemoryWorkspaceRepositories();
-    const w = await setup({ REELFORGE_MCP_OAUTH_ISSUER: ISSUER, REELFORGE_MCP_OAUTH_WORKSPACE_CLAIM: 'renderweld_workspace' }, issuer, repos);
+    const w = await setup({ RENDERWELD_MCP_OAUTH_ISSUER: ISSUER, RENDERWELD_MCP_OAUTH_WORKSPACE_CLAIM: 'renderweld_workspace' }, issuer, repos);
     for (const id of ['alpha', 'beta', 'paused', 'gone']) await repos.workspaces.create({ id, name: id, status: id === 'paused' ? 'suspended' : id === 'gone' ? 'deleted' : 'active', createdAt: new Date().toISOString() });
     repos.invalidateWorkspaces();
     const reel = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
     const sample = { ...reel, scenes: reel.scenes.filter((x: { engine: string }) => x.engine === 'remotion') };
     await runInWorkspace('alpha', () => w.service.createProject({ ...sample, projectId: 'alpha-reel' }));
     await runInWorkspace('beta', () => w.service.createProject({ ...sample, projectId: 'beta-reel' }));
-    const scope = 'reelforge:read reelforge:write';
+    const scope = 'renderweld:read renderweld:write';
     const call = async (token: string, name: string, args: Record<string, unknown> = {}) => {
       const r = await w.mcp(token, 'tools/call', { name, arguments: args });
       expect(r.status, name).toBe(200);
@@ -268,9 +268,9 @@ describe('MCP OAuth 2.1 resource server', () => {
   });
 
   it('OAUTH-12 security.oauth.blockedSubjects (#479): a blocked subject is refused at once, others are not, and unblocking restores it', async () => {
-    const w = await setup({ REELFORGE_MCP_OAUTH_ISSUER: ISSUER }, issuer);
-    const lost = issuer.token({ sub: 'lost-laptop', scope: 'reelforge:read' });
-    const other = issuer.token({ sub: 'still-fine', scope: 'reelforge:read' });
+    const w = await setup({ RENDERWELD_MCP_OAUTH_ISSUER: ISSUER }, issuer);
+    const lost = issuer.token({ sub: 'lost-laptop', scope: 'renderweld:read' });
+    const other = issuer.token({ sub: 'still-fine', scope: 'renderweld:read' });
     expect((await w.mcp(lost)).status).toBe(200);
     await w.service.updateConfig({ 'security.oauth.blockedSubjects': ['lost-laptop'] });
     const refused = await w.mcp(lost);
@@ -285,12 +285,13 @@ describe('MCP OAuth 2.1 resource server', () => {
     await expect(w.service.updateConfig({ 'security.oauth.blockedSubjects': ['a b'] })).rejects.toThrow();
   });
 
-  it('OAUTH-06 scopes come from `scope` or `scp`; only renderweld:* and the old reelforge:* values count', () => {
-    expect(scopesFromClaims({ scope: 'openid reelforge:read reelforge:admin' })).toEqual(['read', 'admin']);
-    expect(scopesFromClaims({ scp: ['reelforge:write', 'read'] })).toEqual(['write']);
-    expect(scopesFromClaims({ scope: 'openid renderweld:read renderweld:render' })).toEqual(['read', 'render']);
-    expect(scopesFromClaims({ scp: ['renderweld:admin', 'reelforge:admin', 'renderweld:write'] })).toEqual(['admin', 'write']);
+  it('OAUTH-06 scopes come from `scope` or `scp`; only renderweld:* values count, the old reelforge:* ones grant nothing (D-140)', () => {
+    expect(scopesFromClaims({ scope: 'openid renderweld:read renderweld:admin' })).toEqual(['read', 'admin']);
+    expect(scopesFromClaims({ scp: ['renderweld:write', 'read'] })).toEqual(['write']);
+    expect(scopesFromClaims({ scp: ['renderweld:admin', 'renderweld:admin', 'renderweld:write'] })).toEqual(['admin', 'write']);
     expect(scopesFromClaims({ scope: 'renderweld:owner' })).toEqual(['owner']);
+    expect(scopesFromClaims({ scope: 'openid reelforge:read reelforge:admin' })).toEqual([]);
+    expect(scopesFromClaims({ scp: ['reelforge:owner', 'renderweld:read'] })).toEqual(['read']);
     expect(scopesFromClaims({ scope: 'read write' })).toEqual([]);
     expect(looksLikeJwt('rf_abcdefghijklmnopqrstuvwxyz')).toBe(false);
   });
@@ -308,6 +309,6 @@ describe('without OAuth', () => {
   });
 
   it('OAUTH-08 an issuer without an audience or public URL is a configuration error', () => {
-    expect(() => loadConfig({ REELFORGE_MCP_OAUTH_ISSUER: ISSUER })).toThrow(/security\.oauth\.audience/);
+    expect(() => loadConfig({ RENDERWELD_MCP_OAUTH_ISSUER: ISSUER })).toThrow(/security\.oauth\.audience/);
   });
 });

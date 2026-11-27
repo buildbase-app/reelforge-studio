@@ -1,11 +1,11 @@
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories } from '../src/index';
+import { PluginRegistry, RenderWeldService, createMemoryRepositories } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
 
 /** The contact sheet stored with every render and preview (#379, render.contactSheet.*). */
 const { dir, cleanup } = tempDir('renderweld-contactsheet-');
-let svc: ReelforgeService;
+let svc: RenderWeldService;
 afterAll(async () => {
   await svc?.jobs.shutdown(0);
   await svc?.stop();
@@ -14,7 +14,7 @@ afterAll(async () => {
 
 beforeAll(async () => {
   const registry = new PluginRegistry().registerEngine(fakeEngine('remotion', { frameRanges: true }));
-  svc = await ReelforgeService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), configSources: { env: { REELFORGE_LICENCE_MODE: 'off', REELFORGE_RENDER_QA_SEEK_FRAMES: '0' } } });
+  svc = await RenderWeldService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), configSources: { env: { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_RENDER_QA_SEEK_FRAMES: '0' } } });
   await svc.createProject({
     schemaVersion: '0.1',
     projectId: 'sheet',

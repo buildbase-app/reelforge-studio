@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { ApiError, OLD_SERVER_NAMES, PRIORITIES, PRODUCT_NAME, ReelforgeService, SERVER_NAME, SERVER_TITLE, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@renderweld/core';
+import { ApiError, PRIORITIES, PRODUCT_NAME, RenderWeldService, SERVER_NAME, SERVER_TITLE, currentRequest, hasScope, runWithRequest, type AuthContext, type Scope } from '@renderweld/core';
 import { auditAction, auditTarget } from './audit';
 import { CUE_KINDS, SCHEMA_VERSION, captionCue, languageTag, renderAudioOptions, templateDurationLabel } from '@renderweld/project-schema';
 import { z } from 'zod';
@@ -11,7 +11,7 @@ import { resourceMetadataUrl } from './oauth';
 import { findSkill, skillMarkdown, skillNames, skillsFor, skillsIndex, skillSummary } from './skills/index';
 
 /**
- * MCP tools are thin wrappers over ReelforgeService (the same methods the REST
+ * MCP tools are thin wrappers over RenderWeldService (the same methods the REST
  * routes call). Names are experimental until v1.0 (docs/AGENT_PLATFORM.md §7).
  */
 
@@ -24,9 +24,9 @@ interface ToolDef {
   scope: Scope;
   input: Shape;
   annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean };
-  run(args: any, ctx: { service: ReelforgeService; auth: AuthContext; config: ServerConfig }): Promise<unknown>;
+  run(args: any, ctx: { service: RenderWeldService; auth: AuthContext; config: ServerConfig }): Promise<unknown>;
   /** Optional extra content (e.g. a poster image). */
-  extra?(result: any, args: any, ctx: { service: ReelforgeService }): Promise<CallToolResult['content']>;
+  extra?(result: any, args: any, ctx: { service: RenderWeldService }): Promise<CallToolResult['content']>;
 }
 
 const projectId = z.string().describe('Project id (the manifest\'s projectId).');
@@ -35,7 +35,7 @@ const projectId = z.string().describe('Project id (the manifest\'s projectId).')
 const framePaths = new WeakMap<object, string[]>();
 
 /** The render id from renderId, or from jobId once that job has succeeded. */
-async function renderIdOf(service: ReelforgeService, renderId: string | undefined, jobId: string | undefined): Promise<string> {
+async function renderIdOf(service: RenderWeldService, renderId: string | undefined, jobId: string | undefined): Promise<string> {
   if (renderId) return renderId;
   if (jobId) {
     const job = await service.getJob(jobId);
@@ -125,7 +125,7 @@ const auditFilter = {
   result: z.enum(['success', 'failure', 'denied']).optional(),
 };
 
-const timing = (m: Parameters<typeof ReelforgeService.sceneTiming>[0]) => ReelforgeService.sceneTiming(m);
+const timing = (m: Parameters<typeof RenderWeldService.sceneTiming>[0]) => RenderWeldService.sceneTiming(m);
 
 export const TOOLS: ToolDef[] = [
   {
@@ -800,7 +800,7 @@ export const TOOLS: ToolDef[] = [
     name: 'configure_provider',
     title: 'Configure a media provider (owner)',
     description:
-      'Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider\'s setting names). Values are stored encrypted in the server database (needs REELFORGE_SECRET_KEY on the server) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the owner scope (instance-level, #304). Only do this with a key the user gave you for this purpose.',
+      'Sets or clears a provider setting such as ELEVENLABS_API_KEY (see list_providers for each provider\'s setting names). Values are stored encrypted in the server database (needs RENDERWELD_SECRET_KEY on the server) and never returned; list_providers then shows set: true and source "api". Use null to clear a value (the environment variable, if any, applies again). Needs the owner scope (instance-level, #304). Only do this with a key the user gave you for this purpose.',
     scope: 'owner',
     input: {
       providerId: z.string(),
@@ -813,7 +813,7 @@ export const TOOLS: ToolDef[] = [
     name: 'configure_workspace_provider',
     title: "Configure your workspace's own provider account",
     description:
-      'Sets or clears your workspace\'s own setting for a provider, such as its ELEVENLABS_API_KEY (#480). Your workspace\'s provider calls then use that account (its bill, its voices, its data terms); no other workspace ever sees or uses it, and clearing it falls back to the instance\'s settings only when the operator shares them (providers.shareWithWorkspaces). Stored encrypted (needs REELFORGE_SECRET_KEY on the server), never returned; list_providers then shows settingsFrom "workspace". Only providers with perWorkspace: true accept it. Needs the admin scope of the workspace. Only do this with a key the user gave you for this purpose.',
+      'Sets or clears your workspace\'s own setting for a provider, such as its ELEVENLABS_API_KEY (#480). Your workspace\'s provider calls then use that account (its bill, its voices, its data terms); no other workspace ever sees or uses it, and clearing it falls back to the instance\'s settings only when the operator shares them (providers.shareWithWorkspaces). Stored encrypted (needs RENDERWELD_SECRET_KEY on the server), never returned; list_providers then shows settingsFrom "workspace". Only providers with perWorkspace: true accept it. Needs the admin scope of the workspace. Only do this with a key the user gave you for this purpose.',
     scope: 'admin',
     input: {
       providerId: z.string(),
@@ -825,7 +825,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_config',
     title: 'Get the server configuration (owner)',
     description:
-      'Returns every server setting with its effective value and where it comes from: source "default", "file" (REELFORGE_CONFIG), "env" (origin names the variable) or "runtime" (set with update_config, stored in the database; wins over the others). scope "runtime" settings can be changed with update_config; scope "startup" ones only in the config file or environment, then a restart. Secrets are only "set" / "not set". Optional prefix filters keys, e.g. "limits". Needs the owner scope (instance-level, #304).',
+      'Returns every server setting with its effective value and where it comes from: source "default", "file" (RENDERWELD_CONFIG), "env" (origin names the variable) or "runtime" (set with update_config, stored in the database; wins over the others). scope "runtime" settings can be changed with update_config; scope "startup" ones only in the config file or environment, then a restart. Secrets are only "set" / "not set". Optional prefix filters keys, e.g. "limits". Needs the owner scope (instance-level, #304).',
     scope: 'owner',
     input: { prefix: z.string().optional().describe('Only keys under this group, e.g. "limits" or "providers.elevenlabs".') },
     annotations: { readOnlyHint: true },
@@ -835,7 +835,7 @@ export const TOOLS: ToolDef[] = [
     name: 'update_config',
     title: 'Change runtime settings (owner)',
     description:
-      'Changes runtime settings at once and stores them in the database (they survive restarts and override the config file and environment). settings maps dotted keys from get_config to values, e.g. { "limits.rateLimitPerMinute": 120 }; null clears a runtime value (the file/env/default applies again). All or nothing: start-up-only keys (port, database URL, data directory, ...) are refused with where to set them. Secrets (provider keys, licence key) are stored encrypted and need REELFORGE_SECRET_KEY on the server. Every change is audit-logged. Needs the owner scope (instance-level, #304). Only change what the user asked for.',
+      'Changes runtime settings at once and stores them in the database (they survive restarts and override the config file and environment). settings maps dotted keys from get_config to values, e.g. { "limits.rateLimitPerMinute": 120 }; null clears a runtime value (the file/env/default applies again). All or nothing: start-up-only keys (port, database URL, data directory, ...) are refused with where to set them. Secrets (provider keys, licence key) are stored encrypted and need RENDERWELD_SECRET_KEY on the server. Every change is audit-logged. Needs the owner scope (instance-level, #304). Only change what the user asked for.',
     scope: 'owner',
     input: {
       settings: z.record(z.string(), z.unknown()).describe('Dotted setting key -> new value (JSON type of the setting), or null to clear the runtime value.'),
@@ -891,7 +891,7 @@ export const TOOLS: ToolDef[] = [
     name: 'activate_licence',
     title: 'Set and activate the licence key (owner)',
     description:
-      'Stores the licence key (encrypted; needs REELFORGE_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the owner scope (instance-level, #304).',
+      'Stores the licence key (encrypted; needs RENDERWELD_SECRET_KEY on the server) and activates it for this server with the licence server, then returns the status (see get_licence). Without key, the configured key is activated or checked again (e.g. after a network outage or deactivate_licence). Only the key and a random instance id are sent. Only do this with a key the user gave you. Needs the owner scope (instance-level, #304).',
     scope: 'owner',
     input: { key: z.string().optional().describe('The licence key from the RenderWeld purchase, e.g. "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2". Omit to re-check the configured key.') },
     annotations: { openWorldHint: true, idempotentHint: true },
@@ -1254,16 +1254,11 @@ export const TOOLS: ToolDef[] = [
   },
 ];
 
-/**
- * MCP resource URIs (#412): `renderweld://` is the scheme; the old
- * `reelforge://` answers every URI too until a removal date announced in the
- * release notes (docs/RENAMED.md). Tool and prompt names do not change.
- */
+/** MCP resource URIs: `renderweld://<path>`. */
 export const RESOURCE_SCHEME = 'renderweld';
-export const RESOURCE_SCHEMES = ['renderweld', 'reelforge'] as const;
 export const resourceUri = (path: string) => `${RESOURCE_SCHEME}://${path}`;
 
-/** The resources, by path under either scheme. */
+/** The resources, by path. */
 export const RESOURCES = [
   { name: 'workflow-guide', path: 'guide/workflow', title: 'How to make a reel with these tools', description: 'Step-by-step workflow, a minimal manifest and rules of thumb. Read this first if you have no other docs.', mimeType: 'text/markdown' },
   { name: 'project-schema', path: 'schema/project', title: 'Project manifest JSON Schema', description: 'JSON Schema of the current manifest version.', mimeType: 'application/json' },
@@ -1274,7 +1269,7 @@ export const RESOURCES = [
 ] as const;
 export type ResourcePath = (typeof RESOURCES)[number]['path'];
 
-/** Served as the resource renderweld://guide/workflow (and reelforge://guide/workflow) and inside the make_reel prompt. */
+/** Served as the resource renderweld://guide/workflow (and renderweld://guide/workflow) and inside the make_reel prompt. */
 /**
  * The essentials of a video brief (#313): what the brief_intake prompt has an agent ask when the request leaves
  * them open, and where each answer goes. The studio asks; the user or agent decides.
@@ -1418,7 +1413,7 @@ const DELIVERY_CHECKLIST = [
   'get_frames on the preview or render: every scene and both sides of every cut look right at phone size; no text outside the safe area (overlay "safe"), cut off or too small.',
 ];
 
-function buildServer(service: ReelforgeService, auth: AuthContext, config: ServerConfig): McpServer {
+function buildServer(service: RenderWeldService, auth: AuthContext, config: ServerConfig): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, title: SERVER_TITLE, version: service.serverVersion },
     {
@@ -1487,7 +1482,6 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
     if (!hasScope(auth, 'read')) throw new ApiError('forbidden', 403, 'this API key lacks the "read" scope');
   };
 
-  // Every resource answers under renderweld:// (the name) and the old reelforge:// (#412, RESOURCES).
   const read = {
     'schema/project': async () => {
       requireRead();
@@ -1501,55 +1495,43 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
     skills: async () => skillsIndex(skillsFor(config.skillsDir), (name) => resourceUri(`skills/${name}`)),
   } satisfies Record<Exclude<ResourcePath, 'projects/{id}' | 'skills/{name}'>, () => Promise<string>>;
   for (const r of RESOURCES) {
-    for (const scheme of RESOURCE_SCHEMES) {
-      const legacy = scheme !== RESOURCE_SCHEME;
-      const name = legacy ? `${r.name}-${scheme}` : r.name;
-      const meta = {
-        title: legacy ? `${r.title} (old URI)` : r.title,
-        description: legacy ? `Same as ${resourceUri(r.path)}; the old ${scheme}:// URI keeps working until a removal date announced in the release notes (docs/RENAMED.md).` : r.description,
-        mimeType: r.mimeType,
-      };
-      if (r.path === 'projects/{id}') {
-        server.registerResource(
-          name,
-          new ResourceTemplate(`${scheme}://${r.path}`, {
-            // Listed once, under the new scheme; the old one still reads every project.
-            list: legacy
-              ? undefined
-              : async () => {
-                  requireRead();
-                  return {
-                    // The newest 200 (one page, D-102): this list callback gets no cursor; list_projects pages through all.
-                    resources: (await service.listProjects({ limit: 200 })).projects.map((p) => ({ uri: resourceUri(`projects/${p.id}`), name: p.title, mimeType: 'application/json' })),
-                  };
-                },
-          }),
-          meta,
-          async (uri, vars) => {
+    const meta = { title: r.title, description: r.description, mimeType: r.mimeType };
+    if (r.path === 'projects/{id}') {
+      server.registerResource(
+        r.name,
+        new ResourceTemplate(resourceUri(r.path), {
+          list: async () => {
             requireRead();
-            const p = await service.getProject(String(vars.id));
-            return { contents: [{ uri: uri.href, mimeType: r.mimeType, text: JSON.stringify(p, null, 2) }] };
-          }
-        );
-      } else if (r.path === 'skills/{name}') {
-        server.registerResource(
-          name,
-          new ResourceTemplate(`${scheme}://${r.path}`, {
-            // Listed once, under the new scheme.
-            list: legacy ? undefined : async () => ({ resources: skillsFor(config.skillsDir).map((s) => ({ uri: resourceUri(`skills/${s.name}`), name: s.title, description: s.description, mimeType: r.mimeType })) }),
-          }),
-          meta,
-          async (uri, vars) => {
-            const skills = skillsFor(config.skillsDir);
-            const s = findSkill(skills, String(vars.name));
-            if (!s) throw new ApiError('not_found', 404, `no skill "${String(vars.name)}"; skills: ${skillNames(skills)}`);
-            return { contents: [{ uri: uri.href, mimeType: r.mimeType, text: skillMarkdown(s) }] };
-          }
-        );
-      } else {
-        const text = read[r.path];
-        server.registerResource(name, `${scheme}://${r.path}`, meta, async (uri) => ({ contents: [{ uri: uri.href, mimeType: r.mimeType, text: await text() }] }));
-      }
+            return {
+              // The newest 200 (one page, D-102): this list callback gets no cursor; list_projects pages through all.
+              resources: (await service.listProjects({ limit: 200 })).projects.map((p) => ({ uri: resourceUri(`projects/${p.id}`), name: p.title, mimeType: 'application/json' })),
+            };
+          },
+        }),
+        meta,
+        async (uri, vars) => {
+          requireRead();
+          const p = await service.getProject(String(vars.id));
+          return { contents: [{ uri: uri.href, mimeType: r.mimeType, text: JSON.stringify(p, null, 2) }] };
+        }
+      );
+    } else if (r.path === 'skills/{name}') {
+      server.registerResource(
+        r.name,
+        new ResourceTemplate(resourceUri(r.path), {
+          list: async () => ({ resources: skillsFor(config.skillsDir).map((s) => ({ uri: resourceUri(`skills/${s.name}`), name: s.title, description: s.description, mimeType: r.mimeType })) }),
+        }),
+        meta,
+        async (uri, vars) => {
+          const skills = skillsFor(config.skillsDir);
+          const s = findSkill(skills, String(vars.name));
+          if (!s) throw new ApiError('not_found', 404, `no skill "${String(vars.name)}"; skills: ${skillNames(skills)}`);
+          return { contents: [{ uri: uri.href, mimeType: r.mimeType, text: skillMarkdown(s) }] };
+        }
+      );
+    } else {
+      const text = read[r.path];
+      server.registerResource(r.name, resourceUri(r.path), meta, async (uri) => ({ contents: [{ uri: uri.href, mimeType: r.mimeType, text: await text() }] }));
     }
   }
 
@@ -1670,7 +1652,7 @@ function buildServer(service: ReelforgeService, auth: AuthContext, config: Serve
  * Answer one MCP HTTP request. `parsedBody` is the JSON-RPC message (or batch) when the caller already read and
  * parsed the body (POST /mcp does, to charge the rate limit per message); the transport then does not read it again.
  */
-export async function handleMcp(req: Request, auth: AuthContext, service: ReelforgeService, config: ServerConfig, parsedBody?: unknown): Promise<Response> {
+export async function handleMcp(req: Request, auth: AuthContext, service: RenderWeldService, config: ServerConfig, parsedBody?: unknown): Promise<Response> {
   const server = buildServer(service, auth, config);
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);
@@ -1685,13 +1667,11 @@ export async function handleMcp(req: Request, auth: AuthContext, service: Reelfo
 }
 
 /** /.well-known/mcp.json */
-export function serverCard(service: ReelforgeService, config: ServerConfig) {
+export function serverCard(service: RenderWeldService, config: ServerConfig) {
   const base = config.publicUrl ?? `http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${config.port}`;
   return {
     name: SERVER_NAME,
     title: SERVER_TITLE,
-    // The old server name (#413): still listed until phase 7, so a client that matched on it finds this server.
-    aliases: [...OLD_SERVER_NAMES],
     version: service.serverVersion,
     description: 'Self-hosted video rendering for AI agents. Agents create and edit projects; the server renders and validates the video.',
     endpoint: `${base}/mcp`,
@@ -1710,8 +1690,6 @@ export function serverCard(service: ReelforgeService, config: ServerConfig) {
     schemaVersion: SCHEMA_VERSION,
     tools: TOOLS.map((t) => ({ name: t.name, title: t.title, scope: t.scope, status: 'experimental' })),
     resources: RESOURCES.map((r) => resourceUri(r.path)),
-    // The old URIs (#412): still answered, not listed in new docs.
-    resourceAliases: Object.fromEntries(RESOURCES.map((r) => [`reelforge://${r.path}`, resourceUri(r.path)])),
     prompts: ['brief_intake', 'make_reel', 'plan_reel', 'review_reel'],
     rest: { base: `${base}/v1`, capabilities: `${base}/v1/capabilities` },
   };

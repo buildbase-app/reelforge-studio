@@ -87,33 +87,33 @@ trap cleanup EXIT
 # match, docker logs then dies of SIGPIPE (exit 141) and the pipeline fails even
 # though the line is there (CI run 44916484714). Read the whole log, then grep.
 # docker compose interpolates the whole file, and the studio service requires
-# REELFORGE_SECRET_KEY (#305). This script only starts the database services
+# RENDERWELD_SECRET_KEY (#305). This script only starts the database services
 # from it, so compose gets a throwaway value; the studio containers below get
 # their real key from $WORK/secret/secretkey.
-compose() { REELFORGE_SECRET_KEY="${REELFORGE_SECRET_KEY:-e2e-compose-interpolation-only}" docker compose "$@"; }
+compose() { RENDERWELD_SECRET_KEY="${RENDERWELD_SECRET_KEY:-e2e-compose-interpolation-only}" docker compose "$@"; }
 
 logs_have() { local c=$1; shift; docker logs "$c" > "$WORK/container.log" 2>&1 || true; grep -q -- "$@" "$WORK/container.log"; }
 
 if [ "$EDITION" = release ]; then
-  EDITION_ARGS=(--build-arg REELFORGE_EDITION=release --build-arg LICENCE_SERVER_URL=http://licence:8080 --build-arg LICENCE_ORG_ID=$LIC_ORG)
+  EDITION_ARGS=(--build-arg RENDERWELD_EDITION=release --build-arg LICENCE_SERVER_URL=http://licence:8080 --build-arg LICENCE_ORG_ID=$LIC_ORG)
 else
-  EDITION_ARGS=(--build-arg REELFORGE_EDITION=dev)
+  EDITION_ARGS=(--build-arg RENDERWELD_EDITION=dev)
 fi
 [ "${SKIP_BUILD:-}" = 1 ] || docker build ${BUILD_ARGS:-} "${EDITION_ARGS[@]}" -t "$IMAGE" .
-echo "== image $IMAGE: edition $(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$IMAGE"), hardened run flags: $HARDENED"
-[ "$(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$IMAGE")" = "$EDITION" ] || { echo "✘ $IMAGE is not a $EDITION build"; exit 1; }
+echo "== image $IMAGE: edition $(docker image inspect -f '{{ index .Config.Labels "app.renderweld.edition" }}' "$IMAGE"), hardened run flags: $HARDENED"
+[ "$(docker image inspect -f '{{ index .Config.Labels "app.renderweld.edition" }}' "$IMAGE")" = "$EDITION" ] || { echo "✘ $IMAGE is not a $EDITION build"; exit 1; }
 # Rename (#413): the new edition label matches the old one, and the title says RenderWeld.
 [ "$(docker image inspect -f '{{ index .Config.Labels "app.renderweld.edition" }}' "$IMAGE")" = "$EDITION" ] || { echo "✘ $IMAGE has no app.renderweld.edition=$EDITION label"; exit 1; }
 [ "$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.title" }}' "$IMAGE")" = RenderWeld ] || { echo "✘ $IMAGE title label is not RenderWeld"; exit 1; }
 # The hardened run flags (docs/DEPLOY.md#hardening). The image's user is 10001:10001.
 # Chromium's sandbox is the image default (D-086): the hardened run sets no sandbox variable at
 # all; a plain `docker run` (HARDENED=0, Docker's default seccomp profile) needs the explicit opt-out.
-HARD=(-e REELFORGE_CHROMIUM_NO_SANDBOX=1)
+HARD=(-e RENDERWELD_CHROMIUM_NO_SANDBOX=1)
 [ "$HARDENED" = 1 ] && HARD=(--read-only --tmpfs /tmp:rw,nosuid,nodev,size=1g --cap-drop ALL --security-opt no-new-privileges
   --security-opt "seccomp=$PWD/deployment/seccomp/chrome.json")
 # A dev build gets the mock licence server from env; a release build has it baked in.
 LIC_ENV=()
-[ "$EDITION" = dev ] && LIC_ENV=(-e REELFORGE_LICENCE_SERVER_URL=http://licence:8080 -e REELFORGE_LICENCE_ORG_ID=$LIC_ORG)
+[ "$EDITION" = dev ] && LIC_ENV=(-e RENDERWELD_LICENCE_SERVER_URL=http://licence:8080 -e RENDERWELD_LICENCE_ORG_ID=$LIC_ORG)
 
 KEY=rf_$(openssl rand -hex 24)
 PLAIN_V01=sk_v01_plaintext_$(openssl rand -hex 8)
@@ -123,7 +123,7 @@ S3_ID=e2e$(openssl rand -hex 6) S3_SECRET=$(openssl rand -hex 20) S3_BUCKET=reel
 printf %s "$S3_ID" > "$WORK/secret/s3id"; printf %s "$S3_SECRET" > "$WORK/secret/s3secret"
 openssl rand -base64 32 > "$WORK/secret/secretkey"
 METRICS_TOKEN=$(openssl rand -hex 24); printf %s "$METRICS_TOKEN" > "$WORK/secret/metricstoken"
-# The config file (REELFORGE_CONFIG): one source of settings; env and runtime settings override it.
+# The config file (RENDERWELD_CONFIG): one source of settings; env and runtime settings override it.
 printf 'limits:\n  maxJsonBytes: 4194304\nlogging:\n  level: info\n' > "$WORK/config/reelforge.yaml"; chmod 644 "$WORK/config/reelforge.yaml"
 DBPASS=$(openssl rand -hex 16)
 case "$DB" in
@@ -143,20 +143,20 @@ cp e2e/mock-licence/server.mjs "$WORK/mock/"; chmod -R a+rX "$WORK/mock"
 start() {
   # The database is chosen by DATABASE_URL alone (here its _FILE variant, so the password stays out of `docker inspect`).
   local dbenv=(); [ "$DB" = sqlite ] || dbenv=(-v "$WORK/secret/dburl:/run/secrets/dburl:ro" -e DATABASE_URL_FILE=/run/secrets/dburl)
-  # STORAGE=s3: the MinIO settings are always there (for `reelforge storage migrate`); storage.driver picks the driver.
-  local s3env=(); [ "$STORAGE" = s3 ] && s3env=(-e REELFORGE_STORAGE_DRIVER=$STORAGE_DRIVER -e REELFORGE_S3_ENDPOINT=http://minio:9000 -e REELFORGE_S3_BUCKET=${S3_BUCKET_OVERRIDE:-$S3_BUCKET}
-    -e REELFORGE_S3_FORCE_PATH_STYLE=true -v "$WORK/secret/s3id:/run/secrets/s3id:ro" -e REELFORGE_S3_ACCESS_KEY_ID_FILE=/run/secrets/s3id
-    -v "$WORK/secret/s3secret:/run/secrets/s3secret:ro" -e REELFORGE_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3secret)
+  # STORAGE=s3: the MinIO settings are always there (for `renderweld storage migrate`); storage.driver picks the driver.
+  local s3env=(); [ "$STORAGE" = s3 ] && s3env=(-e RENDERWELD_STORAGE_DRIVER=$STORAGE_DRIVER -e RENDERWELD_S3_ENDPOINT=http://minio:9000 -e RENDERWELD_S3_BUCKET=${S3_BUCKET_OVERRIDE:-$S3_BUCKET}
+    -e RENDERWELD_S3_FORCE_PATH_STYLE=true -v "$WORK/secret/s3id:/run/secrets/s3id:ro" -e RENDERWELD_S3_ACCESS_KEY_ID_FILE=/run/secrets/s3id
+    -v "$WORK/secret/s3secret:/run/secrets/s3secret:ro" -e RENDERWELD_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3secret)
   docker run -d --name $NAME --network $NET --network-alias reelforge -p 127.0.0.1:$PORT:4321 --shm-size=1g "${HARD[@]}" \
-    -v $VOL:/data -v "$WORK/secret/key:/run/secrets/key:ro" -e REELFORGE_BOOTSTRAP_KEY_FILE=/run/secrets/key "${dbenv[@]}" \
-    -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secretkey \
-    -v "$WORK/secret/metricstoken:/run/secrets/metricstoken:ro" -e REELFORGE_METRICS_TOKEN_FILE=/run/secrets/metricstoken \
-    -v "$WORK/config/reelforge.yaml:/config/reelforge.yaml:ro" -e REELFORGE_CONFIG=/config/reelforge.yaml \
-    "${LIC_ENV[@]}" "${s3env[@]}" -e REELFORGE_AUDIT_SINKS=stdout,otlp -e REELFORGE_AUDIT_OTLP_ENDPOINT=http://otel:4318/v1/logs \
-    -e REELFORGE_ALLOWED_HOSTS=reelforge,reelforge:4321 \
-    -e REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS=true -e REELFORGE_WEBHOOKS_ALLOW_HTTP=true -e REELFORGE_SMTP_HOST=mailpit -e REELFORGE_SMTP_PORT=1025 -e REELFORGE_SMTP_SECURITY=none \
-    -e REELFORGE_RESEND_BASE_URL=http://receiver:8080/resend -e REELFORGE_POSTMARK_BASE_URL=http://receiver:8080/postmark -e REELFORGE_SENDGRID_BASE_URL=http://receiver:8080/sendgrid \
-    -e REELFORGE_SES_ENDPOINT=http://receiver:8080/ses "$IMAGE" >/dev/null
+    -v $VOL:/data -v "$WORK/secret/key:/run/secrets/key:ro" -e RENDERWELD_BOOTSTRAP_KEY_FILE=/run/secrets/key "${dbenv[@]}" \
+    -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e RENDERWELD_SECRET_KEY_FILE=/run/secrets/secretkey \
+    -v "$WORK/secret/metricstoken:/run/secrets/metricstoken:ro" -e RENDERWELD_METRICS_TOKEN_FILE=/run/secrets/metricstoken \
+    -v "$WORK/config/reelforge.yaml:/config/reelforge.yaml:ro" -e RENDERWELD_CONFIG=/config/reelforge.yaml \
+    "${LIC_ENV[@]}" "${s3env[@]}" -e RENDERWELD_AUDIT_SINKS=stdout,otlp -e RENDERWELD_AUDIT_OTLP_ENDPOINT=http://otel:4318/v1/logs \
+    -e RENDERWELD_ALLOWED_HOSTS=reelforge,reelforge:4321 \
+    -e RENDERWELD_WEBHOOKS_ALLOW_PRIVATE_NETWORKS=true -e RENDERWELD_WEBHOOKS_ALLOW_HTTP=true -e RENDERWELD_SMTP_HOST=mailpit -e RENDERWELD_SMTP_PORT=1025 -e RENDERWELD_SMTP_SECURITY=none \
+    -e RENDERWELD_RESEND_BASE_URL=http://receiver:8080/resend -e RENDERWELD_POSTMARK_BASE_URL=http://receiver:8080/postmark -e RENDERWELD_SENDGRID_BASE_URL=http://receiver:8080/sendgrid \
+    -e RENDERWELD_SES_ENDPOINT=http://receiver:8080/ses "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && return; sleep 2; done
   docker logs $NAME; echo "server did not become healthy"; exit 1
 }
@@ -225,8 +225,8 @@ echo "== container hardening"
 docker exec $NAME sh -c 'test ! -w /app && test ! -w /app/packages/core/src/index.ts' && echo "✔ the application files are not writable by the server user" || { echo "✘ /app is writable"; exit 1; }
 if [ "$HARDENED" = 1 ]; then
   hc=$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{json .HostConfig.SecurityOpt}}' $NAME)
-  # Docker keeps the seccomp profile inline in SecurityOpt; ours carries a "ReelForge:" comment.
-  case "$hc" in "true [ALL] "*no-new-privileges*"ReelForge: Chromium's namespace sandbox"*) echo "✔ --read-only, --cap-drop ALL, no-new-privileges, seccomp profile deployment/seccomp/chrome.json" ;;
+  # Docker keeps the seccomp profile inline in SecurityOpt; ours carries a "RenderWeld:" comment.
+  case "$hc" in "true [ALL] "*no-new-privileges*"RenderWeld: Chromium's namespace sandbox"*) echo "✔ --read-only, --cap-drop ALL, no-new-privileges, seccomp profile deployment/seccomp/chrome.json" ;;
     *) echo "✘ hardening flags missing: ${hc:0:200}"; exit 1 ;; esac
   docker exec $NAME sh -c 'touch /etc/rf 2>/dev/null' && { echo "✘ the root filesystem is writable"; exit 1; } || echo "✔ the root filesystem is read-only; /tmp and /data are writable: $(docker exec $NAME sh -c 'touch /tmp/rf /data/.rf && rm /tmp/rf /data/.rf && echo yes')"
   [ "$(docker exec $NAME sh -c 'grep CapEff /proc/1/status' | awk '{print $2}')" = 0000000000000000 ] && echo "✔ no effective capabilities" || { echo "✘ capabilities present"; exit 1; }
@@ -237,22 +237,22 @@ if [ "$HARDENED" = 1 ]; then
 fi
 if [ "$EDITION" = release ]; then
   echo "== release build: licence settings fixed by the image"
-  docker exec $NAME reelforge config check | sed 's/^/   /'
+  docker exec $NAME renderweld config check | sed 's/^/   /'
   # The same image refuses to start when the config file or env tries to change them.
-  for override in REELFORGE_LICENCE_MODE=off REELFORGE_LICENCE_SERVER_URL=http://fake-licence.example REELFORGE_LICENCE_ORG_ID=aaaaaaaaaaaaaaaaaaaaaaaa; do
+  for override in RENDERWELD_LICENCE_MODE=off RENDERWELD_LICENCE_SERVER_URL=http://fake-licence.example RENDERWELD_LICENCE_ORG_ID=aaaaaaaaaaaaaaaaaaaaaaaa; do
     out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -e "$override" "$IMAGE" 2>&1) && { echo "✘ started with $override"; exit 1; }
     echo "$out" | grep 'fixed by this release build' >/dev/null && echo "✔ refuses to start with $override: $(echo "$out" | grep -o '"licence[^"]*" is fixed by this release build[^.]*' | head -1)" || { echo "✘ unexpected output for $override"; echo "$out" | tail -5; exit 1; }
   done
   # D-089: a release image whose build-info.json is replaced by a dev one refuses to start (it never falls back to dev).
   printf '{"edition":"dev","locked":{}}\n' > "$WORK/config/dev-build-info.json"; chmod 644 "$WORK/config/dev-build-info.json"
-  out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -v "$WORK/config/dev-build-info.json:/app/packages/core/build-info.json:ro" -e REELFORGE_LICENCE_MODE=off "$IMAGE" 2>&1) && { echo "✘ started with a dev build-info.json"; exit 1; }
+  out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -v "$WORK/config/dev-build-info.json:/app/packages/core/build-info.json:ro" -e RENDERWELD_LICENCE_MODE=off "$IMAGE" 2>&1) && { echo "✘ started with a dev build-info.json"; exit 1; }
   echo "$out" | grep -q 'this is a release image, but the file describes a \\\?"dev\\\?" build' && echo "✔ refuses to start with a dev build-info.json mounted over the release one" || { echo "✘ unexpected output with a dev build-info.json"; echo "$out" | tail -5; exit 1; }
   printf 'licence:\n  mode: "off"\n' > "$WORK/config/off.yaml"; chmod 644 "$WORK/config/off.yaml"
-  out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -v "$WORK/config/off.yaml:/config/off.yaml:ro" -e REELFORGE_CONFIG=/config/off.yaml "$IMAGE" 2>&1) && { echo "✘ started with licence.mode off in the config file"; exit 1; }
+  out=$(timeout 120 docker run --rm --network none "${HARD[@]}" -v "$WORK/config/off.yaml:/config/off.yaml:ro" -e RENDERWELD_CONFIG=/config/off.yaml "$IMAGE" 2>&1) && { echo "✘ started with licence.mode off in the config file"; exit 1; }
   echo "$out" | grep '/config/off.yaml (licence.mode): "licence.mode" is fixed' >/dev/null && echo "✔ refuses to start with licence.mode: off in the config file" || { echo "✘ config file override"; echo "$out" | tail -5; exit 1; }
-  # #305: no REELFORGE_SECRET_KEY, no start (the licence-state seal has no fixed fallback).
-  out=$(timeout 120 docker run --rm --network none "${HARD[@]}" "$IMAGE" 2>&1) && { echo "✘ started without REELFORGE_SECRET_KEY"; exit 1; }
-  echo "$out" | grep -q 'REELFORGE_SECRET_KEY is not set: the release edition does not start without it' && echo "✔ refuses to start without REELFORGE_SECRET_KEY" || { echo "✘ unexpected output without REELFORGE_SECRET_KEY"; echo "$out" | tail -5; exit 1; }
+  # #305: no RENDERWELD_SECRET_KEY, no start (the licence-state seal has no fixed fallback).
+  out=$(timeout 120 docker run --rm --network none "${HARD[@]}" "$IMAGE" 2>&1) && { echo "✘ started without RENDERWELD_SECRET_KEY"; exit 1; }
+  echo "$out" | grep -q 'RENDERWELD_SECRET_KEY is not set: the release edition does not start without it' && echo "✔ refuses to start without RENDERWELD_SECRET_KEY" || { echo "✘ unexpected output without RENDERWELD_SECRET_KEY"; echo "$out" | tail -5; exit 1; }
 fi
 [ "$(api /v1/projects/legacy-v01/versions)" = '{"versions":[1,2]}' ] && echo "✔ v0.1 project imported with both versions; the imported key works" || { echo "✘ v0.1 import"; api /v1/projects/legacy-v01/versions; exit 1; }
 api /v1/projects/legacy-v01 | grep '"Made by v0.1, edited"' >/dev/null && echo "✔ current manifest is version 2" || { echo "✘ v0.1 manifest"; exit 1; }
@@ -278,8 +278,8 @@ print(("✘ the server log contains key material" if leak else "✔ no API key s
 sys.exit(0 if ok and not leak else 1)
 PY
 docker logs $OTEL > "$WORK/otel.log" 2>&1 || true
-grep -q "audit.target.id: Str($AUD_KEY)" "$WORK/otel.log" && grep -q 'audit.action: Str(key.rotate)' "$WORK/otel.log" && grep -q 'InstrumentationScope reelforge.audit' "$WORK/otel.log" \
-  && echo "✔ OTLP sink: the collector received the key's audit entries ($(grep -c 'EventName: reelforge.audit' "$WORK/otel.log") log records)" || { echo "✘ OTLP entries missing in the collector"; tail -40 "$WORK/otel.log"; exit 1; }
+grep -q "audit.target.id: Str($AUD_KEY)" "$WORK/otel.log" && grep -q 'audit.action: Str(key.rotate)' "$WORK/otel.log" && grep -q 'InstrumentationScope renderweld.audit' "$WORK/otel.log" \
+  && echo "✔ OTLP sink: the collector received the key's audit entries ($(grep -c 'EventName: renderweld.audit' "$WORK/otel.log") log records)" || { echo "✘ OTLP entries missing in the collector"; tail -40 "$WORK/otel.log"; exit 1; }
 logs_have $NAME 'audit sink otlp: .* not delivered to http://otel-down.invalid:4318' && echo "✔ a failing sink is visible in the server log (and the request succeeded)" || { echo "✘ the failing OTLP sink left no warning"; exit 1; }
 echo "== outbound events (#66): signed webhooks, Slack/Discord/Teams, email over SMTP (Mailpit), Resend, Postmark, SendGrid, SES (stubs)"
 PHASE=setup client webhooks.mjs
@@ -306,19 +306,19 @@ api /readyz | grep -q '"freeBytes":.*"chromiumSandbox":{' && echo "✔ /readyz w
 curl -s -D "$WORK/metrics.h" -H "Authorization: Bearer $METRICS_TOKEN" "http://127.0.0.1:$PORT/metrics" > "$WORK/metrics.txt"
 grep -qi '^content-type: text/plain; version=0.0.4' "$WORK/metrics.h" && docker run --rm -i --entrypoint promtool "$PROM_IMAGE" check metrics < "$WORK/metrics.txt" \
   && echo "✔ GET /metrics passes promtool check metrics ($(grep -c '^[a-z]' "$WORK/metrics.txt") samples)" || { echo "✘ /metrics is not valid Prometheus text"; head -20 "$WORK/metrics.txt"; exit 1; }
-for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'reelforge_jobs_finished_total{.*reelforge_job_status="succeeded"' 'reelforge_render_frames_total{.*reelforge_engine="html"' 'reelforge_licence_state{reelforge_licence_state="valid",renderweld_licence_state="valid"} 1' 'renderweld_licence_state{reelforge_licence_state="valid",renderweld_licence_state="valid"} 1' 'reelforge_jobs_queued 0'; do
+for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'renderweld_jobs_finished_total{.*renderweld_job_status="succeeded"' 'renderweld_render_frames_total{.*renderweld_engine="html"' 'renderweld_licence_state{renderweld_licence_state="valid",renderweld_licence_state="valid"} 1' 'renderweld_licence_state{renderweld_licence_state="valid",renderweld_licence_state="valid"} 1' 'renderweld_jobs_queued 0'; do
   grep -q "^$m" "$WORK/metrics.txt" || { echo "✘ /metrics lacks $m"; exit 1; }; done; echo "✔ /metrics has HTTP, job, render, licence and queue metrics"
 # Queue-wait SLO (#155, D-103): the histogram is exported with type and priority labels, and the shipped alert
 # rules load and pass their unit test.
-grep -Eq '^reelforge_job_queue_wait_seconds_bucket\{.*reelforge_job_priority="(interactive|standard|batch)"' "$WORK/metrics.txt" \
-  && echo "✔ reelforge_job_queue_wait_seconds is exported with type and priority labels" \
-  || { echo "✘ /metrics lacks the queue-wait histogram"; grep '^reelforge_job_queue_wait' "$WORK/metrics.txt" | head -3; exit 1; }
+grep -Eq '^renderweld_job_queue_wait_seconds_bucket\{.*renderweld_job_priority="(interactive|standard|batch)"' "$WORK/metrics.txt" \
+  && echo "✔ renderweld_job_queue_wait_seconds is exported with type and priority labels" \
+  || { echo "✘ /metrics lacks the queue-wait histogram"; grep '^renderweld_job_queue_wait' "$WORK/metrics.txt" | head -3; exit 1; }
 # The rule files go in on stdin (no bind mount: the Docker daemon may not see this checkout's path).
 tar -C deployment/observability -cf - alerts.yml alerts.test.yml \
   | docker run --rm -i --entrypoint sh "$PROM_IMAGE" -c 'mkdir -p /tmp/rules && cd /tmp/rules && tar xf - && promtool check rules alerts.yml && promtool test rules alerts.test.yml' > "$WORK/promtool-rules.txt" 2>&1 \
   && echo "✔ deployment/observability/alerts.yml passes promtool check rules and test rules" \
   || { echo "✘ deployment/observability/alerts.yml"; cat "$WORK/promtool-rules.txt"; exit 1; }
-# Label values only (metric names such as reelforge_job_duration_seconds contain "job_").
+# Label values only (metric names such as renderweld_job_duration_seconds contain "job_").
 grep -o '="[^"]*"' "$WORK/metrics.txt" | sort -u > "$WORK/labels.txt"
 grep -Eq "(job|run|prv|key|ast)_[a-z0-9]{8,}|rf_|e2e-docker-" "$WORK/labels.txt" && { echo "✘ ids or keys in metric labels: $(grep -E '(job|run|prv|key|ast)_[a-z0-9]{8,}|rf_|e2e-docker-' "$WORK/labels.txt" | head -3)"; exit 1; } \
   || echo "✔ no ids or keys in metric labels ($(wc -l < "$WORK/labels.txt") distinct label values, bounded cardinality)"
@@ -343,19 +343,19 @@ logs_have $NAME 'licence: licence server unreachable' && echo "✔ the grace war
 echo "== licence: revoked, limit_reached, deactivate (licence server back)"
 docker rm -f $LIC >/dev/null; licence_server
 PHASE=revoke client licence.mjs
-docker exec $NAME reelforge licence status > "$WORK/licence.txt" && grep -q '^status: *valid' "$WORK/licence.txt" && grep -q "key: *${KEY_C:0:5}-\*\*\*\*\*" "$WORK/licence.txt" \
-  && echo "✔ reelforge licence status (CLI in the container): valid, key masked" || { echo "✘ reelforge licence status"; cat "$WORK/licence.txt"; exit 1; }
+docker exec $NAME renderweld licence status > "$WORK/licence.txt" && grep -q '^status: *valid' "$WORK/licence.txt" && grep -q "key: *${KEY_C:0:5}-\*\*\*\*\*" "$WORK/licence.txt" \
+  && echo "✔ renderweld licence status (CLI in the container): valid, key masked" || { echo "✘ renderweld licence status"; cat "$WORK/licence.txt"; exit 1; }
 sed 's/^/   /' "$WORK/licence.txt" | head -6
 for k in $KEY_A $KEY_B $KEY_C; do logs_have $NAME "$k" && { echo "✘ the server log contains a licence key"; exit 1; }; done; echo "✔ no licence key in the server log"
 echo "== configuration over MCP (separate container)"
-logs_have $NAME 'encrypted 1 stored secret(s) with REELFORGE_SECRET_KEY: ELEVENLABS_API_KEY' && echo "✔ v0.1 plaintext provider key encrypted once on start" || { echo "✘ plaintext provider key not encrypted"; docker logs $NAME; exit 1; }
-logs_have $NAME 'config file: /config/reelforge.yaml' && echo "✔ config file read (REELFORGE_CONFIG)" || { echo "✘ config file not read"; exit 1; }
+logs_have $NAME 'encrypted 1 stored secret(s) with RENDERWELD_SECRET_KEY: ELEVENLABS_API_KEY' && echo "✔ v0.1 plaintext provider key encrypted once on start" || { echo "✘ plaintext provider key not encrypted"; docker logs $NAME; exit 1; }
+logs_have $NAME 'config file: /config/reelforge.yaml' && echo "✔ config file read (RENDERWELD_CONFIG)" || { echo "✘ config file not read"; exit 1; }
 logs_have $NAME "$PLAIN_V01" && { echo "✘ the server log contains a secret"; exit 1; } || echo "✔ no secret in the server log"
 PHASE=before client config.mjs
-docker exec $NAME reelforge config check | sed 's/^/   /'
-docker exec $NAME reelforge config show > "$WORK/show.txt"
+docker exec $NAME renderweld config check | sed 's/^/   /'
+docker exec $NAME renderweld config show > "$WORK/show.txt"
 grep -E '^(limits.rateLimitPerMinute|licence.key|providers.elevenlabs.apiKey) ' "$WORK/show.txt" | sed 's/^/   /'
-grep -q "$PLAIN_V01\|LIC-E2E" "$WORK/show.txt" && { echo "✘ config show printed a secret"; exit 1; } || echo "✔ reelforge config show (CLI in the container) redacts secrets and shows the runtime value"
+grep -q "$PLAIN_V01\|LIC-E2E" "$WORK/show.txt" && { echo "✘ config show printed a secret"; exit 1; } || echo "✔ renderweld config show (CLI in the container) redacts secrets and shows the runtime value"
 grep -Eq '^limits.rateLimitPerMinute +600 +\(runtime' "$WORK/show.txt" || { echo "✘ config show does not show the runtime value"; cat "$WORK/show.txt"; exit 1; }
 echo "== outbound events: receiver down, a delivery stays pending (#66)"
 docker rm -f $RX >/dev/null
@@ -408,10 +408,10 @@ if [ "$rows" != skip ]; then
 fi
 
 if [ "$STORAGE" = s3 ]; then
-  echo "== storage: migrate local files to MinIO (reelforge storage migrate, twice: idempotent)"
-  docker exec $NAME reelforge storage migrate --to s3 | tee "$WORK/migrate1.txt" | sed 's/^/   /'
+  echo "== storage: migrate local files to MinIO (renderweld storage migrate, twice: idempotent)"
+  docker exec $NAME renderweld storage migrate --to s3 | tee "$WORK/migrate1.txt" | sed 's/^/   /'
   grep -Eq '^copied: [1-9][0-9]* objects' "$WORK/migrate1.txt" && echo "✔ STO-33 first run copied the local assets and renders" || { echo "✘ migrate copied nothing"; exit 1; }
-  docker exec $NAME reelforge storage migrate --to s3 | tee "$WORK/migrate2.txt" | sed 's/^/   /'
+  docker exec $NAME renderweld storage migrate --to s3 | tee "$WORK/migrate2.txt" | sed 's/^/   /'
   grep -Eq '^copied: 0 objects .*already there: [1-9]' "$WORK/migrate2.txt" && echo "✔ STO-33 second run copied nothing (idempotent)" || { echo "✘ migrate is not idempotent"; exit 1; }
   echo "== storage: restart on storage.driver s3"
   docker rm -f $NAME >/dev/null; STORAGE_DRIVER=s3; start
@@ -430,16 +430,16 @@ if [ "$STORAGE" = s3 ]; then
   latest=$(curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:$PORT/v1/projects/storage-e2e/renders" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).renders[0].renderId))')
   hdr=$(curl -s -D - -o /dev/null -H "Authorization: Bearer $KEY" -r 0-99 "http://127.0.0.1:$PORT/v1/renders/$latest/output")
   echo "$hdr" | grep -q '^HTTP/1.1 206' && echo "$hdr" | grep -qi '^content-range: bytes 0-99/' && echo "✔ STO-32 REST output streamed from MinIO through the server with Range (206)" || { echo "✘ Range through the server"; echo "$hdr"; exit 1; }
-  docker exec $NAME reelforge storage cleanup --dry-run | sed 's/^/   /'
-  docker exec $NAME reelforge storage status > "$WORK/storage-status.txt" && grep -q '^health: *ok' "$WORK/storage-status.txt" && echo "✔ reelforge storage status (CLI in the container): s3, health ok" || { echo "✘ storage status"; cat "$WORK/storage-status.txt"; exit 1; }
+  docker exec $NAME renderweld storage cleanup --dry-run | sed 's/^/   /'
+  docker exec $NAME renderweld storage status > "$WORK/storage-status.txt" && grep -q '^health: *ok' "$WORK/storage-status.txt" && echo "✔ renderweld storage status (CLI in the container): s3, health ok" || { echo "✘ storage status"; cat "$WORK/storage-status.txt"; exit 1; }
   logs_have $NAME "$S3_SECRET" && { echo "✘ the server log contains the storage secret"; exit 1; } || echo "✔ STO-24 no storage secret in the server log"
   echo "== storage: a missing bucket is reported by /readyz"
   NAME_SAVE=$NAME; NAME=$P-nobucket; S3_BUCKET_OVERRIDE=missing-bucket-$P
-  docker run -d --name $NAME --network $NET "${HARD[@]}" --tmpfs /data:rw,uid=10001,gid=10001 -e REELFORGE_STORAGE_DRIVER=s3 -e REELFORGE_S3_ENDPOINT=http://minio:9000 \
-    -e REELFORGE_S3_BUCKET=$S3_BUCKET_OVERRIDE -e REELFORGE_S3_FORCE_PATH_STYLE=true -e REELFORGE_S3_ACCESS_KEY_ID_FILE=/run/secrets/s3id -e REELFORGE_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3secret \
+  docker run -d --name $NAME --network $NET "${HARD[@]}" --tmpfs /data:rw,uid=10001,gid=10001 -e RENDERWELD_STORAGE_DRIVER=s3 -e RENDERWELD_S3_ENDPOINT=http://minio:9000 \
+    -e RENDERWELD_S3_BUCKET=$S3_BUCKET_OVERRIDE -e RENDERWELD_S3_FORCE_PATH_STYLE=true -e RENDERWELD_S3_ACCESS_KEY_ID_FILE=/run/secrets/s3id -e RENDERWELD_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3secret \
     -v "$WORK/secret/s3id:/run/secrets/s3id:ro" -v "$WORK/secret/s3secret:/run/secrets/s3secret:ro" "${LIC_ENV[@]}" \
-    -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secretkey \
-    -v "$WORK/secret/key:/run/secrets/key:ro" -e REELFORGE_BOOTSTRAP_KEY_FILE=/run/secrets/key "$IMAGE" >/dev/null
+    -v "$WORK/secret/secretkey:/run/secrets/secretkey:ro" -e RENDERWELD_SECRET_KEY_FILE=/run/secrets/secretkey \
+    -v "$WORK/secret/key:/run/secrets/key:ro" -e RENDERWELD_BOOTSTRAP_KEY_FILE=/run/secrets/key "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' $NAME)" = healthy ] && break; sleep 2; done
   ready=$(docker exec -e K="$KEY" $NAME node -e "fetch('http://127.0.0.1:4321/readyz',{headers:{authorization:'Bearer '+process.env.K}}).then(async r=>console.log(r.status, await r.text()))")
   echo "   $ready" | cut -c1-240
@@ -449,8 +449,8 @@ fi
 
 if [ -n "${RELEASE_IMAGE:-}" ]; then
   echo "== the published release image ($RELEASE_IMAGE)"
-  [ "$(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$RELEASE_IMAGE")" = release ] && echo "✔ $RELEASE_IMAGE is a release build" || { echo "✘ $RELEASE_IMAGE is not a release build"; exit 1; }
-  docker run --rm --network none "${HARD[@]}" -e REELFORGE_DATA_DIR=/tmp/d "$RELEASE_IMAGE" reelforge config show --offline > "$WORK/release-show.txt"
+  [ "$(docker image inspect -f '{{ index .Config.Labels "app.renderweld.edition" }}' "$RELEASE_IMAGE")" = release ] && echo "✔ $RELEASE_IMAGE is a release build" || { echo "✘ $RELEASE_IMAGE is not a release build"; exit 1; }
+  docker run --rm --network none "${HARD[@]}" -e RENDERWELD_DATA_DIR=/tmp/d "$RELEASE_IMAGE" renderweld config show --offline > "$WORK/release-show.txt"
   grep -E '^licence\.(mode|serverUrl|orgId) ' "$WORK/release-show.txt" | sed 's/^/   /'
   grep -Eq '^licence\.mode +"required" +\(build: release build' "$WORK/release-show.txt" \
     && grep -Eq '^licence\.serverUrl +"https://api\.console\.buildbase\.app" +\(build' "$WORK/release-show.txt" \
@@ -468,7 +468,7 @@ if [ "${CLAUDE:-}" = 1 ]; then
   echo "== headless Claude Code, MCP only, against $IMAGE (--max-turns 40)"
   umask 077; printf '{"mcpServers":{"reelforge":{"type":"http","url":"http://127.0.0.1:%s/mcp","headers":{"Authorization":"Bearer %s"}}}}' "$PORT" "$KEY" > "$WORK/mcp.json"
   started=$(date +%s)
-  claude -p "You are connected to a ReelForge video studio through the 'reelforge' MCP server. Make a 15 to 20 second vertical reel with 3 tips for writing better product hooks. Plan the scenes, engines, templates, per-scene timing and theme yourself, render it, wait for it to finish, and reply with the project id, job id, render id, duration, frame count and download URL. Use only the reelforge tools." \
+  claude -p "You are connected to a RenderWeld video studio through the 'reelforge' MCP server. Make a 15 to 20 second vertical reel with 3 tips for writing better product hooks. Plan the scenes, engines, templates, per-scene timing and theme yourself, render it, wait for it to finish, and reply with the project id, job id, render id, duration, frame count and download URL. Use only the reelforge tools." \
     --mcp-config "$WORK/mcp.json" --strict-mcp-config --allowedTools mcp__reelforge --max-turns 40 --output-format json < /dev/null > "$WORK/claude.json" || true
   umask 022
   python3 - "$WORK/claude.json" "$(( $(date +%s) - started ))" <<'PY' | tee "$WORK/claude-summary.txt"

@@ -235,14 +235,14 @@ many keys).
 
 ## 10. STATUS (2026-11-21, rows for later work added through 2026-11-23)
 
-Evidence: `pnpm typecheck` and `RENDERWELD_REQUIRE_BROWSER=1 pnpm test` on Linux
+Evidence: `pnpm typecheck` and `REELFORGE_REQUIRE_BROWSER=1 pnpm test` on Linux
 x64 with Chrome Headless Shell 157 and FFmpeg 6.1; Docker image built and run
 with Docker 29.10. "Done" means implemented and covered by a test or a command
 that was run; "partial" says what is missing.
 
 | Spec item | Status | Notes / evidence |
 | --- | --- | --- |
-| §2.1 API first, MCP and REST over the same handlers | done | `ReelforgeService`; `test/parity.test.ts` checks every REST route has an MCP tool with the same scope |
+| §2.1 API first, MCP and REST over the same handlers | done | `RenderWeldService`; `test/parity.test.ts` checks every REST route has an MCP tool with the same scope |
 | §2.2 Plugin interfaces + registry (`packages/core/src/plugins.ts`) | done | EnginePlugin, ProviderPlugin, RenderBackend, StorageDriver; unknown ids rejected with the installed list |
 | §2.4 No telemetry; egress documented | done | docs/PRIVACY.md; HyperFrames telemetry disabled by env (env construction tested, CLI silence not independently verified) |
 | §2.5 Deterministic core | partial | Same inputs give the same frames for html/hyperframes (seeked time) and Remotion/MC; provider results cached by content hash. No bit-exact repeat-render test yet |

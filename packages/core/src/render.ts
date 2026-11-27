@@ -163,20 +163,20 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
   // that only listens for the abort event would never hear it and run until the render timeout; #345).
   if (input.signal.aborted) throw new PipelineError(stage, 'cancelled');
   log(`${stage}: ${scene.engine}/${scene.template ?? 'html'} ${frames} frames${range ? ` (frames ${range[0]}-${range[1]} of ${scene.durationFrames})` : ''} at ${output.width}x${output.height}`);
-  const engineAttrs = { 'reelforge.engine': scene.engine };
+  const engineAttrs = { 'renderweld.engine': scene.engine };
   const sceneStarted = Date.now();
   const res = await withSpan(
     tracer,
     `engine.render ${scene.engine}`,
     {
       ...engineAttrs,
-      'reelforge.render.id': input.runId,
-      'reelforge.scene.id': scene.id,
-      'reelforge.scene.template': scene.template ?? 'html',
-      'reelforge.scene.frames': frames,
-      'reelforge.output.width': output.width,
-      'reelforge.output.height': output.height,
-      'reelforge.output.fps': fpsValue(output.fps),
+      'renderweld.render.id': input.runId,
+      'renderweld.scene.id': scene.id,
+      'renderweld.scene.template': scene.template ?? 'html',
+      'renderweld.scene.frames': frames,
+      'renderweld.output.width': output.width,
+      'renderweld.output.height': output.height,
+      'renderweld.output.fps': fpsValue(output.fps),
     },
     () =>
       engine.render(toRenderScene(scene), {
@@ -196,14 +196,14 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
         ...(input.textCheck ? { textCheck: true } : {}),
       })
   ).catch((e) => {
-    metrics.sceneDuration.record((Date.now() - sceneStarted) / 1000, { ...engineAttrs, 'reelforge.outcome': 'error' });
+    metrics.sceneDuration.record((Date.now() - sceneStarted) / 1000, { ...engineAttrs, 'renderweld.outcome': 'error' });
     throw e;
   });
   const sceneSeconds = (Date.now() - sceneStarted) / 1000;
-  metrics.sceneDuration.record(sceneSeconds, { ...engineAttrs, 'reelforge.outcome': 'ok' });
+  metrics.sceneDuration.record(sceneSeconds, { ...engineAttrs, 'renderweld.outcome': 'ok' });
   metrics.framesRendered.add(frames, engineAttrs);
   if (sceneSeconds > 0) metrics.renderFps.record(frames / sceneSeconds, engineAttrs);
-  const info = await withSpan(tracer, 'ffprobe clip', { 'reelforge.render.id': input.runId }, () => probe(tools.ffprobe, out));
+  const info = await withSpan(tracer, 'ffprobe clip', { 'renderweld.render.id': input.runId }, () => probe(tools.ffprobe, out));
   const problems = checkExpectation(info, {
     width: output.width,
     height: output.height,
@@ -406,7 +406,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
   const { input, tmp, finalDir, clips, fullTimeline, output, started } = f;
   const { project, tools, signal, log } = input;
   const { tracer } = input.telemetry ?? NOOP_TELEMETRY;
-  const ffmpegSpan = <T>(name: string, fn: () => Promise<T>) => withSpan(tracer, name, { 'reelforge.render.id': input.runId }, fn);
+  const ffmpegSpan = <T>(name: string, fn: () => Promise<T>) => withSpan(tracer, name, { 'renderweld.render.id': input.runId }, fn);
   const rel = (p: string) => relative(tmp, p).split(sep).join('/');
   // Output format (#302): H.264 MP4 keeps the path below; others assemble a master with their encoder.
   const spec = f.spec ?? MP4_SPEC;

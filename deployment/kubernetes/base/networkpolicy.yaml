@@ -23,7 +23,7 @@ spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
 ---
-# 2. Every ReelForge pod: DNS, the database and the queue broker.
+# 2. Every RenderWeld pod: DNS, the database and the queue broker.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

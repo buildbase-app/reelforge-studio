@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Optional speech-to-text layer for ReelForge Studio (issue #300, D-114,
+# Optional speech-to-text layer for RenderWeld (issue #300, D-114,
 # docs/CAPTIONS.md#speech-to-text). Not part of the release image: Python,
 # faster-whisper and a model add several hundred MB. Build it on top of the
 # image you run, from the repository root:
@@ -36,6 +36,6 @@ RUN sed -i '1s|.*|#!/opt/reelforge/stt/bin/python3 -I|' /opt/reelforge/stt/bin/r
  && chmod 0755 /opt/reelforge/stt/bin/reelforge-whisper \
  && ln -s /opt/reelforge/stt/bin/reelforge-whisper /usr/local/bin/reelforge-whisper \
  && chmod -R a+rX /opt/reelforge
-ENV REELFORGE_STT_MODEL=${WHISPER_MODEL} \
-    REELFORGE_STT_MODEL_DIR=/opt/reelforge/whisper-models
+ENV RENDERWELD_STT_MODEL=${WHISPER_MODEL} \
+    RENDERWELD_STT_MODEL_DIR=/opt/reelforge/whisper-models
 USER 10001:10001

@@ -4,7 +4,7 @@ import { SETTINGS, envNames } from './config/schema';
  * Environment hygiene for render child processes (D-086).
  *
  * Browsers, the HyperFrames CLI and FFmpeg never need the server's secrets
- * (database URL, REELFORGE_SECRET_KEY, provider and licence keys, storage
+ * (database URL, RENDERWELD_SECRET_KEY, provider and licence keys, storage
  * credentials, cloud SDK credentials). Engines that start a process
  * themselves pass `renderChildEnv()`: an allowlist, so a secret under a name
  * we do not know about is not passed either. Libraries that spawn with
@@ -54,7 +54,7 @@ export function renderChildEnv(base: NodeJS.ProcessEnv = process.env, extra: Rec
 }
 
 /**
- * Names of every secret ReelForge setting (with aliases and `_FILE`
+ * Names of every secret setting (with aliases and `_FILE`
  * variants), plus provider key names read by plugins. The values stay in the
  * server's configuration snapshot; only the process environment loses them.
  */
@@ -71,7 +71,7 @@ export function secretEnvNames(): string[] {
   return [...names];
 }
 
-/** Remove every ReelForge secret from `target` (default: this process). Returns the names removed. */
+/** Remove every secret from `target` (default: this process). Returns the names removed. */
 export function scrubSecretEnv(target: NodeJS.ProcessEnv = process.env): string[] {
   const removed: string[] = [];
   for (const n of secretEnvNames()) {

@@ -147,8 +147,7 @@ Endpoints, by an admin agent over MCP (REST and CLI take the same fields):
 ```
 
 Mailpit for development: `docker compose --profile test up -d` and
-`REELFORGE_SMTP_HOST=mailpit REELFORGE_SMTP_PORT=1025 REELFORGE_SMTP_SECURITY=none`
-(`docker-compose.yml` passes these old names on; the server accepts `RENDERWELD_*` too)
+`RENDERWELD_SMTP_HOST=mailpit RENDERWELD_SMTP_PORT=1025 RENDERWELD_SMTP_SECURITY=none`
 (UI on http://127.0.0.1:8025).
 
 ## Verifying signatures
@@ -160,7 +159,7 @@ rotation). Use any Standard Webhooks library, e.g. Node:
 
 ```js
 import { Webhook } from 'standardwebhooks';
-const payload = new Webhook(process.env.REELFORGE_WEBHOOK_SECRET).verify(rawBody, req.headers); // throws if invalid or older than 5 min
+const payload = new Webhook(process.env.RENDERWELD_WEBHOOK_SECRET).verify(rawBody, req.headers); // throws if invalid or older than 5 min
 ```
 
 or by hand: `base64(HMAC-SHA256(key = base64decode(secret without "whsec_"), "<id>.<timestamp>.<raw body>"))`
@@ -233,7 +232,7 @@ built-in provider; *contract (DB)* `packages/db/test/webhooks-contract.test.ts`
 on memory, SQLite, PostgreSQL 17 and MySQL 8.4; *server*
 `apps/server/test/webhooks.test.ts` (real HTTP, REST, MCP and the CLI; every
 signature verified with the official `standardwebhooks` library; also run with
-`RENDERWELD_TEST_DB=postgres` and `mysql`) and `apps/server/test/parity.test.ts`;
+`REELFORGE_TEST_DB=postgres` and `mysql`) and `apps/server/test/parity.test.ts`;
 *Docker* `e2e/docker/run.sh` step `webhooks.mjs` (an agent in a separate
 container over MCP; release image, hardened flags; receiver container
 `e2e/webhooks/receiver.mjs`; Mailpit v1.34.0): **ALL DOCKER E2E CHECKS PASSED** on SQLite (196 checks, 2026-11-21).
@@ -310,7 +309,7 @@ Commands:
 pnpm --filter @renderweld/core exec vitest run test/webhooks.test.ts
 TEST_POSTGRES_URL=postgresql://... TEST_MYSQL_URL=mysql://... pnpm --filter @renderweld/db exec vitest run test/webhooks-contract.test.ts
 pnpm --filter @renderweld/server exec vitest run test/webhooks.test.ts test/webhooks-ops.test.ts test/parity.test.ts
-RENDERWELD_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/webhooks.test.ts
+REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=postgresql://... pnpm --filter @renderweld/server exec vitest run test/webhooks.test.ts
 e2e/docker/run.sh                       # MAILPIT_IMAGE selects a Mailpit mirror
 ```
 

@@ -6,26 +6,26 @@
  * key frame at each cut; and a four-engine project of 6-frame scenes with
  * music and burned captions validates (with a short-scene warning) and
  * renders end to end with the exact frame count.
- * Needs REELFORGE_CHROMIUM_PATH (skips without; fails under REELFORGE_REQUIRE_BROWSER=1).
+ * Needs RENDERWELD_CHROMIUM_PATH (skips without; fails under REELFORGE_REQUIRE_BROWSER=1).
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { envValue, ReelforgeService, createMemoryRepositories, type EnginePlugin } from '@renderweld/core';
+import { RenderWeldService, createMemoryRepositories, type EnginePlugin } from '@renderweld/core';
 import { assertDecodable, checkExpectation, checkTimestamps, concatClips, frameStats, keyFrames, normaliseClip, probe, resolveTools } from '@renderweld/media-pipeline';
 import { MIN_SCENE_FRAMES, builtinTheme, parseProject, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
 import { makeTone } from '../../../packages/core/test/helpers';
 import { createDefaultRegistry } from '../src/registry';
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-short-scenes-'));
 const cacheDir = resolve(import.meta.dirname, '../../../.render-cache');
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 describe('browser requirement', () => {
-  it.runIf(envValue('REELFORGE_REQUIRE_BROWSER') === '1')('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
+  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });
@@ -100,11 +100,11 @@ describe.skipIf(!hasBrowser)('every engine renders beat-length scenes with exact
 
 describe.skipIf(!hasBrowser)('a four-engine project of 6-frame scenes validates and renders end to end (#450)', () => {
   it('html and HyperFrames source plus Remotion and Motion Canvas layouts, music and burned captions: exact frame count', async () => {
-    const svc = await ReelforgeService.create(createDefaultRegistry({}), {
+    const svc = await RenderWeldService.create(createDefaultRegistry({}), {
       repositories: createMemoryRepositories(),
       dataDir: join(dir, 'data'),
       cacheDir,
-      configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+      configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
     });
     try {
       const scenes = [

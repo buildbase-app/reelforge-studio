@@ -72,7 +72,7 @@ beforeAll(async () => {
   dropDb = database.drop;
   server = await startServer(
     { dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' },
-    { registry: new PluginRegistry().registerEngine(fakeEngine('remotion')), env: { ...database.env, REELFORGE_LICENCE_MODE: 'off', REELFORGE_RATE_LIMIT_PER_MINUTE: '0', REELFORGE_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0', REELFORGE_STORAGE_SWEEP_INTERVAL_MINUTES: '0' }, quiet: true }
+    { registry: new PluginRegistry().registerEngine(fakeEngine('remotion')), env: { ...database.env, RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_RATE_LIMIT_PER_MINUTE: '0', RENDERWELD_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0', RENDERWELD_STORAGE_SWEEP_INTERVAL_MINUTES: '0' }, quiet: true }
   );
   keys.owner = (await server.service.keys.create('owner', ['admin', 'owner'])).key;
   const created = await rest('POST', '/v1/workspaces', { id: 'acme', name: 'Acme', adminKey: true, limits: { retentionMaxAgeHours: 1 } }, keys.owner);

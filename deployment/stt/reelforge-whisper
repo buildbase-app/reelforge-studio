@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""reelforge-whisper: local speech-to-text for ReelForge Studio (issue #300, D-114).
+"""reelforge-whisper: local speech-to-text for RenderWeld (issue #300, D-114).
 
 Transcribes one audio or video file with faster-whisper and prints word
 timings as JSON on stdout:

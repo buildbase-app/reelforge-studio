@@ -39,7 +39,7 @@ beforeAll(async () => {
     .registerBackend(new RemotionLambdaBackend({}));
   const database = await testDatabase(dir);
   dropDb = database.drop;
-  server = await startServer({ dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' }, { registry, env: { ...database.env, REELFORGE_LICENCE_MODE: 'off' }, quiet: true });
+  server = await startServer({ dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' }, { registry, env: { ...database.env, RENDERWELD_LICENCE_MODE: 'off' }, quiet: true });
   adminKey = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   readKey = (await server.service.keys.create('reader', ['read'])).key;
 });
@@ -75,7 +75,7 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
     const client = await connect(adminKey);
     const caps = json(await client.callTool({ name: 'get_capabilities', arguments: {} }));
     expect(caps.schemaVersion).toBe('0.2');
-    expect(caps.server).toMatchObject({ name: 'renderweld', title: 'RenderWeld', aliases: ['reelforge-studio'] });
+    expect(caps.server).toMatchObject({ name: 'renderweld', title: 'RenderWeld' });
     const created = json(await client.callTool({ name: 'create_project', arguments: { manifest: sample } }));
     expect(created.migratedFrom).toBe('0.1');
     expect(created.timing.map((t: any) => t.durationFrames)).toEqual([90, 120]);
@@ -129,23 +129,21 @@ describe('MCP server (Streamable HTTP, stateless)', () => {
     // Projects are listed once, under the new scheme.
     expect(resources.filter((r) => r.uri.endsWith('projects/sample-reel')).map((r) => r.uri)).toEqual(['renderweld://projects/sample-reel']);
     const { resourceTemplates } = await client.listResourceTemplates();
-    expect(resourceTemplates.map((r) => r.uriTemplate)).toEqual(expect.arrayContaining(['renderweld://projects/{id}', 'reelforge://projects/{id}']));
+    expect(resourceTemplates.map((r) => r.uriTemplate)).toEqual(expect.arrayContaining(['renderweld://projects/{id}']));
     const { prompts } = await client.listPrompts();
     expect(prompts.map((p) => p.name).sort()).toEqual(['brief_intake', 'make_reel', 'plan_reel', 'review_reel']);
-    // Every resource answers under renderweld:// and the old reelforge:// with the same content (#412).
-    for (const scheme of ['renderweld', 'reelforge']) {
-      const schema = await client.readResource({ uri: `${scheme}://schema/project` });
-      expect(schema.contents[0]!.uri).toBe(`${scheme}://schema/project`);
-      expect(JSON.parse((schema.contents[0] as any).text).type).toBe('object');
-      const templates = await client.readResource({ uri: `${scheme}://templates` });
-      expect(JSON.parse((templates.contents[0] as any).text).length).toBeGreaterThan(0);
-      const project = await client.readResource({ uri: `${scheme}://projects/sample-reel` });
-      expect(JSON.parse((project.contents[0] as any).text).manifest.projectId).toBe('sample-reel');
-      const guide = await client.readResource({ uri: `${scheme}://guide/workflow` });
-      expect((guide.contents[0] as any).text).toContain('render_project');
-    }
-    const old = resources.find((r) => r.uri === 'reelforge://guide/workflow');
-    expect(old?.description).toMatch(/Same as renderweld:\/\/guide\/workflow/);
+    // Every resource answers under renderweld://; the old reelforge:// scheme is gone (#413).
+    const schema = await client.readResource({ uri: 'renderweld://schema/project' });
+    expect(schema.contents[0]!.uri).toBe('renderweld://schema/project');
+    expect(JSON.parse((schema.contents[0] as any).text).type).toBe('object');
+    const templates = await client.readResource({ uri: 'renderweld://templates' });
+    expect(JSON.parse((templates.contents[0] as any).text).length).toBeGreaterThan(0);
+    const project = await client.readResource({ uri: 'renderweld://projects/sample-reel' });
+    expect(JSON.parse((project.contents[0] as any).text).manifest.projectId).toBe('sample-reel');
+    const guide = await client.readResource({ uri: 'renderweld://guide/workflow' });
+    expect((guide.contents[0] as any).text).toContain('render_project');
+    expect(resources.filter((r) => !r.uri.startsWith('renderweld://')).map((r) => r.uri)).toEqual([]);
+    await expect(client.readResource({ uri: 'reelforge://guide/workflow' })).rejects.toThrow();
     expect((await client.readResource({ uri: 'renderweld://guide/workflow' })).contents[0]).toMatchObject({ text: WORKFLOW_GUIDE });
     expect(client.getInstructions()).toContain('renderweld://guide/workflow');
     const make = await client.getPrompt({ name: 'make_reel', arguments: { topic: 'a bakery opening' } });
@@ -223,7 +221,7 @@ describe('MCP server names (#413)', () => {
     for (const [name, args] of [['make_reel', { topic: 'hooks' }], ['plan_reel', { brief: 'hooks' }], ['review_reel', { projectId: 'sample-reel' }]] as const) {
       const text = JSON.stringify((await client.getPrompt({ name, arguments: args })).messages);
       expect(text, name).toContain('RenderWeld');
-      // review_reel quotes the project, whose sample title still says ReelForge (examples move in the docs sweep, #415).
+      // review_reel quotes the project, whose sample title may name the old product.
       if (name !== 'review_reel') expect(text, name).not.toContain('ReelForge');
     }
     expect(WORKFLOW_GUIDE).toMatch(/^# RenderWeld: /);

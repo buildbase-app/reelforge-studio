@@ -1,4 +1,4 @@
-# Prometheus alert rules for ReelForge Studio: the queue-wait SLO (issue #155, D-103).
+# Prometheus alert rules for RenderWeld: the queue-wait SLO (issue #155, D-103).
 # docs/providers/observability.md#queue-wait-slo explains the SLO; load this file with `rule_files:` in
 # prometheus.yml. Checked with `promtool check rules` and unit-tested with `promtool test rules alerts.test.yml`
 # (e2e/docker/run.sh).
@@ -9,7 +9,7 @@
 groups:
   - name: reelforge-queue-wait
     rules:
-      - alert: ReelforgePreviewQueueWaitSLO
+      - alert: RenderweldPreviewQueueWaitSLO
         expr: |
           histogram_quantile(0.95, sum by (le) (rate(renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="preview"}[15m]))) > 60
         for: 10m
@@ -21,7 +21,7 @@ groups:
             p95 queue wait of previews is {{ $value | printf "%.0f" }} s. Add worker replicas (or raise the autoscaler's
             maximum), check that workers are claiming (renderweld_queue_errors_total, /readyz), or set
             limits.maxEstimatedWaitSeconds so new work is refused with Retry-After instead of piling up.
-      - alert: ReelforgeRenderQueueWaitSLO
+      - alert: RenderweldRenderQueueWaitSLO
         expr: |
           histogram_quantile(0.95, sum by (le) (rate(renderweld_job_queue_wait_seconds_bucket{renderweld_job_type="render"}[15m]))) > 300
         for: 15m

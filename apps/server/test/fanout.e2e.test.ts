@@ -24,11 +24,11 @@ import { cliCreateKey, startServerProcess, type ServerProcess } from './serverPr
  *
  * Heavy, so opt-in: FANOUT_E2E=1 with TEST_POSTGRES_URL, FANOUT_E2E_S3_ENDPOINT
  * (a MinIO; e2e/minio/build-image.sh builds one), FANOUT_E2E_S3_ACCESS_KEY /
- * FANOUT_E2E_S3_SECRET_KEY and REELFORGE_CHROMIUM_PATH. Command and the latest
+ * FANOUT_E2E_S3_SECRET_KEY and RENDERWELD_CHROMIUM_PATH. Command and the latest
  * numbers: docs/providers/queue-and-scaling.md#render-fan-out.
  */
 const env = process.env;
-const enabled = env.FANOUT_E2E === '1' && !!env.TEST_POSTGRES_URL && !!env.FANOUT_E2E_S3_ENDPOINT && !!env.REELFORGE_CHROMIUM_PATH;
+const enabled = env.FANOUT_E2E === '1' && !!env.TEST_POSTGRES_URL && !!env.FANOUT_E2E_S3_ENDPOINT && !!env.RENDERWELD_CHROMIUM_PATH;
 const { dir, cleanup } = tempDir('reelforge-fanout-e2e-');
 const BUCKET = `fanout-${Date.now().toString(36)}`;
 const SECRET_KEY = 'fanout-e2e-secret-key-0123456789abcdef0123';
@@ -109,25 +109,25 @@ describe.skipIf(!enabled)('render fan-out e2e: real engines, PostgreSQL, MinIO, 
   const results: Record<string, { seconds: number; file: string; job: any }> = {};
 
   const baseEnv = () => ({
-    REELFORGE_LICENCE_MODE: 'off',
-    REELFORGE_SECRET_KEY: SECRET_KEY,
+    RENDERWELD_LICENCE_MODE: 'off',
+    RENDERWELD_SECRET_KEY: SECRET_KEY,
     DATABASE_URL: db.url,
-    REELFORGE_STORAGE_DRIVER: 's3',
-    REELFORGE_S3_ENDPOINT: env.FANOUT_E2E_S3_ENDPOINT!,
-    REELFORGE_S3_BUCKET: BUCKET,
-    REELFORGE_S3_REGION: 'us-east-1',
-    REELFORGE_S3_FORCE_PATH_STYLE: 'true',
-    REELFORGE_S3_ACCESS_KEY_ID: env.FANOUT_E2E_S3_ACCESS_KEY ?? 'minioadmin',
-    REELFORGE_S3_SECRET_ACCESS_KEY: env.FANOUT_E2E_S3_SECRET_KEY ?? 'minioadmin',
-    REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
-    REELFORGE_QUEUE_LEASE_SECONDS: '8',
-    REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS: '2',
-    REELFORGE_QUEUE_POLL_INTERVAL_MS: '250',
-    REELFORGE_WORKER_CONCURRENCY: '1',
-    REELFORGE_CHROMIUM_PATH: env.REELFORGE_CHROMIUM_PATH!,
+    RENDERWELD_STORAGE_DRIVER: 's3',
+    RENDERWELD_S3_ENDPOINT: env.FANOUT_E2E_S3_ENDPOINT!,
+    RENDERWELD_S3_BUCKET: BUCKET,
+    RENDERWELD_S3_REGION: 'us-east-1',
+    RENDERWELD_S3_FORCE_PATH_STYLE: 'true',
+    RENDERWELD_S3_ACCESS_KEY_ID: env.FANOUT_E2E_S3_ACCESS_KEY ?? 'minioadmin',
+    RENDERWELD_S3_SECRET_ACCESS_KEY: env.FANOUT_E2E_S3_SECRET_KEY ?? 'minioadmin',
+    RENDERWELD_RATE_LIMIT_PER_MINUTE: '0',
+    RENDERWELD_QUEUE_LEASE_SECONDS: '8',
+    RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS: '2',
+    RENDERWELD_QUEUE_POLL_INTERVAL_MS: '250',
+    RENDERWELD_WORKER_CONCURRENCY: '1',
+    RENDERWELD_CHROMIUM_PATH: env.RENDERWELD_CHROMIUM_PATH!,
   });
   const worker = async (name: string) => {
-    const proc = await startServerProcess({ ...baseEnv(), REELFORGE_ROLE: 'worker', REELFORGE_DATA_DIR: join(dir, name) });
+    const proc = await startServerProcess({ ...baseEnv(), RENDERWELD_ROLE: 'worker', RENDERWELD_DATA_DIR: join(dir, name) });
     let m: RegExpExecArray | null = null;
     for (let i = 0; i < 100 && !(m = /\(worker ([\w.-]+),/.exec(proc.output())); i++) await new Promise((r) => setTimeout(r, 100));
     if (!m) throw new Error(`no worker id in the output of ${name}:\n${proc.output()}`);
@@ -177,7 +177,7 @@ describe.skipIf(!enabled)('render fan-out e2e: real engines, PostgreSQL, MinIO, 
     await bucket('CreateBucketCommand');
     db = await createTestDatabase('postgresql', dir);
     key = cliCreateKey(join(dir, 'api'), 'fanout-e2e', 'admin,owner', { ...baseEnv() });
-    api = await startServerProcess({ ...baseEnv(), REELFORGE_ROLE: 'api', REELFORGE_DATA_DIR: join(dir, 'api') });
+    api = await startServerProcess({ ...baseEnv(), RENDERWELD_ROLE: 'api', RENDERWELD_DATA_DIR: join(dir, 'api') });
     for (const w of ['w1', 'w2', 'w3']) await worker(w);
     // v0.1 manifests know two engines: create with the first two scenes, then add the rest (html, HyperFrames) in order.
     const manifest = { schemaVersion: '0.1', projectId: 'fanout', title: 'Fan-out e2e', output: { width: 1080, height: 1920, fps: 30, format: 'mp4' }, audio: { musicTrack: null, voiceTrack: null }, assets: [], scenes: SCENES.slice(0, 2) };

@@ -11,7 +11,7 @@ import { parseDatabaseUrl, redactDatabaseUrl } from './url';
 export function notifyChannel(databaseUrl: string): string {
   const p = parseDatabaseUrl(databaseUrl);
   if (p.kind !== 'postgresql') throw new Error(`queue.dispatch "notify" needs PostgreSQL (LISTEN/NOTIFY); database.url is ${p.kind}`);
-  return p.schema ? `reelforge_jobs_${createHash('sha256').update(p.schema).digest('hex').slice(0, 16)}` : 'reelforge_jobs';
+  return p.schema ? `renderweld_jobs_${createHash('sha256').update(p.schema).digest('hex').slice(0, 16)}` : 'renderweld_jobs';
 }
 
 export interface PgNotifyListenerOptions {
@@ -159,7 +159,7 @@ export class PgNotifyListener implements DispatchListener {
             new NotifyDeliveryError(
               `queue.dispatch "notify": a test notification sent through database.url did not arrive on the LISTEN connection (${redactDatabaseUrl(this.o.url)}) within ${this.o.probeTimeoutMs / 1000} s. ` +
                 'LISTEN needs a direct session connection to PostgreSQL: if it goes through PgBouncer in transaction or statement mode (or another pooler that does not keep sessions), ' +
-                'set database.directUrl (REELFORGE_DATABASE_DIRECT_URL or DATABASE_DIRECT_URL) to the PostgreSQL server itself, or use queue.dispatch "poll"'
+                'set database.directUrl (RENDERWELD_DATABASE_DIRECT_URL or DATABASE_DIRECT_URL) to the PostgreSQL server itself, or use queue.dispatch "poll"'
             )
           ),
         this.o.probeTimeoutMs

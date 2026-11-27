@@ -50,7 +50,7 @@ export function databaseEntries(kind: string, passwords?: Passwords): EnvEntry[]
 export function minioEntries(passwords?: Passwords): EnvEntry[];
 export function sttEntries(stt: { command: string; model: string; modelDir: string }): EnvEntry[];
 export function planEnvFile(existing: string | null, entries: EnvEntry[], opts?: { force?: boolean; date?: string }): EnvPlan;
-export function mergeEnv(fileVars: Env, shellEnv: Env): { env: Env; notes: string[] };
+export function mergeEnv(fileVars: Env, shellEnv: Env): Env;
 export function envValue(env: Env, name: string): string | undefined;
 export function playwrightDirs(opts?: { env?: Env; platform?: string; home?: string }): string[];
 export function headlessShellExe(platform?: string, arch?: string): string;

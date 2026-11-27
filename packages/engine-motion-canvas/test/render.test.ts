@@ -6,7 +6,6 @@ import { PipelineError, checkExpectation, frameStats, probe, resolveTools } from
 import { builtinTheme } from '@renderweld/project-schema';
 import type { OutputSettings, RenderScene as Scene } from '@renderweld/project-schema';
 import { renderMotionCanvasScene, resolveBrowser } from '../src/index';
-import { envValue } from '@renderweld/core';
 
 function browserAvailable(): boolean {
   try {
@@ -19,7 +18,7 @@ function browserAvailable(): boolean {
 
 // In CI REELFORGE_REQUIRE_BROWSER=1 turns a missing browser into a failure instead of a skip.
 describe('browser requirement', () => {
-  it.runIf(envValue('REELFORGE_REQUIRE_BROWSER') === '1')('a browser must be configured', () => {
+  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('a browser must be configured', () => {
     expect(browserAvailable()).toBe(true);
   });
 });
@@ -42,14 +41,14 @@ const scene: Scene = {
 describe('resolveBrowser', () => {
   it('explains how to fix a missing browser', () => {
     expect(() =>
-      resolveBrowser('/nonexistent/a', { REELFORGE_CHROMIUM_PATH: '/nonexistent/b' }, () => undefined)
+      resolveBrowser('/nonexistent/a', { RENDERWELD_CHROMIUM_PATH: '/nonexistent/b' }, () => undefined)
     ).toThrow(/Set RENDERWELD_CHROMIUM_PATH.*\/nonexistent\/a, \/nonexistent\/b/);
   });
 
   it('prefers an explicit path, then the environment variable', () => {
     const exe = process.execPath; // any file that exists
-    expect(resolveBrowser(exe, { REELFORGE_CHROMIUM_PATH: '/nope' }, () => undefined)).toBe(exe);
-    expect(resolveBrowser(undefined, { REELFORGE_CHROMIUM_PATH: exe }, () => undefined)).toBe(exe);
+    expect(resolveBrowser(exe, { RENDERWELD_CHROMIUM_PATH: '/nope' }, () => undefined)).toBe(exe);
+    expect(resolveBrowser(undefined, { RENDERWELD_CHROMIUM_PATH: exe }, () => undefined)).toBe(exe);
   });
 });
 

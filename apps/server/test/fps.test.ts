@@ -4,25 +4,25 @@
  * normalisation gives the exact rational rate (ffprobe r_frame_rate
  * 30000/1001, not a rounded decimal), and a four-engine project at 29.97
  * renders end to end with the exact rate, frame count and duration.
- * Needs REELFORGE_CHROMIUM_PATH (skips without; fails under REELFORGE_REQUIRE_BROWSER=1).
+ * Needs RENDERWELD_CHROMIUM_PATH (skips without; fails under REELFORGE_REQUIRE_BROWSER=1).
  */
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { envValue, ReelforgeService, createMemoryRepositories, type EnginePlugin } from '@renderweld/core';
+import { RenderWeldService, createMemoryRepositories, type EnginePlugin } from '@renderweld/core';
 import { assertDecodable, checkExpectation, checkTimestamps, normaliseClip, probe, resolveTools } from '@renderweld/media-pipeline';
 import { builtinTheme, fpsLabel, fpsValue, sceneFrames, type FrameRate, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
 import { createDefaultRegistry } from '../src/registry';
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-fps-test-'));
 const cacheDir = resolve(import.meta.dirname, '../../../.render-cache');
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 describe('browser requirement', () => {
-  it.runIf(envValue('REELFORGE_REQUIRE_BROWSER') === '1')('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
+  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });
@@ -70,11 +70,11 @@ describe.skipIf(!hasBrowser)('every engine renders the new frame rates with exac
 
 describe.skipIf(!hasBrowser)('a four-engine project at 29.97 fps renders end to end with the exact rate (#302)', () => {
   it('ffprobe r_frame_rate is 30000/1001, the frame count is the timeline, the duration is frames x 1001 / 30000', async () => {
-    const svc = await ReelforgeService.create(createDefaultRegistry({}), {
+    const svc = await RenderWeldService.create(createDefaultRegistry({}), {
       repositories: createMemoryRepositories(),
       dataDir: join(dir, 'data'),
       cacheDir,
-      configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+      configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
     });
     try {
       const manifest = {

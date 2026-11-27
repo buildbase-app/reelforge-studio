@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply ReelForge's GitHub governance to one repository. Idempotent: safe to re-run.
+# Apply RenderWeld's GitHub governance to one repository. Idempotent: safe to re-run.
 # Needs the GitHub CLI signed in as a repository admin: `gh auth login`.
 #
 #   scripts/github/apply-repo-settings.sh buildbase-app/reelforge-studio  "pr-policy" "test" "docker"

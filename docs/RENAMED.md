@@ -1,20 +1,18 @@
 # Renamed from ReelForge
 
-ReelForge Studio is now **RenderWeld** (epic #408, decision D-127). This page
-lists every technical name that changes, the old name next to the new one.
-The public version of this page is
-[docs/public/install/renamed-from-reelforge.md](public/install/renamed-from-reelforge.md).
+ReelForge Studio is now **RenderWeld** (epic #408, decisions D-127 and D-140).
+This page is the record of every public name that changed, the old name next
+to the new one.
 
-**Nothing you already use breaks.** The old names keep working until a removal
-date announced in the release notes, at least 90 days after the rename ships.
-Until then, a setting under an old name works and the server logs one warning
-for it at start, naming the new variable.
+**The old names are no longer read** (D-140). No one ran the studio under
+them, so they were removed without a deprecation window: an old variable,
+command, URI, scope, metric or header is ignored or refused. Use the new name.
 
 ## Environment variables and settings
 
-Every `REELFORGE_*` environment variable has a `RENDERWELD_*` twin: drop
-`REELFORGE_` and put `RENDERWELD_` in front. Secrets work as `_FILE` under
-both names (`RENDERWELD_SECRET_KEY_FILE`, `REELFORGE_SECRET_KEY_FILE`).
+Every `REELFORGE_*` environment variable is now `RENDERWELD_*`: drop
+`REELFORGE_` and put `RENDERWELD_` in front. Secrets work as `_FILE`
+(`RENDERWELD_SECRET_KEY_FILE`).
 
 | Old name | New name |
 | --- | --- |
@@ -22,28 +20,12 @@ both names (`RENDERWELD_SECRET_KEY_FILE`, `REELFORGE_SECRET_KEY_FILE`).
 | `REELFORGE_*_FILE` (every secret) | `RENDERWELD_*_FILE` |
 | `REELFORGE_CONFIG` | `RENDERWELD_CONFIG` |
 | `REELFORGE_LICENCE_KEY_INPUT` | `RENDERWELD_LICENCE_KEY_INPUT` |
-| `REELFORGE_LICENSE_MODE`, `REELFORGE_LICENSE_KEY` (US spelling) | `RENDERWELD_LICENSE_MODE`, `RENDERWELD_LICENSE_KEY` |
-| `REELFORGE_REQUIRE_BROWSER`, `REELFORGE_REQUIRE_STORAGE`, `REELFORGE_TEST_DB` (tests) | `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_REQUIRE_STORAGE`, `RENDERWELD_TEST_DB` |
+| `REELFORGE_LICENSE_MODE`, `REELFORGE_LICENSE_KEY` (US spelling) | removed; use `RENDERWELD_LICENCE_MODE`, `RENDERWELD_LICENCE_KEY` |
 
-[CONFIG.md](CONFIG.md) lists each setting under its new name, with the old one
-as an alias. Other aliases (`DATABASE_URL`, `ELEVENLABS_API_KEY`, `OTEL_*`, ...)
-are unchanged and rank after both names.
-
-How the two names combine, for each variable:
-
-| You set | Result |
-| --- | --- |
-| only `RENDERWELD_X` | used |
-| only `REELFORGE_X` | used; one warning at start: `REELFORGE_X is an old name: rename it to RENDERWELD_X ...` |
-| both, same value | used, no warning |
-| both, different values | the server does not start; the error names both variables (never the values) |
-
-`renderweld config check` and `renderweld config show` name the variable that
-supplied each value and mark old names. The Docker image sets its own defaults
-(`RENDERWELD_DATA_DIR`, `RENDERWELD_HOST`, `RENDERWELD_PORT`,
-`RENDERWELD_CHROMIUM_PATH`, `RENDERWELD_CHROMIUM_NO_SANDBOX`) and lists them in
-`RENDERWELD_IMAGE_DEFAULTS`, so `-e REELFORGE_PORT=8080` still replaces the
-image's port instead of clashing with it.
+[CONFIG.md](CONFIG.md) lists each setting under its name. Other aliases
+(`DATABASE_URL`, `ELEVENLABS_API_KEY`, `OTEL_*`, ...) are unchanged. The test
+switches `REELFORGE_REQUIRE_BROWSER`, `REELFORGE_REQUIRE_EGRESS`, `REELFORGE_REQUIRE_STORAGE` and
+`REELFORGE_TEST_DB` are contributor-only and keep their old names.
 
 ## Config file
 
@@ -51,10 +33,8 @@ image's port instead of clashing with it.
 | --- | --- |
 | `REELFORGE_CONFIG=/etc/reelforge/reelforge.yaml` | `RENDERWELD_CONFIG=/etc/renderweld/renderweld.yaml` |
 
-The server reads the one file the variable names; the file name itself is
-free, so `reelforge.yaml` keeps working and `renderweld.yaml` works too. If
-`RENDERWELD_CONFIG` and `REELFORGE_CONFIG` name two different files, the server
-does not start. The default data directory does not change.
+The server reads the one file `RENDERWELD_CONFIG` names; the file name itself
+is free, so a file called `reelforge.yaml` still works.
 
 ## Command line
 
@@ -63,9 +43,9 @@ does not start. The default data directory does not change.
 | `reelforge <command>` | `renderweld <command>` |
 | `pnpm reelforge <command>` | `pnpm renderweld <command>` |
 | `docker exec <container> reelforge ...` | `docker exec <container> renderweld ...` |
+| `docker compose exec reelforge ...` (compose service `reelforge`) | `docker compose exec renderweld ...` (service `renderweld`; `RENDERWELD_DOMAIN` and Caddy point at it) |
 
-`reelforge` runs the same commands and prints the same output on stdout, plus
-one deprecation line on stderr, so scripts that parse stdout keep working.
+The image and the package install only the `renderweld` command.
 
 ## MCP resources
 
@@ -76,16 +56,14 @@ one deprecation line on stderr, so scripts that parse stdout keep working.
 | `reelforge://templates` | `renderweld://templates` |
 | `reelforge://projects/{id}` | `renderweld://projects/{id}` |
 
-Both answer with the same content; `resources/list` shows both (the old ones
-marked "old URI"), and projects are listed once, under `renderweld://`. Tool and
-prompt names do not change. The server card lists the new URIs and the old ones
-under `resourceAliases`.
+Only the `renderweld://` URIs are served; an old URI is not found. Tool and
+prompt names did not change.
 
 ## Prometheus metrics and OpenTelemetry
 
-Every metric is served under both names, with the same labels and values. Each
-label `reelforge_*` has a `renderweld_*` twin on both names. The Grafana
-dashboard and the alert rules in `deployment/observability/` use the new names.
+Metrics and labels are served under the new names only. The Grafana dashboard
+and the alert rules in `deployment/observability/` use them; the alerts are
+named `Renderweld...` (for example `RenderweldRenderQueueWaitSLO`).
 
 | Old metric (OpenTelemetry) | New metric (OpenTelemetry) | Prometheus (old → new) |
 | --- | --- | --- |
@@ -115,11 +93,10 @@ dashboard and the alert rules in `deployment/observability/` use the new names.
 | `reelforge.webhook.delivery.duration` | `renderweld.webhook.delivery.duration` | `reelforge_webhook_delivery_duration_seconds` → `renderweld_webhook_delivery_duration_seconds` |
 | `reelforge.webhook.events` | `renderweld.webhook.events` | `reelforge_webhook_events_total` → `renderweld_webhook_events_total` |
 
-Histograms have the usual `_bucket`, `_count` and `_sum` series under both names.
-OTLP metric pushes carry both names too.
+Histograms have the usual `_bucket`, `_count` and `_sum` series.
 
-**Attributes (span, metric and resource):** every `reelforge.*` attribute has a
-`renderweld.*` twin with the same value, for example `reelforge.job.id` →
+**Attributes (span, metric and resource):** every `reelforge.*` attribute is
+now `renderweld.*`, for example `reelforge.job.id` →
 `renderweld.job.id`, `reelforge.key_id` → `renderweld.key_id`,
 `reelforge.edition` → `renderweld.edition` (resource), and in Prometheus labels
 `reelforge_job_type` → `renderweld_job_type`.
@@ -128,7 +105,7 @@ OTLP metric pushes carry both names too.
 
 | Old header | New header | Where |
 | --- | --- | --- |
-| `X-Reelforge-Message-Id` | `X-Renderweld-Message-Id` | notification email (SMTP, Resend, Postmark, SendGrid, SES); both are sent |
+| `X-Reelforge-Message-Id` | `X-Renderweld-Message-Id` | notification email (SMTP, Resend, Postmark, SendGrid, SES) |
 
 Webhooks are signed with the Standard Webhooks headers (`webhook-id`,
 `webhook-timestamp`, `webhook-signature`), which carry no product name and do
@@ -138,17 +115,16 @@ not change.
 
 | Old | New | Where |
 | --- | --- | --- |
-| `reelforge-studio` | `renderweld` (title `RenderWeld`) | MCP `initialize`, `/.well-known/mcp.json` and `get_capabilities` / `GET /v1/capabilities` `server.name`; the old name is listed under `aliases` |
-| `reelforge:read`, `reelforge:write`, `reelforge:render`, `reelforge:admin`, `reelforge:owner` | `renderweld:read`, `renderweld:write`, `renderweld:render`, `renderweld:admin`, `renderweld:owner` | OAuth access-token scopes on `/mcp`; both are accepted and listed in `scopes_supported` |
-| `ReelForge-Studio-Webhooks/1` | `RenderWeld-Webhooks/1 ReelForge-Studio-Webhooks/1` | `User-Agent` of webhook and chat deliveries |
-| `ReelForge-Studio-Notifications/1` | `RenderWeld-Notifications/1 ReelForge-Studio-Notifications/1` | `User-Agent` of email API calls (Resend, Postmark, SendGrid, SES) |
-| `reelforge-studio-asset-fetch` | `RenderWeld-Asset-Fetch/1 reelforge-studio-asset-fetch` | `User-Agent` of `add_asset_from_url` downloads |
+| `reelforge-studio` | `renderweld` (title `RenderWeld`) | MCP `initialize`, `/.well-known/mcp.json` and `get_capabilities` / `GET /v1/capabilities` `server.name` |
+| `reelforge:read`, `reelforge:write`, `reelforge:render`, `reelforge:admin`, `reelforge:owner` | `renderweld:read`, `renderweld:write`, `renderweld:render`, `renderweld:admin`, `renderweld:owner` | OAuth access-token scopes on `/mcp`; an old scope grants nothing |
+| `ReelForge-Studio-Webhooks/1` | `RenderWeld-Webhooks/1` | `User-Agent` of webhook and chat deliveries |
+| `ReelForge-Studio-Notifications/1` | `RenderWeld-Notifications/1` | `User-Agent` of email API calls (Resend, Postmark, SendGrid, SES) |
+| `reelforge-studio-asset-fetch` | `RenderWeld-Asset-Fetch/1` | `User-Agent` of `add_asset_from_url` downloads |
 | (Node's default) | `RenderWeld-Licence/1`, `RenderWeld-Providers/1` | `User-Agent` of licence checks and ElevenLabs calls |
 | `org.opencontainers.image.title=ReelForge Studio` | `RenderWeld`, plus `url` and `vendor` | Docker image labels |
-| `app.reelforge.edition` | `app.renderweld.edition` | Docker image label; both are set |
+| `app.reelforge.edition` | `app.renderweld.edition` | Docker image label |
 
-User agents carry the old product token after the new one, so a filter that
-matches the old value keeps matching. Messages, the dashboard, notification
+Messages, the dashboard, notification
 titles (`RenderWeld: render ... is ready`) and `[renderweld]` log lines in the
 `pretty` format say RenderWeld.
 
@@ -178,29 +154,20 @@ Update your own scripts: `pnpm --filter @renderweld/db test`, not
 prints "No projects matched the filters" and exits 0, so an old filter in a
 script skips its step without an error.
 
-## Not renamed in this step
+## Not renamed (internal names)
 
-Data stays where it is: no table, column, storage key, data directory or
-default SQLite file name (`reelforge.db`) changes, and neither does the
-OpenTelemetry `service.name` default (`reelforge-studio`, a setting). The
-image name (it follows the repository rename), alert names and the
-`REELFORGE_*` names that some messages still suggest change in later steps,
-each with its own alias where something could break.
+Names a buyer never types stay as they are: no table, column, storage key,
+data directory, default SQLite file name (`reelforge.db`), Docker volume
+(`reelforge-data`), Kubernetes object, local image tag (`reelforge-studio`,
+which follows the repository name) changes. The OpenTelemetry `service.name`
+default, which a buyer sees in their tracing tools, is now `renderweld`.
 
-## How it works (maintainers)
+## Where the names live (maintainers)
 
-- Settings: `envNames()` in `packages/core/src/config/schema.ts` derives the
-  `RENDERWELD_*` names from the schema's `REELFORGE_*` ones; the rules above live
-  in the environment layer of `packages/core/src/config/load.ts`;
-  `packages/core/src/config/rename.ts` holds the alias table (`RENAMED_ENV`), the
-  few names read outside the schema (`OTHER_RENAMED_ENV`) and `envValue()` for
-  code that reads one directly (engines, tests).
-- CLI: `apps/server/src/cli.ts` is `renderweld`; `apps/server/src/reelforge.ts`
-  is the old name.
-- MCP: the `RESOURCES` table in `apps/server/src/mcp.ts`, registered under both
-  schemes.
-- Names, titles and user agents: `packages/core/src/product.ts` (`PRODUCT_NAME`,
-  `SERVER_NAME`, `OLD_SERVER_NAMES`, `userAgent()`); OAuth scopes:
+- Settings: the `env` of each setting in `packages/core/src/config/schema.ts`;
+  `ENV_PREFIX` is `RENDERWELD_`.
+- CLI: `apps/server/src/cli.ts` (the `renderweld` bin).
+- MCP: the `RESOURCES` table and `RESOURCE_SCHEME` in `apps/server/src/mcp.ts`.
+- Names, titles and user agents: `packages/core/src/product.ts`; OAuth scopes:
   `OAUTH_SCOPES` in `apps/server/src/oauth.ts`.
-- Telemetry: `apps/server/src/observability/rename.ts`, applied when metrics are
-  collected and before spans end.
+- Telemetry: `apps/server/src/observability/telemetry.ts`.

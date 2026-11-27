@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { applyGlossaryToTranscript, checkGlossary, glossaryPrompt, projectGlossary, restoreGlossaryTerms, spokenText } from '@renderweld/project-schema';
-import { createMemoryRepositories, PluginRegistry, ReelforgeService, type ProviderPlugin, type ProviderRunContext, type SpeechToTextPlugin, type SttRequest, type SttResult } from '../src/index';
+import { createMemoryRepositories, PluginRegistry, RenderWeldService, type ProviderPlugin, type ProviderRunContext, type SpeechToTextPlugin, type SttRequest, type SttResult } from '../src/index';
 import { fakeEngine, makeTone, tempDir } from './helpers';
 
 /** The project glossary (#486): speech-to-text prompt and spellings, TTS pronunciations, caption QA. */
@@ -54,7 +54,7 @@ class RecordingTts implements ProviderPlugin {
   }
 }
 
-let svc: ReelforgeService;
+let svc: RenderWeldService;
 const stt = new HearsTwoWords();
 let tts: RecordingTts;
 
@@ -62,10 +62,10 @@ beforeAll(async () => {
   await makeTone(join(dir, 'tone.mp3'), 3);
   tts = new RecordingTts(readFileSync(join(dir, 'tone.mp3')));
   const registry = new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas')).registerStt(stt).registerProvider(tts);
-  svc = await ReelforgeService.create(registry, {
+  svc = await RenderWeldService.create(registry, {
     repositories: createMemoryRepositories(),
     dataDir: join(dir, 'data'),
-    configSources: { env: { REELFORGE_LICENCE_MODE: 'off', REELFORGE_STT_PROVIDER: 'fake-stt' } },
+    configSources: { env: { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_STT_PROVIDER: 'fake-stt' } },
   });
 });
 afterAll(() => cleanup());
