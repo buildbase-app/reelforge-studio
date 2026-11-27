@@ -3244,3 +3244,22 @@ argument move with CI to `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_REQUIRE_EGRES
 promised protects no one and keeps two names on every surface; renaming internal names would move data for no
 reader. *Rejected:* keeping the aliases until a dated removal (nobody to protect); renaming every lowercase
 identifier too (data and deployment identity would move, and no buyer sees them).
+
+### D-141 --- Prices: Solo $9, Studio $29, Agency $79, Unlimited $99, one-time and lifetime; every image needs a key from a signed-in BuildBase account
+
+**Status:** DECIDED (owner, 2026-11-27, #91; reversible for new buyers). Number assigned at merge.\
+**Decision:** the Commercial licence sells once, as a lifetime licence, in four tiers by the number of servers it
+activates: **Solo $9** (1 server), **Studio $29** (3), **Agency $79** (10) and **Unlimited $99** (no server limit).
+Personal stays free for noncommercial use on 1 server. Prices are plain prices, not a "launch price" (a launch
+price needs a real end date under the contest rules in #91), and live only in the BuildBase items, never in code.
+Country discount codes (40 % or 60 % off, purchasing-power parity) apply to Studio, Agency and Unlimited; Solo is
+one price everywhere, since a 60 % code on $9 would leave less than the fixed card fee is worth. *Intent for the
+licence:* every running release image needs a licence key, each server takes one activation (D-098), and every key
+belongs to a signed-in BuildBase account, so the production store turns guest checkout off (#127). *Why:* buyers
+already pay for AI plans and their own server; RenderWeld should be the smallest line in that bill, priced against
+self-hosted tools sold once (Sendy $69, Remotion's Editor Starter $600 on 27 Nov 2026), not against hosted
+tools whose credits pay for their own cloud. $9 keeps $8.44 a sale after a US card fee of 2.9 % + 30 cents, against
+$4.56 at $5. *Rejected:* $49 / $149 / $399 and $149 / $349 / $899 (above what buyers who already pay for AI
+credits will add); $5 for Solo (needs about twice the buyers for the same income). *Open:* whether lifetime covers
+every future version or updates until the next major version (#97); whether a BuildBase key can carry unlimited
+activations or Unlimited needs a high count (#127); which countries fall in each discount band.
