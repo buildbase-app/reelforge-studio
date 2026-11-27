@@ -78,11 +78,11 @@ jobs:
         suite: [unit, server]
     env:
       # A missing browser fails the engine and end-to-end tests instead of skipping them.
-      REELFORGE_REQUIRE_BROWSER: '1'
+      RENDERWELD_REQUIRE_BROWSER: '1'
       # Ubuntu 24.04 runners restrict unprivileged user namespaces, so Chromium's
       # own sandbox cannot start (verified: "No usable sandbox"). The runner VM is
       # the isolation boundary here.
-      REELFORGE_CHROMIUM_NO_SANDBOX: '1'
+      RENDERWELD_CHROMIUM_NO_SANDBOX: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -110,7 +110,7 @@ jobs:
           pnpm --filter @renderweld/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
           BIN=$(find ~/.cache/ms-playwright -type f -name chrome-headless-shell -perm -u+x | head -n 1)
           test -n "$BIN"
-          echo "REELFORGE_CHROMIUM_PATH=$BIN" >> "$GITHUB_ENV"
+          echo "RENDERWELD_CHROMIUM_PATH=$BIN" >> "$GITHUB_ENV"
       - name: Typecheck
         if: matrix.suite == 'unit'
         run: pnpm typecheck
@@ -168,9 +168,9 @@ jobs:
         options: >-
           --health-cmd "mysqladmin ping -h 127.0.0.1 -preelforge --silent" --health-interval 5s --health-timeout 5s --health-retries 60
     env:
-      REELFORGE_REQUIRE_BROWSER: '1'
-      REELFORGE_CHROMIUM_NO_SANDBOX: '1'
-      REELFORGE_TEST_DB: ${{ matrix.db }}
+      RENDERWELD_REQUIRE_BROWSER: '1'
+      RENDERWELD_CHROMIUM_NO_SANDBOX: '1'
+      RENDERWELD_TEST_DB: ${{ matrix.db }}
       # Root: the tests create and drop a database (MySQL) or schema (PostgreSQL) per run.
       TEST_POSTGRES_URL: ${{ matrix.db == 'postgres' && 'postgresql://reelforge:reelforge@127.0.0.1:5432/reelforge' || '' }}
       TEST_MYSQL_URL: ${{ matrix.db == 'mysql' && 'mysql://root:reelforge@127.0.0.1:3306/reelforge?allowPublicKeyRetrieval=true' || '' }}
@@ -201,7 +201,7 @@ jobs:
           pnpm --filter @renderweld/engine-motion-canvas exec playwright-core install --with-deps chromium-headless-shell
           BIN=$(find ~/.cache/ms-playwright -type f -name chrome-headless-shell -perm -u+x | head -n 1)
           test -n "$BIN"
-          echo "REELFORGE_CHROMIUM_PATH=$BIN" >> "$GITHUB_ENV"
+          echo "RENDERWELD_CHROMIUM_PATH=$BIN" >> "$GITHUB_ENV"
       - name: Schemas, migrations and generated clients are up to date
         if: matrix.db == 'postgres'
         env:
@@ -248,7 +248,7 @@ jobs:
           load: true
           tags: reelforge-studio:release
           build-args: |
-            REELFORGE_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}
+            RENDERWELD_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}
             VCS_REF=${{ github.sha }}
           cache-from: type=gha,scope=release-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.arch }}
@@ -259,7 +259,7 @@ jobs:
           load: true
           tags: reelforge-studio:e2e
           build-args: |
-            REELFORGE_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}
+            RENDERWELD_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}
             VCS_REF=${{ github.sha }}
             LICENCE_SERVER_URL=http://licence:8080
             LICENCE_ORG_ID=6b01478bb42d2c444e99fcd8-mocklice
@@ -309,7 +309,7 @@ jobs:
           context: .
           platforms: linux/${{ matrix.arch }}
           build-args: |
-            REELFORGE_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}
+            RENDERWELD_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}
             VCS_REF=${{ github.sha }}
           outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=release-${{ matrix.arch }}
