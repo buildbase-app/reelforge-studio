@@ -84,7 +84,7 @@ About the flash check:
   even one that would cover a quarter of a viewer's central vision on a large screen.
 - **Sustained flashing.** EA IRIS also marks an "extended flash failure": "between 2-3 flashes per second in any given 5
   consecutive seconds" (https://github.com/electronicarts/IRIS, read 2026-11-25). The studio reports it as a
-  `video.flash` issue with `extended: true` (row `video.flash (sustained)` below). A stretch already over three a
+  `video.flash` issue with `extended: true` (row `video.flash (sustained)` in the table above). A stretch already over three a
   second is reported once, as the failure above.
 - **Not covered.** Stripe patterns. Video for broadcast should still go through a dedicated analyser.
 
