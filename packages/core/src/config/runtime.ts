@@ -1,5 +1,5 @@
 import { ApiError } from '../errors';
-import type { Repositories, StoredValue } from '../repositories';
+import type { ProviderSettingRepository, Repositories, StoredValue } from '../repositories';
 import { ENCRYPTED_SCHEME, PLAIN_SCHEME, SECRET_KEY_HELP, SecretCipher, SecretDecryptError } from './crypto';
 import type { BuildInfo } from './build';
 import { ConfigError, buildLockedMessage, formatIssue, parseSettingValue, resolveConfig, type ConfigFile, type ConfigSource, type ResolvedConfig, type ResolvedSetting } from './load';
@@ -436,6 +436,32 @@ export class RuntimeConfig {
   /** The schema setting stored under a provider env name, if any. */
   static settingForProviderEnv(name: string): SettingDef | undefined {
     return SETTINGS.find((d) => d.providerEnv === name);
+  }
+
+  /**
+   * One workspace's own provider settings (#480), decrypted, by name. `repo` is that workspace's provider
+   * settings (its rows only); read on every call, so a change on another instance applies at once. A value
+   * that cannot be decrypted is left out and reported in `errors`.
+   */
+  async workspaceProviderValues(repo: ProviderSettingRepository): Promise<{ values: Record<string, string>; errors: Record<string, string> }> {
+    const values: Record<string, string> = {};
+    const errors: Record<string, string> = {};
+    for (const [name, stored] of Object.entries(await repo.values())) {
+      try {
+        const v = this.decode(name, stored);
+        if (v) values[name] = v;
+      } catch (e) {
+        errors[name] = (e as Error).message;
+      }
+    }
+    return { values, errors };
+  }
+
+  /** configure_workspace_provider: set (string) or clear (null) one workspace's own provider settings, encrypted. */
+  async setWorkspaceProviderValues(repo: ProviderSettingRepository, changes: Record<string, string | null>, providerId: string): Promise<void> {
+    const stored: Record<string, StoredValue | null> = {};
+    for (const [name, v] of Object.entries(changes)) stored[name] = v === null ? null : this.encode(name, v, true);
+    await repo.apply(stored, new Date().toISOString(), providerId);
   }
 
   /** configure_provider: set (string) or clear (null) provider settings, encrypted. */

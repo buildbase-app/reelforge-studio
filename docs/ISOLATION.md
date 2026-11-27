@@ -1,6 +1,6 @@
 ---
 title: "Isolation guarantees"
-description: "What a self-hosted ReelForge Studio sends where, why one installation never talks to another, how to run it offline and what stops after the 14-day licence grace, and how to verify the egress with network policies."
+description: "What a self-hosted RenderWeld sends where, why one installation never talks to another, how to run it offline and what stops after the 14-day licence grace, and how to verify the egress with network policies."
 folder: privacy
 slug: isolation
 order: 2
@@ -9,7 +9,7 @@ tags: [privacy, security, deploy]
 
 # Isolation guarantees
 
-Each ReelForge Studio installation belongs to one customer and holds that
+Each RenderWeld installation belongs to one customer and holds that
 customer's projects, media, keys and provider credentials. This page states what
 the software guarantees about that, how the guarantees follow from the code, how
 to check them yourself, and what is not covered yet (issue #291). The full
@@ -22,7 +22,7 @@ connection list, with what each request carries, is
    other connection goes to a service the operator configured. All of the
    studio's APIs (REST `/v1`, MCP `/mcp`, the CLI) are served by the
    installation itself from this repository; nothing is proxied through a
-   ReelForge or BuildBase service.
+   RenderWeld or BuildBase service.
 2. **No telemetry.** No analytics, crash reports, update checks or usage
    reports, from the server or from the bundled tools (HyperFrames, Remotion,
    Prisma), which are run with their telemetry off.
@@ -82,7 +82,7 @@ before it is merged (AGENTS.md, "Conventions").
   requests are served from that local cache, never from a shared one.
 - **Its own identity and keys.** The instance id is random, created once and
   stored in the installation's database. Secrets stored over the API are
-  encrypted with the installation's own `REELFORGE_SECRET_KEY`; signed download
+  encrypted with the installation's own `RENDERWELD_SECRET_KEY`; signed download
   links use a key in its own data directory (or derived from that secret key
   with several instances). A database copied to another installation does not
   decrypt there without the key, and its licence state does not verify there.
@@ -171,7 +171,7 @@ docker run -d --name egress --network rf-egress <an HTTP proxy image allowing on
 docker network connect rf-internal egress
 docker run -d --name reelforge --network rf-internal \
   -e HTTPS_PROXY=http://egress:3128 -e NODE_USE_ENV_PROXY=1 \
-  -e REELFORGE_SECRET_KEY_FILE=/run/secrets/secret_key -v $PWD/secret_key:/run/secrets/secret_key:ro \
+  -e RENDERWELD_SECRET_KEY_FILE=/run/secrets/secret_key -v $PWD/secret_key:/run/secrets/secret_key:ro \
   -v reelforge-data:/data reelforge-studio
 # render a project, then: every CONNECT in the proxy log names api.console.buildbase.app or a host you configured
 ```

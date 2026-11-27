@@ -207,7 +207,11 @@ const A_IDS: Record<string, () => string> = {
   workspaces: () => A,
   // Providers are instance-level plugins, not workspace resources: the probe names A's project in the body.
   providers: () => 'elevenlabs',
+  // Skills are instance-level documents (built in, or skills.dir), the same for every workspace.
+  skills: () => 'av-sync',
 };
+/** Path collections that are not workspace resources (see A_IDS). */
+const INSTANCE_LEVEL = new Set(['providers', 'skills']);
 
 function fill(path: string): { path: string; names: string[] } {
   const segs = path.split('/');
@@ -255,7 +259,7 @@ describe('workspaces: cross-workspace denial (#304)', () => {
     for (const r of REST_ROUTES) {
       const { path, names } = fill(r.path);
       // PUT /v1/themes/:id creates or replaces a theme of the caller's own workspace: B gets its own theme with that id.
-      const targetsA = names.some((n) => n !== 'providers') && !UPSERTS.has(r.tool);
+      const targetsA = names.some((n) => !INSTANCE_LEVEL.has(n)) && !UPSERTS.has(r.tool);
       const res = await rest(r.method, path, { body: bodyFor(r.method, r.path) });
       const label = `${r.method} ${r.path} (${r.tool}) -> ${res.status} ${res.text.slice(0, 200)}`;
       if (targetsA || r.scope === 'owner') {

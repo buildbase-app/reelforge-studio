@@ -1,6 +1,6 @@
 # Workspaces and tenancy
 
-One ReelForge Studio install can host several teams, clients or customers. Each one gets a **workspace**. Its
+One RenderWeld install can host several teams, clients or customers. Each one gets a **workspace**. Its
 projects, versions, renders, assets, themes, jobs, API keys, webhooks, deliveries, audit log and idempotency keys
 are invisible to every other workspace (#304, decisions D-124 and D-125 in [DECISIONS.md](DECISIONS.md)).
 
@@ -12,13 +12,13 @@ An install that never creates a workspace has one, `default`, and works exactly 
 | --- | --- | --- |
 | `read`, `write`, `render` | the key's workspace | as before: read, edit and render that workspace's projects |
 | `approve` | the key's workspace | approve render plans when `render.approval` asks for it (`approve_render_plan`, #485); `admin` and `owner` imply it |
-| `admin` | the key's workspace | also that workspace's keys, webhooks and audit log, and everything a write or render key can do |
+| `admin` | the key's workspace | also that workspace's keys, webhooks and audit log, its own provider accounts (`configure_workspace_provider`), and everything a write or render key can do |
 | `owner` | the install | also workspaces (create, list, rename, change limits, suspend, delete, restore), runtime configuration (`get_config`, `update_config`), the licence, provider credentials, storage status and cleanup, `/readyz` details, every workspace's audit log, and owner keys |
 
 - An owner key lives in a workspace, normally `default`. It reads and writes that workspace's data like an admin
   key; it manages the other workspaces through the workspace tools, not by reading their projects.
 - Upgrading from an earlier version: admin keys that existed before gain `owner`, through migration 0015, and so
-  do admin keys imported from a v0.1 data directory. The bootstrap key (`REELFORGE_BOOTSTRAP_KEY`) is
+  do admin keys imported from a v0.1 data directory. The bootstrap key (`RENDERWELD_BOOTSTRAP_KEY`) is
   `admin` + `owner`.
 - Admin keys made from now on are workspace admins.
 - Only an owner key, or the CLI, can create, change, rotate, revoke or delete a key with the `owner` scope.
@@ -34,7 +34,7 @@ curl -X POST $URL/v1/workspaces -H "Authorization: Bearer $OWNER" -H 'content-ty
 ```
 
 Over MCP: `create_workspace { id, name, adminKey: true }`. On the server without a running API:
-`reelforge keys create --workspace acme --name acme-admin --scopes admin`. The workspace must already exist.
+`renderweld keys create --workspace acme --name acme-admin --scopes admin`. The workspace must already exist.
 
 Give the team the admin key. They create their own keys (`create_key`), webhooks and projects; any key can see
 which workspace it is in with `GET /v1/workspace` (`get_workspace`).
@@ -78,6 +78,48 @@ How exactly each limit is counted:
   same moment can pass a limit by a few jobs.
 - Storage usage is measured from the storage driver at most a minute earlier.
 
+## Provider accounts per workspace (#480)
+
+Each workspace brings its own provider accounts: its costs land on its account, its cloned voices stay on
+its account, and its text goes only to the provider its contract allows. Only the default workspace uses the
+accounts the owner configured (`configure_provider`), unless the owner shares them with every workspace
+(`providers.shareWithWorkspaces`: one ElevenLabs key, one bill, one set of voices).
+
+```bash
+# An admin of the workspace sets its own key (stored encrypted; never returned):
+curl -X PUT "$URL/v1/providers/elevenlabs/workspace-config" -H "Authorization: Bearer $WORKSPACE_ADMIN_KEY" \
+  -H 'content-type: application/json' -d '{"values": {"ELEVENLABS_API_KEY": "..."}}'
+# Or the owner sets it for a workspace:
+curl -X PUT "$URL/v1/providers/elevenlabs/config" -H "Authorization: Bearer $OWNER_KEY" \
+  -H 'content-type: application/json' -d '{"values": {"ELEVENLABS_API_KEY": "..."}, "workspaceId": "acme"}'
+```
+
+MCP: `configure_workspace_provider { providerId, values }` (admin), or `configure_provider { providerId,
+values, workspaceId }` (owner). `null` clears a value.
+
+- **Which settings a call uses.** The workspace's own, when it set any (never mixed with the instance's).
+  Otherwise the instance's, when `providers.shareWithWorkspaces` allows it: `[]` (the default) shares none,
+  so a workspace without its own settings gets `409 provider_not_configured` naming
+  `configure_workspace_provider`; a list of ids shares those; `["*"]` shares every provider. The default
+  workspace always uses the instance's.
+- **Upgrading.** Before #480 every workspace used the instance's provider accounts. If your workspaces rely on
+  that, keep it with `update_config { "providers.shareWithWorkspaces": ["*"] }` (owner) or
+  `RENDERWELD_PROVIDERS_SHARE_WITH_WORKSPACES=*`, before or right after the upgrade; otherwise their provider
+  calls get `409` until each sets its own key.
+- **What a workspace sees.** `list_providers` and `get_capabilities` answer for the caller's workspace:
+  `configured`, `settingsFrom` (`workspace`, `instance` or `none`) and `perWorkspace` (whether the provider
+  takes a workspace's own settings). Values are never returned, and audit entries say only `set` or
+  `cleared`.
+- **Storage.** The values are rows of that workspace in the provider settings table, encrypted with
+  `RENDERWELD_SECRET_KEY`, deleted with the workspace. Every call reads them, so a change applies at once on
+  every instance.
+- **Which providers.** ElevenLabs, and any provider plugin with `scopedSettings: true` (it reads its key
+  from `ctx.env`). An older plugin reads only the instance's settings: it takes no workspace key
+  (`400 provider_not_per_workspace`), and a workspace that may not share the instance's cannot use it.
+  Speech-to-text (`faster-whisper`, local, no key) and render backends stay instance-level.
+- **Limits.** `limits.providerRunsPerKeyPerDay` and `limits.providerRunsPerDay` count every call, whoever's
+  account it uses.
+
 ## Isolation: what it guarantees and what it does not
 
 **Guaranteed, and tested by the denial suite (`apps/server/test/workspaces.test.ts`):**
@@ -100,10 +142,11 @@ How exactly each limit is counted:
 **Shared, by design (one install):**
 
 - **Database and bucket.** One database and one storage bucket hold every workspace. Isolation is enforced by
-  ReelForge, not by the database (no row-level security) or the bucket (no per-workspace credentials). Anyone with
+  RenderWeld, not by the database (no row-level security) or the bucket (no per-workspace credentials). Anyone with
   database or bucket credentials, a backup, or shell access to the server sees every workspace.
-- **Instance-level settings.** Runtime configuration, provider credentials (e.g. one ElevenLabs key for
-  everyone), the licence and storage settings are the owner's and apply to every workspace.
+- **Instance-level settings.** Runtime configuration, the licence and storage settings are the owner's and
+  apply to every workspace. Provider credentials are each workspace's own; the owner may share the instance's
+  (section above).
 - **Compute.** Workspaces share the render workers. Claims take turns between workspaces that have queued jobs, so
   one workspace cannot keep the others waiting by queueing many jobs. Priority and per-key fairness apply inside a
   workspace. Optional render limits cap a workspace's volume.
@@ -125,8 +168,9 @@ encryption key or network boundary needs one install per customer; each install 
   `runAsSystem`, as the job runner does.
 - A new REST route or MCP tool is probed by the denial suite automatically. If it takes a new path parameter or a
   new required argument, give the suite a probe value (`A_IDS`, `resourceArgs`, `filler`).
-- **MCP OAuth (#343, D-112):** access tokens act in `default`. `reelforge:admin` is a workspace admin (test
-  OAUTH-09); `reelforge:owner` makes the token an instance owner, like an owner key, and only your authorization
-  server decides who gets it (OAUTH-10). A token claim (e.g. `reelforge:workspace`) that sets the workspace the same way
-  as a key is not built yet; see the TODO at `authorize()` in `apps/server/src/app.ts` and the `it.todo` in
-  `test/workspace-admin.test.ts`.
+- **MCP OAuth (#343, D-112):** access tokens act in `default` unless `security.oauth.workspaceClaim`
+  (`RENDERWELD_MCP_OAUTH_WORKSPACE_CLAIM`) names the token claim that carries their workspace (#479). Then a
+  token acts only in the workspace it names, exactly like a key made there. A token without the claim, or naming a
+  workspace that does not exist or was deleted, gets `401 invalid_token`; a suspended workspace gives `403
+  workspace_suspended` (test OAUTH-11). `renderweld:admin` is a workspace admin (OAUTH-09); `renderweld:owner` makes
+  the token an instance owner, like an owner key, and only your authorization server decides who gets it (OAUTH-10).
