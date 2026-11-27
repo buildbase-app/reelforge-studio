@@ -350,6 +350,8 @@ export interface JobRepository {
    * a scan of projects or jobs.
    */
   projectOfRun(runId: string): Promise<string | null>;
+  /** The render or preview job that produces render `runId` in this workspace (get_render_output's estimate, #485). */
+  jobOfRun(runId: string): Promise<JobRecord | null>;
   /** Jobs whose status is queued or running. */
   listUnfinished(): Promise<JobRecord[]>;
 
