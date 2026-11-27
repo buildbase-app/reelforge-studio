@@ -32,7 +32,7 @@ ARG BASE_DIGEST=sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba
 # same BASE_DIGEST and DEBIAN_SNAPSHOT always install the same package versions. Security fixes
 # arrive by moving the date: bump it weekly (docs/DEPLOY.md, "Reproducible image"). The archive
 # is signed: apt checks every index against the base image's Debian keyring, over plain HTTP too.
-ARG DEBIAN_SNAPSHOT=20261125T200000Z
+ARG DEBIAN_SNAPSHOT=20261127T000000Z
 ARG DEBIAN_SNAPSHOT_URL=http://snapshot.debian.org/archive
 
 # ---- os: what the runtime needs from Debian ------------------------------------------
