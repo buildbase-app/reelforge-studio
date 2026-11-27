@@ -1,6 +1,7 @@
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -17,6 +18,7 @@ import { testDatabase } from './serverProcess';
  */
 const { dir, cleanup } = tempDir('reelforge-enterprise-');
 const repo = resolve(__dirname, '../../..');
+const execFileAsync = promisify(execFile);
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
 const SECRET_KEY = 'enterprise-test-secret-key-0123456789abcdef';
 const ELEVEN = 'sk_eleven_' + 'Q'.repeat(24);
@@ -372,34 +374,40 @@ describe('API key lifecycle (KEY)', () => {
   });
 
   it('KEY-09 CLI equivalents: create with expiry and limits, show, update, rotate, revoke, audit list/export', async () => {
-    const cli = (args: string[]) => {
-      const r = spawnSync(join(repo, 'node_modules/.bin/tsx'), ['apps/server/src/cli.ts', ...args], {
-        cwd: repo,
-        env: { ...process.env, ...env, REELFORGE_DATA_DIR: join(dir, 'data') },
-        encoding: 'utf8',
-        timeout: 60_000,
-      });
-      if (r.status !== 0) throw new Error(`${args.join(' ')} failed: ${r.stderr}`);
-      return r.stdout;
+    // Asynchronous, not spawnSync (#345): the server runs in this process, and nine blocking CLI runs held its event
+    // loop past the 65 s keep-alive on a loaded machine. The next request (IDM-01's POST) then went out on a pooled
+    // connection that the server closed a moment later: ECONNRESET.
+    const cli = async (args: string[]) => {
+      try {
+        const r = await execFileAsync(join(repo, 'node_modules/.bin/tsx'), ['apps/server/src/cli.ts', ...args], {
+          cwd: repo,
+          env: { ...process.env, ...env, REELFORGE_DATA_DIR: join(dir, 'data') },
+          encoding: 'utf8',
+          timeout: 60_000,
+        });
+        return r.stdout;
+      } catch (e) {
+        throw new Error(`${args.join(' ')} failed: ${(e as { stderr?: string }).stderr ?? (e as Error).message}`);
+      }
     };
-    const out = cli(['keys', 'create', '--name', 'cli-key', '--scopes', 'read', '--expires-in', '30d', '--renders-per-day', '5', '--ip-allow', '10.0.0.0/8']);
+    const out = await cli(['keys', 'create', '--name', 'cli-key', '--scopes', 'read', '--expires-in', '30d', '--renders-per-day', '5', '--ip-allow', '10.0.0.0/8']);
     const key = out.trim().split('\n').pop()!.trim();
     const id = /\((key_[a-z0-9]+)\)/.exec(out)![1]!;
     secrets.push(key);
     expect(out).toMatch(/5 renders\/day; from 10\.0\.0\.0\/8/);
-    expect(JSON.parse(cli(['keys', 'show', id]))).toMatchObject({ id, rendersPerDay: 5, ipAllowlist: ['10.0.0.0/8'] });
-    expect(cli(['keys', 'update', id, '--ip-allow', 'none', '--rate-limit', '9'])).toMatch(/9\/min/);
-    const rot = cli(['keys', 'rotate', id, '--grace-hours', '2']);
+    expect(JSON.parse(await cli(['keys', 'show', id]))).toMatchObject({ id, rendersPerDay: 5, ipAllowlist: ['10.0.0.0/8'] });
+    expect(await cli(['keys', 'update', id, '--ip-allow', 'none', '--rate-limit', '9'])).toMatch(/9\/min/);
+    const rot = await cli(['keys', 'rotate', id, '--grace-hours', '2']);
     secrets.push(rot.trim().split('\n').pop()!.trim());
     expect(rot).toMatch(/The old key works until/);
-    expect(cli(['keys', 'revoke', id])).toMatch(/Revoked/);
-    expect(cli(['keys', 'list'])).toMatch(new RegExp(`${id} .*revoked`));
-    const list = cli(['audit', 'list', '--target', id]);
+    expect(await cli(['keys', 'revoke', id])).toMatch(/Revoked/);
+    expect(await cli(['keys', 'list'])).toMatch(new RegExp(`${id} .*revoked`));
+    const list = await cli(['audit', 'list', '--target', id]);
     for (const a of ['key.create', 'key.update', 'key.rotate', 'key.revoke']) expect(list).toContain(a);
-    const exported = cli(['audit', 'export', '--format', 'jsonl', '--target', id]).trim().split('\n').map((l) => JSON.parse(l));
+    const exported = (await cli(['audit', 'export', '--format', 'jsonl', '--target', id])).trim().split('\n').map((l) => JSON.parse(l));
     expect(exported.every((e: AuditEntry) => e.actorType === 'cli' && e.actorName?.startsWith('cli'))).toBe(true);
     for (const s of secrets) expect(list + JSON.stringify(exported)).not.toContain(s);
-    expect(cli(['audit', 'sweep'])).toMatch(/deleted \d+ audit entr/);
+    expect(await cli(['audit', 'sweep'])).toMatch(/deleted \d+ audit entr/);
   }, 120_000);
 });
 
