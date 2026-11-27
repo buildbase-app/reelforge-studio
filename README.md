@@ -129,6 +129,32 @@ RenderWeld itself is **source-available**, not open source (`LICENSING.md`):
   permitted under either licence; the name and logo are not licensed
   (`TRADEMARK.md`). Required notices: `NOTICE`.
 
+## Built with BuildBase
+
+RenderWeld's licence keys, public docs and demo gallery run on
+[BuildBase](https://buildbase.app), a backend for SaaS apps (sign-in,
+workspaces, billing and selling, content, notifications and agent access). The
+studio has no BuildBase SDK dependency; it calls BuildBase's HTTP API:
+
+- **[Licence keys](https://docs.buildbase.app/billing/orders#license-keys)**:
+  the server validates, activates and deactivates its key with BuildBase's
+  licence API (`packages/core/src/licence.ts`). The Personal and Commercial
+  keys are BuildBase licence keys.
+- **[Docs](https://docs.buildbase.app/content/blogs-and-docs)**:
+  `pnpm docs:sync` publishes `docs/public/` to BuildBase Docs
+  (`scripts/docs/sync-buildbase.mjs`).
+- **[Collections](https://docs.buildbase.app/collections/overview)**:
+  `pnpm gallery publish` stores one record per demo reel in the `gallery`
+  collection (`scripts/gallery/src/publish.ts`).
+- **[Blueprints](https://docs.buildbase.app/blueprints/overview)**: the
+  console setup page (`docs/public/install/buildbase-console-setup.md`) is
+  built from blueprint exports by `pnpm capture`
+  (`scripts/capture/steps/console.mjs`).
+
+The public site (sign-in, buying and claiming keys, docs, gallery) is built on
+BuildBase too: see
+[its README](https://github.com/buildbase-app/reelforge-selling-public-site#built-with-buildbase).
+
 ## Layout
 
 ```
