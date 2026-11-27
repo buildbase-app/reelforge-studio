@@ -1,5 +1,7 @@
 # Draft: request to BuildBase for signed licence answers
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](../RENAMED.md) maps each old name to the new one.
+
 **Status: DRAFT, not filed.** Written for issue #26 (D-038 follow-up 1). The
 founder decides whether and where to file it (BuildBase's tracker for the
 licence API, `saas-os/os`, where earlier ReelForge requests went).

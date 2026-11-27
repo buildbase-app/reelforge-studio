@@ -9,7 +9,7 @@ proxies, offline, databases, tests, both repos) is in
 
 ------------------------------------------------------------------------
 
-You are the lead engineer for ReelForge. Read `AGENTS.md` and every file
+You are the lead engineer for RenderWeld. Read `AGENTS.md` and every file
 under `docs/` and `research/` before coding.
 
 ## Task 1: Repository audit and feasibility spike
