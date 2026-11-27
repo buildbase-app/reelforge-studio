@@ -1,6 +1,6 @@
 ---
 title: "Deploy on other platforms"
-description: "ReelForge Studio on DigitalOcean, Hetzner, Fly.io, Railway, bare metal or on-premises with docker compose, any Kubernetes with kustomize, and S3-compatible stores such as Cloudflare R2, MinIO, Backblaze B2 and Wasabi."
+description: "RenderWeld on DigitalOcean, Hetzner, Fly.io, Railway, bare metal or on-premises with docker compose, any Kubernetes with kustomize, and S3-compatible stores such as Cloudflare R2, MinIO, Backblaze B2 and Wasabi."
 folder: deploy
 slug: other-platforms
 order: 5
@@ -21,8 +21,9 @@ below are not** (VERIFY marks the steps to check).
 The tested path. One host, 4+ vCPU, 8+ GB RAM, Docker with Compose v2.
 
 ```bash
-git clone <your copy of the repository> reelforge && cd reelforge
+git clone <your copy of the repository> renderweld && cd renderweld
 openssl rand -base64 32 > secret_key && chmod 444 secret_key      # keep a copy; stored secrets need it
+# docker-compose.yml reads the old REELFORGE_* names; the server accepts RENDERWELD_* too (RENAMED.md)
 export REELFORGE_SECRET_KEY=$(cat secret_key)
 export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
 docker compose up -d                                  # SQLite + local files in the reelforge-data volume
@@ -41,7 +42,7 @@ point the `s3` driver at it (table below). Air-gapped sites: see
 [Isolation](../ISOLATION.md#offline); renders need the licence server at least
 once every 14 days.
 
-Backups: `reelforge backup` for SQLite (or `pg_dump`), and the `reelforge-data`
+Backups: `renderweld backup` for SQLite (or `pg_dump`), and the `reelforge-data`
 volume (DEPLOY.md, "Backup and restore"). Firewall: open 80/443 only; the studio
 listens on 127.0.0.1 or the Docker network.
 
@@ -70,13 +71,13 @@ patches:
   - target: { kind: ConfigMap, name: reelforge }
     patch: |-
       - op: replace
-        path: /data/REELFORGE_PUBLIC_URL
+        path: /data/RENDERWELD_PUBLIC_URL
         value: https://studio.example.com
       - op: add
-        path: /data/REELFORGE_S3_ENDPOINT
+        path: /data/RENDERWELD_S3_ENDPOINT
         value: http://minio.minio.svc:9000
       - op: add
-        path: /data/REELFORGE_S3_FORCE_PATH_STYLE
+        path: /data/RENDERWELD_S3_FORCE_PATH_STYLE
         value: "true"
 ```
 
@@ -86,7 +87,7 @@ Then `kubectl -n reelforge create secret generic reelforge --from-file=...`
 
 - put `deployment/seccomp/chrome.json` on each node as
   `<kubelet dir>/seccomp/reelforge-chrome.json`, or set
-  `REELFORGE_CHROMIUM_NO_SANDBOX=1` (DEPLOY.md, "Kubernetes");
+  `RENDERWELD_CHROMIUM_NO_SANDBOX=1` (DEPLOY.md, "Kubernetes");
 - check the NetworkPolicy allowlist: it needs a CNI that enforces it, it denies
   link-local addresses (so cloud metadata identity endpoints: see the AWS,
   Google Cloud and Azure guides), it allows the database on 5432/6432/3306 and
@@ -97,7 +98,7 @@ Then `kubectl -n reelforge create secret generic reelforge --from-file=...`
   for its namespace and port (`e2e/k8s/settings/networkpolicy-e2e.yaml` shows
   the pattern);
 - keep `terminationGracePeriodSeconds` above
-  `REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS` (330 > 300 in `worker.yaml`).
+  `RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS` (330 > 300 in `worker.yaml`).
 
 ## DigitalOcean
 
@@ -105,10 +106,10 @@ Then `kubectl -n reelforge create secret generic reelforge --from-file=...`
 | --- | --- |
 | One server | a Droplet (4 vCPU / 8 GB or more) with Docker and the compose file above; a block storage volume for `/var/lib/docker/volumes` if you want to resize it |
 | api and workers | DOKS (Kubernetes) with the kustomize base; Managed PostgreSQL; Spaces for files |
-| App Platform (VERIFY) | the image as a **service** (api, HTTP port 4321) and as a **worker** component (`REELFORGE_ROLE=worker`); Managed PostgreSQL; Spaces. App Platform has no persistent volumes for components, so the database and files must be managed services |
+| App Platform (VERIFY) | the image as a **service** (api, HTTP port 4321) and as a **worker** component (`RENDERWELD_ROLE=worker`); Managed PostgreSQL; Spaces. App Platform has no persistent volumes for components, so the database and files must be managed services |
 
-Spaces with the `s3` driver: `REELFORGE_S3_ENDPOINT=https://fra1.digitaloceanspaces.com`,
-`REELFORGE_S3_REGION=fra1`, a Spaces access key limited to the bucket. Managed
+Spaces with the `s3` driver: `RENDERWELD_S3_ENDPOINT=https://fra1.digitaloceanspaces.com`,
+`RENDERWELD_S3_REGION=fra1`, a Spaces access key limited to the bucket. Managed
 PostgreSQL requires TLS (`?sslmode=require`; untested here) and includes a
 connection pool (PgBouncer) on its own port: transaction mode works
 (queue-and-scaling.md), run migrations on the direct port. DOKS: Cilium
@@ -121,9 +122,9 @@ file is the simple path; there is no managed PostgreSQL, so run the `postgres`
 profile or your own PostgreSQL, and back up with `pg_dump` plus snapshots.
 
 Hetzner Object Storage with the `s3` driver (Hetzner docs, read 2026-11-24):
-the endpoint includes the location, `REELFORGE_S3_ENDPOINT=https://fsn1.your-objectstorage.com`
-(or `nbg1`; Hetzner lists the current locations), `REELFORGE_S3_REGION=fsn1`, virtual-hosted addressing
-(leave `REELFORGE_S3_FORCE_PATH_STYLE` at `false`). Untested. Kubernetes on
+the endpoint includes the location, `RENDERWELD_S3_ENDPOINT=https://fsn1.your-objectstorage.com`
+(or `nbg1`; Hetzner lists the current locations), `RENDERWELD_S3_REGION=fsn1`, virtual-hosted addressing
+(leave `RENDERWELD_S3_FORCE_PATH_STYLE` at `false`). Untested. Kubernetes on
 Hetzner (k3s, Talos, the Hetzner cloud controller) works with the kustomize base
 like any cluster.
 
@@ -139,8 +140,8 @@ primary_region = "fra"
   image = "ghcr.io/buildbase-app/reelforge-studio:0.1.0"
 
 [env]
-  REELFORGE_PUBLIC_URL = "https://reelforge-studio.fly.dev"
-  REELFORGE_TRUST_PROXY = "true"
+  RENDERWELD_PUBLIC_URL = "https://reelforge-studio.fly.dev"
+  RENDERWELD_TRUST_PROXY = "true"
 
 [[mounts]]
   source = "reelforge_data"
@@ -158,29 +159,29 @@ primary_region = "fra"
 
 ```bash
 fly volumes create reelforge_data --size 50 --region fra
-fly secrets set REELFORGE_SECRET_KEY="$(openssl rand -base64 32)" REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+fly secrets set RENDERWELD_SECRET_KEY="$(openssl rand -base64 32)" RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
 fly deploy
 ```
 
 A Fly volume attaches to one Machine, so for api and workers use process groups
-(`[processes] api = "..."`, `worker = "..."` with `REELFORGE_ROLE` per group)
+(`[processes] api = "..."`, `worker = "..."` with `RENDERWELD_ROLE` per group)
 without a volume, Fly Managed Postgres (or your own PostgreSQL), and Tigris or
-another S3-compatible store for files (`REELFORGE_S3_ENDPOINT=https://t3.storage.dev`,
-`REELFORGE_S3_REGION=auto` per Tigris' SDK docs, read 2026-11-24). Fly does not
+another S3-compatible store for files (`RENDERWELD_S3_ENDPOINT=https://t3.storage.dev`,
+`RENDERWELD_S3_REGION=auto` per Tigris' SDK docs, read 2026-11-24). Fly does not
 autoscale workers on a job queue; set the worker count with `fly scale count
 worker=N`. Fly Machines are microVMs and run the image without Docker's seccomp
 profile; VERIFY that Chromium's sandbox starts, else set
-`REELFORGE_CHROMIUM_NO_SANDBOX=1`.
+`RENDERWELD_CHROMIUM_NO_SANDBOX=1`.
 
 ## Railway
 
 Deploy the image as a service, attach a volume at `/data`, and add
-`REELFORGE_SECRET_KEY`, `REELFORGE_BOOTSTRAP_KEY` and `REELFORGE_PUBLIC_URL` as
-service variables; Railway sets `PORT`, but ReelForge listens on
-`REELFORGE_PORT` (4321): set the service's target port to 4321. A volume belongs
+`RENDERWELD_SECRET_KEY`, `RENDERWELD_BOOTSTRAP_KEY` and `RENDERWELD_PUBLIC_URL` as
+service variables; Railway sets `PORT`, but RenderWeld listens on
+`RENDERWELD_PORT` (4321): set the service's target port to 4321. A volume belongs
 to one service with one replica, so the one-server shape uses SQLite on the
 volume. For api and workers: two services from the same image
-(`REELFORGE_ROLE=api` / `worker`) with Railway PostgreSQL (`DATABASE_URL`
+(`RENDERWELD_ROLE=api` / `worker`) with Railway PostgreSQL (`DATABASE_URL`
 reference variable) and an S3-compatible bucket. VERIFY all of it: untested,
 including whether Chromium's sandbox starts there.
 
@@ -189,10 +190,10 @@ including whether Chromium's sandbox starts there.
 All of these use `storage.driver: s3` with an endpoint. Only MinIO is tested
 (storage.md); the rest speak the S3 API and are untested.
 
-| Store | `REELFORGE_S3_ENDPOINT` | `REELFORGE_S3_REGION` | Path style | Credentials (least privilege) | Notes |
+| Store | `RENDERWELD_S3_ENDPOINT` | `RENDERWELD_S3_REGION` | Path style | Credentials (least privilege) | Notes |
 | --- | --- | --- | --- | --- | --- |
 | MinIO | `http://minio:9000` (plain http only to internal hosts) | `us-east-1` (any) | `true` | a user with a policy on the bucket and prefix (the S3 JSON policy in storage.md) | tested: contract suite, SSE-S3, Docker e2e |
-| Cloudflare R2 | `https://<account-id>.r2.cloudflarestorage.com` | `auto` | `false` | an API token with Object Read & Write for the one bucket | R2 does **not** implement the `x-amz-server-side-encryption` header: leave `REELFORGE_S3_SSE` unset (R2 encrypts at rest itself). Cloudflare docs, read 2026-11-24 |
+| Cloudflare R2 | `https://<account-id>.r2.cloudflarestorage.com` | `auto` | `false` | an API token with Object Read & Write for the one bucket | R2 does **not** implement the `x-amz-server-side-encryption` header: leave `RENDERWELD_S3_SSE` unset (R2 encrypts at rest itself). Cloudflare docs, read 2026-11-24 |
 | Backblaze B2 | `https://s3.<region>.backblazeb2.com` | the region, e.g. `us-west-004` | `false` | an application key restricted to the bucket (`listFiles`, `readFiles`, `writeFiles`, `deleteFiles`) | |
 | Wasabi | `https://s3.<region>.wasabisys.com` | the region, e.g. `eu-central-1` | `false` | a sub-user with the S3 JSON policy on the bucket | |
 | DigitalOcean Spaces | `https://<region>.digitaloceanspaces.com` | the region, e.g. `fra1` | `false` | a Spaces key with access to the bucket only | |
@@ -200,8 +201,8 @@ All of these use `storage.driver: s3` with an endpoint. Only MinIO is tested
 | Tigris (Fly.io) | `https://t3.storage.dev` | `auto` | `false` | an access key for the bucket | |
 | Google Cloud Storage (interop) | `https://storage.googleapis.com` | `auto` | `false` | an HMAC key of a service account with `roles/storage.objectUser` on the bucket | the native `gcs` driver is preferred on Google Cloud |
 
-Keys: `REELFORGE_S3_ACCESS_KEY_ID_FILE` and `REELFORGE_S3_SECRET_ACCESS_KEY_FILE`
+Keys: `RENDERWELD_S3_ACCESS_KEY_ID_FILE` and `RENDERWELD_S3_SECRET_ACCESS_KEY_FILE`
 (or `update_config` with `storage.s3.accessKeyId` / `secretAccessKey`, stored
 encrypted; the driver is rebuilt without a restart). The endpoint, bucket,
 region and driver are start-up settings and never change over the API. Move
-existing files with `reelforge storage migrate --to s3` (DEPLOY.md, "Storage").
+existing files with `renderweld storage migrate --to s3` (DEPLOY.md, "Storage").

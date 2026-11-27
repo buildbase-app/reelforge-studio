@@ -20,8 +20,8 @@ end.
 
 ## Subject options
 
-1. ReelForge is on sale: a video studio your AI agent drives
-2. You asked to hear first: ReelForge is ready to install
+1. RenderWeld is on sale: a video studio your AI agent drives
+2. You asked to hear first: RenderWeld is ready to install
 3. Your agent writes the scenes, your server renders the reel
 
 Preview text: "Free for personal use. One-time Commercial licence. Here is what
@@ -32,10 +32,10 @@ it does and what it does not do yet."
 ```text
 Hi,
 
-You joined the ReelForge waitlist. It is ready to install today.
+You joined the RenderWeld waitlist. It is ready to install today.
 
 What it is
-ReelForge Studio is a short-form video studio you run on your own computer
+RenderWeld is a short-form video studio you run on your own computer
 or server, in Docker. Your AI agent connects to it over MCP (or a script over
 REST), writes the scenes and their timing, and the studio renders them with
 four engines (Remotion, Motion Canvas, HTML/CSS and HyperFrames) into one
@@ -44,7 +44,7 @@ vertical MP4, checked with ffprobe.
 What it costs
 - Personal use: free. Claim a Personal licence key, no payment page.
 - Anything that earns money: a one-time Commercial licence, {{price}}.
-- No per-video fees to ReelForge. (Remotion needs its own licence for
+- No per-video fees to RenderWeld. (Remotion needs its own licence for
   companies of more than 3 people; a voice provider bills you directly.)
 
 [LAUNCH PRICE ONLY]
@@ -67,19 +67,19 @@ What it does not do yet
 
 Get started
 Pricing and the free Personal key:
-https://reelforge.buildbase.app/pricing?utm_source=buildbase-email&utm_medium=email&utm_campaign=launch-2026-12&utm_content=1201-wl1-pricing
+https://renderweld.com/pricing?utm_source=buildbase-email&utm_medium=email&utm_campaign=launch-2026-12&utm_content=1201-wl1-pricing
 
 Connect your agent (Claude Code, Codex, any MCP client, REST):
-https://reelforge.buildbase.app/agents?utm_source=buildbase-email&utm_medium=email&utm_campaign=launch-2026-12&utm_content=1201-wl1-agents
+https://renderweld.com/agents?utm_source=buildbase-email&utm_medium=email&utm_campaign=launch-2026-12&utm_content=1201-wl1-agents
 
 If something does not work on your machine, reply to this email. I read
 every reply.
 
 {{founder_name}}
-ReelForge
+RenderWeld
 
 --
-You get this because you joined the ReelForge waitlist.
+You get this because you joined the RenderWeld waitlist.
 Unsubscribe: {{unsubscribe}}
 {{companyAddress}}
 ```
@@ -96,7 +96,7 @@ promise a date the founder has not confirmed.
 - Free Personal key with no payment page; one-time Commercial licence:
   [`LICENSING.md`](../../LICENSING.md); [walkthroughs](../public/walkthroughs.md)
   "Claim a free Personal licence".
-- "No per-video fees to ReelForge" with the Remotion and voice-provider
+- "No per-video fees to RenderWeld" with the Remotion and voice-provider
   qualifier: [`DESIGN_BRIEF.md` §7](../research/DESIGN_BRIEF.md) item 1,
   [`README.md`](../../README.md) "Licensing".
 - Tutorial proofs: [`docs/tutorials/README.md`](../tutorials/README.md).

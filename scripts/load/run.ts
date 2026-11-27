@@ -87,6 +87,8 @@ export const cfg = {
   bouncerPort: envNum('LOAD_PGBOUNCER_PORT', 55462),
   apiPortBase: envNum('LOAD_API_PORT_BASE', 55470),
   keep: env('LOAD_KEEP', '0') === '1',
+  /** The api instances' server.preAuthRateLimitPerMinute: 0 (off), since the whole load comes from one address. */
+  preAuthPerMinute: envNum('LOAD_PRE_AUTH_PER_MINUTE', 0),
   /** LOAD_RENDER_KEY=one: every render of (b) from one key (one organisation key feeding the fleet; its row is locked per enqueue). */
   renderKey: env('LOAD_RENDER_KEY', 'many'),
   /** LOAD_MIX=get_project=0.5,get_job=0.5 replaces the CRUD mix of the main runs (crud.ts MIX). */
@@ -331,6 +333,10 @@ function serverEnv(dbUrl: string, dataDir: string, role: 'api' | 'worker', port:
     REELFORGE_SECRET_KEY: SECRET_KEY,
     REELFORGE_MIGRATE_ON_START: 'false',
     REELFORGE_LOG_LEVEL: 'warn',
+    // Every request of the load comes from this one address, so the per-address guard (#305, 1200 a minute per
+    // instance by default) would answer almost all of it with 429 and the run would measure the guard, not the
+    // service. Off here; the per-key limits under test still apply. LOAD_PRE_AUTH_PER_MINUTE puts it back.
+    REELFORGE_PRE_AUTH_RATE_LIMIT_PER_MINUTE: String(cfg.preAuthPerMinute),
     REELFORGE_QUEUE_DISPATCH: cfg.dispatch,
     REELFORGE_QUEUE_POLL_MAX_INTERVAL_MS: String(cfg.pollMaxMs),
     // LISTEN needs a session: a worker behind PgBouncer listens on the server itself (database.directUrl).
