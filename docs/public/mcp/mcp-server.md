@@ -16,7 +16,7 @@ model and needs no AI provider.
 
 | | |
 | --- | --- |
-| Endpoint | `/mcp` on your server, Streamable HTTP, stateless, JSON responses |
+| Endpoint | `/mcp` on your server, Streamable HTTP, stateless, JSON responses. Requests are `POST`; there is no server-to-client stream, so `GET /mcp` answers `405` with `Allow: POST` (clients then stop asking for one) |
 | Auth | `Authorization: Bearer rf_...`, the same API keys and scopes as REST |
 | Server card | `GET /.well-known/mcp.json` (no auth) |
 | Tools | Grouped in the [MCP tool reference](/docs/mcp/tools), generated from the server |
