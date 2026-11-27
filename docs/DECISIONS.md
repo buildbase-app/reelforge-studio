@@ -3170,3 +3170,15 @@ across every instance). A changed project changes the plan id, so an old token a
 signature needs no new table, and the counter makes "single-use" hold across api instances. *Rejected:* letting
 any `render` key approve (no separation of duties); stateless tokens without the spend counter (replayable
 until they expire).
+
+### D-136 --- Retention per workspace: two more workspace limits, stricter than the instance only
+
+**Status:** DECIDED (agent, 2026-11-25, #487; reversible). Number assigned at merge.\
+**Decision:** a workspace's limits take `retentionMaxAgeHours` and `retentionKeepLast` (owner, `update_workspace`).
+They are stored with the other limits (no migration), shown in `effectiveLimits`, and applied by the storage sweep
+in that workspace only. They are always the stricter of the workspace's and the instance's `storage.retention`: the
+shorter maximum age and the smaller keep-last. A workspace can keep less than the instance, never more.
+Deletions show the reason `older_than_workspace_retention`. *Why:* a tenant with a strict data policy (a health or
+legal client) needs a short retention without imposing it on every tenant. *Not yet (#487):* zero retention
+(delete once the result is delivered), delete-after-first-download, and a workspace admin setting it without the
+owner. These need download and delivery tracking and are a follow-up.

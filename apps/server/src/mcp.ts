@@ -1051,7 +1051,7 @@ export const TOOLS: ToolDef[] = [
     input: {
       id: z.string(),
       name: z.string().optional(),
-      limits: z.record(z.string(), z.number().int().nullable()).optional().describe('rendersPerDay, rendersPerMonth, rateLimitPerMinute, storageBytes; 0 or null: unlimited.'),
+      limits: z.record(z.string(), z.number().int().nullable()).optional().describe('rendersPerDay, rendersPerMonth, rateLimitPerMinute, storageBytes; retentionMaxAgeHours and retentionKeepLast for a stricter retention than the instance\'s storage.retention (#487); 0 or null: unlimited / the instance\'s.'),
       adminKey: z.union([z.boolean(), z.object({ name: z.string().optional(), scopes: z.array(z.enum(['read', 'write', 'render', 'approve', 'admin'])).optional() })]).optional(),
     },
     annotations: { idempotentHint: false },
