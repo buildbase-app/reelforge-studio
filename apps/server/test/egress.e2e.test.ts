@@ -82,7 +82,7 @@ describe.skipIf(!hasStrace || !hasBrowser)('a whole server makes no connection o
     const ORG = 'egress0000-mocklice';
     const licence = await startMockLicenceServer({ orgId: ORG, keys: [{ key: LICENCE_KEY, activationLimit: 1 }] });
     const dataDir = join(dir, 'data');
-    const env = {
+    const env: NodeJS.ProcessEnv = {
       ...process.env,
       REELFORGE_PORT: '0',
       REELFORGE_HOST: '127.0.0.1',
@@ -99,6 +99,7 @@ describe.skipIf(!hasStrace || !hasBrowser)('a whole server makes no connection o
     // Only the SQLite file under dataDir: a remote test database would be a connection outside loopback.
     delete env.DATABASE_URL;
     delete env.REELFORGE_DATABASE_URL;
+    delete env.RENDERWELD_DATABASE_URL;
     const key = cliCreateKey(dataDir, 'egress', 'admin,owner');
     // The dashboard is part of the journey; its assets are built by the image, and here when missing (half a second).
     if (!existsSync(join(repo, 'apps/dashboard/dist/index.html'))) {
