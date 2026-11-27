@@ -1725,13 +1725,19 @@ export function getPath(obj: unknown, key: string): unknown {
   return cur;
 }
 
-/** Write a dotted key into a nested object (creating parents). */
+/**
+ * Write a dotted key into a nested object (creating parents). A key with a `__proto__`, `constructor` or
+ * `prototype` part is refused, so no key can write through to Object.prototype.
+ */
 export function setPath(obj: Record<string, unknown>, key: string, value: unknown): void {
   const parts = key.split('.');
   let cur = obj;
   for (const part of parts.slice(0, -1)) {
+    if (part === '__proto__' || part === 'constructor' || part === 'prototype') throw new Error(`setPath: refused key "${key}"`);
     if (typeof cur[part] !== 'object' || cur[part] === null) cur[part] = {};
     cur = cur[part] as Record<string, unknown>;
   }
-  cur[parts.at(-1)!] = value;
+  const last = parts.at(-1)!;
+  if (last === '__proto__' || last === 'constructor' || last === 'prototype') throw new Error(`setPath: refused key "${key}"`);
+  cur[last] = value;
 }

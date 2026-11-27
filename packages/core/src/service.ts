@@ -493,7 +493,11 @@ export class RenderWeldService {
       ? new WorkspaceAdmin({ repos: router, keys: this.keys, settings: this.settings, storage: this.storage, dataDir: this.dataDir, audit: (e) => this.audit(e), now: this.now, log: config.log })
       : null;
     this.serverVersion = config.serverVersion ?? '0.1.0';
-    this.publicUrl = (config.publicUrl ?? '').replace(/\/+$/, '');
+    // Trailing slashes trimmed by index, not by a regex, so a value of many slashes costs one pass.
+    const publicUrl = config.publicUrl ?? '';
+    let end = publicUrl.length;
+    while (end > 0 && publicUrl[end - 1] === '/') end--;
+    this.publicUrl = publicUrl.slice(0, end);
     this.fetchImpl = config.fetch ?? fetch;
     this.webhooks = new WebhookService({
       repo: this.repos.webhooks,

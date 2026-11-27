@@ -16,6 +16,7 @@ import {
   parseBuildInfo,
   readConfigFile,
   resolveConfig,
+  setPath,
   type ConfigIssue,
 } from '../src/index';
 import { DEFAULT_ENCODER_SETTINGS, encoderSettings, h264Args, setEncoderSettings } from '@renderweld/media-pipeline';
@@ -94,6 +95,18 @@ describe('config schema', () => {
     expect(resolveConfig({ env: { RENDERWELD_QUEUE_DRIVER: 'database', RENDERWELD_MAX_QUEUED_JOBS: '50' } }).config.limits.maxQueuedJobs).toBe(50);
     expect(r.config.database.url).toMatch(/^file:\/.*\/data\/reelforge\.db$/);
     expect([...r.settings.values()].every((s) => s.source === 'default')).toBe(true);
+  });
+});
+
+describe('setPath', () => {
+  it('writes a dotted key, creating parents, and refuses a key that would reach Object.prototype', () => {
+    const o: Record<string, unknown> = {};
+    setPath(o, 'server.publicUrl', 'https://studio.example.com');
+    expect(o).toEqual({ server: { publicUrl: 'https://studio.example.com' } });
+    for (const key of ['__proto__.polluted', 'a.__proto__.polluted', 'constructor.prototype.polluted', 'a.prototype', 'a.constructor']) {
+      expect(() => setPath({}, key, true)).toThrow(/refused key/);
+    }
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 });
 
