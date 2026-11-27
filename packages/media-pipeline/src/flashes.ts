@@ -14,6 +14,9 @@
  *   least a quarter of the picture (the 25 % of a 10-degree field rule, taken on the whole frame as analysers do for
  *   video). Small flashing elements pass.
  * - A failure is more than 6 transitions (more than three flashes) in any one-second window.
+ * - Sustained flashing (EA IRIS's "extended failure"): at least 4 transitions (two flashes) in every one-second
+ *   window for 5 seconds or more, reported as `extended`. Stretches already over three a second are reported once,
+ *   as the failure above.
  */
 export const FLASH_GRID = 8;
 
@@ -33,6 +36,10 @@ export const FLASH_RULES = {
   minArea: 0.25,
   /** Most transitions allowed in any one second (three flashes; a flash is two). */
   maxTransitionsPerSecond: 6,
+  /** Sustained flashing: at least this many transitions in every one-second window (two flashes a second)... */
+  extendedMinTransitionsPerSecond: 4,
+  /** ...for at least this many seconds (EA IRIS's extended failure). */
+  extendedSeconds: 5,
 } as const;
 
 const CELLS = FLASH_GRID * FLASH_GRID;
@@ -44,6 +51,8 @@ export interface FlashWindow {
   /** The most transitions found in one second inside this stretch (a flash is two). */
   transitionsPerSecond: number;
   kind: 'general' | 'red';
+  /** Sustained flashing at two to three a second for FLASH_RULES.extendedSeconds or more (not over three a second). */
+  extended?: true;
 }
 
 const linear = (c8: number) => {
@@ -116,6 +125,43 @@ function windows(transitions: number[], fps: number, max: number, kind: FlashWin
 }
 
 /**
+ * Stretches of at least `seconds` in which every one-second window holds at least `min` transitions (EA IRIS's
+ * extended failure). `failed` are the stretches already reported as over the limit: an overlapping one is not
+ * reported again.
+ */
+function sustained(transitions: number[], fps: number, min: number, seconds: number, kind: FlashWindow['kind'], failed: FlashWindow[]): FlashWindow[] {
+  if (transitions.length < min) return [];
+  const span = Math.round(fps);
+  const last = transitions.at(-1)!;
+  const out: FlashWindow[] = [];
+  let i = 0;
+  let j = 0;
+  let runStart = -1;
+  let runMax = 0;
+  const close = (end: number) => {
+    // The run's windows cover from one second before its first frame to its last frame.
+    const from = Math.max(0, runStart - span + 1);
+    if (end - from + 1 >= seconds * fps) {
+      const w: FlashWindow = { startSeconds: Math.round((from / fps) * 1000) / 1000, endSeconds: Math.round(((end + 1) / fps) * 1000) / 1000, transitionsPerSecond: runMax, kind, extended: true };
+      if (!failed.some((f) => f.kind === kind && f.startSeconds < w.endSeconds && w.startSeconds < f.endSeconds)) out.push(w);
+    }
+    runStart = -1;
+    runMax = 0;
+  };
+  for (let f = 0; f <= last; f++) {
+    while (i < transitions.length && transitions[i]! <= f) i++;
+    while (j < i && transitions[j]! <= f - span) j++;
+    const count = i - j;
+    if (count >= min) {
+      if (runStart < 0) runStart = f;
+      runMax = Math.max(runMax, count);
+    } else if (runStart >= 0) close(f - 1);
+  }
+  if (runStart >= 0) close(last);
+  return out;
+}
+
+/**
  * The stretches that break the general-flash or red-flash threshold, from raw rgb24 frames of FLASH_GRID x
  * FLASH_GRID cells each (as `scale=8:8:flags=area,format=rgb24` writes them).
  */
@@ -136,9 +182,10 @@ export function analyseFlashes(grid: Uint8Array, fps: number): FlashWindow[] {
       red[c]![f] = sum > 0 && r / sum >= FLASH_RULES.redRatio ? Math.max(0, (r - g - b) * FLASH_RULES.redScale) : 0;
     }
   }
-  return [
-    ...windows(frameTransitions(lum, frames, FLASH_RULES.minLuminanceChange, FLASH_RULES.darkerBelow), fps, FLASH_RULES.maxTransitionsPerSecond, 'general'),
-    // Red transitions: a change of more than 20 in (R - G - B) x 320, in either direction.
-    ...windows(frameTransitions(red, frames, FLASH_RULES.redChange + 1e-6, Infinity), fps, FLASH_RULES.maxTransitionsPerSecond, 'red'),
-  ].sort((a, b) => a.startSeconds - b.startSeconds);
+  const general = frameTransitions(lum, frames, FLASH_RULES.minLuminanceChange, FLASH_RULES.darkerBelow);
+  // Red transitions: a change of more than 20 in (R - G - B) x 320, in either direction.
+  const reds = frameTransitions(red, frames, FLASH_RULES.redChange + 1e-6, Infinity);
+  const failed = [...windows(general, fps, FLASH_RULES.maxTransitionsPerSecond, 'general'), ...windows(reds, fps, FLASH_RULES.maxTransitionsPerSecond, 'red')];
+  const { extendedMinTransitionsPerSecond: min, extendedSeconds: seconds } = FLASH_RULES;
+  return [...failed, ...sustained(general, fps, min, seconds, 'general', failed), ...sustained(reds, fps, min, seconds, 'red', failed)].sort((a, b) => a.startSeconds - b.startSeconds);
 }
