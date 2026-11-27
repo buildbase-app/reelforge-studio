@@ -62,7 +62,7 @@ databases and running the studio next to the store site
 ## What works today
 
 - **Server** (`apps/server`): REST `/v1` and MCP `/mcp` (official MCP SDK,
-  Streamable HTTP) over the same handlers; <!-- mcp-tool-count -->80<!-- /mcp-tool-count --> MCP tools (generated list:
+  Streamable HTTP) over the same handlers; <!-- mcp-tool-count -->82<!-- /mcp-tool-count --> MCP tools (generated list:
   [docs/public/mcp/tools.md](docs/public/mcp/tools.md)), resources (incl. a workflow guide), prompts
   `make_reel`/`plan_reel`/`review_reel`; API keys with scopes, expiry, rotation and
   quotas; per-key rate limit; jobs with progress (SSE), logs, cancel and retry;

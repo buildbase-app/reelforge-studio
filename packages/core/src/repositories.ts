@@ -91,7 +91,8 @@ export interface ProjectRepository {
  * `admin` manages its own workspace (keys, webhooks, audit). `owner` is instance-level (#304): workspaces, runtime
  * configuration, the licence, provider credentials and storage; it implies `admin` in its own workspace.
  */
-export const SCOPES = ['read', 'write', 'render', 'admin', 'owner'] as const;
+/** `approve` (#485): approve render plans when `render.approval` asks for it; `admin` and `owner` imply it. */
+export const SCOPES = ['read', 'write', 'render', 'approve', 'admin', 'owner'] as const;
 export type Scope = (typeof SCOPES)[number];
 
 export interface ApiKeyRecord {
@@ -349,6 +350,8 @@ export interface JobRepository {
    * a scan of projects or jobs.
    */
   projectOfRun(runId: string): Promise<string | null>;
+  /** The render or preview job that produces render `runId` in this workspace (get_render_output's estimate, #485). */
+  jobOfRun(runId: string): Promise<JobRecord | null>;
   /** Jobs whose status is queued or running. */
   listUnfinished(): Promise<JobRecord[]>;
 
