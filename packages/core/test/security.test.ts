@@ -62,7 +62,7 @@ function inspect(html: string) {
 
 describe('security: scene markup (SEC-01)', () => {
   const root = '<div data-composition-id="main" data-width="320" data-height="320"><p>x</p></div>';
-  // Full documents of different shapes: ReelForge's head must always end up first in the parsed <head>.
+  // Full documents of different shapes: RenderWeld's head must always end up first in the parsed <head>.
   const tricky: Record<string, string> = {
     'document shape 1': `<html><!-- <head> --><head><title>x</title></head><body>${root}</body></html>`,
     'document shape 2': `<html><head><title><head></title></head><body>${root}</body></html>`,
@@ -190,16 +190,16 @@ describe('security: render child processes get no secrets (SEC-03)', () => {
     HOME: '/tmp',
     LANG: 'C.UTF-8',
     DATABASE_URL: 'postgresql://u:dbpass-SECRET@db/x',
-    REELFORGE_DATABASE_URL: 'postgresql://u:dbpass-SECRET@db/y',
-    REELFORGE_SECRET_KEY: 'secret-key-SECRET-0123456789abcdefghij',
-    REELFORGE_SECRET_KEY_FILE: '/run/secrets/key',
-    REELFORGE_BOOTSTRAP_KEY: 'rf_bootstrap_SECRET',
-    REELFORGE_ELEVENLABS_API_KEY: 'sk_SECRET_1',
+    RENDERWELD_DATABASE_URL: 'postgresql://u:dbpass-SECRET@db/y',
+    RENDERWELD_SECRET_KEY: 'secret-key-SECRET-0123456789abcdefghij',
+    RENDERWELD_SECRET_KEY_FILE: '/run/secrets/key',
+    RENDERWELD_BOOTSTRAP_KEY: 'rf_bootstrap_SECRET',
+    RENDERWELD_ELEVENLABS_API_KEY: 'sk_SECRET_1',
     ELEVENLABS_API_KEY: 'sk_SECRET_2',
-    REELFORGE_LICENCE_KEY: 'LICEN-SECRE-T0000-00000-00000',
-    REELFORGE_S3_SECRET_ACCESS_KEY: 's3-SECRET',
-    REELFORGE_METRICS_TOKEN: 'metrics-SECRET',
-    REELFORGE_OTLP_HEADERS: 'x-key=SECRET',
+    RENDERWELD_LICENCE_KEY: 'LICEN-SECRE-T0000-00000-00000',
+    RENDERWELD_S3_SECRET_ACCESS_KEY: 's3-SECRET',
+    RENDERWELD_METRICS_TOKEN: 'metrics-SECRET',
+    RENDERWELD_OTLP_HEADERS: 'x-key=SECRET',
     AWS_SECRET_ACCESS_KEY: 'aws-SECRET',
     GITHUB_TOKEN: 'ghp_SECRET',
   };
@@ -222,7 +222,7 @@ describe('security: render child processes get no secrets (SEC-03)', () => {
   it('SECT-08 scrubSecretEnv: every secret setting (aliases and _FILE included) leaves the process environment', () => {
     const env = { ...secrets };
     const removed = scrubSecretEnv(env);
-    expect(removed).toEqual(expect.arrayContaining(['DATABASE_URL', 'REELFORGE_SECRET_KEY', 'REELFORGE_SECRET_KEY_FILE', 'ELEVENLABS_API_KEY', 'REELFORGE_LICENCE_KEY', 'REELFORGE_BOOTSTRAP_KEY']));
+    expect(removed).toEqual(expect.arrayContaining(['DATABASE_URL', 'RENDERWELD_SECRET_KEY', 'RENDERWELD_SECRET_KEY_FILE', 'ELEVENLABS_API_KEY', 'RENDERWELD_LICENCE_KEY', 'RENDERWELD_BOOTSTRAP_KEY']));
     const seen = childEnv(env);
     for (const n of secretEnvNames()) expect(seen[n], n).toBeUndefined();
     expect(seen.PATH).toBe(process.env.PATH);
@@ -239,11 +239,11 @@ describe('security: bootstrap key strength (SEC-20)', () => {
       expect(weakKeyReason(`rf_${randomBytes(24).toString('hex')}`)).toBeNull();
       expect(weakKeyReason(`rf_${randomBytes(32).toString('base64url')}`)).toBeNull();
     }
-    expect(() => resolveConfig({ env: { REELFORGE_BOOTSTRAP_KEY: 'rf_aaaaaaaaaaaaaaaaaaaa' } })).toThrow(ConfigError);
+    expect(() => resolveConfig({ env: { RENDERWELD_BOOTSTRAP_KEY: 'rf_aaaaaaaaaaaaaaaaaaaa' } })).toThrow(ConfigError);
     try {
-      resolveConfig({ env: { REELFORGE_BOOTSTRAP_KEY: 'rf_aaaaaaaaaaaaaaaaaaaa' } });
+      resolveConfig({ env: { RENDERWELD_BOOTSTRAP_KEY: 'rf_aaaaaaaaaaaaaaaaaaaa' } });
     } catch (e) {
-      expect((e as Error).message).toMatch(/REELFORGE_BOOTSTRAP_KEY: needs at least 32 random characters/);
+      expect((e as Error).message).toMatch(/RENDERWELD_BOOTSTRAP_KEY: needs at least 32 random characters/);
       expect((e as Error).message).not.toContain('rf_aaaa');
     }
     const keys = new KeyStore(createMemoryRepositories().keys);
@@ -255,10 +255,10 @@ describe('security: bootstrap key strength (SEC-20)', () => {
 describe('security: render time limit (SEC-02)', () => {
   it('SECT-10 the per-scene hard limit defaults to 15 minutes and is clamped to 30 s .. 1 h', () => {
     expect(sceneTimeoutCapMs({})).toBe(900_000);
-    expect(sceneTimeoutCapMs({ REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS: '120' })).toBe(120_000);
-    expect(sceneTimeoutCapMs({ REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS: '999999' })).toBe(3_600_000);
-    expect(sceneTimeoutCapMs({ REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS: '1' })).toBe(30_000);
-    expect(() => resolveConfig({ env: { REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS: '7200' } })).toThrow(ConfigError);
+    expect(sceneTimeoutCapMs({ RENDERWELD_RENDER_SCENE_TIMEOUT_SECONDS: '120' })).toBe(120_000);
+    expect(sceneTimeoutCapMs({ RENDERWELD_RENDER_SCENE_TIMEOUT_SECONDS: '999999' })).toBe(3_600_000);
+    expect(sceneTimeoutCapMs({ RENDERWELD_RENDER_SCENE_TIMEOUT_SECONDS: '1' })).toBe(30_000);
+    expect(() => resolveConfig({ env: { RENDERWELD_RENDER_SCENE_TIMEOUT_SECONDS: '7200' } })).toThrow(ConfigError);
   });
 });
 
@@ -290,7 +290,7 @@ describe('security: stored licence state integrity and clock (SEC-04)', () => {
         valid: true,
         reason: null,
         key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null },
-        item: { id: 'itm', title: 'ReelForge' },
+        item: { id: 'itm', title: 'RenderWeld' },
         instance: { instance, activatedAt: new Date(T0).toISOString() },
         serverTime: new Date(this.clock.t + this.serverSkewMs).toISOString(),
       };
@@ -353,7 +353,7 @@ describe('security: stored licence state integrity and clock (SEC-04)', () => {
     expect((await d.m.check('start')).status).toBe('grace');
   });
 
-  it('SECT-13 the seal is keyed by REELFORGE_SECRET_KEY: a state sealed with another key is not trusted', async () => {
+  it('SECT-13 the seal is keyed by RENDERWELD_SECRET_KEY: a state sealed with another key is not trusted', async () => {
     const repos = createMemoryRepositories();
     const clock = { t: T0 };
     const api = new Api(clock);

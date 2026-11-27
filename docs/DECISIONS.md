@@ -3215,3 +3215,32 @@ someone inside the workspace must not undo. *Rejected:* deleting when the comple
 webhook tells the receiver where to fetch the file, so it would be gone); counting a bucket-signed link as a download
 when it is issued (an issued link is not a delivery); a separate store for the admin's own values, which would need a
 migration for little gain over tighten-only.
+
+### D-139 --- Readability warnings before a render: text under 12 px, and pane text under the WCAG contrast minimum
+
+**Status:** DECIDED (agent, 2026-11-26, #313 design gate; reversible). Number assigned at merge.\
+**Decision:** project validation warns when a built-in template would set body text under 12 px at the output size
+or any variant's size, and when a pane's own colour leaves its headline under 3:1 (large text) or its body under
+4.5:1 against the theme's text colours, or a lower third's text under 4.5:1 against its background (WCAG 2.2 SC
+1.4.3). Warnings, not errors. *Why:* rendering many sizes from one manifest showed a 728x90 banner with 5 px body
+text and white headlines on a near-white pane; both shipped silently. The 12 px floor is a studio default (below it
+words blur on a phone screen); the contrast numbers are WCAG's. *Rejected:* changing text colours automatically (it
+overrides a brand's choice without saying so); failing validation (some designs use a low-contrast word on purpose).
+
+### D-140 --- The old ReelForge names are removed, with no deprecation window; internal names stay
+
+**Status:** DECIDED (owner, 2026-11-27, #413 and #416; reversible). Number assigned at merge.\
+**Decision:** the compatibility layer of D-127 goes. The server, CLI and image read and serve only the RenderWeld
+names: `RENDERWELD_*` settings (no `REELFORGE_*` twin, no `REELFORGE_LICENSE_*` spelling), the `renderweld` command
+(no `reelforge` bin), `renderweld://` MCP URIs, `renderweld:*` OAuth scopes, `renderweld_*` metrics and
+`renderweld.*` attributes, the `X-Renderweld-Message-Id` header, `RenderWeld-*/1` user agents, the
+`app.renderweld.edition` label, the server name `renderweld` and the OpenTelemetry `service.name` default
+`renderweld` (a buyer sees it in their tracing tools). The compose service is `renderweld`, which the
+public site's install steps use. Names a buyer never types stay as they are: the repository and image names (the
+owner renames those), the SQLite file `reelforge.db`, the `reelforge-data` volume, Kubernetes objects, database
+users and the `reelforge-whisper` program. The contributor-only test switches and the image's version build
+argument move with CI to `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_REQUIRE_EGRESS`, `RENDERWELD_REQUIRE_STORAGE`,
+`RENDERWELD_TEST_DB` and `RENDERWELD_VERSION`. *Why:* no buyer and no user ever ran the studio under the old names, so the window D-127
+promised protects no one and keeps two names on every surface; renaming internal names would move data for no
+reader. *Rejected:* keeping the aliases until a dated removal (nobody to protect); renaming every lowercase
+identifier too (data and deployment identity would move, and no buyer sees them).

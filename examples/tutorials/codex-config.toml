@@ -1,6 +1,6 @@
 # ~/.codex/config.toml: RenderWeld as a Streamable HTTP MCP server.
-# The API key stays in the environment: export REELFORGE_API_KEY=rf_...
+# The API key stays in the environment: export RENDERWELD_API_KEY=rf_...
 # Documented, not yet proven (needs an OpenAI API key). VERIFY with your Codex version.
 [mcp_servers.reelforge]
 url = "http://127.0.0.1:4321/mcp"
-bearer_token_env_var = "REELFORGE_API_KEY"
+bearer_token_env_var = "RENDERWELD_API_KEY"

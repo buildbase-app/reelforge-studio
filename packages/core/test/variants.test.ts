@@ -7,12 +7,12 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { probe, resolveTools } from '@renderweld/media-pipeline';
 import { parseProject, withVariant, type RenderScene } from '@renderweld/project-schema';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories, type EnginePlugin } from '../src/index';
+import { PluginRegistry, RenderWeldService, createMemoryRepositories, type EnginePlugin } from '../src/index';
 import { unitSpecs } from '../src/render-fanout';
 import { fakeEngine, tempDir } from './helpers';
 
 const { dir, cleanup } = tempDir('reelforge-variants-');
-let svc: ReelforgeService;
+let svc: RenderWeldService;
 /** What each engine call saw: the output size. */
 const seen: Array<{ scene: string; width: number; height: number }> = [];
 
@@ -25,10 +25,10 @@ beforeAll(async () => {
       return base.render(scene, ctx);
     },
   };
-  svc = await ReelforgeService.create(new PluginRegistry().registerEngine(recording), {
+  svc = await RenderWeldService.create(new PluginRegistry().registerEngine(recording), {
     repositories: createMemoryRepositories(),
     dataDir: join(dir, 'data'),
-    configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
   });
 });
 afterAll(async () => {

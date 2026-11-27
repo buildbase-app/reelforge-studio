@@ -8,17 +8,17 @@
 // <dir> holds quad.png, clip.mp4, tone.m4a, logo.svg and brand.woff2 (a font the theme uses, #303).
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { ReelforgeService, createMemoryRepositories } from '@renderweld/core';
+import { RenderWeldService, createMemoryRepositories } from '@renderweld/core';
 import { createDefaultRegistry } from '../../src/registry';
 
 const dir = process.argv[2]!;
 const log: string[] = [];
 const result = await (async () => {
-  const svc = await ReelforgeService.create(createDefaultRegistry({}), {
+  const svc = await RenderWeldService.create(createDefaultRegistry({}), {
     repositories: createMemoryRepositories(),
     dataDir: join(dir, 'data'),
     cacheDir: resolve(import.meta.dirname, '../../../../.render-cache'),
-    configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
     licence: { start: false },
   });
   try {

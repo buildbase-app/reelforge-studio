@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { builtinTheme, textSampleStep, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
-import { envValue, type ResolvedAsset } from '@renderweld/core';
+import { type ResolvedAsset } from '@renderweld/core';
 import { resolveTools } from '@renderweld/media-pipeline';
 import { makeNumberedClip } from '../../media-pipeline/test/media-fixtures';
 import { renderHyperframesScene } from '../src/index';
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-hf-textqa-'));
 afterAll(() => {

@@ -7,7 +7,7 @@ import {
   LicenceManager,
   LicenceServerError,
   PluginRegistry,
-  ReelforgeService,
+  RenderWeldService,
   createMemoryRepositories,
   maskLicenceKey,
   type LicenceAnswer,
@@ -47,7 +47,7 @@ class MockApi implements LicenceApi {
     if (!k) return { valid: false, reason: 'not_found' };
     if (k.status !== 'active') return { valid: false, reason: k.status, key: this.view(k) };
     if (instance && !k.instances.has(instance)) return { valid: false, reason: 'not_activated', key: this.view(k), instance: null };
-    return { valid: true, reason: null, key: this.view(k), item: { id: 'itm_1', title: 'ReelForge Studio' }, instance: instance ? { instance, activatedAt: new Date(T0).toISOString() } : null };
+    return { valid: true, reason: null, key: this.view(k), item: { id: 'itm_1', title: 'RenderWeld' }, instance: instance ? { instance, activatedAt: new Date(T0).toISOString() } : null };
   }
   async activate(key: string, instance: string): Promise<LicenceAnswer> {
     this.calls.push({ op: 'activate', key, instance });
@@ -59,7 +59,7 @@ class MockApi implements LicenceApi {
       if (k.limit !== null && k.instances.size >= k.limit) return { valid: false, reason: 'limit_reached', key: this.view(k), instance: null };
       k.instances.add(instance);
     }
-    return { valid: true, reason: null, key: this.view(k), item: { id: 'itm_1', title: 'ReelForge Studio' }, instance: { instance, activatedAt: new Date(T0).toISOString() } };
+    return { valid: true, reason: null, key: this.view(k), item: { id: 'itm_1', title: 'RenderWeld' }, instance: { instance, activatedAt: new Date(T0).toISOString() } };
   }
   async deactivate(key: string, instance: string): Promise<LicenceAnswer> {
     this.calls.push({ op: 'deactivate', key, instance });
@@ -80,7 +80,7 @@ function setup(opts: Partial<Omit<LicenceManagerOptions, 'key' | 'api'>> & { key
   const m = new LicenceManager({
     repo: repos.licence,
     api,
-    key: () => ({ value: keyRef.value, source: 'env (REELFORGE_LICENCE_KEY)' }),
+    key: () => ({ value: keyRef.value, source: 'env (RENDERWELD_LICENCE_KEY)' }),
     mode: opts.mode ?? 'required',
     graceDays: opts.graceDays ?? 14,
     licenceServer: { url: 'https://licence.example.test', orgId: 'org123456' },
@@ -121,8 +121,8 @@ describe('LicenceManager', () => {
     expect(m.report().status).toBe('checking');
     await m.assertRenderAllowed(); // waits for the running check
     const r = m.report();
-    expect(r).toMatchObject({ status: 'valid', reason: null, renderAllowed: true, key: 'ABCDE-*****-*****-*****-*****', keySource: 'env (REELFORGE_LICENCE_KEY)' });
-    expect(r).toMatchObject({ item: { id: 'itm_1', title: 'ReelForge Studio' }, activations: { used: 1, limit: 1 }, lastSuccessAt: new Date(T0).toISOString(), graceUntil: new Date(T0 + 14 * DAY).toISOString() });
+    expect(r).toMatchObject({ status: 'valid', reason: null, renderAllowed: true, key: 'ABCDE-*****-*****-*****-*****', keySource: 'env (RENDERWELD_LICENCE_KEY)' });
+    expect(r).toMatchObject({ item: { id: 'itm_1', title: 'RenderWeld' }, activations: { used: 1, limit: 1 }, lastSuccessAt: new Date(T0).toISOString(), graceUntil: new Date(T0 + 14 * DAY).toISOString() });
     expect(r.nextCheckAt).toBe(new Date(T0 + DAY).toISOString());
     expect(api.calls).toEqual([{ op: 'activate', key: KEY, instance: r.instanceId }]);
     expect(r.instanceId).toMatch(/^rf-[0-9a-f-]{36}$/);
@@ -400,7 +400,7 @@ describe('BuildBaseLicenceClient (HTTP)', () => {
   });
 });
 
-describe('ReelforgeService with a licence', () => {
+describe('RenderWeldService with a licence', () => {
   const { dir, cleanup } = tempDir('reelforge-licence-svc-');
   afterAll(cleanup);
   const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
@@ -409,10 +409,10 @@ describe('ReelforgeService with a licence', () => {
     const api = new MockApi();
     const clock = { t: T0 };
     const registry = new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas'));
-    const svc = await ReelforgeService.create(registry, {
+    const svc = await RenderWeldService.create(registry, {
       repositories: createMemoryRepositories(),
       dataDir: join(dir, 'data'),
-      configSources: { env: { REELFORGE_SECRET_KEY: 'licence-test-secret-key-0123456789abcd' } },
+      configSources: { env: { RENDERWELD_SECRET_KEY: 'licence-test-secret-key-0123456789abcd' } },
       licence: { api, now: () => clock.t },
     });
     await svc.createProject(sample);
@@ -455,10 +455,10 @@ describe('ReelforgeService with a licence', () => {
 
   it('activate_licence without a key and none configured is a clear 400; update_config of licence.key activates in the background', async () => {
     const api = new MockApi();
-    const svc = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), {
+    const svc = await RenderWeldService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), {
       repositories: createMemoryRepositories(),
       dataDir: join(dir, 'data2'),
-      configSources: { env: { REELFORGE_SECRET_KEY: 'licence-test-secret-key-0123456789abcd' } },
+      configSources: { env: { RENDERWELD_SECRET_KEY: 'licence-test-secret-key-0123456789abcd' } },
       licence: { api },
     });
     await expect(svc.activateLicence(undefined)).rejects.toMatchObject({ code: 'licence_key_missing', status: 400 });
@@ -496,7 +496,7 @@ describe('licence at scale: one check per deployment, workers never call', () =>
     const m = new LicenceManager({
       repo: shared.repos.licence,
       api: o.readOnly ? forbidden : shared.api,
-      key: () => ({ value: keyRef.value, source: 'env (REELFORGE_LICENCE_KEY)' }),
+      key: () => ({ value: keyRef.value, source: 'env (RENDERWELD_LICENCE_KEY)' }),
       mode: 'required',
       graceDays: 14,
       licenceServer: { url: 'https://licence.example.test', orgId: 'org123456' },
@@ -593,11 +593,11 @@ describe('licence at scale: one check per deployment, workers never call', () =>
     const a = c.apis[0]!;
     await a.m.init();
     await a.m.check('start', { claim: true });
-    // Another REELFORGE_SECRET_KEY than the api instances: the seal does not verify.
+    // Another RENDERWELD_SECRET_KEY than the api instances: the seal does not verify.
     const other = instance('worker-other', c, { readOnly: true, secret: 'a-different-secret-key-0123456789abcdef' });
     await other.m.init();
     expect(other.m.report()).toMatchObject({ status: 'invalid', reason: 'state_untrusted', renderAllowed: false });
-    expect(other.logs.some((l) => /^error: licence: the stored licence state failed its integrity check .*different REELFORGE_SECRET_KEY/.test(l))).toBe(true);
+    expect(other.logs.some((l) => /^error: licence: the stored licence state failed its integrity check .*different RENDERWELD_SECRET_KEY/.test(l))).toBe(true);
     // The database row edited by hand.
     const stored = (await c.repos.licence.get())!;
     await c.repos.licence.save({ ...stored, lastSuccessAt: '2099-01-01T00:00:00.000Z' });
@@ -722,12 +722,12 @@ describe('licence at scale: one check per deployment, workers never call', () =>
       const repos = createMemoryRepositories();
       const api = new MockApi();
       const clock = { t: Date.now() };
-      const env = { REELFORGE_SECRET_KEY: SECRET, REELFORGE_LICENCE_KEY: KEY, REELFORGE_STORAGE_LOCAL_SHARED: 'true' };
+      const env = { RENDERWELD_SECRET_KEY: SECRET, RENDERWELD_LICENCE_KEY: KEY, RENDERWELD_STORAGE_LOCAL_SHARED: 'true' };
       const mk = (role: 'api' | 'worker', workerId: string, licenceApi: LicenceApi) =>
-        ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas')), {
+        RenderWeldService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas')), {
           repositories: repos,
           dataDir: join(dir, 'data'),
-          configSources: { env: { ...env, REELFORGE_ROLE: role } },
+          configSources: { env: { ...env, RENDERWELD_ROLE: role } },
           licence: { api: licenceApi, now: () => clock.t, refreshMs: 50 },
           queue: { workerId, pollMs: 50, leaseMs: 4000, heartbeatMs: 300 },
           maintenance: false,

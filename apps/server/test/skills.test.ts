@@ -223,7 +223,7 @@ describe('over REST and MCP', () => {
     const database = await testDatabase(join(dir, name));
     drops.push(database.drop);
     const registry = new PluginRegistry().registerEngine(fakeEngine('remotion'));
-    return startServer({ dataDir: join(dir, name, 'data'), port: 0, host: '127.0.0.1', ...(skillsDir ? { skillsDir } : {}) }, { registry, env: { ...database.env, REELFORGE_LICENCE_MODE: 'off' }, quiet: true });
+    return startServer({ dataDir: join(dir, name, 'data'), port: 0, host: '127.0.0.1', ...(skillsDir ? { skillsDir } : {}) }, { registry, env: { ...database.env, RENDERWELD_LICENCE_MODE: 'off' }, quiet: true });
   };
   const connect = async (server: StartedServer, key: string) => {
     const client = new Client({ name: 'skills-test', version: '0.0.0' });
@@ -276,11 +276,11 @@ describe('over REST and MCP', () => {
     expect((index.contents[0] as any).text).toContain('- **Review and QA** (renderweld://skills/review-and-qa)');
     const res = await client.readResource({ uri: 'renderweld://skills/av-sync' });
     expect(res.contents[0]).toMatchObject({ mimeType: 'text/markdown', text: expect.stringContaining('# Audio and video sync\n') });
-    expect(((await client.readResource({ uri: 'reelforge://skills/av-sync' })).contents[0] as any).text).toBe((res.contents[0] as any).text); // the old scheme still reads
+    await expect(client.readResource({ uri: 'reelforge://skills/av-sync' })).rejects.toThrow(); // the old scheme is gone (D-140)
     const { resources } = await client.listResources();
     const skillUris = resources.map((r) => r.uri).filter((u) => u.startsWith('renderweld://skills/'));
     expect(skillUris).toEqual(SKILL_ORDER.map((n) => `renderweld://skills/${n}`));
-    expect(resources.some((r) => r.uri.startsWith('reelforge://skills/'))).toBe(false); // listed once, under the new scheme
+    expect(resources.some((r) => r.uri.startsWith('reelforge://'))).toBe(false); // only the new scheme is listed
     expect(WORKFLOW_GUIDE).toContain('get_skill');
     await client.close();
   });
@@ -312,7 +312,7 @@ describe('renderweld skills export', () => {
   it('SKL-11 writes one <prefix><name>/SKILL.md per skill, keeps a changed file unless --force', async () => {
     const out = join(dir, 'export');
     const env = { ...process.env };
-    process.env.REELFORGE_DATA_DIR = join(dir, 'cli-data');
+    process.env.RENDERWELD_DATA_DIR = join(dir, 'cli-data');
     const logs: string[] = [];
     const log = console.log;
     const err = console.error;

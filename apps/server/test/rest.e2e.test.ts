@@ -4,16 +4,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertDecodable, checkExpectation, probe, resolveTools } from '@renderweld/media-pipeline';
 import { tempDir } from '../../../packages/core/test/helpers';
 import { cliCreateKey, startServerProcess, testDatabase, type ServerProcess } from './serverProcess';
-import { envValue } from '@renderweld/core';
 
 /**
  * The REST twin of mcp.e2e.test.ts: the same agent journey with plain HTTP
  * against a real server process, keys from the CLI, real engines, ffprobe.
  */
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 
-describe.skipIf(!hasBrowser)('agent journey over REST against a real server process (needs REELFORGE_CHROMIUM_PATH)', () => {
+describe.skipIf(!hasBrowser)('agent journey over REST against a real server process (needs RENDERWELD_CHROMIUM_PATH)', () => {
   const { dir, cleanup } = tempDir('reelforge-rest-e2e-');
   const dataDir = join(dir, 'data');
   let server: ServerProcess;
@@ -27,10 +26,10 @@ describe.skipIf(!hasBrowser)('agent journey over REST against a real server proc
     readOnlyKey = cliCreateKey(dataDir, 'viewer', 'read', database.env);
     server = await startServerProcess({
       ...database.env,
-      REELFORGE_DATA_DIR: dataDir,
-      REELFORGE_CACHE_DIR: resolve(__dirname, '../../../.render-cache'),
-      REELFORGE_CHROMIUM_PATH: browser!,
-      REELFORGE_LICENCE_MODE: 'off',
+      RENDERWELD_DATA_DIR: dataDir,
+      RENDERWELD_CACHE_DIR: resolve(__dirname, '../../../.render-cache'),
+      RENDERWELD_CHROMIUM_PATH: browser!,
+      RENDERWELD_LICENCE_MODE: 'off',
     });
   }, 120_000);
   afterAll(async () => {

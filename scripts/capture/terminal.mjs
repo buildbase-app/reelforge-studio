@@ -85,7 +85,7 @@ body{padding:20px;height:100vh;overflow:hidden;font-size:${vertical ? 14 : 14.5}
 .foot{position:fixed;left:20px;right:20px;bottom:6px;color:var(--muted);font-size:11px;text-align:right}
 .caret::after{content:"▍";color:var(--accent)}
 </style></head><body>
-<div class="wrap"><div class="term"><div class="bar"><b>Claude Code → ReelForge Studio over MCP</b><span>recorded ${esc(when)} · ${esc(fixture.model ?? '')}</span></div><div class="body" id="log"></div></div>
+<div class="wrap"><div class="term"><div class="bar"><b>Claude Code → RenderWeld over MCP</b><span>recorded ${esc(when)} · ${esc(fixture.model ?? '')}</span></div><div class="body" id="log"></div></div>
 <div class="reel"><div class="wait" id="wait">waiting for the render…</div><video id="v" src="${esc(reelSrc)}" muted playsinline preload="auto"></video><div class="facts" id="facts" hidden>${esc(facts)}</div></div></div>
 <div class="foot">Replay of a recorded session: real prompt, tool calls, results and reel; waits shortened (the real run took ${fixture.durationSeconds} s).</div>
 <script>

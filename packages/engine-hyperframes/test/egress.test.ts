@@ -8,7 +8,6 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { builtinTheme } from '@renderweld/project-schema';
 import { hyperframesEnv, renderHyperframesScene, startNetworkSink } from '../src/index';
 import { externalNetworkCalls } from './strace-egress';
-import { envValue } from '@renderweld/core';
 
 /**
  * #318: HyperFrames resolves web fonts with the CLI's own Node `fetch`
@@ -18,7 +17,7 @@ import { envValue } from '@renderweld/core';
  * and (where strace works) the render makes no connect() outside loopback.
  */
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const hasStrace = spawnSync('strace', ['-f', '-qq', '-yy', '-e', 'trace=connect', '-o', '/dev/null', 'true']).status === 0;
@@ -74,9 +73,9 @@ describe('SECT-41 the HyperFrames CLI process cannot fetch fonts (or anything) f
       const env = hyperframesEnv('/bin/chrome', join(dir, 'unit'), { PATH: process.env.PATH }, sink.url);
       const guarded = await run(['--input-type=module', '-e', FETCHES(localUrl)], env);
       expect(guarded.stdout.trim().split('\n')).toEqual(['css refused ECONNREFUSED', 'woff2 refused ECONNREFUSED', 'other refused ECONNREFUSED', 'local ok 200']);
-      expect(guarded.stderr).toContain('[ReelForge:FONT_REFUSED] host=fonts.googleapis.com');
-      expect(guarded.stderr).toContain('[ReelForge:FONT_REFUSED] host=fonts.gstatic.com');
-      expect(guarded.stderr).toContain('[ReelForge:EGRESS_REFUSED] host=cdn.example.com');
+      expect(guarded.stderr).toContain('[RenderWeld:FONT_REFUSED] host=fonts.googleapis.com');
+      expect(guarded.stderr).toContain('[RenderWeld:FONT_REFUSED] host=fonts.gstatic.com');
+      expect(guarded.stderr).toContain('[RenderWeld:EGRESS_REFUSED] host=cdn.example.com');
       expect(guarded.stderr).not.toContain('Quarterly'); // the page text never appears, not even in the log
       expect(seen).toEqual([]); // the refusing proxy saw 0 requests
 
@@ -125,7 +124,7 @@ describe('SECT-43 the strace egress check (#318, D-111)', () => {
   });
 });
 
-describe.skipIf(!hasBrowser)('SECT-42 a HyperFrames scene that names a missing web font renders offline (needs REELFORGE_CHROMIUM_PATH)', () => {
+describe.skipIf(!hasBrowser)('SECT-42 a HyperFrames scene that names a missing web font renders offline (needs RENDERWELD_CHROMIUM_PATH)', () => {
   const theme = { ...builtinTheme('default')!.tokens, fontFamily: '"Roboto", sans-serif' };
 
   it('renders with the fallback font; the font fetch was refused and nothing reached the sink (it is also the CLI\'s HTTP(S)_PROXY)', async () => {
@@ -153,7 +152,7 @@ describe.skipIf(!hasBrowser)('SECT-42 a HyperFrames scene that names a missing w
       execFile(
         'strace',
         ['-f', '-qq', '-yy', '-e', 'trace=connect,sendto,sendmsg,sendmmsg', '-o', traceFile, process.execPath, '--import', 'tsx', join(import.meta.dirname, 'fixtures', 'render-missing-font.mts'), out],
-        { cwd: repoRoot, env: { ...process.env, REELFORGE_CHROMIUM_PATH: browser }, timeout: 280_000, maxBuffer: 16 * 1024 * 1024 },
+        { cwd: repoRoot, env: { ...process.env, RENDERWELD_CHROMIUM_PATH: browser }, timeout: 280_000, maxBuffer: 16 * 1024 * 1024 },
         (_e, stdout, stderr) => resolve_({ stdout, stderr })
       );
     });

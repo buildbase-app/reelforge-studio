@@ -21,15 +21,15 @@ patches:
       kind: ConfigMap
       metadata: { name: reelforge }
       data:
-        REELFORGE_PUBLIC_URL: "http://127.0.0.1:4340"
-        REELFORGE_ALLOWED_HOSTS: "reelforge-api,reelforge-api.reelforge.svc,127.0.0.1:4340"
-        REELFORGE_TRUST_PROXY: "false"
-        REELFORGE_S3_BUCKET: "reelforge-e2e"
-        REELFORGE_S3_REGION: "us-east-1"
-        REELFORGE_S3_ENDPOINT: "http://minio.minio.svc:9000"
-        REELFORGE_S3_FORCE_PATH_STYLE: "true"
-        REELFORGE_QUEUE_LEASE_SECONDS: "10"
-        REELFORGE_QUEUE_POLL_INTERVAL_MS: "500"
+        RENDERWELD_PUBLIC_URL: "http://127.0.0.1:4340"
+        RENDERWELD_ALLOWED_HOSTS: "reelforge-api,reelforge-api.reelforge.svc,127.0.0.1:4340"
+        RENDERWELD_TRUST_PROXY: "false"
+        RENDERWELD_S3_BUCKET: "reelforge-e2e"
+        RENDERWELD_S3_REGION: "us-east-1"
+        RENDERWELD_S3_ENDPOINT: "http://minio.minio.svc:9000"
+        RENDERWELD_S3_FORCE_PATH_STYLE: "true"
+        RENDERWELD_QUEUE_LEASE_SECONDS: "10"
+        RENDERWELD_QUEUE_POLL_INTERVAL_MS: "500"
   # No metrics-server in kind: one api replica, no CPU HPA.
   - patch: |-
       $patch: delete

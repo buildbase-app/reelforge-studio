@@ -260,7 +260,7 @@ function explain(reason: string, ctx: { host: string; graceDays: number; lastSuc
     case 'no_key':
       return {
         message: 'No licence key is set.',
-        fix: `Set the key from your RenderWeld purchase with ${ACTIVATE_HOW} (stored encrypted; needs REELFORGE_SECRET_KEY), or REELFORGE_LICENCE_KEY / REELFORGE_LICENCE_KEY_FILE and restart.`,
+        fix: `Set the key from your RenderWeld purchase with ${ACTIVATE_HOW} (stored encrypted; needs RENDERWELD_SECRET_KEY), or RENDERWELD_LICENCE_KEY / RENDERWELD_LICENCE_KEY_FILE and restart.`,
       };
     case 'not_found':
       return { message: 'The licence server does not know this licence key.', fix: `Check the key in your RenderWeld purchase (store account, orders) and set it again with ${ACTIVATE_HOW}.` };
@@ -297,7 +297,7 @@ function explain(reason: string, ctx: { host: string; graceDays: number; lastSuc
     case 'state_untrusted':
       return {
         message:
-          'The stored licence state failed its integrity check (it was changed outside RenderWeld, REELFORGE_SECRET_KEY changed, or it was written by an older version), so the offline grace period does not apply until the licence server confirms the licence.',
+          'The stored licence state failed its integrity check (it was changed outside RenderWeld, RENDERWELD_SECRET_KEY changed, or it was written by an older version), so the offline grace period does not apply until the licence server confirms the licence.',
         fix: `Allow outbound HTTPS to ${ctx.host}; the next successful check restores normal operation (POST /v1/licence or activate_licence checks at once).`,
       };
     case 'not_checked':
@@ -333,26 +333,26 @@ interface Seal {
  * source protected nothing.
  */
 export function licenceSealKey(secret: string, instanceId: string): Buffer {
-  if (!secret) throw new Error('the licence state seal needs a secret (REELFORGE_SECRET_KEY)');
+  if (!secret) throw new Error('the licence state seal needs a secret (RENDERWELD_SECRET_KEY)');
   return Buffer.from(hkdfSync('sha256', secret, instanceId, 'reelforge licence state seal v1', 32));
 }
 
-/** Where a dev build without REELFORGE_SECRET_KEY keeps its random seal secret. */
+/** Where a dev build without RENDERWELD_SECRET_KEY keeps its random seal secret. */
 export const LOCAL_SEAL_FILE = 'licence-seal.key';
 
 /**
  * The secret the stored licence state is sealed with (#305): security.secretKey
- * (REELFORGE_SECRET_KEY or _FILE). A release build refuses to start without it
+ * (RENDERWELD_SECRET_KEY or _FILE). A release build refuses to start without it
  * (secretKeyProblem); this throws as a last guard. A dev build without it uses a
  * random secret kept in `<dataDir>/licence-seal.key` (mode 0600, created on
  * first use), so a restart keeps trusting its own state; instances that share a
- * database then need the same REELFORGE_SECRET_KEY to trust each other's.
+ * database then need the same RENDERWELD_SECRET_KEY to trust each other's.
  * Without a data directory the secret lives only as long as the process.
  */
 export function licenceSealSecret(settings: RuntimeConfig, dataDir?: string): string {
   const key = settings.config.security.secretKey;
   if (key) return key;
-  if (settings.current.build.edition === 'release') throw new Error('the release edition needs REELFORGE_SECRET_KEY (or REELFORGE_SECRET_KEY_FILE) to seal the licence state');
+  if (settings.current.build.edition === 'release') throw new Error('the release edition needs RENDERWELD_SECRET_KEY (or RENDERWELD_SECRET_KEY_FILE) to seal the licence state');
   if (!dataDir) return randomBytes(32).toString('hex');
   const file = join(dataDir, LOCAL_SEAL_FILE);
   try {
@@ -512,8 +512,8 @@ export class LicenceManager {
       this.log(
         'error',
         this.readOnly
-          ? 'licence: the stored licence state failed its integrity check (changed outside RenderWeld, or this worker has a different REELFORGE_SECRET_KEY than the api instances); this worker claims no render jobs until it reads a valid state.'
-          : 'licence: the stored licence state failed its integrity check (changed outside RenderWeld, REELFORGE_SECRET_KEY changed, or written by an older version); an online licence check is needed before renders are allowed again.'
+          ? 'licence: the stored licence state failed its integrity check (changed outside RenderWeld, or this worker has a different RENDERWELD_SECRET_KEY than the api instances); this worker claims no render jobs until it reads a valid state.'
+          : 'licence: the stored licence state failed its integrity check (changed outside RenderWeld, RENDERWELD_SECRET_KEY changed, or written by an older version); an online licence check is needed before renders are allowed again.'
       );
     }
     // Untrusted until a trusted state with an answer is read: this instance's or another instance's check (D-098).
@@ -986,7 +986,7 @@ export function createLicenceManager(
   opts: Pick<LicenceManagerOptions, 'now' | 'checkIntervalMs' | 'timers' | 'log' | 'readOnly' | 'instanceName' | 'refreshMs'> & {
     api?: LicenceApi;
     fetch?: typeof fetch;
-    /** The data directory: where a dev build without REELFORGE_SECRET_KEY keeps its seal secret (licenceSealSecret). */
+    /** The data directory: where a dev build without RENDERWELD_SECRET_KEY keeps its seal secret (licenceSealSecret). */
     dataDir?: string;
   } = {}
 ): LicenceManager {

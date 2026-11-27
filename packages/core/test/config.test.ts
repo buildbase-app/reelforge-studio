@@ -6,7 +6,7 @@ import {
   ConfigSchema,
   ElevenLabsTts,
   PluginRegistry,
-  ReelforgeService,
+  RenderWeldService,
   RuntimeConfig,
   SETTINGS,
   SecretCipher,
@@ -16,6 +16,7 @@ import {
   parseBuildInfo,
   readConfigFile,
   resolveConfig,
+  setPath,
   type ConfigIssue,
 } from '../src/index';
 import { DEFAULT_ENCODER_SETTINGS, encoderSettings, h264Args, setEncoderSettings } from '@renderweld/media-pipeline';
@@ -44,7 +45,7 @@ describe('config schema', () => {
       expect(keys).toContain(k);
     }
     for (const s of SETTINGS) {
-      expect(s.env).toMatch(/^REELFORGE_[A-Z0-9_]+$/);
+      expect(s.env).toMatch(/^RENDERWELD_[A-Z0-9_]+$/);
       expect(s.description.length).toBeGreaterThan(5);
       expect(['startup', 'runtime']).toContain(s.scope);
     }
@@ -88,19 +89,31 @@ describe('config schema', () => {
       providerRunsPerDay: 0,
     });
     // The total queue cap follows the effective queue (D-090): unbounded with the database queue.
-    expect(resolveConfig({ env: { REELFORGE_QUEUE_DRIVER: 'database' } }).config.limits.maxQueuedJobs).toBe(0);
-    expect(resolveConfig({ env: { REELFORGE_ROLE: 'api', DATABASE_URL: 'postgresql://u@db/x' } }).config.limits.maxQueuedJobs).toBe(0);
-    expect(resolveConfig({ env: { REELFORGE_ROLE: 'api', REELFORGE_QUEUE_DRIVER: 'inprocess' } }).config.limits.maxQueuedJobs).toBe(1000);
-    expect(resolveConfig({ env: { REELFORGE_QUEUE_DRIVER: 'database', REELFORGE_MAX_QUEUED_JOBS: '50' } }).config.limits.maxQueuedJobs).toBe(50);
+    expect(resolveConfig({ env: { RENDERWELD_QUEUE_DRIVER: 'database' } }).config.limits.maxQueuedJobs).toBe(0);
+    expect(resolveConfig({ env: { RENDERWELD_ROLE: 'api', DATABASE_URL: 'postgresql://u@db/x' } }).config.limits.maxQueuedJobs).toBe(0);
+    expect(resolveConfig({ env: { RENDERWELD_ROLE: 'api', RENDERWELD_QUEUE_DRIVER: 'inprocess' } }).config.limits.maxQueuedJobs).toBe(1000);
+    expect(resolveConfig({ env: { RENDERWELD_QUEUE_DRIVER: 'database', RENDERWELD_MAX_QUEUED_JOBS: '50' } }).config.limits.maxQueuedJobs).toBe(50);
     expect(r.config.database.url).toMatch(/^file:\/.*\/data\/reelforge\.db$/);
     expect([...r.settings.values()].every((s) => s.source === 'default')).toBe(true);
+  });
+});
+
+describe('setPath', () => {
+  it('writes a dotted key, creating parents, and refuses a key that would reach Object.prototype', () => {
+    const o: Record<string, unknown> = {};
+    setPath(o, 'server.publicUrl', 'https://studio.example.com');
+    expect(o).toEqual({ server: { publicUrl: 'https://studio.example.com' } });
+    for (const key of ['__proto__.polluted', 'a.__proto__.polluted', 'constructor.prototype.polluted', 'a.prototype', 'a.constructor']) {
+      expect(() => setPath({}, key, true)).toThrow(/refused key/);
+    }
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 });
 
 describe('sources and precedence', () => {
   it('defaults < file < env < runtime, per key, with the source and origin of each', () => {
     const r = resolveConfig({
-      env: { REELFORGE_RATE_LIMIT_PER_MINUTE: '20', REELFORGE_RENDER_CONCURRENCY: '3' },
+      env: { RENDERWELD_RATE_LIMIT_PER_MINUTE: '20', RENDERWELD_RENDER_CONCURRENCY: '3' },
       file: file({ limits: { rateLimitPerMinute: 10, renderConcurrency: 2, maxJsonBytes: 4096 }, server: { port: 8080 } }),
       runtime: { 'limits.rateLimitPerMinute': 30 },
     });
@@ -111,13 +124,13 @@ describe('sources and precedence', () => {
       return [v.source, v.origin];
     };
     expect(s('limits.rateLimitPerMinute')).toEqual(['runtime', 'database']);
-    expect(s('limits.renderConcurrency')).toEqual(['env', 'REELFORGE_RENDER_CONCURRENCY']);
+    expect(s('limits.renderConcurrency')).toEqual(['env', 'RENDERWELD_RENDER_CONCURRENCY']);
     expect(s('limits.maxJsonBytes')).toEqual(['file', '/etc/reelforge.yaml']);
     expect(s('limits.maxUploadBytes')).toEqual(['default', undefined]);
   });
 
   it('computes defaults from other effective values (database URL and cache in the data directory)', () => {
-    const r = resolveConfig({ env: { REELFORGE_DATA_DIR: '/srv/rf' } });
+    const r = resolveConfig({ env: { RENDERWELD_DATA_DIR: '/srv/rf' } });
     expect(r.config.database.url).toBe('file:/srv/rf/reelforge.db');
     expect(r.config.storage.cacheDir).toBe('/srv/rf/cache');
     expect(r.settings.get('database.url')!.source).toBe('default');
@@ -125,7 +138,7 @@ describe('sources and precedence', () => {
 
   it('parses env text by kind: integers, booleans, comma lists; empty variables count as unset', () => {
     const r = resolveConfig({
-      env: { REELFORGE_PORT: '0', REELFORGE_MIGRATE_ON_START: 'no', REELFORGE_CHROMIUM_NO_SANDBOX: '1', REELFORGE_ALLOWED_HOSTS: ' A.example , b ,', REELFORGE_PUBLIC_URL: '', REELFORGE_HOST: '' },
+      env: { RENDERWELD_PORT: '0', RENDERWELD_MIGRATE_ON_START: 'no', RENDERWELD_CHROMIUM_NO_SANDBOX: '1', RENDERWELD_ALLOWED_HOSTS: ' A.example , b ,', RENDERWELD_PUBLIC_URL: '', RENDERWELD_HOST: '' },
     });
     expect(r.config.server.port).toBe(0);
     expect(r.config.database.migrateOnStart).toBe(false);
@@ -135,16 +148,16 @@ describe('sources and precedence', () => {
     expect(r.config.server.host).toBe('127.0.0.1');
   });
 
-  it('keeps existing names working as aliases; the REELFORGE_ name wins (with a warning)', () => {
+  it('keeps existing names working as aliases; the RENDERWELD_ name wins (with a warning)', () => {
     const r = resolveConfig({ env: { DATABASE_URL: 'postgresql://u:p@db/rf', ELEVENLABS_API_KEY: 'sk_alias', FFMPEG_PATH: '/opt/ffmpeg', REMOTION_LAMBDA_REGION: 'eu-west-1' } });
     expect(r.config.database.url).toBe('postgresql://u:p@db/rf');
     expect(r.settings.get('database.url')!.origin).toBe('DATABASE_URL');
     expect(r.config.providers.elevenlabs.apiKey).toBe('sk_alias');
     expect(r.config.render.ffmpegPath).toBe('/opt/ffmpeg');
     expect(r.config.render.backends.remotionLambda.region).toBe('eu-west-1');
-    const both = resolveConfig({ env: { REELFORGE_DATABASE_URL: 'postgresql://a/rf', DATABASE_URL: 'postgresql://b/rf' } });
+    const both = resolveConfig({ env: { RENDERWELD_DATABASE_URL: 'postgresql://a/rf', DATABASE_URL: 'postgresql://b/rf' } });
     expect(both.config.database.url).toBe('postgresql://a/rf');
-    expect(both.warnings.join()).toMatch(/REELFORGE_DATABASE_URL, DATABASE_URL .*using REELFORGE_DATABASE_URL/);
+    expect(both.warnings.join()).toMatch(/RENDERWELD_DATABASE_URL, DATABASE_URL .*using RENDERWELD_DATABASE_URL/);
     expect(both.warnings.join()).not.toContain('postgresql://');
   });
 
@@ -156,12 +169,12 @@ describe('sources and precedence', () => {
     };
     const r = resolveConfig({
       env: {
-        REELFORGE_SECRET_KEY_FILE: f('sk', `${KEY}\n`),
+        RENDERWELD_SECRET_KEY_FILE: f('sk', `${KEY}\n`),
         DATABASE_URL_FILE: f('db', 'mysql://u:p@db/rf\n'),
         ELEVENLABS_API_KEY_FILE: f('el', 'sk_from_file'),
-        REELFORGE_BOOTSTRAP_KEY_FILE: f('bk', 'rf_fromAfile_7Qx2Lm9Vb4Nc8Zr1Ty6Hp3Kw5Dj0Gs'),
-        REELFORGE_LICENCE_KEY: 'LIC-ENV',
-        REELFORGE_LICENCE_KEY_FILE: f('lic', 'LIC-FILE'),
+        RENDERWELD_BOOTSTRAP_KEY_FILE: f('bk', 'rf_fromAfile_7Qx2Lm9Vb4Nc8Zr1Ty6Hp3Kw5Dj0Gs'),
+        RENDERWELD_LICENCE_KEY: 'LIC-ENV',
+        RENDERWELD_LICENCE_KEY_FILE: f('lic', 'LIC-FILE'),
       },
     });
     expect(r.config.security.secretKey).toBe(KEY);
@@ -169,19 +182,19 @@ describe('sources and precedence', () => {
     expect(r.config.providers.elevenlabs.apiKey).toBe('sk_from_file');
     expect(r.config.security.bootstrapKey).toBe('rf_fromAfile_7Qx2Lm9Vb4Nc8Zr1Ty6Hp3Kw5Dj0Gs');
     expect(r.config.licence.key).toBe('LIC-ENV');
-    expect(r.settings.get('security.secretKey')!.origin).toBe('REELFORGE_SECRET_KEY_FILE');
+    expect(r.settings.get('security.secretKey')!.origin).toBe('RENDERWELD_SECRET_KEY_FILE');
     // Every secret has a _FILE variant; non-secrets do not read one.
-    expect(resolveConfig({ env: { REELFORGE_PORT_FILE: f('port', '9999') } }).config.server.port).toBe(4321);
-    const bad = issues(() => resolveConfig({ env: { REELFORGE_SECRET_KEY_FILE: join(dir, 'missing'), DATABASE_URL_FILE: f('empty', '\n') } }));
-    expect(bad.map((i) => i.origin).sort()).toEqual(['DATABASE_URL_FILE', 'REELFORGE_SECRET_KEY_FILE']);
+    expect(resolveConfig({ env: { RENDERWELD_PORT_FILE: f('port', '9999') } }).config.server.port).toBe(4321);
+    const bad = issues(() => resolveConfig({ env: { RENDERWELD_SECRET_KEY_FILE: join(dir, 'missing'), DATABASE_URL_FILE: f('empty', '\n') } }));
+    expect(bad.map((i) => i.origin).sort()).toEqual(['DATABASE_URL_FILE', 'RENDERWELD_SECRET_KEY_FILE']);
     expect(bad.find((i) => i.origin === 'DATABASE_URL_FILE')?.message).toMatch(/is empty/);
-    expect(bad.find((i) => i.origin === 'REELFORGE_SECRET_KEY_FILE')?.message).toMatch(/cannot read .*ENOENT/);
+    expect(bad.find((i) => i.origin === 'RENDERWELD_SECRET_KEY_FILE')?.message).toMatch(/cannot read .*ENOENT/);
   });
 
   it('reports every problem at once, showing values of non-secrets only', () => {
     const list = issues(() =>
       resolveConfig({
-        env: { REELFORGE_PORT: 'eighty', REELFORGE_SECRET_KEY: 'too-short-secret', REELFORGE_BOOTSTRAP_KEY: 'not-a-key-SECRETVALUE', REELFORGE_LOG_LEVEL: 'loud' },
+        env: { RENDERWELD_PORT: 'eighty', RENDERWELD_SECRET_KEY: 'too-short-secret', RENDERWELD_BOOTSTRAP_KEY: 'not-a-key-SECRETVALUE', RENDERWELD_LOG_LEVEL: 'loud' },
         file: file({ limits: { rateLimitPerMinute: -5 }, server: { prot: 1 }, nope: {} }),
       })
     );
@@ -195,24 +208,24 @@ describe('sources and precedence', () => {
   });
 
   it('storage drivers need their settings; keys come in pairs (STO-15)', () => {
-    expect(issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3' } })).map((i) => i.key)).toEqual(['storage.s3.bucket']);
-    expect(issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 'azure' } })).map((i) => i.key)).toEqual(['storage.azure.container', 'storage.azure.accountUrl']);
-    expect(issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 'gcs' } })).map((i) => i.key)).toEqual(['storage.gcs.bucket']);
-    const pair = issues(() => resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3', REELFORGE_S3_BUCKET: 'b', REELFORGE_S3_ACCESS_KEY_ID: 'AKIAEXAMPLE' } }));
+    expect(issues(() => resolveConfig({ env: { RENDERWELD_STORAGE_DRIVER: 's3' } })).map((i) => i.key)).toEqual(['storage.s3.bucket']);
+    expect(issues(() => resolveConfig({ env: { RENDERWELD_STORAGE_DRIVER: 'azure' } })).map((i) => i.key)).toEqual(['storage.azure.container', 'storage.azure.accountUrl']);
+    expect(issues(() => resolveConfig({ env: { RENDERWELD_STORAGE_DRIVER: 'gcs' } })).map((i) => i.key)).toEqual(['storage.gcs.bucket']);
+    const pair = issues(() => resolveConfig({ env: { RENDERWELD_STORAGE_DRIVER: 's3', RENDERWELD_S3_BUCKET: 'b', RENDERWELD_S3_ACCESS_KEY_ID: 'AKIAEXAMPLE' } }));
     expect(pair.map((i) => i.key)).toEqual(['storage.s3.secretAccessKey']);
     expect(JSON.stringify(pair)).not.toContain('AKIAEXAMPLE');
-    expect(issues(() => resolveConfig({ env: { REELFORGE_S3_KMS_KEY_ID: 'k' } }))[0]!.key).toBe('storage.s3.kmsKeyId');
-    const ok = resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3', REELFORGE_S3_BUCKET: 'b', REELFORGE_S3_SSE: 'aws:kms', REELFORGE_S3_KMS_KEY_ID: 'arn:aws:kms:eu-west-1:1:key/x' } });
+    expect(issues(() => resolveConfig({ env: { RENDERWELD_S3_KMS_KEY_ID: 'k' } }))[0]!.key).toBe('storage.s3.kmsKeyId');
+    const ok = resolveConfig({ env: { RENDERWELD_STORAGE_DRIVER: 's3', RENDERWELD_S3_BUCKET: 'b', RENDERWELD_S3_SSE: 'aws:kms', RENDERWELD_S3_KMS_KEY_ID: 'arn:aws:kms:eu-west-1:1:key/x' } });
     expect(ok.config.storage.s3).toMatchObject({ bucket: 'b', serverSideEncryption: 'aws:kms', forcePathStyle: false });
   });
 
   it('storage endpoints are SSRF-safe: http only to internal hosts, no credentials or query (STO-16)', () => {
-    const bad = (url: string) => issues(() => resolveConfig({ env: { REELFORGE_S3_ENDPOINT: url } }))[0]?.message ?? '';
+    const bad = (url: string) => issues(() => resolveConfig({ env: { RENDERWELD_S3_ENDPOINT: url } }))[0]?.message ?? '';
     expect(bad('http://s3.example.com')).toMatch(/only allowed for internal hosts/);
     expect(bad('https://user:pw@s3.example.com')).toMatch(/must not contain credentials/);
     expect(bad('https://s3.example.com/?x=1')).toMatch(/query/);
     for (const ok of ['https://s3.example.com', 'http://minio:9000', 'http://127.0.0.1:9000', 'http://10.1.2.3:9000', 'http://minio.storage.svc:9000', 'http://[::1]:9000']) {
-      expect(() => resolveConfig({ env: { REELFORGE_S3_ENDPOINT: ok } }), ok).not.toThrow();
+      expect(() => resolveConfig({ env: { RENDERWELD_S3_ENDPOINT: ok } }), ok).not.toThrow();
     }
   });
 
@@ -245,31 +258,31 @@ describe('release build: licence settings fixed by the image (D-039)', () => {
 
   it('a build from source is a dev build: nothing is fixed', () => {
     expect(currentBuild()).toEqual(DEV_BUILD);
-    const r = resolveConfig({ env: { REELFORGE_LICENCE_MODE: 'off' } });
+    const r = resolveConfig({ env: { RENDERWELD_LICENCE_MODE: 'off' } });
     expect(r.settings.get('licence.mode')).toMatchObject({ value: 'off', source: 'env' });
     expect(r.build.edition).toBe('dev');
   });
 
   it('fixed values have source "build"; the same value again is accepted', () => {
-    const r = resolveConfig({ env: { REELFORGE_LICENCE_MODE: 'required' }, build: release });
+    const r = resolveConfig({ env: { RENDERWELD_LICENCE_MODE: 'required' }, build: release });
     expect(r.settings.get('licence.mode')).toMatchObject({ value: 'required', source: 'build', origin: 'release build 0.1.0' });
     expect(r.settings.get('licence.serverUrl')).toMatchObject({ value: 'https://api.console.buildbase.app', source: 'build' });
     expect(r.config.licence.orgId).toBe('6b01478bb42d2c444e99fcd8');
     // Other licence settings stay configurable.
-    expect(resolveConfig({ env: { REELFORGE_LICENCE_OFFLINE_GRACE_DAYS: '3' }, build: release }).config.licence.offlineGraceDays).toBe(3);
+    expect(resolveConfig({ env: { RENDERWELD_LICENCE_OFFLINE_GRACE_DAYS: '3' }, build: release }).config.licence.offlineGraceDays).toBe(3);
   });
 
   it('the config file or env cannot change them: every attempt is refused at start with a clear error', () => {
     const found = issues(() =>
       resolveConfig({
-        env: { REELFORGE_LICENCE_MODE: 'off', REELFORGE_LICENCE_SERVER_URL: 'http://fake-licence.local' },
+        env: { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_LICENCE_SERVER_URL: 'http://fake-licence.local' },
         file: file({ licence: { orgId: 'aaaaaaaaaaaaaaaaaaaaaaaa' } }),
         build: release,
       })
     );
     expect(found.map((i) => [i.key, i.source, i.origin])).toEqual([
-      ['licence.mode', 'env', 'REELFORGE_LICENCE_MODE'],
-      ['licence.serverUrl', 'env', 'REELFORGE_LICENCE_SERVER_URL'],
+      ['licence.mode', 'env', 'RENDERWELD_LICENCE_MODE'],
+      ['licence.serverUrl', 'env', 'RENDERWELD_LICENCE_SERVER_URL'],
       ['licence.orgId', 'file', '/etc/reelforge.yaml'],
     ]);
     expect(found[0]!.message).toMatch(/fixed by this release build to "required".*noncommercial development only \(LICENSING\.md\)/);
@@ -277,7 +290,7 @@ describe('release build: licence settings fixed by the image (D-039)', () => {
 
   it('update_config refuses them with build_locked_setting; get_config shows the source and the edition', async () => {
     const repos = createMemoryRepositories();
-    const rc = new RuntimeConfig(repos, { env: { REELFORGE_SECRET_KEY: KEY }, build: release });
+    const rc = new RuntimeConfig(repos, { env: { RENDERWELD_SECRET_KEY: KEY }, build: release });
     await rc.load();
     const err = await rc.update({ 'licence.mode': 'off', 'licence.serverUrl': 'http://fake.local' }).catch((e) => e);
     expect(err).toMatchObject({ code: 'build_locked_setting', status: 409 });
@@ -321,7 +334,7 @@ describe('SecretCipher (AES-256-GCM)', () => {
   it('detects a wrong key and changed data without revealing the value', () => {
     const c = new SecretCipher(KEY);
     const v = c.encrypt('licence.key', 'LIC-SECRET');
-    expect(() => new SecretCipher('another-secret-key-0123456789abcdefgh').decrypt('licence.key', v)).toThrow(/different REELFORGE_SECRET_KEY/);
+    expect(() => new SecretCipher('another-secret-key-0123456789abcdefgh').decrypt('licence.key', v)).toThrow(/different RENDERWELD_SECRET_KEY/);
     const parts = v.split('.');
     parts[4] = Buffer.from('tampered!').toString('base64url');
     try {
@@ -336,14 +349,14 @@ describe('SecretCipher (AES-256-GCM)', () => {
 });
 
 describe('RuntimeConfig', () => {
-  const fresh = async (env: NodeJS.ProcessEnv = { REELFORGE_SECRET_KEY: KEY }, repos = createMemoryRepositories()) => {
+  const fresh = async (env: NodeJS.ProcessEnv = { RENDERWELD_SECRET_KEY: KEY }, repos = createMemoryRepositories()) => {
     const rc = new RuntimeConfig(repos, { env });
     await rc.load();
     return { rc, repos };
   };
 
   it('changes a runtime setting: source becomes runtime, it is stored, and listeners hear about it', async () => {
-    const { rc, repos } = await fresh({ REELFORGE_SECRET_KEY: KEY, REELFORGE_RATE_LIMIT_PER_MINUTE: '100' });
+    const { rc, repos } = await fresh({ RENDERWELD_SECRET_KEY: KEY, RENDERWELD_RATE_LIMIT_PER_MINUTE: '100' });
     const heard: string[][] = [];
     rc.onChange((_r, keys) => heard.push(keys));
     const r = await rc.update({ 'limits.rateLimitPerMinute': 5 }, 'key_admin');
@@ -353,7 +366,7 @@ describe('RuntimeConfig', () => {
     expect((await repos.settings.list())[0]).toMatchObject({ key: 'limits.rateLimitPerMinute', value: '5', scheme: 'plain', updatedBy: 'key_admin' });
     // null clears the runtime value: the environment applies again.
     await rc.update({ limits: { rateLimitPerMinute: null } });
-    expect(rc.report({ prefix: 'limits.rateLimitPerMinute' }).settings[0]).toMatchObject({ value: 100, source: 'env', origin: 'REELFORGE_RATE_LIMIT_PER_MINUTE' });
+    expect(rc.report({ prefix: 'limits.rateLimitPerMinute' }).settings[0]).toMatchObject({ value: 100, source: 'env', origin: 'RENDERWELD_RATE_LIMIT_PER_MINUTE' });
   });
 
   it('refuses start-up-only keys with where to set them, and changes nothing (all or nothing)', async () => {
@@ -361,13 +374,13 @@ describe('RuntimeConfig', () => {
     const err = await rc.update({ 'limits.rateLimitPerMinute': 7, 'server.port': 9999 }).catch((e) => e);
     expect(err).toMatchObject({ code: 'startup_only_setting', status: 409 });
     expect(err.message).toContain('server.port');
-    expect(err.message).toContain('REELFORGE_PORT');
-    expect(err.message).toContain('REELFORGE_CONFIG');
-    expect(err.details.issues[0]).toMatchObject({ key: 'server.port', code: 'startup_only', setIn: { configFile: 'server.port', env: ['RENDERWELD_PORT', 'REELFORGE_PORT'] } });
+    expect(err.message).toContain('RENDERWELD_PORT');
+    expect(err.message).toContain('RENDERWELD_CONFIG');
+    expect(err.details.issues[0]).toMatchObject({ key: 'server.port', code: 'startup_only', setIn: { configFile: 'server.port', env: ['RENDERWELD_PORT'] } });
     expect(await repos.settings.list()).toEqual([]);
     expect(rc.config.limits.rateLimitPerMinute).toBe(300);
     const db = await rc.update({ 'database.url': 'postgresql://x/y' }).catch((e) => e);
-    expect(db.details.issues[0].setIn.env).toEqual(['RENDERWELD_DATABASE_URL', 'RENDERWELD_DATABASE_URL_FILE', 'REELFORGE_DATABASE_URL', 'REELFORGE_DATABASE_URL_FILE', 'DATABASE_URL', 'DATABASE_URL_FILE']);
+    expect(db.details.issues[0].setIn.env).toEqual(['RENDERWELD_DATABASE_URL', 'RENDERWELD_DATABASE_URL_FILE', 'DATABASE_URL', 'DATABASE_URL_FILE']);
     expect(db.message).not.toContain('postgresql://x/y');
   });
 
@@ -386,12 +399,12 @@ describe('RuntimeConfig', () => {
     await expect(rc.update(null)).rejects.toMatchObject({ code: 'bad_request' });
   });
 
-  it('refuses to store secrets without REELFORGE_SECRET_KEY and says how to set it', async () => {
+  it('refuses to store secrets without RENDERWELD_SECRET_KEY and says how to set it', async () => {
     const { rc, repos } = await fresh({});
     expect(rc.report().secretKey).toBe('not set');
     const err = await rc.update({ 'providers.elevenlabs.apiKey': 'sk_nope_1234' }).catch((e) => e);
     expect(err).toMatchObject({ code: 'secret_key_required', status: 409 });
-    expect(err.message).toMatch(/REELFORGE_SECRET_KEY.*openssl rand -base64 32/);
+    expect(err.message).toMatch(/RENDERWELD_SECRET_KEY.*openssl rand -base64 32/);
     expect(err.message).not.toContain('sk_nope_1234');
     await expect(rc.setProviderValues({ ELEVENLABS_API_KEY: 'sk_nope_1234' }, 'elevenlabs')).rejects.toMatchObject({ code: 'secret_key_required' });
     expect(await repos.providerSettings.values()).toEqual({});
@@ -401,7 +414,7 @@ describe('RuntimeConfig', () => {
   });
 
   it('stores secrets encrypted and shows them only as set / not set', async () => {
-    const { rc, repos } = await fresh({ REELFORGE_SECRET_KEY: KEY, DATABASE_URL: 'postgresql://user:dbpass-secret@db/rf' });
+    const { rc, repos } = await fresh({ RENDERWELD_SECRET_KEY: KEY, DATABASE_URL: 'postgresql://user:dbpass-secret@db/rf' });
     const r = await rc.update({ 'licence.key': 'LIC-SECRET-1', 'providers.elevenlabs.apiKey': 'sk_secret_2' });
     expect(r.changes).toEqual([
       { key: 'licence.key', from: 'not set', to: 'set' },
@@ -431,7 +444,7 @@ describe('RuntimeConfig', () => {
     expect(without.rc.config.providers.elevenlabs.apiKey).toBe('sk_plain_v01');
     expect(without.rc.warnings().join()).toMatch(/2 provider setting\(s\) are stored in plain text \(ELEVENLABS_API_KEY, PLUGIN_TOKEN\)/);
     expect(await without.rc.encryptPlaintext()).toEqual([]);
-    const withKey = await fresh({ REELFORGE_SECRET_KEY: KEY }, repos);
+    const withKey = await fresh({ RENDERWELD_SECRET_KEY: KEY }, repos);
     expect(await withKey.rc.encryptPlaintext()).toEqual(['ELEVENLABS_API_KEY', 'PLUGIN_TOKEN']);
     expect(await withKey.rc.encryptPlaintext()).toEqual([]);
     const rows = await repos.providerSettings.values();
@@ -444,8 +457,8 @@ describe('RuntimeConfig', () => {
 
   it('reports a secret it cannot decrypt (wrong or missing key) instead of failing to start', async () => {
     const repos = createMemoryRepositories();
-    await (await fresh({ REELFORGE_SECRET_KEY: KEY }, repos)).rc.update({ 'providers.elevenlabs.apiKey': 'sk_x', 'licence.key': 'LIC' });
-    for (const env of [{}, { REELFORGE_SECRET_KEY: 'a-different-secret-key-0123456789abc' }]) {
+    await (await fresh({ RENDERWELD_SECRET_KEY: KEY }, repos)).rc.update({ 'providers.elevenlabs.apiKey': 'sk_x', 'licence.key': 'LIC' });
+    for (const env of [{}, { RENDERWELD_SECRET_KEY: 'a-different-secret-key-0123456789abc' }]) {
       const { rc } = await fresh(env, repos);
       expect(rc.config.providers.elevenlabs.apiKey).toBeUndefined();
       expect(rc.config.licence.key).toBeUndefined();
@@ -467,12 +480,12 @@ describe('RuntimeConfig', () => {
   });
 });
 
-describe('ReelforgeService configuration', () => {
+describe('RenderWeldService configuration', () => {
   it('applies runtime settings live, audit-logs changes, and refuses provider keys without the secret key', async () => {
     const repos = createMemoryRepositories();
     const providerEnv: NodeJS.ProcessEnv = {};
     const registry = new PluginRegistry().registerEngine(fakeEngine('remotion')).registerProvider(new ElevenLabsTts(providerEnv));
-    const s = await ReelforgeService.create(registry, { repositories: repos, dataDir: join(dir, 'svc'), providerEnv, configSources: { env: {} } });
+    const s = await RenderWeldService.create(registry, { repositories: repos, dataDir: join(dir, 'svc'), providerEnv, configSources: { env: {} } });
     await expect(s.configureProvider('elevenlabs', { ELEVENLABS_API_KEY: 'sk_refused' })).rejects.toMatchObject({ code: 'secret_key_required' });
     const r = await s.updateConfig({ 'limits.renderConcurrency': 3, 'limits.maxUploadBytes': 1234 }, { actorType: 'api_key', actorId: 'key_1' });
     expect(r.changes.map((c) => c.key)).toEqual(['limits.renderConcurrency', 'limits.maxUploadBytes']);
@@ -482,18 +495,18 @@ describe('ReelforgeService configuration', () => {
     const [entry] = await repos.audit.list({ limit: 1 });
     expect(entry).toMatchObject({ action: 'config.update', actorType: 'api_key', actorId: 'key_1', data: { changes: [{ key: 'limits.renderConcurrency', from: 1, to: 3 }, { key: 'limits.maxUploadBytes', from: 209715200, to: 1234 }] } });
     // A new service on the same database starts with the runtime values.
-    const again = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), { repositories: repos, dataDir: join(dir, 'svc'), configSources: { env: {} } });
+    const again = await RenderWeldService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), { repositories: repos, dataDir: join(dir, 'svc'), configSources: { env: {} } });
     expect(again.jobs.concurrency).toBe(3);
     expect(again.getConfig({ prefix: 'limits' }).settings.map((x) => x.source)).toEqual(['default', 'default', ...Array(4).fill('default'), 'runtime', 'default', 'runtime', ...Array(13).fill('default')]);
   });
 
   it('applies the encoder memory settings (#307) at start and at runtime, to every encode of the process', async () => {
     const make = (env: NodeJS.ProcessEnv) =>
-      ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), { repositories: createMemoryRepositories(), dataDir: join(dir, 'svc-enc'), configSources: { env } });
+      RenderWeldService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), { repositories: createMemoryRepositories(), dataDir: join(dir, 'svc-enc'), configSources: { env } });
     try {
       await make({});
       expect(encoderSettings()).toEqual({ threads: 2, lookahead: 20 });
-      const s = await make({ REELFORGE_RENDER_ENCODER_THREADS: '0' });
+      const s = await make({ RENDERWELD_RENDER_ENCODER_THREADS: '0' });
       expect(encoderSettings()).toEqual({ threads: 0, lookahead: 20 });
       await s.updateConfig({ 'render.encoderThreads': 3, 'render.encoderLookahead': 12 });
       expect(encoderSettings()).toEqual({ threads: 3, lookahead: 12 });
@@ -507,7 +520,7 @@ describe('ReelforgeService configuration', () => {
     const repos = createMemoryRepositories();
     const providerEnv: NodeJS.ProcessEnv = { ELEVENLABS_API_KEY: 'sk_from_env' };
     const registry = new PluginRegistry().registerEngine(fakeEngine('remotion')).registerProvider(new ElevenLabsTts(providerEnv));
-    const s = await ReelforgeService.create(registry, { repositories: repos, dataDir: join(dir, 'svc2'), providerEnv, configSources: { env: { ...providerEnv, REELFORGE_SECRET_KEY: KEY } } });
+    const s = await RenderWeldService.create(registry, { repositories: repos, dataDir: join(dir, 'svc2'), providerEnv, configSources: { env: { ...providerEnv, RENDERWELD_SECRET_KEY: KEY } } });
     expect((await s.listProviders())[0]!.settings[0]).toMatchObject({ set: true, source: 'env' });
     await s.configureProvider('elevenlabs', { ELEVENLABS_API_KEY: 'sk_from_api' });
     expect(providerEnv.ELEVENLABS_API_KEY).toBe('sk_from_api');

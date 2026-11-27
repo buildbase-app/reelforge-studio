@@ -17,7 +17,7 @@
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
-const ITEM = { id: 'itm_mock_reelforge', title: 'ReelForge Studio (mock)' };
+const ITEM = { id: 'itm_mock_reelforge', title: 'RenderWeld (mock)' };
 
 /** Start the mock. Resolves to { url, port, state, close(), addKey(), revoke(), setMode(), counts() }. */
 export function startMockLicenceServer({ port = 0, host = '127.0.0.1', orgId = '6b01478bb42d2c444e99fcd8', keys = [] } = {}) {

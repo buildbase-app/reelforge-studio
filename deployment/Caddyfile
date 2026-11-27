@@ -1,13 +1,13 @@
-# TLS in front of ReelForge Studio (automatic Let's Encrypt certificates).
-# Set REELFORGE_PUBLIC_URL=https://$REELFORGE_DOMAIN on the reelforge service
+# TLS in front of RenderWeld (automatic Let's Encrypt certificates).
+# Set RENDERWELD_PUBLIC_URL=https://$RENDERWELD_DOMAIN on the renderweld service
 # so /mcp accepts this host name and output links use it.
-{$REELFORGE_DOMAIN} {
+{$RENDERWELD_DOMAIN} {
 	encode zstd gzip
 	# Large uploads and long SSE streams.
 	request_body {
 		max_size 250MB
 	}
-	reverse_proxy reelforge:4321 {
+	reverse_proxy renderweld:4321 {
 		flush_interval -1
 	}
 }

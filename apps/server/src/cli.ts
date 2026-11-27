@@ -1,7 +1,6 @@
 #!/usr/bin/env -S npx tsx
 /**
- * renderweld CLI (operator tasks that need no running server). The old name
- * `reelforge` (src/reelforge.ts) runs the same commands with a deprecation notice.
+ * renderweld CLI (operator tasks that need no running server).
  *
  *   renderweld migrate [--status]       apply database migrations (and import v0.1 data once)
  *   renderweld import-v01 [--data-dir DIR]  import a v0.1 filesystem data directory again (existing rows are kept)
@@ -36,7 +35,7 @@
   renderweld skills export <dir> [--prefix renderweld-] [--force]   (one <prefix><name>/SKILL.md per skill, for agent tools that load skill folders)
   renderweld worker --once [--job <id>] [--wait-ms N]   claim at most one job, render it, exit (D-100)
  *
- * Uses DATABASE_URL (default: SQLite in REELFORGE_DATA_DIR, ./data) like the
+ * Uses DATABASE_URL (default: SQLite in RENDERWELD_DATA_DIR, ./data) like the
  * server. The key is printed once.
  */
 import { createWriteStream, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -57,9 +56,6 @@ import {
   createLicenceManager,
   createStorageDriver,
   formatIssue,
-  legacyNote,
-  readRenamedEnv,
-  renameWarning,
   migrateStorage,
   scrubSecretEnv,
   secretKeyProblem,
@@ -103,7 +99,7 @@ const USAGE = `usage:
   renderweld config check [--file PATH]
   renderweld config show [--json] [--offline]
   renderweld licence status [--json] [--check]
-  renderweld licence activate [KEY] [--json]   (KEY also from REELFORGE_LICENCE_KEY_INPUT; omit to re-activate the configured key)
+  renderweld licence activate [KEY] [--json]   (KEY also from RENDERWELD_LICENCE_KEY_INPUT; omit to re-activate the configured key)
   renderweld licence deactivate [--json]
   renderweld storage status [--json]
   renderweld storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]
@@ -130,7 +126,7 @@ function skills(cmd: string | undefined, argv: string[], config: ServerConfig): 
   }
   const dir = cmd === 'export' ? argv.find((a, i) => !a.startsWith('--') && argv[i - 1] !== '--prefix') : undefined;
   if (!dir) {
-    console.log(usage());
+    console.log(USAGE);
     process.exitCode = 1;
     return;
   }
@@ -172,7 +168,7 @@ function skills(cmd: string | undefined, argv: string[], config: ServerConfig): 
  */
 async function storage(cmd: string | undefined, argv: string[], config: ServerConfig): Promise<void> {
   if (!['status', 'migrate', 'cleanup'].includes(cmd ?? '')) {
-    console.log(usage());
+    console.log(USAGE);
     process.exitCode = 1;
     return;
   }
@@ -188,7 +184,7 @@ async function storage(cmd: string | undefined, argv: string[], config: ServerCo
       const to = arg('to', argv) as StorageDriverId | undefined;
       const fromId = (arg('from', argv) ?? 'local') as StorageDriverId;
       if (!to || !STORAGE_DRIVERS.includes(to) || !STORAGE_DRIVERS.includes(fromId) || to === fromId) {
-        console.error(`usage: ${cliName} storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]  (--to and --from must differ)`);
+        console.error(`usage: renderweld storage migrate --to ${STORAGE_DRIVERS.join('|')} [--from local] [--dry-run]  (--to and --from must differ)`);
         process.exitCode = 1;
         return;
       }
@@ -208,7 +204,7 @@ async function storage(cmd: string | undefined, argv: string[], config: ServerCo
       else {
         console.log(`${dryRun ? 'would copy' : 'copied'}: ${r.copied.objects} objects (${r.copied.bytes} bytes); already there: ${r.skipped.objects} (${r.skipped.bytes} bytes); failed: ${r.failed.length}`);
         for (const f of r.failed.slice(0, 20)) console.log(`  ✘ ${f.key}: ${f.error}`);
-        if (!dryRun && !r.failed.length && settings.config.storage.driver !== to) console.log(`next: set storage.driver to "${to}" (REELFORGE_STORAGE_DRIVER=${to}) and restart; run this command again first if renders were made meanwhile`);
+        if (!dryRun && !r.failed.length && settings.config.storage.driver !== to) console.log(`next: set storage.driver to "${to}" (RENDERWELD_STORAGE_DRIVER=${to}) and restart; run this command again first if renders were made meanwhile`);
       }
       if (r.failed.length) process.exitCode = 1;
       return;
@@ -256,7 +252,7 @@ async function storage(cmd: string | undefined, argv: string[], config: ServerCo
  */
 async function webhooks(cmd: string | undefined, argv: string[], config: ServerConfig): Promise<void> {
   if (!['list', 'show', 'create', 'update', 'delete', 'test', 'deliveries', 'replay'].includes(cmd ?? '')) {
-    console.log(usage());
+    console.log(USAGE);
     process.exitCode = 1;
     return;
   }
@@ -274,13 +270,13 @@ async function webhooks(cmd: string | undefined, argv: string[], config: ServerC
     const print = (v: unknown) => console.log(JSON.stringify(v, null, 2));
     const id = pos[0];
     const need = () => {
-      if (!id) throw new Error(`usage: ${cliName} webhooks ${cmd} <webhookId>`);
+      if (!id) throw new Error(`usage: renderweld webhooks ${cmd} <webhookId>`);
       return id;
     };
     if (cmd === 'list') {
       const r = await svc.list();
       if (json) return print(r);
-      if (!r.webhooks.length) console.log(`no webhooks yet: ${cliName} webhooks create --name N --url https://... --events "*"`);
+      if (!r.webhooks.length) console.log(`no webhooks yet: renderweld webhooks create --name N --url https://... --events "*"`);
       for (const w of r.webhooks) console.log(`${w.id}  ${w.enabled ? 'enabled ' : 'DISABLED'}  ${w.type.padEnd(8)} ${w.name}  ${w.url ?? `${w.email?.provider}: ${w.email?.to.join(', ')}`}  events: ${w.events.join(',')}${w.provider.configured ? '' : `  (not configured: ${w.provider.missing})`}`);
       return;
     }
@@ -323,7 +319,7 @@ async function webhooks(cmd: string | undefined, argv: string[], config: ServerC
     if (cmd === 'test') {
       const r = await svc.test(need(), {}, actor);
       if (json) return print(r);
-      console.log(`queued test delivery ${r.delivery.id} (webhook-id ${r.delivery.messageId}); the running server sends it. Check: ${cliName} webhooks deliveries ${id}`);
+      console.log(`queued test delivery ${r.delivery.id} (webhook-id ${r.delivery.messageId}); the running server sends it. Check: renderweld webhooks deliveries ${id}`);
       return;
     }
     if (cmd === 'deliveries') {
@@ -334,7 +330,7 @@ async function webhooks(cmd: string | undefined, argv: string[], config: ServerC
       return;
     }
     if (cmd === 'replay') {
-      if (!pos[1]) throw new Error(`usage: ${cliName} webhooks replay <webhookId> <deliveryId>`);
+      if (!pos[1]) throw new Error(`usage: renderweld webhooks replay <webhookId> <deliveryId>`);
       return print(await svc.replay(need(), pos[1], actor));
     }
   } catch (e) {
@@ -372,7 +368,7 @@ function printLicence(r: LicenceReport, json: boolean) {
  */
 async function licence(cmd: string | undefined, argv: string[], config: ServerConfig): Promise<void> {
   if (!['status', 'activate', 'deactivate'].includes(cmd ?? '')) {
-    console.log(usage());
+    console.log(USAGE);
     process.exitCode = 1;
     return;
   }
@@ -388,15 +384,12 @@ async function licence(cmd: string | undefined, argv: string[], config: ServerCo
     if (cmd === 'status') {
       r = argv.includes('--check') ? await manager.check('cli') : manager.report();
     } else if (cmd === 'activate') {
-      const input = readRenamedEnv(process.env, 'REELFORGE_LICENCE_KEY_INPUT');
-      if (input.conflict) throw new Error(input.conflict);
-      if (input.legacy && !argv.some((a) => !a.startsWith('--'))) console.error(renameWarning('REELFORGE_LICENCE_KEY_INPUT'));
-      const key = argv.find((a) => !a.startsWith('--')) ?? input.value;
+      const key = argv.find((a) => !a.startsWith('--')) ?? (process.env.RENDERWELD_LICENCE_KEY_INPUT?.trim() || undefined);
       if (key) {
         const { changes } = await settings.update({ 'licence.key': key.trim() });
         await repos.audit.write({ actorType: 'cli', action: 'config.update', targetType: 'config', data: { changes } });
       } else if (!manager.report().key) {
-        console.error(`no licence key is set: ${cliName} licence activate <KEY>`);
+        console.error(`no licence key is set: renderweld licence activate <KEY>`);
         process.exitCode = 1;
         return;
       }
@@ -416,8 +409,8 @@ async function licence(cmd: string | undefined, argv: string[], config: ServerCo
 /** `renderweld config check`: validate the file and environment without starting anything. Exit 1 on errors. */
 function configCheck(argv: string[]): void {
   const file = arg('file', argv);
-  // --file replaces RENDERWELD_CONFIG and its old name REELFORGE_CONFIG.
-  const env = file ? { ...process.env, RENDERWELD_CONFIG: file, REELFORGE_CONFIG: undefined } : process.env;
+  // --file replaces RENDERWELD_CONFIG.
+  const env = file ? { ...process.env, RENDERWELD_CONFIG: file } : process.env;
   let config: ServerConfig;
   try {
     config = loadConfig(env);
@@ -453,14 +446,13 @@ function configCheck(argv: string[]): void {
     process.exitCode = 1;
     return;
   }
-  console.log(`configuration is valid${config.sources.file ? ` (config file ${config.sources.file.path})` : ' (no config file; REELFORGE_CONFIG is not set)'}`);
+  console.log(`configuration is valid${config.sources.file ? ` (config file ${config.sources.file.path})` : ' (no config file; RENDERWELD_CONFIG is not set)'}`);
   console.log(`  ${Object.entries(counts).map(([k, v]) => `${v} from ${k}`).join(', ')}`);
   console.log(`  edition: ${config.resolved.build.edition}${config.resolved.build.edition === 'release' ? ' (licence.mode, licence.serverUrl and licence.orgId are fixed by the build)' : ''}`);
-  // Which variable supplied each value from the environment (RENDERWELD_* or an old REELFORGE_* name, #412).
+  // Which variable supplied each value from the environment (a RENDERWELD_* name or an alias such as DATABASE_URL).
   for (const s of config.resolved.settings.values()) {
     if (s.source !== 'env' || !s.origin) continue;
-    const note = legacyNote(s.origin);
-    console.log(`  ${s.def.key} <- ${s.origin}${note ? ` (${note})` : ''}`);
+    console.log(`  ${s.def.key} <- ${s.origin}`);
   }
   for (const w of warnings) console.log(`  ! ${w}`);
 }
@@ -470,9 +462,8 @@ function printReport(r: ConfigReport, note?: string) {
   const width = Math.max(...r.settings.map((s) => s.key.length));
   for (const s of r.settings) {
     const where = s.source === 'default' ? 'default' : `${s.source}${s.origin && s.origin !== 'database' ? `: ${s.origin}` : ''}`;
-    // The variable that supplied the value is in `where`; an old REELFORGE_* name also gets a note (#412).
-    const note = s.source === 'env' ? legacyNote(s.origin) : '';
-    console.log(`${s.key.padEnd(width)}  ${JSON.stringify(s.value)}  (${where}${s.scope === 'startup' ? ', start-up only' : ''}${s.error ? `; ${s.error}` : ''})${note ? `  [${note}]` : ''}`);
+    // The variable that supplied the value is in `where`.
+    console.log(`${s.key.padEnd(width)}  ${JSON.stringify(s.value)}  (${where}${s.scope === 'startup' ? ', start-up only' : ''}${s.error ? `; ${s.error}` : ''})`);
   }
   for (const w of r.warnings) console.log(`! ${w}`);
 }
@@ -513,7 +504,7 @@ async function configShow(argv: string[], config: ServerConfig): Promise<void> {
 /** `renderweld worker --once`: one job per process, for job platforms (D-100). */
 async function worker(args: string[]): Promise<void> {
   if (!args.includes('--once')) {
-    console.error(`usage: ${cliName} worker --once [--job <id>] [--wait-ms N]\nA long-running worker is the server with REELFORGE_ROLE=worker (docs/providers/queue-and-scaling.md).`);
+    console.error(`usage: renderweld worker --once [--job <id>] [--wait-ms N]\nA long-running worker is the server with RENDERWELD_ROLE=worker (docs/providers/queue-and-scaling.md).`);
     process.exit(1);
   }
   const opts = onceArgs(args);
@@ -523,20 +514,10 @@ async function worker(args: string[]): Promise<void> {
   process.exit(await runWorkerOnce(env, opts));
 }
 
-/**
- * The CLI. `renderweld` is its name (cli.ts runs as `renderweld`); the old
- * name `reelforge` (reelforge.ts) runs the same commands after a one-line
- * notice on stderr (#412; stdout stays the same for scripts that parse it).
- */
-export async function runCli(argv: string[], name: CliName = 'renderweld'): Promise<void> {
-  cliName = name;
+/** The `renderweld` CLI. */
+export async function runCli(argv: string[]): Promise<void> {
   return main(argv);
 }
-
-export type CliName = 'renderweld' | 'reelforge';
-let cliName: CliName = 'renderweld';
-/** The usage text under the name this CLI was started with. */
-const usage = () => USAGE.replace(/^ {2}renderweld /gm, `  ${cliName} `);
 
 async function main(argv: string[]) {
   const [group, cmd, ...rest] = argv;
@@ -594,7 +575,7 @@ async function main(argv: string[]) {
   if (group === 'audit') return audit(cmd, rest, config);
   if (group === 'webhooks' || group === 'webhook') return webhooks(cmd, rest, config);
   if (group !== 'keys' || !['create', 'list', 'show', 'update', 'rotate', 'revoke', 'delete'].includes(cmd ?? '')) {
-    console.log(usage());
+    console.log(USAGE);
     process.exitCode = group ? 1 : 0;
     return;
   }
@@ -691,7 +672,7 @@ async function keys(cmd: string, rest: string[], config: ServerConfig): Promise<
     } else if (cmd === 'list') {
       for (const k of await store.list()) console.log(describeKey(k));
     } else if (!id) {
-      console.log(usage());
+      console.log(USAGE);
       process.exitCode = 1;
     } else if (cmd === 'show') {
       console.log(JSON.stringify(await store.get(id), null, 2));
@@ -719,7 +700,7 @@ async function keys(cmd: string, rest: string[], config: ServerConfig): Promise<
 /** `renderweld audit list|export|sweep`. */
 async function audit(cmd: string | undefined, rest: string[], config: ServerConfig): Promise<void> {
   if (!['list', 'export', 'sweep'].includes(cmd ?? '')) {
-    console.log(usage());
+    console.log(USAGE);
     process.exitCode = 1;
     return;
   }
@@ -776,7 +757,7 @@ async function audit(cmd: string | undefined, rest: string[], config: ServerConf
   }
 }
 
-/** Run as a program (not imported by reelforge.ts or a test). */
+/** Run as a program (not imported by a test). */
 function isEntry(): boolean {
   try {
     return Boolean(process.argv[1]) && realpathSync(process.argv[1]!) === realpathSync(fileURLToPath(import.meta.url));
@@ -786,7 +767,7 @@ function isEntry(): boolean {
 }
 
 if (isEntry()) {
-  runCli(process.argv.slice(2), 'renderweld').catch((e) => {
+  runCli(process.argv.slice(2)).catch((e) => {
     console.error((e as Error).message);
     process.exit(1);
   });

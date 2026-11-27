@@ -316,11 +316,11 @@ export class OutboxRelay {
     const rows = await this.o.repo.claim(new Date(now).toISOString(), new Date(now + this.o.leaseMs).toISOString(), this.o.batch);
     if (!rows.length) return { claimed: 0, published: 0, failed: 0, dropped: 0 };
     const m = coreInstruments(this.telemetry.meter);
-    const driver = { 'reelforge.dispatch.driver': this.o.publisher.driver };
+    const driver = { 'renderweld.dispatch.driver': this.o.publisher.driver };
     try {
       await this.o.publisher.publish(rows.map((r) => r.jobId));
       await this.o.repo.remove(rows.map((r) => r.id));
-      m.dispatchPublished.add(rows.length, { ...driver, 'reelforge.reason': 'outbox' });
+      m.dispatchPublished.add(rows.length, { ...driver, 'renderweld.reason': 'outbox' });
       if (this.state.failing) this.o.log?.('info', `dispatch outbox: publishing to ${this.o.publisher.driver} works again`);
       this.state = { ...this.state, failing: false, published: this.state.published + rows.length, lastPublishedAt: new Date(this.o.now()).toISOString() };
       return { claimed: rows.length, published: rows.length, failed: 0, dropped: 0 };

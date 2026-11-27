@@ -46,8 +46,8 @@ Or with Docker, which is the tested install path and needs a licence key (the Pe
     git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
     export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)
     docker compose up -d --build
-    docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>
-    docker compose exec reelforge renderweld keys create --name agent --scopes read,write,render
+    docker compose exec renderweld renderweld licence activate <YOUR-LICENCE-KEY>
+    docker compose exec renderweld renderweld keys create --name agent --scopes read,write,render
 
 The key has only `read,write,render`: the agent can make and render projects but not manage keys or settings. Then:
 

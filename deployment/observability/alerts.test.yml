@@ -24,10 +24,10 @@ tests:
     alert_rule_test:
       # Pending for the first 10 minutes of breach, then firing.
       - eval_time: 5m
-        alertname: ReelforgePreviewQueueWaitSLO
+        alertname: RenderweldPreviewQueueWaitSLO
         exp_alerts: []
       - eval_time: 30m
-        alertname: ReelforgePreviewQueueWaitSLO
+        alertname: RenderweldPreviewQueueWaitSLO
         exp_alerts:
           - exp_labels:
               severity: warning
@@ -35,7 +35,7 @@ tests:
               summary: Previews wait more than 60 s for a worker (p95, 15 min)
               description: "p95 queue wait of previews is 117 s. Add worker replicas (or raise the autoscaler's maximum), check that workers are claiming (renderweld_queue_errors_total, /readyz), or set limits.maxEstimatedWaitSeconds so new work is refused with Retry-After instead of piling up."
       - eval_time: 30m
-        alertname: ReelforgeRenderQueueWaitSLO
+        alertname: RenderweldRenderQueueWaitSLO
         exp_alerts: []
   - interval: 1m
     input_series:
@@ -48,7 +48,7 @@ tests:
         values: '0+10x60'
     alert_rule_test:
       - eval_time: 40m
-        alertname: ReelforgeRenderQueueWaitSLO
+        alertname: RenderweldRenderQueueWaitSLO
         exp_alerts:
           - exp_labels:
               severity: warning

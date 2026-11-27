@@ -3,18 +3,18 @@
  * The REST tutorial with fetch (Node 22, no dependencies): the same calls as
  * rest.sh, for scripts, serverless functions and automation tools.
  *
- *   REELFORGE_URL=http://127.0.0.1:4321 REELFORGE_API_KEY=rf_... \
+ *   RENDERWELD_URL=http://127.0.0.1:4321 RENDERWELD_API_KEY=rf_... \
  *     node examples/tutorials/rest-fetch.mjs examples/tutorials/html.json [projectId] [out.mp4]
  *
  * The last line it prints is `RESULT {json}`.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const RF = (process.env.REELFORGE_URL ?? 'http://127.0.0.1:4321').replace(/\/$/, '');
-const KEY = process.env.REELFORGE_API_KEY;
+const RF = (process.env.RENDERWELD_URL ?? 'http://127.0.0.1:4321').replace(/\/$/, '');
+const KEY = process.env.RENDERWELD_API_KEY;
 const [manifestPath, projectIdArg, out = 'final.mp4'] = process.argv.slice(2);
 if (!KEY || !manifestPath) {
-  console.error('usage: REELFORGE_API_KEY=rf_... node rest-fetch.mjs <manifest.json> [projectId] [out.mp4]');
+  console.error('usage: RENDERWELD_API_KEY=rf_... node rest-fetch.mjs <manifest.json> [projectId] [out.mp4]');
   process.exit(2);
 }
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));

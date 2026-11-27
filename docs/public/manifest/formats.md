@@ -183,6 +183,30 @@ side of a wide frame. At 4K every size doubles with the frame.
 | Caption (sublines) | 4.8 units |
 | Label (kickers) | 4 units |
 
+### Readable text
+
+`validate_project` (and `create_project` / `update_project`) warns before a
+render when text would be hard to read:
+
+- **Too small.** If any scene uses a built-in template and that template would
+  set body text under 12 px at the output size or at a variant's size, you get a
+  warning on `output` or `variants.<n>`. Body text is 5.6 units, so this happens
+  on frames whose shorter side is under about 214 px, such as a 728x90 banner or
+  320x180. Use a larger frame, keep that size for a picture with few words, or
+  set the text size yourself in an html scene. Html scenes are not checked: their
+  author sets the size.
+- **Low contrast.** A pane with its own `color` is checked against the theme's
+  text colours, under the WCAG 2.2 contrast minimum (SC 1.4.3):
+  - its headline against `text` must reach 3:1, because headlines are large text;
+  - its body against `mutedText` must reach 4.5:1.
+
+  A lower third's `text` is checked against its `background` (4.5:1). For
+  example, white theme text on a `#f1faee` pane is about 1.07:1, and the warning
+  says which colour to change. Themes stored with `create_theme` are not resolved
+  here, so only built-in themes and inline tokens are checked.
+
+These are warnings, not errors: a deliberate design can keep them.
+
 ## Safe areas
 
 Built-in templates keep all text inside the **content safe area**. It is, per

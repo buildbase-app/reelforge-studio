@@ -14,7 +14,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { keyFrames, probe, resolveTools, run } from '@renderweld/media-pipeline';
 import type { Project, RenderScene } from '@renderweld/project-schema';
-import { JOIN_JOB_TYPE, PluginRegistry, ReelforgeService, UNIT_JOB_TYPE, createMemoryRepositories, type EnginePlugin, type JobEvent, type JobRecord, type Repositories } from '../src/index';
+import { JOIN_JOB_TYPE, PluginRegistry, RenderWeldService, UNIT_JOB_TYPE, createMemoryRepositories, type EnginePlugin, type JobEvent, type JobRecord, type Repositories } from '../src/index';
 import { LocalBackend } from '../src/backends/local';
 import { chunkRanges, planChunks, unitSpecs, type ChunkPolicy, type RenderJobParams } from '../src/render-fanout';
 import { fakeEngine, fakeFrameLuma, tempDir } from './helpers';
@@ -117,13 +117,13 @@ function registry(): PluginRegistry {
   return new PluginRegistry().registerEngine(flaky(engines.remotion)).registerEngine(flaky(engines.mc));
 }
 
-const ENV = { REELFORGE_RENDER_FAN_OUT: 'scenes+chunks', REELFORGE_RENDER_CHUNK_SECONDS: '2', REELFORGE_RENDER_CHUNK_MIN_SCENE_SECONDS: '4' };
-const services: ReelforgeService[] = [];
+const ENV = { RENDERWELD_RENDER_FAN_OUT: 'scenes+chunks', RENDERWELD_RENDER_CHUNK_SECONDS: '2', RENDERWELD_RENDER_CHUNK_MIN_SCENE_SECONDS: '4' };
+const services: RenderWeldService[] = [];
 async function instance(workerId: string, runJobs: boolean, env: Record<string, string> = ENV) {
-  const s = await ReelforgeService.create(registry(), {
+  const s = await RenderWeldService.create(registry(), {
     repositories: repos,
     dataDir: join(dir, 'data'),
-    configSources: { env: { REELFORGE_LICENCE_MODE: 'off', ...env } },
+    configSources: { env: { RENDERWELD_LICENCE_MODE: 'off', ...env } },
     queue: { mode: 'database', workerId, runJobs, leaseMs: 5000, heartbeatMs: 100, pollMs: 30 },
     maintenance: false,
     storage: { sweep: false },
@@ -150,8 +150,8 @@ const LONG_START = 45;
 const TOTAL = 45 + 240 + 150 + 45;
 const CHUNKS = [[0, 59], [60, 119], [120, 179], [180, 239]];
 
-let api: ReelforgeService;
-let workers: ReelforgeService[];
+let api: RenderWeldService;
+let workers: RenderWeldService[];
 const events: Array<{ worker: string; e: JobEvent }> = [];
 const webhooks: Array<{ worker: string; type: string; data: Record<string, unknown> }> = [];
 beforeAll(async () => {
@@ -319,7 +319,7 @@ describe('render.fanOut scenes+chunks in the service (fake engines)', () => {
   it('FAN-48 the settings: scenes+chunks is accepted, chunk lengths are validated', async () => {
     await expect(api.updateConfig({ 'render.chunkSeconds': 0.5 })).rejects.toThrow(/chunkSeconds/);
     await expect(api.updateConfig({ 'render.chunkMinSceneSeconds': 1 })).rejects.toThrow(/chunkMinSceneSeconds/);
-    await expect(instance('bad', false, { ...ENV, REELFORGE_RENDER_CHUNK_SECONDS: '0' })).rejects.toThrow(/CHUNK_SECONDS|chunkSeconds/);
+    await expect(instance('bad', false, { ...ENV, RENDERWELD_RENDER_CHUNK_SECONDS: '0' })).rejects.toThrow(/CHUNK_SECONDS|chunkSeconds/);
     expect(api.settings.current.config.render).toMatchObject({ fanOut: 'scenes+chunks', chunkSeconds: 2, chunkMinSceneSeconds: 4 });
     expect(api.capabilities().engines.find((e) => e.id === 'remotion')).toMatchObject({ frameRanges: true });
     expect(api.capabilities().engines.find((e) => e.id === 'motion-canvas')).toMatchObject({ frameRanges: false });

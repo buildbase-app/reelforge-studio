@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer';
 import { PipelineError } from '@renderweld/media-pipeline';
-import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, envValue, type AssetServer, type ResolvedAsset } from '@renderweld/core';
+import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, type AssetServer, type ResolvedAsset } from '@renderweld/core';
 import type { Tools } from '@renderweld/media-pipeline';
 import { BUILTIN_THEMES, TEMPLATES, domThemeCss, fpsRational, fpsValue, framesToSeconds, layoutSceneDom, layoutSceneProps, mediaKey, mediaUrlAt, type OutputSettings, type RenderScene, type SceneMedia, type ThemeTokens } from '@renderweld/project-schema';
 
@@ -32,7 +32,7 @@ export interface RemotionRenderOptions {
   cacheDir: string;
   /**
    * Chrome Headless Shell (or Chrome) binary. Falls back to
-   * REELFORGE_CHROMIUM_PATH, then lets Remotion download its pinned browser.
+   * RENDERWELD_CHROMIUM_PATH, then lets Remotion download its pinned browser.
    */
   browserExecutable?: string;
   /** Parallel browser tabs. Defaults to Remotion's choice (half the CPUs). */
@@ -160,7 +160,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
   const started = Date.now();
   const { scene, output } = opts;
   const stage = `render:${scene.id}`;
-  const browserExecutable = opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH') ?? null;
+  const browserExecutable = opts.browserExecutable ?? process.env.RENDERWELD_CHROMIUM_PATH ?? null;
   mkdirSync(dirname(opts.out), { recursive: true });
   const range = opts.frameRange;
   if (range && (range[0] < 0 || range[1] < range[0] || range[1] >= scene.durationFrames)) {

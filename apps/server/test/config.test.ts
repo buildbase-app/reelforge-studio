@@ -34,7 +34,7 @@ beforeAll(async () => {
   writeFileSync(configFile, `# test config\nstorage:\n  dataDir: ${dataDir}\nlimits:\n  maxJsonBytes: 65536\n  rateLimitPerMinute: 1000\nlogging:\n  level: warn\n`);
   const database = await testDatabase(dir);
   dropDb = database.drop;
-  env = { ...database.env, REELFORGE_CONFIG: configFile, REELFORGE_RATE_LIMIT_PER_MINUTE: '500', REELFORGE_SECRET_KEY: SECRET_KEY, REELFORGE_LICENCE_MODE: 'off' };
+  env = { ...database.env, RENDERWELD_CONFIG: configFile, RENDERWELD_RATE_LIMIT_PER_MINUTE: '500', RENDERWELD_SECRET_KEY: SECRET_KEY, RENDERWELD_LICENCE_MODE: 'off' };
   server = await start();
   admin = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   reader = (await server.service.keys.create('reader', ['read'])).key;
@@ -71,9 +71,9 @@ describe('configuration over REST', () => {
     expect(r.json.configFile).toBe(resolve(configFile));
     expect(r.json.secretKey).toBe('set');
     expect(setting(r, 'limits.maxJsonBytes')).toMatchObject({ value: 65536, source: 'file', origin: resolve(configFile), scope: 'runtime' });
-    expect(setting(r, 'limits.rateLimitPerMinute')).toMatchObject({ value: 500, source: 'env', origin: 'REELFORGE_RATE_LIMIT_PER_MINUTE' });
+    expect(setting(r, 'limits.rateLimitPerMinute')).toMatchObject({ value: 500, source: 'env', origin: 'RENDERWELD_RATE_LIMIT_PER_MINUTE' });
     expect(setting(r, 'storage.dataDir')).toMatchObject({ value: dataDir, source: 'file', scope: 'startup' });
-    expect(setting(r, 'server.port')).toMatchObject({ value: 4321, source: 'default', scope: 'startup', env: 'REELFORGE_PORT' });
+    expect(setting(r, 'server.port')).toMatchObject({ value: 4321, source: 'default', scope: 'startup', env: 'RENDERWELD_PORT' });
     expect(setting(r, 'security.secretKey')).toMatchObject({ value: 'set', secret: true });
     expect(setting(r, 'database.url').value).toBe('set');
     expect(r.text).not.toContain(SECRET_KEY);
@@ -163,7 +163,7 @@ describe('configuration over REST', () => {
     const port = await rest('PATCH', '/v1/config', { settings: { 'server.port': 9000, 'limits.renderConcurrency': 2 } });
     expect(port.status).toBe(409);
     expect(port.json.error.code).toBe('startup_only_setting');
-    expect(port.json.error.message).toMatch(/server\.port.*start-up only.*REELFORGE_CONFIG.*REELFORGE_PORT.*restart/);
+    expect(port.json.error.message).toMatch(/server\.port.*start-up only.*RENDERWELD_CONFIG.*RENDERWELD_PORT.*restart/);
     expect(server.service.jobs.concurrency).toBe(1);
     const bad = await rest('PATCH', '/v1/config', { settings: { 'limits.renderConcurrency': 'many', 'no.such': 1 } });
     expect(bad.status).toBe(422);
@@ -204,7 +204,7 @@ describe('configuration over MCP', () => {
     expect(refused.isError).toBe(true);
     const err = toolJson(refused).error;
     expect(err.code).toBe('startup_only_setting');
-    expect(err.message).toMatch(/REELFORGE_DATABASE_URL.*_FILE/);
+    expect(err.message).toMatch(/RENDERWELD_DATABASE_URL.*_FILE/);
     expect(JSON.stringify(err)).not.toContain('postgresql://x/y');
     await client.close();
     const ro = await mcp(reader);
@@ -231,7 +231,7 @@ describe('restart', () => {
   });
 });
 
-describe('reelforge config (CLI)', () => {
+describe('renderweld config (CLI)', () => {
   const repo = resolve(__dirname, '../../..');
   const cli = (args: string[], extra: NodeJS.ProcessEnv) =>
     spawnSync(join(repo, 'node_modules/.bin/tsx'), ['apps/server/src/cli.ts', 'config', ...args], { cwd: repo, env: { PATH: process.env.PATH, ...extra }, encoding: 'utf8', timeout: 60_000 });
@@ -240,10 +240,10 @@ describe('reelforge config (CLI)', () => {
     const ok = cli(['check'], env);
     expect(ok.status).toBe(0);
     expect(ok.stdout).toMatch(/configuration is valid \(config file .*reelforge\.yaml\)/);
-    const bad = cli(['check'], { ...env, REELFORGE_PORT: 'eighty', REELFORGE_SECRET_KEY: 'short-SECRET' });
+    const bad = cli(['check'], { ...env, RENDERWELD_PORT: 'eighty', RENDERWELD_SECRET_KEY: 'short-SECRET' });
     expect(bad.status).toBe(1);
-    expect(bad.stderr).toMatch(/REELFORGE_PORT: must be an integer \(got "eighty"\)/);
-    expect(bad.stderr).toMatch(/REELFORGE_SECRET_KEY: must be at least 32 characters/);
+    expect(bad.stderr).toMatch(/RENDERWELD_PORT: must be an integer \(got "eighty"\)/);
+    expect(bad.stderr).toMatch(/RENDERWELD_SECRET_KEY: must be at least 32 characters/);
     expect(bad.stderr).not.toContain('short-SECRET');
     const typo = join(dir, 'typo.yaml');
     writeFileSync(typo, 'limits:\n  rateLimit: 5\n');
@@ -261,7 +261,7 @@ describe('reelforge config (CLI)', () => {
     expect(r.stdout).not.toContain(SECRET_KEY);
     const text = cli(['show', '--offline'], env);
     expect(text.status).toBe(0);
-    expect(text.stdout).toMatch(/limits\.rateLimitPerMinute\s+500\s+\(env: REELFORGE_RATE_LIMIT_PER_MINUTE\)/);
+    expect(text.stdout).toMatch(/limits\.rateLimitPerMinute\s+500\s+\(env: RENDERWELD_RATE_LIMIT_PER_MINUTE\)/);
     expect(text.stdout).toMatch(/server\.port\s+4321\s+\(default, start-up only\)/);
   }, 60_000);
 });

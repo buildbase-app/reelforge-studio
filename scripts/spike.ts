@@ -127,7 +127,7 @@ async function main() {
     tools: {
       node: process.version,
       ffmpeg: toolVersion(tools.ffmpeg),
-      chromium: process.env.REELFORGE_CHROMIUM_PATH ?? '(engine default)',
+      chromium: process.env.RENDERWELD_CHROMIUM_PATH ?? '(engine default)',
     },
     ffmpegAssembleArgs: assembled.args,
     checks: { metadata: 'pass', decode: 'pass' },

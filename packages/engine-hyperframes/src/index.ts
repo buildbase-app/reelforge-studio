@@ -18,7 +18,6 @@ import {
   type EnginePlugin,
   type ResolvedAsset,
   type StagedSceneAssets,
-  envValue,
 } from '@renderweld/core';
 import { PipelineError, type Tools } from '@renderweld/media-pipeline';
 import {
@@ -65,7 +64,7 @@ export { processesWithEnv, reapRender } from './processes';
  * our Chrome Headless Shell); no HeyGen account, cloud or credits.
  *
  * Sandboxing (D-085, D-086, D-087):
- *   - the composition is parsed (parse5) and ReelForge's head, with a
+ *   - the composition is parsed (parse5) and RenderWeld's head, with a
  *     Content-Security-Policy that allows only the renderer's own local file
  *     server ('self') and data:/blob: URLs, becomes the first child of the
  *     parsed <head>; documents that bring their own policy (<meta http-equiv>,
@@ -358,7 +357,7 @@ async function stageMedia(scene: RenderScene, project: string, assets: ReadonlyM
 /**
  * Environment for the hyperframes CLI: our browser, no telemetry, no update
  * checks or installs, no server secrets (allowlist), and, with `egressProxy`,
- * every outbound connection routed to ReelForge's deny-all sink.
+ * every outbound connection routed to RenderWeld's deny-all sink.
  */
 export function hyperframesEnv(
   browser: string,
@@ -378,7 +377,7 @@ export function hyperframesEnv(
     HYPERFRAMES_NO_UPDATE_CHECK: '1',
     HYPERFRAMES_NO_AUTO_INSTALL: '1',
     HYPERFRAMES_SKIP_SKILLS: '1',
-    HYPERFRAMES_RENDER_LOCK: 'off', // ReelForge's job runner limits concurrency itself
+    HYPERFRAMES_RENDER_LOCK: 'off', // RenderWeld's job runner limits concurrency itself
     // Same sandbox rule as every engine. "1" makes a sandbox that cannot start an
     // error instead of HyperFrames' silent fallback to --no-sandbox.
     HYPERFRAMES_CHROME_SANDBOX: chromiumSandbox(base) ? '1' : '0',
@@ -405,7 +404,7 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   const started = Date.now();
   const { scene, output } = opts;
   const stage = `render:${scene.id}`;
-  const browser = opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH');
+  const browser = opts.browserExecutable ?? process.env.RENDERWELD_CHROMIUM_PATH;
   if (!browser || !existsSync(browser)) throw new PipelineError('setup', 'no browser for HyperFrames: set RENDERWELD_CHROMIUM_PATH');
   const theme = opts.theme ?? BUILTIN_THEMES[0]!.tokens;
   const project = join(opts.workDir, 'hyperframes');
@@ -683,9 +682,9 @@ function tail(s: string): string {
   return s.split('\n').filter(Boolean).slice(-40).join('\n');
 }
 
-/** HyperFrames as a ReelForge engine plugin. */
+/** HyperFrames as a RenderWeld engine plugin. */
 export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?: number } = {}): EnginePlugin {
-  const browser = () => opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH');
+  const browser = () => opts.browserExecutable ?? process.env.RENDERWELD_CHROMIUM_PATH;
   return {
     id: 'hyperframes',
     displayName: 'HyperFrames (local renderer)',

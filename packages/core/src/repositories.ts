@@ -5,7 +5,7 @@ import type { StoredAsset } from './plugins';
 import type { WebhookRepository } from './webhooks/types';
 
 /**
- * Persistence contracts. ReelforgeService and the stores in this package
+ * Persistence contracts. RenderWeldService and the stores in this package
  * depend only on these interfaces; implementations live elsewhere:
  *
  *   - @renderweld/db       Prisma 7: SQLite (default), PostgreSQL, MySQL/MariaDB
@@ -443,7 +443,7 @@ export interface ThemeRepository {
 
 /**
  * A stored setting value. `scheme` says how `value` is stored: "plain", or
- * "aes-256-gcm" (SecretCipher in config/crypto.ts; REELFORGE_SECRET_KEY).
+ * "aes-256-gcm" (SecretCipher in config/crypto.ts; RENDERWELD_SECRET_KEY).
  * Repositories store both opaquely; encryption happens above them.
  */
 export interface StoredValue {

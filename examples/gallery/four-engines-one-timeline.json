@@ -2,14 +2,14 @@
   "gallery": {
     "slug": "four-engines-one-timeline",
     "title": "Four engines, one timeline",
-    "description": "A showcase reel that uses all four ReelForge engines in one timeline: a Remotion title, a Motion Canvas list, an agent-written HTML scene and a HyperFrames generative globe, cut back to back.",
+    "description": "A showcase reel that uses all four RenderWeld engines in one timeline: a Remotion title, a Motion Canvas list, an agent-written HTML scene and a HyperFrames generative globe, cut back to back.",
     "category": "Generative",
     "tags": [
       "reelforge",
       "engines",
       "showcase"
     ],
-    "prompt": "A showcase reel that uses all four ReelForge engines in one timeline: a Remotion title, a Motion Canvas list, an agent-written HTML scene and a HyperFrames generative globe, cut back to back. Default theme, 18 seconds.",
+    "prompt": "A showcase reel that uses all four RenderWeld engines in one timeline: a Remotion title, a Motion Canvas list, an agent-written HTML scene and a HyperFrames generative globe, cut back to back. Default theme, 18 seconds.",
     "palette": "default",
     "theme": "default",
     "engines": [
@@ -28,7 +28,7 @@
     "title": "Four engines, one timeline",
     "brief": {
       "title": "Four engines, one timeline",
-      "goal": "A showcase reel that uses all four ReelForge engines in one timeline: a Remotion title, a Motion Canvas list, an agent-written HTML scene and a HyperFrames generative globe, cut back to back. Default theme, 18 seconds.",
+      "goal": "A showcase reel that uses all four RenderWeld engines in one timeline: a Remotion title, a Motion Canvas list, an agent-written HTML scene and a HyperFrames generative globe, cut back to back. Default theme, 18 seconds.",
       "platform": "instagram-reels",
       "language": "en",
       "targetSeconds": 18
