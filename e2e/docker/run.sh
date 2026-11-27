@@ -306,7 +306,7 @@ api /readyz | grep -q '"freeBytes":.*"chromiumSandbox":{' && echo "✔ /readyz w
 curl -s -D "$WORK/metrics.h" -H "Authorization: Bearer $METRICS_TOKEN" "http://127.0.0.1:$PORT/metrics" > "$WORK/metrics.txt"
 grep -qi '^content-type: text/plain; version=0.0.4' "$WORK/metrics.h" && docker run --rm -i --entrypoint promtool "$PROM_IMAGE" check metrics < "$WORK/metrics.txt" \
   && echo "✔ GET /metrics passes promtool check metrics ($(grep -c '^[a-z]' "$WORK/metrics.txt") samples)" || { echo "✘ /metrics is not valid Prometheus text"; head -20 "$WORK/metrics.txt"; exit 1; }
-for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'renderweld_jobs_finished_total{.*renderweld_job_status="succeeded"' 'renderweld_render_frames_total{.*renderweld_engine="html"' 'renderweld_licence_state{renderweld_licence_state="valid",renderweld_licence_state="valid"} 1' 'renderweld_licence_state{renderweld_licence_state="valid",renderweld_licence_state="valid"} 1' 'renderweld_jobs_queued 0'; do
+for m in 'http_server_request_duration_seconds_bucket{.*http_route="/mcp"' 'renderweld_jobs_finished_total{.*renderweld_job_status="succeeded"' 'renderweld_render_frames_total{.*renderweld_engine="html"' 'renderweld_licence_state{renderweld_licence_state="valid"} 1' 'renderweld_jobs_queued 0'; do
   grep -q "^$m" "$WORK/metrics.txt" || { echo "✘ /metrics lacks $m"; exit 1; }; done; echo "✔ /metrics has HTTP, job, render, licence and queue metrics"
 # Queue-wait SLO (#155, D-103): the histogram is exported with type and priority labels, and the shipped alert
 # rules load and pass their unit test.

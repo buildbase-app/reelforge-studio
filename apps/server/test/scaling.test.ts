@@ -272,12 +272,11 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
 
   it('SCA-11 metrics: role gauge and cluster queue depth, bounded labels', async () => {
     const text = await (await metrics(workers.at(-1)!.url)).text();
-    expect(text).toMatch(/^renderweld_server_role\{renderweld_role="worker",renderweld_role="worker"\} 1$/m);
-    expect(text).toMatch(/^renderweld_server_role\{renderweld_role="api",renderweld_role="api"\} 0$/m);
+    expect(text).toMatch(/^renderweld_server_role\{renderweld_role="worker"\} 1$/m);
+    expect(text).toMatch(/^renderweld_server_role\{renderweld_role="api"\} 0$/m);
     expect(text).toMatch(/^renderweld_jobs_queued \d+$/m);
-    expect(text).toMatch(/^renderweld_server_role\{renderweld_role="worker",renderweld_role="worker"\} 1$/m);
     const apiText = await (await metrics(api.url)).text();
-    expect(apiText).toMatch(/^renderweld_server_role\{renderweld_role="api",renderweld_role="api"\} 1$/m);
+    expect(apiText).toMatch(/^renderweld_server_role\{renderweld_role="api"\} 1$/m);
     const labels = new Set([...text.matchAll(/="([^"]*)"/g)].map((m) => m[1]));
     expect([...labels].some((l) => /^(job|run|prv|key)_[a-z0-9]{8,}|worker-/.test(l!))).toBe(false);
   });
