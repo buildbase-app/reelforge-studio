@@ -634,6 +634,10 @@ export function createApp(deps: AppDeps) {
     };
     return c.json(await service.idempotent(idemKey(c), 'preview_scene', { projectId, ...opts }, async () => ({ job: await service.preview(projectId, opts) })), 202);
   });
+  v1.post('/projects/:id/render-plan/approve', need('approve'), json, async (c) => {
+    const b = await body(c);
+    return c.json(await service.approveRenderPlan(c.req.param('id'), b.planId, { variant: b.variant }, actor(c)));
+  });
   v1.post('/projects/:id/render-plan', need('read'), json, async (c) => {
     const b = await body(c);
     return c.json(await service.planRender(c.req.param('id'), { variant: b.variant }));
@@ -642,7 +646,8 @@ export function createApp(deps: AppDeps) {
     const b = await body(c);
     const projectId = c.req.param('id');
     const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.variant !== undefined ? { variant: b.variant } : {}), ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}), ...(b.audio !== undefined ? { audio: b.audio } : {}) };
-    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, () => service.renderProject(projectId, opts)), 202);
+    // The approval token is not part of the idempotency fingerprint: a retry with the same key replays the first answer.
+    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, () => service.renderProject(projectId, { ...opts, approvalToken: b.approvalToken })), 202);
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
 

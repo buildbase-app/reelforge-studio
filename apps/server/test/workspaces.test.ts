@@ -304,7 +304,7 @@ describe('workspaces: cross-workspace denial (#304)', () => {
     const filler: Record<string, unknown> = {
       id: 'beta-probe-theme', name: 'beta probe', tokens: THEME_TOKENS, manifest: { ...sample, projectId: 'beta-probe-reel-mcp' }, patch: { title: 'B' }, scene: { id: 'x', engine: 'html', html: '<p>x</p>', durationSeconds: 1 },
       order: ['hook', 'steps'], theme: 'default', audio: {}, content: '1\n00:00:00,000 --> 00:00:01,000\nhi\n', text: 'hi', voiceId: 'v', url: 'http://127.0.0.1:1/none.png',
-      dataBase64: Buffer.from('not media').toString('base64'), etag: 'stale-etag', values: {}, settings: {}, params: { text: 'hi', voiceId: 'v' }, scopes: ['read'], events: ['job.*'], providerId: 'elevenlabs',
+      dataBase64: Buffer.from('not media').toString('base64'), etag: 'stale-etag', values: {}, settings: {}, params: { text: 'hi', voiceId: 'v' }, scopes: ['read'], events: ['job.*'], providerId: 'elevenlabs', planId: 'plan_000000000000000000000000',
     };
     const listFilters = new Set(['list_assets', 'list_jobs']);
     let probed = 0;

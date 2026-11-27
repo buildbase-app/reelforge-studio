@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
@@ -1280,6 +1280,56 @@ export class ReelforgeService {
     };
   }
 
+  /**
+   * Approve a render plan (#485): the caller (scope `approve`; `admin` and `owner` imply it) gets a single-use token
+   * that lets render_project start exactly this plan, the project version and options it was made for, before it
+   * expires (`render.approval.tokenMinutes`). A plan id of an older version is refused: plan again and show it.
+   */
+  async approveRenderPlan(projectId: string, planIdArg: unknown, opts: { variant?: unknown } = {}, actor?: Actor) {
+    await this.projects.get(projectId); // not found first, as every project route answers another workspace
+    if (typeof planIdArg !== 'string' || !/^plan_[0-9a-f]{24}$/.test(planIdArg)) throw badRequest('planId must be the planId plan_render returned');
+    const plan = await this.planRender(projectId, opts);
+    if (plan.planId !== planIdArg) {
+      throw new ApiError('plan_changed', 409, 'the project or the options changed since this plan: call plan_render again, show the user the new plan, and approve that one', { planId: plan.planId });
+    }
+    if (!plan.valid) throw new ApiError('plan_invalid', 409, 'this plan does not validate, so its render would be refused: fix the errors first', { errors: plan.errors });
+    const nonce = randomBytes(12).toString('hex');
+    const ttl = this.settings.current.config.render.approval.tokenMinutes * 60;
+    const { expires, sig } = this.signer.sign(approvalParts(currentWorkspaceId(), projectId, plan.planId, nonce), ttl);
+    await this.audit({
+      actorType: actor?.actorType ?? 'system',
+      ...(actor?.actorId ? { actorId: actor.actorId } : {}),
+      action: 'render.approve',
+      targetType: 'project',
+      targetId: projectId,
+      data: { planId: plan.planId, projectVersion: plan.projectVersion, renderSeconds: plan.total.renderSeconds, outputs: plan.total.outputs },
+    });
+    return { approvalToken: `rap.${nonce}.${expires}.${sig}`, planId: plan.planId, projectVersion: plan.projectVersion, expiresAt: new Date(expires * 1000).toISOString(), total: plan.total };
+  }
+
+  /**
+   * render_project's approval gate (`render.approval`, #485): off by default. When the plan needs approval, the
+   * token must be one approve_render_plan made for this workspace, project and plan (version and options), not
+   * expired and not used before; it is spent here, so a render is started once per approval.
+   */
+  private async requireApproval(projectId: string, variant: unknown, token: unknown): Promise<void> {
+    const cfg = this.settings.current.config.render.approval;
+    if (cfg.mode === 'off') return;
+    const plan = await this.planRender(projectId, { variant });
+    const needed = cfg.mode === 'always' || plan.total.renderSeconds === null || plan.total.renderSeconds > cfg.aboveSeconds;
+    if (!needed) return;
+    const why = cfg.mode === 'always' ? 'every render needs an approval here (render.approval.mode always)' : plan.total.renderSeconds === null ? 'its render time cannot be estimated yet (render.approval.mode above)' : `its estimated render time, ${plan.total.renderSeconds} s, is over ${cfg.aboveSeconds} s (render.approval.mode above)`;
+    if (token === undefined || token === null || token === '') {
+      throw new ApiError('approval_required', 409, `this render needs an approval: ${why}. Show the user the plan, and ask someone with the approve scope to call approve_render_plan with its planId; then call render_project again with approvalToken.`, { plan });
+    }
+    const m = typeof token === 'string' ? /^rap\.([0-9a-f]{24})\.(\d{1,12})\.([\w-]{20,})$/.exec(token) : null;
+    if (!m || !this.signer.verify(approvalParts(currentWorkspaceId(), projectId, plan.planId, m[1]!), Number(m[2]), m[3]!)) {
+      throw new ApiError('approval_invalid', 409, 'approvalToken is not an approval of this plan: it is for another project or plan, the project changed since, or it expired. Plan again and ask for a new approval.', { plan });
+    }
+    const spent = await this.repos.rateLimits.reserve([{ key: `render-approval:${m[1]}`, windowStart: new Date(Number(m[2]) * 1000).toISOString(), limit: 1 }]);
+    if (!spent.ok) throw new ApiError('approval_used', 409, 'this approvalToken already started a render; each approval starts one. Ask for a new approval.', { plan });
+  }
+
   /** The newest successful renders of this workspace, as samples for render plans (manifest + stored output size). */
   private async renderSamples(limit: number): Promise<RenderSample[]> {
     const jobs = (await this.repos.jobs.page({ status: 'succeeded', type: 'render' }, { limit })).filter((j) => j.projectId && typeof j.result?.renderId === 'string');
@@ -1769,8 +1819,9 @@ export class ReelforgeService {
    * one of them (quota, queue caps), the jobs already queued for the batch are
    * cancelled and the refusal is returned.
    */
-  async renderProject(id: string, opts: { backend?: string; priority?: unknown; variant?: unknown; captions?: unknown; audio?: unknown } = {}): Promise<{ job: JobRecord; jobs?: JobRecord[]; batchId?: string }> {
+  async renderProject(id: string, opts: { backend?: string; priority?: unknown; variant?: unknown; captions?: unknown; audio?: unknown; approvalToken?: unknown } = {}): Promise<{ job: JobRecord; jobs?: JobRecord[]; batchId?: string }> {
     if (opts.variant !== undefined && typeof opts.variant !== 'string') throw badRequest('variant must be the id of one of the project\'s variants');
+    await this.requireApproval(id, opts.variant, opts.approvalToken);
     const { manifest } = await this.projects.get(id);
     const variants = manifest.variants ?? [];
     if (opts.variant !== undefined || variants.length === 0) {
@@ -3280,6 +3331,11 @@ export class ReelforgeService {
 
 /** Provider word timestamps ({ word | text, start, end } in seconds) as manifest caption words; anything malformed is dropped. */
 /** What a signed download link signs: the default workspace keeps the parts of earlier versions (old links stay valid). */
+/** What an approval token signs (#485): the workspace, project, plan and the token's own nonce. */
+function approvalParts(workspaceId: string, projectId: string, planId: string, nonce: string): string[] {
+  return ['render-approval', workspaceId, projectId, planId, nonce];
+}
+
 function signedParts(workspaceId: string, runId: string, file: string): string[] {
   return workspaceId === DEFAULT_WORKSPACE_ID ? [runId, file] : [`ws:${workspaceId}`, runId, file];
 }

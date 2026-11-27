@@ -3155,3 +3155,18 @@ claim rate. Nothing is queued or charged, and the result carries a `planId` of t
 quotes, #485). Rates from the install's own hardware hold on any machine or cloud, where a fixed table would
 not (the backend contract already refuses to guess, #125). *Deferred:* the approval token (`render.approval`, an
 `approve` scope) is a separate change on #485.
+
+### D-135 --- Render approval: a signed, single-use token per plan; off by default; a new `approve` scope
+
+**Status:** DECIDED (agent, 2026-11-25, #485; reversible). Number assigned at merge.\
+**Decision:** `render.approval.mode` is `off` (default), `above` (the plan's estimated render time is over
+`render.approval.aboveSeconds`, or cannot be estimated yet) or `always`. When it applies, `render_project`
+answers `409 approval_required` with the plan until it gets an `approvalToken`. `approve_render_plan` (scope
+`approve`, which `admin` and `owner` imply) re-plans, checks the plan id is still current, and returns a token
+signed with the instance's URL signer over workspace, project, plan id and a nonce. It expires after
+`render.approval.tokenMinutes` and is spent when a render starts, through the shared counter table (one use
+across every instance). A changed project changes the plan id, so an old token and an old plan id are refused.
+*Why:* an operator can require a human yes before expensive renders without a second service. A plan id plus a
+signature needs no new table, and the counter makes "single-use" hold across api instances. *Rejected:* letting
+any `render` key approve (no separation of duties); stateless tokens without the spend counter (replayable
+until they expire).

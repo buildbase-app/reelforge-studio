@@ -142,7 +142,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_me',
     title: 'Get the calling API key',
     description:
-      'Returns the API key this call uses: id, name, scopes (read, write, render, admin), expiry, limits and its render usage today and this month. Never the secret. Use it to see what this key may do before calling a tool that needs another scope.',
+      'Returns the API key this call uses: id, name, scopes (read, write, render, approve, admin), expiry, limits and its render usage today and this month. Never the secret. Use it to see what this key may do before calling a tool that needs another scope.',
     scope: 'read',
     input: {},
     annotations: { readOnlyHint: true },
@@ -511,6 +511,15 @@ export const TOOLS: ToolDef[] = [
     run: async (a, { service }) => service.planRender(a.projectId, { variant: a.variant }),
   },
   {
+    name: 'approve_render_plan',
+    title: 'Approve a render plan',
+    description:
+      'Approves the plan plan_render returned (planId, and the same variant), when the server asks for approvals (render.approval; render_project answers 409 approval_required). Returns a single-use approvalToken for render_project, valid for render.approval.tokenMinutes and only for this plan: if the project changes, plan and approve again. Needs the approve scope (admin and owner imply it). Only approve when the user, having seen the plan, said yes.',
+    scope: 'approve',
+    input: { projectId: z.string(), planId: z.string(), variant: z.string().optional() },
+    run: async (a, { service, auth }) => service.approveRenderPlan(a.projectId, a.planId, { variant: a.variant }, { actorType: 'api_key', actorId: auth.keyId }),
+  },
+  {
     name: 'render_project',
     title: 'Render the project',
     description:
@@ -522,6 +531,7 @@ export const TOOLS: ToolDef[] = [
       projectId,
       backend: z.string().optional().describe('Render backend id; default from the manifest ("local").'),
       variant: z.string().optional().describe('Render only this output variant (an id from the manifest\'s variants). Omit to render every variant, or output when the manifest has none.'),
+      approvalToken: z.string().optional().describe('When render.approval asks for one (409 approval_required): the token approve_render_plan returned for this plan.'),
       priority: priorityArg('render', 'standard'),
       captions: z
         .enum(['off', 'burned', 'sidecar', 'both'])
@@ -536,7 +546,7 @@ export const TOOLS: ToolDef[] = [
     },
     run: async (a, { service }) => {
       const opts = { backend: a.backend, ...(a.variant ? { variant: a.variant } : {}), ...(a.priority ? { priority: a.priority } : {}), ...(a.captions ? { captions: a.captions } : {}), ...(a.audio ? { audio: a.audio } : {}) };
-      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, opts));
+      return service.idempotent(a.idempotencyKey, 'render_project', { projectId: a.projectId, ...opts }, () => service.renderProject(a.projectId, { ...opts, approvalToken: a.approvalToken }));
     },
   },
   {
@@ -580,7 +590,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_render_output',
     title: 'Get a render output',
     description:
-      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. checks.freeze, checks.black and checks.flash are "warn" when the picture froze, went black or flashes more than three times a second (a seizure risk); checks.motion is "warn" when it barely moves for seconds, checks.loop when a project with output.loop jumps where it repeats, checks.seek when a frame rendered on its own differs from the video (the scene depends on earlier frames), and checks.text when text runs off the frame or out of its box for a second or more (html and HyperFrames scenes; videoQa.text lists the scenes it could not check); videoQa.issues names the times and scenes (and, for text, the text and its box): fix those scenes. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha). contactSheet (absent for audio-only output or when render.contactSheet.select is off) is the labelled sheet stored with every render and preview: every scene and both sides of every cut, with the frame of each tile and a signed downloadUrl; includeContactSheet: true attaches it as an image, so you can look at the whole video in one call. For other frames, call get_frames.',
+      'Returns the output of a finished render: format, codec, alpha, file and contentType (final.mp4 by default; final.mov, final.webm, final.gif, frames.zip, final.m4a or final.wav for other output.format values), downloadUrl (a signed link to that file that works WITHOUT a key until downloadUrlExpiresAt, about 1 hour; give this to the user or to curl), outputUrl (same file, needs Authorization: Bearer), poster (not for audio-only) and render-manifest URLs, size, fps, frame count, duration, checks and tool versions. checks.freeze, checks.black and checks.flash are "warn" when the picture froze, went black or flashes more than three times a second (a seizure risk); checks.motion is "warn" when it barely moves for seconds, checks.loop when a project with output.loop jumps where it repeats, and checks.seek when a frame rendered on its own differs from the video (the scene depends on earlier frames); videoQa.issues names the times and scenes: fix those scenes. Give renderId, or jobId of a succeeded job. includePoster (default true) attaches a small PNG so you can look at it: the first frame of an MP4, the middle frame of other formats (transparent where the render keeps alpha). contactSheet (absent for audio-only output or when render.contactSheet.select is off) is the labelled sheet stored with every render and preview: every scene and both sides of every cut, with the frame of each tile and a signed downloadUrl; includeContactSheet: true attaches it as an image, so you can look at the whole video in one call. For other frames, call get_frames.',
     scope: 'read',
     input: { renderId: z.string().optional(), jobId: z.string().optional(), includePoster: z.boolean().optional(), includeContactSheet: z.boolean().optional() },
     annotations: { readOnlyHint: true },
@@ -944,9 +954,9 @@ export const TOOLS: ToolDef[] = [
     name: 'create_key',
     title: 'Create an API key (admin)',
     description:
-      'Creates an API key in this key\'s workspace with the given scopes (read, write, render, admin; owner only from an owner key) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.',
+      'Creates an API key in this key\'s workspace with the given scopes (read, write, render, approve, admin; owner only from an owner key) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.',
     scope: 'admin',
-    input: { name: z.string(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).min(1), ...keyLimits },
+    input: { name: z.string(), scopes: z.array(z.enum(['read', 'write', 'render', 'approve', 'admin'])).min(1), ...keyLimits },
     run: async (a, { service, auth }) => ({
       ...(await service.createKey(a.name, a.scopes, keyOpts(a), { actorType: 'api_key', actorId: auth.keyId })),
       note: 'store this key now; it is not shown again',
@@ -1041,7 +1051,7 @@ export const TOOLS: ToolDef[] = [
       id: z.string(),
       name: z.string().optional(),
       limits: z.record(z.string(), z.number().int().nullable()).optional().describe('rendersPerDay, rendersPerMonth, rateLimitPerMinute, storageBytes; 0 or null: unlimited.'),
-      adminKey: z.union([z.boolean(), z.object({ name: z.string().optional(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).optional() })]).optional(),
+      adminKey: z.union([z.boolean(), z.object({ name: z.string().optional(), scopes: z.array(z.enum(['read', 'write', 'render', 'approve', 'admin'])).optional() })]).optional(),
     },
     annotations: { idempotentHint: false },
     run: async (a, { service, auth }) => service.createWorkspace(a, { actorType: 'api_key', actorId: auth.keyId }),
@@ -1323,9 +1333,7 @@ done with tools; there is no UI.
    black or flashes more than three times a second (a seizure risk); motion =
    "warn" means it barely moves; loop = "warn" means a video with output.loop
    jumps where it repeats; seek = "warn" means a frame depends on the ones
-   before it; text = "warn" means text runs off the frame or out of its box
-   for a second or more. videoQa.issues names it, with the times. Fix it and
-   render again.
+   before it. videoQa.issues names it, with the times. Fix it and render again.
    If it failed: get_job_logs, fix, render again (or retry_job).
    An error licence_required / licence_invalid is not a manifest problem: tell
    the user its message and fix (an admin activates with activate_licence).
