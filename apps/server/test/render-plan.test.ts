@@ -44,6 +44,18 @@ async function render(projectId: string) {
   }
   throw new Error('render did not finish');
 }
+/**
+ * Waits until the finished job is stored. get_job answers from the worker's live state, and the plan reads the
+ * stored jobs (newest successful renders), which on a slower database can trail it by a few milliseconds.
+ */
+async function stored(jobId: string) {
+  for (let i = 0; i < 100; i++) {
+    const { jobs } = (await rest('GET', '/v1/jobs?status=succeeded&type=render')).json as { jobs: Array<{ id: string }> };
+    if (jobs.some((j) => j.id === jobId)) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`job ${jobId} was never stored as succeeded`);
+}
 
 beforeAll(async () => {
   const database = await testDatabase(dir);
@@ -84,6 +96,7 @@ describe('render plan', () => {
   it('PLAN-11 after a render: measured time and size for another size, scaled by pixels; MCP gives the same plan', async () => {
     const done = await render('vertical');
     expect(done.status).toBe('succeeded');
+    await stored(done.id);
     const v = (await rest('POST', '/v1/projects/vertical/render-plan', {})).json;
     const s = (await rest('POST', '/v1/projects/square/render-plan', {})).json;
     expect(v.basis.renders).toBe(1);
