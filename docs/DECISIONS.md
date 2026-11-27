@@ -3244,3 +3244,40 @@ argument move with CI to `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_REQUIRE_EGRES
 promised protects no one and keeps two names on every surface; renaming internal names would move data for no
 reader. *Rejected:* keeping the aliases until a dated removal (nobody to protect); renaming every lowercase
 identifier too (data and deployment identity would move, and no buyer sees them).
+
+### D-141 --- Prices: Solo $9, Studio $29, Agency $79, Unlimited $99, one-time and lifetime; every image needs a key from a signed-in BuildBase account
+
+**Status:** DECIDED (owner, 2026-11-27, #91; reversible for new buyers). Number assigned at merge.\
+**Decision:** the Commercial licence sells once, as a lifetime licence, in four tiers by the number of servers it
+activates: **Solo $9** (1 server), **Studio $29** (3), **Agency $79** (10) and **Unlimited $99** (no server limit).
+Personal stays free for noncommercial use on 1 server. Prices are plain prices, not a "launch price" (a launch
+price needs a real end date under the contest rules in #91), and live only in the BuildBase items, never in code.
+Country discount codes (40 % or 60 % off, purchasing-power parity) apply to Studio, Agency and Unlimited; Solo is
+one price everywhere, since a 60 % code on $9 would leave less than the fixed card fee is worth. *Intent for the
+licence:* every running release image needs a licence key, each server takes one activation (D-098), and every key
+belongs to a signed-in BuildBase account, so the production store turns guest checkout off (#127). *Why:* buyers
+already pay for AI plans and their own server; RenderWeld should be the smallest line in that bill, priced against
+self-hosted tools sold once (Sendy $69, Remotion's Editor Starter $600 on 27 Nov 2026), not against hosted
+tools whose credits pay for their own cloud. $9 keeps $8.44 a sale after a US card fee of 2.9 % + 30 cents, against
+$4.56 at $5. *Rejected:* $49 / $149 / $399 and $149 / $349 / $899 (above what buyers who already pay for AI
+credits will add); $5 for Solo (needs about twice the buyers for the same income). *Open:* whether a BuildBase
+key can carry unlimited activations or Unlimited needs a high count (#127); which countries fall in each discount
+band. **Amended by D-142:** "lifetime" means every release of the major version bought (a 1.x key works on every
+1.x release).
+
+### D-142 --- A licence key covers one major version: a 1.x key works on every 1.x release, and 2.0 is a new purchase
+
+**Status:** DECIDED (owner, 2026-11-27, #91, #97; reversible for new buyers). Number assigned at merge.\
+**Decision:** each Commercial tier (D-141) is sold as an item for one major version, such as "RenderWeld 1".
+A key bought for it works, forever, on every release of that major version, and only on that major version: a
+release image accepts a key only when BuildBase says it was bought for an item of the image's own major version.
+2.0 is a new purchase, which a coupon can discount for people who bought 1.x.
+*Intent for the licence check:* BuildBase's answer to a licence check already names the item the key
+was bought for (`item` in `LicenceAnswer`), so the image needs no change at BuildBase; it needs the allowed items for
+its major version fixed at build time, beside the licence settings that D-039 already fixes. This is written as
+intent: the licence check does not compare items yet. *Why:* "lifetime" must say what a buyer gets; one major
+version is the usual meaning for software sold once, and it pays for later major versions without a subscription.
+*Rejected:* updates for a fixed time (such as a year): BuildBase's only date on a key, its expiry, switches the key
+off completely, so a buyer could not even set up a new server on an old release; every future version (no income
+from later work). *Open:* whether a 2.0 image should still run a 1.x key in a reduced mode or refuse it; the upgrade
+discount for 1.x buyers. The first release sold is 1.0.0 (images are 0.1.0 today).

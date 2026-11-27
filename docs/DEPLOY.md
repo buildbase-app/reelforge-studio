@@ -109,8 +109,12 @@ the limit; the key is shown as its first group only.
   It sends only the key and a random instance id (docs/PRIVACY.md). **Behind
   an HTTPS proxy** set `HTTPS_PROXY=http://proxy:3128` **and**
   `NODE_USE_ENV_PROXY=1` (Node's built-in fetch ignores the proxy variables
-  without it; Node 22.21 or later, which the image has) and, for a
-  TLS-intercepting proxy, `NODE_EXTRA_CA_CERTS=/path/to/ca.pem`.
+  without it; Node 22.21 or later, which the image has). The release image
+  checks the licence through a CONNECT tunnel and trusts only the root
+  certificates built into Node.js for it (#108): a **TLS-intercepting proxy**
+  must let `api.console.buildbase.app` through without re-signing it
+  (`NODE_EXTRA_CA_CERTS` does not apply to the licence check; it still applies
+  to everything else).
 - **Offline.** If the licence server cannot be reached, renders keep working
   for **14 days after the last successful check** (`grace`, with a warning in
   `get_capabilities`, `/v1/licence` and the log). After that they are refused
@@ -320,13 +324,17 @@ the published image behave like a licensed product: turning the check off,
 pointing it at another server or changing the organisation needs a modified
 image or a build from source, not a config line. It does not stop someone who
 builds their own image, edits `build-info.json` in a derived image, patches
-the code, answers with a fake server behind DNS plus their own CA in
-`NODE_EXTRA_CA_CERTS` (BuildBase's answers are not signed yet; the request is
-drafted in docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md), or freezes the
-clock while the server is stopped. A release image whose `build-info.json` is
+the code, preloads code into Node.js (`NODE_OPTIONS=--require`), re-seals a
+forged licence state with their own `RENDERWELD_SECRET_KEY` (BuildBase's answers
+are not signed yet; the request is drafted in
+docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md), or freezes the clock while
+the server is stopped. A fake licence server behind DNS no longer works with
+the published image: its licence calls trust only Node's built-in root
+certificates, so `NODE_EXTRA_CA_CERTS`, `NODE_TLS_REJECT_UNAUTHORIZED=0` or a
+re-signing proxy cannot vouch for it (#108). A release image whose `build-info.json` is
 removed or replaced by a dev one refuses to start, and the stored licence state
 is sealed with a key derived from `RENDERWELD_SECRET_KEY`, so editing the
-database row does not work either (D-089, docs/security/HARDENING.md). Doing any of that for commercial use breaks
+database row without that key does not work either (D-089, docs/security/HARDENING.md). Doing any of that for commercial use breaks
 the licence (LICENSING.md, COMMERCIAL-LICENSE.md); the real protection is the
 licence terms plus updates and support for licensed keys only.
 
