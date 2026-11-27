@@ -18,16 +18,16 @@ const { dir, cleanup } = tempDir('reelforge-dispatch-');
 afterAll(() => cleanup());
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
 const METRICS_TOKEN = 'dsp-metrics-token-0123456789abcdef0123456789';
-const base = { REELFORGE_LICENCE_MODE: 'off', REELFORGE_SECRET_KEY: 'dispatch-test-secret-key-0123456789abcdef', REELFORGE_METRICS_TOKEN: METRICS_TOKEN };
+const base = { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_SECRET_KEY: 'dispatch-test-secret-key-0123456789abcdef', RENDERWELD_METRICS_TOKEN: METRICS_TOKEN };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('queue.dispatch start-up guard', () => {
   const start = (env: Record<string, string>) => startServer({ dataDir: join(dir, 'guard'), port: 0, host: '127.0.0.1' }, { registry: new PluginRegistry(), env: { ...base, ...env }, quiet: true });
 
   it('DSP-20 notify is refused on SQLite and MySQL, naming poll as the fix', async () => {
-    await expect(start({ REELFORGE_QUEUE_DISPATCH: 'notify', REELFORGE_QUEUE_DRIVER: 'database' })).rejects.toThrow(/queue.dispatch "notify" needs PostgreSQL .* the database is SQLite: set REELFORGE_QUEUE_DISPATCH=poll/);
+    await expect(start({ RENDERWELD_QUEUE_DISPATCH: 'notify', RENDERWELD_QUEUE_DRIVER: 'database' })).rejects.toThrow(/queue.dispatch "notify" needs PostgreSQL .* the database is SQLite: set RENDERWELD_QUEUE_DISPATCH=poll/);
     await expect(
-      start({ REELFORGE_QUEUE_DISPATCH: 'notify', REELFORGE_ROLE: 'worker', REELFORGE_STORAGE_LOCAL_SHARED: 'true', DATABASE_URL: 'mysql://rf:pw@127.0.0.1:1/rf' })
+      start({ RENDERWELD_QUEUE_DISPATCH: 'notify', RENDERWELD_ROLE: 'worker', RENDERWELD_STORAGE_LOCAL_SHARED: 'true', DATABASE_URL: 'mysql://rf:pw@127.0.0.1:1/rf' })
     ).rejects.toThrow(/queue.dispatch "notify" needs PostgreSQL .* the database is MySQL\/MariaDB/);
   });
 });
@@ -42,14 +42,14 @@ describe.skipIf(!process.env.TEST_POSTGRES_URL)('api + notify worker on PostgreS
   const env = (role: string) => ({
     ...base,
     DATABASE_URL: testDb.url,
-    REELFORGE_ROLE: role,
-    REELFORGE_STORAGE_LOCAL_SHARED: 'true',
-    REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
-    REELFORGE_QUEUE_DISPATCH: 'notify',
+    RENDERWELD_ROLE: role,
+    RENDERWELD_STORAGE_LOCAL_SHARED: 'true',
+    RENDERWELD_RATE_LIMIT_PER_MINUTE: '0',
+    RENDERWELD_QUEUE_DISPATCH: 'notify',
     // A poll this slow could not explain a claim within a second: only the message can.
-    REELFORGE_QUEUE_POLL_INTERVAL_MS: '4000',
-    REELFORGE_QUEUE_POLL_MAX_INTERVAL_MS: '4000',
-    REELFORGE_QUEUE_DISPATCH_FALLBACK_SECONDS: '60',
+    RENDERWELD_QUEUE_POLL_INTERVAL_MS: '4000',
+    RENDERWELD_QUEUE_POLL_MAX_INTERVAL_MS: '4000',
+    RENDERWELD_QUEUE_DISPATCH_FALLBACK_SECONDS: '60',
   });
   const registry = () => new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas'));
   async function rest(server: StartedServer, method: string, path: string, body?: unknown) {
@@ -100,10 +100,10 @@ describe.skipIf(!process.env.TEST_POSTGRES_URL)('api + notify worker on PostgreS
     expect((await ready(worker)).dependencies.dispatch).toMatchObject({ status: 'ok', required: false, driver: 'notify', connected: true, fallbackSeconds: 60 });
     expect((await ready(api)).dependencies.dispatch).toMatchObject({ status: 'ok', required: false, driver: 'notify', detail: expect.stringMatching(/publishes only/) });
     const text = await (await fetch(`${worker.url}/metrics`, { headers: { authorization: `Bearer ${METRICS_TOKEN}` } })).text();
-    expect(text).toMatch(/^reelforge_queue_dispatch_received_total\{[^}]*reelforge_dispatch_kind="ready"[^}]*\} [1-9]/m);
-    expect(text).toMatch(/^reelforge_queue_claims_total\{[^}]*reelforge_trigger="wake"[^}]*\} [1-9]/m);
+    expect(text).toMatch(/^renderweld_queue_dispatch_received_total\{[^}]*renderweld_dispatch_kind="ready"[^}]*\} [1-9]/m);
+    expect(text).toMatch(/^renderweld_queue_claims_total\{[^}]*renderweld_trigger="wake"[^}]*\} [1-9]/m);
     const apiText = await (await fetch(`${api.url}/metrics`, { headers: { authorization: `Bearer ${METRICS_TOKEN}` } })).text();
-    expect(apiText).toMatch(/^reelforge_queue_dispatch_published_total\{[^}]*reelforge_reason="enqueue"[^}]*\} [1-9]/m);
+    expect(apiText).toMatch(/^renderweld_queue_dispatch_published_total\{[^}]*renderweld_reason="enqueue"[^}]*\} [1-9]/m);
     const labels = new Set([...text.matchAll(/="([^"]*)"/g), ...apiText.matchAll(/="([^"]*)"/g)].map((m) => m[1]));
     expect([...labels].some((l) => /^(job|run|prv|key)_[a-z0-9]{8,}/.test(l!))).toBe(false);
   });

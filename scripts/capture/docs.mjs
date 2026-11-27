@@ -37,7 +37,7 @@ export function renderStorePage(manifest) {
   const out = [
     frontMatter({
       title: 'Store screenshots',
-      description: 'Every page of the ReelForge store at phone and desktop width, in light and dark, plus the signed-in pages after claiming and buying a licence on the test site. Licence keys and emails are masked.',
+      description: 'Every page of the RenderWeld store at phone and desktop width, in light and dark, plus the signed-in pages after claiming and buying a licence on the test site. Licence keys and emails are masked.',
       slug: 'store-screenshots',
       order: 1,
       tags: ['screenshots'],
@@ -106,13 +106,13 @@ export function renderStudioPage(manifest) {
   const out = [
     frontMatter({
       title: 'Studio screenshots',
-      description: 'ReelForge Studio has no GUI: real terminal sessions (API key, server start, claude mcp add, readiness, metrics, a render with progress), contact sheets of every built-in template, and an agent session over MCP.',
+      description: 'RenderWeld has no GUI: real terminal sessions (API key, server start, claude mcp add, readiness, metrics, a render with progress), contact sheets of every built-in template, and an agent session over MCP.',
       slug: 'studio-screenshots',
       order: 2,
       tags: ['screenshots', 'mcp'],
     }),
   ];
-  out.push(`ReelForge Studio is a server without a graphical interface: you drive it from a terminal, from an AI agent over MCP, or over REST. These views are real sessions against a studio started from the repository, captured by \`pnpm capture --only studio\` on ${day(studio)} and drawn as terminal pages. API keys and tokens are masked; the commands show \`$REELFORGE_KEY\` where the key goes.
+  out.push(`RenderWeld is a server without a graphical interface: you drive it from a terminal, from an AI agent over MCP, or over REST. These views are real sessions against a studio started from the repository, captured by \`pnpm capture --only studio\` on ${day(studio)} and drawn as terminal pages. API keys and tokens are masked; the commands show \`$RENDERWELD_KEY\` where the key goes.
 `);
   const sessions = [
     ['keys-create', 'Create an API key'],
@@ -147,7 +147,7 @@ export function renderWalkthroughsPage(manifest) {
   const out = [
     frontMatter({
       title: 'Walkthrough videos',
-      description: 'Short recordings of whole processes in ReelForge: claiming a Personal licence, buying a Commercial licence, connecting Claude Code, and an agent making a reel over MCP.',
+      description: 'Short recordings of whole processes in RenderWeld: claiming a Personal licence, buying a Commercial licence, connecting Claude Code, and an agent making a reel over MCP.',
       slug: 'walkthroughs',
       order: 3,
       tags: ['screenshots', 'walkthroughs'],

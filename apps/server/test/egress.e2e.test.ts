@@ -6,8 +6,8 @@
  * CLIs) must stay on loopback: one installation never talks to another, and nothing phones home. What the licence
  * client sends is checked too: the key and an instance id, nothing else (docs/PRIVACY.md).
  *
- * Needs strace (ptrace allowed) and REELFORGE_CHROMIUM_PATH; skips without them, fails without them under
- * REELFORGE_REQUIRE_EGRESS=1.
+ * Needs strace (ptrace allowed) and RENDERWELD_CHROMIUM_PATH; skips without them, fails without them under
+ * RENDERWELD_REQUIRE_EGRESS=1.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -16,7 +16,6 @@ import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, describe, expect, it } from 'vitest';
-import { envValue } from '@renderweld/core';
 import { makeTone } from '../../../packages/core/test/helpers';
 import { externalNetworkCalls } from '../../../packages/engine-hyperframes/test/strace-egress';
 import { startMockLicenceServer } from '../../../e2e/mock-licence/server.mjs';
@@ -24,7 +23,7 @@ import { cliCreateKey } from './serverProcess';
 
 const repo = resolve(import.meta.dirname, '../../..');
 const tsx = join(repo, 'node_modules/.bin/tsx');
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const TRACE = ['-f', '-qq', '-yy', '-e', 'trace=connect,sendto,sendmsg,sendmmsg,execve'];
 const hasStrace = spawnSync('strace', ['-f', '-qq', '-yy', '-e', 'trace=connect', '-o', '/dev/null', 'true']).status === 0;
@@ -32,9 +31,9 @@ const dir = mkdtempSync(join(tmpdir(), 'renderweld-egress-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 describe('egress requirement', () => {
-  it.runIf(envValue('REELFORGE_REQUIRE_EGRESS') === '1')('REELFORGE_REQUIRE_EGRESS=1: strace and a browser must be available', () => {
+  it.runIf(process.env.RENDERWELD_REQUIRE_EGRESS === '1')('RENDERWELD_REQUIRE_EGRESS=1: strace and a browser must be available', () => {
     expect(hasStrace, 'strace with ptrace allowed').toBe(true);
-    expect(hasBrowser, 'REELFORGE_CHROMIUM_PATH').toBe(true);
+    expect(hasBrowser, 'RENDERWELD_CHROMIUM_PATH').toBe(true);
   });
 });
 
@@ -84,21 +83,20 @@ describe.skipIf(!hasStrace || !hasBrowser)('a whole server makes no connection o
     const dataDir = join(dir, 'data');
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      REELFORGE_PORT: '0',
-      REELFORGE_HOST: '127.0.0.1',
-      REELFORGE_DATA_DIR: dataDir,
-      REELFORGE_CACHE_DIR: resolve(repo, '.render-cache'),
-      REELFORGE_CHROMIUM_PATH: browser!,
-      REELFORGE_LICENCE_MODE: 'required',
-      REELFORGE_LICENCE_KEY: LICENCE_KEY,
-      REELFORGE_LICENCE_SERVER_URL: licence.url,
-      REELFORGE_LICENCE_ORG_ID: ORG,
-      REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
-      REELFORGE_DASHBOARD_ENABLED: 'true',
+      RENDERWELD_PORT: '0',
+      RENDERWELD_HOST: '127.0.0.1',
+      RENDERWELD_DATA_DIR: dataDir,
+      RENDERWELD_CACHE_DIR: resolve(repo, '.render-cache'),
+      RENDERWELD_CHROMIUM_PATH: browser!,
+      RENDERWELD_LICENCE_MODE: 'required',
+      RENDERWELD_LICENCE_KEY: LICENCE_KEY,
+      RENDERWELD_LICENCE_SERVER_URL: licence.url,
+      RENDERWELD_LICENCE_ORG_ID: ORG,
+      RENDERWELD_RATE_LIMIT_PER_MINUTE: '0',
+      RENDERWELD_DASHBOARD_ENABLED: 'true',
     };
     // Only the SQLite file under dataDir: a remote test database would be a connection outside loopback.
     delete env.DATABASE_URL;
-    delete env.REELFORGE_DATABASE_URL;
     delete env.RENDERWELD_DATABASE_URL;
     const key = cliCreateKey(dataDir, 'egress', 'admin,owner');
     // The dashboard is part of the journey; its assets are built by the image, and here when missing (half a second).

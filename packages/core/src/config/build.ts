@@ -9,7 +9,7 @@ import { SETTINGS_BY_KEY } from './schema';
  * What kind of build this is (D-039).
  *
  *   - `dev`: running from source (`pnpm dev`, tests) or an image built with
- *     `--build-arg REELFORGE_EDITION=dev`. Every setting comes from defaults,
+ *     `--build-arg RENDERWELD_EDITION=dev`. Every setting comes from defaults,
  *     the config file, env and runtime settings. `licence.mode: off` is allowed,
  *     for noncommercial development only (LICENSING.md).
  *   - `release`: the published image. The Dockerfile writes `build-info.json`

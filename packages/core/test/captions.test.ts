@@ -6,7 +6,7 @@ import { BUILTIN_THEMES, formatSrt, parseProject, type CaptionCue } from '@rende
 import {
   ElevenLabsTts,
   PluginRegistry,
-  ReelforgeService,
+  RenderWeldService,
   assColor,
   assTime,
   captionFontChoice,
@@ -53,7 +53,7 @@ const cues: CaptionCue[] = [
   { start: 3, end: 5, text: 'Two engines, one timeline.' },
 ];
 
-let svc: ReelforgeService;
+let svc: RenderWeldService;
 const mockFetch: typeof fetch = async (_url, init) => {
   const body = JSON.parse(String(init?.body));
   const chars = [...body.text];
@@ -72,12 +72,12 @@ beforeAll(async () => {
     .registerEngine(fakeEngine('remotion'))
     .registerEngine(fakeEngine('motion-canvas'))
     .registerProvider(new ElevenLabsTts({ ELEVENLABS_API_KEY: 'test-key' }));
-  svc = await ReelforgeService.create(registry, {
+  svc = await RenderWeldService.create(registry, {
     repositories: createMemoryRepositories(),
     dataDir: join(dir, 'data'),
     publicUrl: 'https://studio.example.com/',
     fetch: mockFetch,
-    configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
   });
   // Half size keeps the test fast; every caption measure scales with the output.
   await svc.createProject({ ...sample, projectId: 'cap-reel', output: { ...sample.output, width: 540, height: 960 } });

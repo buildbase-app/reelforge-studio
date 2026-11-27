@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { detectVideoIssues, parseVideoQa, resolveTools, run } from '@renderweld/media-pipeline';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories, lowMotionOutsideFreezes, sceneTimes, seekSamples, videoQaIssues, type VideoQaManifest } from '../src/index';
+import { PluginRegistry, RenderWeldService, createMemoryRepositories, lowMotionOutsideFreezes, sceneTimes, seekSamples, videoQaIssues, type VideoQaManifest } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
 
 /**
@@ -11,7 +11,7 @@ import { fakeEngine, tempDir } from './helpers';
 const { dir, cleanup } = tempDir('renderweld-videoqa-');
 afterAll(cleanup);
 const tools = resolveTools();
-let svc: ReelforgeService;
+let svc: RenderWeldService;
 
 const scene = (id: string, engine: 'remotion' | 'motion-canvas', frames: number) =>
   engine === 'remotion'
@@ -40,7 +40,7 @@ async function render(projectId: string, opts: { preview?: string } = {}) {
 
 beforeAll(async () => {
   const registry = new PluginRegistry().registerEngine(fakeEngine('remotion', { frameRanges: true })).registerEngine(fakeEngine('motion-canvas'));
-  svc = await ReelforgeService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } } });
+  svc = await RenderWeldService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } } });
   await create('moving', [scene('hook', 'remotion', 60), scene('body', 'remotion', 90)]);
   await create('stuck', [scene('hook', 'remotion', 60), scene('still', 'motion-canvas', 150), scene('outro', 'remotion', 45)]);
   await create('dark', [scene('opening', 'motion-canvas', 60), scene('rest', 'remotion', 60)], '#000000');
@@ -212,7 +212,7 @@ describe('renders', () => {
   it('VQA-10 a scene that paints a frame differently when its engine starts there fails the seek check, with the frame and scene', async () => {
     // The same project on an engine that claims frame ranges but paints a range from its own start.
     const registry = new PluginRegistry().registerEngine(fakeEngine('remotion', { frameRanges: true, impure: true })).registerEngine(fakeEngine('motion-canvas'));
-    const impure = await ReelforgeService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'impure'), configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } } });
+    const impure = await RenderWeldService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'impure'), configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } } });
     await impure.createProject(project('moving', [scene('hook', 'remotion', 60), scene('body', 'remotion', 90)]));
     await impure.setTheme('moving', { base: 'default', tokens: { colors: { background: '#f2f0ea' } } });
     const done = await impure.jobs.waitFor((await impure.startRender('moving')).id, 120_000);

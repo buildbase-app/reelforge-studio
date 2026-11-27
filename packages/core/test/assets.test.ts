@@ -108,7 +108,7 @@ describe('AssetStore', () => {
     const a = await store().fromUrl(`${base}/redirect`);
     expect(a.contentType).toBe('audio/mpeg');
     // The RenderWeld User-Agent, with the old token after it (#413), on the request and the redirect.
-    expect(agents.slice(-2)).toEqual(['RenderWeld-Asset-Fetch/1 reelforge-studio-asset-fetch', 'RenderWeld-Asset-Fetch/1 reelforge-studio-asset-fetch']);
+    expect(agents.slice(-2)).toEqual(['RenderWeld-Asset-Fetch/1', 'RenderWeld-Asset-Fetch/1']);
     // Same bytes as the earlier upload: the existing asset is returned.
     expect(a.id).toBe((await store().put({ data: mp3, source: 'upload' })).id);
     await expect(store().fromUrl(`${base}/loop`)).rejects.toMatchObject({ code: 'fetch_failed' });

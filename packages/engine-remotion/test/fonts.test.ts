@@ -7,10 +7,9 @@ import { resolveTools } from '@renderweld/media-pipeline';
 import { builtinTheme, type OutputSettings } from '@renderweld/project-schema';
 import { renderRemotionScene } from '../src/index';
 import { TEST_FONTS, inkRatio, readPicture } from '../../media-pipeline/test/media-fixtures';
-import { envValue } from '@renderweld/core';
 
 /** #303: the theme's project font is loaded (FontFace API, before any frame) and used by kinetic-title. */
-const hasBrowser = Boolean(envValue('REELFORGE_CHROMIUM_PATH') && existsSync(envValue('REELFORGE_CHROMIUM_PATH')));
+const hasBrowser = Boolean(process.env.RENDERWELD_CHROMIUM_PATH && existsSync(process.env.RENDERWELD_CHROMIUM_PATH));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-remotion-fonts-'));
 const cacheDir = resolve(__dirname, '../../../.render-cache');
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));

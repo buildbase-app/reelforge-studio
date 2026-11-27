@@ -23,7 +23,7 @@ async function runExample(cmd: string, args: string[], env: NodeJS.ProcessEnv, o
 /** Any MCP client: the SDK script calls the tools one by one, no language model. */
 export const mcpSdk: Driver = async ({ studio, outDir, engine, projectId }) => {
   const manifest = ENGINE_INFO[engine].manifest;
-  const r = await runExample('node', ['examples/tutorials/mcp-client.mjs', manifest, projectId], { REELFORGE_URL: studio.url, REELFORGE_API_KEY: studio.key }, outDir);
+  const r = await runExample('node', ['examples/tutorials/mcp-client.mjs', manifest, projectId], { RENDERWELD_URL: studio.url, RENDERWELD_API_KEY: studio.key }, outDir);
   if (!r.posterAttached) throw new Error('get_render_output attached no poster image');
   return { command: `node examples/tutorials/mcp-client.mjs ${manifest} ${projectId}`, toolCalls: r.toolCalls, jobId: r.jobId, transcriptPath: r.transcriptPath };
 };
@@ -34,7 +34,7 @@ export const restDriver: Driver = async ({ studio, outDir, engine, projectId }) 
   const out = join(outDir, 'client-download.mp4');
   const fetchClient = process.env.TUTORIAL_REST_CLIENT === 'fetch';
   const r = fetchClient
-    ? await runExample('node', ['examples/tutorials/rest-fetch.mjs', manifest, projectId, out], { REELFORGE_URL: studio.url, REELFORGE_API_KEY: studio.key }, outDir)
+    ? await runExample('node', ['examples/tutorials/rest-fetch.mjs', manifest, projectId, out], { RENDERWELD_URL: studio.url, RENDERWELD_API_KEY: studio.key }, outDir)
     : await runExample('bash', ['examples/tutorials/rest.sh', manifest, projectId, out], { RF: studio.url, KEY: studio.key }, outDir);
   return {
     command: fetchClient ? `node examples/tutorials/rest-fetch.mjs ${manifest} ${projectId} final.mp4` : `examples/tutorials/rest.sh ${manifest} ${projectId} final.mp4`,
@@ -48,7 +48,7 @@ export const restDriver: Driver = async ({ studio, outDir, engine, projectId }) 
 export const localAi: Driver = async ({ studio, outDir, agent, engine }) => {
   const prompt = promptFor(agent, engine);
   const t0 = Date.now();
-  const r = await runExample('node', ['scripts/tutorials/local-agent.mjs', prompt], { REELFORGE_URL: studio.url, REELFORGE_API_KEY: studio.key, LOCAL_AGENT_TRACE: join(outDir, 'trace.jsonl') }, outDir, true);
+  const r = await runExample('node', ['scripts/tutorials/local-agent.mjs', prompt], { RENDERWELD_URL: studio.url, RENDERWELD_API_KEY: studio.key, LOCAL_AGENT_TRACE: join(outDir, 'trace.jsonl') }, outDir, true);
   const result: DriverResult = {
     command: 'node scripts/tutorials/local-agent.mjs "<prompt>"',
     prompt,

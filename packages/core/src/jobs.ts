@@ -129,7 +129,7 @@ export interface DatabaseQueueOptions {
   once?: boolean;
 }
 
-/** How runOnce() ended (`reelforge worker --once` turns it into the exit status, D-100). */
+/** How runOnce() ended (`renderweld worker --once` turns it into the exit status, D-100). */
 export type OnceOutcome =
   /** Nothing to claim within the wait (or the given job is missing, finished or running elsewhere). */
   | 'none'
@@ -637,7 +637,7 @@ export class JobRunner {
   private emitSettled(jobs: JobRecord[]) {
     const m = coreInstruments(this.telemetry.meter);
     for (const j of jobs) {
-      if (isTerminal(j.status)) m.jobsFinished.add(1, { 'reelforge.job.type': j.type, 'reelforge.job.status': j.status });
+      if (isTerminal(j.status)) m.jobsFinished.add(1, { 'renderweld.job.type': j.type, 'renderweld.job.status': j.status });
       if (j.status === 'cancelled' && j.parentId) this.queuedCount = Math.max(0, this.queuedCount - 1);
       this.emit({ jobId: j.id, type: 'status', job: j });
     }
@@ -880,7 +880,7 @@ export class JobRunner {
             ...this.claimLimits(),
           });
           this.ok('claim');
-          m.queueClaims.add(1, { 'reelforge.trigger': trigger, 'reelforge.result': job ? 'job' : 'empty' });
+          m.queueClaims.add(1, { 'renderweld.trigger': trigger, 'renderweld.result': job ? 'job' : 'empty' });
           // A broker message (one consumer each, acknowledged) is answered by the claim it woke, whichever job the
           // fair order gave: the claimed job's own message, else the oldest that arrived before this attempt.
           if (job && !this.consumePending(job.id)) this.consumeOneAckable(seenSeq);
@@ -893,7 +893,7 @@ export class JobRunner {
           if (this.dispatch.driver !== 'poll' && (trigger === 'fallback' || (trigger === 'poll' && this.dispatch.listener && !this.listening))) {
             // A message should have announced this job (fallback), or the listener is down (degraded).
             this.counters.fallbackClaims++;
-            m.dispatchFallbackClaims.add(1, { 'reelforge.dispatch.driver': this.dispatch.driver, 'reelforge.reason': trigger === 'fallback' ? 'fallback' : 'degraded' });
+            m.dispatchFallbackClaims.add(1, { 'renderweld.dispatch.driver': this.dispatch.driver, 'renderweld.reason': trigger === 'fallback' ? 'fallback' : 'degraded' });
           }
         }
       } while (this.claimAgain && !this.stopping);
@@ -924,8 +924,8 @@ export class JobRunner {
    */
   private onDispatch(msg: DispatchMessage) {
     const m = coreInstruments(this.telemetry.meter);
-    const driver = { 'reelforge.dispatch.driver': this.dispatch.driver };
-    m.dispatchReceived.add(1, { ...driver, 'reelforge.dispatch.kind': msg.kind });
+    const driver = { 'renderweld.dispatch.driver': this.dispatch.driver };
+    m.dispatchReceived.add(1, { ...driver, 'renderweld.dispatch.kind': msg.kind });
     if (msg.kind === 'claimed') {
       this.consumePending(msg.jobId);
       return;
@@ -1041,7 +1041,7 @@ export class JobRunner {
       this.dispatch.onPublished();
       return;
     }
-    coreInstruments(this.telemetry.meter).dispatchPublished.add(n, { 'reelforge.dispatch.driver': this.dispatch.driver, 'reelforge.reason': reason });
+    coreInstruments(this.telemetry.meter).dispatchPublished.add(n, { 'renderweld.dispatch.driver': this.dispatch.driver, 'renderweld.reason': reason });
   }
 
   /**
@@ -1087,7 +1087,7 @@ export class JobRunner {
           });
           job = claimed.job;
           this.ok('claim');
-          coreInstruments(this.telemetry.meter).queueClaims.add(1, { 'reelforge.trigger': 'local', 'reelforge.result': job ? 'job' : 'empty' });
+          coreInstruments(this.telemetry.meter).queueClaims.add(1, { 'renderweld.trigger': 'local', 'renderweld.result': job ? 'job' : 'empty' });
           if (job) {
             if (!this.consumePending(job.id)) this.consumeOneAckable(this.seq);
             // One job per process: nothing else to wake it for; other broker messages go back to the broker.
@@ -1149,7 +1149,7 @@ export class JobRunner {
         return false;
       });
       if (!handedBack) return { job, handedBack };
-      coreInstruments(this.telemetry.meter).jobsRequeued.add(1, { 'reelforge.reason': 'released' });
+      coreInstruments(this.telemetry.meter).jobsRequeued.add(1, { 'renderweld.reason': 'released' });
       this.published(1, 'release');
       this.releasedClaims++;
       this.log('info', `queue: job ${job.id} was claimed as shutdown began; handed back to the queue`);
@@ -1236,7 +1236,7 @@ export class JobRunner {
    * Queue housekeeping (D-106), on one instance per deployment instead of every one: the holder of the
    * `queue-housekeeping` instance lease re-queues jobs whose lease expired, counts the queue and renews the lease
    * with that count, every `leaderMs`. The others read the lease row every `followerMs` and take the count from it
-   * (`reelforge_jobs_queued` stays the same on every instance); one that finds the lease free or expired takes it
+   * (`renderweld_jobs_queued` stays the same on every instance); one that finds the lease free or expired takes it
    * (compare-and-set: one wins) and starts at once. `worker --once` processes only read: they never hold it.
    * Recovery stays exactly-once without the lease (each expired job is a compare-and-set on its row), so two
    * instances that both believe they hold it for a moment are harmless.
@@ -1278,12 +1278,12 @@ export class JobRunner {
       const { requeued, failed, settled } = await this.repo.recoverExpired(new Date(now).toISOString(), this.db.maxAttempts);
       const m = coreInstruments(this.telemetry.meter);
       for (const j of requeued) {
-        m.jobsRequeued.add(1, { 'reelforge.reason': 'lease_expired' });
+        m.jobsRequeued.add(1, { 'renderweld.reason': 'lease_expired' });
         this.log('warn', `queue: job ${j.id} lost its worker (lease expired); queued again (attempt ${j.attempts ?? 0} of ${this.db.maxAttempts} used)`);
         this.emit({ jobId: j.id, type: 'status', job: j });
       }
       for (const j of failed) {
-        m.jobsFinished.add(1, { 'reelforge.job.type': j.type, 'reelforge.job.status': 'failed' });
+        m.jobsFinished.add(1, { 'renderweld.job.type': j.type, 'renderweld.job.status': 'failed' });
         this.log('error', `queue: job ${j.id} failed: ${j.error?.message ?? 'lease expired'}`);
         this.emit({ jobId: j.id, type: 'status', job: j });
       }
@@ -1347,7 +1347,7 @@ export class JobRunner {
   private failed(operation: string, e: Error) {
     const message = e.message.split('\n').filter(Boolean).pop()?.slice(0, 300) ?? 'unknown error';
     this.lastError = { operation, message, at: new Date().toISOString() };
-    coreInstruments(this.telemetry.meter).queueErrors.add(1, { 'reelforge.operation': operation });
+    coreInstruments(this.telemetry.meter).queueErrors.add(1, { 'renderweld.operation': operation });
     // At most one warning per operation and minute (a database outage must not flood the log).
     const last = this.lastWarnAt.get(operation) ?? 0;
     if (Date.now() - last >= 60_000) {
@@ -1416,11 +1416,11 @@ export class JobRunner {
       `job ${job.type}`,
       {
         attributes: {
-          'reelforge.job.id': job.id,
-          'reelforge.job.type': job.type,
-          'reelforge.job.queue_ms': Date.parse(job.startedAt!) - Date.parse(job.createdAt),
-          ...(job.projectId ? { 'reelforge.project.id': job.projectId } : {}),
-          ...(fence ? { 'reelforge.job.attempt': fence.attempts, 'reelforge.worker.id': this.workerId } : {}),
+          'renderweld.job.id': job.id,
+          'renderweld.job.type': job.type,
+          'renderweld.job.queue_ms': Date.parse(job.startedAt!) - Date.parse(job.createdAt),
+          ...(job.projectId ? { 'renderweld.project.id': job.projectId } : {}),
+          ...(fence ? { 'renderweld.job.attempt': fence.attempts, 'renderweld.worker.id': this.workerId } : {}),
         },
       },
       parent
@@ -1476,7 +1476,7 @@ export class JobRunner {
           return false;
         });
         if (released) {
-          coreInstruments(this.telemetry.meter).jobsRequeued.add(1, { 'reelforge.reason': 'released' });
+          coreInstruments(this.telemetry.meter).jobsRequeued.add(1, { 'renderweld.reason': 'released' });
           this.published(1, 'release');
           this.queuedCount++;
           this.released++;
@@ -1517,7 +1517,7 @@ export class JobRunner {
     }
     if (job.parentId || (job.attempts ?? 1) > 1 || !job.startedAt) return;
     const wait = Math.max(0, (Date.parse(job.startedAt) - Date.parse(job.createdAt)) / 1000);
-    coreInstruments(this.telemetry.meter).queueWait.record(wait, { 'reelforge.job.type': job.type, 'reelforge.job.priority': job.priority ?? 'standard' });
+    coreInstruments(this.telemetry.meter).queueWait.record(wait, { 'renderweld.job.type': job.type, 'renderweld.job.priority': job.priority ?? 'standard' });
   }
 
   /** JobContext.fanOut (D-097): store the children and hand the parent off, in order with the job's other writes. */
@@ -1573,7 +1573,7 @@ export class JobRunner {
     const span = this.spans.get(job.id);
     if (span) {
       this.spans.delete(job.id);
-      span.setAttribute('reelforge.job.status', why);
+      span.setAttribute('renderweld.job.status', why);
       span.end();
     }
   }
@@ -1610,14 +1610,14 @@ export class JobRunner {
   /** Metrics and the job's span for a final state. */
   private record(job: JobRecord) {
     this.origins.delete(job.id);
-    const attrs = { 'reelforge.job.type': job.type, 'reelforge.job.status': job.status };
+    const attrs = { 'renderweld.job.type': job.type, 'renderweld.job.status': job.status };
     const m = coreInstruments(this.telemetry.meter);
     m.jobsFinished.add(1, attrs);
     if (job.startedAt && job.finishedAt) m.jobDuration.record((Date.parse(job.finishedAt) - Date.parse(job.startedAt)) / 1000, attrs);
     const span = this.spans.get(job.id);
     if (!span) return;
     this.spans.delete(job.id);
-    span.setAttribute('reelforge.job.status', job.status);
+    span.setAttribute('renderweld.job.status', job.status);
     if (job.status === 'failed') span.setStatus({ code: SpanStatusCode.ERROR, message: `${job.error?.code ?? 'failed'}: ${job.error?.message ?? ''}`.slice(0, 500) });
     span.end();
   }

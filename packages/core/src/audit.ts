@@ -147,11 +147,11 @@ export class OtlpLogsAuditSink implements AuditSink {
       resourceLogs: [
         {
           resource: {
-            attributes: [otlpAttr('service.name', this.opts.serviceName ?? 'reelforge-studio'), otlpAttr('service.version', this.opts.serviceVersion)].filter(Boolean),
+            attributes: [otlpAttr('service.name', this.opts.serviceName ?? 'renderweld'), otlpAttr('service.version', this.opts.serviceVersion)].filter(Boolean),
           },
           scopeLogs: [
             {
-              scope: { name: 'reelforge.audit' },
+              scope: { name: 'renderweld.audit' },
               logRecords: entries.map((e) => {
                 const ns = `${BigInt(Date.parse(e.at)) * 1_000_000n}`;
                 return {
@@ -159,7 +159,7 @@ export class OtlpLogsAuditSink implements AuditSink {
                   observedTimeUnixNano: ns,
                   severityNumber: e.result === 'success' ? 9 : 13,
                   severityText: e.result === 'success' ? 'INFO' : 'WARN',
-                  eventName: 'reelforge.audit',
+                  eventName: 'renderweld.audit',
                   body: { stringValue: e.action },
                   attributes: [
                     otlpAttr('audit.id', e.id),

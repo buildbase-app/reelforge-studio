@@ -43,7 +43,7 @@ export class StructuredLogger {
 
   constructor(private readonly opts: StructuredLoggerOptions) {
     this.exporter = opts.exporter ?? 'stdout';
-    this.service = opts.service ?? 'reelforge-studio';
+    this.service = opts.service ?? 'renderweld';
     this.write =
       opts.write ??
       ((level, line) => {

@@ -96,7 +96,7 @@ beforeAll(async () => {
     { dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' },
     {
       registry: new PluginRegistry().registerEngine(fakeEngine('remotion')),
-      env: { ...database.env, REELFORGE_LICENCE_MODE: 'off', REELFORGE_RATE_LIMIT_PER_MINUTE: '0', REELFORGE_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0', REELFORGE_AUTH_FAILURES_PER_MINUTE: '0', REELFORGE_SECRET_KEY: 'authz-sweep-secret-key-0123456789abcdef' },
+      env: { ...database.env, RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_RATE_LIMIT_PER_MINUTE: '0', RENDERWELD_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0', RENDERWELD_AUTH_FAILURES_PER_MINUTE: '0', RENDERWELD_SECRET_KEY: 'authz-sweep-secret-key-0123456789abcdef' },
       quiet: true,
     }
   );

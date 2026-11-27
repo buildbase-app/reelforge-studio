@@ -1,6 +1,6 @@
 import { constants, existsSync } from 'node:fs';
 import { access, statfs } from 'node:fs/promises';
-import { browserVersion, chromiumSandbox, envValue, type ReelforgeService } from '@renderweld/core';
+import { browserVersion, chromiumSandbox, type RenderWeldService } from '@renderweld/core';
 import { toolVersion } from '@renderweld/media-pipeline';
 import type { Observability } from './observability/telemetry';
 
@@ -90,7 +90,7 @@ async function timed(fn: () => Promise<DependencyStatus>): Promise<DependencySta
 /** Storage driver health (local disk, bucket or container), supplied by the server so probes can be cached. */
 export type StorageHealth = () => Promise<{ ok: boolean; message?: string }>;
 
-export async function readiness(service: ReelforgeService, obs?: Observability, storageHealth?: StorageHealth): Promise<Readiness> {
+export async function readiness(service: RenderWeldService, obs?: Observability, storageHealth?: StorageHealth): Promise<Readiness> {
   const dependencies: Record<string, DependencyStatus> = {};
   let dataDirCheck = 'ok';
   let storageCheck = 'ok';
@@ -130,7 +130,7 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
     }
   });
   dependencies.browser = await timed(async () => {
-    const path = envValue('REELFORGE_CHROMIUM_PATH');
+    const path = process.env.RENDERWELD_CHROMIUM_PATH;
     if (!path) return { status: 'not_configured', required: false, detail: 'RENDERWELD_CHROMIUM_PATH is not set; engines that need Chromium may not render (see engines)' };
     if (!existsSync(path)) return { status: 'error', required: false, path, detail: `RENDERWELD_CHROMIUM_PATH does not exist: ${path}` };
     const version = browserVersion(path);
@@ -229,8 +229,8 @@ export async function readiness(service: ReelforgeService, obs?: Observability, 
   const warnings: string[] = [];
   if (!chromiumSandbox()) {
     warnings.push(
-      envValue('REELFORGE_CHROMIUM_NO_SANDBOX') === '1'
-        ? "REELFORGE_CHROMIUM_NO_SANDBOX=1: Chromium's own sandbox is off for every engine (explicit opt-out; docs/security/HARDENING.md)"
+      process.env.RENDERWELD_CHROMIUM_NO_SANDBOX === '1'
+        ? "RENDERWELD_CHROMIUM_NO_SANDBOX=1: Chromium's own sandbox is off for every engine (explicit opt-out; docs/security/HARDENING.md)"
         : "Chromium's own sandbox is off because the server runs as root"
     );
   }

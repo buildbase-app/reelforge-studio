@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService } from '@renderweld/core';
+import { PluginRegistry, RenderWeldService } from '@renderweld/core';
 import { prepareDatabase, type Database } from '@renderweld/db';
 import { DASHBOARD_CSP, TOOLS, createApp, loadConfig, type ServerConfig } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
@@ -14,7 +14,7 @@ import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 const { dir, cleanup } = tempDir('reelforge-dashboard-route-');
 const assets = join(dir, 'dashboard');
 let db: Database;
-let service: ReelforgeService;
+let service: RenderWeldService;
 let admin: string;
 let reader: string;
 let config: ServerConfig;
@@ -28,12 +28,12 @@ beforeAll(async () => {
   writeFileSync(join(assets, 'assets', 'app-0123456789.css'), 'body{}');
   writeFileSync(join(assets, 'assets', 'icon-192-0123456789.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
   writeFileSync(join(assets, 'assets', 'manifest-0123456789.webmanifest'), '{"name":"RenderWeld"}');
-  config = { ...loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data') }), dashboardAssetsDir: assets };
+  config = { ...loadConfig({ RENDERWELD_DATA_DIR: join(dir, 'data') }), dashboardAssetsDir: assets };
   db = (await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir })).db;
-  service = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('html', { delayPerFrameMs: 50 })), {
+  service = await RenderWeldService.create(new PluginRegistry().registerEngine(fakeEngine('html', { delayPerFrameMs: 50 })), {
     repositories: db.repositories(),
     dataDir: config.dataDir,
-    configSources: { env: { REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { RENDERWELD_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', RENDERWELD_LICENCE_MODE: 'off' } },
   });
   admin = (await service.keys.create('admin', ['admin', 'owner'])).key;
   reader = (await service.keys.create('viewer', ['read'])).key;
@@ -64,11 +64,11 @@ describe('dashboard route', () => {
     }
   });
 
-  it('turns on from the environment (REELFORGE_DASHBOARD_ENABLED) and the config file', () => {
-    expect(loadConfig({ REELFORGE_DASHBOARD_ENABLED: 'true' }).resolved.config.dashboard.enabled).toBe(true);
+  it('turns on from the environment (RENDERWELD_DASHBOARD_ENABLED) and the config file', () => {
+    expect(loadConfig({ RENDERWELD_DASHBOARD_ENABLED: 'true' }).resolved.config.dashboard.enabled).toBe(true);
     const file = join(dir, 'reelforge.yaml');
     writeFileSync(file, 'dashboard:\n  enabled: true\n');
-    expect(loadConfig({ REELFORGE_CONFIG: file }).resolved.config.dashboard.enabled).toBe(true);
+    expect(loadConfig({ RENDERWELD_CONFIG: file }).resolved.config.dashboard.enabled).toBe(true);
   });
 
   it('turns on and off at runtime (PATCH /v1/config, admin only) without a restart', async () => {

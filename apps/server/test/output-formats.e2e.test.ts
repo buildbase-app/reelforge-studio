@@ -4,40 +4,40 @@
  * (ProRes 4444) and WebM (VP9 alpha); a Remotion scene in an alpha render is
  * refused with 422 before a job is queued; the output route and a signed
  * download serve the format's file with its content type. Skips without a
- * browser unless REELFORGE_REQUIRE_BROWSER=1.
+ * browser unless RENDERWELD_REQUIRE_BROWSER=1.
  */
 import { existsSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ReelforgeService, createMemoryRepositories } from '@renderweld/core';
+import { RenderWeldService, createMemoryRepositories } from '@renderweld/core';
 import { alphaStats, probe, resolveTools } from '@renderweld/media-pipeline';
 import { createApp, loadConfig } from '../src/index';
 import { createDefaultRegistry } from '../src/registry';
 import { tempDir } from '../../../packages/core/test/helpers';
 
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const { dir, cleanup } = tempDir('reelforge-formats-e2e-');
 const tools = resolveTools();
-let service: ReelforgeService;
+let service: RenderWeldService;
 let app: ReturnType<typeof createApp>;
 let key: string;
 
 describe('browser requirement', () => {
-  it.runIf(process.env.REELFORGE_REQUIRE_BROWSER === '1')('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
+  it.runIf(process.env.RENDERWELD_REQUIRE_BROWSER === '1')('RENDERWELD_REQUIRE_BROWSER=1: a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });
 
 beforeAll(async () => {
   if (!hasBrowser) return;
-  const config = loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_PUBLIC_URL: 'https://studio.example.com' });
-  service = await ReelforgeService.create(createDefaultRegistry({}), {
+  const config = loadConfig({ RENDERWELD_DATA_DIR: join(dir, 'data'), RENDERWELD_PUBLIC_URL: 'https://studio.example.com' });
+  service = await RenderWeldService.create(createDefaultRegistry({}), {
     repositories: createMemoryRepositories(),
     dataDir: config.dataDir,
     cacheDir: resolve(import.meta.dirname, '../../../.render-cache'),
     publicUrl: config.publicUrl,
-    configSources: { env: { REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { RENDERWELD_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', RENDERWELD_LICENCE_MODE: 'off' } },
   });
   key = (await service.keys.create('admin', ['admin'])).key;
   app = createApp({ service, config });

@@ -8,7 +8,7 @@ import { startServer, type StartedServer } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 
 /**
- * `reelforge worker --once` as separate processes (issue #150, D-100): an api
+ * `renderweld worker --once` as separate processes (issue #150, D-100): an api
  * instance in this process enqueues renders on PostgreSQL or MySQL
  * (TEST_POSTGRES_URL / TEST_MYSQL_URL; skipped without them), and `--once`
  * processes claim them: three processes take one job each and exit, `--job`
@@ -25,7 +25,7 @@ const fixture = join(__dirname, 'fixtures/once-worker.ts');
 const { dir, cleanup } = tempDir('reelforge-once-');
 afterAll(() => cleanup());
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
-const base = { REELFORGE_LICENCE_MODE: 'off', REELFORGE_SECRET_KEY: 'once-test-secret-key-0123456789abcdef', REELFORGE_LOGS_EXPORTER: 'stdout' };
+const base = { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_SECRET_KEY: 'once-test-secret-key-0123456789abcdef', RENDERWELD_LOGS_EXPORTER: 'stdout' };
 
 interface Proc {
   child: ChildProcess;
@@ -68,10 +68,10 @@ async function until<T>(f: () => Promise<T | null | undefined | false> | T | nul
 
 describe('worker --once: start-up guard (any database)', () => {
   it('BKD-25 `renderweld worker --once` on SQLite refuses to start (exit 1) and says why; `worker` without --once prints usage', async () => {
-    const p = spawnOnce(join(repo, 'apps/server/src/cli.ts'), ['worker', '--once'], { ...base, REELFORGE_DATA_DIR: join(dir, 'sqlite-guard') });
+    const p = spawnOnce(join(repo, 'apps/server/src/cli.ts'), ['worker', '--once'], { ...base, RENDERWELD_DATA_DIR: join(dir, 'sqlite-guard') });
     expect((await p.exited).code).toBe(1);
     expect(p.out()).toMatch(/server\.role "worker" needs a shared database/);
-    const u = spawnOnce(join(repo, 'apps/server/src/cli.ts'), ['worker'], { ...base, REELFORGE_DATA_DIR: join(dir, 'sqlite-guard') });
+    const u = spawnOnce(join(repo, 'apps/server/src/cli.ts'), ['worker'], { ...base, RENDERWELD_DATA_DIR: join(dir, 'sqlite-guard') });
     expect((await u.exited).code).toBe(1);
     // cli.ts is the renderweld command (#413); the old reelforge name prints its own name (rename.test.ts).
     expect(u.out()).toMatch(/usage: renderweld worker --once/);
@@ -92,16 +92,16 @@ for (const kind of kinds) describe(`worker --once processes on ${kind}`, () => {
     env = {
       ...base,
       DATABASE_URL: testDb.url,
-      REELFORGE_DATA_DIR: data,
-      REELFORGE_STORAGE_LOCAL_SHARED: 'true',
-      REELFORGE_QUEUE_POLL_INTERVAL_MS: '200',
-      REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS: '0',
+      RENDERWELD_DATA_DIR: data,
+      RENDERWELD_STORAGE_LOCAL_SHARED: 'true',
+      RENDERWELD_QUEUE_POLL_INTERVAL_MS: '200',
+      RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS: '0',
     };
     api = await startServer(
       { dataDir: data, port: 0, host: '127.0.0.1' },
       {
         registry: () => new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas')),
-        env: { ...env, REELFORGE_ROLE: 'api', REELFORGE_RATE_LIMIT_PER_MINUTE: '0' },
+        env: { ...env, RENDERWELD_ROLE: 'api', RENDERWELD_RATE_LIMIT_PER_MINUTE: '0' },
         quiet: true,
       }
     );
@@ -179,10 +179,10 @@ for (const kind of kinds) describe(`worker --once processes on ${kind}`, () => {
     expect(await get(id!)).toMatchObject({ status: 'queued', attempts: 0 } satisfies Partial<JobRecord>);
   }, 120_000);
 
-  it('BKD-23 nothing queued: `reelforge worker --once` and REELFORGE_WORKER_ONCE=1 (main.ts) exit 0 within queue.pollIntervalMs x 3', async () => {
+  it('BKD-23 nothing queued: `renderweld worker --once` and RENDERWELD_WORKER_ONCE=1 (main.ts) exit 0 within queue.pollIntervalMs x 3', async () => {
     const waitMs = 3 * 200;
     const cli = spawnOnce(join(repo, 'apps/server/src/cli.ts'), ['worker', '--once'], env);
-    const viaEnv = spawnOnce(join(repo, 'apps/server/src/main.ts'), [], { ...env, REELFORGE_WORKER_ONCE: '1' });
+    const viaEnv = spawnOnce(join(repo, 'apps/server/src/main.ts'), [], { ...env, RENDERWELD_WORKER_ONCE: '1' });
     for (const p of [cli, viaEnv]) {
       const { code, at } = await p.exited;
       expect(code, p.out()).toBe(0);

@@ -1,5 +1,5 @@
 /**
- * REELFORGE_SECRET_KEY at start-up and the licence-state seal without a fixed
+ * RENDERWELD_SECRET_KEY at start-up and the licence-state seal without a fixed
  * fallback (#305). Test ids SECT-26..29 (docs/security/HARDENING.md).
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -28,28 +28,28 @@ const release = parseBuildInfo({
 });
 const KEY = 'secret-key-test-0123456789abcdefghijklmnop';
 
-describe('REELFORGE_SECRET_KEY at start-up (#305)', () => {
+describe('RENDERWELD_SECRET_KEY at start-up (#305)', () => {
   it('SECT-26 the release edition refuses to start without it, with a fix; a dev build warns; with it, nothing to say', () => {
     const rel = secretKeyProblem(resolveConfig({ env: {}, build: release }));
-    expect(rel.error).toMatch(/REELFORGE_SECRET_KEY is not set: the release edition does not start without it/);
-    expect(rel.error).toMatch(/REELFORGE_SECRET_KEY_FILE/);
+    expect(rel.error).toMatch(/RENDERWELD_SECRET_KEY is not set: the release edition does not start without it/);
+    expect(rel.error).toMatch(/RENDERWELD_SECRET_KEY_FILE/);
     expect(rel.error).toMatch(/openssl rand -base64 32/);
-    expect(secretKeyProblem(resolveConfig({ env: { REELFORGE_SECRET_KEY: KEY }, build: release }))).toEqual({});
+    expect(secretKeyProblem(resolveConfig({ env: { RENDERWELD_SECRET_KEY: KEY }, build: release }))).toEqual({});
     const dev = secretKeyProblem(resolveConfig({ env: {} }));
     expect(dev.error).toBeUndefined();
     expect(dev.warning).toMatch(/licence-seal\.key/);
-    expect(secretKeyProblem(resolveConfig({ env: { REELFORGE_SECRET_KEY: KEY } }))).toEqual({});
+    expect(secretKeyProblem(resolveConfig({ env: { RENDERWELD_SECRET_KEY: KEY } }))).toEqual({});
   });
 
   it('SECT-27 the seal secret: the secret key when set; never a constant; a release build without it throws', async () => {
     const repos = createMemoryRepositories();
-    const withKey = new RuntimeConfig(repos, { env: { REELFORGE_SECRET_KEY: KEY }, build: release });
+    const withKey = new RuntimeConfig(repos, { env: { RENDERWELD_SECRET_KEY: KEY }, build: release });
     await withKey.load();
     expect(licenceSealSecret(withKey, join(dir, 'a'))).toBe(KEY);
     expect(existsSync(join(dir, 'a', LOCAL_SEAL_FILE))).toBe(false);
     const releaseNoKey = new RuntimeConfig(createMemoryRepositories(), { env: {}, build: release });
     await releaseNoKey.load();
-    expect(() => licenceSealSecret(releaseNoKey, join(dir, 'b'))).toThrow(/release edition needs REELFORGE_SECRET_KEY/);
+    expect(() => licenceSealSecret(releaseNoKey, join(dir, 'b'))).toThrow(/release edition needs RENDERWELD_SECRET_KEY/);
     expect(() => licenceSealKey('', 'rf-1')).toThrow(/needs a secret/);
   });
 

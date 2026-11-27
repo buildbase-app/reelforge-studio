@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { envValue } from './config/rename';
 
 /**
  * Installed version of a package, resolved the way Node would load it from
@@ -48,13 +47,13 @@ export function browserVersion(binary: string | undefined): string | undefined {
 
 /**
  * Whether engines start Chromium with its own sandbox: on, unless the operator
- * sets REELFORGE_CHROMIUM_NO_SANDBOX=1 or we run as root (Chromium refuses).
+ * sets RENDERWELD_CHROMIUM_NO_SANDBOX=1 or we run as root (Chromium refuses).
  * In Docker the sandbox needs user namespaces, which Docker's default seccomp
  * profile blocks: run with deployment/seccomp/chrome.json (docs/DEPLOY.md).
  * Remotion always passes --no-sandbox itself, so it is unsandboxed either way.
  */
 export function chromiumSandbox(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (envValue('REELFORGE_CHROMIUM_NO_SANDBOX', env) === '1') return false;
+  if (env.RENDERWELD_CHROMIUM_NO_SANDBOX === '1') return false;
   return typeof process.getuid !== 'function' || process.getuid() !== 0;
 }
 
@@ -64,12 +63,12 @@ export const SCENE_TIMEOUT_MAX_SECONDS = 3600;
 
 /**
  * The hard limit for rendering one scene, whatever its length: engines use
- * min(their per-frame estimate, this). From REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS
+ * min(their per-frame estimate, this). From RENDERWELD_RENDER_SCENE_TIMEOUT_SECONDS
  * (render.sceneTimeoutSeconds, exported to process.env by the server), clamped
  * to 30 s .. 1 h.
  */
 export function sceneTimeoutCapMs(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = Number(envValue('REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS', env));
+  const raw = Number(env.RENDERWELD_RENDER_SCENE_TIMEOUT_SECONDS);
   const s = Number.isFinite(raw) && raw > 0 ? raw : SCENE_TIMEOUT_DEFAULT_SECONDS;
   return Math.round(Math.min(SCENE_TIMEOUT_MAX_SECONDS, Math.max(30, s)) * 1000);
 }

@@ -4,13 +4,13 @@
  * of bad keys costs no database work; every limited response carries the
  * RateLimit-* fields and a 429 body with `scope` and `hint`. Test ids AUTH-nn
  * (docs/security/HARDENING.md). Also: a release build does not start without
- * REELFORGE_SECRET_KEY.
+ * RENDERWELD_SECRET_KEY.
  */
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { LOCAL_SEAL_FILE, PluginRegistry, ReelforgeService, createMemoryRepositories, parseBuildInfo, resolveConfig, type Repositories } from '@renderweld/core';
+import { LOCAL_SEAL_FILE, PluginRegistry, RenderWeldService, createMemoryRepositories, parseBuildInfo, resolveConfig, type Repositories } from '@renderweld/core';
 import { createApp, loadConfig, startServer } from '../src/index';
 import { PreAuthGuard, limiterClient } from '../src/authGuard';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
@@ -37,9 +37,9 @@ const guess = () => `rf_${randomBytes(24).toString('base64url')}`;
 
 async function setup(env: Record<string, string>) {
   const { repos, lookups } = countedRepos();
-  const all = { REELFORGE_DATA_DIR: join(dir, `d${Math.random().toString(36).slice(2)}`), REELFORGE_SECRET_KEY: 'auth-limits-secret-key-0123456789abcdef', REELFORGE_LICENCE_MODE: 'off', REELFORGE_TRUST_PROXY: 'true', ...env };
+  const all = { RENDERWELD_DATA_DIR: join(dir, `d${Math.random().toString(36).slice(2)}`), RENDERWELD_SECRET_KEY: 'auth-limits-secret-key-0123456789abcdef', RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_TRUST_PROXY: 'true', ...env };
   const config = loadConfig(all);
-  const service = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), {
+  const service = await RenderWeldService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), {
     repositories: repos,
     dataDir: config.dataDir,
     configSources: config.sources,
@@ -61,7 +61,7 @@ async function setup(env: Record<string, string>) {
 describe('pre-auth limits over REST', () => {
   let s: Awaited<ReturnType<typeof setup>>;
   beforeAll(async () => {
-    s = await setup({ REELFORGE_AUTH_FAILURES_PER_MINUTE: '5', REELFORGE_AUTH_LOCKOUT_SECONDS: '60', REELFORGE_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '1000' });
+    s = await setup({ RENDERWELD_AUTH_FAILURES_PER_MINUTE: '5', RENDERWELD_AUTH_LOCKOUT_SECONDS: '60', RENDERWELD_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '1000' });
   });
 
   it('AUTH-01 an invalid-key flood from one address is cut off after the failure budget, without further key lookups', async () => {
@@ -121,7 +121,7 @@ describe('pre-auth limits over REST', () => {
 
 describe('per-address budget and per-key limit headers', () => {
   it('AUTH-05 the per-address budget refuses before the lookup (scope client_ip); the limits are runtime settings', async () => {
-    const s = await setup({ REELFORGE_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '3', REELFORGE_RATE_LIMIT_PER_MINUTE: '1000' });
+    const s = await setup({ RENDERWELD_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '3', RENDERWELD_RATE_LIMIT_PER_MINUTE: '1000' });
     // 3 per minute: a token comes back every 20 s, far longer than these requests take even on a loaded machine.
     for (let i = 0; i < 3; i++) expect((await s.call('192.0.2.1', s.key)).status).toBe(200);
     const start = s.lookups();
@@ -137,7 +137,7 @@ describe('per-address budget and per-key limit headers', () => {
   });
 
   it('AUTH-06 per-key limit: every response has RateLimit-*; the 429 has Retry-After and a body with scope "key" and a hint', async () => {
-    const s = await setup({ REELFORGE_RATE_LIMIT_PER_MINUTE: '3' });
+    const s = await setup({ RENDERWELD_RATE_LIMIT_PER_MINUTE: '3' });
     const ok = await s.call('192.0.2.50', s.key);
     expect(ok.status).toBe(200);
     expect(ok.headers.get('ratelimit-limit')).toBe('3');
@@ -160,7 +160,7 @@ describe('JSON-RPC batches on /mcp', () => {
   const call = (id: number) => ({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'get_me', arguments: {} } });
 
   it('AUTH-11 a batch costs one rate-limit unit per message, so it cannot multiply the per-key limit', async () => {
-    const s = await setup({ REELFORGE_RATE_LIMIT_PER_MINUTE: '5' });
+    const s = await setup({ RENDERWELD_RATE_LIMIT_PER_MINUTE: '5' });
     // Five units: a batch of 3 (3 units) leaves 2 ...
     const three = await s.post('/mcp', JSON.stringify([call(1), call(2), call(3)]));
     expect(three.status).toBe(200);
@@ -174,7 +174,7 @@ describe('JSON-RPC batches on /mcp', () => {
   });
 
   it('AUTH-12 a batch over the cap is refused with 400 batch_too_large; a single message or a small batch is not', async () => {
-    const s = await setup({ REELFORGE_RATE_LIMIT_PER_MINUTE: '1000' });
+    const s = await setup({ RENDERWELD_RATE_LIMIT_PER_MINUTE: '1000' });
     const big = await s.post('/mcp', JSON.stringify(Array.from({ length: 11 }, (_, i) => call(i + 1))));
     expect(big.status).toBe(400);
     expect(((await big.json()) as { error: { code: string; message: string } }).error).toMatchObject({ code: 'batch_too_large', message: expect.stringMatching(/at most 10 messages \(got 11\)/) });
@@ -225,26 +225,26 @@ describe('PreAuthGuard', () => {
   });
 });
 
-describe('start-up without REELFORGE_SECRET_KEY (#305)', () => {
+describe('start-up without RENDERWELD_SECRET_KEY (#305)', () => {
   const registry = () => new PluginRegistry().registerEngine(fakeEngine('remotion'));
 
   it('AUTH-09 a release build refuses to start, with the fix in the error; nothing is created', async () => {
-    const env = { REELFORGE_DATA_DIR: join(dir, 'release') };
+    const env = { RENDERWELD_DATA_DIR: join(dir, 'release') };
     const release = parseBuildInfo({ edition: 'release', locked: { 'licence.mode': 'required', 'licence.serverUrl': 'https://licence.example.test', 'licence.orgId': 'aaaaaaaaaaaaaaaaaaaaaaaa' } });
     const resolved = resolveConfig({ env, build: release });
     const err = await startServer({ resolved, sources: { env }, port: 0, host: '127.0.0.1' }, { env, quiet: true, registry }).catch((e: Error) => e);
     expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toMatch(/REELFORGE_SECRET_KEY is not set: the release edition does not start without it.*REELFORGE_SECRET_KEY_FILE/);
-    expect(existsSync(env.REELFORGE_DATA_DIR)).toBe(false);
+    expect((err as Error).message).toMatch(/RENDERWELD_SECRET_KEY is not set: the release edition does not start without it.*RENDERWELD_SECRET_KEY_FILE/);
+    expect(existsSync(env.RENDERWELD_DATA_DIR)).toBe(false);
   });
 
   it('AUTH-10 a dev build starts with a warning and seals the licence state with a key in its data directory', async () => {
-    const env = { REELFORGE_DATA_DIR: join(dir, 'dev'), REELFORGE_LICENCE_MODE: 'off' };
+    const env = { RENDERWELD_DATA_DIR: join(dir, 'dev'), RENDERWELD_LICENCE_MODE: 'off' };
     const lines: string[] = [];
     const started = await startServer({ port: 0, host: '127.0.0.1' }, { env, registry, logWrite: (level, line) => lines.push(`${level} ${line}`) });
     try {
-      expect(lines.some((l) => /^warn .*REELFORGE_SECRET_KEY is not set.*licence-seal\.key/.test(l))).toBe(true);
-      expect(existsSync(join(env.REELFORGE_DATA_DIR, LOCAL_SEAL_FILE))).toBe(true);
+      expect(lines.some((l) => /^warn .*RENDERWELD_SECRET_KEY is not set.*licence-seal\.key/.test(l))).toBe(true);
+      expect(existsSync(join(env.RENDERWELD_DATA_DIR, LOCAL_SEAL_FILE))).toBe(true);
     } finally {
       await started.close();
     }

@@ -12,7 +12,7 @@
  *   pnpm gallery report                examples/gallery/QUALITY.md from the last run
  *   pnpm gallery serve [--port 8787]   serve <out>/web locally for a store preview
  *
- * Common flags: --out <dir> (default $REELFORGE_GALLERY_OUT or ./gallery-out,
+ * Common flags: --out <dir> (default $RENDERWELD_GALLERY_OUT or ./gallery-out,
  * outside git), --concurrency N (default 2), --server URL --key-file F (use a
  * running studio instead of starting one), --force.
  */
@@ -42,8 +42,8 @@ const { values: flags, positionals } = parseArgs({
 
 const [cmd, ...slugs] = positionals;
 const EXAMPLES = join(REPO, 'examples/gallery');
-const OUT = resolve(flags.out ?? process.env.REELFORGE_GALLERY_OUT ?? join(REPO, 'gallery-out'));
-const chromium = process.env.REELFORGE_CHROMIUM_PATH ?? DEFAULT_CHROMIUM;
+const OUT = resolve(flags.out ?? process.env.RENDERWELD_GALLERY_OUT ?? join(REPO, 'gallery-out'));
+const chromium = process.env.RENDERWELD_CHROMIUM_PATH ?? DEFAULT_CHROMIUM;
 const concurrency = Math.max(1, Number(flags.concurrency) || 2);
 
 function entries() {
@@ -68,7 +68,7 @@ async function main() {
       const { connectMcp, startLocalStudio } = await import('./studio');
       mkdirSync(OUT, { recursive: true });
       let url = flags.server;
-      let key = flags['key-file'] ? readFileSync(flags['key-file'], 'utf8').trim() : process.env.REELFORGE_API_KEY;
+      let key = flags['key-file'] ? readFileSync(flags['key-file'], 'utf8').trim() : process.env.RENDERWELD_API_KEY;
       let stop = async () => undefined as void;
       if (!url) {
         const studio = await startLocalStudio({
@@ -76,7 +76,7 @@ async function main() {
           cacheDir: join(OUT, '.studio/cache'),
           chromium,
           concurrency,
-          noSandbox: process.env.REELFORGE_CHROMIUM_NO_SANDBOX === '1',
+          noSandbox: process.env.RENDERWELD_CHROMIUM_NO_SANDBOX === '1',
         });
         url = studio.url;
         key = studio.key;
@@ -86,7 +86,7 @@ async function main() {
         };
         console.log(`gallery: started a local studio at ${url} (licence mode off, render concurrency ${concurrency})`);
       }
-      if (!key) throw new Error('give --key-file or REELFORGE_API_KEY with --server');
+      if (!key) throw new Error('give --key-file or RENDERWELD_API_KEY with --server');
       const caller = await connectMcp(url, key);
       try {
         const caps = await caller.call('get_capabilities', {});

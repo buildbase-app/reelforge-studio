@@ -25,10 +25,10 @@ RenderWeld store); commercial use needs a commercial licence.
 
 ```bash
 git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
 docker compose up -d --build                                 # 127.0.0.1:4321, hardened defaults
-docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>
-docker compose exec reelforge renderweld keys create --name agent --scopes read,write,render
+docker compose exec renderweld renderweld licence activate <YOUR-LICENCE-KEY>
+docker compose exec renderweld renderweld keys create --name agent --scopes read,write,render
 ```
 
 **B. From a checkout with pnpm (local development only).** `pnpm dev` sets
@@ -47,8 +47,8 @@ Keep the printed key in an environment variable, not in files you commit:
 
 ```bash
 export RF=http://127.0.0.1:4321
-export REELFORGE_API_KEY=rf_...      # the key printed above
-export KEY=$REELFORGE_API_KEY
+export RENDERWELD_API_KEY=rf_...      # the key printed above
+export KEY=$RENDERWELD_API_KEY
 ```
 
 More: [DEPLOY.md](../../DEPLOY.md), [CONFIG.md](../../CONFIG.md), [licence](../../DEPLOY.md#licence).
@@ -134,7 +134,7 @@ Live progress instead of polling: `curl -N -H "Authorization: Bearer $KEY" $RF/v
 [`examples/tutorials/rest-fetch.mjs`](../../../examples/tutorials/rest-fetch.mjs) (Node 22, no dependencies) makes the same calls:
 
 ```bash
-REELFORGE_URL=$RF REELFORGE_API_KEY=$KEY node examples/tutorials/rest-fetch.mjs examples/tutorials/motion-canvas.json tut-rest-motion-canvas final.mp4
+RENDERWELD_URL=$RF RENDERWELD_API_KEY=$KEY node examples/tutorials/rest-fetch.mjs examples/tutorials/motion-canvas.json tut-rest-motion-canvas final.mp4
 ```
 
 ### Automation tools
@@ -168,7 +168,7 @@ Motion Canvas (`animated-explainer`): 2 to 20 s, a title and 1 to 4 points (up t
 | Symptom | Cause and fix |
 | --- | --- |
 | `401 unauthorized` | Missing or wrong key. Send `Authorization: Bearer rf_...`; check it with `curl -H "Authorization: Bearer $KEY" $RF/v1/capabilities`. |
-| `403 forbidden_host` on `/mcp` | The Host header is not allowed (DNS-rebinding protection). Use `127.0.0.1`/`localhost`, or set `REELFORGE_PUBLIC_URL` / `REELFORGE_ALLOWED_HOSTS`. |
+| `403 forbidden_host` on `/mcp` | The Host header is not allowed (DNS-rebinding protection). Use `127.0.0.1`/`localhost`, or set `RENDERWELD_PUBLIC_URL` / `RENDERWELD_ALLOWED_HOSTS`. |
 | `403 licence_required` / `licence_invalid` on a render | Activate a licence key (`renderweld licence activate <key>`; Personal is free). `RENDERWELD_LICENCE_MODE=off` exists for local development from a checkout only. |
 | `403 forbidden` (scope) | The key lacks a scope: rendering needs `render`, creating projects `write`. Create a key with `--scopes read,write,render`. |
 | An engine shows `available: false` | `RENDERWELD_CHROMIUM_PATH` is unset or wrong (checkout), or the image is not the release image. `get_capabilities` says how to fix it. |
@@ -187,7 +187,7 @@ Motion Canvas (`animated-explainer`): 2 to 20 s, a title and 1 to 4 points (up t
 | | |
 | --- | --- |
 | Date | 2026-11-21 19:36:34 UTC |
-| Studio | RenderWeld 0.1.0, commit `85d3333`, started from a checkout with `REELFORGE_LICENCE_MODE=off` (local development only) |
+| Studio | RenderWeld 0.1.0, commit `85d3333`, started from a checkout with `RENDERWELD_LICENCE_MODE=off` (local development only) |
 | Reproduce | `pnpm tutorials:prove rest motion-canvas` |
 | Command the proof ran | `examples/tutorials/rest.sh examples/tutorials/motion-canvas.json tut-rest-motion-canvas final.mp4` |
 | Project / job / render | `tut-rest-motion-canvas` / `job_mwqt6v2387e93b7f9b` / `run_mwqt6v2232e9a02ee7` |

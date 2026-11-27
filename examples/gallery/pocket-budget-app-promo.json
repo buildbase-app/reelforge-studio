@@ -9,7 +9,7 @@
       "finance",
       "mobile"
     ],
-    "prompt": "App store promo for Pocket, a fictional budgeting app. Show the phone UI with balance and spending bars, floating feature chips, a savings stat and a download CTA. Default ReelForge theme, 15 seconds.",
+    "prompt": "App store promo for Pocket, a fictional budgeting app. Show the phone UI with balance and spending bars, floating feature chips, a savings stat and a download CTA. Default RenderWeld theme, 15 seconds.",
     "palette": "default",
     "theme": "default",
     "engines": [
@@ -26,7 +26,7 @@
     "title": "Pocket budget app",
     "brief": {
       "title": "Pocket budget app",
-      "goal": "App store promo for Pocket, a fictional budgeting app. Show the phone UI with balance and spending bars, floating feature chips, a savings stat and a download CTA. Default ReelForge theme, 15 seconds.",
+      "goal": "App store promo for Pocket, a fictional budgeting app. Show the phone UI with balance and spending bars, floating feature chips, a savings stat and a download CTA. Default RenderWeld theme, 15 seconds.",
       "platform": "instagram-reels",
       "language": "en",
       "targetSeconds": 15

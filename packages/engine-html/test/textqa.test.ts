@@ -4,10 +4,9 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { resolveTools } from '@renderweld/media-pipeline';
 import { builtinTheme, textSampleStep, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
-import { envValue } from '@renderweld/core';
 import { renderHtmlScene } from '../src/index';
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-textqa-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
