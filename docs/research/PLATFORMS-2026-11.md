@@ -1,5 +1,7 @@
 # Video platforms and their changelogs: review and gap list (November 2026)
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](../RENAMED.md) maps each old name to the new one.
+
 **Date:** 2026-11-24. **Issue:** epic #285, track C (industry research) and track E (gap list).
 **Scope:** 13 programmatic and API video products, 26 AI video and editing products, 9
 infrastructure and speech/voice services, compared with ReelForge Studio at `main` 707ff3e.

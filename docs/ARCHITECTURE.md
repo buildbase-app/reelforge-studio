@@ -118,7 +118,7 @@ universally better.
 Adapt to an existing repository rather than forcing a restructure.
 
 ``` text
-reelforge/
+reelforge-studio/
 ├── AGENTS.md
 ├── README.md
 ├── docs/

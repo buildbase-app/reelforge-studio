@@ -223,6 +223,68 @@ describe('MCP OAuth 2.1 resource server', () => {
     expect(meta.scopes_supported).toContain('reelforge:owner');
   });
 
+  it('OAUTH-11 security.oauth.workspaceClaim (#479): a token acts in the workspace its claim names; no claim, an unknown or a deleted workspace is 401, a suspended one 403', async () => {
+    const repos = createMemoryWorkspaceRepositories();
+    const w = await setup({ REELFORGE_MCP_OAUTH_ISSUER: ISSUER, REELFORGE_MCP_OAUTH_WORKSPACE_CLAIM: 'renderweld_workspace' }, issuer, repos);
+    for (const id of ['alpha', 'beta', 'paused', 'gone']) await repos.workspaces.create({ id, name: id, status: id === 'paused' ? 'suspended' : id === 'gone' ? 'deleted' : 'active', createdAt: new Date().toISOString() });
+    repos.invalidateWorkspaces();
+    const reel = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
+    const sample = { ...reel, scenes: reel.scenes.filter((x: { engine: string }) => x.engine === 'remotion') };
+    await runInWorkspace('alpha', () => w.service.createProject({ ...sample, projectId: 'alpha-reel' }));
+    await runInWorkspace('beta', () => w.service.createProject({ ...sample, projectId: 'beta-reel' }));
+    const scope = 'reelforge:read reelforge:write';
+    const call = async (token: string, name: string, args: Record<string, unknown> = {}) => {
+      const r = await w.mcp(token, 'tools/call', { name, arguments: args });
+      expect(r.status, name).toBe(200);
+      const body = (await r.json()) as { result: { isError?: boolean; content: Array<{ text: string }> } };
+      return { isError: body.result.isError, text: body.result.content[0]!.text };
+    };
+    const alpha = issuer.token({ scope, renderweld_workspace: 'alpha' });
+    const listed = await call(alpha, 'list_projects');
+    expect(listed.text).toContain('alpha-reel');
+    expect(listed.text).not.toContain('beta-reel');
+    expect(JSON.parse((await call(alpha, 'get_project', { projectId: 'beta-reel' })).text).error.code).toBe('not_found');
+    // Writes land in the token's workspace and nowhere else.
+    expect((await call(alpha, 'create_project', { manifest: { ...sample, projectId: 'made-by-token' } })).isError).toBeFalsy();
+    expect(await repos.forWorkspace('alpha').projects.get('made-by-token')).not.toBeNull();
+    expect(await repos.forWorkspace('default').projects.get('made-by-token')).toBeNull();
+    expect((await call(issuer.token({ scope, renderweld_workspace: 'beta' }), 'list_projects')).text).toContain('beta-reel');
+    // Refusals, before any tool runs.
+    const refused = async (claims: Record<string, unknown>, status: number, code: string, words: string) => {
+      const r = await w.mcp(issuer.token({ scope, ...claims }));
+      expect(r.status, words).toBe(status);
+      const body = (await r.json()) as { error: { code: string; message: string } };
+      expect(body.error.code, words).toBe(code);
+      expect(body.error.message, words).toContain(words);
+      if (status === 401) expect(r.headers.get('www-authenticate')).toContain('invalid_token');
+    };
+    await refused({}, 401, 'invalid_token', 'no "renderweld_workspace" claim');
+    await refused({ renderweld_workspace: 42 }, 401, 'invalid_token', 'no "renderweld_workspace" claim');
+    await refused({ renderweld_workspace: 'nope' }, 401, 'invalid_token', 'workspace "nope", which does not exist');
+    await refused({ renderweld_workspace: 'gone' }, 401, 'invalid_token', 'workspace "gone", which does not exist');
+    await refused({ renderweld_workspace: 'paused' }, 403, 'workspace_suspended', '(paused) is suspended');
+    // API keys are unaffected by the claim setting.
+    expect((await w.mcp(w.key)).status).toBe(200);
+  });
+
+  it('OAUTH-12 security.oauth.blockedSubjects (#479): a blocked subject is refused at once, others are not, and unblocking restores it', async () => {
+    const w = await setup({ REELFORGE_MCP_OAUTH_ISSUER: ISSUER }, issuer);
+    const lost = issuer.token({ sub: 'lost-laptop', scope: 'reelforge:read' });
+    const other = issuer.token({ sub: 'still-fine', scope: 'reelforge:read' });
+    expect((await w.mcp(lost)).status).toBe(200);
+    await w.service.updateConfig({ 'security.oauth.blockedSubjects': ['lost-laptop'] });
+    const refused = await w.mcp(lost);
+    expect(refused.status).toBe(401);
+    expect(refused.headers.get('www-authenticate')).toContain('invalid_token');
+    expect(((await refused.json()) as { error: { code: string; message: string } }).error).toMatchObject({ code: 'invalid_token', message: expect.stringContaining('subject is blocked') });
+    expect((await w.mcp(other)).status).toBe(200);
+    expect((await w.mcp(w.key)).status).toBe(200); // API keys are not subjects
+    await w.service.updateConfig({ 'security.oauth.blockedSubjects': null });
+    expect((await w.mcp(lost)).status).toBe(200);
+    // A subject with a space or a comma cannot be listed (the environment form is comma-separated).
+    await expect(w.service.updateConfig({ 'security.oauth.blockedSubjects': ['a b'] })).rejects.toThrow();
+  });
+
   it('OAUTH-06 scopes come from `scope` or `scp`; only renderweld:* and the old reelforge:* values count', () => {
     expect(scopesFromClaims({ scope: 'openid reelforge:read reelforge:admin' })).toEqual(['read', 'admin']);
     expect(scopesFromClaims({ scp: ['reelforge:write', 'read'] })).toEqual(['write']);

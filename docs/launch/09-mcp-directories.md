@@ -4,7 +4,7 @@ Free listings only (#51): a paid or "featured" placement counts as ad spend
 and is deducted from profit (#20, `SITE_PLAN.md` §0). Track every submission
 (date, URL, status) in the BuildBase Collection `directories`.
 
-ReelForge is a server people run themselves (local service), with a public
+RenderWeld is a server people run themselves (local service), with a public
 GitHub repository, a source-available licence (PolyForm Noncommercial 1.0.0
 plus a paid Commercial licence), and a release image that needs a licence key
 to render. Say all of that in each listing; do not tag it "open source".
@@ -12,7 +12,7 @@ to render. Say all of that in each listing; do not tag it "open source".
 ## Listing text (reuse everywhere)
 
 ```text
-ReelForge Studio: a self-hosted, source-available short-form video studio your AI agent drives over MCP (Streamable HTTP, Bearer key) or REST. The agent writes the scenes and timing; four engines (Remotion, Motion Canvas, HTML/CSS, HyperFrames) render one 1080×1920 MP4, checked with ffprobe. 61 tools. Free for personal use (PolyForm Noncommercial 1.0.0 + free Personal key); one-time Commercial licence for commercial use. Linux, Docker.
+RenderWeld: a self-hosted, source-available short-form video studio your AI agent drives over MCP (Streamable HTTP, Bearer key) or REST. The agent writes the scenes and timing; four engines (Remotion, Motion Canvas, HTML/CSS, HyperFrames) render one 1080×1920 MP4, checked with ffprobe. 61 tools. Free for personal use (PolyForm Noncommercial 1.0.0 + free Personal key); one-time Commercial licence for commercial use. Linux, Docker.
 ```
 
 ## Directories, with their rules as read
@@ -36,7 +36,7 @@ re-read for this kit.
 
 Directory pages link the GitHub repository (no UTMs). Where a directory has a
 separate website field, use
-`https://reelforge.buildbase.app/agents?utm_source=<directory>&utm_medium=directory&utm_campaign=launch-2026-12&utm_content=1212-listing`
+`https://renderweld.com/agents?utm_source=<directory>&utm_medium=directory&utm_campaign=launch-2026-12&utm_content=1212-listing`
 with `<directory>` as in [UTM.md](UTM.md) (`mcp-so`, `glama`, …).
 
 ## Facts checked

@@ -1,6 +1,6 @@
 # Captions
 
-ReelForge burns captions into the video, writes them as sidecar files, or both
+RenderWeld burns captions into the video, writes them as sidecar files, or both
 (issue #300, decisions D-107 and D-114). Captions are **off by default**: a project
 renders exactly as before until you set `captions.mode`, pass `captions` to
 `render_project`, or the operator sets the server default `captions.defaultMode`.
@@ -31,7 +31,7 @@ language and description tracks, with signed download links) and `captions.qa`.
 | --- | --- | --- |
 | One render | `render_project` / `POST /v1/projects/:id/renders` `captions: off \| burned \| sidecar \| both` | everything |
 | One project | `captions.mode` (`update_captions { mode }`, `update_project`, `import_captions { mode }`) | the server default |
-| The server | `captions.defaultMode` (`REELFORGE_CAPTIONS_DEFAULT_MODE`, the config file, or at runtime `update_config` / `PATCH /v1/config`, admin) | nothing; default `off` |
+| The server | `captions.defaultMode` (`RENDERWELD_CAPTIONS_DEFAULT_MODE`, the config file, or at runtime `update_config` / `PATCH /v1/config`, admin) | nothing; default `off` |
 
 `burned` = in the video only; `sidecar` = files only (the video is untouched);
 `both`. `get_captions` reports the effective `mode` and `modeSource`
@@ -298,7 +298,7 @@ Burned or sidecar captions cover WCAG 2.2 SC 1.2.2 (Captions, prerecorded) for
 the speech in a reel when the cues match the voice-over; sound effects and music
 are not described automatically. Sidecars let players show captions on demand.
 SC 1.2.4 (live) does not apply (no live output). For SC 1.2.3 / 1.2.5 (audio
-description) ReelForge writes a **text** description track (`kind: "description"`
+description) RenderWeld writes a **text** description track (`kind: "description"`
 cues, above) that a player exposes as `<track kind="descriptions">`; whether that
 satisfies 1.2.5 depends on the player announcing it (browser support for description
 tracks is limited). A recorded description voice track (extended audio description)

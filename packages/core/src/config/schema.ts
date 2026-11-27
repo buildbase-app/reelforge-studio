@@ -384,7 +384,7 @@ export const ConfigSchema = z.object({
       scope: 'runtime',
       env: 'REELFORGE_RENDER_CONCURRENCY',
       default: 1,
-      description: 'Renders at the same time. Each keeps about 1 to 1.5 CPU cores busy and peaks at about 0.8 GB (1080x1920) or 1.7 GB (3840x2160), measured with the html engine (docs/SCALE.md); more renders than cores / 1.5 only slow each one down. A lower value lets running renders finish.',
+      description: 'Renders at the same time. Measured best: the number of vCPUs; memory about 0.3 GB plus 0.6 GB per render for 1080x1920 (docs/public/install/sizing.md, `pnpm bench:docker`). More than the vCPUs only slows each render: on 1 vCPU two at once finished fewer an hour than one. A lower value lets running renders finish.',
     }),
     maxInflightRequests: setting(z.number().int().min(0).max(100_000), {
       kind: 'integer',
@@ -815,6 +815,23 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_MCP_OAUTH_JWKS_URL',
         description: 'The issuer\'s JWKS. Default: `jwks_uri` from its metadata (`/.well-known/oauth-authorization-server`, then OpenID discovery).',
       }),
+      workspaceClaim: setting(z.string().regex(/^[A-Za-z0-9_:./-]{1,100}$/, 'a claim name such as renderweld_workspace').optional(), {
+        kind: 'string',
+        scope: 'startup',
+        env: 'REELFORGE_MCP_OAUTH_WORKSPACE_CLAIM',
+        example: 'renderweld_workspace',
+        description:
+          'The access-token claim that names the workspace a token acts in (#479), e.g. a custom claim your authorization server adds per client or organisation. Set: every token must carry it as a string naming an existing workspace (`401 invalid_token` otherwise; a suspended workspace gives `403 workspace_suspended`, as for its keys), and everything the token reads or writes stays in that workspace. Unset: tokens act in the default workspace.',
+      }),
+      blockedSubjects: setting(z.array(z.string().min(1).max(255).regex(/^[^\s,]+$/, 'a token subject (sub), without spaces or commas')).max(1000), {
+        kind: 'list',
+        scope: 'runtime',
+        env: 'REELFORGE_MCP_OAUTH_BLOCKED_SUBJECTS',
+        default: [],
+        example: 'auth0|65f0c2,user-42',
+        description:
+          'Access-token subjects (`sub`) refused on `/mcp` at once, before their tokens expire (#479): for a lost device or a person who left, while your authorization server stops issuing them tokens. A blocked token gets `401 invalid_token`. Runtime: `update_config` (owner) applies it on the next request and audits the change. At most 1000.',
+      }),
     }),
   }),
   audit: z.object({
@@ -1115,6 +1132,14 @@ export const ConfigSchema = z.object({
         description:
           'What a muted render (`audio.mute`) carries: `silent`, a valid silent AAC track (safest: some players and upload pipelines expect an audio stream); `none`, no audio stream at all.',
       }),
+      sfxMaskingDb: setting(z.number().min(-20).max(30), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_AUDIO_SFX_MASKING_DB',
+        default: 3,
+        description:
+          'Warn when a sound effect is less than this many dB louder than the music and voice under it (RMS over its first half second, or all of it when shorter; -20 to 30, #459): the render records an `sfx.masked` warning in `audio.qa` with the cue, its time and a volume that would clear it, and `checks.sfx` is `warn`. Lower it to warn less, raise it to ask for more headroom. A warning only: the render still succeeds.',
+      }),
     }),
     qa: z.object({
       video: setting(z.enum(['off', 'warn', 'fail']), {
@@ -1123,7 +1148,7 @@ export const ConfigSchema = z.object({
         env: 'REELFORGE_RENDER_QA_VIDEO',
         default: 'warn',
         description:
-          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`), black pictures (`render.qa.blackSeconds`) and photosensitive flashes (more than three general or red flashes a second over a quarter of the picture, WCAG 2.2 SC 2.3.1), measured on every frame in one FFmpeg decode pass. `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`, `checks.flash`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
+          'Picture checks on every finished render and preview (#294): frozen pictures (`render.qa.freezeSeconds`), black pictures (`render.qa.blackSeconds`), photosensitive flashes (more than three general or red flashes a second over a quarter of the picture, WCAG 2.2 SC 2.3.1), pictures that barely move (`render.qa.lowMotionSeconds`) and, for a project with `output.loop`, a jump where the video repeats, measured on every frame in one FFmpeg decode pass; and on renders, a few frames rendered again on their own (`render.qa.seekFrames`). `warn` records them in the render manifest (`videoQa`, `checks.freeze`, `checks.black`, `checks.flash`, `checks.motion`, `checks.loop`, `checks.seek`) and `get_render_output`; `fail` fails the render; `off` skips the pass.',
       }),
       freezeSeconds: setting(z.number().min(0.5).max(3600), {
         kind: 'number',
@@ -1140,6 +1165,63 @@ export const ConfigSchema = z.object({
         default: 0.5,
         description:
           'Black pictures lasting this long (seconds, 0.1 to 3600) are reported; a fade through black is shorter. Not checked on transparent output.',
+      }),
+      lowMotionSeconds: setting(z.number().min(0).max(3600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_LOW_MOTION_SECONDS',
+        default: 3,
+        description:
+          'Pictures that barely move for this long (seconds, 0 to 3600; 0: not reported) are reported as `video.motion`: no frame differs from the picture a second before by `render.qa.motionFloor` or more, so the video reads as stuck though it is not a perfect still (grain, a blinking cursor, a crawl too slow to see). Stretches already reported as frozen are left out. Motion energy per second is recorded in `videoQa.motion` either way.',
+      }),
+      motionFloor: setting(z.number().min(0.05).max(20), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_MOTION_FLOOR',
+        default: 0.4,
+        description:
+          'A frame that differs from the picture a second before by less than this counts as still for `render.qa.lowMotionSeconds`: the mean change of a 32x32 luma grid, in 8-bit levels (0.05 to 20). Measured on 1080x1920: heavy grain on a still 0.31, a blinking cursor 0.14, text drifting at 20 px/s 0.63, text sliding at 300 px/s 3.7. Smaller frames read grainier (0.57 at 540x960), so a grainy still there is not reported.',
+      }),
+      seekFrames: setting(z.number().int().min(0).max(20), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_QA_SEEK_FRAMES',
+        default: 2,
+        description:
+          'Seek check (#294): this many frames of each render (0 to 20; 0: off), spread over the scenes whose engine renders frame ranges (Remotion), are rendered again on their own and compared with the same frames of the finished video. A frame that differs is reported as `video.seek`: the scene depends on the frames before it, so split renders (`render.fanOut: scenes+chunks`) can show a different picture. Each frame costs one more engine start (about 1 s with Remotion at 1080x1920). Not run for previews or transparent output.',
+      }),
+    }),
+    contactSheet: z.object({
+      select: setting(z.enum(['auto', 'every', 'off']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_CONTACT_SHEET',
+        default: 'auto',
+        description:
+          'A labelled contact sheet stored with every render and preview (#379), as `contact-sheet.jpg` next to `poster.png`, so an agent or a reviewer sees every scene without asking: `auto` picks the frames as `get_frames` does (the first frame, each scene\'s middle, both frames of every cut, the last frame; at most 24), `every` one frame every `render.contactSheet.everySeconds`, `off` stores none. `get_render_output` returns it (`contactSheet`, with a signed link; `includeContactSheet` attaches it) and the render manifest lists its frames. It is made from the finished picture with FFmpeg (no re-render); one that cannot be made is logged and left out, and never fails the render.',
+      }),
+      everySeconds: setting(z.number().min(0.25).max(600), {
+        kind: 'number',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_CONTACT_SHEET_EVERY_SECONDS',
+        default: 2.5,
+        description:
+          'With `render.contactSheet.select: every`: one frame every this many seconds from 0 (0.25 to 600). A video long enough to need more than 24 frames gets the smallest interval that fits, recorded in the manifest as `contactSheet.everySeconds`.',
+      }),
+      width: setting(z.number().int().min(120).max(720), {
+        kind: 'integer',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_CONTACT_SHEET_WIDTH',
+        default: 360,
+        description: 'Width of each tile of the stored contact sheet in pixels (120 to 720, never above the video\'s). Tiles shrink until the sheet is under 1 MB.',
+      }),
+      overlay: setting(z.enum(['none', 'safe']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'REELFORGE_RENDER_CONTACT_SHEET_OVERLAY',
+        default: 'none',
+        description:
+          '`safe` tints what lies outside the content safe area of the render\'s size and platform on every tile of the stored contact sheet, and outlines it, as `get_frames` does with `overlay: "safe"`. Only the sheet is tinted, never the video.',
       }),
     }),
     ffmpegPath: setting(nonEmpty(), {
@@ -1282,6 +1364,15 @@ export const ConfigSchema = z.object({
         description: 'Enables the ElevenLabs TTS provider. Same setting as `configure_provider` / `PUT /v1/providers/elevenlabs/config`; stored encrypted when set at runtime.',
       }),
     }),
+    shareWithWorkspaces: setting(z.array(z.string().regex(/^(\*|[a-z0-9][a-z0-9-]{0,63})$/, 'a provider id such as elevenlabs, or *')).max(100), {
+      kind: 'list',
+      scope: 'runtime',
+      env: 'REELFORGE_PROVIDERS_SHARE_WITH_WORKSPACES',
+      default: [],
+      example: '*',
+      description:
+        'Providers whose instance-level settings (the owner\'s keys, `configure_provider`) workspaces other than the default may use when they have none of their own (#480, docs/WORKSPACES.md): empty by default, so each workspace brings its own with `configure_workspace_provider` and gets `409 provider_not_configured` until it does; a list of provider ids shares those; `*` shares every provider. A workspace\'s own settings always win, and are never used by another workspace; the default workspace always uses the instance\'s. **Upgrading** an install whose workspaces used the instance\'s keys before #480: set this to `*` (`update_config`, or `REELFORGE_PROVIDERS_SHARE_WITH_WORKSPACES=*`) to keep that behaviour.',
+    }),
   }),
   captions: z.object({
     defaultMode: setting(z.enum(['off', 'burned', 'sidecar', 'both']), {
@@ -1365,6 +1456,16 @@ export const ConfigSchema = z.object({
         default: 600,
         description: 'Longest one transcription may run (10 to 3600 seconds); the process is killed after it.',
       }),
+    }),
+  }),
+  skills: z.object({
+    dir: setting(nonEmpty().max(1024).optional(), {
+      kind: 'path',
+      scope: 'startup',
+      env: 'REELFORGE_SKILLS_DIR',
+      defaultText: '(none: the built-in skills only)',
+      description:
+        "A folder of extra skills for agents: your house rules, or a skills pack. Each is `<name>.md` or `<name>/SKILL.md` with `name` and `description` front matter (`title` optional), at most 256 KiB, up to 200 skills. Served by `get_skill`, `GET /v1/skills` and the `renderweld://skills` resources beside the built-in ones; one with a built-in's name replaces it. Read at start-up: a file that cannot be used stops the start with its name.",
     }),
   }),
   logging: z.object({
