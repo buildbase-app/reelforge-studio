@@ -46,7 +46,7 @@ No arguments.
 
 **Get the calling API key**. Scope: `read`, read-only. REST: `GET /v1/me`.
 
-Returns the API key this call uses: id, name, scopes (read, write, render, admin), expiry, limits and its render usage today and this month. Never the secret. Use it to see what this key may do before calling a tool that needs another scope.
+Returns the API key this call uses: id, name, scopes (read, write, render, approve, admin), expiry, limits and its render usage today and this month. Never the secret. Use it to see what this key may do before calling a tool that needs another scope.
 
 No arguments.
 
@@ -821,12 +821,12 @@ One API key (as list_keys shows it) with its render usage today and this month (
 
 **Create an API key (admin)**. Scope: `admin`. REST: `POST /v1/keys`.
 
-Creates an API key in this key's workspace with the given scopes (read, write, render, admin; owner only from an owner key) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.
+Creates an API key in this key's workspace with the given scopes (read, write, render, approve, admin; owner only from an owner key) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | string | yes |  |
-| `scopes` | ("read" \| "write" \| "render" \| "admin")[] | yes |  |
+| `scopes` | ("read" \| "write" \| "render" \| "approve" \| "admin")[] | yes |  |
 | `expiresAt` | string \| null | no | ISO-8601 time the key stops working, e.g. "2027-01-31T00:00:00Z"; null: never. |
 | `expiresInDays` | number | no | Shortcut for expiresAt: this many days from now. |
 | `rateLimitPerMinute` | integer \| null | no | Requests per minute for this key (null: the server default; 0: no limit). |

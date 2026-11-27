@@ -142,7 +142,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_me',
     title: 'Get the calling API key',
     description:
-      'Returns the API key this call uses: id, name, scopes (read, write, render, admin), expiry, limits and its render usage today and this month. Never the secret. Use it to see what this key may do before calling a tool that needs another scope.',
+      'Returns the API key this call uses: id, name, scopes (read, write, render, approve, admin), expiry, limits and its render usage today and this month. Never the secret. Use it to see what this key may do before calling a tool that needs another scope.',
     scope: 'read',
     input: {},
     annotations: { readOnlyHint: true },
@@ -954,9 +954,9 @@ export const TOOLS: ToolDef[] = [
     name: 'create_key',
     title: 'Create an API key (admin)',
     description:
-      'Creates an API key in this key\'s workspace with the given scopes (read, write, render, admin; owner only from an owner key) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.',
+      'Creates an API key in this key\'s workspace with the given scopes (read, write, render, approve, admin; owner only from an owner key) and optional expiry, per-key rate limit, render quotas (per UTC day / month) and IP allowlist (CIDR). The key is returned once: give it to the user, never store it elsewhere. Needs the admin scope.',
     scope: 'admin',
-    input: { name: z.string(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).min(1), ...keyLimits },
+    input: { name: z.string(), scopes: z.array(z.enum(['read', 'write', 'render', 'approve', 'admin'])).min(1), ...keyLimits },
     run: async (a, { service, auth }) => ({
       ...(await service.createKey(a.name, a.scopes, keyOpts(a), { actorType: 'api_key', actorId: auth.keyId })),
       note: 'store this key now; it is not shown again',
@@ -1051,7 +1051,7 @@ export const TOOLS: ToolDef[] = [
       id: z.string(),
       name: z.string().optional(),
       limits: z.record(z.string(), z.number().int().nullable()).optional().describe('rendersPerDay, rendersPerMonth, rateLimitPerMinute, storageBytes; 0 or null: unlimited.'),
-      adminKey: z.union([z.boolean(), z.object({ name: z.string().optional(), scopes: z.array(z.enum(['read', 'write', 'render', 'admin'])).optional() })]).optional(),
+      adminKey: z.union([z.boolean(), z.object({ name: z.string().optional(), scopes: z.array(z.enum(['read', 'write', 'render', 'approve', 'admin'])).optional() })]).optional(),
     },
     annotations: { idempotentHint: false },
     run: async (a, { service, auth }) => service.createWorkspace(a, { actorType: 'api_key', actorId: auth.keyId }),

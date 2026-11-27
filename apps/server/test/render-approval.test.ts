@@ -143,6 +143,29 @@ describe('render approval', () => {
     expect(first.json.error.message).toContain('cannot be estimated yet');
   });
 
+  it('APR-06 a token works only in its own workspace; MCP create_key offers the approve scope', async () => {
+    expect((await setMode({ 'render.approval.mode': 'always' })).status).toBe(200);
+    // The same project id in another workspace: the default workspace's token is refused there.
+    const repos = server.service.repos as unknown as WorkspaceRouter;
+    await repos.workspaces.create({ id: 'other', name: 'other', status: 'active', createdAt: new Date().toISOString() });
+    repos.invalidateWorkspaces();
+    const otherKey = (await runInWorkspace('other', () => server.service.keys.create('other-agent', ['read', 'write', 'render']))).key;
+    expect((await rest('POST', '/v1/projects', { manifest: reel('beta') }, otherKey)).status).toBe(201);
+    const p = await plan('beta');
+    const token = (await approve('beta', p.planId)).json.approvalToken as string;
+    const elsewhere = await rest('POST', '/v1/projects/beta/renders', { approvalToken: token }, otherKey);
+    expect(elsewhere.status).toBe(409);
+    expect(elsewhere.json.error.code).toBe('approval_invalid');
+    // The token was not spent by the refused call: it still starts the render in its own workspace.
+    const started = await render('beta', token);
+    expect(started.status).toBe(202);
+    expect((await finish(started.json.job.id)).status).toBe('succeeded');
+    // An admin creates an approve-only key over MCP, as over REST.
+    const created = await mcp('create_key', { name: 'approver-2', scopes: ['approve'] }, keys.owner);
+    expect(created.isError).toBe(false);
+    expect(created.json.record?.scopes ?? created.json.scopes).toEqual(['approve']);
+  }, 120_000);
+
   it('APR-05 MCP: render_project refuses without a token, approve_render_plan mints one, render_project takes it', async () => {
     expect((await setMode({ 'render.approval.mode': 'always' })).status).toBe(200);
     const refused = await mcp('render_project', { projectId: 'beta' }, keys.renderer);
