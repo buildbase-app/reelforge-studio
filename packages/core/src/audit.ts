@@ -21,6 +21,11 @@ export interface RequestContext {
   ip?: string;
   userAgent?: string;
   via: 'rest' | 'mcp' | 'cli' | 'system';
+  /**
+   * `scheme://host[:port]` the client used, when server.publicUrl is unset and the Host is one of
+   * server.allowedHosts: links in answers are then absolute without configuration (#405).
+   */
+  baseUrl?: string;
   auth?: AuthContext;
   /** Set once the service wrote an audit entry for this call (the transport then writes none). */
   audited?: boolean;

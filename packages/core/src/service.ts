@@ -2382,8 +2382,9 @@ export class ReelforgeService {
     return this.jobs.logs(id, tail);
   }
 
+  /** An absolute link: server.publicUrl, else the base the request came in on (#405); relative only outside a request. */
   private url(path: string) {
-    return `${this.publicUrl}${path}`;
+    return `${this.publicUrl || currentRequest()?.baseUrl || ''}${path}`;
   }
 
   /**

@@ -80,6 +80,36 @@ export function clientIp(c: Context, trustProxy: boolean): string | undefined {
 }
 
 /** Strip the port and brackets from a Host header value. */
+/**
+ * The base URL a request came in on, for absolute links when server.publicUrl is unset (#405): only for a Host
+ * that is one of server.allowedHosts (the same check as /mcp's DNS-rebinding guard), so a forged Host never
+ * reaches a link. The scheme is the connection's, or the last X-Forwarded-Proto with server.trustProxy.
+ */
+export function requestBaseUrl(
+  c: Context,
+  config: Pick<ServerConfig, 'allowedHosts' | 'publicUrl'>,
+  trustProxy: boolean
+): string | undefined {
+  if (config.publicUrl) return undefined;
+  const hostHeader = c.req.header('host')?.trim();
+  if (!hostHeader || !config.allowedHosts.includes(hostName(hostHeader))) return undefined;
+  let scheme = new URL(c.req.url).protocol.replace(/:$/, '');
+  if (trustProxy) {
+    const forwarded = c.req.header('x-forwarded-proto')?.split(',').pop()?.trim().toLowerCase();
+    if (forwarded === 'http' || forwarded === 'https') scheme = forwarded;
+  }
+  if (scheme !== 'http' && scheme !== 'https') return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(`${scheme}://${hostHeader}`);
+  } catch {
+    return undefined;
+  }
+  // Only a bare host[:port]: nothing a Host header could smuggle in (user info, a path).
+  if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return undefined;
+  return parsed.origin;
+}
+
 export function hostName(hostHeader: string | undefined): string {
   if (!hostHeader) return '';
   const h = hostHeader.trim().toLowerCase();
@@ -181,6 +211,8 @@ export function createApp(deps: AppDeps) {
       userAgent: c.req.header('user-agent'),
       via: c.req.path === '/mcp' ? 'mcp' : 'rest',
     };
+    const baseUrl = requestBaseUrl(c, config, service.settings?.current.config.server.trustProxy ?? false);
+    if (baseUrl) ctx.baseUrl = baseUrl;
     await runWithRequest(ctx, () => next());
     c.header('X-Request-Id', ctx.requestId);
     c.header('X-Content-Type-Options', 'nosniff');
