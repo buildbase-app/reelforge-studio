@@ -245,6 +245,8 @@ export interface SttRequest {
   /** BCP 47 tag of the spoken language, or "auto" to detect it. */
   language: string;
   settings: SttSettings;
+  /** Words to expect, such as the project glossary's terms (#486): faster-whisper's `initial_prompt`. */
+  prompt?: string;
 }
 
 export interface SttResult {
