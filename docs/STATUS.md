@@ -1,5 +1,7 @@
 # ReelForge: status record
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](RENAMED.md) maps each old name to the new one.
+
 **Updated:** 2026-11-23 (agent platform v0.1). This is the single place to start. It covers both
 repositories, the infrastructure, decisions, the end-to-end goal and the
 backlog. Backlog items are GitHub issues in this repo (store issues live here
@@ -31,10 +33,7 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> MCP tools, generated list in
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> MCP tools, generated list in
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> MCP tools, generated list in
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->81<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -835,6 +834,18 @@ workspace names; none of the packages was ever published to npm (both scopes are
 no deprecation stubs and no alias. A filter that names an old package matches nothing and pnpm exits 0, so the
 `--filter @reelforge/*` lines in `.github/workflows/ci.yml` (maintainer-only) have to change with this phase,
 or CI skips those steps silently. [RENAMED.md](RENAMED.md#workspace-packages-contributors) lists the names.
+
+### Docs say RenderWeld, with a guard (2026-11-25, issue #415, phase 6 of #408)
+
+README, `docs/` (guides, providers, cloud, runbooks, launch drafts), the public docs site and the tutorial
+generator name RenderWeld and use the new CLI, resources, scopes, metrics, attributes, settings and
+renderweld.com links wherever the code accepts them. Docker compose snippets keep the `REELFORGE_*` names that
+docker-compose.yml interpolates and say why; data and deployment identity (volume, database users, Kubernetes
+objects, file paths) and the repository and image names (#409) are unchanged. `scripts/docs/old-name.test.mjs`
+(in `pnpm test:docs`) fails on an old public name or a banned spelling outside the rename pages, these records
+(DECISIONS, STATUS, research: a note at the top instead of rewritten history), the generated CONFIG.md, the
+tutorials recorded under the old MCP entry name (until `pnpm tutorials:prove` runs again) and the pages
+`pnpm capture` generates from the live store (until the next capture).
 
 ## 4. Infrastructure inventory (no secrets)
 

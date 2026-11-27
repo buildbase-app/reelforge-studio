@@ -1,4 +1,4 @@
-# ReelForge Studio
+# RenderWeld
 
 Self-hosted, AI-agent-driven short-form video studio. You run the server on
 your own machine or cloud; any AI agent (Claude Code, Codex, Cursor, any MCP
@@ -31,7 +31,7 @@ or `npx remotion browser ensure`).
 
 ```bash
 pnpm install
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
+export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm keys:create --name me        # prints an rf_... key once
 pnpm dev                          # REST http://127.0.0.1:4321/v1, MCP http://127.0.0.1:4321/mcp
 ```
@@ -41,18 +41,19 @@ Step-by-step tutorials for every agent and engine, each with a proof run: [docs/
 Connect an agent (more in `docs/CONNECT_AGENTS.md`):
 
 ```bash
-claude mcp add --transport http reelforge http://127.0.0.1:4321/mcp \
+claude mcp add --transport http renderweld http://127.0.0.1:4321/mcp \
   --header "Authorization: Bearer rf_..."
 ```
 
 Or with Docker (`docs/DEPLOY.md`):
 
 ```bash
+export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)    # required; keep a copy
 export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
 docker compose up -d --build      # then use $REELFORGE_BOOTSTRAP_KEY as the admin key
 ```
 
-Developers: `pnpm typecheck`, `pnpm test` (`REELFORGE_REQUIRE_BROWSER=1` in
+Developers: `pnpm typecheck`, `pnpm test` (`RENDERWELD_REQUIRE_BROWSER=1` in
 CI), `pnpm spike` (standalone two-engine render). Local setup, test tiers,
 databases and running the studio next to the store site
 (`scripts/dev/both.sh`): [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). See also
@@ -61,7 +62,7 @@ databases and running the studio next to the store site
 ## What works today
 
 - **Server** (`apps/server`): REST `/v1` and MCP `/mcp` (official MCP SDK,
-  Streamable HTTP) over the same handlers; <!-- mcp-tool-count -->77<!-- /mcp-tool-count --> MCP tools (generated list:
+  Streamable HTTP) over the same handlers; <!-- mcp-tool-count -->81<!-- /mcp-tool-count --> MCP tools (generated list:
   [docs/public/mcp/tools.md](docs/public/mcp/tools.md)), resources (incl. a workflow guide), prompts
   `make_reel`/`plan_reel`/`review_reel`; API keys with scopes, expiry, rotation and
   quotas; per-key rate limit; jobs with progress (SSE), logs, cancel and retry;
@@ -85,7 +86,7 @@ databases and running the studio next to the store site
   key for noncommercial use or a paid Commercial key; only the key and a random
   instance id are sent; daily check, 14 days offline grace; one activation per
   deployment however many api and worker instances); without a valid licence
-  renders are refused and everything else works. `REELFORGE_LICENCE_MODE=off` for development (`pnpm dev` sets it).
+  renders are refused and everything else works. `RENDERWELD_LICENCE_MODE=off` for development (`pnpm dev` sets it).
   See docs/DEPLOY.md#licence.
 - **Data and settings**: metadata in SQLite (default), PostgreSQL or
   MySQL/MariaDB by `DATABASE_URL`; files on local disk, S3-compatible, Azure
@@ -110,21 +111,21 @@ databases and running the studio next to the store site
 
 - **Remotion is not free for every company.** Free for individuals and teams of
   up to 3 people; larger companies need a paid Remotion license. Every user of
-  ReelForge needs their own. See `research/LICENSING_AND_COSTS.md`.
+  RenderWeld needs their own. See `research/LICENSING_AND_COSTS.md`.
 - Motion Canvas is MIT; HyperFrames is Apache-2.0. FFmpeg is LGPL/GPL
   depending on the build (we use the system FFmpeg).
 - No fonts, music or footage are bundled. Templates use system fonts.
 - Full inventory: `LICENSES/THIRD_PARTY.md`. Network egress: `docs/PRIVACY.md`.
 
-ReelForge itself is **source-available**, not open source (`LICENSING.md`):
+RenderWeld itself is **source-available**, not open source (`LICENSING.md`):
 
 - Noncommercial use (hobby, study, research, evaluation, noncommercial
   organisations) is free under the **PolyForm Noncommercial License 1.0.0**
   (`LICENSE.md`). The released image asks for a free Personal licence key.
-- Anything that earns money needs a paid **ReelForge Commercial License**
+- Anything that earns money needs a paid **RenderWeld Commercial License**
   (one-time, `COMMERCIAL-LICENSE.md`, draft), sold at
-  <https://reelforge.buildbase.app/pricing>.
-- Reselling, rebranding, redistributing or hosting ReelForge for others is not
+  <https://renderweld.com/pricing>.
+- Reselling, rebranding, redistributing or hosting RenderWeld for others is not
   permitted under either licence; the name and logo are not licensed
   (`TRADEMARK.md`). Required notices: `NOTICE`.
 

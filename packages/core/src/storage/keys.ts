@@ -55,6 +55,7 @@ export function contentTypeFor(key: string): string {
   if (key.endsWith('.m4a')) return 'audio/mp4';
   if (key.endsWith('.wav')) return 'audio/wav';
   if (key.endsWith('.png')) return 'image/png';
+  if (key.endsWith('.jpg')) return 'image/jpeg';
   if (key.endsWith('.json')) return 'application/json';
   if (key.endsWith('.srt')) return 'application/x-subrip; charset=utf-8';
   if (key.endsWith('.vtt')) return 'text/vtt; charset=utf-8';

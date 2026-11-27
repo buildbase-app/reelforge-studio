@@ -1,5 +1,7 @@
 # Licensing, Provider Terms, and Cost Risks
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](../docs/RENAMED.md) maps each old name to the new one.
+
 This is an engineering checklist, not legal advice. Re-check current
 official terms before every public release.
 

@@ -1,6 +1,6 @@
 ---
 title: "Fonts"
-description: "Custom and bundled fonts in ReelForge Studio: upload a TTF, OTF, WOFF or WOFF2 file, name its family in the theme, and every engine renders with it offline. The bundled OFL font set, the fallback chain and how font loading is made deterministic."
+description: "Custom and bundled fonts in RenderWeld: upload a TTF, OTF, WOFF or WOFF2 file, name its family in the theme, and every engine renders with it offline. The bundled OFL font set, the fallback chain and how font loading is made deterministic."
 folder: "manifest"
 slug: "fonts"
 order: 5
@@ -11,7 +11,7 @@ tags: [manifest, reference, fonts, assets]
 
 Every engine (Remotion, Motion Canvas, html and HyperFrames) renders text in
 the fonts your theme names, from your project's font files or from the fonts
-bundled with ReelForge. Fonts never come from the network: the Google Fonts
+bundled with RenderWeld. Fonts never come from the network: the Google Fonts
 fetches some tools make are blocked (#318, D-111).
 
 ## Use your own font
@@ -54,7 +54,7 @@ registered name (`metadata.font.family`; the name as written in the file is
 
 ## Bundled fonts
 
-These fonts ship with ReelForge. Themes that name them render the same on
+These fonts ship with RenderWeld. Themes that name them render the same on
 every machine, whatever is installed:
 
 | Family | Style | Files | Licence |

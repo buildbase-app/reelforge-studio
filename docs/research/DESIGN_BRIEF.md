@@ -1,5 +1,7 @@
 # ReelForge store: design and product-concept brief
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](../RENAMED.md) maps each old name to the new one.
+
 **Prepared:** 2026-11-21. **Scope:** pattern-level research on revid.ai, 8 AI-video peers and 3 sites that sell developer products, mapped onto what ReelForge Studio actually has today.
 **Rule followed:** nothing copied. No competitor text, branding, logos or assets. Patterns only.
 **Read with:** `/home/user/ReelForge/REELFORGE_PLAN.md`, `/home/user/reelforge-studio/docs/AGENT_PLATFORM.md`, `/home/user/reelforge-studio/docs/STATUS.md`.

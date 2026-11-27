@@ -1,4 +1,4 @@
-# ReelForge Agent Platform: architecture and contract
+# RenderWeld Agent Platform: architecture and contract
 
 **Status:** DECIDED direction (founder, 2026-11-21). v0.1 implemented on
 2026-11-21; the STATUS table (§10) says exactly what is done, partial or
@@ -6,7 +6,7 @@ missing.
 
 ## 1. Goal
 
-ReelForge Studio is a **self-hosted server** that any AI agent can drive.
+RenderWeld is a **self-hosted server** that any AI agent can drive.
 Whoever runs it (a laptop, a VPS, AWS, GCP, Azure, Fly, Kubernetes) gets:
 
 - a **REST API** (`/v1/...`) and
@@ -83,9 +83,10 @@ interface EnginePlugin {          // turns one scene into a video clip
 }
 interface ProviderPlugin {        // produces an asset (audio, video, image) from parameters
   id: string; kind: 'tts' | 'avatar' | 'music' | 'stock' | 'image';
-  configured(): boolean;          // has the operator set its key?
+  configured(env?): boolean;      // is its key set (for one workspace's settings, when env is given)?
+  scopedSettings?: boolean;       // reads its key from ctx.env, so a workspace can bring its own (#480)
   costNote: string;               // shown to agents before they call it
-  run(params, ctx): Promise<AssetResult>;    // e.g. TTS returns audio + word timestamps
+  run(params, ctx): Promise<AssetResult>;    // e.g. TTS returns audio + word timestamps; ctx.env = the workspace's own settings, if any
 }
 interface RenderBackend {         // where engine renders and assembly run (docs/providers/backends.md)
   id: 'local' | 'remotion-lambda' | string;
@@ -184,18 +185,17 @@ REST handlers, with descriptions written for agents:
 Implemented extras (v0.1), so every REST route has a tool: projects and versions,
 themes, renders and jobs (`list_jobs`, `retry_job`, `list_renders`), assets,
 providers, keys and their lifecycle, the audit log (#65), configuration, licence,
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
-storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->77<!-- /mcp-tool-count --> tools in total**; the grouped list with every
+storage (#27) and webhooks (#66). **<!-- mcp-tool-count -->81<!-- /mcp-tool-count --> tools in total**; the grouped list with every
 tool's scope, arguments and REST equivalent is generated from the server's
 registry: [public/mcp/tools.md](public/mcp/tools.md) (`pnpm docs:reference`).
 Create and render tools take an optional `idempotencyKey` (D-057). Resource
-`reelforge://guide/workflow` and prompt `make_reel` explain the workflow to an
+`renderweld://guide/workflow` and prompt `make_reel` explain the workflow to an
 agent with no other docs.
 
-Resources: `reelforge://schema/project`, `reelforge://templates`,
-`reelforge://projects/{id}`. Prompts: `brief_intake` (ask the user what the
+Resources: `renderweld://schema/project`, `renderweld://templates`,
+`renderweld://projects/{id}`, and the skills for agents `renderweld://skills` and
+`renderweld://skills/{name}` (also `get_skill` and `GET /v1/skills`; built-in
+standards-based skills plus `skills.dir`, #313; public/mcp/skills.md). Prompts: `brief_intake` (ask the user what the
 request leaves open before planning, #313), `make_reel` (the whole workflow),
 `plan_reel` (turn a brief into a
 manifest using installed templates), `review_reel` (check a manifest against
@@ -204,12 +204,12 @@ the delivery checklist).
 Agents connect with, for example:
 
 ```bash
-claude mcp add --transport http reelforge https://studio.example.com/mcp --header "Authorization: Bearer rf_..."
+claude mcp add --transport http renderweld https://studio.example.com/mcp --header "Authorization: Bearer rf_..."
 ```
 
 ```toml
 # ~/.codex/config.toml
-[mcp_servers.reelforge]
+[mcp_servers.renderweld]
 url = "https://studio.example.com/mcp"
 http_headers = { Authorization = "Bearer rf_..." }
 ```
@@ -217,9 +217,9 @@ http_headers = { Authorization = "Bearer rf_..." }
 ## 8. Security
 
 - API keys: random 32 bytes, shown once, stored hashed (scrypt/sha256 + salt),
-  scopes `read`, `write`, `render`, `admin`; created by `reelforge keys create`
-  or the admin API; bootstrap key from `REELFORGE_BOOTSTRAP_KEY` on first start.
-- Bind `127.0.0.1` by default; `REELFORGE_HOST=0.0.0.0` behind TLS for remote
+  scopes `read`, `write`, `render`, `admin`; created by `renderweld keys create`
+  or the admin API; bootstrap key from `RENDERWELD_BOOTSTRAP_KEY` on first start.
+- Bind `127.0.0.1` by default; `RENDERWELD_HOST=0.0.0.0` behind TLS for remote
   use. Origin and Host checks on `/mcp` (DNS rebinding). Rate limits per key.
 - Provider keys live in environment variables or a secrets file, never in
   manifests, logs or exports.
@@ -235,7 +235,7 @@ many keys).
 
 ## 10. STATUS (2026-11-21, rows for later work added through 2026-11-23)
 
-Evidence: `pnpm typecheck` and `REELFORGE_REQUIRE_BROWSER=1 pnpm test` on Linux
+Evidence: `pnpm typecheck` and `RENDERWELD_REQUIRE_BROWSER=1 pnpm test` on Linux
 x64 with Chrome Headless Shell 157 and FFmpeg 6.1; Docker image built and run
 with Docker 29.10. "Done" means implemented and covered by a test or a command
 that was run; "partial" says what is missing.
@@ -257,10 +257,10 @@ that was run; "partial" says what is missing.
 | §3 Providers: avatar (HeyGen), stock, music | missing | Interfaces exist |
 | §3 Backend: local | done | renders on the instance that claimed the job: the in-process queue on one instance (concurrency 1 by default), or `worker` instances of the database queue (below) |
 | §3 Backend: remotion-lambda | partial (skeleton) | Configuration check only; submitting returns `not_implemented` (501). Nothing faked |
-| §3 Backend interface v2 + `worker --once` (#150) | done | `kind`, `capabilities()`, `estimate()` in `get_capabilities` and `validate_project`; contract suite for every backend; `reelforge worker --once [--job <id>]` / `REELFORGE_WORKER_ONCE=1` tested with processes on PostgreSQL and MySQL (D-100, docs/providers/backends.md) |
+| §3 Backend interface v2 + `worker --once` (#150) | done | `kind`, `capabilities()`, `estimate()` in `get_capabilities` and `validate_project`; contract suite for every backend; `renderweld worker --once [--job <id>]` / `RENDERWELD_WORKER_ONCE=1` tested with processes on PostgreSQL and MySQL (D-100, docs/providers/backends.md) |
 | §3 Storage: local fs | done | `LocalStorageDriver` for asset and render files |
-| Database (#23, D-022) | done | Repository interfaces in core; Prisma 7: SQLite (default), PostgreSQL, MySQL by `DATABASE_URL`; migrations on start / `reelforge migrate`; one-time v0.1 import; contract tests on all three; Docker e2e on all three. MongoDB: not yet (Prisma 7) |
-| §3 Storage: S3-compatible, Azure Blob, GCS, signed URLs (#27, D-065..D-069) | done (MinIO tested; Azure/GCS on emulators) | `storage.driver` local / s3 / azure / gcs; bucket-signed `downloadUrl`; atomic render commit; retention (`get_storage`, `run_storage_cleanup`); `reelforge storage migrate`. Provider matrix and test cases: docs/providers/storage.md. AWS S3, R2, B2, Wasabi, Spaces untested |
+| Database (#23, D-022) | done | Repository interfaces in core; Prisma 7: SQLite (default), PostgreSQL, MySQL by `DATABASE_URL`; migrations on start / `renderweld migrate`; one-time v0.1 import; contract tests on all three; Docker e2e on all three. MongoDB: not yet (Prisma 7) |
+| §3 Storage: S3-compatible, Azure Blob, GCS, signed URLs (#27, D-065..D-069) | done (MinIO tested; Azure/GCS on emulators) | `storage.driver` local / s3 / azure / gcs; bucket-signed `downloadUrl`; atomic render commit; retention (`get_storage`, `run_storage_cleanup`); `renderweld storage migrate`. Provider matrix and test cases: docs/providers/storage.md. AWS S3, R2, B2, Wasabi, Spaces untested |
 | §3 Docker image + compose | done | Built and run here: healthy, four-engine render via REST, MCP tools/list. Cloud recipes in docs/DEPLOY.md untested |
 | §4 Templates expose props JSON Schema, durations, theme tokens | done | `list_templates` |
 | §5 Manifest v0.2 + automatic v0.1 migration | done | 44 schema tests |
@@ -277,23 +277,26 @@ that was run; "partial" says what is missing.
 | §6 Errors `{ error: { code, message, details } }` | done | |
 | §6 SSE job events | done | `GET /v1/jobs/:id/events` |
 | §6 Outputs: MP4, render manifest, poster; signed URL when remote | done | Download with Range and Bearer key (streamed from any driver), or a time-limited `downloadUrl` that needs no key: signed by the bucket on remote storage, else by the server (HMAC, one file, 1 h) |
-| Provider configuration over the API (agent-only operation) | done | `configure_provider` / `PUT /v1/providers/:id/config` (admin); values stored encrypted (AES-256-GCM, `REELFORGE_SECRET_KEY`, D-033) and never returned; `list_providers` reports set/source |
-| Configuration everywhere (#24, D-029, D-031..D-034) | done | One schema (docs/CONFIG.md); defaults < `REELFORGE_CONFIG` file < env (`_FILE` for secrets) < runtime settings in the database; `get_config` / `update_config`, `GET`/`PATCH /v1/config` (admin, audit-logged); start-up-only keys refused with where to set them; `reelforge config check` / `show`; Docker e2e on SQLite and PostgreSQL |
-| Licence activation (#25, D-028, D-035..D-038) | done | BuildBase licence API (key + instance id only), `LicenceState` table on all three databases, daily validate, 14-day offline grace, backoff, clock checks; renders/previews refused with `licence_required` / `licence_invalid` + fix; `get_licence` / `activate_licence` / `deactivate_licence`, `/v1/licence`, `reelforge licence`; unit tests (mock LicensesApi), server tests (mock licence server, injected clock), Docker e2e on SQLite and PostgreSQL, one live check against the dev environment. `licence.mode: trial` reserved |
-| Workflow guide for agents without docs | done | MCP resource `reelforge://guide/workflow` and prompt `make_reel`; the guide's manifest is validated by a test |
+| Provider configuration over the API (agent-only operation) | done | `configure_provider` / `PUT /v1/providers/:id/config` (owner); per workspace `configure_workspace_provider` / `PUT /v1/providers/:id/workspace-config` (that workspace's admin) and `providers.shareWithWorkspaces` (#480, D-133, `apps/server/test/workspace-providers.test.ts` WSP-01..05); values stored encrypted (AES-256-GCM, `RENDERWELD_SECRET_KEY`, D-033) and never returned; `list_providers` reports set/source and `settingsFrom` |
+| Configuration everywhere (#24, D-029, D-031..D-034) | done | One schema (docs/CONFIG.md); defaults < `RENDERWELD_CONFIG` file < env (`_FILE` for secrets) < runtime settings in the database; `get_config` / `update_config`, `GET`/`PATCH /v1/config` (admin, audit-logged); start-up-only keys refused with where to set them; `renderweld config check` / `show`; Docker e2e on SQLite and PostgreSQL |
+| Licence activation (#25, D-028, D-035..D-038) | done | BuildBase licence API (key + instance id only), `LicenceState` table on all three databases, daily validate, 14-day offline grace, backoff, clock checks; renders/previews refused with `licence_required` / `licence_invalid` + fix; `get_licence` / `activate_licence` / `deactivate_licence`, `/v1/licence`, `renderweld licence`; unit tests (mock LicensesApi), server tests (mock licence server, injected clock), Docker e2e on SQLite and PostgreSQL, one live check against the dev environment. `licence.mode: trial` reserved |
+| Workflow guide for agents without docs | done | MCP resource `renderweld://guide/workflow` and prompt `make_reel`; the guide's manifest is validated by a test |
 | §6 Assets: upload or URL, licence, checksum | done | Content-addressed store, byte sniffing, https only, SSRF guard at connect time, size limit |
-| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->77<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
+| §7 MCP tools (24 in the spec) | done | All 24, plus a tool for every other REST route: <!-- mcp-tool-count -->81<!-- /mcp-tool-count --> in total (generated list: public/mcp/tools.md); official SDK 1.32.2, stateless Streamable HTTP; e2e with the SDK client against a real server process |
 | §7 Resources and prompts `brief_intake`, `make_reel`, `plan_reel`, `review_reel` | done | MCP tests |
+| Skills for agents (#313): 12 built-in craft skills, public (D-132), `skills.dir` for more, `get_skill`, `/v1/skills`, resources, `renderweld skills export` | done | `apps/server/test/skills.test.ts` (SKL-01..15) |
+| Agent visual review: `get_frames` / `GET /v1/renders/:id/frames` (#379): labelled contact sheet or separate stills, auto / at / every, safe-area overlay | done | `packages/core/test/frames.test.ts` (FRM-01..07), `apps/server/test/frames.test.ts` (FRM-10..13, pixel check per tile). A sheet stored with every render and preview (`contact-sheet.jpg`, `render.contactSheet.*`, `contactSheet` in `get_render_output`, shown in the dashboard): FRM-08, FRM-15..16 (pixel check per tile of the stored sheet), CS-01..02, every output format. Not yet: platform-zone tints from #385, findings drawn on tiles |
+| Picture checks after the encode (#294): frozen and black stretches per render, `render.qa.*`, warn or fail | done (first two gates) | `packages/core/test/videoqa.test.ts` (VQA-01..06); motion energy, loop seam, seek determinism and flashes still open |
 | §7 Server card `/.well-known/mcp.json` | done | |
 | §7 Tool names marked experimental | done | Server card and capabilities |
-| §8 API keys: random 32 bytes, hashed, scopes, CLI, admin API, bootstrap key | done | `REELFORGE_BOOTSTRAP_KEY` or `_FILE`; CLI `pnpm keys:create` / `reelforge keys create` in Docker (picked up without restart); admin tools create/list/revoke |
+| §8 API keys: random 32 bytes, hashed, scopes, CLI, admin API, bootstrap key | done | `RENDERWELD_BOOTSTRAP_KEY` or `_FILE`; CLI `pnpm keys:create` / `renderweld keys create` in Docker (picked up without restart); admin tools create/list/revoke |
 | Enterprise E2 (#65, D-055..D-059): audit log, key lifecycle, idempotency keys | done | Append-only audit log for every admin and write call (REST, MCP, CLI) with key id/name, target, result, IP, user agent, request id; `GET /v1/audit` / `list_audit_events` with filters and JSONL/CSV export; sinks database + stdout + OTLP (+ plugins); retention sweep. Keys: expiry, rotation grace, revoke, per-key rate limit, render quotas, IP allowlist (REST, MCP, CLI). `Idempotency-Key` / `idempotencyKey` on create and render calls. Test cases: docs/providers/audit-and-keys.md |
 | Enterprise E3 (#66, D-070..D-074): outbound events, signed webhooks, notification providers | done (webhook and SMTP emulator-tested; chat and email APIs stub-tested) | Events (job.*, render.ready, licence.state_changed, key.created/revoked, config.changed, audit.entry) to signed Standard Webhooks endpoints, Slack, Discord, Teams and email (SMTP, Resend, Postmark, SES, SendGrid), several at once; database outbox with backoff, dead letter, replay, restart-safe; SSRF guard; secrets encrypted, rotation with overlap; REST, MCP (`create_webhook` ... `replay_webhook_delivery`) and CLI. Test cases: docs/providers/webhooks-and-notifications.md |
 | Webhooks for operations (#306, D-113) | done (render.qa_failed reserved for #294; moderation for render.blocked later) | One terminal `render.*` event per render job (`ready`, `failed` with typed code and log excerpt, `timeout` from `render.timeoutSeconds`, `cancelled`, `qa_failed`, `blocked` by the licence) with timing, costs (CPU seconds where measurable, output and storage bytes) and links; `dedupeKey` `render:<jobId>` and a webhook-id derived from it; retries for up to 24 h (10 s timeout), attempts fenced by the lease; `resend_webhook`, `rotate_webhook_secret` (two valid secrets during the overlap), `get_webhook_log` (read scope). Migration `0013_webhook_operations`. Test cases: docs/providers/webhooks-and-notifications.md |
 | §8 Bind 127.0.0.1 by default; Host/Origin checks on /mcp | done | REST tests |
 | §8 Rate limits per key | done | `limits.rateLimitStore`: a token bucket per instance (`memory`) or a sliding 60 s window from one counter per key and minute in the database, shared by every instance (`database`, the default with the database queue; D-078, D-110); the limit is a runtime setting (`limits.rateLimitPerMinute`); per-key overrides (#65); `RateLimit-*` and `Retry-After` headers; per-address limits and a failed-auth lockout before the key lookup (#305) |
 | §8 Provider keys only in env; never in logs/manifests | done | HyperFrames child gets a filtered env (tested) |
-| §8 Chromium sandbox on outside containers | partial | on by default for html, hyperframes and motion-canvas, also in the release image with `deployment/seccomp/chrome.json` (D-086); `REELFORGE_CHROMIUM_NO_SANDBOX=1` is a logged opt-out; Remotion hard-codes `--no-sandbox` (built-in templates only); render processes get no server secrets; agent scenes have no network (D-085) |
+| §8 Chromium sandbox on outside containers | partial | on by default for html, hyperframes and motion-canvas, also in the release image with `deployment/seccomp/chrome.json` (D-086); `RENDERWELD_CHROMIUM_NO_SANDBOX=1` is a logged opt-out; Remotion hard-codes `--no-sandbox` (built-in templates only); render processes get no server secrets; agent scenes have no network (D-085) |
 | §9 Single tenant | done | |
 | Web UI | missing (optional by design) | |
 | Audit log, metrics, multi-instance | done | metrics, structured logs, tracing (#64, docs/providers/observability.md); audit log (#65, row above); multi-instance (#36, row below) |

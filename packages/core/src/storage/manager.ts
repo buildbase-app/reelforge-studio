@@ -8,8 +8,9 @@ import type { RuntimeConfig } from '../config/runtime';
 import type { StorageDriver } from '../plugins';
 import type { StorageFactory } from './factory';
 import { DEFAULT_WORKSPACE_ID } from '../repositories';
+import { framesCacheDir } from '../frames';
 import { currentWorkspaceId, runInWorkspace, workspaceKeyPrefix } from '../workspace';
-import { ASSETS_PREFIX, checkKey, mapLimit } from './keys';
+import { ASSETS_PREFIX, RENDER_MANIFEST, checkKey, checkPrefix, mapLimit, renderPrefix } from './keys';
 import { scopeDriver } from './scoped';
 import { RenderStore, type StoredRun } from './renders';
 
@@ -107,6 +108,18 @@ export class StorageManager {
   get rootDriver(): StorageDriver {
     if (!this.current) throw new Error('storage is not initialised');
     return this.current;
+  }
+
+  /**
+   * Delete one finished render or preview (delete_render, #312): its objects (manifest first, so it stops being a
+   * render at once), the local copies this instance cached of them, and on local storage its empty folder.
+   */
+  async deleteRender(run: StoredRun): Promise<void> {
+    const prefix = renderPrefix(run.projectId, run.runId);
+    const dir = this.driver.localPath(prefix + RENDER_MANIFEST);
+    await this.renders.deleteRun(run);
+    if (dir) await rm(dirname(dir), { recursive: true, force: true }).catch(() => undefined);
+    await rm(join(this.cacheRoot, checkPrefix(workspaceKeyPrefix(currentWorkspaceId()) + prefix)), { recursive: true, force: true }).catch(() => undefined);
   }
 
   /** Delete every object of a workspace (purge, #304). Never the default workspace. Returns how many. */
@@ -346,6 +359,8 @@ export class StorageManager {
       if (dryRun) return true;
       try {
         await this.renders.deleteRun(run);
+        // get_frames' cached stills of this render go with it.
+        await rm(framesCacheDir(this.opts.cacheDir, run.runId), { recursive: true, force: true });
         return true;
       } catch (e) {
         report.errors.push(`${run.projectId}/${run.runId}: ${(e as Error).message}`);

@@ -22,6 +22,7 @@
     "docs/public/start/connect-an-agent.md",
     "docs/HOW_IT_WORKS.md",
     "docs/public/install/docker.md",
+    "docs/public/install/sizing.md",
     "docs/public/install/licence.md",
     "docs/public/install/from-source.md",
     {
@@ -29,7 +30,7 @@
       "folder": "install",
       "slug": "configuration",
       "title": "Configuration reference",
-      "description": "Every ReelForge Studio setting with its environment variable, default, scope and whether it is secret, generated from the configuration schema.",
+      "description": "Every RenderWeld setting with its environment variable, default, scope and whether it is secret, generated from the configuration schema.",
       "order": 4,
       "tags": ["install", "reference"]
     },
@@ -45,13 +46,14 @@
     "docs/public/api/endpoints.md",
     "docs/public/mcp/mcp-server.md",
     "docs/public/mcp/tools.md",
+    "docs/public/mcp/skills.md",
     "docs/public/providers/all-providers.md",
     "docs/PROVIDERS.md",
     {
       "file": "docs/providers/storage.md",
       "folder": "providers",
       "slug": "storage",
-      "description": "Where ReelForge Studio keeps asset and render files: local disk, S3 and S3-compatible services, Azure Blob and Google Cloud Storage, with settings, permissions and what is tested.",
+      "description": "Where RenderWeld keeps asset and render files: local disk, S3 and S3-compatible services, Azure Blob and Google Cloud Storage, with settings, permissions and what is tested.",
       "order": 2,
       "tags": ["providers", "storage"]
     },
@@ -59,7 +61,7 @@
       "file": "docs/providers/observability.md",
       "folder": "providers",
       "slug": "observability",
-      "description": "Logs, Prometheus metrics and OpenTelemetry traces from ReelForge Studio: settings, what is emitted, examples for common backends and what is tested.",
+      "description": "Logs, Prometheus metrics and OpenTelemetry traces from RenderWeld: settings, what is emitted, examples for common backends and what is tested.",
       "order": 3,
       "tags": ["providers", "observability"]
     },
@@ -67,7 +69,7 @@
       "file": "docs/providers/audit-and-keys.md",
       "folder": "providers",
       "slug": "audit-and-keys",
-      "description": "The audit log and its sinks, the API key lifecycle (expiry, rotation, revocation, quotas, IP allowlists) and idempotency keys in ReelForge Studio.",
+      "description": "The audit log and its sinks, the API key lifecycle (expiry, rotation, revocation, quotas, IP allowlists) and idempotency keys in RenderWeld.",
       "order": 4,
       "tags": ["providers", "security"]
     },
@@ -83,7 +85,7 @@
       "folder": "privacy",
       "slug": "network-egress",
       "title": "Privacy and network egress",
-      "description": "ReelForge Studio has no telemetry. Every network connection the software can make, when, what it sends and how to avoid it.",
+      "description": "RenderWeld has no telemetry. Every network connection the software can make, when, what it sends and how to avoid it.",
       "order": 1,
       "tags": ["privacy", "security"]
     },

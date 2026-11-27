@@ -22,6 +22,8 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'GET', path: '/v1/me', scope: 'read', tool: 'get_me' },
   { method: 'GET', path: '/v1/schema/project', scope: 'read', tool: 'get_project_schema' },
   { method: 'GET', path: '/v1/templates', scope: 'read', tool: 'list_templates' },
+  { method: 'GET', path: '/v1/skills', scope: 'read', tool: 'get_skill', note: 'The list; MCP: get_skill without name.' },
+  { method: 'GET', path: '/v1/skills/:name', scope: 'read', tool: 'get_skill', note: 'REST answers with the Markdown (text/markdown); MCP: get_skill { name } returns it in JSON.' },
   { method: 'GET', path: '/v1/themes', scope: 'read', tool: 'list_themes' },
   { method: 'POST', path: '/v1/themes', scope: 'write', tool: 'create_theme' },
   { method: 'GET', path: '/v1/themes/:id', scope: 'read', tool: 'get_theme' },
@@ -55,6 +57,8 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'GET', path: '/v1/jobs/:id/events', scope: 'read', tool: 'get_job', note: 'SSE stream in REST; MCP clients call get_job with waitSeconds (long-poll).' },
   { method: 'GET', path: '/v1/renders/:id', scope: 'read', tool: 'get_render_output' },
   { method: 'GET', path: '/v1/renders/:id/captions', scope: 'read', tool: 'get_captions', note: 'MCP: get_captions with renderId.' },
+  { method: 'GET', path: '/v1/renders/:id/frames', scope: 'read', tool: 'get_frames', note: 'Query: at=1.5,3 (seconds), frames=0,45, scenes=hook:mid,steps:end, every=2.5, width, layout, overlay. JSON with base64 images; format=jpeg returns the sheet itself. MCP returns the images as image content.' },
+  { method: 'DELETE', path: '/v1/renders/:id', scope: 'write', tool: 'delete_render' },
   {
     method: 'GET',
     path: '/v1/renders/:id/output',
@@ -64,6 +68,7 @@ export const REST_ROUTES: RouteEntry[] = [
   },
   { method: 'GET', path: '/v1/assets', scope: 'read', tool: 'list_assets' },
   { method: 'GET', path: '/v1/assets/:id', scope: 'read', tool: 'get_asset' },
+  { method: 'GET', path: '/v1/assets/:id/file', scope: 'read', tool: 'get_asset', note: 'The file itself (Range supported), e.g. for previews; MCP get_asset returns its metadata.' },
   {
     method: 'POST',
     path: '/v1/assets',
@@ -73,6 +78,7 @@ export const REST_ROUTES: RouteEntry[] = [
   },
   { method: 'GET', path: '/v1/providers', scope: 'read', tool: 'list_providers' },
   { method: 'PUT', path: '/v1/providers/:id/config', scope: 'owner', tool: 'configure_provider' },
+  { method: 'PUT', path: '/v1/providers/:id/workspace-config', scope: 'admin', tool: 'configure_workspace_provider' },
   { method: 'POST', path: '/v1/providers/:id/run', scope: 'render', tool: 'run_provider', note: 'generate_voice is a TTS shortcut.' },
   { method: 'GET', path: '/v1/config', scope: 'owner', tool: 'get_config' },
   { method: 'PATCH', path: '/v1/config', scope: 'owner', tool: 'update_config' },
