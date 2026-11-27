@@ -47,6 +47,35 @@ describe('in-flight cap', () => {
     for (const r of [busy, ...exempt]) expect((await r).status).toBe(200);
   });
 
+  it('OVL-06 counts every MCP POST although MCP clients accept event streams; only one get_job call that waits is exempt', async () => {
+    const h = held();
+    const g = inflightGuard(h.fetch, () => 1);
+    const mcp = (body: unknown) => {
+      const text = JSON.stringify(body);
+      return new Request('http://h/mcp', { method: 'POST', headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(text)) }, body: text });
+    };
+    const call = (name: string, args: Record<string, unknown> = {}, id = 1) => ({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } });
+    // An ordinary tool call takes the one slot ...
+    const busy = g.fetch(mcp(call('list_projects')));
+    await Promise.resolve();
+    await new Promise((ok) => setTimeout(ok, 0));
+    expect(g.stats().inflight).toBe(1);
+    // ... so the next ordinary call, a batch that includes a long-poll, a get_job that does not wait and a POST with ?wait= are refused.
+    const refused = await Promise.all([
+      g.fetch(mcp(call('render_project', { projectId: 'p' }))),
+      g.fetch(mcp([call('get_job', { jobId: 'j', waitSeconds: 30 }, 1), call('list_jobs', {}, 2)])),
+      g.fetch(mcp(call('get_job', { jobId: 'j' }))),
+      g.fetch(new Request('http://h/v1/projects/p/renders?wait=30', { method: 'POST' })),
+    ]);
+    expect(refused.map((r) => r.status)).toEqual([503, 503, 503, 503]);
+    // The MCP long-poll and a GET long-poll wait without a slot.
+    const exempt = [g.fetch(mcp(call('get_job', { jobId: 'j', waitSeconds: 30 }))), g.fetch(get('/v1/jobs/j?wait=30'))];
+    await new Promise((ok) => setTimeout(ok, 0));
+    expect(g.stats()).toEqual({ inflight: 1, refused: 4, waiting: 0 });
+    h.release();
+    for (const r of [busy, ...exempt]) expect((await r).status).toBe(200);
+  });
+
   it('OVL-03 follows the runtime limit; 0 turns it off', async () => {
     const h = held();
     let limit = 1;

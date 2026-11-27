@@ -1,5 +1,7 @@
 # Render at any scale: self-hosted render backends, fan-out, pluggable queues, licence model
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](../RENAMED.md) maps each old name to the new one.
+
 Research and target architecture for the founder request of 2026-11-22: rendering and
 the CRUD path must scale on the buyer's own infrastructure "without limit", the way
 Remotion Lambda / Cloud Run do, with one organisation licence covering any number of

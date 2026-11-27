@@ -21,8 +21,34 @@
 /** Seconds a refused client is asked to wait. Short: the queue in front of it drains in well under a second. */
 export const OVERLOAD_RETRY_AFTER_SECONDS = 1;
 const EXEMPT = new Set(['/healthz', '/readyz', '/metrics']);
-/** Requests that mostly wait without a database connection: long-polls and event streams. */
-const waits = (req: Request, url: URL) => url.searchParams.has('wait') || (req.headers.get('accept') ?? '').includes('text/event-stream') || url.pathname.endsWith('/events');
+/**
+ * Requests that mostly wait without a database connection: long-polls and event streams. Only reads: a GET
+ * with `?wait=` or an event-stream GET, and on /mcp a single `get_job` call with `waitSeconds` (the MCP
+ * long-poll). Every other MCP POST is counted, although MCP clients send `Accept: application/json,
+ * text/event-stream` on every request.
+ */
+const waitingRead = (req: Request, url: URL): boolean =>
+  req.method === 'GET' && (url.searchParams.has('wait') || (req.headers.get('accept') ?? '').includes('text/event-stream') || url.pathname.endsWith('/events'));
+
+/** A long-poll body is a few hundred bytes; anything larger, or not exactly one get_job call that waits, is counted. */
+const MCP_LONG_POLL_MAX_BYTES = 4096;
+
+/** A POST /mcp small enough to be a long-poll: only those bodies are read before the cap (from a clone). */
+function mayBeMcpLongPoll(req: Request, url: URL): boolean {
+  if (req.method !== 'POST' || url.pathname !== '/mcp') return false;
+  const declared = Number(req.headers.get('content-length'));
+  return Number.isFinite(declared) && declared > 0 && declared <= MCP_LONG_POLL_MAX_BYTES;
+}
+
+/** Whether a POST /mcp body is one JSON-RPC `tools/call` of `get_job` with `waitSeconds` > 0 (read from a clone). */
+export async function isMcpLongPoll(req: Request): Promise<boolean> {
+  try {
+    const m = JSON.parse(await req.clone().text()) as { method?: unknown; params?: { name?: unknown; arguments?: { waitSeconds?: unknown } } };
+    return !Array.isArray(m) && m.method === 'tools/call' && m.params?.name === 'get_job' && Number(m.params?.arguments?.waitSeconds) > 0;
+  } catch {
+    return false;
+  }
+}
 
 // The server's fetch callback: a request, then whatever the HTTP adapter passes (bindings), handed on unchanged.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,29 +93,35 @@ export function inflightGuard<F extends Fetch>(fetch: F, limit: () => number, wa
     stats: () => ({ inflight, refused, waiting: waiting.length }),
     fetch: ((req: Request, ...rest: unknown[]) => {
       const url = new URL(req.url);
-      if (EXEMPT.has(url.pathname) || waits(req, url)) return fetch(req, ...rest);
-      const max = limit() > 0 ? limit() : Infinity;
-      const run = async () => {
-        try {
-          return await fetch(req, ...rest);
-        } finally {
-          release();
-        }
-      };
-      const refuse = () => {
-        refused++;
-        return overloadedResponse(`the server has ${inflight} requests in progress (limits.maxInflightRequests ${max}); retry after ${OVERLOAD_RETRY_AFTER_SECONDS} s`);
-      };
-      // A free slot: in at once (no extra tick). Else wait for one, or refuse when waiting is off.
-      if (inflight < max) {
-        inflight++;
-        return run();
-      }
-      const wait = waitMs();
-      if (wait <= 0) return refuse();
-      return queue(wait).then((granted) => (granted ? run() : refuse()));
+      if (EXEMPT.has(url.pathname) || waitingRead(req, url)) return fetch(req, ...rest);
+      if (mayBeMcpLongPoll(req, url)) return isMcpLongPoll(req).then((longPoll) => (longPoll ? fetch(req, ...rest) : admit(req, rest)));
+      return admit(req, rest);
     }) as F,
   };
+
+  /** Into a slot at once when one is free (no extra tick), else wait for one, or refuse. */
+  function admit(req: Request, rest: unknown[]) {
+    const max = limit() > 0 ? limit() : Infinity;
+    const run = async () => {
+      try {
+        return await fetch(req, ...rest);
+      } finally {
+        release();
+      }
+    };
+    const refuse = () => {
+      refused++;
+      return overloadedResponse(`the server has ${inflight} requests in progress (limits.maxInflightRequests ${max}); retry after ${OVERLOAD_RETRY_AFTER_SECONDS} s`);
+    };
+    // A free slot: in at once (no extra tick). Else wait for one, or refuse when waiting is off.
+    if (inflight < max) {
+      inflight++;
+      return run();
+    }
+    const wait = waitMs();
+    if (wait <= 0) return refuse();
+    return queue(wait).then((granted) => (granted ? run() : refuse()));
+  }
 }
 
 export function overloadedResponse(message: string): Response {

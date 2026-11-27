@@ -43,7 +43,7 @@ describe('resolveBrowser', () => {
   it('explains how to fix a missing browser', () => {
     expect(() =>
       resolveBrowser('/nonexistent/a', { REELFORGE_CHROMIUM_PATH: '/nonexistent/b' }, () => undefined)
-    ).toThrow(/Set REELFORGE_CHROMIUM_PATH.*\/nonexistent\/a, \/nonexistent\/b/);
+    ).toThrow(/Set RENDERWELD_CHROMIUM_PATH.*\/nonexistent\/a, \/nonexistent\/b/);
   });
 
   it('prefers an explicit path, then the environment variable', () => {

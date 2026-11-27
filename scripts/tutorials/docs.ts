@@ -54,26 +54,26 @@ Pick one. Both serve REST on \`${RF}/v1\` and MCP on \`${RF}/mcp\`.
 
 **A. Docker (release image, needs a licence key).** The Personal licence is
 free (PolyForm Noncommercial 1.0.0, claimed with a BuildBase account on the
-ReelForge store); commercial use needs a commercial licence.
+RenderWeld store); commercial use needs a commercial licence.
 
 ${fence(
   'bash',
   `git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
 export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
 docker compose up -d --build                                 # 127.0.0.1:4321, hardened defaults
-docker compose exec reelforge reelforge licence activate <YOUR-LICENCE-KEY>
-docker compose exec reelforge reelforge keys create --name agent --scopes read,write,render`
+docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>
+docker compose exec reelforge renderweld keys create --name agent --scopes read,write,render`
 )}
 
 **B. From a checkout with pnpm (local development only).** \`pnpm dev\` sets
-\`REELFORGE_LICENCE_MODE=off\`, which skips the licence check. That is for
+\`RENDERWELD_LICENCE_MODE=off\`, which skips the licence check. That is for
 developing on your own machine only, never for a real install; the release
 image does not allow it.
 
 ${fence(
   'bash',
   `pnpm install
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell   # Chrome Headless Shell for every engine
+export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell   # Chrome Headless Shell for every engine
 pnpm keys:create --name agent --scopes read,write,render       # prints rf_... once
 pnpm dev`
 )}
@@ -90,12 +90,12 @@ function commonTroubleshooting(): string {
 | --- | --- |
 | \`401 unauthorized\` | Missing or wrong key. Send \`Authorization: Bearer rf_...\`; check it with \`curl -H "Authorization: Bearer $KEY" $RF/v1/capabilities\`. |
 | \`403 forbidden_host\` on \`/mcp\` | The Host header is not allowed (DNS-rebinding protection). Use \`127.0.0.1\`/\`localhost\`, or set \`REELFORGE_PUBLIC_URL\` / \`REELFORGE_ALLOWED_HOSTS\`. |
-| \`403 licence_required\` / \`licence_invalid\` on a render | Activate a licence key (\`reelforge licence activate <key>\`; Personal is free). \`REELFORGE_LICENCE_MODE=off\` exists for local development from a checkout only. |
+| \`403 licence_required\` / \`licence_invalid\` on a render | Activate a licence key (\`renderweld licence activate <key>\`; Personal is free). \`RENDERWELD_LICENCE_MODE=off\` exists for local development from a checkout only. |
 | \`403 forbidden\` (scope) | The key lacks a scope: rendering needs \`render\`, creating projects \`write\`. Create a key with \`--scopes read,write,render\`. |
-| An engine shows \`available: false\` | \`REELFORGE_CHROMIUM_PATH\` is unset or wrong (checkout), or the image is not the release image. \`get_capabilities\` says how to fix it. |
+| An engine shows \`available: false\` | \`RENDERWELD_CHROMIUM_PATH\` is unset or wrong (checkout), or the image is not the release image. \`get_capabilities\` says how to fix it. |
 | \`invalid_manifest\` | \`details.issues\` lists every problem with its path, e.g. \`scenes.1.props.headline\`. Fix all and send again. |
 | The job stays \`running\` for minutes | Rendering is CPU-bound; one 8 s reel took 35 to 120 s on a shared 4-core machine. Wait with \`get_job\` \`waitSeconds: 45\` (or \`?wait=50\`); \`get_job_logs\` shows the stage. |
-| \`render_failed\` with a timeout on an html or hyperframes scene | One scene ran past \`render.sceneTimeoutSeconds\` (default 900 s). On a slow machine raise \`REELFORGE_RENDER_SCENE_TIMEOUT_SECONDS\`. |
+| \`render_failed\` with a timeout on an html or hyperframes scene | One scene ran past \`render.sceneTimeoutSeconds\` (default 900 s). On a slow machine raise \`RENDERWELD_RENDER_SCENE_TIMEOUT_SECONDS\`. |
 | html, hyperframes or motion-canvas renders fail in Docker | The container needs the seccomp profile \`deployment/seccomp/chrome.json\` for Chromium's sandbox (\`docker compose\` sets it); see [DEPLOY.md](../../DEPLOY.md). |`;
 }
 
@@ -143,7 +143,7 @@ Test case: ${id} in [TEST_CASES.md](../TEST_CASES.md).`;
     '| | |',
     '| --- | --- |',
     `| Date | ${p.date.replace('T', ' ').replace(/\.\d+Z$/, ' UTC')} |`,
-    `| Studio | ReelForge Studio ${p.studioVersion}, commit \`${p.commit}\`, started from a checkout with \`REELFORGE_LICENCE_MODE=off\` (local development only) |`,
+    `| Studio | RenderWeld ${p.studioVersion}, commit \`${p.commit}\`, started from a checkout with \`REELFORGE_LICENCE_MODE=off\` (local development only) |`,
     `| Reproduce | \`pnpm tutorials:prove ${agent} ${engine}\` |`,
     `| Command the proof ran | \`${p.command.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')}\` |`,
   ];
@@ -573,8 +573,8 @@ Matrix and other combinations: [tutorials README](../README.md).
 
 ## Prerequisites
 
-- A running ReelForge Studio and an API key with the \`read,write,render\` scopes (step 1).
-- A licence key for a real install (the Personal licence is free), or \`REELFORGE_LICENCE_MODE=off\` from a checkout for local development only.
+- A running RenderWeld and an API key with the \`read,write,render\` scopes (step 1).
+- A licence key for a real install (the Personal licence is free), or \`RENDERWELD_LICENCE_MODE=off\` from a checkout for local development only.
 ${PREREQS[agent]}
 
 ## Steps
@@ -615,11 +615,17 @@ export function readmePage(proofs: Map<string, Proof | null>): string {
 
 # Tutorials: every agent with every engine
 
-ReelForge Studio is driven by agents over MCP or REST and renders with four
+RenderWeld is driven by agents over MCP or REST and renders with four
 engines. Each cell below is a step-by-step tutorial **and** a reproducible
 proof: the same prompt or script, run against a real studio, with the output
 checked by ffprobe. A cell is ✅ only after such a run passed; everything else
 says why it is not proven.
+
+The proofs were recorded before ReelForge was renamed RenderWeld, so the
+prompts and commands keep the names those runs used: the MCP server entry is
+called \`reelforge\` (tools \`mcp__reelforge__*\`), and the example scripts read
+\`REELFORGE_URL\` and \`REELFORGE_API_KEY\`. Everything works under those names.
+They change when the cells are proved again (\`pnpm tutorials:prove\`).
 
 ${head}
 ${rows}
@@ -650,11 +656,11 @@ same MCP endpoint: [mcp-sdk/other-clients.md](mcp-sdk/other-clients.md)
 ${indent(fence('bash', `git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
 export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)   # keep a copy
 docker compose up -d --build
-docker compose exec reelforge reelforge licence activate <YOUR-LICENCE-KEY>`), 3)}
+docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>`), 3)}
 
 2. **Create a key for your agent** (printed once):
 
-${indent(fence('bash', 'docker compose exec reelforge reelforge keys create --name claude --scopes read,write,render\nexport REELFORGE_API_KEY=rf_...'), 3)}
+${indent(fence('bash', 'docker compose exec reelforge renderweld keys create --name claude --scopes read,write,render\nexport REELFORGE_API_KEY=rf_...'), 3)}
 
 3. **Connect Claude Code**:
 
@@ -666,14 +672,14 @@ ${indent(fence('bash', `claude mcp add --transport http reelforge ${RF}/mcp \\\n
    how to download and check the MP4.
 
 Developing on the studio itself instead? \`pnpm dev\` from a checkout runs
-without a licence (\`REELFORGE_LICENCE_MODE=off\`, local development only); see
+without a licence (\`RENDERWELD_LICENCE_MODE=off\`, local development only); see
 step 1B of any tutorial.
 
 ## Reproduce a proof
 
 ${fence(
   'bash',
-  `export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
+  `export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm tutorials:prove rest html            # one cell
 pnpm tutorials:prove mcp-sdk all          # a whole row
 pnpm tutorials:prove claude-code remotion --record   # also update docs/tutorials/proofs/

@@ -509,6 +509,16 @@ export class AssetStore {
     return a;
   }
 
+  /** The asset's stored object, for streaming it (GET /v1/assets/:id/file): its key, type, size and a file name. */
+  async object(id: string): Promise<{ key: string; contentType: string; bytes: number; name: string }> {
+    const a = ASSET_ID.test(id) ? await this.repo.get(id) : null;
+    if (!a) throw notFound('asset', id);
+    const key = ASSETS_PREFIX + a.storageKey;
+    if (!(await this.storage.driver.stat(key))) throw notFound('asset file', id);
+    // The name is ours (id and the stored extension), never the uploaded name: no header injection, no path.
+    return { key, contentType: a.contentType, bytes: a.bytes, name: a.storageKey.split('/').pop()!.replace(/^file/, a.id) };
+  }
+
   /** Absolute path of the asset's bytes (for remote storage: a cached local copy). */
   async file(id: string): Promise<string> {
     const a = ASSET_ID.test(id) ? await this.repo.get(id) : null;

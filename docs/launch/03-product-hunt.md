@@ -7,12 +7,12 @@ contest mention (#20, #56). Reply to every comment that day.
 Listing link (website field):
 
 ```text
-https://reelforge.buildbase.app/?utm_source=producthunt&utm_medium=launch&utm_campaign=launch-2026-12&utm_content=1202-listing
+https://renderweld.com/?utm_source=producthunt&utm_medium=launch&utm_campaign=launch-2026-12&utm_content=1202-listing
 ```
 
 ## Name and tagline
 
-- **Name:** ReelForge
+- **Name:** RenderWeld
 - **Tagline (60 max):** A self-hosted video studio your AI agent drives over MCP (56)
 - Alternatives: "Your AI agent directs. Your server renders the reel." (52);
   "Short-form video studio your coding agent drives over MCP" (57).
@@ -20,13 +20,13 @@ https://reelforge.buildbase.app/?utm_source=producthunt&utm_medium=launch&utm_ca
 ## Description (about 260 characters)
 
 ```text
-ReelForge Studio runs on your own machine. Your AI agent connects over MCP (or a script over REST), writes the scenes and timing, and four engines render one vertical MP4, checked with ffprobe. Source-available. Free for personal use; one-time Commercial licence.
+RenderWeld runs on your own machine. Your AI agent connects over MCP (or a script over REST), writes the scenes and timing, and four engines render one vertical MP4, checked with ffprobe. Source-available. Free for personal use; one-time Commercial licence.
 ```
 
 ## Topics
 
 Developer Tools, Video, Artificial Intelligence, Marketing. Not "Open Source":
-ReelForge is source-available.
+RenderWeld is source-available.
 
 ## Gallery shot list
 
@@ -56,11 +56,11 @@ says "Not on sale yet". Thumbnail: a still from #3.
 ## Maker's first comment
 
 ```text
-Hi Product Hunt, I'm {{founder_name}}, and I built ReelForge.
+Hi Product Hunt, I'm {{founder_name}}, and I built RenderWeld.
 
 I wanted my coding agent to make short videos the way it writes code:
 read what the tool can do, write a plan, check it, run it, look at the
-result. So ReelForge is a studio you run yourself, with an MCP server and
+result. So RenderWeld is a studio you run yourself, with an MCP server and
 a REST API. The agent writes the scenes and their timing; the server
 renders each scene with one of four engines (Remotion, Motion Canvas,
 HTML/CSS or HyperFrames), joins them to the exact frame with FFmpeg and
@@ -86,9 +86,9 @@ What it does not do yet, honestly:
 Licensing: source-available, not open source. Free for personal use
 (PolyForm Noncommercial and a free Personal key). Anything that earns
 money needs a one-time Commercial licence. No per-video fees to
-ReelForge.
+RenderWeld.
 
-How to try it: https://reelforge.buildbase.app/agents?utm_source=producthunt&utm_medium=launch&utm_campaign=launch-2026-12&utm_content=1202-maker-comment
+How to try it: https://renderweld.com/agents?utm_source=producthunt&utm_medium=launch&utm_campaign=launch-2026-12&utm_content=1202-maker-comment
 
 I'll be here all day. Tell me what broke, what is missing, and which
 agent you want proven next.

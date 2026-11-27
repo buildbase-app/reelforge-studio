@@ -17,6 +17,13 @@ const CHECK_LABEL: Record<string, string> = {
   audio: 'Audio codec and length match',
   avSync: 'Audio and video stay in sync',
   loudness: 'Loudness meets the preset',
+  sfx: 'Sound effects are heard over music and voice',
+  freeze: 'The picture never freezes',
+  black: 'No black stretches',
+  flash: 'No flashing that could trigger seizures',
+  motion: 'The picture keeps moving',
+  loop: 'The loop joins without a jump',
+  seek: 'Frames match when rendered on their own',
 };
 
 function format(r: Pick<RenderSummary, 'width' | 'height' | 'fps' | 'durationSeconds' | 'format' | 'codec' | 'alpha'>): string {
@@ -302,6 +309,18 @@ export const renderView: View = (ctx, main, renderId) => {
       ['Downloads', r.downloadVia === 'bucket' ? 'Signed by the bucket' : 'Signed by this server'],
     ]);
     storageRows.append(h('div', null, h('dt', null, 'Path'), storage));
+    // The contact sheet stored with the render (#379): every scene and both sides of every cut, loaded with the key.
+    let sheet: Node | null = null;
+    if (r.contactSheet) {
+      const img = h('img', { class: 'contact-sheet', alt: `Contact sheet of ${projectTitle}: ${r.contactSheet.tiles.map((t) => t.label).join('; ')}` });
+      // Opens at full size in a new tab, where the labels are readable on a phone.
+      const full = h('a', { target: '_blank', rel: 'noreferrer', title: 'Open the contact sheet at full size' }, img);
+      ctx.api
+        .objectUrl(`/v1/renders/${enc}/output?file=${encodeURIComponent(r.contactSheet.file)}`, ac.signal)
+        .then((u) => (urls.push(u), (img.src = u), (full.href = u)))
+        .catch(() => undefined);
+      sheet = h('section', { class: 'panel sheet-panel' }, h('h2', null, `Contact sheet (${r.contactSheet.tiles.length} frames)`), full);
+    }
 
     fill(
       body,
@@ -341,6 +360,7 @@ export const renderView: View = (ctx, main, renderId) => {
             : h('p', { class: 'empty' }, 'No checks recorded.')
         )
       )),
+      sheet,
       h(
         'div',
         { class: 'render-grid-3' },
