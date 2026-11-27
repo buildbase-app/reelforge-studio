@@ -36,10 +36,22 @@ const setMode = (settings: Record<string, unknown>) => rest('PATCH', '/v1/config
 const plan = async (projectId: string) => (await rest('POST', `/v1/projects/${projectId}/render-plan`, {}, keys.reader)).json;
 const approve = (projectId: string, planId: string, key = keys.approver) => rest('POST', `/v1/projects/${projectId}/render-plan/approve`, { planId }, key);
 const render = (projectId: string, approvalToken?: string) => rest('POST', `/v1/projects/${projectId}/renders`, approvalToken ? { approvalToken } : {}, keys.renderer);
+/**
+ * Waits for the job to finish and, when it succeeded, to be stored: get_job answers from the worker's live state,
+ * and a plan reads the stored successful renders, which on a slower database trail it by a few milliseconds.
+ */
 async function finish(jobId: string) {
   for (let i = 0; i < 300; i++) {
     const j = (await rest('GET', `/v1/jobs/${jobId}?wait=10`, undefined, keys.owner)).json;
-    if (['succeeded', 'failed', 'cancelled'].includes(j.status)) return j;
+    if (j.status === 'succeeded') {
+      for (let k = 0; k < 100; k++) {
+        const { jobs } = (await rest('GET', '/v1/jobs?status=succeeded&type=render', undefined, keys.owner)).json as { jobs: Array<{ id: string }> };
+        if (jobs.some((x) => x.id === jobId)) return j;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      throw new Error(`job ${jobId} was never stored as succeeded`);
+    }
+    if (['failed', 'cancelled'].includes(j.status)) return j;
   }
   throw new Error('job did not finish');
 }
