@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream';
 import type { Tools } from '@renderweld/media-pipeline';
 import type {
   CaptionMode,
+  ClipTextCheck,
   RenderAudioOptions,
   OutputSettings,
   Project,
@@ -88,6 +89,14 @@ export interface EngineRenderContext {
    * background itself is not painted.
    */
   alpha?: boolean;
+  /**
+   * Text overflow check (#294, #386): the engine samples the text on screen at
+   * least TEXT_SAMPLES_PER_SECOND times a second while it renders (in a DOM
+   * page, TEXT_SAMPLE_SCRIPT) and returns what it found in `ClipResult.text`.
+   * Engines that cannot sample ignore it, and the check counts as skipped for
+   * their scenes.
+   */
+  textCheck?: boolean;
 }
 
 /** What an engine can do beyond rendering a whole scene. */
@@ -115,6 +124,8 @@ export interface ClipResult {
   engineVersion: string;
   browserVersion?: string;
   millis: number;
+  /** With `EngineRenderContext.textCheck`, from an engine that samples text: what it found. */
+  text?: ClipTextCheck;
 }
 
 export interface Availability {
@@ -234,6 +245,8 @@ export interface SttRequest {
   /** BCP 47 tag of the spoken language, or "auto" to detect it. */
   language: string;
   settings: SttSettings;
+  /** Words to expect, such as the project glossary's terms (#486): faster-whisper's `initial_prompt`. */
+  prompt?: string;
 }
 
 export interface SttResult {

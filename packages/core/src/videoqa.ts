@@ -1,4 +1,5 @@
 import { SEEK_GRID, SEEK_MAX_DIFF, type FlashWindow, type LoopSeam, type MotionStretch, type VideoInterval } from '@renderweld/media-pipeline';
+import { TEXT_SAMPLES_PER_SECOND, type ClipTextCheck, type TextOverflowRule } from '@renderweld/project-schema';
 
 /**
  * Picture checks on a finished render (#294, render.qa.*): pictures that freeze, pictures that are black, flashes,
@@ -16,12 +17,67 @@ export interface VideoQaSettings {
   motionFloor: number;
   /** Frames of each render rendered again on their own and compared (scenes whose engine renders frame ranges); 0: off. */
   seekFrames: number;
+  /** Report text that runs out of the frame or its box for this long (seconds, sampled while DOM engines render); 0: off. */
+  textSeconds: number;
 }
 
-export const VIDEO_QA_DEFAULTS: VideoQaSettings = { video: 'warn', freezeSeconds: 3, blackSeconds: 0.5, lowMotionSeconds: 3, motionFloor: 0.4, seekFrames: 2 };
+export const VIDEO_QA_DEFAULTS: VideoQaSettings = { video: 'warn', freezeSeconds: 3, blackSeconds: 0.5, lowMotionSeconds: 3, motionFloor: 0.4, seekFrames: 2, textSeconds: 1 };
+
+/** Whether scenes are rendered with text samples (EngineRenderContext.textCheck) under these settings. */
+export function textCheckOn(qa: VideoQaSettings | undefined): boolean {
+  const q = qa ?? VIDEO_QA_DEFAULTS;
+  return q.video !== 'off' && (q.textSeconds ?? VIDEO_QA_DEFAULTS.textSeconds) > 0;
+}
+
+/** Text that broke a rule for `render.qa.textSeconds` or longer, placed on the video's timeline. */
+export interface TextQaRun {
+  sceneId: string;
+  rule: TextOverflowRule;
+  text: string;
+  /** The element's box in frame pixels when it was first found. */
+  box: { x: number; y: number; width: number; height: number };
+  startSeconds: number;
+  endSeconds: number;
+  durationSeconds: number;
+}
+
+/** The text check in the render manifest (`videoQa.text`). */
+export interface TextQaManifest {
+  minSeconds: number;
+  samplesPerSecond: number;
+  /** Scenes whose engine sampled their text, and scenes it could not check (engines that draw text without a DOM page). */
+  sampledScenes: string[];
+  notSampledScenes: string[];
+  /** Runs at least `minSeconds` long (reported as `video.text`). */
+  runs: TextQaRun[];
+  /** Shorter runs, not reported: text sliding across an edge on its way in or out. */
+  shortRuns: number;
+}
+
+/** Joins the clips' text samples into the video's timeline and keeps the runs at least `minSeconds` long. */
+export function textQa(clips: ReadonlyArray<{ sceneId: string; startFrame: number; text?: ClipTextCheck }>, fps: number, minSeconds: number): TextQaManifest {
+  const offset = clips.length ? Math.min(...clips.map((c) => c.startFrame)) : 0;
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+  const runs: TextQaRun[] = [];
+  let shortRuns = 0;
+  for (const c of clips) {
+    for (const run of c.text?.runs ?? []) {
+      const start = (c.startFrame - offset + run.startFrame) / fps;
+      const end = (c.startFrame - offset + run.endFrame) / fps;
+      if (end - start < minSeconds - 1e-6) {
+        shortRuns++;
+        continue;
+      }
+      runs.push({ sceneId: c.sceneId, rule: run.rule, text: run.text, box: run.box, startSeconds: r3(start), endSeconds: r3(end), durationSeconds: r3(end - start) });
+    }
+  }
+  const sampled = [...new Set(clips.filter((c) => c.text).map((c) => c.sceneId))];
+  const notSampled = [...new Set(clips.filter((c) => !c.text).map((c) => c.sceneId))].filter((id) => !sampled.includes(id));
+  return { minSeconds, samplesPerSecond: TEXT_SAMPLES_PER_SECOND, sampledScenes: sampled, notSampledScenes: notSampled, runs: runs.sort((a, b) => a.startSeconds - b.startSeconds), shortRuns };
+}
 
 export interface VideoQaIssue {
-  rule: 'video.freeze' | 'video.black' | 'video.flash' | 'video.motion' | 'video.loop' | 'video.seek';
+  rule: 'video.freeze' | 'video.black' | 'video.flash' | 'video.motion' | 'video.loop' | 'video.seek' | 'video.text';
   severity: 'warning' | 'error';
   message: string;
   startSeconds: number;
@@ -45,6 +101,8 @@ export interface VideoQaManifest {
   motion?: { floor: number; lowSeconds: number; energyPerSecond: number[]; lows: MotionStretch[]; loop?: LoopSeam };
   /** The seek check: each frame rendered on its own against the same frame of the video (SEEK_GRID luma grid). */
   seek?: { grid: number; maxDiff: number; frames: SeekResult[] };
+  /** The text overflow check: text cut by the frame edge, by a clipping box, or running out of its own box. */
+  text?: TextQaManifest;
   issues: VideoQaIssue[];
 }
 
@@ -138,7 +196,7 @@ const sceneWords = (ids: string[]) => (ids.length === 0 ? '' : ids.length === 1 
 
 /** The issues for what was measured: one per stretch, naming its scenes and what to change. */
 export function videoQaIssues(
-  measured: { freezes: VideoInterval[]; blacks: VideoInterval[]; flashes?: FlashWindow[]; lows?: MotionStretch[]; loop?: LoopSeam; seeks?: SeekResult[] },
+  measured: { freezes: VideoInterval[]; blacks: VideoInterval[]; flashes?: FlashWindow[]; lows?: MotionStretch[]; loop?: LoopSeam; seeks?: SeekResult[]; texts?: TextQaRun[] },
   scenes: ReadonlyArray<{ sceneId: string; start: number; end: number }>,
   severity: VideoQaIssue['severity']
 ): VideoQaIssue[] {
@@ -169,10 +227,13 @@ export function videoQaIssues(
   for (const w of measured.flashes ?? []) {
     const iv = { startSeconds: w.startSeconds, endSeconds: w.endSeconds, durationSeconds: Math.round((w.endSeconds - w.startSeconds) * 1000) / 1000 };
     const ids = overlapping(iv);
+    const what = w.kind === 'red' ? 'saturated red flashes' : 'flashes';
     issues.push({
       rule: 'video.flash',
       severity,
-      message: `${w.kind === 'red' ? 'saturated red flashes' : 'flashes'} at up to ${w.transitionsPerSecond / 2} a second over a quarter of the picture or more, from ${fmt(iv.startSeconds)} to ${fmt(iv.endSeconds)}${sceneWords(ids)}: more than three a second can trigger seizures (WCAG 2.2, 2.3.1). Slow them to three a second or fewer, shrink the flashing area below a quarter of the frame, or lower the contrast`,
+      message: w.extended
+        ? `${what} at ${w.transitionsPerSecond / 2} a second, held for ${fmt(iv.durationSeconds)}, over a quarter of the picture or more, from ${fmt(iv.startSeconds)} to ${fmt(iv.endSeconds)}${sceneWords(ids)}: two to three flashes a second sustained for 5 s or more is a failure in EA IRIS (extended failure). Break it into bursts shorter than 5 s, slow it, shrink the flashing area below a quarter of the frame, or lower the contrast`
+        : `${what} at up to ${w.transitionsPerSecond / 2} a second over a quarter of the picture or more, from ${fmt(iv.startSeconds)} to ${fmt(iv.endSeconds)}${sceneWords(ids)}: more than three a second can trigger seizures (WCAG 2.2, 2.3.1). Slow them to three a second or fewer, shrink the flashing area below a quarter of the frame, or lower the contrast`,
       ...iv,
       scenes: ids,
     });
@@ -213,6 +274,27 @@ export function videoQaIssues(
       endSeconds: s.seconds,
       durationSeconds: 0,
       scenes: [s.sceneId],
+    });
+  }
+  for (const t of measured.texts ?? []) {
+    const what =
+      t.rule === 'text.frame'
+        ? 'runs off the edge of the frame, so part of it is cut off'
+        : t.rule === 'text.clip'
+          ? 'is cut off by a box that hides what overflows it (overflow: hidden)'
+          : 'does not fit its box and runs out of it';
+    const fix =
+      t.rule === 'text.frame'
+        ? 'Keep text inside the safe area (the --rf-safe-* variables), make it smaller or let it wrap, or move it wholly off the frame; mark text that is meant to run off with data-layout-allow-overflow'
+        : 'Make the box bigger or the text smaller, or let it wrap (data-rf-fit shrinks text to its box)';
+    issues.push({
+      rule: 'video.text',
+      severity,
+      message: `the text "${t.text}" ${what} for ${fmt(t.durationSeconds)}, from ${fmt(t.startSeconds)} to ${fmt(t.endSeconds)} (scene "${t.sceneId}", its box at ${t.box.x},${t.box.y}, ${t.box.width}x${t.box.height} px). ${fix}`,
+      startSeconds: t.startSeconds,
+      endSeconds: t.endSeconds,
+      durationSeconds: t.durationSeconds,
+      scenes: [t.sceneId],
     });
   }
   return issues.sort((a, b) => a.startSeconds - b.startSeconds);

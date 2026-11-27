@@ -15,6 +15,10 @@ const result = await renderHyperframesScene({
   out: join(dir, 'font.mp4'),
   workDir: join(dir, 'work'),
   cacheDir: join(dir, 'cache'),
+  // The time limit of the test that runs this (280 s), not the per-frame default (82.5 s here): under strace -f every
+  // process of the render is traced, and other test files render beside it. On CI runners this render alone took
+  // 57 to 60 s, and once ran past 82.5 s while the text overflow tests rendered beside it. Egress is what is checked.
+  timeoutMs: 240_000,
   log: (line) => log.push(line),
 }).then(
   () => ({ ok: true, log }),

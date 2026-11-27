@@ -521,6 +521,10 @@ export function createMemoryRepositories(workspaceId = DEFAULT_WORKSPACE_ID, opt
       async page(filter, req) {
         return pageOf(matchingJobs(filter), req).map(clone);
       },
+      async jobOfRun(runId) {
+        for (const j of jobs.values()) if (runIdOf(j) === runId) return clone(j);
+        return null;
+      },
       async projectOfRun(runId) {
         for (const j of jobs.values()) if (runIdOf(j) === runId && j.projectId) return j.projectId;
         return null;

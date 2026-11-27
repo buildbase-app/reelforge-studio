@@ -634,11 +634,20 @@ export function createApp(deps: AppDeps) {
     };
     return c.json(await service.idempotent(idemKey(c), 'preview_scene', { projectId, ...opts }, async () => ({ job: await service.preview(projectId, opts) })), 202);
   });
+  v1.post('/projects/:id/render-plan/approve', need('approve'), json, async (c) => {
+    const b = await body(c);
+    return c.json(await service.approveRenderPlan(c.req.param('id'), b.planId, { variant: b.variant }, actor(c)));
+  });
+  v1.post('/projects/:id/render-plan', need('read'), json, async (c) => {
+    const b = await body(c);
+    return c.json(await service.planRender(c.req.param('id'), { variant: b.variant }));
+  });
   v1.post('/projects/:id/renders', need('render'), json, async (c) => {
     const b = await body(c);
     const projectId = c.req.param('id');
     const opts = { backend: typeof b.backend === 'string' ? b.backend : undefined, ...(b.variant !== undefined ? { variant: b.variant } : {}), ...(b.priority !== undefined ? { priority: b.priority } : {}), ...(b.captions !== undefined ? { captions: b.captions } : {}), ...(b.audio !== undefined ? { audio: b.audio } : {}) };
-    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, () => service.renderProject(projectId, opts)), 202);
+    // The approval token is not part of the idempotency fingerprint: a retry with the same key replays the first answer.
+    return c.json(await service.idempotent(idemKey(c), 'render_project', { projectId, ...opts }, () => service.renderProject(projectId, { ...opts, approvalToken: b.approvalToken, planId: b.planId })), 202);
   });
   v1.get('/projects/:id/renders', need('read'), async (c) => c.json({ renders: await service.listRenders(c.req.param('id')) }));
 
@@ -734,7 +743,12 @@ export function createApp(deps: AppDeps) {
   v1.get('/renders/:id/output', need('read'), async (c) => {
     // Without ?file= the render's output, in whatever format it was rendered (#302).
     const o = await service.renderObject(c.req.param('id'), c.req.query('file'));
-    return sendStored(c, service, o, o.file.split('/').pop()!);
+    const res = await sendStored(c, service, o, o.file.split('/').pop()!);
+    // The first download of the output starts a workspace's delete-after-download grace (#487): a whole-file answer,
+    // or a range that reaches the last byte (players fetch the end last). A failed write must not fail the download.
+    const whole = res.status === 200 || (res.status === 206 && res.headers.get('content-range')?.startsWith('bytes ') && res.headers.get('content-range')!.endsWith(`-${o.bytes - 1}/${o.bytes}`));
+    if (c.req.method === 'GET' && whole) await service.markDownloaded(c.req.param('id'), o.file).catch(() => undefined);
+    return res;
   });
 
   v1.get('/assets', need('read'), async (c) => c.json(await service.listAssets({ projectId: c.req.query('projectId') }, page(c))));
@@ -832,6 +846,7 @@ export function createApp(deps: AppDeps) {
 
   // ---- workspaces (#304) -------------------------------------------------------------
   v1.get('/workspace', need('read'), async (c) => c.json(await service.getWorkspace()));
+  v1.patch('/workspace/retention', need('admin'), json, async (c) => c.json(await service.setWorkspaceRetention(await body(c), actor(c))));
   v1.get('/workspaces', need('owner'), async (c) => c.json(await service.listWorkspaces()));
   v1.post('/workspaces', need('owner'), json, async (c) => {
     const r = await service.createWorkspace(await body(c), actor(c));

@@ -148,7 +148,7 @@ A family that is none of these falls back to the closest installed family;
 
 Checked by `validate_project` (warnings with the cue's path) and recorded in the
 render manifest (`captions.qa`). Defaults from the Netflix Timed Text Style Guide
-(sources in research/SOURCES.md):
+(each rule's source and the date it was checked: [QA.md](QA.md#captions)):
 
 | Rule | Limit |
 | --- | --- |
@@ -258,6 +258,33 @@ Another engine (whisper.cpp, a cloud API) is a `SpeechToTextPlugin`
 (`packages/core/src/plugins.ts`: `availability(settings)` and `transcribe(req, ctx)`
 returning `{ language, words: [{ text, start, end }] }`) registered with
 `registry.registerStt()`; a cloud one must be listed in docs/PRIVACY.md.
+
+## Glossary
+
+Brand and product names are the captions' most visible errors. A project's `glossary` (#486) gives each term its
+exact spelling, how the voice should say it, and the spellings speech-to-text tends to produce. The user or their
+agent writes every entry; the studio only applies them.
+
+```json
+"glossary": [
+  { "term": "RenderWeld", "spoken": "render weld", "alternatives": ["render weld", "rendaweld"] },
+  { "term": "Claude Code", "doNotTranslate": true }
+]
+```
+
+- **Speech-to-text** (`transcribe_captions`): the terms are the transcription's prompt (faster-whisper
+  `initial_prompt`). Afterwards, each term in any letter case and each listed alternative becomes the term's exact
+  spelling, matched as whole words (never fuzzy, which would rewrite real words). The answer lists every replacement
+  in `glossaryReplacements`.
+- **Voice** (`generate_voice` or `run_provider` with a `projectId`): the provider reads each term's `spoken` form,
+  while the voice track keeps the script's text and its word timings turn the spoken form back into the term, so the
+  captions spell it right.
+- **Caption QA**: when the project has a voice script, a term the script says more often than the cues spell it
+  exactly (`missingFromCaptions`), or the other way round (`notInScript`), is an issue under `qa.glossary` and makes
+  `qa.ok` false.
+- **`doNotTranslate`** is stored for agents and translation tools: the studio translates nothing itself.
+
+Up to 200 terms; a term appears once (letter case ignored).
 
 ## Review and approval
 

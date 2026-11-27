@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { can, parseEvent, sameOriginLink } from '../src/api';
 import { labelEvery, niceTicks, tickText } from '../src/chart';
-import { ago, between, bucketLabel, bucketTitle, bytes, downloadLabel, duration, groupTitle, jobType, latency, outputFormat, outputShort, percent, playerKind, rate, scopeText, size, stillNote } from '../src/format';
+import { ago, between, bucketLabel, bucketTitle, bytes, dateTime, downloadLabel, duration, groupTitle, jobType, latency, outputFormat, outputShort, percent, playerKind, rate, retentionText, scopeText, size, stillNote } from '../src/format';
 import { assetSource } from '../src/views/assets';
 import { renderIdOf, rendersQuery } from '../src/views/renders';
 import { auditQuery } from '../src/views/audit';
@@ -96,6 +96,18 @@ describe('renders (#292)', () => {
     expect(renderIdOf({ result: { renderId: 'run_abc123' } })).toBe('run_abc123');
     expect(renderIdOf({ result: { renderId: '../x' } })).toBeNull();
     expect(renderIdOf({})).toBeNull();
+  });
+});
+
+describe('render retention (#487)', () => {
+  it('says when a render was first downloaded and when its files go, and why', () => {
+    const now = Date.parse('2026-11-26T10:00:00Z');
+    expect(retentionText({ downloadedAt: null, deletesAt: null }, now)).toEqual({ downloaded: 'Not yet', deletes: 'None scheduled' });
+    const after = retentionText({ downloadedAt: '2026-11-26T09:50:00Z', deletesAt: '2026-11-26T10:20:00Z', deleteReason: 'deleted_after_download', deleteAfterDownloadMinutes: 30 }, now);
+    expect(after).toEqual({ downloaded: dateTime('2026-11-26T09:50:00Z'), deletes: `${dateTime('2026-11-26T10:20:00Z')} · 30 min after the first download` });
+    expect(retentionText({ downloadedAt: null, deletesAt: '2026-11-27T10:00:00Z', deleteReason: 'older_than_workspace_retention' }, now).deletes).toContain("the workspace's retention");
+    // A time already past: the sweep has not run yet.
+    expect(retentionText({ downloadedAt: null, deletesAt: '2026-11-26T09:00:00Z', deleteReason: 'older_than_renderDays' }, now).deletes).toBe("At the next storage sweep · the instance's retention");
   });
 });
 
