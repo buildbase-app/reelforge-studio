@@ -32,6 +32,7 @@ import {
   type FormatSpec,
   toRenderScene,
   type CaptionMode,
+  type ClipTextCheck,
   type OutputSettings,
   type Project,
   type RenderAudioOptions,
@@ -40,7 +41,7 @@ import {
 } from '@renderweld/project-schema';
 import { audioChecks, audioPass, resolveAudioPlan, verifyAudio, type AudioDefaults } from './audio';
 import { captionPass } from './captions';
-import { VIDEO_QA_DEFAULTS, lowMotionOutsideFreezes, sceneTimes, seekSamples, videoQaIssues, type SeekResult, type VideoQaIssue, type VideoQaManifest, type VideoQaSettings } from './videoqa';
+import { VIDEO_QA_DEFAULTS, lowMotionOutsideFreezes, sceneTimes, seekSamples, textCheckOn, textQa, videoQaIssues, type SeekResult, type VideoQaIssue, type VideoQaManifest, type VideoQaSettings } from './videoqa';
 import { writeJsonAtomic } from './fsutil';
 import { CONTACT_SHEET_DEFAULTS, CONTACT_SHEET_FILE, framesImageWithinBudget, planContactSheet, sceneSpans, type ContactSheetManifest, type ContactSheetSettings } from './frames';
 import { MP4_SPEC, checkFormatOutput, isAudioOnly, packageFormat, planFor } from './output-formats';
@@ -114,6 +115,8 @@ export interface SceneClip {
   engineVersion: string;
   browserVersion?: string;
   millis: number;
+  /** The text overflow samples of this clip (ClipResult.text), when its engine took them. */
+  text?: ClipTextCheck;
 }
 
 /** What renderSceneClip needs: one scene of the timeline, rendered to `out` at `output`. */
@@ -130,6 +133,8 @@ export interface SceneRenderInput extends Pick<RenderPipelineInput, 'runId' | 't
   platform?: string;
   /** Keep a transparent background (#302): the engine must declare output.alpha; the clip is ProRes 4444 with alpha. */
   alpha?: boolean;
+  /** Ask the engine for text overflow samples (EngineRenderContext.textCheck). */
+  textCheck?: boolean;
 }
 
 /**
@@ -188,6 +193,7 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
         progress: input.progress,
         ...(range ? { frameRange: [range[0], range[1]] as const } : {}),
         ...(input.alpha ? { alpha: true } : {}),
+        ...(input.textCheck ? { textCheck: true } : {}),
       })
   ).catch((e) => {
     metrics.sceneDuration.record((Date.now() - sceneStarted) / 1000, { ...engineAttrs, 'reelforge.outcome': 'error' });
@@ -221,6 +227,7 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
     engineVersion: res.engineVersion,
     ...(res.browserVersion ? { browserVersion: res.browserVersion } : {}),
     millis: res.millis,
+    ...(input.textCheck && res.text ? { text: res.text } : {}),
   };
 }
 
@@ -275,6 +282,7 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
           ...(project.brief?.platform ? { platform: project.brief.platform } : {}),
           out,
           ...(spec.alpha ? { alpha: true } : {}),
+          ...(textCheckOn(input.videoQa) ? { textCheck: true } : {}),
           workDir: join(tmp, 'work', scene.id),
           progress: (done, total) =>
             input.progress(stage, (0.85 * (framesBefore + Math.min(done, total))) / totalSceneFrames, `scene ${i + 1}/${scenes.length}: ${done}/${total} frames`),
@@ -493,7 +501,13 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     // The seek check renders frames again, so it runs on renders only (a preview is about speed) and never with alpha.
     const seekFrames = qa.seekFrames ?? VIDEO_QA_DEFAULTS.seekFrames;
     const seeks = input.kind === 'render' && !spec.alpha && seekFrames > 0 ? await ffmpegSpan('seek check', () => checkSeek({ input, clips, output, tmp, video: finalTmp, count: seekFrames })) : undefined;
-    const issues = videoQaIssues({ ...measured, lows, loop: measured.motion?.loop, ...(seeks ? { seeks } : {}) }, sceneTimes(clips, fpsValue(output.fps)), qa.video === 'fail' ? 'error' : 'warning');
+    // Text overflow (#386): the samples the DOM engines took while rendering, joined into runs on the timeline.
+    const text = textCheckOn(qa) ? textQa(clips, fpsValue(output.fps), qa.textSeconds ?? VIDEO_QA_DEFAULTS.textSeconds) : undefined;
+    const issues = videoQaIssues(
+      { ...measured, lows, loop: measured.motion?.loop, ...(seeks ? { seeks } : {}), ...(text ? { texts: text.runs } : {}) },
+      sceneTimes(clips, fpsValue(output.fps)),
+      qa.video === 'fail' ? 'error' : 'warning'
+    );
     for (const i of issues) log(`picture qa (${i.severity}): ${i.message}`);
     if (qa.video === 'fail' && issues.length) throw new PipelineError('qa:video', issues.map((i) => i.message).join('; '));
     videoQa = {
@@ -506,6 +520,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
         ? { motion: { floor: motionFloor, lowSeconds: lowMotionSeconds, energyPerSecond: measured.motion.energyPerSecond, lows, ...(measured.motion.loop ? { loop: measured.motion.loop } : {}) } }
         : {}),
       ...(seeks?.length ? { seek: { grid: SEEK_GRID, maxDiff: SEEK_MAX_DIFF, frames: seeks } } : {}),
+      ...(text ? { text } : {}),
       issues,
     };
   }
@@ -614,7 +629,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
     createdAt: new Date().toISOString(),
     wallClockMillis: Date.now() - started,
     output: fmt ? { file: outName, ...(poster ? { poster: 'poster.png', posterFrame } : {}), ...info } : { file: 'final.mp4', poster: 'poster.png', ...info },
-    scenes: clips.map((c) => ({ ...c, file: rel(c.file) })),
+    scenes: clips.map(({ text: _text, ...c }) => ({ ...c, file: rel(c.file) })),
     audio: audioQa.manifest,
     theme: input.theme,
     versions: {
@@ -638,6 +653,7 @@ export async function finishRender(f: FinishRenderInput): Promise<RenderPipeline
       motion: pictureCheck('video.motion', !!videoQa?.motion && videoQa.motion.lowSeconds > 0),
       loop: pictureCheck('video.loop', !!videoQa?.motion?.loop),
       seek: pictureCheck('video.seek', !!videoQa?.seek?.frames.some((s) => s.maxDiff !== undefined)),
+      text: pictureCheck('video.text', !!videoQa?.text?.sampledScenes.length),
     },
     ...(videoQa ? { videoQa } : {}),
     ...(contactSheet ? { contactSheet } : {}),
