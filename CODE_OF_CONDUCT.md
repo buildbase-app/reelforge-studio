@@ -13,7 +13,7 @@ or AI-generated issues, comments or pull requests).
 ## Enforcement
 
 Report unacceptable behaviour privately to the maintainers at
-<https://reelforge.buildbase.app/contact> (or a private security advisory if it
+<https://renderweld.com/contact> (or a private security advisory if it
 involves a security issue). Reports are handled confidentially.
 
 Maintainers may edit or remove comments, close issues and pull requests, and

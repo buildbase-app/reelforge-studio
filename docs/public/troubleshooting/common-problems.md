@@ -1,6 +1,6 @@
 ---
 title: "Common problems"
-description: "Fixes for the problems people hit most with ReelForge Studio: keys, licence, MCP connections, renders, Chromium's sandbox, storage and proxies."
+description: "Fixes for the problems people hit most with RenderWeld: keys, licence, MCP connections, renders, Chromium's sandbox, storage and proxies."
 folder: troubleshooting
 slug: common-problems
 order: 1
@@ -14,7 +14,7 @@ Start with these two commands; most answers are in their output:
 ```bash
 docker compose ps                                  # is the service (healthy)?
 docker compose logs --tail 100 reelforge           # what the server said
-docker compose exec reelforge reelforge config check
+docker compose exec reelforge renderweld config check
 ```
 
 Every API error has a `code` and a `message` that says what to do. The codes are
@@ -24,7 +24,7 @@ listed on the [REST API overview](/docs/api/rest-api#errors).
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `401 unauthorized` | The `Authorization: Bearer rf_...` header is missing or the key is wrong. Keys are shown once; create a new one with `reelforge keys create` |
+| `401 unauthorized` | The `Authorization: Bearer rf_...` header is missing or the key is wrong. Keys are shown once; create a new one with `renderweld keys create` |
 | `401 key_expired` / `key_revoked` | The key's expiry passed or it was revoked. `get_key` shows its status; extend it with `update_key { expiresAt }` or create a new key |
 | `403 forbidden` ... `lacks the "admin" scope` | The key does not have the scope the call needs. Use an admin key for keys, configuration and licence calls |
 | `403 forbidden_host` on `/mcp` | You reach the server by a host name it does not know. Set `REELFORGE_PUBLIC_URL` (or add the name to `REELFORGE_ALLOWED_HOSTS`) |
@@ -48,14 +48,14 @@ listed on the [REST API overview](/docs/api/rest-api#errors).
 | --- | --- |
 | The client cannot connect to `http://127.0.0.1:4321/mcp` | Is the agent on the same machine? The port is published on loopback only. For another machine, use the TLS profile and `REELFORGE_PUBLIC_URL` ([Connect an agent](/docs/start/connect-an-agent)) |
 | The client connects but lists no tools | It probably sends no key. Check the header in the client's MCP configuration; `curl -s http://127.0.0.1:4321/.well-known/mcp.json` works without one and lists the tools |
-| A stdio-only client | ReelForge speaks Streamable HTTP. Use a client that supports remote MCP servers, or a stdio-to-HTTP bridge (none is bundled) |
+| A stdio-only client | RenderWeld speaks Streamable HTTP. Use a client that supports remote MCP servers, or a stdio-to-HTTP bridge (none is bundled) |
 
 ## Renders
 
 | Symptom | Cause and fix |
 | --- | --- |
 | `422 invalid_manifest` | `details.issues` lists every problem with its path, all at once. Fix them all and call again; `get_project_schema` has the schema |
-| An engine shows `available: false` in `get_capabilities` | Its browser is missing (from source: set `REELFORGE_CHROMIUM_PATH`). The Docker image has one built in |
+| An engine shows `available: false` in `get_capabilities` | Its browser is missing (from source: set `RENDERWELD_CHROMIUM_PATH`). The Docker image has one built in |
 | html, hyperframes or motion-canvas scenes fail with "No usable sandbox" | The host blocks unprivileged user namespaces (Ubuntu 23.10 and later do for unconfined programs). Set `REELFORGE_CHROMIUM_NO_SANDBOX=1` in `.env` and `docker compose up -d` |
 | A job failed | `get_job_logs` (or `GET /v1/jobs/:id/logs`) has the reason. Fix the project and render again, or `retry_job` |
 | A job shows `failed` with `interrupted` after a restart | Jobs running when the server stopped are marked failed. `retry_job` |

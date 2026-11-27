@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MAX_PROJECT_SECONDS } from './common';
 import { captionStyle } from './themes';
+import { checkGlossary, type GlossaryEntry, type GlossaryIssue } from './glossary';
 
 /**
  * Captions (issue #300, docs/CAPTIONS.md): the cue model stored in the
@@ -355,6 +356,19 @@ export interface CaptionQa {
   /** Highest reading speed of any cue (characters per second). */
   maxCps: number;
   issues: CaptionIssue[];
+  /** The glossary check (#486): terms the script and the captions disagree on. Only when the project has a glossary and a voice script. */
+  glossary?: GlossaryIssue[];
+}
+
+/**
+ * The quality check with the glossary check added (#486): `glossary` lists
+ * each term the voice script and the cues disagree on, and any such term
+ * makes `ok` false. The QA is returned unchanged without a glossary or script.
+ */
+export function withGlossaryCheck(qa: CaptionQa, cues: readonly CaptionCue[], script: string | undefined, glossary: readonly GlossaryEntry[] | undefined): CaptionQa {
+  if (!glossary?.length || !script?.trim()) return qa;
+  const issues = checkGlossary(script, cues.map((c) => c.text).join('\n'), glossary);
+  return { ...qa, ok: qa.ok && issues.length === 0, glossary: issues };
 }
 
 /** Characters a viewer reads: the text with whitespace collapsed (line breaks count as a space). */

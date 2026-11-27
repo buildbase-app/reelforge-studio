@@ -29,7 +29,7 @@ describe('KeyStore', () => {
   it('admin implies every scope', async () => {
     const { key } = await keys.create('ops', ['admin']);
     const auth = (await keys.verify(key))!;
-    for (const s of ['read', 'write', 'render', 'admin'] as const) expect(hasScope(auth, s)).toBe(true);
+    for (const s of ['read', 'write', 'render', 'approve', 'admin'] as const) expect(hasScope(auth, s)).toBe(true);
   });
 
   it('rejects bad scopes and names', async () => {

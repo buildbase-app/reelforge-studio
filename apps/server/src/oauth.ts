@@ -14,7 +14,7 @@ import type { AuthContext, Scope } from '@renderweld/core';
  *   - Tokens: JWT (RFC 9068 profile) signed with an asymmetric key from the
  *     issuer's JWKS; `iss` must be the issuer, `aud` must contain the
  *     audience (the MCP endpoint URL, RFC 8707), `exp` in the future.
- *   - Scopes: `renderweld:read`, `renderweld:write`, `renderweld:render`, `renderweld:admin` and
+ *   - Scopes: `renderweld:read`, `renderweld:write`, `renderweld:render`, `renderweld:approve`, `renderweld:admin` and
  *     `renderweld:owner` (and the old `reelforge:*` names, #413) in `scope` (space-separated)
  *     or `scp` (array) map to RenderWeld's scopes. `renderweld:owner` (or `reelforge:owner`) is
  *     the instance owner (configuration, licence, providers, storage, workspaces); only the
@@ -34,6 +34,8 @@ export const OAUTH_SCOPES: Record<string, Scope> = {
   'renderweld:read': 'read',
   'renderweld:write': 'write',
   'renderweld:render': 'render',
+  // Approve render plans (render.approval, #485); admin and owner imply it. No old ReelForge name: the scope is new.
+  'renderweld:approve': 'approve',
   'renderweld:admin': 'admin',
   // The instance owner, like an owner key: tokens act in the default workspace (the owner's), D-125.
   'renderweld:owner': 'owner',
@@ -44,7 +46,7 @@ export const OAUTH_SCOPES: Record<string, Scope> = {
   'reelforge:owner': 'owner',
 };
 
-export type OAuthResult = { ok: true; auth: AuthContext; subject: string } | { ok: false; error: 'invalid_token' | 'insufficient_scope'; description: string };
+export type OAuthResult = { ok: true; auth: AuthContext; subject: string; claims: Record<string, unknown> } | { ok: false; error: 'invalid_token' | 'insufficient_scope'; description: string };
 
 /** Accepted signature algorithms: asymmetric only (a shared-secret HS* token could be forged by anyone holding the secret). */
 const ALGS: Record<string, { hash: string; kty: string; opts?: { padding?: number; saltLength?: number; dsaEncoding?: 'ieee-p1363' } }> = {
@@ -162,6 +164,7 @@ export class OAuthVerifier {
     return {
       ok: true,
       subject: claims.sub,
+      claims,
       // The rate limit, quotas and audit trail count per subject, like per key.
       auth: { keyId: `oauth:${claims.sub}`.slice(0, 200), name: `oauth ${client ? `${client} for ` : ''}${claims.sub}`.slice(0, 200), scopes },
     };

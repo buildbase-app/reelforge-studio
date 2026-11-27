@@ -26,7 +26,9 @@ function registry(): PluginRegistry {
     render: async (scene: RenderScene, ctx) => {
       if (failing.has(scene.id)) throw new Error(`injected failure in scene ${scene.id}`);
       if (blocking.has(scene.id)) await new Promise((_, reject) => ctx.signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true }));
-      return e.render(scene, ctx);
+      const res = await e.render(scene, ctx);
+      // Scene "c" of project "fan" holds text that runs off the frame from 0.5 s to its end (as a DOM engine samples it).
+      return scene.id === 'c' && ctx.textCheck ? { ...res, text: { samples: 7, step: 7, runs: [{ rule: 'text.frame', text: 'Too wide', box: { x: 4, y: 10, width: 356, height: 70 }, startFrame: 14, endFrame: 48 }] } } : res;
     },
   });
   return new PluginRegistry().registerEngine(flaky(engines.remotion)).registerEngine(flaky(engines.mc));
@@ -108,7 +110,14 @@ describe('render fan-out in the service (fake engine)', () => {
     expect(m.scenes.map((s: { file: string }) => s.file)).toEqual(['clips/01-a.mp4', 'clips/02-b.mp4', 'clips/03-c.mp4', 'clips/04-d.mp4']);
     // Joined by stream copy (units normalised to the final encoding), with the extra checks of the join.
     expect(m.join).toEqual({ method: 'concat demuxer, video stream copy', clips: 4 });
-    expect(m.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', timestamps: 'pass', avDuration: 'pass', avSync: 'pass', loudness: 'skipped' });
+    // The picture checks (#294) see what the fake engines paint: one dark theme colour for every scene, so the whole
+    // video is one frozen, near-black picture.
+    expect(m.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', timestamps: 'pass', avDuration: 'pass', avSync: 'pass', loudness: 'skipped', sfx: 'skipped', freeze: 'warn', black: 'warn', flash: 'pass', motion: 'pass', loop: 'skipped', seek: 'skipped', text: 'warn' });
+    // The text samples of scene "c" came back through its unit's manifest and are placed on the joined timeline (c starts at frame 117).
+    expect(m.videoQa.text).toMatchObject({ minSeconds: 1, samplesPerSecond: 4, sampledScenes: ['c'], notSampledScenes: ['a', 'b', 'd'], shortRuns: 0 });
+    expect(m.videoQa.text.runs).toEqual([{ sceneId: 'c', rule: 'text.frame', text: 'Too wide', box: { x: 4, y: 10, width: 356, height: 70 }, startSeconds: 4.367, endSeconds: 5.5, durationSeconds: 1.133 }]);
+    expect(m.videoQa.issues.filter((i: { rule: string }) => i.rule === 'video.text')).toEqual([expect.objectContaining({ scenes: ['c'], startSeconds: 4.367, endSeconds: 5.5 })]);
+    expect(m.scenes.every((s: Record<string, unknown>) => !('text' in s))).toBe(true);
     expect(m.ffmpegAssembleArgs).toEqual(expect.arrayContaining(['concat', 'copy']));
     expect(existsSync(join(rendersDir, `.tmp-${runId}`))).toBe(false);
     const fanned = await probe(resolveTools().ffprobe, join(rendersDir, runId, 'final.mp4'));

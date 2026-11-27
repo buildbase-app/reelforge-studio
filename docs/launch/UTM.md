@@ -1,7 +1,7 @@
 # UTM scheme for the launch
 
 Issue #45 (measurement), used by every file in this folder (#51, #249).
-Every link to `https://reelforge.buildbase.app` in launch copy carries these
+Every link to `https://renderweld.com` in launch copy carries these
 four parameters. BuildBase Analytics then shows visits, goals and orders per
 channel, and the same table is the traffic-source evidence for #56.
 
@@ -40,7 +40,7 @@ with hyphens; no spaces, no personal data, no names of the people you message.
 ## Building a link
 
 ```text
-https://reelforge.buildbase.app/agents?utm_source=hackernews&utm_medium=community&utm_campaign=launch-2026-12&utm_content=1203-showhn
+https://renderweld.com/agents?utm_source=hackernews&utm_medium=community&utm_campaign=launch-2026-12&utm_content=1203-showhn
 ```
 
 Paths used in this kit: `/` (home), `/agents`, `/pricing`, `/waitlist`,
@@ -69,4 +69,4 @@ can link either, link the site. Email links go to the site only.
   the README (`utm_source` = channel, `utm_campaign` = `launch-2026-12`)").
 - `/docs/start/quick-start` answers 404 and `/gallery` says "The gallery is
   being rendered" on production: checked 2026-11-23 with `curl` against
-  https://reelforge.buildbase.app.
+  https://renderweld.com.

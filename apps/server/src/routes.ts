@@ -11,7 +11,7 @@ export interface RouteEntry {
   path: string;
   display?: string;
   /** `owner`: instance-level (#304); `admin`: the key's own workspace. */
-  scope: 'read' | 'write' | 'render' | 'admin' | 'owner';
+  scope: 'read' | 'write' | 'render' | 'approve' | 'admin' | 'owner';
   tool: string;
   /** How the MCP tool differs, when it does. */
   note?: string;
@@ -22,6 +22,8 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'GET', path: '/v1/me', scope: 'read', tool: 'get_me' },
   { method: 'GET', path: '/v1/schema/project', scope: 'read', tool: 'get_project_schema' },
   { method: 'GET', path: '/v1/templates', scope: 'read', tool: 'list_templates' },
+  { method: 'GET', path: '/v1/skills', scope: 'read', tool: 'get_skill', note: 'The list; MCP: get_skill without name.' },
+  { method: 'GET', path: '/v1/skills/:name', scope: 'read', tool: 'get_skill', note: 'REST answers with the Markdown (text/markdown); MCP: get_skill { name } returns it in JSON.' },
   { method: 'GET', path: '/v1/themes', scope: 'read', tool: 'list_themes' },
   { method: 'POST', path: '/v1/themes', scope: 'write', tool: 'create_theme' },
   { method: 'GET', path: '/v1/themes/:id', scope: 'read', tool: 'get_theme' },
@@ -45,6 +47,8 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'PATCH', path: '/v1/projects/:id/captions', scope: 'write', tool: 'update_captions', note: 'REST takes the etag in the body or as If-Match; expectedVersion in the body or query.' },
   { method: 'POST', path: '/v1/projects/:id/captions/transcribe', scope: 'render', tool: 'transcribe_captions' },
   { method: 'POST', path: '/v1/projects/:id/preview', scope: 'render', tool: 'preview_scene' },
+  { method: 'POST', path: '/v1/projects/:id/render-plan', scope: 'read', tool: 'plan_render' },
+  { method: 'POST', path: '/v1/projects/:id/render-plan/approve', scope: 'approve', tool: 'approve_render_plan' },
   { method: 'POST', path: '/v1/projects/:id/renders', scope: 'render', tool: 'render_project' },
   { method: 'GET', path: '/v1/projects/:id/renders', scope: 'read', tool: 'list_renders' },
   { method: 'GET', path: '/v1/jobs', scope: 'read', tool: 'list_jobs', note: 'Filters: ?projectId= and ?parentId= (the units and the join of a fanned-out render).' },
@@ -55,6 +59,8 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'GET', path: '/v1/jobs/:id/events', scope: 'read', tool: 'get_job', note: 'SSE stream in REST; MCP clients call get_job with waitSeconds (long-poll).' },
   { method: 'GET', path: '/v1/renders/:id', scope: 'read', tool: 'get_render_output' },
   { method: 'GET', path: '/v1/renders/:id/captions', scope: 'read', tool: 'get_captions', note: 'MCP: get_captions with renderId.' },
+  { method: 'GET', path: '/v1/renders/:id/frames', scope: 'read', tool: 'get_frames', note: 'Query: at=1.5,3 (seconds), frames=0,45, scenes=hook:mid,steps:end, every=2.5, width, layout, overlay. JSON with base64 images; format=jpeg returns the sheet itself. MCP returns the images as image content.' },
+  { method: 'DELETE', path: '/v1/renders/:id', scope: 'write', tool: 'delete_render' },
   {
     method: 'GET',
     path: '/v1/renders/:id/output',
@@ -74,6 +80,7 @@ export const REST_ROUTES: RouteEntry[] = [
   },
   { method: 'GET', path: '/v1/providers', scope: 'read', tool: 'list_providers' },
   { method: 'PUT', path: '/v1/providers/:id/config', scope: 'owner', tool: 'configure_provider' },
+  { method: 'PUT', path: '/v1/providers/:id/workspace-config', scope: 'admin', tool: 'configure_workspace_provider' },
   { method: 'POST', path: '/v1/providers/:id/run', scope: 'render', tool: 'run_provider', note: 'generate_voice is a TTS shortcut.' },
   { method: 'GET', path: '/v1/config', scope: 'owner', tool: 'get_config' },
   { method: 'PATCH', path: '/v1/config', scope: 'owner', tool: 'update_config' },
@@ -97,6 +104,7 @@ export const REST_ROUTES: RouteEntry[] = [
   { method: 'POST', path: '/v1/keys/:id/revoke', scope: 'admin', tool: 'revoke_key' },
   { method: 'DELETE', path: '/v1/keys/:id', scope: 'admin', tool: 'delete_key' },
   { method: 'GET', path: '/v1/workspace', scope: 'read', tool: 'get_workspace' },
+  { method: 'PATCH', path: '/v1/workspace/retention', scope: 'admin', tool: 'set_workspace_retention', note: 'The key\'s own workspace; tighter only (#487).' },
   { method: 'GET', path: '/v1/workspaces', scope: 'owner', tool: 'list_workspaces' },
   { method: 'POST', path: '/v1/workspaces', scope: 'owner', tool: 'create_workspace' },
   { method: 'PATCH', path: '/v1/workspaces/:id', scope: 'owner', tool: 'update_workspace' },

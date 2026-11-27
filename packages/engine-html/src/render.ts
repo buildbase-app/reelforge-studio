@@ -14,6 +14,7 @@ import {
   sceneAssetUses,
   sceneTimeoutCapMs,
   stageSceneAssets,
+  videoSelectorsAsImages,
   type EnginePlugin,
   type ResolvedAsset,
   type StagedSceneAssets,
@@ -23,7 +24,11 @@ import { PipelineError, startPngEncoder, type Tools } from '@renderweld/media-pi
 import {
   BUILTIN_THEMES,
   FIT_TEXT_SCRIPT,
+  TEXT_SAMPLE_SCRIPT,
   fpsArg,
+  fpsValue,
+  textRunTracker,
+  textSampleStep,
   framesToSeconds,
   htmlTitleProps,
   MAX_SOURCE_BYTES,
@@ -34,8 +39,10 @@ import {
   rewriteAssetRefs,
   type DomLogo,
   type DomMediaLayer,
+  type ClipTextCheck,
   type OutputSettings,
   type RenderScene,
+  type TextSample,
   type ThemeTokens,
 } from '@renderweld/project-schema';
 import { chromium, type Browser } from 'playwright-core';
@@ -64,6 +71,8 @@ export interface HtmlRenderOptions {
   /** Scratch directory (staged assets, video frames of html-layout panes). Default: next to `out`. */
   workDir?: string;
   log?: (line: string) => void;
+  /** Text overflow check (#294, #386): sample the text on screen at TEXT_SAMPLES_PER_SECOND while rendering. */
+  textCheck?: boolean;
 }
 
 /** The origin html scenes load assets from: answered by request interception only (`.invalid` never resolves). */
@@ -78,6 +87,8 @@ export interface HtmlRenderResult {
   blockedRequests: string[];
   /** Asset files the page loaded (names under the asset base). */
   assetRequests: string[];
+  /** With `textCheck`: what the text samples found. */
+  text?: ClipTextCheck;
 }
 
 export function htmlEngineVersion(): string {
@@ -90,7 +101,7 @@ export const chromiumSandbox = coreChromiumSandbox;
 export function resolveHtmlBrowser(explicit?: string): string {
   const p = explicit ?? envValue('REELFORGE_CHROMIUM_PATH');
   if (p && existsSync(p)) return p;
-  throw new PipelineError('setup', `No Chromium for the html engine: set REELFORGE_CHROMIUM_PATH (tried ${p ?? '(unset)'})`);
+  throw new PipelineError('setup', `No Chromium for the html engine: set RENDERWELD_CHROMIUM_PATH (tried ${p ?? '(unset)'})`);
 }
 
 /** The html + css to render for a scene: agent source, or a built-in template; `asset:` references point at `assetBase`. */
@@ -102,7 +113,10 @@ export function sceneSource(scene: RenderScene, durationSeconds: number, staged?
   if (scene.html !== undefined) {
     if (!staged) return { html: scene.html, css: scene.css ?? '' };
     const isVideo = (key: string) => staged.items.get(key)?.frames !== undefined;
-    return { html: rewriteSceneHtml(scene.html, url, { videoAsImage: true, isVideo }), css: rewriteAssetRefs(scene.css ?? '', url) };
+    const html = rewriteSceneHtml(scene.html, url, { videoAsImage: true, isVideo });
+    const css = rewriteAssetRefs(scene.css ?? '', url);
+    // Clips became <img data-rf-video>: rules that select `video` by tag select those too (#448).
+    return { html, css: html.includes('data-rf-video=') ? videoSelectorsAsImages(css) : css };
   }
   if (scene.template === 'html-title') {
     const props = htmlTitleProps.parse(scene.props);
@@ -317,6 +331,8 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     const hasVideo = Object.keys(videos).length > 0;
     if (hasVideo) await page.evaluate((v) => void ((window as unknown as { __rfVideos: unknown }).__rfVideos = v), videos);
 
+    const textStep = textSampleStep(fpsValue(output.fps));
+    const text = opts.textCheck ? textRunTracker({ frames, step: textStep }) : undefined;
     for (let f = 0; f < frames; f++) {
       if (signal.aborted) break;
       const t = framesToSeconds(f, output.fps) * 1000;
@@ -359,6 +375,8 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
         }, f);
         if (missing) throw new PipelineError(stage, `video picture for frame ${f} did not load`);
       }
+      // Text overflow (#386): the page is laid out at this frame already, so a sample is one DOM walk.
+      if (text && f % textStep === 0) text.add(f, (await page.evaluate(TEXT_SAMPLE_SCRIPT)) as TextSample[]);
       const png = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: output.width, height: output.height }, caret: 'hide', animations: 'allow', omitBackground: opts.alpha === true });
       await encoder.write(png);
       opts.onProgress?.(f + 1, frames);
@@ -368,7 +386,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
     if (signal.aborted) throw new PipelineError(stage, 'cancelled');
     await encoder.finish();
     const version = browser.version();
-    return { out: opts.out, frames, millis: Date.now() - started, browser: version, blockedRequests: blocked, assetRequests };
+    return { out: opts.out, frames, millis: Date.now() - started, browser: version, blockedRequests: blocked, assetRequests, ...(text ? { text: text.finish() } : {}) };
   } catch (e) {
     encoder.kill();
     if (navigation.signal.aborted) throw navigationError();
@@ -432,6 +450,7 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         tools: ctx.tools,
         workDir: ctx.workDir,
         log: ctx.log,
+        ...(ctx.textCheck ? { textCheck: true } : {}),
       });
       if (res.blockedRequests.length) ctx.log(`html sandbox blocked ${res.blockedRequests.length} request(s): ${res.blockedRequests.slice(0, 5).join(', ')}`);
       return {
@@ -440,6 +459,7 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         engineVersion: htmlEngineVersion(),
         browserVersion: browserVersion(opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH')) ?? res.browser,
         millis: res.millis,
+        ...(res.text ? { text: res.text } : {}),
       };
     },
   };

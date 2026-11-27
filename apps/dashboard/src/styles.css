@@ -716,6 +716,15 @@ progress.settled::-moz-progress-bar {
   display: grid;
   gap: 16px;
 }
+.sheet-panel {
+  margin-bottom: 16px;
+}
+.contact-sheet {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
 .render-grid-3 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

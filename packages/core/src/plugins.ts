@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream';
 import type { Tools } from '@renderweld/media-pipeline';
 import type {
   CaptionMode,
+  ClipTextCheck,
   RenderAudioOptions,
   OutputSettings,
   Project,
@@ -88,6 +89,14 @@ export interface EngineRenderContext {
    * background itself is not painted.
    */
   alpha?: boolean;
+  /**
+   * Text overflow check (#294, #386): the engine samples the text on screen at
+   * least TEXT_SAMPLES_PER_SECOND times a second while it renders (in a DOM
+   * page, TEXT_SAMPLE_SCRIPT) and returns what it found in `ClipResult.text`.
+   * Engines that cannot sample ignore it, and the check counts as skipped for
+   * their scenes.
+   */
+  textCheck?: boolean;
 }
 
 /** What an engine can do beyond rendering a whole scene. */
@@ -115,6 +124,8 @@ export interface ClipResult {
   engineVersion: string;
   browserVersion?: string;
   millis: number;
+  /** With `EngineRenderContext.textCheck`, from an engine that samples text: what it found. */
+  text?: ClipTextCheck;
 }
 
 export interface Availability {
@@ -171,6 +182,14 @@ export interface ProviderRunContext {
   putAsset(input: PutAssetInput): Promise<StoredAsset>;
   /** fetch, injectable for tests. */
   fetch: typeof fetch;
+  /**
+   * The calling workspace's own provider settings for this call, by the names in `env` (#480,
+   * configure_workspace_provider). A provider with `scopedSettings` reads its key from here when it is set, so
+   * that workspace's calls go to its own account. Absent when the call uses the instance's settings (the default
+   * workspace, or a workspace that may share them: `providers.shareWithWorkspaces`): the provider then reads the
+   * environment it was built with, as before.
+   */
+  env?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface ProviderResult {
@@ -186,8 +205,17 @@ export interface ProviderPlugin {
   id: string;
   kind: 'tts' | 'avatar' | 'music' | 'stock' | 'image';
   displayName: string;
-  /** Has the operator configured it (API key set)? */
-  configured(): boolean;
+  /**
+   * Is it configured (API key set)? With `env`, decide from those settings (one workspace's, see
+   * ProviderRunContext.env); without, from the instance's.
+   */
+  configured(env?: Readonly<Record<string, string | undefined>>): boolean;
+  /**
+   * True when the provider reads its settings from `ctx.env` and `configured(env)`, so a workspace can bring
+   * its own account (#480). Without it, only the instance's settings are used, and a workspace that may not
+   * share them cannot use the provider.
+   */
+  scopedSettings?: boolean;
   /** Shown to agents before they call it. */
   costNote: string;
   /** Environment variables the operator sets to configure it. */
@@ -217,6 +245,8 @@ export interface SttRequest {
   /** BCP 47 tag of the spoken language, or "auto" to detect it. */
   language: string;
   settings: SttSettings;
+  /** Words to expect, such as the project glossary's terms (#486): faster-whisper's `initial_prompt`. */
+  prompt?: string;
 }
 
 export interface SttResult {

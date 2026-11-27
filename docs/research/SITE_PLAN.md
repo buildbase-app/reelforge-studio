@@ -1,5 +1,7 @@
 # ReelForge public site: visibility, design and BuildBase showcase plan
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](../RENAMED.md) maps each old name to the new one.
+
 **Prepared:** 2026-11-21 (Sat). **Site:** https://reelforge.buildbase.app (Next.js 16.4 on Cloudflare Workers via OpenNext, D1, `@buildbase/sdk` ^1.8). **Code:** `/home/user/reelforge-selling-public-site`, branch `claude/eloquent-wright-tm3cs7` (HEAD `9d52424`, "Buy flow from BuildBase items").
 **Builds on:** `/tmp/claude-0/-home-user/91c022dd-328d-5abd-9833-cfc66824b3fd/scratchpad/design-research/BRIEF.md`. Its homepage wireframe (§3), pricing/buy flow (§4), tokens (§5) and banned claims (§7) still apply. This plan doesn't repeat them. It adds the Apple-pattern layer, the BuildBase mapping, SEO/AI-search, the hackathon reality check and a set of issues ready to file.
 **Status:** Plan only. Nothing here is implemented. All repositories were left untouched.

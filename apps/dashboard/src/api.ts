@@ -75,6 +75,8 @@ export interface RenderSummary {
     files: Array<{ format: string; file: string; downloadUrl: string; downloadUrlExpiresAt: string }>;
     qa: { ok: boolean; issues: Array<{ cue: number; rule: string; message: string }> };
   };
+  /** The labelled sheet stored with the render (#379); absent when off, audio-only or on older servers. */
+  contactSheet?: { file: string; tiles: Array<{ frame: number; seconds: number; sceneId: string | null; label: string }> };
 }
 
 export interface RenderRetention {

@@ -9,6 +9,8 @@ export const PROJECTS_PREFIX = 'projects/';
 export const TEMP_RUN_PREFIX = '.tmp-';
 /** The object whose presence marks a render as complete; written last. */
 export const RENDER_MANIFEST = 'render-manifest.json';
+/** Written beside a render on the first download of its output (#487); its time is when that happened. Never served. */
+export const DOWNLOAD_MARKER = 'downloaded.json';
 
 export const rendersPrefix = (projectId: string) => `${PROJECTS_PREFIX}${projectId}/renders/`;
 export const renderPrefix = (projectId: string, runId: string) => `${rendersPrefix(projectId)}${runId}/`;
@@ -53,6 +55,7 @@ export function contentTypeFor(key: string): string {
   if (key.endsWith('.m4a')) return 'audio/mp4';
   if (key.endsWith('.wav')) return 'audio/wav';
   if (key.endsWith('.png')) return 'image/png';
+  if (key.endsWith('.jpg')) return 'image/jpeg';
   if (key.endsWith('.json')) return 'application/json';
   if (key.endsWith('.srt')) return 'application/x-subrip; charset=utf-8';
   if (key.endsWith('.vtt')) return 'text/vtt; charset=utf-8';

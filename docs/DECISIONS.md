@@ -1,5 +1,7 @@
 # Decisions, Assumptions, and Open Questions
 
+> ReelForge is now RenderWeld (#408). This record keeps the names it was written with; [RENAMED.md](RENAMED.md) maps each old name to the new one.
+
 This file separates explicit founder decisions from recommendations and
 unresolved questions.
 
@@ -3096,3 +3098,120 @@ not found for any free set, and a licensing mistake in a sold image is expensive
 raising the default budget; bundling starter music (no verified redistribution rights); Twemoji
 (CC-BY 4.0, attribution on every use) and OpenMoji (CC-BY-SA, share-alike risk) for icons or emoji;
 Pixabay audio (no standalone redistribution); Piper's `en_US-lessac` voice (research-only licence).
+
+### D-132 --- Craft skills are public: the twelve skill texts ship in the studio, tested against the code
+
+**Status:** DECIDED (founder, 2026-11-25, #313; reversible). Number assigned at merge. Reverses the
+skill-text part of the 2026-11-23 decision on #313 and the "pacing rules" and "placing sound effects"
+items of D-128.\
+**Decision:** the craft skills an agent needs to make a video that does not look machine-made are
+public, in this repo and the public image, so an agent that knows nothing about video is guided at
+every step: `video-brief`, `script-timing`, `layout-and-type`, `motion-design`, `camera-language`,
+`physical-plausibility`, `sound-and-mix`, `voice-over`, `captions-and-accessibility`, `av-sync`,
+`brand-consistency` and `review-and-qa` (`apps/server/src/skills/`). Each is written for this studio,
+not copied: numbered rules with their numbers and published sources (Netflix and BBC timed text, WCAG
+2.2, EBU R 128, ITU-R BT.1359 and BT.1848, *The Illusion of Life*, gait and blink research), how to
+apply them with the tools, the signs of a generic video and a checklist. **What stays out:** what a
+video says, its structure, hooks, calls to action and music choice remain the user's (D-128); the
+curated blueprints, hook library and cookbook stay paid-pack material (#314). **Proof:** every number
+the studio also enforces is tied to its constant (caption limits, loudness targets, ducking defaults,
+safe areas, the short-scene warning), the arithmetic is checked, cross-references must point at real
+rules (SKL-12 to SKL-15), and two agents given only the skills answered ten production scenarios; the
+ambiguities they found were fixed before merge. *Why:* the founder wants any agent to get good results
+from the studio without prior knowledge; rules only in a paid pack leave the free path producing the
+videos the gates then reject. *Rejected:* keeping the texts private with only the gates public
+(2026-11-23); copying third-party skill files (licence and fit).
+
+### D-133 --- Provider accounts per workspace: a workspace's own settings win; the instance's are shared only as configured
+
+**Status:** DECIDED (agent, 2026-11-25, #480; reversible). Number assigned at merge.\
+**Decision:** a workspace can store its own provider settings (`configure_workspace_provider` by its admin,
+or `configure_provider { workspaceId }` by the owner), encrypted, in that workspace's rows of the existing
+provider settings table (no migration). A call uses the workspace's own settings when it has any, never mixed
+with the instance's; otherwise the instance's when `providers.shareWithWorkspaces` lists the provider (empty by default, the
+founder's decision of 2026-11-25: each workspace brings its own key; `["*"]` restores the earlier sharing on
+an upgraded install), otherwise the provider counts as not configured. The default
+workspace always uses the instance's. Providers receive a workspace's own settings in `ctx.env` (absent when the call uses the instance's, so the
+plugin reads the environment it was built with, as before); only plugins that declare
+`scopedSettings` accept a workspace's own, so an older plugin that reads its constructor environment can never
+bill the instance's account for a workspace that may not share it. Settings are read on every call, so several
+instances agree without a cache. *Why:* agencies and platform teams need each tenant's cost, voices and data
+terms on that tenant's account. *Rejected:* a per-provider `sharedWithWorkspaces` that turns itself off once any
+workspace has its own (surprising for the other workspaces); falling back to the instance's for settings a
+workspace left out (it could pair one tenant's key with another account's options).
+
+### D-134 --- Render plans estimate from this install's own renders, per megapixel-frame per engine; never a guess
+
+**Status:** DECIDED (agent, 2026-11-25, #485; reversible). Number assigned at merge.\
+**Decision:** `plan_render` (`POST /v1/projects/:id/render-plan`, read scope) answers before `render_project`
+with every output the same call would render, each with an estimated render time and file size. The rates
+come from the manifests of the workspace's 50 newest successful renders: the median milliseconds per
+megapixel-frame of scene rendering per engine, the median ratio of the whole render to its scenes (assembly,
+encode, checks), and the median output bytes per megapixel-second. A size or length never rendered before is
+estimated by scaling, an engine with no sample uses the median of the others and says `partial`, and a
+workspace with no render says `none` with a null estimate. The queue wait is the queued jobs at the measured
+claim rate. Nothing is queued or charged, and the result carries a `planId` of the project version and options.
+*Why:* agents and users should see what a render costs before they start it (competitors ship dry runs and
+quotes, #485). Rates from the install's own hardware hold on any machine or cloud, where a fixed table would
+not (the backend contract already refuses to guess, #125). *Deferred:* the approval token (`render.approval`, an
+`approve` scope) is a separate change on #485.
+
+### D-135 --- Render approval: a signed, single-use token per plan; off by default; a new `approve` scope
+
+**Status:** DECIDED (agent, 2026-11-25, #485; reversible). Number assigned at merge.\
+**Decision:** `render.approval.mode` is `off` (default), `above` (the plan's estimated render time is over
+`render.approval.aboveSeconds`, or cannot be estimated yet) or `always`. When it applies, `render_project`
+answers `409 approval_required` with the plan until it gets an `approvalToken`. `approve_render_plan` (scope
+`approve`, which `admin` and `owner` imply) re-plans, checks the plan id is still current, and returns a token
+signed with the instance's URL signer over workspace, project, plan id and a nonce. It expires after
+`render.approval.tokenMinutes` and is spent when a render starts, through the shared counter table (one use
+across every instance). A changed project changes the plan id, so an old token and an old plan id are refused.
+*Why:* an operator can require a human yes before expensive renders without a second service. A plan id plus a
+signature needs no new table, and the counter makes "single-use" hold across api instances. *Rejected:* letting
+any `render` key approve (no separation of duties); stateless tokens without the spend counter (replayable
+until they expire).
+
+### D-136 --- Retention per workspace: two more workspace limits, stricter than the instance only
+
+**Status:** DECIDED (agent, 2026-11-25, #487; reversible). Number assigned at merge.\
+**Decision:** a workspace's limits take `retentionMaxAgeHours` and `retentionKeepLast` (owner, `update_workspace`).
+They are stored with the other limits (no migration), shown in `effectiveLimits`, and applied by the storage sweep
+in that workspace only. They are always the stricter of the workspace's and the instance's `storage.retention`: the
+shorter maximum age and the smaller keep-last. A workspace can keep less than the instance, never more.
+Deletions show the reason `older_than_workspace_retention`. *Why:* a tenant with a strict data policy (a health or
+legal client) needs a short retention without imposing it on every tenant. *Not yet (#487):* zero retention
+(delete once the result is delivered), delete-after-first-download, and a workspace admin setting it without the
+owner. These need download and delivery tracking and are a follow-up.
+
+### D-137 --- Project glossary: the user's spellings and pronunciations, applied by exact match only
+
+**Status:** DECIDED (agent, 2026-11-25, #486; reversible). Number assigned at merge.\
+**Decision:** a project's manifest takes an optional `glossary` (up to 200 terms, each once, letter case ignored):
+`term` (the exact spelling), `spoken` (what the voice should say), `alternatives` (spellings speech-to-text tends to
+produce) and `doNotTranslate`. Speech-to-text gets the terms as its prompt (faster-whisper `initial_prompt`, passed as
+one `--initial-prompt=` argument so a term can never become an option) and its words are respelled where they match a
+term or an alternative as whole words; `transcribe_captions` reports each replacement. A voice made for a project reads
+each term's `spoken` form, while the stored text keeps the term and the returned word timings are turned back into it.
+Caption QA compares how often the script and the cues spell each term exactly and fails on a difference
+(`qa.glossary`). *Why:* brand and product names are the most visible caption errors, and only the user knows how their
+names are spelled and said. Exact matching keeps the studio from rewriting a real word. *Rejected:* fuzzy or phonetic
+matching (it rewrites ordinary words that sound alike); provider pronunciation dictionaries such as SSML phonemes or
+ElevenLabs dictionaries (each provider has its own format and not every one has any; plain spoken text works with
+all of them); translating with `doNotTranslate` (the studio translates nothing, so the flag is stored for the agent
+or translation tool).
+
+### D-138 --- Delete after download, seen by this server; workspace admins can only tighten retention
+
+**Status:** DECIDED (agent, 2026-11-25, #487; reversible). Number assigned at merge.\
+**Decision:** a workspace limit `retentionDeleteAfterDownloadMinutes` deletes a render that many minutes after the
+first download of its output, whatever its age and keep-last. A download is a whole-file answer, or a range reaching
+the last byte, from the output route with a key or a signed link. It writes `downloaded.json` beside the render, once;
+the object's time is the record, so it works on every storage driver and is deleted with the render. Such a
+workspace's download links go through this server, not the bucket, because only the server sees a download.
+`get_render_output` reports `retention.downloadedAt` and `deletesAt`. A workspace admin may tighten its own retention
+(`set_workspace_retention`), never loosen or clear it; the owner keeps that through `update_workspace`. *Why:* a
+tenant under a data policy needs "keep nothing once delivered", and an owner's retention may be a commitment that
+someone inside the workspace must not undo. *Rejected:* deleting when the completion webhook is delivered (the
+webhook tells the receiver where to fetch the file, so it would be gone); counting a bucket-signed link as a download
+when it is issued (an issued link is not a delivery); a separate store for the admin's own values, which would need a
+migration for little gain over tighten-only.

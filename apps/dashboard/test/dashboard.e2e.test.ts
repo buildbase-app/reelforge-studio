@@ -170,6 +170,12 @@ describe.runIf(hasBrowser)('dashboard in a browser', () => {
       return Boolean(v && v.readyState >= 1 && v.videoWidth === 1080);
     });
     await page.getByText(`projects/spring-launch/renders/${ids.render}/`).waitFor();
+    // The contact sheet stored with the render (#379) loads through the API (the key is a header).
+    await page.getByRole('heading', { level: 2, name: /^Contact sheet \(\d+ frames\)$/ }).waitFor();
+    await page.waitForFunction(() => {
+      const img = document.querySelector<HTMLImageElement>('img.contact-sheet');
+      return Boolean(img && img.complete && img.naturalWidth > 0);
+    });
     expect(await axe(page), 'render').toEqual([]);
 
     // Renders (#292): every finished render across projects, newest first, linked to its page; previews apart.

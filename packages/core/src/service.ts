@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
@@ -44,9 +44,16 @@ import {
   type ValidationIssue,
   type ValidationWarning,
   type ThemeTokens,
+  safeAreaInsets,
+  applyGlossaryToTranscript,
+  glossaryPrompt,
+  restoreGlossaryTerms,
+  spokenText,
 } from '@renderweld/project-schema';
 import { BUNDLED_FONTS } from './fonts';
-import type { AudioManifest } from './audio';
+import { CONTACT_SHEET_FILE, FRAMES_DEFAULT_WIDTH, FRAMES_MAX_WIDTH, FRAMES_MIN_WIDTH, framesCacheDir, framesImageWithinBudget, planFrames, sceneSpans, type ContactSheetManifest, type FramesRequest, type PlannedTile } from './frames';
+import type { VideoQaManifest } from './videoqa';
+import { audioChecks, type AudioManifest } from './audio';
 import { OLD_SERVER_NAMES, PRODUCT_NAME, SERVER_NAME } from './product';
 import { AssetStore, assetUsableBy, stageStream } from './assets';
 import { CAPTION_FILE_PATTERN, captionFileNames, captionFontChoice, captionFontList, captionsEtag, type CaptionManifest } from './captions';
@@ -62,9 +69,10 @@ import { outputSupportIssues } from './output-support';
 /** Longest a single get_job call may block; below common MCP client request timeouts (60 s). */
 export const MAX_JOB_WAIT_SECONDS = 50;
 import { KeyStore, hasScope, quotaWindows, type AuthContext, type KeyOptions, type PublicKey, type Scope } from './keys';
-import { DEFAULT_WORKSPACE_ID, type JobStatus, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories } from './repositories';
+import { DEFAULT_WORKSPACE_ID, type JobStatus, type AuditEntryInput, type AuditFilter, type JobCaps, type QuotaWindow, type Repositories, type WorkspaceStatus } from './repositories';
 import { WORKSPACE_ID, currentWorkspaceId, isWorkspaceRouter, mergeAuditPages, runInWorkspace, workspaceKeyPrefix, type WorkspaceRouter } from './workspace';
 import { WorkspaceAdmin } from './workspace-admin';
+import { estimateOutput, planId, renderRates, type PlanOutput, type RenderSample } from './render-plan';
 import {
   AuditLog,
   MAX_AUDIT_EXPORT,
@@ -79,7 +87,7 @@ import {
 } from './audit';
 import { withIdempotency, type IdempotentOperation } from './idempotency';
 import { applyMergePatch, isPlainObject } from './mergePatch';
-import type { BackendContext, BackendEstimate, EstimateRequest, RenderOutcome, RenderRequest, ResolvedAsset, SttSettings, StoredAsset } from './plugins';
+import type { BackendContext, BackendEstimate, EstimateRequest, ProviderPlugin, RenderOutcome, RenderRequest, ResolvedAsset, SttSettings, StoredAsset } from './plugins';
 import { PluginRegistry } from './registry';
 import { runRenderPipeline } from './render';
 import { JOIN_JOB_TYPE, UNIT_JOB_TYPE, joinUnits, planChunks, renderUnit, unitSpecs, type ChunkPolicy, type FanOutDeps, type RenderJobParams } from './render-fanout';
@@ -91,7 +99,7 @@ import { ProjectStore, isProjectId } from './store';
 import { isRowId, parsePageQuery, readPage } from './paging';
 import { createStorageDriver, type StorageFactory } from './storage/factory';
 import { contentTypeFor, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix } from './storage/keys';
-import { StorageManager, type CleanupReport, type RetentionPolicy } from './storage/manager';
+import { StorageManager, renderDeletesAt, workspacePolicy, type CleanupReport, type RetentionPolicy, type WorkspaceRetention } from './storage/manager';
 import { ThemeStore } from './themes';
 import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
 import { ClaimRate, DEFAULT_PRIORITY, PRIORITIES, defaultPriority, isPriority, lowerPriority, priorityRank, type JobPriority } from './priority';
@@ -99,6 +107,9 @@ import { WebhookService, jobPayload, renderDedupeKey, renderOutcome, renderSumma
 import type { AuditEntry } from './repositories';
 import type { JobEvent, JobUsage } from './jobs';
 import { Analytics, type AnalyticsSummary } from './analytics';
+
+/** Successful renders a render plan reads its rates from (#485). */
+const RENDER_PLAN_SAMPLE = 50;
 
 export interface ServiceConfig {
   /**
@@ -194,10 +205,10 @@ const JOB_EVENTS: Record<string, string> = { queued: 'job.queued', running: 'job
 /** Most audit entries one MCP export returns (REST streams up to MAX_AUDIT_EXPORT). */
 export const MAX_MCP_EXPORT = 10_000;
 
-/** Render and preview jobs count towards a key's render quota. */
 /** list_jobs filters (GET /v1/jobs?status=&type=). */
 export const LIST_JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'cancelled'] as const;
 export const LIST_JOB_TYPES = ['render', 'preview', 'render_unit', 'render_join'] as const;
+/** Render and preview jobs count towards a key's render quota. */
 const QUOTA_JOB_TYPES = ['render', 'preview'];
 /** Validation errors for exceeded render limits start with this (a preview of some scenes is checked on its own). */
 const RENDER_LIMIT_PREFIX = 'render limit: ';
@@ -219,8 +230,8 @@ export interface Actor {
 export interface ProviderSetting {
   name: string;
   set: boolean;
-  /** Where the value comes from; the value itself is never returned. */
-  source: 'api' | 'env' | 'file' | 'build' | 'unset';
+  /** Where the value comes from; the value itself is never returned. `workspace`: the calling workspace's own (#480). */
+  source: 'api' | 'env' | 'file' | 'build' | 'workspace' | 'unset';
   /** A stored value that cannot be used (e.g. it cannot be decrypted with the current REELFORGE_SECRET_KEY). */
   error?: string;
 }
@@ -247,6 +258,11 @@ export interface ValidationReport {
 }
 
 export interface RenderSummary {
+  /**
+   * The plan's estimate for this render, next to what it took (#485): only for renders started from a plan
+   * (render_project with planId, or with an approval). ratio = actual / estimated, for calibrating estimates.
+   */
+  estimate?: RenderJobEstimate & { actualSeconds: number; ratio: number | null };
   renderId: string;
   projectId: string;
   kind: string;
@@ -276,12 +292,21 @@ export interface RenderSummary {
   downloadUrlExpiresAt: string;
   /** "bucket": signed by the storage bucket (D-067); "server": a signed link to this server. */
   downloadVia: 'bucket' | 'server';
+  /** When the files go under the workspace's retention (#487). */
+  retention: RenderRetention;
   /** Present when the render had captions on (#300): whether they were burned in, the sidecar files and the quality check. */
   captions?: RenderCaptions;
   /** Where the files are: the storage driver and the render's key prefix in it (bucket and root: get_storage, admin). */
   storage: { driver: string; prefix: string };
   /** The render's audio (#301): what the file carries, the loudness preset, what was measured after the final encode, QA. */
   audio?: RenderAudio;
+  /** Picture checks (#294, render.qa.*): frozen and black stretches, with the scenes they touch. Absent when off or audio-only. */
+  videoQa?: VideoQaManifest;
+  /**
+   * The labelled contact sheet stored with the render (#379, render.contactSheet.*): its links and the frame of each
+   * tile, in reading order. Absent when off, for audio-only output, when it could not be made and before #379.
+   */
+  contactSheet?: Omit<ContactSheetManifest, 'file'> & { file: typeof CONTACT_SHEET_FILE; url: string; downloadUrl: string; downloadUrlExpiresAt: string; downloadVia: 'bucket' | 'server' };
 }
 
 export interface RenderAudio {
@@ -291,9 +316,10 @@ export interface RenderAudio {
   /**
    * Which audio checks ran on the delivered file: A/V sync is skipped without
    * an audio stream (muted with mutedTrack "none", GIF, PNG sequence) and for
-   * audio-only files (no video); loudness is skipped when nothing was normalised.
+   * audio-only files (no video); loudness is skipped when nothing was normalised;
+   * sfx (#459) is skipped when no sound effect plays over music or a voice.
    */
-  checks: { avSync: 'pass' | 'skipped'; loudness: 'pass' | 'warn' | 'skipped' };
+  checks: { avSync: 'pass' | 'skipped'; loudness: 'pass' | 'warn' | 'skipped'; sfx: 'pass' | 'warn' | 'skipped' };
   preset: string;
   target: { integrated: number; truePeak: number } | null;
   normalisation: 'linear' | 'limited' | 'dynamic' | 'none';
@@ -329,10 +355,7 @@ function renderAudio(a: AudioManifest): RenderAudio {
   return {
     track: a.track,
     ...(a.loudness.reason ? { reason: a.loudness.reason } : {}),
-    checks: {
-      avSync: a.avSync ? 'pass' : 'skipped',
-      loudness: a.loudness.measured ? (a.qa?.issues.some((x) => x.rule !== 'loudness.lra') ? 'warn' : 'pass') : 'skipped',
-    },
+    checks: { avSync: a.avSync ? 'pass' : 'skipped', ...audioChecks(a) },
     preset: a.loudness.preset,
     target: t ? { integrated: t.integrated, truePeak: t.truePeakCeiling } : null,
     normalisation: a.loudness.normalisation,
@@ -389,6 +412,12 @@ export class ReelforgeService {
   readonly webhooks: WebhookService;
   /** Workspace management and per-workspace limits (#304); null when the repositories are bound to one workspace. */
   readonly workspaceAdmin: WorkspaceAdmin | null;
+  private readonly workspaceStatusOf: (id: string) => Promise<WorkspaceStatus | null>;
+
+  /** A workspace's status (active, suspended, deleted), or null when there is none by that id. Without workspace routing only the default exists. */
+  workspaceStatus(id: string): Promise<WorkspaceStatus | null> {
+    return this.workspaceStatusOf(id);
+  }
   private progressBuckets = new Map<string, number>();
   private licenceSeen: { status: string; reason: string | null } | null = null;
   private licenceTimer: NodeJS.Timeout | null = null;
@@ -432,7 +461,12 @@ export class ReelforgeService {
       dataDir: this.dataDir,
       cacheDir: this.cacheDir,
       activeRunIds: () => this.activeRunIds(),
-      ...(isWorkspaceRouter(config.repositories) ? { workspaces: () => (config.repositories as WorkspaceRouter).workspaceIds() } : {}),
+      ...(isWorkspaceRouter(config.repositories)
+        ? {
+            workspaces: () => (config.repositories as WorkspaceRouter).workspaceIds(),
+            workspaceRetention: (ws: string) => this.workspaceRetention(ws),
+          }
+        : {}),
       onSweep: (r) => this.auditCleanup(r, { actorType: 'system' }).then(() => undefined),
       log: config.log,
     });
@@ -454,6 +488,7 @@ export class ReelforgeService {
       audit: (e) => this.audit(e),
       rotationGraceHours: () => this.settings.current.config.keys.rotationGraceHours,
     });
+    this.workspaceStatusOf = router ? async (id: string) => (await router.workspace(id))?.status ?? null : async (id: string) => (id === DEFAULT_WORKSPACE_ID ? 'active' : null);
     this.workspaceAdmin = router
       ? new WorkspaceAdmin({ repos: router, keys: this.keys, settings: this.settings, storage: this.storage, dataDir: this.dataDir, audit: (e) => this.audit(e), now: this.now, log: config.log })
       : null;
@@ -859,7 +894,24 @@ export class ReelforgeService {
 
   // ---- discovery ------------------------------------------------------------
 
+  /** capabilities() with the providers as the calling workspace sees them (configured with its own or the shared settings, #480). */
+  async capabilitiesFor(workspaceId = currentWorkspaceId()) {
+    return { ...this.capabilities(), providers: await this.listProviders(workspaceId) };
+  }
+
+  /** What this server can do; `providers` as the instance sees them (capabilitiesFor gives a workspace's view). */
   capabilities() {
+    const providers = this.registry.listProviders().map((p) => ({
+      id: p.id,
+      kind: p.kind,
+      displayName: p.displayName,
+      configured: p.configured(),
+      settingsFrom: 'instance' as 'workspace' | 'instance' | 'none',
+      perWorkspace: Boolean(p.scopedSettings),
+      costNote: p.costNote,
+      env: p.env,
+      settings: p.env.map((name) => this.instanceProviderSetting(name)),
+    }));
     const engines = this.registry.listEngines();
     const sandboxOff = engines.filter((e) => e.browserSandbox?.() === false).map((e) => e.id);
     return {
@@ -887,7 +939,7 @@ export class ReelforgeService {
         };
       }),
       templates: this.registry.templateInfos().map(({ propsSchema: _p, ...t }) => t),
-      providers: this.listProviders(),
+      providers,
       backends: this.registry.listBackends().map((b) => ({
         id: b.id,
         displayName: b.displayName,
@@ -1092,6 +1144,8 @@ export class ReelforgeService {
   }
 
   async deleteProject(id: string) {
+    // Listed before the delete: get_frames' cached stills of these renders go too.
+    const runs = await this.storage.renders.listRuns(id).catch(() => []);
     await this.projects.delete(id);
     for (const [run, pid] of this.renderIndex) if (pid === id && run.startsWith(this.rk(''))) this.renderIndex.delete(run);
     // Its queued and running renders and previews stop (#419): a render that finished after the delete would
@@ -1105,6 +1159,7 @@ export class ReelforgeService {
     // A cancelled render stops within a moment here (a heartbeat on another worker); then its folder goes too.
     await Promise.all(stopping.map((jobId) => this.jobs.waitFor(jobId, DELETE_WAIT_MS).catch(() => undefined)));
     await this.removeProjectFiles(id);
+    for (const run of runs) await rm(framesCacheDir(this.cacheDir, run.runId), { recursive: true, force: true });
   }
 
   /** What is left of a deleted project: its local folder, or its renders in remote storage (manifests first). */
@@ -1174,6 +1229,152 @@ export class ReelforgeService {
       },
       ...(estimate ? { estimate } : {}),
     };
+  }
+
+  /**
+   * The render plan (#485): before render_project, what the same call would render (every output with its frames,
+   * length, size and format), whether it validates, how long each output should take and how large it should be,
+   * measured from this workspace's newest successful renders, and the queue it would join. A sample without a render
+   * of an engine says so (`basis`); nothing is guessed. `planId` names the project version and options it was made for.
+   */
+  async planRender(projectId: string, opts: { variant?: unknown } = {}) {
+    const stored = await this.projects.get(projectId);
+    const project = stored.manifest;
+    const variantIds = project.variants?.map((v) => v.id) ?? [];
+    if (opts.variant !== undefined && (typeof opts.variant !== 'string' || !variantIds.includes(opts.variant))) {
+      throw badRequest(`variant must be one of the project's variants: ${variantIds.join(', ') || '(the project has none)'}`);
+    }
+    const targets: Array<string | null> = typeof opts.variant === 'string' ? [opts.variant] : variantIds.length ? variantIds : [null];
+    const validation = await this.validateManifest(project, projectId);
+    const rates = renderRates(await this.renderSamples(RENDER_PLAN_SAMPLE));
+    const outputs = targets.map((variant) => {
+      const p = variant ? withVariant(project, variant) : project;
+      const out: PlanOutput = {
+        variant,
+        width: p.output.width,
+        height: p.output.height,
+        fps: p.output.fps,
+        frames: totalFrames(p),
+        seconds: framesToSeconds(totalFrames(p), p.output.fps),
+        format: formatSpec(p.output).format,
+        scenes: p.scenes.map((s) => ({ engine: s.engine, frames: sceneFrames(s, p.output.fps) })),
+      };
+      const { scenes: _scenes, ...shown } = out;
+      return { ...shown, estimate: estimateOutput(out, rates) };
+    });
+    const known = outputs.map((o) => o.estimate.renderSeconds);
+    const queued = await this.repos.jobs.countQueued();
+    const claimsPerSecond = await this.claimRate.perSecond();
+    const sampleEngines = Object.keys(rates.msPerMegapixelFrame);
+    return {
+      planId: planId(projectId, stored.meta.version, { variant: opts.variant ?? null }),
+      projectId,
+      projectVersion: stored.meta.version,
+      valid: validation.ok,
+      errors: validation.errors,
+      warnings: validation.warnings,
+      outputs,
+      total: {
+        outputs: outputs.length,
+        renderSeconds: known.every((s) => s !== null) ? Math.round(known.reduce((n, s) => n! + s!, 0)! * 10) / 10 : null,
+        bytes: outputs.every((o) => o.estimate.bytes !== null) ? outputs.reduce((n, o) => n + o.estimate.bytes!, 0) : null,
+      },
+      queue: {
+        queued,
+        claimsPerSecond: Math.round(claimsPerSecond * 1000) / 1000,
+        // Seconds before the first of these jobs starts: the queue ahead at the measured claim rate.
+        estimatedWaitSeconds: queued === 0 ? 0 : claimsPerSecond > 0 ? Math.ceil(queued / claimsPerSecond) : null,
+      },
+      basis: {
+        renders: rates.renders,
+        engines: sampleEngines,
+        note: rates.renders
+          ? `From the ${rates.renders} newest successful renders of this workspace; times are one render alone on one slot, before any queue wait.`
+          : 'No successful render in this workspace yet: render or preview once, and later plans estimate from it.',
+      },
+      ...(validation.estimate ? { backend: validation.estimate } : {}),
+    };
+  }
+
+  /**
+   * Approve a render plan (#485): the caller (scope `approve`; `admin` and `owner` imply it) gets a single-use token
+   * that lets render_project start exactly this plan, the project version and options it was made for, before it
+   * expires (`render.approval.tokenMinutes`). A plan id of an older version is refused: plan again and show it.
+   */
+  async approveRenderPlan(projectId: string, planIdArg: unknown, opts: { variant?: unknown } = {}, actor?: Actor) {
+    await this.projects.get(projectId); // not found first, as every project route answers another workspace
+    if (typeof planIdArg !== 'string' || !/^plan_[0-9a-f]{24}$/.test(planIdArg)) throw badRequest('planId must be the planId plan_render returned');
+    const plan = await this.planRender(projectId, opts);
+    if (plan.planId !== planIdArg) {
+      throw new ApiError('plan_changed', 409, 'the project or the options changed since this plan: call plan_render again, show the user the new plan, and approve that one', { planId: plan.planId });
+    }
+    if (!plan.valid) throw new ApiError('plan_invalid', 409, 'this plan does not validate, so its render would be refused: fix the errors first', { errors: plan.errors });
+    const nonce = randomBytes(12).toString('hex');
+    const ttl = this.settings.current.config.render.approval.tokenMinutes * 60;
+    const { expires, sig } = this.signer.sign(approvalParts(currentWorkspaceId(), projectId, plan.planId, nonce), ttl);
+    await this.audit({
+      actorType: actor?.actorType ?? 'system',
+      ...(actor?.actorId ? { actorId: actor.actorId } : {}),
+      action: 'render.approve',
+      targetType: 'project',
+      targetId: projectId,
+      data: { planId: plan.planId, projectVersion: plan.projectVersion, renderSeconds: plan.total.renderSeconds, outputs: plan.total.outputs },
+    });
+    return { approvalToken: `rap.${nonce}.${expires}.${sig}`, planId: plan.planId, projectVersion: plan.projectVersion, expiresAt: new Date(expires * 1000).toISOString(), total: plan.total };
+  }
+
+  /**
+   * render_project's approval gate (`render.approval`, #485): off by default. When the plan needs approval, the
+   * token must be one approve_render_plan made for this workspace, project and plan (version and options), not
+   * expired and not used before; it is spent here, so a render is started once per approval.
+   */
+  private async requireApproval(projectId: string, variant: unknown, token: unknown): Promise<Awaited<ReturnType<ReelforgeService['planRender']>> | undefined> {
+    const cfg = this.settings.current.config.render.approval;
+    if (cfg.mode === 'off') return undefined;
+    const plan = await this.planRender(projectId, { variant });
+    const needed = cfg.mode === 'always' || plan.total.renderSeconds === null || plan.total.renderSeconds > cfg.aboveSeconds;
+    if (!needed) return plan;
+    const why = cfg.mode === 'always' ? 'every render needs an approval here (render.approval.mode always)' : plan.total.renderSeconds === null ? 'its render time cannot be estimated yet (render.approval.mode above)' : `its estimated render time, ${plan.total.renderSeconds} s, is over ${cfg.aboveSeconds} s (render.approval.mode above)`;
+    if (token === undefined || token === null || token === '') {
+      throw new ApiError('approval_required', 409, `this render needs an approval: ${why}. Show the user the plan, and ask someone with the approve scope to call approve_render_plan with its planId; then call render_project again with approvalToken.`, { plan });
+    }
+    const m = typeof token === 'string' ? /^rap\.([0-9a-f]{24})\.(\d{1,12})\.([\w-]{20,})$/.exec(token) : null;
+    if (!m || !this.signer.verify(approvalParts(currentWorkspaceId(), projectId, plan.planId, m[1]!), Number(m[2]), m[3]!)) {
+      throw new ApiError('approval_invalid', 409, 'approvalToken is not an approval of this plan: it is for another project or plan, the project changed since, or it expired. Plan again and ask for a new approval.', { plan });
+    }
+    const spent = await this.repos.rateLimits.reserve([{ key: `render-approval:${m[1]}`, windowStart: new Date(Number(m[2]) * 1000).toISOString(), limit: 1 }]);
+    if (!spent.ok) throw new ApiError('approval_used', 409, 'this approvalToken already started a render; each approval starts one. Ask for a new approval.', { plan });
+    return plan;
+  }
+
+  /** The newest successful renders of this workspace, as samples for render plans (manifest + stored output size). */
+  private async renderSamples(limit: number): Promise<RenderSample[]> {
+    const jobs = (await this.repos.jobs.page({ status: 'succeeded', type: 'render' }, { limit })).filter((j) => j.projectId && typeof j.result?.renderId === 'string');
+    const sizes = new Map<string, Map<string, number>>();
+    const samples: RenderSample[] = [];
+    for (const j of jobs) {
+      const runId = j.result!.renderId as string;
+      const m = await this.storage.renders
+        .readManifest<{ wallClockMillis?: number; output?: { width?: number; height?: number; frames?: number; durationSeconds?: number }; scenes?: Array<{ engine?: unknown; frames?: unknown; millis?: unknown }> }>(j.projectId!, runId)
+        .catch(() => undefined);
+      if (!m?.output || typeof m.wallClockMillis !== 'number') continue;
+      if (!sizes.has(j.projectId!)) {
+        const runs = await this.storage.renders.listRuns(j.projectId!).catch(() => []);
+        sizes.set(j.projectId!, new Map(runs.filter((r) => r.outputBytes !== undefined).map((r) => [r.runId, r.outputBytes!])));
+      }
+      samples.push({
+        width: Number(m.output.width),
+        height: Number(m.output.height),
+        frames: Number(m.output.frames),
+        seconds: Number(m.output.durationSeconds),
+        wallClockMillis: m.wallClockMillis,
+        ...(sizes.get(j.projectId!)!.has(runId) ? { outputBytes: sizes.get(j.projectId!)!.get(runId)! } : {}),
+        scenes: (m.scenes ?? [])
+          .filter((s) => typeof s.engine === 'string' && typeof s.frames === 'number' && typeof s.millis === 'number')
+          .map((s) => ({ engine: s.engine as string, frames: s.frames as number, millis: s.millis as number })),
+      });
+    }
+    return samples;
   }
 
   /** The backend's estimate for a render, or undefined for an unknown backend (reported by validation) or a failing plugin. */
@@ -1548,7 +1749,9 @@ export class ReelforgeService {
     const language = t.language ?? s.language;
     const hash = createHash('sha256');
     await pipeline(createReadStream(file), hash);
-    const key = createHash('sha256').update(JSON.stringify([plugin.id, hash.digest('hex'), s.model, s.computeType, s.device, language])).digest('hex');
+    // The glossary's terms as the prompt (#486): a different glossary is a different transcription.
+    const prompt = glossaryPrompt(manifest.glossary);
+    const key = createHash('sha256').update(JSON.stringify([plugin.id, hash.digest('hex'), s.model, s.computeType, s.device, language, prompt ?? ''])).digest('hex');
     const cacheFile = join(this.cacheDir, 'stt', `${key}.json`);
     type Cached = { language: string | null; words: Array<{ text: string; start: number; end: number }>; durationSeconds?: number; engine: Record<string, string> };
     let result = existsSync(cacheFile) ? await readJson<Cached>(cacheFile).catch(() => null) : null;
@@ -1559,14 +1762,16 @@ export class ReelforgeService {
       try {
         const logs: string[] = [];
         result = await withSpan(this.telemetry.tracer, `stt.transcribe ${plugin.id}`, { 'reelforge.stt.provider': plugin.id }, () =>
-          plugin.transcribe({ file, language, settings: s }, { signal: AbortSignal.timeout((s.timeoutSeconds + 5) * 1000), log: (l) => logs.push(l) })
+          plugin.transcribe({ file, language, settings: s, ...(prompt ? { prompt } : {}) }, { signal: AbortSignal.timeout((s.timeoutSeconds + 5) * 1000), log: (l) => logs.push(l) })
         );
         await writeJsonAtomic(cacheFile, result);
       } finally {
         this.sttRunning--;
       }
     }
-    const words = voiceWords(result.words);
+    // Exact spellings from the glossary (#486): every term in any letter case and each listed alternative.
+    const glossed = applyGlossaryToTranscript(voiceWords(result.words), manifest.glossary);
+    const words = glossed.words;
     const detected = result.language && isLanguageTag(result.language) ? result.language : null;
     let manualCues = 0;
     const stored = await this.projects.update(
@@ -1595,6 +1800,8 @@ export class ReelforgeService {
       words: words.length,
       ...(result.durationSeconds !== undefined ? { durationSeconds: result.durationSeconds } : {}),
       cached,
+      // Each spelling the glossary corrected (#486), so the user can see what changed.
+      ...(glossed.replacements.length ? { glossaryReplacements: glossed.replacements } : {}),
       ...(manualCues ? { note: `captions.cues has ${manualCues} manual caption cue(s), which take precedence over the voice; call again with replaceCues: true to show the transcription` } : {}),
       ...(words.length ? {} : { note: 'no speech was recognised in the voice track' }),
       captions: view,
@@ -1604,10 +1811,10 @@ export class ReelforgeService {
   // ---- renders --------------------------------------------------------------
 
   /** One render at `output`, or (with `variant`) at one of the project's output variants. */
-  async startRender(id: string, opts: { backend?: string; priority?: unknown; captions?: unknown; audio?: unknown; variant?: string } = {}): Promise<JobRecord> {
+  async startRender(id: string, opts: { backend?: string; priority?: unknown; captions?: unknown; audio?: unknown; variant?: string; estimate?: RenderJobEstimate } = {}): Promise<JobRecord> {
     const captions = this.parseCaptionOverride(opts.captions);
     const audio = this.parseAudioOverride(opts.audio);
-    return this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: opts.variant });
+    return this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: opts.variant, estimate: opts.estimate });
   }
 
   /** render_project's `audio` override (#298, #301): { mute, voice, music, sfx, loudness }, validated before anything is queued. */
@@ -1635,12 +1842,23 @@ export class ReelforgeService {
    * one of them (quota, queue caps), the jobs already queued for the batch are
    * cancelled and the refusal is returned.
    */
-  async renderProject(id: string, opts: { backend?: string; priority?: unknown; variant?: unknown; captions?: unknown; audio?: unknown } = {}): Promise<{ job: JobRecord; jobs?: JobRecord[]; batchId?: string }> {
+  async renderProject(id: string, opts: { backend?: string; priority?: unknown; variant?: unknown; captions?: unknown; audio?: unknown; approvalToken?: unknown; planId?: unknown } = {}): Promise<{ job: JobRecord; jobs?: JobRecord[]; batchId?: string }> {
     if (opts.variant !== undefined && typeof opts.variant !== 'string') throw badRequest('variant must be the id of one of the project\'s variants');
+    let plan = await this.requireApproval(id, opts.variant, opts.approvalToken);
+    // With planId (or an approval), each job keeps its output's estimate; get_render_output reports it next to the actual time.
+    if (!plan && opts.planId !== undefined) {
+      plan = await this.planRender(id, { variant: opts.variant });
+      if (plan.planId !== opts.planId) throw new ApiError('plan_changed', 409, 'the project or the options changed since this plan: call plan_render again', { planId: plan.planId });
+    }
+    const estimateOf = (variant: string | null) => {
+      const o = plan?.outputs.find((x) => x.variant === variant);
+      return o ? { planId: plan!.planId, ...o.estimate } : undefined;
+    };
     const { manifest } = await this.projects.get(id);
     const variants = manifest.variants ?? [];
     if (opts.variant !== undefined || variants.length === 0) {
-      return { job: await this.startRender(id, { backend: opts.backend, priority: opts.priority, captions: opts.captions, audio: opts.audio, ...(opts.variant ? { variant: opts.variant } : {}) }) };
+      const estimate = estimateOf(typeof opts.variant === 'string' ? opts.variant : null);
+      return { job: await this.startRender(id, { backend: opts.backend, priority: opts.priority, captions: opts.captions, audio: opts.audio, ...(opts.variant ? { variant: opts.variant } : {}), ...(estimate ? { estimate } : {}) }) };
     }
     // The same refusals as one render, before anything is queued: priority, licence, then every variant's limits.
     const captions = this.parseCaptionOverride(opts.captions);
@@ -1658,7 +1876,7 @@ export class ReelforgeService {
     const batchId = newId('bat');
     const jobs: JobRecord[] = [];
     try {
-      for (const v of variants) jobs.push(await this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: v.id, batchId }));
+      for (const v of variants) jobs.push(await this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: v.id, batchId, estimate: estimateOf(v.id) }));
     } catch (e) {
       for (const j of jobs) await this.jobs.cancel(j.id).catch(() => undefined);
       throw e;
@@ -1729,8 +1947,8 @@ export class ReelforgeService {
     return requested;
   }
 
-  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, extra: { captions?: CaptionMode; audio?: RenderAudioOptions; variant?: string; batchId?: string } = {}) {
-    const { captions, audio, variant, batchId } = extra;
+  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, extra: { captions?: CaptionMode; audio?: RenderAudioOptions; variant?: string; batchId?: string; estimate?: RenderJobEstimate } = {}) {
+    const { captions, audio, variant, batchId, estimate } = extra;
     const priority = this.resolvePriority(kind, requestedPriority);
     await this.renderGate(kind, id);
     const { manifest: stored, meta } = await this.projects.get(id);
@@ -1783,6 +2001,7 @@ export class ReelforgeService {
           ...(variant ? { variant } : {}),
           ...(batchId ? { batchId } : {}),
           ...(audio ? { audio } : {}),
+          ...(estimate ? { estimate } : {}),
         },
         { projectId: id, priority, ...(apiKeyId ? { apiKeyId } : {}) },
         quota
@@ -1940,6 +2159,8 @@ export class ReelforgeService {
       theme: (project) => this.themes.resolve(project.theme),
       assets: (project, pid) => this.resolveAssets(project, pid),
       audioDefaults: () => this.settings.current.config.render.audio,
+      videoQa: () => this.settings.current.config.render.qa,
+      contactSheet: () => this.settings.current.config.render.contactSheet,
     };
   }
 
@@ -2077,6 +2298,8 @@ export class ReelforgeService {
       ...(req.captionsMode ? { captionsMode: req.captionsMode } : {}),
       ...(req.audio ? { audio: req.audio } : {}),
       audioDefaults: this.settings.current.config.render.audio,
+      videoQa: this.settings.current.config.render.qa,
+      contactSheet: this.settings.current.config.render.contactSheet,
       ...(req.captionsDefault ? { captionsDefault: req.captionsDefault } : {}),
       gifMaxBytes: this.settings.current.config.render.formats.gifMaxBytes,
     });
@@ -2183,10 +2406,13 @@ export class ReelforgeService {
     const m = await this.storage.renders.readManifest<{
       kind: string;
       createdAt: string;
+      wallClockMillis?: number;
       output: { durationSeconds: number; frames: number; width: number; height: number; fps: number; frameRate?: string; file?: string; poster?: string; format?: string; codec?: string; alpha?: boolean };
       scenes: Array<{ file: string }>;
       captions?: CaptionManifest;
       audio?: Partial<AudioManifest>;
+      videoQa?: VideoQaManifest;
+      contactSheet?: ContactSheetManifest;
     }>(projectId, runId);
     if (!m) throw notFound('render', runId);
     const base = `/v1/renders/${runId}/output`;
@@ -2228,7 +2454,19 @@ export class ReelforgeService {
         qa: { ok: qa.ok, maxCps: qa.maxCps, issues: qa.issues },
       };
     }
+    // The stored contact sheet (#379): only the name this server writes.
+    let contactSheet: RenderSummary['contactSheet'];
+    if (m.contactSheet?.file === CONTACT_SHEET_FILE) {
+      contactSheet = { ...m.contactSheet, file: CONTACT_SHEET_FILE, url: this.url(`${base}?file=${CONTACT_SHEET_FILE}`), ...(await this.downloadLink(projectId, runId, CONTACT_SHEET_FILE)) };
+    }
+    const planned = (await this.repos.jobs.jobOfRun(runId))?.params.estimate as RenderJobEstimate | undefined;
+    const actualSeconds = typeof m.wallClockMillis === 'number' ? Math.round(m.wallClockMillis / 100) / 10 : null;
+    const estimate =
+      planned && actualSeconds !== null
+        ? { ...planned, actualSeconds, ratio: planned.renderSeconds ? Math.round((actualSeconds / planned.renderSeconds) * 100) / 100 : null }
+        : undefined;
     return {
+      ...(estimate ? { estimate } : {}),
       renderId: runId,
       projectId,
       kind: m.kind,
@@ -2244,24 +2482,74 @@ export class ReelforgeService {
       file: outFile,
       contentType: contentTypeFor(outFile),
       ...(m.output.frameRate ? { frameRate: m.output.frameRate } : {}),
-      files: [outFile, ...(poster ? [poster] : []), 'render-manifest.json', ...(captions?.files.map((f) => f.file) ?? []), ...m.scenes.map((s) => s.file)],
+      files: [outFile, ...(poster ? [poster] : []), ...(contactSheet ? [CONTACT_SHEET_FILE] : []), 'render-manifest.json', ...(captions?.files.map((f) => f.file) ?? []), ...m.scenes.map((s) => s.file)],
       outputUrl: this.url(outFile === 'final.mp4' ? base : `${base}?file=${outFile}`),
       ...(poster ? { posterUrl: this.url(`${base}?file=poster.png`) } : {}),
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
       ...(await this.downloadLink(projectId, runId, outFile)),
+      retention: await this.renderRetention(projectId, runId, m.createdAt),
       ...(captions ? { captions } : {}),
       ...(m.audio?.loudness && m.audio.track ? { audio: renderAudio(m.audio as AudioManifest) } : {}),
+      ...(m.videoQa ? { videoQa: m.videoQa } : {}),
+      ...(contactSheet ? { contactSheet } : {}),
       storage: { driver: this.storage.driver.id, prefix: renderPrefix(projectId, runId) },
+    };
+  }
+
+  /** A workspace's own retention, from its limits (#487); undefined when it has none. */
+  private async workspaceRetention(ws: string): Promise<WorkspaceRetention | undefined> {
+    if (!isWorkspaceRouter(this.config.repositories)) return undefined;
+    const l = (await this.config.repositories.workspace(ws))?.limits;
+    if (!l || !(l.retentionMaxAgeHours || l.retentionKeepLast || l.retentionDeleteAfterDownloadMinutes)) return undefined;
+    return {
+      ...(l.retentionMaxAgeHours ? { maxAgeHours: l.retentionMaxAgeHours } : {}),
+      ...(l.retentionKeepLast ? { keepLast: l.retentionKeepLast } : {}),
+      ...(l.retentionDeleteAfterDownloadMinutes ? { deleteAfterDownloadMinutes: l.retentionDeleteAfterDownloadMinutes } : {}),
+    };
+  }
+
+  /**
+   * Record the first download of a render's output (#487), for delete-after-download and for get_render_output's
+   * `retention.downloadedAt`. Called by the download route once the output is being sent; posters, manifests and
+   * caption files do not count. Remembered per process so range requests do not stat storage each time.
+   */
+  async markDownloaded(runId: string, file: string): Promise<void> {
+    if (!OUTPUT_FILE_PATTERN.test(file)) return;
+    const memo = `${currentWorkspaceId()}:${runId}`;
+    if (this.downloaded.has(memo)) return;
+    const { projectId } = await this.findRender(runId);
+    const at = await this.storage.renders.markDownloaded(projectId, runId, file, new Date(this.now()).toISOString());
+    if (!at) return;
+    if (this.downloaded.size > 10_000) this.downloaded.clear();
+    this.downloaded.add(memo);
+  }
+  private readonly downloaded = new Set<string>();
+
+  /** When the sweep will delete this render under its workspace's policy (#487), and when it was first downloaded. */
+  private async renderRetention(projectId: string, runId: string, createdAt: string): Promise<RenderRetention> {
+    const own = await this.workspaceRetention(currentWorkspaceId());
+    const policy = workspacePolicy(this.storage.policy(), own);
+    const downloadedAt = await this.storage.renders.downloadedAt(projectId, runId);
+    const due = renderDeletesAt(policy, { createdAt, downloadedAt });
+    return {
+      downloadedAt,
+      deletesAt: due?.at ?? null,
+      ...(due ? { deleteReason: due.reason } : {}),
+      ...(policy.deleteAfterDownloadMinutes ? { deleteAfterDownloadMinutes: policy.deleteAfterDownloadMinutes } : {}),
+      ...(policy.keepLastRendersPerProject > 0 ? { keepLast: policy.keepLastRendersPerProject } : {}),
     };
   }
 
   /**
    * downloadUrl for a render file: signed by the bucket when the driver can
    * and storage.downloads allows it, else a signed link to this server (D-067).
+   * A workspace that deletes renders after their first download gets server links (#487): only this server sees a
+   * download, so a bucket link would never start the grace.
    */
   private async downloadLink(projectId: string, runId: string, file = 'final.mp4') {
     const ttl = this.config.signedUrlTtlSeconds ?? 3600;
-    const url = await this.storage.bucketUrl(renderPrefix(projectId, runId) + file, ttl, { filename: file.split('/').pop(), contentType: contentTypeFor(file) });
+    const tracked = Boolean((await this.workspaceRetention(currentWorkspaceId()))?.deleteAfterDownloadMinutes);
+    const url = tracked ? null : await this.storage.bucketUrl(renderPrefix(projectId, runId) + file, ttl, { filename: file.split('/').pop(), contentType: contentTypeFor(file) });
     if (url) return { downloadUrl: url, downloadUrlExpiresAt: new Date(Date.now() + Math.min(ttl, 7 * 24 * 3600) * 1000).toISOString(), downloadVia: 'bucket' as const };
     return { ...this.signedDownload(runId, file, ttl), downloadVia: 'server' as const };
   }
@@ -2300,11 +2588,25 @@ export class ReelforgeService {
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  /**
+   * delete_render (DELETE /v1/renders/:id, write, #312): removes one finished render or preview with every file
+   * (output, poster, captions, clips, manifest) from storage and from this instance's caches. Its job keeps its
+   * history; get_render_output then answers not_found. Cannot be undone.
+   */
+  async deleteRender(runId: string): Promise<{ deleted: string; projectId: string; files: number }> {
+    const { projectId } = await this.findRender(runId);
+    const run = (await this.storage.renders.listRuns(projectId)).find((r) => r.runId === runId);
+    if (!run) throw notFound('render', runId);
+    await this.storage.deleteRender(run);
+    this.renderIndex.delete(this.rk(runId));
+    return { deleted: runId, projectId, files: run.keys.length };
+  }
+
   /** A file of a render in storage (default: its output, final.mp4 or another format's file, #302): its key, type and size, for streaming. */
   async renderObject(runId: string, fileArg?: string): Promise<{ key: string; contentType: string; bytes: number; file: string }> {
     const file = fileArg ?? (await this.getRender(runId)).file;
-    if (!isSafeRelativePath(file) || !(/^(poster\.png|render-manifest\.json|clips\/[\w.-]+\.(mp4|mov))$/.test(file) || OUTPUT_FILE_PATTERN.test(file) || CAPTION_FILE_PATTERN.test(file))) {
-      throw badRequest('file must be the output (final.mp4|mov|webm|gif|m4a|wav or frames.zip), poster.png, render-manifest.json, captions[.<language>].srt|vtt|ass, descriptions[.<language>].vtt or clips/<name>.mp4|mov');
+    if (!isSafeRelativePath(file) || !(/^(poster\.png|contact-sheet\.jpg|render-manifest\.json|clips\/[\w.-]+\.(mp4|mov))$/.test(file) || OUTPUT_FILE_PATTERN.test(file) || CAPTION_FILE_PATTERN.test(file))) {
+      throw badRequest('file must be the output (final.mp4|mov|webm|gif|m4a|wav or frames.zip), poster.png, contact-sheet.jpg, render-manifest.json, captions[.<language>].srt|vtt|ass, descriptions[.<language>].vtt or clips/<name>.mp4|mov');
     }
     const { projectId } = await this.findRender(runId);
     const key = renderPrefix(projectId, runId) + file;
@@ -2317,6 +2619,76 @@ export class ReelforgeService {
   async renderFile(runId: string, file?: string): Promise<{ path: string; contentType: string }> {
     const o = await this.renderObject(runId, file);
     return { path: await this.storage.localFile(o.key, o.bytes), contentType: o.contentType };
+  }
+
+  /** get_frames runs FFmpeg; at most this many at once per instance, the rest wait their turn. */
+  private framesSlots = 2;
+  private framesQueue: Array<() => void> = [];
+
+  /**
+   * get_frames (GET /v1/renders/:id/frames, read, #379): stills of exact frames of a finished render or preview,
+   * as one labelled contact sheet (default) or one JPEG per frame, from the stored output (no re-render). See
+   * frames.ts for the selection. `overlay: "safe"` tints what lies outside the content safe area of the render's
+   * size and platform. Images stay under FRAMES_MAX_BYTES (tiles shrink if needed) and are cached per render.
+   */
+  async getFrames(runId: string, req: FramesRequest = {}): Promise<FramesResult> {
+    const { projectId } = await this.findRender(runId);
+    const m = await this.storage.renders.readManifest<{
+      kind: string;
+      output: { file?: string; format?: string; width: number; height: number; fps: number; frameRate?: string; frames: number };
+      scenes: Array<{ sceneId: string; startFrame: number; frames: number }>;
+      project?: { brief?: { platform?: string } };
+    }>(projectId, runId);
+    if (!m) throw notFound('render', runId);
+    const file = m.output.file ?? 'final.mp4';
+    if (!/^final\.(mp4|mov|webm|gif)$/.test(file)) throw badRequest(`render ${runId} is ${file}, not a video; get_frames needs an mp4, mov, webm or gif output`);
+    const width = req.width ?? FRAMES_DEFAULT_WIDTH;
+    if (!Number.isInteger(width) || width < FRAMES_MIN_WIDTH || width > FRAMES_MAX_WIDTH) throw badRequest(`width must be a whole number from ${FRAMES_MIN_WIDTH} to ${FRAMES_MAX_WIDTH}`);
+    const layout = req.layout ?? 'sheet';
+    const overlayKind = req.overlay ?? 'none';
+    const frameRate = m.output.frameRate ?? String(m.output.fps);
+    const plan = planFrames(req, { frames: m.output.frames, fps: m.output.fps, scenes: sceneSpans(m.scenes ?? []) });
+    const overlay = overlayKind === 'safe' ? safeAreaInsets(m.output.width, m.output.height, m.project?.brief?.platform).content : undefined;
+
+    const key = createHash('sha256')
+      .update(JSON.stringify({ v: 1, frames: plan.tiles.map((t) => [t.frame, t.label]), width, layout, overlay }))
+      .digest('hex')
+      .slice(0, 32);
+    const dir = framesCacheDir(this.cacheDir, runId);
+    const out = join(dir, layout === 'sheet' ? `${key}.jpg` : key);
+    const meta = join(dir, `${key}.json`);
+    let shape = await readJson<FramesShape>(meta).catch(() => undefined);
+    // A cache entry whose images were cleared is made again.
+    if (shape && !shape.images.every((i) => existsSync(join(dir, i.file)))) shape = undefined;
+    if (!shape) {
+      await new Promise<void>((go) => (this.framesSlots > 0 ? (this.framesSlots--, go()) : this.framesQueue.push(go)));
+      try {
+        const input = (await this.renderFile(runId, file)).path;
+        await mkdir(dir, { recursive: true });
+        const r = await framesImageWithinBudget({ ffmpeg: this.tools().ffmpeg, input, frameRate, width: m.output.width, height: m.output.height, tiles: plan.tiles, tileWidth: width, overlay, layout, out });
+        shape = { tileWidth: r.tileWidth, tileHeight: r.tileHeight, columns: r.columns, rows: r.rows, labels: r.labels, images: r.files.map((f, i) => ({ file: f.slice(dir.length + 1), bytes: r.bytes[i]! })) };
+        await writeJsonAtomic(meta, shape);
+      } finally {
+        const next = this.framesQueue.shift();
+        if (next) next();
+        else this.framesSlots++;
+      }
+    }
+    return {
+      renderId: runId,
+      kind: m.kind,
+      mode: plan.mode,
+      layout,
+      overlay: overlayKind,
+      video: { width: m.output.width, height: m.output.height, fps: m.output.fps, frameRate, frames: m.output.frames, durationSeconds: Math.round((m.output.frames / m.output.fps) * 1000) / 1000 },
+      tileWidth: shape.tileWidth,
+      tileHeight: shape.tileHeight,
+      ...(layout === 'sheet' ? { columns: shape.columns, rows: shape.rows } : {}),
+      labels: shape.labels,
+      tiles: plan.tiles.map((t, index) => ({ index, ...t })),
+      ...(plan.omitted.length ? { omitted: plan.omitted } : {}),
+      images: shape.images.map((i) => ({ path: join(dir, i.file), mimeType: 'image/jpeg' as const, bytes: i.bytes })),
+    };
   }
 
   // ---- storage --------------------------------------------------------------
@@ -2494,8 +2866,12 @@ export class ReelforgeService {
         issues: parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message })),
       });
     }
-    if (opts.projectId) await this.projects.get(opts.projectId);
-    const cacheKey = provider.cacheKey?.(parsed.data);
+    const glossary = opts.projectId ? (await this.projects.get(opts.projectId)).manifest.glossary : undefined;
+    // TTS reads each glossary term's `spoken` form (#486); the captions and the stored text keep the term.
+    const text = provider.kind === 'tts' ? (parsed.data as { text?: unknown }).text : undefined;
+    const spoken = typeof text === 'string' && glossary?.length ? spokenText(text, glossary) : null;
+    const callParams = spoken?.replaced ? { ...(parsed.data as object), text: spoken.text } : parsed.data;
+    const cacheKey = provider.cacheKey?.(callParams);
     // Per workspace (#304): a hit points at an asset of the caller's workspace.
     const cacheFile = cacheKey ? join(this.cacheDir, 'providers', workspaceKeyPrefix(currentWorkspaceId()), `${cacheKey}.json`) : null;
     let result: { asset: StoredAsset; data?: Record<string, unknown>; cached?: boolean } | undefined;
@@ -2508,7 +2884,11 @@ export class ReelforgeService {
       }
     }
     if (!result) {
-      if (!provider.configured()) {
+      const creds = await this.providerSettingsFor(provider);
+      if (!creds.configured) {
+        if (creds.source === 'none') {
+          throw new ApiError('provider_not_configured', 409, `provider "${providerId}" is not configured for this workspace: an admin of the workspace sets its own ${provider.env.join(', ')} with configure_workspace_provider (the instance's settings are not shared with workspaces: providers.shareWithWorkspaces)`);
+        }
         throw new ApiError('provider_not_configured', 409, `provider "${providerId}" is not configured on this server; the operator must set ${provider.env.join(', ')}`);
       }
       if (!opts.acknowledgeCost) {
@@ -2522,11 +2902,12 @@ export class ReelforgeService {
       const attrs = { 'reelforge.provider': providerId, 'reelforge.provider.kind': provider.kind };
       try {
         result = await withSpan(this.telemetry.tracer, `provider.run ${providerId}`, attrs, () =>
-          provider.run(parsed.data, {
+          provider.run(callParams, {
             signal: controller.signal,
             log: () => undefined,
             putAsset: (input) => this.assets.put(input),
             fetch: this.fetchImpl,
+            env: creds.env,
           })
         );
       } catch (e) {
@@ -2541,8 +2922,9 @@ export class ReelforgeService {
       projectAssetId = await this.attachToProject(opts.projectId, result.asset, opts.assetId ?? (provider.kind === 'tts' ? 'voice' : undefined));
       if (provider.kind === 'tts' && (opts.attachAs ?? 'voice') === 'voice') {
         const p = parsed.data as { text?: string; voiceId?: string };
-        // Word timestamps (ElevenLabs "with-timestamps") are kept on the voice track: captions are built from them (#300).
-        const words = voiceWords(result.data?.words);
+        // Word timestamps (ElevenLabs "with-timestamps") are kept on the voice track: captions are built from them (#300),
+        // with each `spoken` respelling turned back into its glossary term (#486).
+        const words = spoken?.replaced ? restoreGlossaryTerms(voiceWords(result.data?.words), glossary).words : voiceWords(result.data?.words);
         await this.projects.update(opts.projectId, (current) =>
           this.parseOrThrow({
             ...current,
@@ -2597,34 +2979,84 @@ export class ReelforgeService {
     throw new ApiError('provider_budget_exhausted', 429, `the server's daily budget of ${c.limit} provider calls is used up (limits.providerRunsPerDay). It resets at ${day.resetsAt}; the operator can raise it.`, details);
   }
 
-  /** Providers, whether they are configured, and which settings are set (never their values). */
-  listProviders() {
-    return this.registry.listProviders().map((p) => ({
-      id: p.id,
-      kind: p.kind,
-      displayName: p.displayName,
-      configured: p.configured(),
-      costNote: p.costNote,
-      env: p.env,
-      settings: p.env.map((name): ProviderSetting => {
-        const error = this.settings.providerError(name);
-        const def = RuntimeConfig.settingForProviderEnv(name);
-        const r = def ? this.settings.current.settings.get(def.key) : undefined;
-        if (r && r.value !== undefined && r.source !== 'default') return { name, set: true, source: r.source === 'runtime' ? 'api' : r.source };
-        if (this.settings.hasProviderValue(name)) return { name, set: true, source: 'api' };
-        if (this.baseEnv[name]) return { name, set: true, source: 'env' };
-        return { name, set: false, source: 'unset', ...(error ? { error } : {}) };
-      }),
-    }));
+  /** Whether workspaces other than the default may use the instance's settings of a provider (providers.shareWithWorkspaces). */
+  private sharesInstanceProvider(providerId: string): boolean {
+    const shared = this.settings.current.config.providers.shareWithWorkspaces;
+    return shared.includes('*') || shared.includes(providerId);
+  }
+
+  /** A workspace's own provider settings (its rows of the provider settings table), or null for the default workspace. */
+  private workspaceProviderRepo(workspaceId: string) {
+    if (workspaceId === DEFAULT_WORKSPACE_ID || !isWorkspaceRouter(this.repos)) return null;
+    return this.repos.forWorkspace(workspaceId).providerSettings;
   }
 
   /**
-   * Set or clear provider settings (admin). Only the names the provider
-   * declares are accepted. Values are stored encrypted (REELFORGE_SECRET_KEY
-   * is required) and override the file and environment; clearing one falls
-   * back to them.
+   * The settings a provider runs with for a workspace (#480): the workspace's own when it set any (never mixed
+   * with the instance's), else the instance's when `providers.shareWithWorkspaces` allows it, else none. The
+   * default workspace always uses the instance's. A provider without `scopedSettings` only ever sees the
+   * instance's, so it counts as not configured for a workspace that may not share them.
    */
-  async configureProvider(providerId: string, values: unknown, actor?: Actor) {
+  async providerSettingsFor(provider: ProviderPlugin, workspaceId = currentWorkspaceId(), preloaded?: { values: Record<string, string>; errors: Record<string, string> }) {
+    const repo = this.workspaceProviderRepo(workspaceId);
+    const own = preloaded ?? (repo ? await this.settings.workspaceProviderValues(repo) : { values: {}, errors: {} });
+    const ownNames = provider.env.filter((n) => own.values[n] !== undefined || own.errors[n] !== undefined);
+    if (repo && ownNames.length && provider.scopedSettings) {
+      const env = Object.fromEntries(provider.env.map((n) => [n, own.values[n]])) as Record<string, string | undefined>;
+      return { source: 'workspace' as const, env, configured: provider.configured(env), errors: own.errors };
+    }
+    if (!repo || this.sharesInstanceProvider(provider.id)) {
+      // The instance's: no ctx.env, so the plugin reads the environment it was built with, exactly as before #480.
+      return { source: 'instance' as const, env: undefined, configured: provider.configured(), errors: {} };
+    }
+    return { source: 'none' as const, env: Object.fromEntries(provider.env.map((n) => [n, undefined])) as Record<string, string | undefined>, configured: false, errors: {} };
+  }
+
+  /**
+   * Providers, whether they are configured for the calling workspace and where its settings come from
+   * (`settingsFrom`: `workspace`, `instance` or `none`, #480), and which settings are set (never their values).
+   */
+  async listProviders(workspaceId = currentWorkspaceId()) {
+    const repo = this.workspaceProviderRepo(workspaceId);
+    const own = repo ? await this.settings.workspaceProviderValues(repo) : undefined;
+    return Promise.all(
+      this.registry.listProviders().map(async (p) => {
+        const creds = await this.providerSettingsFor(p, workspaceId, own);
+        return {
+          id: p.id,
+          kind: p.kind,
+          displayName: p.displayName,
+          configured: creds.configured,
+          settingsFrom: creds.source,
+          perWorkspace: Boolean(p.scopedSettings),
+          costNote: p.costNote,
+          env: p.env,
+          settings: p.env.map((name): ProviderSetting => {
+            if (creds.source === 'workspace') {
+              const error = creds.errors[name];
+              return creds.env[name] ? { name, set: true, source: 'workspace' } : { name, set: false, source: 'unset', ...(error ? { error } : {}) };
+            }
+            if (creds.source === 'none') return { name, set: false, source: 'unset' };
+            return this.instanceProviderSetting(name);
+          }),
+        };
+      })
+    );
+  }
+
+  /** Whether one instance-level provider setting is set and where from (never its value). */
+  private instanceProviderSetting(name: string): ProviderSetting {
+    const error = this.settings.providerError(name);
+    const def = RuntimeConfig.settingForProviderEnv(name);
+    const r = def ? this.settings.current.settings.get(def.key) : undefined;
+    if (r && r.value !== undefined && r.source !== 'default') return { name, set: true, source: r.source === 'runtime' ? 'api' : r.source };
+    if (this.settings.hasProviderValue(name)) return { name, set: true, source: 'api' };
+    if (this.baseEnv[name]) return { name, set: true, source: 'env' };
+    return { name, set: false, source: 'unset', ...(error ? { error } : {}) };
+  }
+
+  /** Checks configure_provider values: only the names the provider declares, each a single-line string or null. */
+  private providerChanges(providerId: string, values: unknown): Record<string, string | null> {
     const provider = this.registry.provider(providerId);
     if (!isPlainObject(values) || Object.keys(values).length === 0) {
       throw badRequest(`values must be an object of settings, e.g. { "${provider.env[0] ?? 'NAME'}": "..." } (null clears one)`);
@@ -2636,6 +3068,18 @@ export class ReelforgeService {
       else if (typeof v === 'string' && v.length > 0 && v.length <= 1000 && !/[\r\n]/.test(v)) changes[name] = v;
       else throw badRequest(`${name} must be a non-empty single-line string (max 1000 characters) or null`);
     }
+    return changes;
+  }
+
+  /**
+   * Set or clear provider settings (owner). Only the names the provider declares are accepted. Values are
+   * stored encrypted (REELFORGE_SECRET_KEY is required) and override the file and environment; clearing one
+   * falls back to them. With `workspaceId` (not the default workspace), they are that workspace's own (#480),
+   * as configure_workspace_provider sets them.
+   */
+  async configureProvider(providerId: string, values: unknown, actor?: Actor, workspaceId?: string) {
+    if (workspaceId !== undefined && workspaceId !== DEFAULT_WORKSPACE_ID) return this.setWorkspaceProvider(workspaceId, providerId, values, actor);
+    const changes = this.providerChanges(providerId, values);
     await this.settings.setProviderValues(changes, providerId);
     await this.audit({
       actorType: actor?.actorType ?? 'system',
@@ -2645,7 +3089,43 @@ export class ReelforgeService {
       targetId: providerId,
       data: { settings: Object.fromEntries(Object.entries(changes).map(([k, v]) => [k, v === null ? 'cleared' : 'set'])) },
     });
-    return this.listProviders().find((p) => p.id === providerId)!;
+    return (await this.listProviders(DEFAULT_WORKSPACE_ID)).find((p) => p.id === providerId)!;
+  }
+
+  /**
+   * Set or clear the calling workspace's own provider settings (admin of that workspace, #480): its calls then
+   * use its own account, and no other workspace ever sees or uses them. The default workspace's settings are
+   * the instance's: the owner sets them with configure_provider.
+   */
+  async configureWorkspaceProvider(providerId: string, values: unknown, actor?: Actor) {
+    const ws = currentWorkspaceId();
+    if (ws === DEFAULT_WORKSPACE_ID) {
+      throw new ApiError('forbidden', 403, "the default workspace uses the instance's provider settings: the owner sets them with configure_provider (PUT /v1/providers/:id/config)");
+    }
+    return this.setWorkspaceProvider(ws, providerId, values, actor);
+  }
+
+  private async setWorkspaceProvider(workspaceId: string, providerId: string, values: unknown, actor?: Actor) {
+    const provider = this.registry.provider(providerId);
+    if (!provider.scopedSettings) {
+      throw new ApiError('provider_not_per_workspace', 400, `provider "${providerId}" reads only the instance's settings, so a workspace cannot bring its own; the owner configures it with configure_provider`);
+    }
+    const repo = this.workspaceProviderRepo(workspaceId);
+    const record = isWorkspaceRouter(this.repos) ? await this.repos.workspace(workspaceId) : null;
+    if (!repo || !record || record.status === 'deleted') throw new ApiError('not_found', 404, `workspace "${workspaceId}" not found`);
+    const changes = this.providerChanges(providerId, values);
+    await this.settings.setWorkspaceProviderValues(repo, changes, providerId);
+    await runInWorkspace(workspaceId, () =>
+      this.audit({
+        actorType: actor?.actorType ?? 'system',
+        ...(actor?.actorId ? { actorId: actor.actorId } : {}),
+        action: 'provider.configure',
+        targetType: 'provider',
+        targetId: providerId,
+        data: { workspace: workspaceId, settings: Object.fromEntries(Object.entries(changes).map(([k, v]) => [k, v === null ? 'cleared' : 'set'])) },
+      })
+    );
+    return (await this.listProviders(workspaceId)).find((p) => p.id === providerId)!;
   }
 
   // ---- configuration ----------------------------------------------------------
@@ -2824,6 +3304,10 @@ export class ReelforgeService {
   restoreWorkspace(id: string, actor?: Actor) {
     return this.admin().restore(id, actor);
   }
+  /** set_workspace_retention (#487): the caller's workspace, tighter only. */
+  setWorkspaceRetention(input: Record<string, unknown>, actor?: Actor) {
+    return this.admin().tightenRetention(input, actor);
+  }
 
   /**
    * Matching entries as JSON lines or CSV, streamed one database page (1000
@@ -2946,6 +3430,11 @@ export class ReelforgeService {
 
 /** Provider word timestamps ({ word | text, start, end } in seconds) as manifest caption words; anything malformed is dropped. */
 /** What a signed download link signs: the default workspace keeps the parts of earlier versions (old links stay valid). */
+/** What an approval token signs (#485): the workspace, project, plan and the token's own nonce. */
+function approvalParts(workspaceId: string, projectId: string, planId: string, nonce: string): string[] {
+  return ['render-approval', workspaceId, projectId, planId, nonce];
+}
+
 function signedParts(workspaceId: string, runId: string, file: string): string[] {
   return workspaceId === DEFAULT_WORKSPACE_ID ? [runId, file] : [`ws:${workspaceId}`, runId, file];
 }
@@ -2962,4 +3451,51 @@ export function voiceWords(raw: unknown): Array<{ text: string; start: number; e
     out.push({ text: text.trim(), start: Math.round(start * 1000) / 1000, end: Math.round(end * 1000) / 1000 });
   }
   return out;
+}
+
+/** What getFrames caches beside the images. */
+interface FramesShape {
+  tileWidth: number;
+  tileHeight: number;
+  columns: number;
+  rows: number;
+  labels: boolean;
+  images: Array<{ file: string; bytes: number }>;
+}
+
+/** getFrames' answer; `images[].path` is a local file the REST and MCP layers read and never return. */
+export interface FramesResult {
+  renderId: string;
+  kind: string;
+  mode: 'auto' | 'at' | 'every';
+  layout: 'sheet' | 'separate';
+  overlay: 'none' | 'safe';
+  video: { width: number; height: number; fps: number; frameRate: string; frames: number; durationSeconds: number };
+  tileWidth: number;
+  tileHeight: number;
+  columns?: number;
+  rows?: number;
+  labels: boolean;
+  tiles: Array<PlannedTile & { index: number }>;
+  omitted?: PlannedTile[];
+  images: Array<{ path: string; mimeType: 'image/jpeg'; bytes: number }>;
+}
+
+/** A render job's estimate from its plan (#485), kept in the job's params and reported by get_render_output. */
+export interface RenderJobEstimate {
+  planId: string;
+  renderSeconds: number | null;
+  bytes: number | null;
+  basis: 'measured' | 'partial' | 'none';
+}
+
+/** get_render_output's `retention` (#487): when the render was first downloaded and when the sweep may delete it. */
+export interface RenderRetention {
+  /** The first download of its output through this server; null: not downloaded yet. */
+  downloadedAt: string | null;
+  /** The earliest time the sweep may delete it (it runs every storage.retention.sweepIntervalMinutes); null: kept until deleted by hand. A keep-last can keep it longer. */
+  deletesAt: string | null;
+  deleteReason?: 'deleted_after_download' | 'older_than_workspace_retention' | 'older_than_renderDays';
+  deleteAfterDownloadMinutes?: number;
+  keepLast?: number;
 }
