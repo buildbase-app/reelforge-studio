@@ -1,9 +1,9 @@
 # Observability providers: logs, metrics, traces
 
-ReelForge Studio writes structured logs, serves or pushes metrics, and sends
+RenderWeld writes structured logs, serves or pushes metrics, and sends
 traces, each through a provider you select by configuration (issue #64;
 decisions D-050 to D-054). Every setting can be set in the config file
-(`REELFORGE_CONFIG`), by environment variable, or at runtime by an admin agent
+(`RENDERWELD_CONFIG`), by environment variable, or at runtime by an admin agent
 with `update_config` / `PATCH /v1/config` (except `observability.serviceName`,
 which is read at start). Runtime changes take effect at once, without a
 restart. The full list of settings is in [CONFIG.md](../CONFIG.md#observability).
@@ -20,7 +20,7 @@ OTLP provider can point; they have not been run against the vendors.
 | Signal | Provider | Status | Settings it needs | Passing cases |
 | --- | --- | --- | --- | --- |
 | Logs | `stdout`: JSON lines (default) | **Tested** | none (`observability.logs.exporter: stdout`) | OBS-01, OBS-03, OBS-E2E-01 |
-| Logs | `pretty`: `[reelforge] ...` lines (development, `pnpm dev`) | **Tested** (unit) | `observability.logs.exporter: pretty` | OBS-01 |
+| Logs | `pretty`: `[renderweld] ...` lines (development, `pnpm dev`) | **Tested** (unit) | `observability.logs.exporter: pretty` | OBS-01 |
 | Logs | `otlp`: OpenTelemetry log records (plus JSON lines on stdout) | **Tested** | `observability.logs.exporter: otlp`, `observability.otlp.endpoint` | OBS-08, OBS-E2E-05 |
 | Metrics | `prometheus`: `GET /metrics` scrape (default) | **Tested** | `observability.metrics.bearerToken` (or `observability.metrics.allowAnonymous`) | OBS-04, OBS-05, OBS-06, SECT-20, OBS-E2E-02, OBS-E2E-03 |
 | Metrics | `otlp`: push every `exportIntervalSeconds` | **Tested** | `observability.metrics.exporter: otlp`, `observability.otlp.endpoint` | OBS-09, OBS-E2E-06 |
@@ -40,21 +40,21 @@ OTLP provider can point; they have not been run against the vendors.
 
 | Key | Env | Default | Runtime |
 | --- | --- | --- | --- |
-| `observability.serviceName` | `REELFORGE_OTEL_SERVICE_NAME`, `OTEL_SERVICE_NAME` | `reelforge-studio` | no (start-up) |
-| `observability.logs.exporter` | `REELFORGE_LOGS_EXPORTER` | `stdout` (`pretty` if `logging.format: text`) | yes |
-| `observability.metrics.exporter` | `REELFORGE_METRICS_EXPORTER` | `prometheus` | yes |
-| `observability.metrics.bearerToken` (secret) | `REELFORGE_METRICS_TOKEN` (+ `_FILE`) | unset (`/metrics` answers 401) | yes |
-| `observability.metrics.allowAnonymous` | `REELFORGE_METRICS_ALLOW_ANONYMOUS` | `false` | yes |
-| `observability.metrics.exportIntervalSeconds` | `REELFORGE_METRICS_EXPORT_INTERVAL_SECONDS` | `60` | yes |
-| `observability.tracing.exporter` | `REELFORGE_TRACING_EXPORTER` | `off`, `otlp` when an endpoint is set | yes |
-| `observability.tracing.sampleRatio` | `REELFORGE_TRACING_SAMPLE_RATIO` | `1` | yes |
-| `observability.otlp.endpoint` | `REELFORGE_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | yes |
-| `observability.otlp.headers` (secret) | `REELFORGE_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_HEADERS` (+ `_FILE`) | unset | yes |
-| `observability.otlp.protocol` | `REELFORGE_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | yes |
-| `observability.otlp.timeoutSeconds` | `REELFORGE_OTLP_TIMEOUT_SECONDS` | `10` | yes |
-| `logging.level` | `REELFORGE_LOG_LEVEL` | `info` | yes |
+| `observability.serviceName` | `RENDERWELD_OTEL_SERVICE_NAME`, `OTEL_SERVICE_NAME` | `reelforge-studio` | no (start-up) |
+| `observability.logs.exporter` | `RENDERWELD_LOGS_EXPORTER` | `stdout` (`pretty` if `logging.format: text`) | yes |
+| `observability.metrics.exporter` | `RENDERWELD_METRICS_EXPORTER` | `prometheus` | yes |
+| `observability.metrics.bearerToken` (secret) | `RENDERWELD_METRICS_TOKEN` (+ `_FILE`) | unset (`/metrics` answers 401) | yes |
+| `observability.metrics.allowAnonymous` | `RENDERWELD_METRICS_ALLOW_ANONYMOUS` | `false` | yes |
+| `observability.metrics.exportIntervalSeconds` | `RENDERWELD_METRICS_EXPORT_INTERVAL_SECONDS` | `60` | yes |
+| `observability.tracing.exporter` | `RENDERWELD_TRACING_EXPORTER` | `off`, `otlp` when an endpoint is set | yes |
+| `observability.tracing.sampleRatio` | `RENDERWELD_TRACING_SAMPLE_RATIO` | `1` | yes |
+| `observability.otlp.endpoint` | `RENDERWELD_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | yes |
+| `observability.otlp.headers` (secret) | `RENDERWELD_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_HEADERS` (+ `_FILE`) | unset | yes |
+| `observability.otlp.protocol` | `RENDERWELD_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | yes |
+| `observability.otlp.timeoutSeconds` | `RENDERWELD_OTLP_TIMEOUT_SECONDS` | `10` | yes |
+| `logging.level` | `RENDERWELD_LOG_LEVEL` | `info` | yes |
 
-Secrets set at runtime are stored encrypted (needs `REELFORGE_SECRET_KEY`) and
+Secrets set at runtime are stored encrypted (needs `RENDERWELD_SECRET_KEY`) and
 are never returned, logged or exported.
 
 Change providers at runtime from an agent (MCP):
@@ -101,29 +101,29 @@ OpenTelemetry names; the Prometheus name is what `GET /metrics` shows.
 | OpenTelemetry name | Prometheus name | Type | Labels |
 | --- | --- | --- | --- |
 | `http.server.request.duration` (s) | `http_server_request_duration_seconds_{bucket,sum,count}` | histogram | `http_request_method`, `http_route` (template or `unmatched`), `http_response_status_code` |
-| `reelforge.jobs.finished` | `reelforge_jobs_finished_total` | counter | `reelforge_job_type` (`render`/`preview`), `reelforge_job_status` (`succeeded`/`failed`/`cancelled`) |
-| `reelforge.job.duration` (s) | `reelforge_job_duration_seconds_*` | histogram | `reelforge_job_type`, `reelforge_job_status` |
-| `reelforge.jobs.queued` | `reelforge_jobs_queued` | gauge | — (queue depth; with the database queue: all instances, docs/providers/queue-and-scaling.md) |
-| `reelforge.jobs.running` | `reelforge_jobs_running` | gauge | — |
-| `reelforge.jobs.concurrency` | `reelforge_jobs_concurrency` | gauge | — (render slots) |
-| `reelforge.server.role` | `reelforge_server_role` | gauge | `reelforge_role` (`all`/`api`/`worker`): 1 for this instance's role (#36) |
-| `reelforge.jobs.requeued` | `reelforge_jobs_requeued_total` | counter | `reelforge_reason` (`lease_expired`, `released`): database queue (#36) |
-| `reelforge.queue.errors` | `reelforge_queue_errors_total` | counter | `reelforge_operation` (`claim`, `heartbeat`, `recover`): database queue (#36) |
-| `reelforge.queue.claims` | `reelforge_queue_claims_total` | counter | `reelforge_trigger` (`poll`, `fallback`, `wake`, `local`), `reelforge_result` (`job`, `empty`): claim attempts of the database queue (#158) |
-| `reelforge.queue.dispatch.published` | `reelforge_queue_dispatch_published_total` | counter | `reelforge_dispatch_driver` (`notify`, `sqs`, `redis`), `reelforge_reason` (`enqueue`, `requeue`, `release`, `fanout`, `join` for `notify`; `outbox` for `sqs`/`redis`, counted by the relay when sent): queue dispatch messages sent (D-105) |
-| `reelforge.queue.dispatch.received` | `reelforge_queue_dispatch_received_total` | counter | `reelforge_dispatch_driver`, `reelforge_dispatch_kind` (`ready`, `claimed`) |
-| `reelforge.queue.dispatch.duplicates` | `reelforge_queue_dispatch_duplicates_total` | counter | `reelforge_dispatch_driver`: ready messages for a job already about to be claimed (no-ops) |
-| `reelforge.queue.dispatch.fallback_claims` | `reelforge_queue_dispatch_fallback_claims_total` | counter | `reelforge_dispatch_driver`, `reelforge_reason` (`fallback`, `degraded`): jobs claimed by the poll instead of a message |
-| `reelforge.queue.dispatch.publish_failures` | `reelforge_queue_dispatch_publish_failures_total` | counter | `reelforge_dispatch_driver` (`sqs`, `redis`): failed outbox publishes, retried with backoff |
-| `reelforge.limits.rejections` | `reelforge_limits_rejections_total` | counter | `reelforge_limit_reason` (`render_limit`, `jobs_per_key`, `queue_full`, `queue_wait`, `render_quota`, `upload_too_large`, `provider_runs_per_key`, `provider_budget`): requests refused by a resource limit (D-090..D-092) |
-| `reelforge.render.scene.duration` (s) | `reelforge_render_scene_duration_seconds_*` | histogram | `reelforge_engine`, `reelforge_outcome` (`ok`/`error`) |
-| `reelforge.render.frames` | `reelforge_render_frames_total` | counter | `reelforge_engine` |
-| `reelforge.render.fps` | `reelforge_render_fps_*` | histogram | `reelforge_engine` (frames per wall-clock second per scene) |
-| `reelforge.provider.calls` | `reelforge_provider_calls_total` | counter | `reelforge_provider`, `reelforge_provider_kind`, `reelforge_outcome` (`ok`/`cached`/`error`) |
-| `reelforge.licence.state` | `reelforge_licence_state` | gauge | `reelforge_licence_state` (`valid`, `grace`, `invalid`, `unlicensed`, `checking`; 1 for the current one) |
-| `reelforge.job.queue_wait` (s) | `reelforge_job_queue_wait_seconds_*` | histogram | `reelforge_job_type` (`render`/`preview`), `reelforge_job_priority` (`interactive`/`standard`/`batch`): enqueue to first claim, recorded by the instance that claims ([SLO](#queue-wait-slo), #155) |
-| `reelforge.build.info` | `reelforge_build_info` | gauge | `service_version`, `reelforge_edition` |
-| (resource) | `target_info` | gauge | `service_name`, `service_version`, `reelforge_edition` |
+| `renderweld.jobs.finished` | `renderweld_jobs_finished_total` | counter | `renderweld_job_type` (`render`/`preview`), `renderweld_job_status` (`succeeded`/`failed`/`cancelled`) |
+| `renderweld.job.duration` (s) | `renderweld_job_duration_seconds_*` | histogram | `renderweld_job_type`, `renderweld_job_status` |
+| `renderweld.jobs.queued` | `renderweld_jobs_queued` | gauge | — (queue depth; with the database queue: all instances, docs/providers/queue-and-scaling.md) |
+| `renderweld.jobs.running` | `renderweld_jobs_running` | gauge | — |
+| `renderweld.jobs.concurrency` | `renderweld_jobs_concurrency` | gauge | — (render slots) |
+| `renderweld.server.role` | `renderweld_server_role` | gauge | `renderweld_role` (`all`/`api`/`worker`): 1 for this instance's role (#36) |
+| `renderweld.jobs.requeued` | `renderweld_jobs_requeued_total` | counter | `renderweld_reason` (`lease_expired`, `released`): database queue (#36) |
+| `renderweld.queue.errors` | `renderweld_queue_errors_total` | counter | `renderweld_operation` (`claim`, `heartbeat`, `recover`): database queue (#36) |
+| `renderweld.queue.claims` | `renderweld_queue_claims_total` | counter | `renderweld_trigger` (`poll`, `fallback`, `wake`, `local`), `renderweld_result` (`job`, `empty`): claim attempts of the database queue (#158) |
+| `renderweld.queue.dispatch.published` | `renderweld_queue_dispatch_published_total` | counter | `renderweld_dispatch_driver` (`notify`, `sqs`, `redis`), `renderweld_reason` (`enqueue`, `requeue`, `release`, `fanout`, `join` for `notify`; `outbox` for `sqs`/`redis`, counted by the relay when sent): queue dispatch messages sent (D-105) |
+| `renderweld.queue.dispatch.received` | `renderweld_queue_dispatch_received_total` | counter | `renderweld_dispatch_driver`, `renderweld_dispatch_kind` (`ready`, `claimed`) |
+| `renderweld.queue.dispatch.duplicates` | `renderweld_queue_dispatch_duplicates_total` | counter | `renderweld_dispatch_driver`: ready messages for a job already about to be claimed (no-ops) |
+| `renderweld.queue.dispatch.fallback_claims` | `renderweld_queue_dispatch_fallback_claims_total` | counter | `renderweld_dispatch_driver`, `renderweld_reason` (`fallback`, `degraded`): jobs claimed by the poll instead of a message |
+| `renderweld.queue.dispatch.publish_failures` | `renderweld_queue_dispatch_publish_failures_total` | counter | `renderweld_dispatch_driver` (`sqs`, `redis`): failed outbox publishes, retried with backoff |
+| `renderweld.limits.rejections` | `renderweld_limits_rejections_total` | counter | `renderweld_limit_reason` (`render_limit`, `jobs_per_key`, `queue_full`, `queue_wait`, `render_quota`, `upload_too_large`, `provider_runs_per_key`, `provider_budget`): requests refused by a resource limit (D-090..D-092) |
+| `renderweld.render.scene.duration` (s) | `renderweld_render_scene_duration_seconds_*` | histogram | `renderweld_engine`, `renderweld_outcome` (`ok`/`error`) |
+| `renderweld.render.frames` | `renderweld_render_frames_total` | counter | `renderweld_engine` |
+| `renderweld.render.fps` | `renderweld_render_fps_*` | histogram | `renderweld_engine` (frames per wall-clock second per scene) |
+| `renderweld.provider.calls` | `renderweld_provider_calls_total` | counter | `renderweld_provider`, `renderweld_provider_kind`, `renderweld_outcome` (`ok`/`cached`/`error`) |
+| `renderweld.licence.state` | `renderweld_licence_state` | gauge | `renderweld_licence_state` (`valid`, `grace`, `invalid`, `unlicensed`, `checking`; 1 for the current one) |
+| `renderweld.job.queue_wait` (s) | `renderweld_job_queue_wait_seconds_*` | histogram | `renderweld_job_type` (`render`/`preview`), `renderweld_job_priority` (`interactive`/`standard`/`batch`): enqueue to first claim, recorded by the instance that claims ([SLO](#queue-wait-slo), #155) |
+| `renderweld.build.info` | `renderweld_build_info` | gauge | `service_version`, `renderweld_edition` |
+| (resource) | `target_info` | gauge | `service_name`, `service_version`, `renderweld_edition` |
 
 Counters and histograms appear after their first event (OpenTelemetry does
 not pre-create series). No label ever holds an id, a path or user input
@@ -131,7 +131,7 @@ not pre-create series). No label ever holds an id, a path or user input
 
 ### Queue-wait SLO
 
-`reelforge_job_queue_wait_seconds` measures how long a render or preview waited
+`renderweld_job_queue_wait_seconds` measures how long a render or preview waited
 from enqueue to its first claim (D-103). Every instance that claims records it
 (workers and `all` instances; with OTLP push, `worker --once` processes too), so
 sum it over all instances. Fan-out units and joins are not measured (their
@@ -146,7 +146,7 @@ breach means the deployment needs more capacity, lower per-key backlogs, or
 admission control (`limits.maxEstimatedWaitSeconds`, docs/providers/queue-and-scaling.md).
 
 ```promql
-histogram_quantile(0.95, sum by (le, reelforge_job_type, reelforge_job_priority) (rate(reelforge_job_queue_wait_seconds_bucket[15m])))
+histogram_quantile(0.95, sum by (le, renderweld_job_type, renderweld_job_priority) (rate(renderweld_job_queue_wait_seconds_bucket[15m])))
 ```
 
 Alert rules: `deployment/observability/alerts.yml` (`ReelforgePreviewQueueWaitSLO`
@@ -162,9 +162,9 @@ One trace per request; a job is a child of the request that submitted it,
 even when it runs later:
 
 ```
-POST /v1/projects/:id/renders   (or POST /mcp)        server span, http.route, status, reelforge.key_id, reelforge.request_id
-└─ job render                                         reelforge.job.id, .type, .status, .queue_ms, reelforge.project.id
-   ├─ engine.render remotion                          reelforge.engine, scene id/template/frames, output size and fps
+POST /v1/projects/:id/renders   (or POST /mcp)        server span, http.route, status, renderweld.key_id, renderweld.request_id
+└─ job render                                         renderweld.job.id, .type, .status, .queue_ms, renderweld.project.id
+   ├─ engine.render remotion                          renderweld.engine, scene id/template/frames, output size and fps
    ├─ ffprobe clip
    ├─ engine.render motion-canvas
    ├─ ffprobe clip
@@ -172,12 +172,12 @@ POST /v1/projects/:id/renders   (or POST /mcp)        server span, http.route, s
    ├─ ffprobe output
    ├─ ffmpeg decode check
    └─ ffmpeg poster
-provider.run elevenlabs                               reelforge.provider, kind (inside its request span)
+provider.run elevenlabs                               renderweld.provider, kind (inside its request span)
 ```
 
 An incoming W3C `traceparent` header is continued (its sampling decision is
 respected); new traces are sampled with `observability.tracing.sampleRatio`.
-Resource attributes: `service.name`, `service.version`, `reelforge.edition`.
+Resource attributes: `service.name`, `service.version`, `renderweld.edition`.
 
 ## Examples
 
@@ -191,13 +191,13 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['reelforge:4321']
-    # observability.metrics.bearerToken (REELFORGE_METRICS_TOKEN):
+    # observability.metrics.bearerToken (RENDERWELD_METRICS_TOKEN):
     authorization: { type: Bearer, credentials_file: /etc/prometheus/reelforge-metrics-token }
 ```
 
-`/metrics` needs the token by default (D-088): set `REELFORGE_METRICS_TOKEN`
+`/metrics` needs the token by default (D-088): set `RENDERWELD_METRICS_TOKEN`
 (16 or more characters, e.g. `openssl rand -hex 24`). Without a token it
-answers 401, unless `REELFORGE_METRICS_ALLOW_ANONYMOUS=true` (only for a
+answers 401, unless `RENDERWELD_METRICS_ALLOW_ANONYMOUS=true` (only for a
 scraper on a private network: the counts show who uses the studio how much).
 
 `GET /readyz` answers anonymous callers (probes) with `ok`, `checks` (`ok` /
@@ -223,7 +223,7 @@ gRPC-only one). `e2e/otel/collector.yaml` is the config the e2e test uses
 (OTLP/HTTP in, Prometheus scrape, file out). Point the studio at it:
 
 ```yaml
-# reelforge.yaml (REELFORGE_CONFIG)
+# renderweld.yaml (RENDERWELD_CONFIG)
 observability:
   otlp:
     endpoint: http://otel-collector:4318
@@ -246,15 +246,15 @@ observability:
 
 ```bash
 # secret: Basic auth with "<instance id>:<access policy token>", base64-encoded
-REELFORGE_OTLP_HEADERS_FILE=/run/secrets/otlp-headers   # file content: Authorization=Basic <base64>
+RENDERWELD_OTLP_HEADERS_FILE=/run/secrets/otlp-headers   # file content: Authorization=Basic <base64>
 ```
 
 ### Honeycomb
 
 ```bash
-REELFORGE_OTLP_ENDPOINT=https://api.honeycomb.io   # api.eu1.honeycomb.io in the EU
-REELFORGE_OTLP_HEADERS_FILE=/run/secrets/otlp-headers   # x-honeycomb-team=<ingest key>
-REELFORGE_LOGS_EXPORTER=otlp
+RENDERWELD_OTLP_ENDPOINT=https://api.honeycomb.io   # api.eu1.honeycomb.io in the EU
+RENDERWELD_OTLP_HEADERS_FILE=/run/secrets/otlp-headers   # x-honeycomb-team=<ingest key>
+RENDERWELD_LOGS_EXPORTER=otlp
 ```
 
 ### Datadog
@@ -262,8 +262,8 @@ REELFORGE_LOGS_EXPORTER=otlp
 Enable the Datadog Agent's OTLP receiver (`DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318`), then:
 
 ```bash
-REELFORGE_OTLP_ENDPOINT=http://datadog-agent:4318
-REELFORGE_LOGS_EXPORTER=otlp       # also set DD_LOGS_ENABLED / DD_OTLP_CONFIG_LOGS_ENABLED on the agent
+RENDERWELD_OTLP_ENDPOINT=http://datadog-agent:4318
+RENDERWELD_LOGS_EXPORTER=otlp       # also set DD_LOGS_ENABLED / DD_OTLP_CONFIG_LOGS_ENABLED on the agent
 ```
 
 ## Test cases
@@ -300,7 +300,7 @@ release image, the hardened run flags, an OpenTelemetry Collector container
 | OBS-E2E-03 | The collector's Prometheus receiver scrapes `/metrics` over the Docker network | obs.mjs `check` | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
 | OBS-E2E-04 | `update_config` over MCP selects OTLP; the collector receives (http/protobuf) the trace `POST /mcp` → `job preview` → `engine.render html` → FFmpeg spans, with resource attributes | obs.mjs `on` + `check` | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
 | OBS-E2E-05 | The collector receives OTLP log records (access log with request id, route, trace id) | obs.mjs `check` | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
-| OBS-E2E-06 | Metrics switched to OTLP push at runtime: `/metrics` 404, the collector receives `reelforge.jobs.finished`, `http.server.request.duration`, `reelforge.licence.state` | obs.mjs `metrics-otlp` | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
+| OBS-E2E-06 | Metrics switched to OTLP push at runtime: `/metrics` 404, the collector receives `renderweld.jobs.finished`, `http.server.request.duration`, `renderweld.licence.state` | obs.mjs `metrics-otlp` | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
 | OBS-E2E-07 | Collector stopped: MCP calls keep working, `/readyz` stays ok and reports the failing export, a warning is in the log, settings reset over MCP | obs.mjs `down` + run.sh | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
 | OBS-E2E-08 | No API key in anything the collector received | obs.mjs `check` | pass, 2026-11-21 (SQLite and PostgreSQL 17) |
 
@@ -317,7 +317,7 @@ release image, the hardened run flags, an OpenTelemetry Collector container
 | `/readyz` shows no paths, versions or error text | Anonymous callers get the status only; send an admin API key for the full report. |
 | Prometheus queries for `..._seconds_bucket` find nothing | A series appears after its first event: render once, or wait for traffic. |
 | Logs are not JSON | `observability.logs.exporter` is `pretty` (`pnpm dev` sets it) or `logging.format: text` is set. |
-| `update_config` refuses an OTLP header or the metrics token | Secrets are stored encrypted: set `REELFORGE_SECRET_KEY`, or pass them by env / `_FILE`. |
+| `update_config` refuses an OTLP header or the metrics token | Secrets are stored encrypted: set `RENDERWELD_SECRET_KEY`, or pass them by env / `_FILE`. |
 | The request duration of downloads looks short | It measures until the handler returned; file and event streams continue after that. |
 
 ## Known limits

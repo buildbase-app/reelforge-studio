@@ -110,7 +110,7 @@ describe('render fan-out in the service (fake engine)', () => {
     expect(m.join).toEqual({ method: 'concat demuxer, video stream copy', clips: 4 });
     // The picture checks (#294) see what the fake engines paint: one dark theme colour for every scene, so the whole
     // video is one frozen, near-black picture.
-    expect(m.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', timestamps: 'pass', avDuration: 'pass', avSync: 'pass', loudness: 'skipped', freeze: 'warn', black: 'warn', flash: 'pass' });
+    expect(m.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', timestamps: 'pass', avDuration: 'pass', avSync: 'pass', loudness: 'skipped', sfx: 'skipped', freeze: 'warn', black: 'warn', flash: 'pass', motion: 'pass', loop: 'skipped', seek: 'skipped' });
     expect(m.ffmpegAssembleArgs).toEqual(expect.arrayContaining(['concat', 'copy']));
     expect(existsSync(join(rendersDir, `.tmp-${runId}`))).toBe(false);
     const fanned = await probe(resolveTools().ffprobe, join(rendersDir, runId, 'final.mp4'));

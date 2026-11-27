@@ -1,6 +1,6 @@
 ---
 title: "Formats and layouts"
-description: "Any output size, aspect ratio, frame rate and file format in ReelForge Studio: MP4, ProRes MOV with alpha, WebM (VP9, AV1), GIF, PNG sequences and audio only; exact NTSC rates, the sizes each engine renders, the layout unit, safe areas with their sources, fit-to-box text, how built-in templates reflow, layout primitives (split screen, picture-in-picture, lower thirds, grids), media fit modes, and the contact sheets that prove it."
+description: "Any output size, aspect ratio, frame rate and file format in RenderWeld: MP4, ProRes MOV with alpha, WebM (VP9, AV1), GIF, PNG sequences and audio only; exact NTSC rates, the sizes each engine renders, the layout unit, safe areas with their sources, fit-to-box text, how built-in templates reflow, layout primitives (split screen, picture-in-picture, lower thirds, grids), media fit modes, and the contact sheets that prove it."
 folder: "manifest"
 slug: "formats"
 order: 3
@@ -101,12 +101,14 @@ sequence is one file per timeline frame; `get_render_output` gives the rate as
 
 **Posters.** An MP4's poster is its first frame, as before. Other formats take the middle frame (540 px wide, transparent where the render keeps alpha), because a first frame is often still empty and the dashboard shows MOV and PNG sequences as that still: browsers do not play ProRes.
 
+**Contact sheets.** Every render and preview in a format with pictures also stores `contact-sheet.jpg`: labelled stills of the first frame, every scene's middle, both frames of every cut and the last frame (`render.contactSheet.*`). For a GIF or a PNG sequence it is taken from the master, so its frame numbers are the timeline's, not the GIF's. The render manifest lists its tiles under `contactSheet`; see [the stored contact sheet](../mcp/mcp-server.md#the-stored-contact-sheet).
+
 **Previews** (`preview_scene`) are always H.264 MP4, whatever the format.
 Renders in other formats run on one worker (render fan-out joins MP4 only).
 
 **Not offered: HEVC/H.265.** The FFmpeg in the image could encode it (x265),
 but HEVC's patent pools license encoders in products that are sold, and
-ReelForge is sold. Until that is cleared, ReelForge leaves HEVC out. AV1 and
+RenderWeld is sold. Until that is cleared, RenderWeld leaves HEVC out. AV1 and
 VP9 are royalty-free alternatives for small files.
 
 Quality settings per format are runtime settings (`render.formats.*`; change
@@ -400,7 +402,7 @@ colour on the frame and its distance from the geometry and from the html
 engine's, in pixels. To make them again:
 
 ```bash
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
+export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm formats:prove-layouts
 pnpm formats:prove-layouts --geometry
 ```
@@ -408,24 +410,36 @@ pnpm formats:prove-layouts --geometry
 ## Picture checks
 
 Every finished render and preview is decoded once more, frame by frame. The
-pass finds pictures that freeze or go black, and flashes that can trigger
-seizures (#294). A check of single stills can't see
-either. The results are in the render manifest and in `get_render_output` /
-`GET /v1/renders/:id`:
+pass finds pictures that freeze, go black or barely move, flashes that can
+trigger seizures, and a loop that jumps where it repeats (#294). A check of
+single stills can't see any of these. Renders also get a seek check: a few
+frames rendered again on their own and compared with the video. The results are in the render manifest
+and in `get_render_output` / `GET /v1/renders/:id`:
 
-- `checks.freeze`, `checks.black` and `checks.flash`: `pass`, `warn`, or
-  `skipped` (when the check is off, the output is audio only, or, for black,
-  the output is transparent).
+- `checks.freeze`, `checks.black`, `checks.flash`, `checks.motion`,
+  `checks.loop` and `checks.seek`: `pass`, `warn`, or `skipped` (when the
+  check is off, the output is audio only, or, for black, the output is
+  transparent).
+  `checks.motion` is skipped when `render.qa.lowMotionSeconds` is 0, and
+  `checks.loop` unless the project sets `output.loop` and the render covers
+  every scene. `checks.seek` is skipped for previews, transparent output,
+  `render.qa.seekFrames: 0`, and renders with no scene on an engine that
+  renders frame ranges.
 - `videoQa`: the thresholds, every stretch measured (`freezes`, `blacks`,
-  `flashes`, in seconds) and one issue per stretch. Each issue names the scenes it overlaps
-  and what to change. A black opening also says that platforms will show a
-  black thumbnail.
+  `flashes`, in seconds), `motion` (motion energy for each second, the
+  low-motion stretches and, with `output.loop`, the loop seam), `seek` (each
+  frame checked, with its scene, its difference or the error that stopped it)
+  and one issue per stretch. Each issue names the scenes it overlaps and what to change. A
+  black opening also says that platforms will show a black thumbnail.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `render.qa.video` | `warn` | `warn` records the issues; `fail` fails the render with them; `off` skips the pass |
 | `render.qa.freezeSeconds` | `3` | A picture that doesn't change for this long is reported (0.5 to 3600). Raise it for slides or other deliberate holds |
 | `render.qa.blackSeconds` | `0.5` | Black lasting this long is reported (0.1 to 3600); a fade through black is shorter |
+| `render.qa.lowMotionSeconds` | `3` | A picture that barely moves for this long is reported (0 turns the report off; motion is still measured) |
+| `render.qa.seekFrames` | `2` | Frames of each render rendered again on their own and compared with the video (0 to 20; 0 turns the seek check off) |
+| `render.qa.motionFloor` | `0.4` | A frame that differs from the picture a second before by less than this, in 8-bit luma levels on the motion grid, counts as barely moving (0.05 to 20) |
 
 Near-black counts as black. An empty frame on a dark theme background (the
 default `#0b0b14`) is what a viewer sees as a gap, so a scene whose first
@@ -459,8 +473,61 @@ too, as a `video.flash` issue with `extended: true`. Not yet covered: stripe
 patterns. Video for broadcast should still go through a dedicated analyser such
 as EA IRIS.
 
-Not yet measured (#294): motion energy, loop seams, seek determinism, and text
-overflow in the final file.
+**Motion and loops.** Each frame is also scaled to a 32 × 32 grid of
+area-averaged luma cells. A frame's motion is the mean change of those cells
+from the frame before, in 8-bit levels; `motion.energyPerSecond` averages it
+over each second. Area averaging removes most encoder noise and film grain and
+keeps what a viewer sees move. A stretch of `render.qa.lowMotionSeconds` in
+which no frame differs from the picture a second before it by
+`render.qa.motionFloor` or more is reported as `video.motion`, after taking out
+the parts already reported as frozen. That catches a held picture with grain, a
+blinking cursor or a crawl too slow to notice, which `freezedetect` lets
+through. Comparing across a second, not frame to frame, keeps slow fades and
+slow moves out: their change builds up over the second, and grain's doesn't.
+
+Measured on 1080 × 1920 H.264 with FFmpeg 6.1.1 (local sandbox, 2026-11-26),
+as the largest change from the picture a second before: heavy grain
+(`noise=alls=12`) on a still picture 0.31, a blinking cursor 0.14, text
+drifting at 20 px/s 0.63, text sliding at 300 px/s 3.7, a slow zoom (0.05 % a
+frame) 13. No built-in template is reported at the defaults, at 16:9 or 9:16;
+the Motion Canvas explainer, whose points fade in at 0.1 to 0.3 levels a frame,
+is the closest. The same grain reads 0.57 at 540 × 960, over the floor, so a
+grainy still in a small render isn't reported.
+
+A project that sets `output.loop: true` is meant to repeat. The pass then
+compares the last frame with the first. When that change is over 0.5 levels and
+more than twice the 95th percentile of the video's own frame-to-frame motion,
+viewers see a jump each time it repeats, and the render gets a `video.loop`
+issue at its end. `output.loop` changes nothing else about the render.
+
+Tests: `packages/media-pipeline/test/motion.test.ts` (grain, a sliding shape,
+a seam that joins and one that jumps) and `packages/core/test/videoqa.test.ts`.
+
+**Seek check.** Render fan-out splits a long scene into chunks, and each chunk's
+engine starts at its first frame without having drawn the frames before it
+(`render.fanOut: scenes+chunks`). That gives the same picture only if every
+frame depends on its frame number alone. A scene that keeps state between
+frames, draws random numbers without a seed or reads the clock can jump where
+two chunks meet. The seek check tests this on every render. It takes
+`render.qa.seekFrames` frames spread over the scenes whose engine renders frame
+ranges (Remotion today; HTML, HyperFrames and Motion Canvas render whole
+scenes), never a clip's first frame. It renders each one again on its own,
+then compares both as 64 × 64 area-averaged luma grids. A cell more than 24
+levels apart is a `video.seek` issue that names the frame, the scene and what
+to change. A frame that can't be rendered again is recorded with its error, and
+the render goes on.
+
+Measured with Remotion's `kinetic-title` (FFmpeg 6.1.1, local sandbox,
+2026-11-26), the same frame encoded in the video and on its own differs by at
+most 3 levels at 1920 × 1080 and 1080 × 1920, 7 at 540 × 960 and 10 at
+320 × 568. The frame before it, where the picture moves, differs by 16 to 71.
+Each frame costs one more engine start, 0.8 to 1 s at 1080 × 1920 on that
+machine. Tests: `packages/core/test/videoqa.test.ts` (the frames chosen, a
+frame-pure engine that passes, and one that paints from its own start and
+fails) and `packages/core/test/fanout.chunks.test.ts` (the check on a chunked
+render).
+
+Not yet measured (#294): text overflow in the final file.
 
 ## Proof: contact sheets
 
@@ -487,7 +554,7 @@ The measurements behind them, including render times on the machine that made
 them, are in `docs/proofs/formats/report.json`. To make them again:
 
 ```bash
-export REELFORGE_CHROMIUM_PATH=/path/to/chrome-headless-shell
+export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
 pnpm formats:prove
 ```
 

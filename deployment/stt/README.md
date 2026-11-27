@@ -23,7 +23,7 @@ It installs Python 3, a virtual environment in `/opt/reelforge/stt` with
 1.2.1 passes, checked 2026-11-23), downloads the model into
 `/opt/reelforge/whisper-models` **at build time**, installs
 [`reelforge-whisper`](reelforge-whisper) as `/usr/local/bin/reelforge-whisper`, sets
-`REELFORGE_STT_MODEL` and `REELFORGE_STT_MODEL_DIR`, and switches back to UID 10001.
+`RENDERWELD_STT_MODEL` and `RENDERWELD_STT_MODEL_DIR`, and switches back to UID 10001.
 It runs with the release image's hardening (`--read-only`, no network needed at run
 time). Behind a TLS-intercepting proxy pass its CA bundle:
 `--secret id=extra_ca,src=/path/to/ca.crt`.
@@ -31,8 +31,8 @@ time). Behind a TLS-intercepting proxy pass its CA bundle:
 Models (`WHISPER_MODEL`): `tiny`, `base`, `small` (default), `medium`, `large-v3`,
 `distil-large-v3`, `turbo`, or a `.en` variant (`small.en`, ...) for English only.
 Larger models are more accurate and slower; on a CPU `small` with `int8` is a fair
-default. A GPU needs a CUDA base image and `REELFORGE_STT_DEVICE=cuda`,
-`REELFORGE_STT_COMPUTE_TYPE=float16` (not tested).
+default. A GPU needs a CUDA base image and `RENDERWELD_STT_DEVICE=cuda`,
+`RENDERWELD_STT_COMPUTE_TYPE=float16` (not tested).
 
 ## Without Docker
 
@@ -42,8 +42,8 @@ python3 -m venv /opt/reelforge/stt
 /opt/reelforge/stt/bin/python -c "from faster_whisper import download_model; download_model('small', cache_dir='/opt/reelforge/whisper-models')"
 install -m 0755 deployment/stt/reelforge-whisper /opt/reelforge/stt/bin/reelforge-whisper
 sed -i '1s|.*|#!/opt/reelforge/stt/bin/python3 -I|' /opt/reelforge/stt/bin/reelforge-whisper
-export REELFORGE_STT_COMMAND=/opt/reelforge/stt/bin/reelforge-whisper \
-       REELFORGE_STT_MODEL=small REELFORGE_STT_MODEL_DIR=/opt/reelforge/whisper-models
+export RENDERWELD_STT_COMMAND=/opt/reelforge/stt/bin/reelforge-whisper \
+       RENDERWELD_STT_MODEL=small RENDERWELD_STT_MODEL_DIR=/opt/reelforge/whisper-models
 ```
 
 The model download is the only network access; if it uses Hugging Face's Xet storage
@@ -66,7 +66,7 @@ time. Any program with this contract can be set as `captions.stt.command`.
   12 word timings. The layer on top of the release image was not built (VERIFY in the
   image e2e).
 - `packages/core/test/stt.test.ts` runs the real program when `reelforge-whisper` (or
-  `REELFORGE_STT_COMMAND`) is installed, with `REELFORGE_STT_MODEL` / `REELFORGE_STT_MODEL_DIR`;
+  `RENDERWELD_STT_COMMAND`) is installed, with `RENDERWELD_STT_MODEL` / `RENDERWELD_STT_MODEL_DIR`;
   otherwise it is skipped.
 
 ## Licences

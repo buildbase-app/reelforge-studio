@@ -61,7 +61,7 @@ Checked on every render with sound (`checks.avSync`). On a miss: the render fail
 ## Picture
 
 Every finished render and preview is decoded once more (#294). Results: `checks.freeze`, `checks.black`,
-`checks.flash` and `videoQa`. On a miss: `render.qa.video`, `warn` by default, `fail`, or `off`. Details:
+`checks.flash`, `checks.motion`, `checks.loop`, `checks.seek` and `videoQa`. On a miss: `render.qa.video`, `warn` by default, `fail`, or `off`. Details:
 [public/manifest/formats.md](public/manifest/formats.md#picture-checks).
 
 | Rule | Threshold | Setting | Source | Checked |
@@ -70,6 +70,9 @@ Every finished render and preview is decoded once more (#294). Results: `checks.
 | `video.black` | black for 0.5 s or more; a pixel at or under 10 % luma is black, a picture when 98 % of it is | `render.qa.blackSeconds` | Studio default for the duration: a fade through black is shorter. FFmpeg's `blackdetect` defaults to 2 s, which misses a late first element. The pixel and picture levels are FFmpeg's defaults ("default 0.1", "default 0.98"), read with `ffmpeg -h filter=blackdetect` on FFmpeg 6.1.1 | 2026-11-25 |
 | `video.flash (sustained)` | at least 4 transitions (two flashes) in every one-second window for 5 s or more | fixed | EA IRIS README: an extended flash failure is "between 2-3 flashes per second in any given 5 consecutive seconds" (https://github.com/electronicarts/IRIS). Not a WCAG criterion; IRIS's own rule, and IRIS does not claim to certify compliance | 2026-11-25 |
 | `video.flash` | more than 6 transitions (three flashes) in any one second; a transition is a change of at least 0.1 in relative luminance with the darker side below 0.80; saturated red (R/(R+G+B) at least 0.8) changes by more than 20 in (R-G-B) x 320; only flashing over 25 % of the picture counts | fixed | WCAG 2.2 SC 2.3.1 and its glossary: "no more than three general flashes and / or no more than three red flashes within any one-second period", a general flash is "a pair of opposing changes in relative luminance of 10% or more", "where the relative luminance of the darker image is below 0.80", "(25% of any 10 degree visual field on the screen)" (https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html). The red measure is WCAG 2.0's working definition, Note 3: "R/(R+ G + B) >= 0.8, and the change in the value of (R-G-B)x320 is > 20" (https://www.w3.org/TR/UNDERSTANDING-WCAG20/seizure-does-not-violate.html) | 2026-11-25 |
+| `video.motion` | no frame differs from the picture a second before by 0.4 or more for 3 s or more (mean change of a 32 x 32 luma grid, 8-bit levels); stretches already frozen are left out | `render.qa.lowMotionSeconds`, `render.qa.motionFloor` | Studio default, measured on 1080 x 1920 H.264 with FFmpeg 6.1.1 (local sandbox): heavy grain on a still 0.31, a blinking cursor 0.14, text drifting at 20 px/s 0.63. The floor sits just above the grain. No published standard sets one | 2026-11-26 |
+| `video.loop` | for a project with `output.loop`: the change from the last frame back to the first is over 0.5 levels and over 2 times the 95th percentile of the video's own frame-to-frame change (32 x 32 luma grid) | fixed | Studio default: a seam below 0.5 levels is not visible, and one within twice the video's ordinary motion reads as part of it. No published standard sets one | 2026-11-26 |
+| `video.seek` | 2 frames of each render (from scenes whose engine renders frame ranges), rendered again on their own, differ from the same frames of the video by more than 24 levels in any cell of a 64 x 64 luma grid | `render.qa.seekFrames` | Studio default, measured with Remotion's kinetic-title on FFmpeg 6.1.1 (local sandbox): the same frame differs by at most 3 levels at 1080 x 1920 and 10 at 320 x 568 (encoding noise); a frame that moves, by 16 to 71. No published standard sets one | 2026-11-26 |
 
 About the flash check:
 
@@ -104,5 +107,5 @@ are guidance in the skills, not a gate:
 
 - text contrast at least 4.5:1 (WCAG 2.2 SC 1.4.3);
 - a picture-to-sound offset inside the BT.1359-1 range within a scene, not only at the file's start;
-- voice-over at most 160 words a minute, motion, camera and physics rules, loop seams, seek determinism, and text
-  overflow in the final file (#294).
+- voice-over at most 160 words a minute, motion, camera and physics rules, and text overflow in the final file
+  (#294).

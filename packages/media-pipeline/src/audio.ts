@@ -183,6 +183,48 @@ export async function speechSegments(ffmpeg: string, file: string, opts: { thres
   return segments.filter(([s, e]) => e - s > 0.02);
 }
 
+/**
+ * A file's level over time (#459): the RMS of every `blockSeconds` block of its
+ * first audio stream, both channels together (FFmpeg astats, reset per block),
+ * in dBFS; silence is -Infinity. One pass over the file, so many windows can be
+ * read from it with `windowLevelDb` without running FFmpeg again.
+ */
+export interface LevelEnvelope {
+  blockSeconds: number;
+  rmsDb: number[];
+}
+
+export async function levelEnvelope(ffmpeg: string, file: string, opts: { blockSeconds?: number; signal?: AbortSignal } = {}): Promise<LevelEnvelope> {
+  const blockSeconds = opts.blockSeconds ?? 0.01;
+  const n = Math.max(1, Math.round(blockSeconds * SAMPLE_RATE));
+  const { stderr } = await run(
+    ffmpeg,
+    [
+      '-hide_banner', '-nostats', '-i', file, '-map', '0:a:0',
+      '-af', `aformat=sample_fmts=fltp:sample_rates=${SAMPLE_RATE},asetnsamples=n=${n}:p=0,astats=metadata=1:reset=1,ametadata=mode=print:key=lavfi.astats.Overall.RMS_level`,
+      '-f', 'null', '-',
+    ],
+    'audio:level',
+    { ...(opts.signal ? { signal: opts.signal } : {}) }
+  );
+  const rmsDb = [...stderr.matchAll(/lavfi\.astats\.Overall\.RMS_level=(-?inf|-?[\d.]+)/g)].map((m) => (m[1]!.endsWith('inf') ? -Infinity : Number(m[1])));
+  return { blockSeconds: n / SAMPLE_RATE, rmsDb };
+}
+
+/**
+ * The RMS level of a window of an envelope, in dBFS (the power average of its
+ * blocks); null when the window holds no block or only silence.
+ */
+export function windowLevelDb(env: LevelEnvelope, startSeconds: number, durationSeconds: number): number | null {
+  const from = Math.max(0, Math.floor(startSeconds / env.blockSeconds + 1e-9));
+  const to = Math.min(env.rmsDb.length, Math.ceil((startSeconds + durationSeconds) / env.blockSeconds - 1e-9));
+  if (to <= from) return null;
+  let power = 0;
+  for (let k = from; k < to; k++) power += Math.pow(10, env.rmsDb[k]! / 10);
+  power /= to - from;
+  return power > 0 ? Number((10 * Math.log10(power)).toFixed(2)) : null;
+}
+
 /** Mix the render's audio once over the whole timeline into a 48 kHz stereo float WAV. */
 export async function mixAudio(opts: MixOptions): Promise<MixResult> {
   const durations = {
@@ -414,6 +456,7 @@ const AUDIO_PROBES: Array<{ what: string; graph: string; inputs?: number }> = [
   { what: 'loudnorm (linear, with measured values)', graph: 'loudnorm=I=-14:TP=-2.5:LRA=11:measured_I=-20:measured_TP=-6:measured_LRA=3:measured_thresh=-30:offset=0:linear=true:print_format=json,aresample=48000' },
   { what: 'true-peak limiter (volume, aresample 192 kHz, alimiter level=0 latency=1)', graph: limiterFilter(3, -2.8) },
   { what: 'ebur128 true peak', graph: 'ebur128=peak=true:framelog=verbose' },
+  { what: 'level per block (asetnsamples, astats reset, ametadata print)', graph: 'asetnsamples=n=480:p=0,astats=metadata=1:reset=1,ametadata=mode=print:key=lavfi.astats.Overall.RMS_level' },
 ];
 const audioSupport = new Map<string, Promise<void>>();
 

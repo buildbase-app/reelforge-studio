@@ -1,6 +1,6 @@
 ---
 title: "Install with Docker"
-description: "Run ReelForge Studio with Docker or docker compose: the image, the hardened defaults, TLS with Caddy, PostgreSQL or MySQL, and backups."
+description: "Run RenderWeld with Docker or docker compose: the image, the hardened defaults, TLS with Caddy, PostgreSQL or MySQL, and backups."
 folder: install
 slug: docker
 order: 1
@@ -9,7 +9,7 @@ tags: [install, docker]
 
 # Install with Docker
 
-ReelForge Studio is one Node.js server (REST `/v1` and MCP `/mcp`) that renders
+RenderWeld is one Node.js server (REST `/v1` and MCP `/mcp`) that renders
 in the same process with FFmpeg and Chrome Headless Shell. Metadata (projects and
 their versions, keys, jobs, themes, provider settings, the audit log) lives in a
 database: **SQLite on the data volume by default**, or your own PostgreSQL or
@@ -26,6 +26,9 @@ suite on SQLite, PostgreSQL and MySQL; the release image is also built and run
 through the Docker end-to-end suite on Linux arm64 (SQLite) in CI. **Not
 tested:** macOS, Windows and the cloud recipes in the repository's deploy guide.
 
+How many renders one container does at 1, 2 and 4 vCPU, and the
+`limits.renderConcurrency` each size should use: [Sizing](sizing.md).
+
 ## docker compose (recommended)
 
 ```bash
@@ -34,7 +37,7 @@ cd reelforge-studio
 echo "REELFORGE_SECRET_KEY=$(openssl rand -base64 32)" >> .env   # keep a copy
 docker compose up -d --build
 docker compose ps                                                 # reelforge ... (healthy)
-docker compose exec reelforge reelforge keys create --name admin --scopes admin
+docker compose exec reelforge renderweld keys create --name admin --scopes admin
 ```
 
 Instead of the CLI you can set the first admin key before the first start:
@@ -42,6 +45,11 @@ Instead of the CLI you can set the first admin key before the first start:
 hashed when no key exists yet.
 
 The port is published on `127.0.0.1:4321` only. Change it with `REELFORGE_PORT`.
+
+`docker-compose.yml` reads its settings (`REELFORGE_SECRET_KEY`, `REELFORGE_PORT`,
+`REELFORGE_PUBLIC_URL`, ...) under their old names, so `.env` uses those; the
+server itself accepts the `RENDERWELD_*` names too
+([Renamed from ReelForge](renamed-from-reelforge.md)).
 
 ## Plain docker run
 
@@ -53,7 +61,7 @@ docker run -d --name reelforge -p 127.0.0.1:4321:4321 --shm-size=1g \
   -e REELFORGE_SECRET_KEY="$(openssl rand -base64 32)" \
   -v reelforge-data:/data \
   reelforge-studio
-docker exec reelforge reelforge keys create --name admin --scopes admin
+docker exec reelforge renderweld keys create --name admin --scopes admin
 ```
 
 The container does not start without `REELFORGE_SECRET_KEY`. Keep the value you pass: start the container with the
@@ -118,7 +126,7 @@ MySQL works the same with `--profile mysql`, `MYSQL_PASSWORD`,
 `MYSQL_ROOT_PASSWORD` and
 `DATABASE_URL="mysql://reelforge:$MYSQL_PASSWORD@mysql:3306/reelforge?allowPublicKeyRetrieval=true"`.
 For a database server elsewhere, set only `DATABASE_URL`. Migrations run at every
-start (or with `reelforge migrate`).
+start (or with `renderweld migrate`).
 
 ## Sizing
 
@@ -131,8 +139,8 @@ One render at a time is the default. Each render needs, at its peak (measured wi
 
 To render several at once, set `REELFORGE_RENDER_CONCURRENCY` to about the number of cores divided by 1.5,
 and check the memory for 4K. Renders are CPU-bound, so more than that only makes each render slower. The
-H.264 encoder keeps its memory low by default (`REELFORGE_RENDER_ENCODER_THREADS=2`,
-`REELFORGE_RENDER_ENCODER_LOOKAHEAD=20`). Sizing for many workers, and the measurements behind these numbers:
+H.264 encoder keeps its memory low by default (`RENDERWELD_RENDER_ENCODER_THREADS=2`,
+`RENDERWELD_RENDER_ENCODER_LOOKAHEAD=20`). Sizing for many workers, and the measurements behind these numbers:
 [capacity and sizing](https://github.com/buildbase-app/reelforge-studio/blob/main/docs/SCALE.md).
 
 ## Backups
@@ -143,14 +151,14 @@ secrets in a restored database cannot be read.
 
 ```bash
 # SQLite, while the server runs (a consistent copy):
-docker compose exec reelforge reelforge backup /data/backups/reelforge-$(date +%F).db
+docker compose exec reelforge renderweld backup /data/backups/renderweld-$(date +%F).db
 # PostgreSQL in the compose project:
 docker compose exec -T postgres pg_dump -U reelforge -Fc reelforge > reelforge.dump
 # the data volume (compose names it <project>_reelforge-data; --volumes-from finds it):
 docker run --rm --volumes-from "$(docker compose ps -q reelforge)" -v "$PWD":/b alpine tar -C /data -czf /b/data.tgz .
 ```
 
-Restore with the same ReelForge version or an older one than you upgrade to: an
+Restore with the same RenderWeld version or an older one than you upgrade to: an
 older server refuses a newer database schema.
 
 ## Updating

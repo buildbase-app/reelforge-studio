@@ -479,16 +479,107 @@ export async function startAssetServer(staged: Pick<StagedSceneAssets, 'files'>)
   };
 }
 
+/** What a `video` type selector also has to match once clips are pictures: same specificity as `video` (`:where` adds none). */
+const VIDEO_AS_IMAGE = 'img:where([data-rf-video])';
+/** `video` as a type selector: at the start or after a combinator, a comma or an opening parenthesis, not part of a longer name. */
+const VIDEO_TYPE = /(^|[\s>+~(,|])video(?![\w-])/gi;
+
+/**
+ * CSS whose `video` type selectors also select the `<img data-rf-video>` a
+ * clip becomes in the html engine (#448), so `video { object-fit: cover }`
+ * keeps working: each selector that uses `video` as a type gets a copy with
+ * `img:where([data-rf-video])` in its place, at the same specificity, and the
+ * original stays for any real `<video>`. Only rule selectors change, in nested
+ * blocks too (`@media`); at-rule preludes, declarations, comments and strings
+ * are left as they are.
+ */
+export function videoSelectorsAsImages(css: string): string {
+  let out = '';
+  let segStart = 0;
+  let i = 0;
+  while (i < css.length) {
+    const ch = css[i]!;
+    if (ch === '/' && css[i + 1] === '*') {
+      const end = css.indexOf('*/', i + 2);
+      i = end < 0 ? css.length : end + 2;
+      out += css.slice(segStart, i);
+      segStart = i;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      i = skipString(css, i);
+      continue;
+    }
+    if (ch === '{') {
+      const prelude = css.slice(segStart, i);
+      out += prelude.trim().startsWith('@') ? prelude : videoSelectorList(prelude);
+      out += '{';
+      segStart = ++i;
+      continue;
+    }
+    if (ch === '}' || ch === ';') {
+      out += css.slice(segStart, i + 1);
+      segStart = ++i;
+      continue;
+    }
+    i++;
+  }
+  return out + css.slice(segStart);
+}
+
+/** Index just past the string that starts at `i` (backslash escapes kept). */
+function skipString(s: string, i: number): number {
+  const q = s[i];
+  for (let k = i + 1; k < s.length; k++) {
+    if (s[k] === '\\') k++;
+    else if (s[k] === q) return k + 1;
+  }
+  return s.length;
+}
+
+function videoSelectorList(list: string): string {
+  // Split at top-level commas (not inside parentheses, brackets or strings).
+  const parts: string[] = [];
+  let depth = 0;
+  let from = 0;
+  for (let k = 0; k < list.length; k++) {
+    const c = list[k]!;
+    if (c === '"' || c === "'") k = skipString(list, k) - 1;
+    else if (c === '(' || c === '[') depth++;
+    else if (c === ')' || c === ']') depth--;
+    else if (c === ',' && depth === 0) {
+      parts.push(list.slice(from, k));
+      from = k + 1;
+    }
+  }
+  parts.push(list.slice(from));
+  return parts
+    .map((part) => {
+      // Strings and attribute selectors never hold a type selector: mask them while matching.
+      const kept: string[] = [];
+      const masked = part.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\[[^\]]*\]/g, (m) => `\u0000${kept.push(m) - 1}\u0000`);
+      const swapped = masked.replace(VIDEO_TYPE, (_, before: string) => `${before}${VIDEO_AS_IMAGE}`);
+      if (swapped === masked) return part;
+      const restore = (s: string) => s.replace(/\u0000(\d+)\u0000/g, (_, n: string) => kept[Number(n)]!);
+      const trailing = /\s*$/.exec(part)![0];
+      return `${part.slice(0, part.length - trailing.length)}, ${restore(swapped).trim()}${trailing}`;
+    })
+    .join(',');
+}
+
 /**
  * Scene html with its `asset:` references replaced (html engine). With
  * `videoAsImage`, a `<video>` that shows a staged clip becomes an `<img>`
  * marked `data-rf-video="<key>"` (its other attributes kept), whose picture
- * the renderer sets for every frame.
+ * the renderer sets for every frame; the scene's `<style>` rules for `video`
+ * then select that `<img>` too (#448).
  */
 export function rewriteSceneHtml(html: string, url: (key: string) => string | undefined, opts: { videoAsImage?: boolean; isVideo?: (key: string) => boolean } = {}): string {
   if (!assetRefsInMarkup(html, undefined).refs.length) return html;
   const doc = parseMarkup(html);
   const isVideo = opts.isVideo ?? (() => false);
+  const styles: Array<{ value: string }> = [];
+  let swapped = false;
   walk(doc, (el) => {
     const start = el.tagName === 'video' ? mediaStartOf(el) : undefined;
     let videoKey: string | undefined;
@@ -500,14 +591,20 @@ export function rewriteSceneHtml(html: string, url: (key: string) => string | un
       });
     }
     if (el.tagName === 'style') {
-      for (const t of el.childNodes.filter(ta.isTextNode)) t.value = rewriteAssetRefs(t.value, (id) => url(id));
+      for (const t of el.childNodes.filter(ta.isTextNode)) {
+        t.value = rewriteAssetRefs(t.value, (id) => url(id));
+        styles.push(t);
+      }
     }
     if (videoKey && opts.videoAsImage) {
+      swapped = true;
       el.tagName = 'img';
       el.nodeName = 'img';
       el.childNodes = [];
       el.attrs = [...el.attrs.filter((a) => !['autoplay', 'loop', 'muted', 'controls', 'playsinline', 'preload', 'poster', 'data-media-start', 'data-rf-video'].includes(a.name)), { name: 'data-rf-video', value: videoKey }];
     }
   });
+  // A <style> may come before the clip it styles, so its rules change once the walk knows a clip was swapped.
+  if (swapped) for (const t of styles) t.value = videoSelectorsAsImages(t.value);
   return serialize(doc);
 }

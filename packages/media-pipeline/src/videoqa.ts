@@ -3,6 +3,7 @@ import { readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { run } from './ffmpeg';
 import { FLASH_GRID, analyseFlashes, type FlashWindow } from './flashes';
+import { MOTION_GRID, analyseMotion, type MotionResult } from './motion';
 
 /** A stretch of the video, in seconds from its start. */
 export interface VideoInterval {
@@ -29,6 +30,8 @@ export interface VideoQaOptions {
   freezeNoiseDb?: number;
   /** Photosensitive flash analysis (WCAG 2.3.1) at this frame rate; unset: no flash check. */
   flashFps?: number;
+  /** Motion energy, low-motion stretches and the loop seam (when `loop`), from a luma grid of every frame at `fps`; unset: not measured. */
+  motion?: { fps: number; floor: number; lowSeconds: number; loop?: boolean };
   signal?: AbortSignal;
 }
 
@@ -37,6 +40,8 @@ export interface VideoQaResult {
   blacks: VideoInterval[];
   /** Stretches with more than three general or red flashes in a second (empty when not checked). */
   flashes: FlashWindow[];
+  /** Motion energy, low-motion stretches and the loop seam (absent when not measured). */
+  motion?: MotionResult;
   args: string[];
 }
 
@@ -53,12 +58,21 @@ export async function detectVideoIssues(o: VideoQaOptions): Promise<VideoQaResul
   if (o.freezeSeconds > 0) filters.push(`freezedetect=n=${o.freezeNoiseDb ?? FREEZE_NOISE_DB}dB:d=${o.freezeSeconds}`);
   if (o.blackSeconds > 0) filters.push(`blackdetect=d=${o.blackSeconds}:pix_th=${BLACK_DETECT.pixelLuma.toFixed(2)}:pic_th=${BLACK_DETECT.pictureShare}`);
   const flash = o.flashFps !== undefined && o.flashFps > 0;
-  if (!filters.length && !flash) return { freezes: [], blacks: [], flashes: [], args: [] };
-  // One decode: the detectors on one branch, an area-averaged 8x8 grid per frame for the flash analysis on the other.
-  const grid = join(dirname(o.input), `.qa-grid-${randomBytes(4).toString('hex')}.rgb`);
+  const motion = o.motion !== undefined && o.motion.fps > 0;
+  if (!filters.length && !flash && !motion) return { freezes: [], blacks: [], flashes: [], args: [] };
+  // One decode: the detectors on one branch; an area-averaged 8x8 colour grid per frame for the flash analysis and a
+  // 32x32 luma grid for the motion analysis on others, each written raw to a temporary file next to the input.
+  const tag = randomBytes(4).toString('hex');
+  const grid = join(dirname(o.input), `.qa-grid-${tag}.rgb`);
+  const lumaGrid = join(dirname(o.input), `.qa-motion-${tag}.gray`);
   const detect = filters.length ? filters.join(',') : 'null';
-  const args = flash
-    ? ['-hide_banner', '-nostats', '-v', 'info', '-i', o.input, '-filter_complex', `[0:v:0]split=2[d][g];[d]${detect}[n];[g]scale=${FLASH_GRID}:${FLASH_GRID}:flags=area,format=rgb24[c]`, '-map', '[n]', '-f', 'null', '-', '-map', '[c]', '-f', 'rawvideo', '-y', grid]
+  const branches = [
+    ...(flash ? [{ label: 'c', chain: `scale=${FLASH_GRID}:${FLASH_GRID}:flags=area,format=rgb24`, file: grid }] : []),
+    ...(motion ? [{ label: 'm', chain: `scale=${MOTION_GRID}:${MOTION_GRID}:flags=area,format=gray`, file: lumaGrid }] : []),
+  ];
+  const graph = `[0:v:0]split=${branches.length + 1}[d]${branches.map((x) => `[g${x.label}]`).join('')};[d]${detect}[n]${branches.map((x) => `;[g${x.label}]${x.chain}[${x.label}]`).join('')}`;
+  const args = branches.length
+    ? ['-hide_banner', '-nostats', '-v', 'info', '-i', o.input, '-filter_complex', graph, '-map', '[n]', '-f', 'null', '-', ...branches.flatMap((x) => ['-map', `[${x.label}]`, '-f', 'rawvideo', '-y', x.file])]
     : ['-hide_banner', '-nostats', '-v', 'info', '-i', o.input, '-map', '0:v:0', '-an', '-sn', '-vf', detect, '-f', 'null', '-'];
   try {
     const { stderr } = await run(o.ffmpeg, args, 'qa:video', { signal: o.signal });
@@ -67,10 +81,11 @@ export async function detectVideoIssues(o: VideoQaOptions): Promise<VideoQaResul
       freezes: o.freezeSeconds > 0 ? parsed.freezes : [],
       blacks: o.blackSeconds > 0 ? parsed.blacks : [],
       flashes: flash ? analyseFlashes(await readFile(grid), o.flashFps!) : [],
-      args: args.map((a) => (a === grid ? '<grid>' : a)),
+      ...(motion ? { motion: analyseMotion(await readFile(lumaGrid), o.motion!.fps, o.motion!) } : {}),
+      args: args.map((a) => (a === grid ? '<grid>' : a === lumaGrid ? '<motion-grid>' : a)),
     };
   } finally {
-    if (flash) await rm(grid, { force: true });
+    await Promise.all([flash ? rm(grid, { force: true }) : null, motion ? rm(lumaGrid, { force: true }) : null]);
   }
 }
 
