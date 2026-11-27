@@ -208,7 +208,7 @@ go in `.env.local`; setup reads them from your shell too.
 ## Chromium
 
 Setup looks for a Chrome Headless Shell in this order: `RENDERWELD_CHROMIUM_PATH`
-(or `REELFORGE_CHROMIUM_PATH`), Playwright's folders (`PLAYWRIGHT_BROWSERS_PATH`,
+(or `RENDERWELD_CHROMIUM_PATH`), Playwright's folders (`PLAYWRIGHT_BROWSERS_PATH`,
 then the platform default, newest revision first), Remotion's download in
 `node_modules/.remotion`. If there is none it runs:
 
@@ -217,7 +217,7 @@ pnpm --filter @renderweld/engine-motion-canvas exec playwright-core install chro
 ```
 
 Without one, the server starts but renders fail with
-`no browser: set REELFORGE_CHROMIUM_PATH to a Chrome Headless Shell binary`. Set the
+`no browser: set RENDERWELD_CHROMIUM_PATH to a Chrome Headless Shell binary`. Set the
 path in `.env.local` (`RENDERWELD_CHROMIUM_PATH=...`) and restart `pnpm dev:all`.
 `npx remotion browser ensure` is another way to get one. A full Chrome or Chromium
 also works for most engines but is not what CI tests.
@@ -301,7 +301,7 @@ Move existing files with `pnpm renderweld storage migrate --to s3`. Other driver
 model download is the only network access; transcription runs offline. Details:
 [deployment/stt/README.md](../deployment/stt/README.md). The real-program test in
 `packages/core/test/stt.test.ts` reads the old names:
-`REELFORGE_STT_COMMAND=$RENDERWELD_STT_COMMAND REELFORGE_STT_MODEL=$RENDERWELD_STT_MODEL REELFORGE_STT_MODEL_DIR=$RENDERWELD_STT_MODEL_DIR`.
+`RENDERWELD_STT_COMMAND=$RENDERWELD_STT_COMMAND RENDERWELD_STT_MODEL=$RENDERWELD_STT_MODEL RENDERWELD_STT_MODEL_DIR=$RENDERWELD_STT_MODEL_DIR`.
 
 ## Workers
 
@@ -343,16 +343,16 @@ Load the Chromium path first (`set -a; . ./.env.local; set +a` does it, or expor
 | --- | --- | --- |
 | Typecheck | `pnpm typecheck` | nothing |
 | Everything CI's fast job runs | `pnpm test` | FFmpeg; browser tests skip without Chromium |
-| Browser required (as CI) | `REELFORGE_REQUIRE_BROWSER=1 pnpm test` | a missing browser fails instead of skipping |
+| Browser required (as CI) | `RENDERWELD_REQUIRE_BROWSER=1 pnpm test` | a missing browser fails instead of skipping |
 | One package | `pnpm --filter @renderweld/core test`, or `pnpm exec vitest run test/x.test.ts` in it | |
 | Setup helpers | `pnpm test:dev` | nothing |
 | Docs | `pnpm test:docs`, `pnpm docs:reference --check`, `pnpm docs:config --check` | nothing |
-| PostgreSQL contract + server | `TEST_POSTGRES_URL=... pnpm --filter @renderweld/db test`; `REELFORGE_TEST_DB=postgres TEST_POSTGRES_URL=... pnpm --filter @renderweld/server test` | `pnpm dev:setup --postgres` |
-| MySQL contract + server | the same with `TEST_MYSQL_URL` and `REELFORGE_TEST_DB=mysql` | `pnpm dev:setup --mysql` |
+| PostgreSQL contract + server | `TEST_POSTGRES_URL=... pnpm --filter @renderweld/db test`; `RENDERWELD_TEST_DB=postgres TEST_POSTGRES_URL=... pnpm --filter @renderweld/server test` | `pnpm dev:setup --postgres` |
+| MySQL contract + server | the same with `TEST_MYSQL_URL` and `RENDERWELD_TEST_DB=mysql` | `pnpm dev:setup --mysql` |
 | Docker e2e | `e2e/docker/run.sh` (`DB=postgres`, `EDITION=dev`, `SCALE=1`, see the file's header) | Docker, about 4 GB |
 | Kubernetes e2e | `e2e/k8s/` | kind, Docker |
 
-The project rule before a PR: `pnpm typecheck && REELFORGE_REQUIRE_BROWSER=1 pnpm test`
+The project rule before a PR: `pnpm typecheck && RENDERWELD_REQUIRE_BROWSER=1 pnpm test`
 (AGENTS.md). `RENDERWELD_REQUIRE_BROWSER` works as well.
 
 ## The dashboard
@@ -417,11 +417,11 @@ in two terminals.
 | `listen EADDRINUSE: address already in use 127.0.0.1:4321` | port taken | [ports](#ports) |
 | `the dashboard is off: set dashboard.enabled ...` (404 on `/dashboard`) | `RENDERWELD_DASHBOARD_ENABLED` not true | set it in `.env.local` |
 | `dashboard_not_built` (503) | `apps/dashboard/dist` missing | `pnpm --filter @renderweld/dashboard build` (`pnpm dev:all` does it) |
-| `host "..." is not allowed; set REELFORGE_PUBLIC_URL or REELFORGE_ALLOWED_HOSTS` (403 `forbidden_host`) | you reach the studio by a name other than localhost/127.0.0.1 (a LAN IP, a tunnel) | `RENDERWELD_ALLOWED_HOSTS=myhost` or `RENDERWELD_PUBLIC_URL=https://...` |
-| `no browser: set REELFORGE_CHROMIUM_PATH ...` | no Chrome Headless Shell | [Chromium](#chromium) |
+| `host "..." is not allowed; set RENDERWELD_PUBLIC_URL or RENDERWELD_ALLOWED_HOSTS` (403 `forbidden_host`) | you reach the studio by a name other than localhost/127.0.0.1 (a LAN IP, a tunnel) | `RENDERWELD_ALLOWED_HOSTS=myhost` or `RENDERWELD_PUBLIC_URL=https://...` |
+| `no browser: set RENDERWELD_CHROMIUM_PATH ...` | no Chrome Headless Shell | [Chromium](#chromium) |
 | `ffmpeg was not found ...` or `... cannot run the audio pipeline ...` | FFmpeg missing or minimal | [FFmpeg](#ffmpeg) |
 | `RENDERWELD_X and its old name REELFORGE_X are both set, with different values` | an old variable in your shell profile | remove the `REELFORGE_` one (`pnpm dev:all` already prefers your shell's value over `.env.local`) |
-| a weak-key refusal for `REELFORGE_BOOTSTRAP_KEY` (`needs at least 32 random characters after rf_`) | a hand-typed key | `pnpm dev:setup --force`, or `rf_$(openssl rand -hex 24)` |
+| a weak-key refusal for `RENDERWELD_BOOTSTRAP_KEY` (`needs at least 32 random characters after rf_`) | a hand-typed key | `pnpm dev:setup --force`, or `rf_$(openssl rand -hex 24)` |
 | renders refused: licence `unlicensed` | licence mode `required` without a key | [licence](#licence) |
 | `--workers needs PostgreSQL or MySQL` | SQLite cannot share the queue between processes | `pnpm dev:setup --postgres` |
 | `error while loading shared libraries` from the browser | Linux system libraries | `install-deps`, see [Linux](#linux) |
@@ -439,7 +439,7 @@ only (noncommercial, [LICENSING.md](../LICENSING.md)). Paths that need a licence
   `GET /v1/licence` then answers `valid`. Its test controls (revoke, rate limit,
   outages) are listed at the top of [e2e/mock-licence/server.mjs](../e2e/mock-licence/server.mjs).
 - **A real key**: a free Personal key (noncommercial) or a Commercial key from
-  <https://reelforge.buildbase.app/pricing>; set `RENDERWELD_LICENCE_KEY` and
+  <https://renderweld.com/pricing>; set `RENDERWELD_LICENCE_KEY` and
   `RENDERWELD_LICENCE_MODE=required`, or activate it with
   `pnpm renderweld licence activate`. One key is one activation, so deactivate a
   dev instance (`pnpm renderweld licence deactivate`) before you reuse the key.
@@ -454,7 +454,7 @@ new names. The package names (`@renderweld/*`), the repository name, the
 
 | Old | New |
 | --- | --- |
-| `REELFORGE_*` settings | `RENDERWELD_*` |
-| `pnpm reelforge ...` | `pnpm renderweld ...` |
-| `REELFORGE_REQUIRE_BROWSER`, `REELFORGE_TEST_DB` | `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_TEST_DB` |
-| `reelforge://` MCP resources | `renderweld://` |
+| `RENDERWELD_*` settings | `RENDERWELD_*` |
+| `pnpm renderweld ...` | `pnpm renderweld ...` |
+| `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_TEST_DB` | `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_TEST_DB` |
+| `renderweld://` MCP resources | `renderweld://` |
