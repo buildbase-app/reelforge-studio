@@ -39,9 +39,14 @@ import {
   mediaKey,
   mediaLayersHtml,
   rewriteAssetRefs,
+  textRunTracker,
+  textSampleStep,
+  type ClipTextCheck,
   type DomLogo,
   type DomMediaLayer,
   type HyperframesTitleProps,
+  type TextOverflowRule,
+  type TextSample,
   type PictureRequest,
   type OutputSettings,
   type RenderScene,
@@ -317,6 +322,8 @@ export interface HyperframesRenderOptions {
   assets?: ReadonlyMap<string, ResolvedAsset>;
   /** ffprobe/ffmpeg for checking assets before the render. */
   tools?: Tools;
+  /** Text overflow check (#294, #386): after the render, HyperFrames' own layout audit at TEXT_SAMPLES_PER_SECOND. */
+  textCheck?: boolean;
 }
 
 /**
@@ -394,7 +401,7 @@ export function hyperframesEnv(
   };
 }
 
-export async function renderHyperframesScene(opts: HyperframesRenderOptions): Promise<{ out: string; millis: number }> {
+export async function renderHyperframesScene(opts: HyperframesRenderOptions): Promise<{ out: string; millis: number; text?: ClipTextCheck }> {
   const started = Date.now();
   const { scene, output } = opts;
   const stage = `render:${scene.id}`;
@@ -460,23 +467,89 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
   ];
   // Hard limit (D-087): the per-frame estimate, never more than render.sceneTimeoutSeconds.
   const timeoutMs = Math.min(opts.timeoutMs ?? 60_000 + scene.durationFrames * 1500, sceneTimeoutCapMs());
-  let reason: 'timeout' | 'cancelled' | 'network' | null = null;
+  const run = (cliArgs: string[], limitMs: number, extra: HyperframesRunExtra = {}) =>
+    runHyperframes({ args: cliArgs, project, browser, cacheDir: opts.cacheDir, tmpDir, timeoutMs: limitMs, ...extra, ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.log ? { log: opts.log } : {}) });
+  try {
+    const res = await run(args, timeoutMs);
+    if (res.reason === 'network') {
+      throw new PipelineError(
+        stage,
+        `the scene tried to reach the network (${res.blockedTarget}) and was stopped: scenes render without network access, and navigating away from the composition is not allowed. Put images, fonts and media in the project's assets and reference them locally, and inline scripts.`,
+        tail(res.output)
+      );
+    }
+    if (res.reason === 'timeout') throw new PipelineError(stage, `HyperFrames render timed out after ${timeoutMs} ms`, tail(res.output));
+    if (res.reason === 'cancelled' || opts.signal?.aborted) throw new PipelineError(stage, 'cancelled');
+    if (res.code !== 0 || !existsSync(opts.out)) {
+      throw new PipelineError(stage, `hyperframes render exited with code ${res.code}`, tail(res.output));
+    }
+    if (res.remoteFonts) {
+      opts.log?.('hyperframes: a font the scene names is not installed and was not downloaded (renders have no network); the CSS fallback font was used. Put font files in the project\'s assets to use them.');
+    }
+    opts.log?.(`hyperframes ${hyperframesVersion()}: rendered ${scene.durationFrames} frames`);
+    const text = opts.textCheck ? await textCheck({ scene, output, project, doc, run, timeoutMs, ...(opts.log ? { log: opts.log } : {}) }) : undefined;
+    if (opts.signal?.aborted) throw new PipelineError(stage, 'cancelled');
+    return { out: opts.out, millis: Date.now() - started, ...(text ? { text } : {}) };
+  } finally {
+    await rm(project, { recursive: true, force: true }).catch(() => undefined);
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
+  }
+}
+
+interface HyperframesRun {
+  code: number | null;
+  /** The last of what it printed (stdout and stderr). */
+  output: string;
+  /** Its standard output alone, whole up to `stdoutBytes` (a JSON report). */
+  stdout: string;
+  /** What stopped it early. */
+  reason: 'timeout' | 'cancelled' | 'network' | null;
+  blockedTarget: string;
+  /** It named a font that is not installed and was refused the download. */
+  remoteFonts: boolean;
+  /** With `refuseOnly`: the hosts it was refused, in order. */
+  refused: string[];
+}
+
+interface HyperframesRunExtra {
+  /** Keep its standard output, whole up to this many bytes. */
+  stdoutBytes?: number;
+  /**
+   * Refuse its connections (they still go to the deny-all sink and none leaves the machine) without stopping it. For
+   * a pass over a composition that has just rendered without one: what it tries then is the tool's own download.
+   */
+  refuseOnly?: boolean;
+}
+
+/**
+ * One run of the hyperframes CLI on a scene folder: its outbound connections go to the deny-all sink (a connection
+ * stops it, D-085), it is stopped at `timeoutMs` or on `signal`, and nothing of it is left running when this returns.
+ */
+async function runHyperframes(o: { args: string[]; project: string; browser: string; cacheDir: string; tmpDir: string; timeoutMs: number; signal?: AbortSignal; log?: (line: string) => void } & HyperframesRunExtra): Promise<HyperframesRun> {
+  let reason: HyperframesRun['reason'] = null;
   let blockedTarget = '';
+  const refused: string[] = [];
   let killTree: () => void = () => undefined;
   const onNetwork = (target: string) => {
+    if (o.refuseOnly) {
+      if (!refused.includes(target)) refused.push(target);
+      return;
+    }
     if (reason) return;
     reason = 'network';
     blockedTarget = target;
     killTree();
   };
   const sink = await startNetworkSink(onNetwork);
-  const child = spawn(process.execPath, args, {
-    cwd: project,
-    env: hyperframesEnv(browser, opts.cacheDir, process.env, sink.url, tmpDir),
+  const child = spawn(process.execPath, o.args, {
+    cwd: o.project,
+    env: hyperframesEnv(o.browser, o.cacheDir, process.env, sink.url, o.tmpDir),
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true, // own process group; the browser is found by its TMPDIR (processes.ts)
   });
-  let output_ = '';
+  let output = '';
+  let stdout = '';
+  let stdoutCut = false;
   let remoteFonts = false;
   const collect = (d: Buffer) => {
     const text = d.toString();
@@ -485,56 +558,125 @@ export async function renderHyperframesScene(opts: HyperframesRenderOptions): Pr
     const egress = EGRESS_REFUSED_LINE.exec(text);
     if (egress) onNetwork(egress[1]!);
     if (FONT_REFUSED_LINE.test(text)) remoteFonts = true;
-    output_ += text;
-    if (output_.length > 200_000) output_ = output_.slice(-100_000);
+    output += text;
+    if (output.length > 200_000) output = output.slice(-100_000);
   };
-  child.stdout.on('data', collect);
+  child.stdout.on('data', (d: Buffer) => {
+    collect(d);
+    if (!o.stdoutBytes || stdoutCut) return;
+    stdout += d.toString();
+    if (stdout.length > o.stdoutBytes) {
+      stdout = '';
+      stdoutCut = true;
+    }
+  });
   child.stderr.on('data', collect);
   killTree = () => {
-    killRenderNow(child.pid, tmpDir);
+    killRenderNow(child.pid, o.tmpDir);
     if (!child.pid) child.kill('SIGKILL');
   };
   const timer = setTimeout(() => {
     reason = 'timeout';
     killTree();
-  }, timeoutMs);
+  }, o.timeoutMs);
   const onAbort = () => {
     reason = 'cancelled';
     killTree();
   };
-  opts.signal?.addEventListener('abort', onAbort, { once: true });
+  o.signal?.addEventListener('abort', onAbort, { once: true });
   try {
     const code = await new Promise<number | null>((resolve, reject) => {
       child.on('error', reject);
       child.on('close', resolve);
     });
-    if (reason === 'network') {
-      throw new PipelineError(
-        stage,
-        `the scene tried to reach the network (${blockedTarget}) and was stopped: scenes render without network access, and navigating away from the composition is not allowed. Put images, fonts and media in the project's assets and reference them locally, and inline scripts.`,
-        tail(output_)
-      );
-    }
-    if (reason === 'timeout') throw new PipelineError(stage, `HyperFrames render timed out after ${timeoutMs} ms`, tail(output_));
-    if (reason === 'cancelled' || opts.signal?.aborted) throw new PipelineError(stage, 'cancelled');
-    if (code !== 0 || !existsSync(opts.out)) {
-      throw new PipelineError(stage, `hyperframes render exited with code ${code}`, tail(output_));
-    }
-    if (remoteFonts) {
-      opts.log?.('hyperframes: a font the scene names is not installed and was not downloaded (renders have no network); the CSS fallback font was used. Put font files in the project\'s assets to use them.');
-    }
-    opts.log?.(`hyperframes ${hyperframesVersion()}: rendered ${scene.durationFrames} frames`);
-    return { out: opts.out, millis: Date.now() - started };
+    return { code, output, stdout, reason, blockedTarget, remoteFonts, refused };
   } finally {
     clearTimeout(timer);
-    opts.signal?.removeEventListener('abort', onAbort);
-    // Whatever the outcome, nothing of this render keeps running (or writing) after it returns.
-    const left = await reapRender(child.pid, tmpDir);
-    if (left.length) opts.log?.(`hyperframes: ${left.length} process(es) of the render did not exit after SIGKILL: ${left.join(', ')}`);
+    o.signal?.removeEventListener('abort', onAbort);
+    // Whatever the outcome, nothing of this run keeps running (or writing) after it returns.
+    const left = await reapRender(child.pid, o.tmpDir);
+    if (left.length) o.log?.(`hyperframes: ${left.length} process(es) of the render did not exit after SIGKILL: ${left.join(', ')}`);
     await sink.close();
-    await rm(project, { recursive: true, force: true }).catch(() => undefined);
-    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
   }
+}
+
+/** HyperFrames' layout findings that are text overflow, and the rule each one is. */
+const HF_TEXT_CODES: Record<string, TextOverflowRule> = { canvas_overflow: 'text.frame', clipped_text: 'text.clip', text_box_overflow: 'text.box' };
+
+interface HfLayoutFinding {
+  code?: string;
+  selector?: string;
+  text?: string;
+  rect?: { left: number; top: number; right: number; bottom: number; width: number; height: number };
+  containerRect?: { left: number; top: number; right: number; bottom: number };
+  times?: number[];
+  time?: number;
+}
+
+/**
+ * Text overflow (#386) in a HyperFrames scene: its own layout audit (`hyperframes check`, the same runtime seek as the
+ * render) on the rendered composition at TEXT_SAMPLES_PER_SECOND, its text findings mapped to our rules and joined
+ * into runs. Text cut by the frame edge counts only while part of it is in the frame; text that overflows the frame
+ * itself as its box is the frame rule's. A check that cannot run is logged and the scene counts as not sampled: it
+ * never fails the render.
+ */
+async function textCheck(o: { scene: RenderScene; output: OutputSettings; project: string; doc: string; run: (args: string[], limitMs: number, extra?: HyperframesRunExtra) => Promise<HyperframesRun>; timeoutMs: number; log?: (line: string) => void }): Promise<ClipTextCheck | undefined> {
+  const fps = fpsValue(o.output.fps);
+  const frames = o.scene.durationFrames;
+  const step = textSampleStep(fps);
+  const sampled: number[] = [];
+  for (let f = 0; f < frames; f += step) sampled.push(f);
+  const at = sampled.map((f) => (Math.round((f / fps) * 1000) / 1000).toString());
+  // One finding per sample (--no-collapse-static), each with the box at that time: a collapsed finding keeps only the
+  // first box, so text sliding in would be judged by where it started. data-rf-decoration (our mark for text that is
+  // decoration) is HyperFrames' data-layout-ignore.
+  if (o.doc.includes('data-rf-decoration')) await writeFile(join(o.project, 'index.html'), o.doc.replaceAll('data-rf-decoration', 'data-layout-ignore data-rf-decoration'));
+  const res = await o.run(
+    [hyperframesBin(), 'check', o.project, '--json', '--at', at.join(','), '--tolerance', '1', '--max-issues', '1000000', '--no-collapse-static', '--no-contrast', '--no-craft', '--no-cache', '--safe-zone', 'off', '--no-browser-gpu'],
+    o.timeoutMs,
+    // One finding a sample is about 1 kB of JSON: room for every sample of a long scene to report several. The
+    // composition has just rendered with no connection, so what the check tries is its own: the face detector it
+    // downloads when text sits over a video (no option turns that off in 0.9.77). It is refused, the check carries on
+    // without it, and the text findings are whole.
+    { stdoutBytes: 64 * 1024 * 1024, refuseOnly: true }
+  );
+  if (res.refused.length) o.log?.(`hyperframes: the text overflow check of scene "${o.scene.id}" was refused the network (${res.refused.join(', ')}), as every run is; it checked the text without what it wanted to download`);
+  let findings: HfLayoutFinding[];
+  try {
+    if (res.reason) throw new Error(res.reason === 'network' ? `it tried to reach the network (${res.blockedTarget})` : res.reason);
+    if (!res.stdout) throw new Error(`no report (exit code ${res.code})`);
+    const json = JSON.parse(res.stdout) as { layout?: { findings?: HfLayoutFinding[]; truncated?: boolean } };
+    if (!Array.isArray(json.layout?.findings)) throw new Error('no layout findings in its report');
+    if (json.layout.truncated) throw new Error('its report was cut short');
+    findings = json.layout.findings;
+  } catch (e) {
+    o.log?.(`hyperframes: the text overflow check did not run (${(e as Error).message.slice(0, 200)}); scene "${o.scene.id}" is not checked`);
+    return undefined;
+  }
+  const W = o.output.width;
+  const H = o.output.height;
+  const bySample = new Map<number, TextSample[]>();
+  const keys = new Map<string, number>();
+  for (const f of findings) {
+    const rule = HF_TEXT_CODES[f.code ?? ''];
+    const r = f.rect;
+    if (!rule || !r) continue;
+    // Wholly out of the frame: not text on screen.
+    if (rule === 'text.frame' && (r.right <= 1 || r.left >= W - 1 || r.bottom <= 1 || r.top >= H - 1)) continue;
+    // Out of a box that is the frame itself: the frame rule's.
+    const c = f.containerRect;
+    if (rule === 'text.box' && c && c.left <= 0.5 && c.top <= 0.5 && c.right >= W - 0.5 && c.bottom >= H - 0.5) continue;
+    const id = `${rule}:${f.selector ?? ''}:${f.text ?? ''}`;
+    if (!keys.has(id)) keys.set(id, keys.size + 1);
+    const sample: TextSample = { rule, key: keys.get(id)!, text: (f.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 80), box: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)] };
+    for (const t of f.times ?? (f.time === undefined ? [] : [f.time])) {
+      const frame = Math.round(t * fps);
+      bySample.set(frame, [...(bySample.get(frame) ?? []), sample]);
+    }
+  }
+  const tracker = textRunTracker({ frames, step });
+  for (const f of sampled) tracker.add(f, bySample.get(f) ?? []);
+  return tracker.finish();
 }
 
 function tail(s: string): string {
@@ -582,6 +724,7 @@ export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?
         ...(ctx.alpha ? { alpha: true } : {}),
         assets: ctx.assets,
         tools: ctx.tools,
+        ...(ctx.textCheck ? { textCheck: true } : {}),
       });
       ctx.progress(scene.durationFrames, scene.durationFrames);
       return {
@@ -590,6 +733,7 @@ export function hyperframesEngine(opts: { browserExecutable?: string; timeoutMs?
         engineVersion: `hyperframes ${hyperframesVersion()}`,
         browserVersion: browserVersion(browser()),
         millis: res.millis,
+        ...(res.text ? { text: res.text } : {}),
       };
     },
   };
