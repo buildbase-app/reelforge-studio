@@ -222,7 +222,10 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
     }
 
     const out = await ok(agent, 'get_render_output', { jobId: job.id });
-    expect(out.data.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', avSync: 'pass', loudness: 'skipped', sfx: 'skipped', freeze: 'pass', black: 'warn', flash: 'pass', motion: 'pass', loop: 'skipped', seek: 'pass' });
+    expect(out.data.checks).toEqual({ metadata: 'pass', decode: 'pass', duration: 'pass', avSync: 'pass', loudness: 'skipped', sfx: 'skipped', freeze: 'pass', black: 'warn', flash: 'pass', motion: 'pass', loop: 'skipped', seek: 'pass', text: 'pass' });
+    // The text overflow check (#386) on real engines: the html scenes sampled while rendering, the HyperFrames scenes by
+    // its layout audit (the layout scene with its staged picture and video); Remotion and Motion Canvas are not sampled.
+    expect(out.data.videoQa.text).toEqual({ minSeconds: 1, samplesPerSecond: 4, sampledScenes: ['agent-html', 'card', 'hf', 'pip'], notSampledScenes: ['hook', 'how-it-works', 'outro'], runs: [], shortRuns: 0 });
     // The picture checks (#294) on real engines: the Motion Canvas explainer shows one to two seconds of its empty
     // dark background before its title appears (1.80 s in CI, 1.07 s on a slower machine), which always reads as a
     // gap. The Remotion kinetic-title outro shows about half a second before its headline springs in: 0.53 s in CI,
