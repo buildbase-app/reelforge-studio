@@ -877,7 +877,7 @@ small licence-clean bundles (D-129).
 **Open and hard to reverse (do not decide by default):**
 1. Remotion licence for the source-sale model (#10): go/no-go, needs a written answer.
 2. EULA and rights granted to buyers; delivery channel (#11, #3).
-3. Pricing (proposal: Solo $149 / Studio $349 / Agency $899 launch, one year of updates, install services); prices live in BuildBase items, never hard-coded.
+3. Pricing decided (D-141): Solo $9, Studio $29, Agency $79, Unlimited $99, one-time and lifetime; the updates promise and country bands are still open. Prices live in BuildBase items, never hard-coded.
 4. Legal entity, address, support email (#3).
 5. Manifest v0.2 and MCP tool names as a public contract: marked experimental until v1.0.
 
