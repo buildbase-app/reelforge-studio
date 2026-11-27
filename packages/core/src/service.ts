@@ -254,6 +254,11 @@ export interface ValidationReport {
 }
 
 export interface RenderSummary {
+  /**
+   * The plan's estimate for this render, next to what it took (#485): only for renders started from a plan
+   * (render_project with planId, or with an approval). ratio = actual / estimated, for calibrating estimates.
+   */
+  estimate?: RenderJobEstimate & { actualSeconds: number; ratio: number | null };
   renderId: string;
   projectId: string;
   kind: string;
@@ -1312,12 +1317,12 @@ export class ReelforgeService {
    * token must be one approve_render_plan made for this workspace, project and plan (version and options), not
    * expired and not used before; it is spent here, so a render is started once per approval.
    */
-  private async requireApproval(projectId: string, variant: unknown, token: unknown): Promise<void> {
+  private async requireApproval(projectId: string, variant: unknown, token: unknown): Promise<Awaited<ReturnType<ReelforgeService['planRender']>> | undefined> {
     const cfg = this.settings.current.config.render.approval;
-    if (cfg.mode === 'off') return;
+    if (cfg.mode === 'off') return undefined;
     const plan = await this.planRender(projectId, { variant });
     const needed = cfg.mode === 'always' || plan.total.renderSeconds === null || plan.total.renderSeconds > cfg.aboveSeconds;
-    if (!needed) return;
+    if (!needed) return plan;
     const why = cfg.mode === 'always' ? 'every render needs an approval here (render.approval.mode always)' : plan.total.renderSeconds === null ? 'its render time cannot be estimated yet (render.approval.mode above)' : `its estimated render time, ${plan.total.renderSeconds} s, is over ${cfg.aboveSeconds} s (render.approval.mode above)`;
     if (token === undefined || token === null || token === '') {
       throw new ApiError('approval_required', 409, `this render needs an approval: ${why}. Show the user the plan, and ask someone with the approve scope to call approve_render_plan with its planId; then call render_project again with approvalToken.`, { plan });
@@ -1328,6 +1333,7 @@ export class ReelforgeService {
     }
     const spent = await this.repos.rateLimits.reserve([{ key: `render-approval:${m[1]}`, windowStart: new Date(Number(m[2]) * 1000).toISOString(), limit: 1 }]);
     if (!spent.ok) throw new ApiError('approval_used', 409, 'this approvalToken already started a render; each approval starts one. Ask for a new approval.', { plan });
+    return plan;
   }
 
   /** The newest successful renders of this workspace, as samples for render plans (manifest + stored output size). */
@@ -1788,10 +1794,10 @@ export class ReelforgeService {
   // ---- renders --------------------------------------------------------------
 
   /** One render at `output`, or (with `variant`) at one of the project's output variants. */
-  async startRender(id: string, opts: { backend?: string; priority?: unknown; captions?: unknown; audio?: unknown; variant?: string } = {}): Promise<JobRecord> {
+  async startRender(id: string, opts: { backend?: string; priority?: unknown; captions?: unknown; audio?: unknown; variant?: string; estimate?: RenderJobEstimate } = {}): Promise<JobRecord> {
     const captions = this.parseCaptionOverride(opts.captions);
     const audio = this.parseAudioOverride(opts.audio);
-    return this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: opts.variant });
+    return this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: opts.variant, estimate: opts.estimate });
   }
 
   /** render_project's `audio` override (#298, #301): { mute, voice, music, sfx, loudness }, validated before anything is queued. */
@@ -1819,13 +1825,23 @@ export class ReelforgeService {
    * one of them (quota, queue caps), the jobs already queued for the batch are
    * cancelled and the refusal is returned.
    */
-  async renderProject(id: string, opts: { backend?: string; priority?: unknown; variant?: unknown; captions?: unknown; audio?: unknown; approvalToken?: unknown } = {}): Promise<{ job: JobRecord; jobs?: JobRecord[]; batchId?: string }> {
+  async renderProject(id: string, opts: { backend?: string; priority?: unknown; variant?: unknown; captions?: unknown; audio?: unknown; approvalToken?: unknown; planId?: unknown } = {}): Promise<{ job: JobRecord; jobs?: JobRecord[]; batchId?: string }> {
     if (opts.variant !== undefined && typeof opts.variant !== 'string') throw badRequest('variant must be the id of one of the project\'s variants');
-    await this.requireApproval(id, opts.variant, opts.approvalToken);
+    let plan = await this.requireApproval(id, opts.variant, opts.approvalToken);
+    // With planId (or an approval), each job keeps its output's estimate; get_render_output reports it next to the actual time.
+    if (!plan && opts.planId !== undefined) {
+      plan = await this.planRender(id, { variant: opts.variant });
+      if (plan.planId !== opts.planId) throw new ApiError('plan_changed', 409, 'the project or the options changed since this plan: call plan_render again', { planId: plan.planId });
+    }
+    const estimateOf = (variant: string | null) => {
+      const o = plan?.outputs.find((x) => x.variant === variant);
+      return o ? { planId: plan!.planId, ...o.estimate } : undefined;
+    };
     const { manifest } = await this.projects.get(id);
     const variants = manifest.variants ?? [];
     if (opts.variant !== undefined || variants.length === 0) {
-      return { job: await this.startRender(id, { backend: opts.backend, priority: opts.priority, captions: opts.captions, audio: opts.audio, ...(opts.variant ? { variant: opts.variant } : {}) }) };
+      const estimate = estimateOf(typeof opts.variant === 'string' ? opts.variant : null);
+      return { job: await this.startRender(id, { backend: opts.backend, priority: opts.priority, captions: opts.captions, audio: opts.audio, ...(opts.variant ? { variant: opts.variant } : {}), ...(estimate ? { estimate } : {}) }) };
     }
     // The same refusals as one render, before anything is queued: priority, licence, then every variant's limits.
     const captions = this.parseCaptionOverride(opts.captions);
@@ -1843,7 +1859,7 @@ export class ReelforgeService {
     const batchId = newId('bat');
     const jobs: JobRecord[] = [];
     try {
-      for (const v of variants) jobs.push(await this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: v.id, batchId }));
+      for (const v of variants) jobs.push(await this.enqueueRender(id, 'render', opts.priority, opts.backend, undefined, undefined, { captions, audio, variant: v.id, batchId, estimate: estimateOf(v.id) }));
     } catch (e) {
       for (const j of jobs) await this.jobs.cancel(j.id).catch(() => undefined);
       throw e;
@@ -1914,8 +1930,8 @@ export class ReelforgeService {
     return requested;
   }
 
-  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, extra: { captions?: CaptionMode; audio?: RenderAudioOptions; variant?: string; batchId?: string } = {}) {
-    const { captions, audio, variant, batchId } = extra;
+  private async enqueueRender(id: string, kind: 'render' | 'preview', requestedPriority: unknown, backendOverride?: string, sceneIds?: string[], scale?: number, extra: { captions?: CaptionMode; audio?: RenderAudioOptions; variant?: string; batchId?: string; estimate?: RenderJobEstimate } = {}) {
+    const { captions, audio, variant, batchId, estimate } = extra;
     const priority = this.resolvePriority(kind, requestedPriority);
     await this.renderGate(kind, id);
     const { manifest: stored, meta } = await this.projects.get(id);
@@ -1968,6 +1984,7 @@ export class ReelforgeService {
           ...(variant ? { variant } : {}),
           ...(batchId ? { batchId } : {}),
           ...(audio ? { audio } : {}),
+          ...(estimate ? { estimate } : {}),
         },
         { projectId: id, priority, ...(apiKeyId ? { apiKeyId } : {}) },
         quota
@@ -2372,6 +2389,7 @@ export class ReelforgeService {
     const m = await this.storage.renders.readManifest<{
       kind: string;
       createdAt: string;
+      wallClockMillis?: number;
       output: { durationSeconds: number; frames: number; width: number; height: number; fps: number; frameRate?: string; file?: string; poster?: string; format?: string; codec?: string; alpha?: boolean };
       scenes: Array<{ file: string }>;
       captions?: CaptionManifest;
@@ -2424,7 +2442,14 @@ export class ReelforgeService {
     if (m.contactSheet?.file === CONTACT_SHEET_FILE) {
       contactSheet = { ...m.contactSheet, file: CONTACT_SHEET_FILE, url: this.url(`${base}?file=${CONTACT_SHEET_FILE}`), ...(await this.downloadLink(projectId, runId, CONTACT_SHEET_FILE)) };
     }
+    const planned = (await this.repos.jobs.jobOfRun(runId))?.params.estimate as RenderJobEstimate | undefined;
+    const actualSeconds = typeof m.wallClockMillis === 'number' ? Math.round(m.wallClockMillis / 100) / 10 : null;
+    const estimate =
+      planned && actualSeconds !== null
+        ? { ...planned, actualSeconds, ratio: planned.renderSeconds ? Math.round((actualSeconds / planned.renderSeconds) * 100) / 100 : null }
+        : undefined;
     return {
+      ...(estimate ? { estimate } : {}),
       renderId: runId,
       projectId,
       kind: m.kind,
@@ -3380,4 +3405,12 @@ export interface FramesResult {
   tiles: Array<PlannedTile & { index: number }>;
   omitted?: PlannedTile[];
   images: Array<{ path: string; mimeType: 'image/jpeg'; bytes: number }>;
+}
+
+/** A render job's estimate from its plan (#485), kept in the job's params and reported by get_render_output. */
+export interface RenderJobEstimate {
+  planId: string;
+  renderSeconds: number | null;
+  bytes: number | null;
+  basis: 'measured' | 'partial' | 'none';
 }
