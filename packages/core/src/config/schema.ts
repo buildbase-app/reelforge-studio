@@ -1408,7 +1408,7 @@ export const ConfigSchema = z.object({
         env: 'RENDERWELD_REMOTION_LICENSE_KEY',
         secret: true,
         description:
-          'Your Remotion licence key, passed to Remotion with every render. Required in the release edition; there is no default. Stored encrypted when set at runtime.',
+          'Your private Remotion licence key (starts with `rm_sec_`), or `free-license` if you qualify for Remotion\'s free licence. Passed to Remotion with every render; Remotion then reports a usage event to www.remotion.pro after each render, so allow that host if your network restricts outbound traffic. Required in the release edition; there is no default. Stored encrypted when set at runtime.',
       }),
       home: setting(z.string().min(1), {
         kind: 'path',
