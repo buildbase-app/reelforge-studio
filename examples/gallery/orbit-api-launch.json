@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "orbit-api-launch",
     "title": "Orbit API launch",
-    "description": "Make a launch reel for Orbit, a fictional integrations API for developers.",
+    "description": "Make a launch reel for Orbit, a fictional integrations API for developers. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Product launch",
     "tags": [
       "launch",

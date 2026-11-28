@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "playlist-of-the-week",
     "title": "Playlist of the week",
-    "description": "A \"playlist of the week\" reel for a fictional radio show: phone with now-playing, a tracklist timeline of fictional songs, and an outro.",
+    "description": "A \"playlist of the week\" reel for a fictional radio show: phone with now-playing, a tracklist timeline of fictional songs, and an outro. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Music",
     "tags": [
       "music",

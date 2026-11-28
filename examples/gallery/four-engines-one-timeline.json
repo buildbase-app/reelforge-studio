@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "four-engines-one-timeline",
     "title": "Four engines, one timeline",
-    "description": "A showcase reel that uses all four RenderWeld engines in one timeline: a Remotion title, a Motion Canvas list, an agent-written HTML scene and a HyperFrames generative globe, cut back to back.",
+    "description": "A showcase reel that uses all four RenderWeld engines in one timeline: a Remotion title, a Motion Canvas list, an agent-written HTML scene and a HyperFrames generative globe, cut back to back. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Generative",
     "tags": [
       "reelforge",

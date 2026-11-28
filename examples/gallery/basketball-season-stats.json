@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "basketball-season-stats",
     "title": "Season stats leader",
-    "description": "A season stats reel for a fictional basketball player: points-per-game line chart, bar comparison with league average, and a title.",
+    "description": "A season stats reel for a fictional basketball player: points-per-game line chart, bar comparison with league average, and a title. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Sports",
     "tags": [
       "sports",

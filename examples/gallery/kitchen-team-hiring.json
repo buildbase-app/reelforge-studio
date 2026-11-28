@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "kitchen-team-hiring",
     "title": "Kitchen team hiring",
-    "description": "A friendly hiring reel for Olive Room, a fictional neighbourhood restaurant, looking for a line cook.",
+    "description": "A friendly hiring reel for Olive Room, a fictional neighbourhood restaurant, looking for a line cook. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Hiring",
     "tags": [
       "hiring",

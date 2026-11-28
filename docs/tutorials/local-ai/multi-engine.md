@@ -11,6 +11,7 @@ Matrix and other combinations: [tutorials README](../README.md).
 
 - A running RenderWeld and an API key with the `read,write,render` scopes (step 1).
 - A licence key for a real install (the Personal licence is free), or `RENDERWELD_LICENCE_MODE=off` from a checkout for local development only.
+- Needs the optional Remotion engine and your own Remotion licence: the official image does not include Remotion, so in Docker build the add-on image and turn the engine on first ([Add the Remotion engine](../../public/install/remotion.md)). A checkout's development build uses its own copy for personal testing.
 - Node.js 22, about 3 GB of disk for the model and 4 GB of free RAM; no GPU needed (a GPU makes it faster).
 
 ## Steps

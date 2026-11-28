@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "aero-headphones-reveal",
     "title": "Aero headphones reveal",
-    "description": "Create a minimal black-and-white reveal reel for Aero, fictional noise-cancelling headphones.",
+    "description": "Create a minimal black-and-white reveal reel for Aero, fictional noise-cancelling headphones. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Product launch",
     "tags": [
       "launch",

@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "fieldnote-one-click-publish",
     "title": "Fieldnote one-click publish",
-    "description": "Show off the new \"Publish everywhere\" button in Fieldnote, a fictional content tool.",
+    "description": "Show off the new \"Publish everywhere\" button in Fieldnote, a fictional content tool. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "SaaS feature demo",
     "tags": [
       "saas",

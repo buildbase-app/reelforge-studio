@@ -4,7 +4,8 @@ Self-hosted, AI-agent-driven short-form video studio. You run the server on
 your own machine or cloud; any AI agent (Claude Code, Codex, Cursor, any MCP
 client) drives it through **MCP** (`/mcp`) or **REST** (`/v1`) with API keys
 you create. The agent decides the scenes; the server validates, renders with
-**Remotion**, **Motion Canvas**, **HTML/CSS** or **HyperFrames**, assembles
+**Motion Canvas**, **HTML/CSS**, **HyperFrames** or (optional, with your own
+licence) **Remotion**, assembles
 one MP4 with FFmpeg and checks it. No AI provider is required.
 
 > **Status: agent platform v0.1 (experimental).** Tested on Linux x64; the
@@ -72,7 +73,8 @@ databases and running the studio next to the store site
   `durationSeconds` or `durationFrames`, voice/music/sfx, assets, captions
   (burned in or as SRT/VTT/ASS sidecars, word highlight from voice timings;
   docs/CAPTIONS.md); v0.1 files are migrated automatically.
-- **Engines**: Remotion (`kinetic-title`), Motion Canvas (`animated-explainer`,
+- **Engines**: Remotion (`kinetic-title`; optional, not in the official image:
+  docs/public/install/remotion.md), Motion Canvas (`animated-explainer`,
   headless via its own Renderer), HTML (`html-title` or agent HTML/CSS, seeked
   per frame in a network-blocked sandbox), HyperFrames (`hyperframes-title` or
   agent compositions, local renderer only). Themes `default`, `midnight` and
@@ -111,9 +113,11 @@ databases and running the studio next to the store site
 
 ## Licensing: read before you sell or deploy
 
-- **Remotion is not free for every company.** Free for individuals and teams of
-  up to 3 people; larger companies need a paid Remotion license. Every user of
-  RenderWeld needs their own. See `research/LICENSING_AND_COSTS.md`.
+- **RenderWeld does not include Remotion.** The official image ships without it;
+  customers who want the Remotion engine install it themselves with their own
+  Remotion licence (docs/public/install/remotion.md, D-143). Remotion is free
+  for individuals and teams of up to 3 people; larger companies need a paid
+  Remotion licence. See `research/LICENSING_AND_COSTS.md`.
 - Motion Canvas is MIT; HyperFrames is Apache-2.0. FFmpeg is LGPL/GPL
   depending on the build (we use the system FFmpeg).
 - No fonts, music or footage are bundled. Templates use system fonts.

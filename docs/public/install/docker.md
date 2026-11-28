@@ -21,7 +21,7 @@ instances on PostgreSQL or MySQL with bucket storage: see the repository's
 [queue and scaling guide](../../providers/queue-and-scaling.md).
 
 **Tested:** the image built and run on Linux x64, `docker compose up`, a
-four-engine 1080x1920 render through REST and MCP, and the Docker end-to-end
+1080x1920 render with the `motion-canvas`, `html` and `hyperframes` engines through REST and MCP, and the Docker end-to-end
 suite on SQLite, PostgreSQL and MySQL; the release image is also built and run
 through the Docker end-to-end suite on Linux arm64 (SQLite) in CI. **Not
 tested:** macOS, Windows and the cloud recipes in the repository's deploy guide.
@@ -71,7 +71,9 @@ must be readable by UID 10001.
 
 `node:22-bookworm-slim` pinned by digest, Debian's FFmpeg, fonts (DejaVu,
 Liberation, Noto, Noto Color Emoji), Chrome Headless Shell, production
-dependencies only and the pre-built Remotion and Motion Canvas bundles. It runs as
+dependencies only and the pre-built Motion Canvas bundle. It holds **no Remotion**:
+to use the Remotion engine, add it with your own Remotion licence
+([Add the Remotion engine](/docs/install/remotion)). It runs as
 UID:GID 10001:10001 with `tini` as PID 1 and a `HEALTHCHECK` on `/healthz`; data
 goes to the `/data` volume.
 
@@ -81,8 +83,10 @@ licence key; see [Licence](/docs/install/licence).
 
 Building needs network access to Docker Hub (or a mirror through
 `--build-arg BASE_IMAGE=...`), `deb.debian.org`, `registry.npmjs.org` and
-`remotion.media`. **Rendering needs no network**: only the licence check calls
-out.
+`remotion.media` (where the build downloads Chrome Headless Shell; no Remotion code
+stays in the image). **Rendering needs no network**:
+only the licence check calls out, and, if you added the Remotion engine,
+Remotion's usage event to `www.remotion.pro`.
 
 ## Hardened by default
 

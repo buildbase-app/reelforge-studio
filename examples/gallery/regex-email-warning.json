@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "regex-email-warning",
     "title": "Don't validate email with regex",
-    "description": "A spicy coding tip: stop trying to validate email addresses with a giant regex.",
+    "description": "A spicy coding tip: stop trying to validate email addresses with a giant regex. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Coding tip",
     "tags": [
       "coding",

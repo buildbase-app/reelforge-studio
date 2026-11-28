@@ -54,8 +54,9 @@ listed on the [REST API overview](/docs/api/rest-api#errors).
 
 | Symptom | Cause and fix |
 | --- | --- |
+| `kinetic-title` or `remotion-layout` is refused with "Remotion is off" or "Remotion is not installed" | The official image has no Remotion. Use `html-title`, `html-layout` or `hyperframes-layout` instead, or add the engine with your own Remotion licence: [Add the Remotion engine](/docs/install/remotion) |
 | `422 invalid_manifest` | `details.issues` lists every problem with its path, all at once. Fix them all and call again; `get_project_schema` has the schema |
-| An engine shows `available: false` in `get_capabilities` | Its browser is missing (from source: set `RENDERWELD_CHROMIUM_PATH`). The Docker image has one built in |
+| An engine shows `available: false` in `get_capabilities` | Its browser is missing (from source: set `RENDERWELD_CHROMIUM_PATH`). The Docker image has one built in. For `remotion`, see the first row of this table |
 | html, hyperframes or motion-canvas scenes fail with "No usable sandbox" | The host blocks unprivileged user namespaces (Ubuntu 23.10 and later do for unconfined programs). Set `RENDERWELD_CHROMIUM_NO_SANDBOX=1` in `.env` and `docker compose up -d` |
 | A job failed | `get_job_logs` (or `GET /v1/jobs/:id/logs`) has the reason. Fix the project and render again, or `retry_job` |
 | A job shows `failed` with `interrupted` after a restart | Jobs running when the server stopped are marked failed. `retry_job` |

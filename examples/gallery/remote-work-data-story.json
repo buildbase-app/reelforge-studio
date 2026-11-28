@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "remote-work-data-story",
     "title": "Where the work week goes",
-    "description": "Make a data-story reel about how a typical knowledge worker spends the week, using clearly labelled sample data: a hook, a horizontal bar chart, a donut for meeting share, and a takeaway.",
+    "description": "Make a data-story reel about how a typical knowledge worker spends the week, using clearly labelled sample data: a hook, a horizontal bar chart, a donut for meeting share, and a takeaway. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Data story",
     "tags": [
       "data",

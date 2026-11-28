@@ -19,9 +19,9 @@ decides how you may use it.
 | Resell, rebrand or offer RenderWeld as a hosted service | Not permitted under either licence |
 
 Both keys come from <https://renderweld.com/pricing> and are delivered
-through BuildBase. Remotion, one of the four engines, is not covered by either
-RenderWeld licence: companies of more than three people need their own Remotion
-licence (<https://www.remotion.dev/license>).
+through BuildBase. Remotion is not included in RenderWeld and is not covered by
+either RenderWeld licence: the optional Remotion engine needs your own Remotion
+licence, which you get from Remotion ([Add the Remotion engine](/docs/install/remotion)).
 
 ## What the key unlocks
 

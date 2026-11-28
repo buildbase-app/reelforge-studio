@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "quote-card-teacher",
     "title": "Quote card: teacher",
-    "description": "A warm quote card for a fictional teacher about curiosity, serif type, then a Remotion title with the takeaway.",
+    "description": "A warm quote card for a fictional teacher about curiosity, serif type, then a Remotion title with the takeaway. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Quote card",
     "tags": [
       "quote",

@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "fieldnote-changelog-3-2",
     "title": "Fieldnote 3.2 changelog",
-    "description": "Turn the Fieldnote 3.2 release notes into a reel: version badge, tagged items (new, faster, fixed), and a thank-you outro.",
+    "description": "Turn the Fieldnote 3.2 release notes into a reel: version badge, tagged items (new, faster, fixed), and a thank-you outro. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Changelog",
     "tags": [
       "changelog",

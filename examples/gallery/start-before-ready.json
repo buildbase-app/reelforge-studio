@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "start-before-ready",
     "title": "Start before you're ready",
-    "description": "A motivational kinetic-typography reel: \"Start before you're ready\".",
+    "description": "A motivational kinetic-typography reel: \"Start before you're ready\". Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Motivation",
     "tags": [
       "motivation",

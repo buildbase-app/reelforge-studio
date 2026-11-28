@@ -23,6 +23,7 @@
     "docs/public/install/docker.md",
     "docs/public/install/sizing.md",
     "docs/public/install/licence.md",
+    "docs/public/install/remotion.md",
     {
       "file": "docs/CONFIG.md",
       "folder": "install",

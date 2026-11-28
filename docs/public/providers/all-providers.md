@@ -17,7 +17,7 @@ credentials, runtime changes over REST and MCP and test status:
 
 | Kind | What ships today | Status |
 | --- | --- | --- |
-| Render engines | `remotion`, `motion-canvas`, `html`, `hyperframes` | Tested, with real renders in CI and the Docker end-to-end suite |
+| Render engines | `motion-canvas`, `html`, `hyperframes`; `remotion` is optional and not in the official image | Tested, with real renders in CI and the Docker end-to-end suite (Remotion: in CI from the development build, and its add-on image is built and checked) |
 | Media provider: text-to-speech | ElevenLabs (`elevenlabs`), with word timestamps and a content-hash cache | Tested against a mocked API only; the live API is untested |
 | Media providers: avatars, stock, music | Interfaces exist | Not implemented |
 | Render backend: local | Renders on the worker that claimed the job (this server, `worker` instances, or `renderweld worker --once` containers started by a job platform) | Tested |
@@ -50,5 +50,6 @@ built-in templates; `html` and `hyperframes` also accept the agent's own HTML an
 CSS, rendered offline in a sandbox. The templates are listed on
 [Built-in templates](/docs/manifest/templates).
 
-Remotion is not covered by the RenderWeld licence: companies of more than three
-people need their own Remotion licence (<https://www.remotion.dev/license>).
+RenderWeld does not include Remotion, and the RenderWeld licence does not cover
+it. The Remotion engine stays off until you install Remotion with your own
+Remotion licence: see [Add the Remotion engine](/docs/install/remotion).

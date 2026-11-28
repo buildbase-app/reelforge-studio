@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "css-container-queries",
     "title": "CSS container queries",
-    "description": "Front-end tip: CSS container queries in 15 seconds, with a typed code example and a checklist of when to use them.",
+    "description": "Front-end tip: CSS container queries in 15 seconds, with a typed code example and a checklist of when to use them. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Coding tip",
     "tags": [
       "coding",

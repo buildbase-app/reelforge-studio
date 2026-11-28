@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "running-zone-two",
     "title": "Zone 2 running, explained",
-    "description": "Explain zone 2 running simply: what it is, how it should feel, and a weekly split donut.",
+    "description": "Explain zone 2 running simply: what it is, how it should feel, and a weekly split donut. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Fitness",
     "tags": [
       "fitness",

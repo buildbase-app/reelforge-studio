@@ -11,6 +11,7 @@ Matrix and other combinations: [tutorials README](../README.md).
 
 - A running RenderWeld and an API key with the `read,write,render` scopes (step 1).
 - A licence key for a real install (the Personal licence is free), or `RENDERWELD_LICENCE_MODE=off` from a checkout for local development only.
+- Needs the optional Remotion engine and your own Remotion licence: the official image does not include Remotion, so in Docker build the add-on image and turn the engine on first ([Add the Remotion engine](../../public/install/remotion.md)). A checkout's development build uses its own copy for personal testing.
 - Claude Code CLI (the proof used 2.1.330), signed in the way Anthropic supports for your plan or API key.
 
 ## Steps
@@ -124,7 +125,7 @@ The proof run's actual calls are listed under [Proof](#proof).
 - Scenes: only the `remotion` engine (template `kinetic-title`).
 - Texts: written by the agent about the topic in the prompt, so they differ from run to run.
 
-Remotion (`kinetic-title`): 1.5 to 8 s per scene, headline up to 60 characters. The first Remotion render bundles the composition and is slower; `pnpm prebuild:engines` (done in the Docker image) avoids that.
+Remotion (`kinetic-title`): 1.5 to 8 s per scene, headline up to 60 characters. Remotion is optional and not in the official image; its add-on image pre-builds the composition. In a checkout the first Remotion render bundles it and is slower; `pnpm prebuild:engines` avoids that.
 
 ## Troubleshooting
 
