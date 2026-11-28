@@ -1,0 +1,40 @@
+# RenderWeld: the customer download (renderweld.zip). Quick start:
+#   cp .env.example .env
+#   echo "RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)" >> .env
+#   echo "RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)" >> .env
+#   # put your licence key on the RENDERWELD_LICENCE_KEY= line in .env
+#   docker compose up -d
+#
+# Locked down: read-only files, no extra Linux permissions, a non-root user,
+# and chrome.json (Docker's default seccomp profile plus what the built-in
+# browser's own sandbox needs). Listens on this machine only (127.0.0.1).
+services:
+  renderweld:
+    image: @@IMAGE@@
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    shm_size: 1gb
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./chrome.json
+    ports:
+      - "127.0.0.1:${RENDERWELD_PORT:-4321}:4321"
+    environment:
+      RENDERWELD_SECRET_KEY: ${RENDERWELD_SECRET_KEY:?set RENDERWELD_SECRET_KEY in .env first}
+      RENDERWELD_BOOTSTRAP_KEY: ${RENDERWELD_BOOTSTRAP_KEY:-}
+      RENDERWELD_LICENCE_KEY: ${RENDERWELD_LICENCE_KEY:-}
+      RENDERWELD_PUBLIC_URL: ${RENDERWELD_PUBLIC_URL:-}
+      RENDERWELD_ALLOWED_HOSTS: ${RENDERWELD_ALLOWED_HOSTS:-}
+      RENDERWELD_RENDER_CONCURRENCY: ${RENDERWELD_RENDER_CONCURRENCY:-1}
+      RENDERWELD_CHROMIUM_NO_SANDBOX: ${RENDERWELD_CHROMIUM_NO_SANDBOX:-0}
+      RENDERWELD_DASHBOARD_ENABLED: ${RENDERWELD_DASHBOARD_ENABLED:-false}
+      DATABASE_URL: ${DATABASE_URL:-}
+    volumes:
+      - renderweld-data:/data
+
+volumes:
+  renderweld-data:
