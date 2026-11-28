@@ -16,7 +16,8 @@ decides how you may use it.
 | --- | --- |
 | Run it for yourself as a hobby, for study, research or evaluation | A free **Personal** key (PolyForm Noncommercial 1.0.0) |
 | Make videos for anything that earns money: a monetised channel, client work, ads, a business | A **Commercial** licence (one-time, per seat or server) |
-| Resell, rebrand or offer RenderWeld as a hosted service | Not permitted under either licence |
+| Share copies or forks, changed or not, for noncommercial use | Allowed under PolyForm Noncommercial, with `LICENSE.md` and `NOTICE` in each copy |
+| Sell it, host it as a service for others, or use the RenderWeld name for a fork | Not permitted |
 
 Both keys come from <https://renderweld.com/pricing> and are delivered
 through BuildBase. Remotion, one of the four engines, is not covered by either
