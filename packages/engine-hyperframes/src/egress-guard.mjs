@@ -5,7 +5,7 @@
 // HyperFrames resolves web fonts on the Node side with the global `fetch`
 // (its deterministic-font step asks fonts.googleapis.com for every font family
 // the page names, with the page's characters in `text=`). That path does not go
-// through its capture proxy, so it would bypass ReelForge's deny-all sink.
+// through its capture proxy, so it would bypass RenderWeld's deny-all sink.
 // This guard refuses every global `fetch` that does not stay on this machine
 // before any DNS lookup or connection happens:
 //   - Google Fonts hosts: refused quietly; HyperFrames then keeps the CSS
@@ -44,7 +44,7 @@ if (typeof realFetch === 'function' && !realFetch.reelforgeGuarded) {
     const host = url ? url.host : '(unknown)';
     const font = url !== null && FONT_HOSTS.has(url.hostname.toLowerCase());
     try {
-      process.stderr.write(`[ReelForge:${font ? 'FONT_REFUSED' : 'EGRESS_REFUSED'}] host=${host}\n`);
+      process.stderr.write(`[RenderWeld:${font ? 'FONT_REFUSED' : 'EGRESS_REFUSED'}] host=${host}\n`);
     } catch {
       // stderr closed: still refuse
     }

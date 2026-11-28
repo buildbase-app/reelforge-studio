@@ -6,7 +6,7 @@
  * does on the wire.
  *
  *   npm i @modelcontextprotocol/sdk@1.32.2          # outside this repo
- *   REELFORGE_URL=http://127.0.0.1:4321 REELFORGE_API_KEY=rf_... \
+ *   RENDERWELD_URL=http://127.0.0.1:4321 RENDERWELD_API_KEY=rf_... \
  *     node mcp-client.mjs examples/tutorials/html.json [projectId]
  *
  * The last line it prints is `RESULT {json}` (project, job, render, tool calls).
@@ -15,11 +15,11 @@ import { readFileSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
-const base = (process.env.REELFORGE_URL ?? 'http://127.0.0.1:4321').replace(/\/$/, '');
-const key = process.env.REELFORGE_API_KEY;
+const base = (process.env.RENDERWELD_URL ?? 'http://127.0.0.1:4321').replace(/\/$/, '');
+const key = process.env.RENDERWELD_API_KEY;
 const [manifestPath, projectIdArg] = process.argv.slice(2);
 if (!key || !manifestPath) {
-  console.error('usage: REELFORGE_API_KEY=rf_... node mcp-client.mjs <manifest.json> [projectId]');
+  console.error('usage: RENDERWELD_API_KEY=rf_... node mcp-client.mjs <manifest.json> [projectId]');
   process.exit(2);
 }
 

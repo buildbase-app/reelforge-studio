@@ -2,7 +2,7 @@
 # new Jobs = min(query / targetQueryValue, maxReplicaCount) - Jobs still
 # running). The query counts queued and running database-queue jobs, so it
 # matches what the Jobs already hold. Each pod runs `worker --once`
-# (REELFORGE_WORKER_ONCE=1 with the image's default command, D-100): it claims
+# (RENDERWELD_WORKER_ONCE=1 with the image's default command, D-100): it claims
 # the oldest queued job, renders it and exits. Exit statuses:
 #   0  done, cancelled, or nothing was queued (a Job that started late finds the queue empty) -> Job complete
 #   1  the render failed (final in the database) or start-up failed            -> Job failed, not retried
@@ -57,13 +57,13 @@ spec:
             image: ghcr.io/buildbase-app/reelforge-studio
             imagePullPolicy: IfNotPresent
             env:
-              - { name: REELFORGE_ROLE, value: worker }
-              - { name: REELFORGE_WORKER_ONCE, value: "1" }
-              - { name: REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS, value: "300" }
+              - { name: RENDERWELD_ROLE, value: worker }
+              - { name: RENDERWELD_WORKER_ONCE, value: "1" }
+              - { name: RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS, value: "300" }
               - { name: DATABASE_URL_FILE, value: /run/secrets/reelforge/database-url }
-              - { name: REELFORGE_SECRET_KEY_FILE, value: /run/secrets/reelforge/secret-key }
-              - { name: REELFORGE_S3_ACCESS_KEY_ID_FILE, value: /run/secrets/reelforge/s3-access-key-id }
-              - { name: REELFORGE_S3_SECRET_ACCESS_KEY_FILE, value: /run/secrets/reelforge/s3-secret-access-key }
+              - { name: RENDERWELD_SECRET_KEY_FILE, value: /run/secrets/reelforge/secret-key }
+              - { name: RENDERWELD_S3_ACCESS_KEY_ID_FILE, value: /run/secrets/reelforge/s3-access-key-id }
+              - { name: RENDERWELD_S3_SECRET_ACCESS_KEY_FILE, value: /run/secrets/reelforge/s3-secret-access-key }
             envFrom:
               - configMapRef: { name: reelforge }
             securityContext:

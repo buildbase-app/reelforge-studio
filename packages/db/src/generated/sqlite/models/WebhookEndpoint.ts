@@ -16,7 +16,7 @@ import type * as Prisma from "../internal/prismaNamespace"
  * Model WebhookEndpoint
  * An outbound event endpoint (#66, D-070): a signed webhook, a Slack/Discord/Teams
  * incoming webhook, or an email channel. url and the signing secrets are sealed
- * with the config cipher (REELFORGE_SECRET_KEY, AES-256-GCM); *Scheme says how.
+ * with the config cipher (RENDERWELD_SECRET_KEY, AES-256-GCM); *Scheme says how.
  */
 export type WebhookEndpointModel = runtime.Types.Result.DefaultSelection<Prisma.$WebhookEndpointPayload>
 

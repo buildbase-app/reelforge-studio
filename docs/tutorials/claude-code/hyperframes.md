@@ -25,10 +25,10 @@ RenderWeld store); commercial use needs a commercial licence.
 
 ```bash
 git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
 docker compose up -d --build                                 # 127.0.0.1:4321, hardened defaults
-docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>
-docker compose exec reelforge renderweld keys create --name agent --scopes read,write,render
+docker compose exec renderweld renderweld licence activate <YOUR-LICENCE-KEY>
+docker compose exec renderweld renderweld keys create --name agent --scopes read,write,render
 ```
 
 **B. From a checkout with pnpm (local development only).** `pnpm dev` sets
@@ -47,8 +47,8 @@ Keep the printed key in an environment variable, not in files you commit:
 
 ```bash
 export RF=http://127.0.0.1:4321
-export REELFORGE_API_KEY=rf_...      # the key printed above
-export KEY=$REELFORGE_API_KEY
+export RENDERWELD_API_KEY=rf_...      # the key printed above
+export KEY=$RENDERWELD_API_KEY
 ```
 
 More: [DEPLOY.md](../../DEPLOY.md), [CONFIG.md](../../CONFIG.md), [licence](../../DEPLOY.md#licence).
@@ -59,7 +59,7 @@ Interactive use: add the server once (it is stored in your Claude Code config).
 
 ```bash
 claude mcp add --transport http reelforge http://127.0.0.1:4321/mcp \
-  --header "Authorization: Bearer $REELFORGE_API_KEY"
+  --header "Authorization: Bearer $RENDERWELD_API_KEY"
 claude mcp list        # reelforge: ... - ✔ connected
 ```
 
@@ -68,7 +68,7 @@ Create it with mode 600; it holds the key ([template](../../../examples/tutorial
 
 ```bash
 umask 077
-printf '{"mcpServers":{"reelforge":{"type":"http","url":"%s/mcp","headers":{"Authorization":"Bearer %s"}}}}' "$RF" "$REELFORGE_API_KEY" > mcp.json
+printf '{"mcpServers":{"reelforge":{"type":"http","url":"%s/mcp","headers":{"Authorization":"Bearer %s"}}}}' "$RF" "$RENDERWELD_API_KEY" > mcp.json
 ```
 
 ### 3. Ask for the reel
@@ -76,7 +76,7 @@ printf '{"mcpServers":{"reelforge":{"type":"http","url":"%s/mcp","headers":{"Aut
 The exact prompt:
 
 ```text
-You are connected to a ReelForge video studio through the "reelforge" MCP server. Make a vertical reel (1080x1920, 30 fps) about two quick tips for better thumbnails: an 8-second reel made of two 4-second scenes, both using only the hyperframes engine (template hyperframes-title). Use the project id "tut-claude-code-hyperframes". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.
+You are connected to a RenderWeld video studio through the "reelforge" MCP server. Make a vertical reel (1080x1920, 30 fps) about two quick tips for better thumbnails: an 8-second reel made of two 4-second scenes, both using only the hyperframes engine (template hyperframes-title). Use the project id "tut-claude-code-hyperframes". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.
 ```
 
 Interactive: start `claude` and paste it. Headless, with only the studio's
@@ -131,7 +131,7 @@ HyperFrames (`hyperframes-title`): 1 to 12 s, headline up to 80 characters and a
 | Symptom | Cause and fix |
 | --- | --- |
 | `401 unauthorized` | Missing or wrong key. Send `Authorization: Bearer rf_...`; check it with `curl -H "Authorization: Bearer $KEY" $RF/v1/capabilities`. |
-| `403 forbidden_host` on `/mcp` | The Host header is not allowed (DNS-rebinding protection). Use `127.0.0.1`/`localhost`, or set `REELFORGE_PUBLIC_URL` / `REELFORGE_ALLOWED_HOSTS`. |
+| `403 forbidden_host` on `/mcp` | The Host header is not allowed (DNS-rebinding protection). Use `127.0.0.1`/`localhost`, or set `RENDERWELD_PUBLIC_URL` / `RENDERWELD_ALLOWED_HOSTS`. |
 | `403 licence_required` / `licence_invalid` on a render | Activate a licence key (`renderweld licence activate <key>`; Personal is free). `RENDERWELD_LICENCE_MODE=off` exists for local development from a checkout only. |
 | `403 forbidden` (scope) | The key lacks a scope: rendering needs `render`, creating projects `write`. Create a key with `--scopes read,write,render`. |
 | An engine shows `available: false` | `RENDERWELD_CHROMIUM_PATH` is unset or wrong (checkout), or the image is not the release image. `get_capabilities` says how to fix it. |
@@ -151,7 +151,7 @@ HyperFrames (`hyperframes-title`): 1 to 12 s, headline up to 80 characters and a
 | | |
 | --- | --- |
 | Date | 2026-11-21 19:49:04 UTC |
-| Studio | RenderWeld 0.1.0, commit `85d3333`, started from a checkout with `REELFORGE_LICENCE_MODE=off` (local development only) |
+| Studio | RenderWeld 0.1.0, commit `85d3333`, started from a checkout with `RENDERWELD_LICENCE_MODE=off` (local development only) |
 | Reproduce | `pnpm tutorials:prove claude-code hyperframes` |
 | Command the proof ran | `claude -p "<prompt>" --model sonnet --mcp-config mcp.json --strict-mcp-config --tools "" --allowedTools mcp__reelforge --max-turns 25 --output-format stream-json --verbose` |
 | Model | claude-sonnet-5-5; 9 turns; 8 tool calls; 146 s agent time; 0.056 USD |
@@ -187,7 +187,7 @@ The agent's final reply (signed links redacted):
 > 
 > The poster frame (first frame) shows the headline text looking fairly dim and sitting low on the frame. I only looked at that one frame, not the whole video.
 > 
-> The download link is `/v1/renders/run_mwqtn572bcc2796557/output?expires=1795294285&sig=<redacted>`. It's relative to the ReelForge server's address, works without a key, and expires at 2026-11-21T20:51:25Z.
+> The download link is `/v1/renders/run_mwqtn572bcc2796557/output?expires=1795294285&sig=<redacted>`. It's relative to the RenderWeld server's address, works without a key, and expires at 2026-11-21T20:51:25Z.
 
 Poster frame (40 % into the reel, 270 px wide):
 

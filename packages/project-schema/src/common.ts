@@ -152,7 +152,7 @@ export const assetLicense = z
     source: z.string().min(1).optional(),
     author: z.string().min(1).optional(),
     attribution: z.string().optional(),
-    /** Whether the asset may be shipped inside a paid ReelForge bundle. */
+    /** Whether the asset may be shipped inside a paid RenderWeld bundle. */
     redistributable: z.boolean(),
   })
   .strict();

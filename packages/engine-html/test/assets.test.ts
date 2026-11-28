@@ -7,7 +7,6 @@ import { probe, resolveTools, run, type Tools } from '@renderweld/media-pipeline
 import { builtinTheme, frameLayout, type OutputSettings } from '@renderweld/project-schema';
 import { renderHtmlScene } from '../src/index';
 import { QUAD, colorDistance, makeNumberedClip, makeQuadImage, meanColor, readBars, readPicture } from '../../media-pipeline/test/media-fixtures';
-import { envValue } from '@renderweld/core';
 
 /**
  * #299: html scenes use the project's images and videos. Asset files are
@@ -15,7 +14,7 @@ import { envValue } from '@renderweld/core';
  * network); video becomes one picture per frame.
  */
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-html-assets-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));

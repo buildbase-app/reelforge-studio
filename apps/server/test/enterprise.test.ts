@@ -70,10 +70,10 @@ beforeAll(async () => {
   dropDb = database.drop;
   env = {
     ...database.env,
-    REELFORGE_LICENCE_MODE: 'off',
-    REELFORGE_SECRET_KEY: SECRET_KEY,
-    REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
-    REELFORGE_AUDIT_SINKS: 'stdout,capture,broken',
+    RENDERWELD_LICENCE_MODE: 'off',
+    RENDERWELD_SECRET_KEY: SECRET_KEY,
+    RENDERWELD_RATE_LIMIT_PER_MINUTE: '0',
+    RENDERWELD_AUDIT_SINKS: 'stdout,capture,broken',
   };
   const origWrite = process.stdout.write.bind(process.stdout);
   vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: any, ...rest: any[]) => {
@@ -375,7 +375,7 @@ describe('API key lifecycle (KEY)', () => {
     const cli = (args: string[]) => {
       const r = spawnSync(join(repo, 'node_modules/.bin/tsx'), ['apps/server/src/cli.ts', ...args], {
         cwd: repo,
-        env: { ...process.env, ...env, REELFORGE_DATA_DIR: join(dir, 'data') },
+        env: { ...process.env, ...env, RENDERWELD_DATA_DIR: join(dir, 'data') },
         encoding: 'utf8',
         timeout: 60_000,
       });

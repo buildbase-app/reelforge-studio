@@ -2,7 +2,7 @@ import type { OnceOutcome, PluginRegistry } from '@renderweld/core';
 import { startServer } from './server';
 
 /**
- * Exit statuses of `reelforge worker --once` (D-100). Job platforms retry a
+ * Exit statuses of `renderweld worker --once` (D-100). Job platforms retry a
  * container that exits non-zero, so only "this unit still needs a run" and
  * "the unit failed" are non-zero; a failed job is already final in the
  * database, and a retry of its container claims nothing or the next job.
@@ -30,15 +30,15 @@ export interface OnceOptions {
 }
 
 /**
- * `reelforge worker --once [--job <id>] [--wait-ms N]` and
- * `REELFORGE_WORKER_ONCE=1`: start the service as a worker without an HTTP
+ * `renderweld worker --once [--job <id>] [--wait-ms N]` and
+ * `RENDERWELD_WORKER_ONCE=1`: start the service as a worker without an HTTP
  * listener, claim at most one job, render it and return the exit status.
  * SIGTERM/SIGINT stops claiming; a running job gets
  * `queue.shutdownGraceSeconds`, then it is handed back to the queue (D-077).
  */
 export async function runWorkerOnce(env: NodeJS.ProcessEnv, opts: OnceOptions = {}): Promise<number> {
   // `worker --once` is a worker: the role guard (shared database and storage, D-076) applies as for any worker.
-  const started = await startServer({}, { env: { ...env, REELFORGE_ROLE: 'worker' }, once: true, ...(opts.registry ? { registry: opts.registry } : {}) });
+  const started = await startServer({}, { env: { ...env, RENDERWELD_ROLE: 'worker' }, once: true, ...(opts.registry ? { registry: opts.registry } : {}) });
   const say = started.log;
   const cfg = started.config.resolved.config;
   const waitMs = opts.waitMs ?? cfg.queue.onceWaitMs ?? cfg.queue.pollIntervalMs * 3;

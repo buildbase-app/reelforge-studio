@@ -32,7 +32,7 @@ and downloads stay available.
 
 ## Activate it
 
-Any one of these (each needs `REELFORGE_SECRET_KEY` set, because the key is
+Any one of these (each needs `RENDERWELD_SECRET_KEY` set, because the key is
 stored encrypted):
 
 ```bash
@@ -44,7 +44,7 @@ curl -X POST -H "Authorization: Bearer $ADMIN_KEY" -H 'content-type: application
   -d '{"key":"ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2"}' http://127.0.0.1:4321/v1/licence
 
 # the CLI in the container (a running server reads it after a restart):
-docker compose exec reelforge renderweld licence activate ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2
+docker compose exec renderweld renderweld licence activate ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2
 
 # or before the start: RENDERWELD_LICENCE_KEY / RENDERWELD_LICENCE_KEY_FILE
 ```
@@ -92,5 +92,5 @@ then activate on the new server. A key over its activation limit answers
 
 The published release image fixes the licence check on. A build from source for
 noncommercial development (`pnpm dev`, or
-`docker build --build-arg REELFORGE_EDITION=dev .`) can set
+`docker build --build-arg RENDERWELD_EDITION=dev .`) can set
 `RENDERWELD_LICENCE_MODE=off`. Commercial use always needs a Commercial key.

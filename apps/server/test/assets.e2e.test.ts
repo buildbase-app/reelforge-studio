@@ -2,7 +2,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { envValue, ReelforgeService, createMemoryRepositories } from '@renderweld/core';
+import { RenderWeldService, createMemoryRepositories } from '@renderweld/core';
 import { probe, resolveTools, run, type Tools } from '@renderweld/media-pipeline';
 import { tempDir } from '../../../packages/core/test/helpers';
 import { externalNetworkCalls } from '../../../packages/engine-hyperframes/test/strace-egress';
@@ -18,7 +18,7 @@ import { createDefaultRegistry } from '../src/registry';
  * project cannot render another project's assets.
  */
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const hasStrace = spawnSync('strace', ['-f', '-qq', '-yy', '-e', 'trace=connect', '-o', '/dev/null', 'true']).status === 0;
@@ -27,7 +27,7 @@ const LOGO_SVG =
   '<script>fetch("https://evil.example/svg-script")</script><rect width="40" height="40" fill="#e61e1e"/>' +
   '<image href="https://evil.example/remote.png" width="40" height="40"/></svg>';
 
-describe.skipIf(!hasBrowser)('ASSET-E2E uploaded assets on every engine in one render (needs REELFORGE_CHROMIUM_PATH)', () => {
+describe.skipIf(!hasBrowser)('ASSET-E2E uploaded assets on every engine in one render (needs RENDERWELD_CHROMIUM_PATH)', () => {
   const { dir, cleanup } = tempDir('reelforge-assets-e2e-');
   let tools: Tools;
   let result: { ok: boolean; error?: string; file?: string; manifest?: any; log: string[] };
@@ -47,7 +47,7 @@ describe.skipIf(!hasBrowser)('ASSET-E2E uploaded assets on every engine in one r
       ? ['strace', ['-f', '-qq', '-yy', '-e', 'trace=connect,sendto,sendmsg,sendmmsg', '-o', traceFile, process.execPath, '--import', 'tsx', fixture, dir]]
       : [process.execPath, ['--import', 'tsx', fixture, dir]];
     const out = await new Promise<{ stdout: string; stderr: string }>((resolve_) => {
-      execFile(cmd, args as string[], { cwd: repoRoot, env: { ...process.env, REELFORGE_CHROMIUM_PATH: browser }, timeout: 900_000, maxBuffer: 64 * 1024 * 1024 }, (_e, stdout, stderr) => resolve_({ stdout, stderr }));
+      execFile(cmd, args as string[], { cwd: repoRoot, env: { ...process.env, RENDERWELD_CHROMIUM_PATH: browser }, timeout: 900_000, maxBuffer: 64 * 1024 * 1024 }, (_e, stdout, stderr) => resolve_({ stdout, stderr }));
     });
     const line = /^RESULT (.*)$/m.exec(out.stdout)?.[1];
     if (!line) throw new Error(`the render fixture printed no result:\n${out.stderr.slice(-4000)}`);
@@ -110,10 +110,10 @@ describe.skipIf(!hasBrowser)('ASSET-E2E uploaded assets on every engine in one r
   });
 
   it('a project cannot use or render another project\'s assets; shared (unattached) uploads work for all', async () => {
-    const svc = await ReelforgeService.create(createDefaultRegistry({}), {
+    const svc = await RenderWeldService.create(createDefaultRegistry({}), {
       repositories: createMemoryRepositories(),
       dataDir: join(dir, 'data-iso'),
-      configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+      configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
       licence: { start: false },
     });
     try {

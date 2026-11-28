@@ -12,7 +12,7 @@ import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 /**
  * Several instances (issue #36, D-075..D-079): the start-up guard for the
  * api/worker roles (always), and an api instance with two workers on one
- * PostgreSQL or MySQL database (REELFORGE_TEST_DB=postgres|mysql, or
+ * PostgreSQL or MySQL database (RENDERWELD_TEST_DB=postgres|mysql, or
  * TEST_POSTGRES_URL / TEST_MYSQL_URL set): REST on the api, renders on the
  * workers, cancel and long-poll across instances, quotas and rate limits held
  * across two api instances, graceful worker shutdown, metrics, no secrets in
@@ -24,7 +24,7 @@ const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.js
 const SECRET_KEY = 'scaling-test-secret-key-0123456789abcdef';
 const DB_PASSWORD = 'Sup3rS3cretDbPassw0rd';
 const METRICS_TOKEN = 'sca-metrics-token-0123456789abcdef0123456789';
-const base = { REELFORGE_LICENCE_MODE: 'off', REELFORGE_SECRET_KEY: SECRET_KEY, REELFORGE_METRICS_TOKEN: METRICS_TOKEN };
+const base = { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_SECRET_KEY: SECRET_KEY, RENDERWELD_METRICS_TOKEN: METRICS_TOKEN };
 // /metrics needs its token and /readyz detail needs an admin key since #146 (D-088).
 const metrics = (url: string) => fetch(`${url}/metrics`, { headers: { authorization: `Bearer ${METRICS_TOKEN}` } });
 
@@ -33,27 +33,27 @@ describe('start-up guard for the api and worker roles', () => {
 
   it('SCA-01 a worker or api role on SQLite refuses to start and says what to use', async () => {
     for (const role of ['worker', 'api']) {
-      await expect(start({ REELFORGE_ROLE: role, REELFORGE_STORAGE_LOCAL_SHARED: 'true' })).rejects.toThrow(new RegExp(`server.role "${role}" needs a shared database: SQLite .*postgresql://`));
+      await expect(start({ RENDERWELD_ROLE: role, RENDERWELD_STORAGE_LOCAL_SHARED: 'true' })).rejects.toThrow(new RegExp(`server.role "${role}" needs a shared database: SQLite .*postgresql://`));
     }
   });
 
   it('SCA-02 local storage is refused for the api/worker roles unless declared shared; the message names the fix and no password', async () => {
-    const err = await start({ REELFORGE_ROLE: 'worker', DATABASE_URL: `postgresql://rf:${DB_PASSWORD}@127.0.0.1:1/rf` }).catch((e: Error) => e);
-    expect(String(err)).toMatch(/needs storage every instance can read: storage.driver is "local".*REELFORGE_STORAGE_LOCAL_SHARED=true/);
+    const err = await start({ RENDERWELD_ROLE: 'worker', DATABASE_URL: `postgresql://rf:${DB_PASSWORD}@127.0.0.1:1/rf` }).catch((e: Error) => e);
+    expect(String(err)).toMatch(/needs storage every instance can read: storage.driver is "local".*RENDERWELD_STORAGE_LOCAL_SHARED=true/);
     expect(String(err)).not.toContain(DB_PASSWORD);
   });
 
   it('SCA-03 the in-process queue is refused for the api/worker roles', async () => {
-    await expect(start({ REELFORGE_ROLE: 'api', REELFORGE_QUEUE_DRIVER: 'inprocess', REELFORGE_STORAGE_LOCAL_SHARED: 'true', DATABASE_URL: 'postgresql://rf:x@127.0.0.1:1/rf' })).rejects.toThrow(/needs the database job queue.*REELFORGE_QUEUE_DRIVER=database/);
+    await expect(start({ RENDERWELD_ROLE: 'api', RENDERWELD_QUEUE_DRIVER: 'inprocess', RENDERWELD_STORAGE_LOCAL_SHARED: 'true', DATABASE_URL: 'postgresql://rf:x@127.0.0.1:1/rf' })).rejects.toThrow(/needs the database job queue.*RENDERWELD_QUEUE_DRIVER=database/);
   });
 
   it('SCA-04 database down at start: a clear error after the connect timeout, password redacted', async () => {
     const t = Date.now();
     const err = await start({
-      REELFORGE_ROLE: 'worker',
-      REELFORGE_STORAGE_LOCAL_SHARED: 'true',
+      RENDERWELD_ROLE: 'worker',
+      RENDERWELD_STORAGE_LOCAL_SHARED: 'true',
       DATABASE_URL: `postgresql://rf:${DB_PASSWORD}@127.0.0.1:1/rf`,
-      REELFORGE_DB_CONNECT_TIMEOUT_SECONDS: '1',
+      RENDERWELD_DB_CONNECT_TIMEOUT_SECONDS: '1',
     }).catch((e: Error) => e);
     expect(String(err)).toMatch(/cannot connect to the database \(postgresql:\/\/rf:\*+@127\.0\.0\.1:1\/rf\)/);
     expect(String(err)).not.toContain(DB_PASSWORD);
@@ -88,12 +88,12 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
         env: {
           ...base,
           DATABASE_URL: testDb.url,
-          REELFORGE_ROLE: role,
-          REELFORGE_STORAGE_LOCAL_SHARED: 'true',
-          REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
-          REELFORGE_WORKER_CONCURRENCY: '1',
-          REELFORGE_WEBHOOKS_ALLOW_HTTP: 'true',
-          REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
+          RENDERWELD_ROLE: role,
+          RENDERWELD_STORAGE_LOCAL_SHARED: 'true',
+          RENDERWELD_RATE_LIMIT_PER_MINUTE: '0',
+          RENDERWELD_WORKER_CONCURRENCY: '1',
+          RENDERWELD_WEBHOOKS_ALLOW_HTTP: 'true',
+          RENDERWELD_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
         },
         queue: { workerId: name, leaseMs: 4000, heartbeatMs: 300, pollMs: 100 },
         logWrite: (_l, line) => void logs.push(line),
@@ -272,12 +272,11 @@ describe.skipIf(!kind)(`api + two workers on ${kind}`, () => {
 
   it('SCA-11 metrics: role gauge and cluster queue depth, bounded labels', async () => {
     const text = await (await metrics(workers.at(-1)!.url)).text();
-    expect(text).toMatch(/^reelforge_server_role\{reelforge_role="worker",renderweld_role="worker"\} 1$/m);
-    expect(text).toMatch(/^reelforge_server_role\{reelforge_role="api",renderweld_role="api"\} 0$/m);
-    expect(text).toMatch(/^reelforge_jobs_queued \d+$/m);
-    expect(text).toMatch(/^renderweld_server_role\{reelforge_role="worker",renderweld_role="worker"\} 1$/m);
+    expect(text).toMatch(/^renderweld_server_role\{renderweld_role="worker"\} 1$/m);
+    expect(text).toMatch(/^renderweld_server_role\{renderweld_role="api"\} 0$/m);
+    expect(text).toMatch(/^renderweld_jobs_queued \d+$/m);
     const apiText = await (await metrics(api.url)).text();
-    expect(apiText).toMatch(/^reelforge_server_role\{reelforge_role="api",renderweld_role="api"\} 1$/m);
+    expect(apiText).toMatch(/^renderweld_server_role\{renderweld_role="api"\} 1$/m);
     const labels = new Set([...text.matchAll(/="([^"]*)"/g)].map((m) => m[1]));
     expect([...labels].some((l) => /^(job|run|prv|key)_[a-z0-9]{8,}|worker-/.test(l!))).toBe(false);
   });

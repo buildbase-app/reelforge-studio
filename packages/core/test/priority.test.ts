@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   JobRunner,
   PluginRegistry,
-  ReelforgeService,
+  RenderWeldService,
   createMemoryRepositories,
   decayedRate,
   estimateWaitSeconds,
@@ -78,18 +78,18 @@ describe('in-process queue', () => {
   });
 });
 
-describe('ReelforgeService priorities and admission', () => {
-  let svc: ReelforgeService;
+describe('RenderWeldService priorities and admission', () => {
+  let svc: RenderWeldService;
   let repos: Repositories;
   let offset = 0;
 
   beforeAll(async () => {
     repos = createMemoryRepositories();
     const registry = new PluginRegistry().registerEngine(fakeEngine('remotion', { delayPerFrameMs: 40 })).registerEngine(fakeEngine('motion-canvas', { delayPerFrameMs: 40 }));
-    svc = await ReelforgeService.create(registry, {
+    svc = await RenderWeldService.create(registry, {
       repositories: repos,
       dataDir: join(dir, 'svc'),
-      configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+      configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
       now: () => Date.now() + offset,
     });
     await svc.createProject(sample);

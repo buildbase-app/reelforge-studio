@@ -174,7 +174,7 @@ export async function applyMigrations(
             await tx.$executeRawUnsafe(`SET LOCAL search_path TO ${pgIdent(schema)}`);
           }
           if (kind === 'mysql') {
-            const [row] = await tx.$queryRawUnsafe<Array<{ l: unknown }>>(`SELECT GET_LOCK('reelforge_migrate', 300) AS l`);
+            const [row] = await tx.$queryRawUnsafe<Array<{ l: unknown }>>(`SELECT GET_LOCK('renderweld_migrate', 300) AS l`);
             if (Number(row?.l) !== 1) throw new Error('could not get the migration lock within 300 s');
           }
           try {
@@ -196,7 +196,7 @@ export async function applyMigrations(
             await tx.$executeRawUnsafe(`INSERT INTO ${table(kind, schema)} (id, checksum, applied_at) VALUES ('${m.id}', '${checksum(m.sql)}', '${new Date().toISOString()}')`);
             return true;
           } finally {
-            if (kind === 'mysql') await tx.$queryRawUnsafe(`SELECT RELEASE_LOCK('reelforge_migrate') AS l`);
+            if (kind === 'mysql') await tx.$queryRawUnsafe(`SELECT RELEASE_LOCK('renderweld_migrate') AS l`);
           }
         },
         { maxWait: 60_000, timeout: 600_000 }

@@ -48,9 +48,9 @@ claude mcp add --transport http renderweld http://127.0.0.1:4321/mcp \
 Or with Docker (`docs/DEPLOY.md`):
 
 ```bash
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)    # required; keep a copy
-export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
-docker compose up -d --build      # then use $REELFORGE_BOOTSTRAP_KEY as the admin key
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)    # required; keep a copy
+export RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+docker compose up -d --build      # then use $RENDERWELD_BOOTSTRAP_KEY as the admin key
 ```
 
 Developers: `pnpm typecheck`, `pnpm test` (`RENDERWELD_REQUIRE_BROWSER=1` in
@@ -62,7 +62,7 @@ databases and running the studio next to the store site
 ## What works today
 
 - **Server** (`apps/server`): REST `/v1` and MCP `/mcp` (official MCP SDK,
-  Streamable HTTP) over the same handlers; <!-- mcp-tool-count -->82<!-- /mcp-tool-count --> MCP tools (generated list:
+  Streamable HTTP) over the same handlers; <!-- mcp-tool-count -->83<!-- /mcp-tool-count --> MCP tools (generated list:
   [docs/public/mcp/tools.md](docs/public/mcp/tools.md)), resources (incl. a workflow guide), prompts
   `make_reel`/`plan_reel`/`review_reel`; API keys with scopes, expiry, rotation and
   quotas; per-key rate limit; jobs with progress (SSE), logs, cancel and retry;

@@ -1,6 +1,6 @@
 import { HttpError, sameOriginLink, type ProjectSummary, type RenderAudio, type RenderCaptionsView, type RenderManifest, type RenderSummary } from '../api';
 import { fill, h, notice, tableWrap } from '../dom';
-import { ago, clock, dateTime, downloadLabel, duration, outputFormat, outputShort, playerKind, size, stillNote } from '../format';
+import { ago, clock, dateTime, downloadLabel, duration, outputFormat, outputShort, playerKind, retentionText, size, stillNote } from '../format';
 import type { Ctx, View } from '../main';
 
 const CHECK_LABEL: Record<string, string> = {
@@ -309,6 +309,10 @@ export const renderView: View = (ctx, main, renderId) => {
       ['Downloads', r.downloadVia === 'bucket' ? 'Signed by the bucket' : 'Signed by this server'],
     ]);
     storageRows.append(h('div', null, h('dt', null, 'Path'), storage));
+    if (r.retention) {
+      const t = retentionText(r.retention);
+      storageRows.append(h('div', null, h('dt', null, 'First download'), h('dd', null, t.downloaded)), h('div', null, h('dt', null, 'Deletion'), h('dd', null, t.deletes)));
+    }
     // The contact sheet stored with the render (#379): every scene and both sides of every cut, loaded with the key.
     let sheet: Node | null = null;
     if (r.contactSheet) {

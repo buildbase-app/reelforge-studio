@@ -19,6 +19,6 @@ const salt = randomBytes(16).toString('hex');
 writeFileSync('/data/keys.json', JSON.stringify([{ id: 'key_v01admin', name: 'v01-admin', scopes: ['admin'], prefix: key.slice(0, 7), salt, hash: createHash('sha256').update(salt).update(key).digest('hex'), createdAt }]));
 mkdirSync('/data/themes', { recursive: true });
 writeFileSync('/data/themes/legacy-theme.json', JSON.stringify({ id: 'legacy-theme', name: 'Legacy', tokens: {} }));
-// v0.1 kept provider keys in plain text (secrets.json); the server must encrypt them once REELFORGE_SECRET_KEY is set.
+// v0.1 kept provider keys in plain text (secrets.json); the server must encrypt them once RENDERWELD_SECRET_KEY is set.
 if (process.env.PLAIN_V01) writeFileSync('/data/secrets.json', JSON.stringify({ ELEVENLABS_API_KEY: process.env.PLAIN_V01 }), { mode: 0o600 });
 console.log('✔ seeded a v0.1 data directory (project legacy-v01 with 2 versions, theme, admin key, plaintext provider key)');

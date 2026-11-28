@@ -7,10 +7,9 @@ import { resolveTools } from '@renderweld/media-pipeline';
 import { builtinTheme, type OutputSettings } from '@renderweld/project-schema';
 import { renderHyperframesScene } from '../src/index';
 import { TEST_FONTS, inkRatio, readPicture } from '../../media-pipeline/test/media-fixtures';
-import { envValue } from '@renderweld/core';
 
 /** #303: the theme's project font is declared from the composition folder and used; no font is fetched from the network. */
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-hf-fonts-'));
 afterAll(() => {

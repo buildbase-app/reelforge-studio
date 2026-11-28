@@ -6,8 +6,8 @@
  *   agent:  claude-code | codex | mcp-sdk | rest | local-ai | hygen
  *   engine: remotion | motion-canvas | html | hyperframes | multi-engine | all
  *
- * Starts a studio from this checkout (REELFORGE_LICENCE_MODE=off, local
- * development only) unless REELFORGE_URL and REELFORGE_API_KEY name one, runs
+ * Starts a studio from this checkout (RENDERWELD_LICENCE_MODE=off, local
+ * development only) unless RENDERWELD_URL and RENDERWELD_API_KEY name one, runs
  * the agent, then checks independently over REST: the job succeeded, the
  * project uses the cell's engines, and the downloaded MP4 passes ffprobe
  * (size, fps, decoded frames, duration, H.264 + AAC). Artefacts go to
@@ -179,7 +179,7 @@ async function main() {
     return;
   }
   const studio = await useStudio(outRoot);
-  console.log(`studio ${studio.url}${studio.owned ? ' (started by this run, REELFORGE_LICENCE_MODE=off: local development only)' : ''}`);
+  console.log(`studio ${studio.url}${studio.owned ? ' (started by this run, RENDERWELD_LICENCE_MODE=off: local development only)' : ''}`);
   let failed = 0;
   try {
     for (const engine of engines) {

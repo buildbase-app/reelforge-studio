@@ -6,7 +6,7 @@ import { tempDir } from '../../../packages/core/test/helpers';
 /**
  * The shared per-key limit (limits.rateLimitStore "database", D-078) on a real
  * database: one statement per request since #196, a sliding window since #305. The database is
- * REELFORGE_TEST_DB (default SQLite). Ids LIM-15/16 in
+ * RENDERWELD_TEST_DB (default SQLite). Ids LIM-15/16 in
  * docs/providers/queue-and-scaling.md.
  */
 const { dir, cleanup } = tempDir('reelforge-ratelimit-store-');

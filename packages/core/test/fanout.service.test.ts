@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkTimestamps, probe, resolveTools } from '@renderweld/media-pipeline';
 import type { RenderScene } from '@renderweld/project-schema';
-import { JOIN_JOB_TYPE, PluginRegistry, ReelforgeService, UNIT_JOB_TYPE, createMemoryRepositories, type EnginePlugin, type JobRecord, type Repositories } from '../src/index';
+import { JOIN_JOB_TYPE, PluginRegistry, RenderWeldService, UNIT_JOB_TYPE, createMemoryRepositories, type EnginePlugin, type JobRecord, type Repositories } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
 
 const { dir, cleanup } = tempDir('reelforge-fanout-');
@@ -34,12 +34,12 @@ function registry(): PluginRegistry {
   return new PluginRegistry().registerEngine(flaky(engines.remotion)).registerEngine(flaky(engines.mc));
 }
 
-const services: ReelforgeService[] = [];
+const services: RenderWeldService[] = [];
 async function instance(workerId: string, runJobs: boolean, env: Record<string, string> = {}) {
-  const s = await ReelforgeService.create(registry(), {
+  const s = await RenderWeldService.create(registry(), {
     repositories: repos,
     dataDir: join(dir, 'data'),
-    configSources: { env: { REELFORGE_LICENCE_MODE: 'off', ...env } },
+    configSources: { env: { RENDERWELD_LICENCE_MODE: 'off', ...env } },
     queue: { mode: 'database', workerId, runJobs, leaseMs: 5000, heartbeatMs: 100, pollMs: 30 },
     maintenance: false,
     storage: { sweep: false },
@@ -67,12 +67,12 @@ function manifest(projectId: string) {
 }
 const TOTAL = 45 + 72 + 48 + 60;
 
-let api: ReelforgeService;
-let workers: ReelforgeService[];
+let api: RenderWeldService;
+let workers: RenderWeldService[];
 beforeAll(async () => {
-  api = await instance('api', false, { REELFORGE_RENDER_FAN_OUT: 'scenes' });
+  api = await instance('api', false, { RENDERWELD_RENDER_FAN_OUT: 'scenes' });
   workers = [];
-  for (const w of ['w1', 'w2', 'w3']) workers.push(await instance(w, true, { REELFORGE_RENDER_FAN_OUT: 'scenes' }));
+  for (const w of ['w1', 'w2', 'w3']) workers.push(await instance(w, true, { RENDERWELD_RENDER_FAN_OUT: 'scenes' }));
 }, 60_000);
 afterAll(async () => {
   for (const s of services) {

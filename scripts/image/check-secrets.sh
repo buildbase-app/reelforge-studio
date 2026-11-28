@@ -11,7 +11,7 @@
 # 2. The image config: no environment variable with a secret-looking name that
 #    has a value.
 # 3. The filesystem: no private keys, API tokens (GitHub, AWS, Anthropic,
-#    OpenAI, Slack, ElevenLabs-style), ReelForge API keys (rf_...), .env or
+#    OpenAI, Slack, ElevenLabs-style), RenderWeld API keys (rf_...), .env or
 #    credential files; the build's extra CA (a --secret mount) is not in a layer.
 set -euo pipefail
 IMAGE=${1:?usage: check-secrets.sh IMAGE}
@@ -50,7 +50,7 @@ files=$(scan 'find / -xdev \( -path /proc -o -path /sys -o -path /dev \) -prune 
 ROOTS='/app /root /home /tmp /data /etc /opt /usr/local'
 # Prisma inlines its query compilers as base64 (random text that can look like a token).
 hits=$(scan "grep -rIEl --exclude='*wasm-base64*' '$TOKEN_RE' $ROOTS 2>/dev/null" || true)
-[ -z "$hits" ] && ok "no API tokens or ReelForge keys (rf_...) in $ROOTS" || bad "API tokens found" "$hits"
+[ -z "$hits" ] && ok "no API tokens or RenderWeld keys (rf_...) in $ROOTS" || bad "API tokens found" "$hits"
 # Libraries that parse PEM contain the header as a string; a key file has base64 key material on the next line.
 hits=$(scan "grep -rIEl '$PEM_RE' $ROOTS 2>/dev/null | while read -r f; do grep -A1 -E '$PEM_RE' \"\$f\" | grep -Eq '^[A-Za-z0-9+/]{40,}=*\$' && echo \"\$f\"; done" || true)
 [ -z "$hits" ] && ok "no private keys in $ROOTS" || bad "private keys found" "$hits"
