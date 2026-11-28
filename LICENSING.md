@@ -15,7 +15,8 @@ it. What you may do with it depends on how you use it.
 | Read the code, learn from it, run it for yourself as a hobby, study, research or evaluation | Nothing to pay. Use it under the **PolyForm Noncommercial License 1.0.0** (`LICENSE.md`). The released image also asks for a free **Personal licence key**, claimed with a BuildBase account at <https://reelforge.buildbase.app/pricing> |
 | Make videos for anything that earns money: a monetised channel, client work, ads, a business, an agency, a product | A paid **RenderWeld Commercial License** (one-time, per seat/server, sold at <https://reelforge.buildbase.app/pricing>) |
 | Charities, schools, public research or government use, noncommercially | Free under PolyForm Noncommercial (see its "Noncommercial Organizations" section) |
-| Resell, rebrand, redistribute or offer RenderWeld (or a modified copy) as a product or hosted service to others | **Not permitted** under either licence. Talk to us about a partner agreement |
+| Share copies or forks, changed or not, for noncommercial use | **Allowed** under PolyForm Noncommercial, as long as each copy carries `LICENSE.md` and the Required Notice lines in `NOTICE` |
+| Sell RenderWeld (or a modified copy), or host it as a service for others | **Not permitted** under either licence. Talk to us about a partner agreement |
 | Use the name "RenderWeld" or its logo for your own fork or product | **Not permitted** (see `TRADEMARK.md`) |
 
 ## The pieces
