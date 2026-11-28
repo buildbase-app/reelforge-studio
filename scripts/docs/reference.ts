@@ -319,7 +319,7 @@ export function renderTemplatesDoc(): string {
           '',
           `Templates marked **${OPTIONAL_ENGINES[0]?.requires}** use an optional engine that the official image does not include;`,
           'it is installed separately with your own Remotion licence. Where it is not installed and turned on, `list_templates` marks',
-          'them `available: false` and names the templates to use instead.',
+          'them `available: false` and names the templates to use instead. [Add the Remotion engine](/docs/install/remotion) says how to install it.',
         ]
       : []),
     '',
