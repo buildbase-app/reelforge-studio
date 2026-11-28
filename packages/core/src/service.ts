@@ -400,6 +400,12 @@ export class RenderWeldService {
   /** Effective configuration: defaults < file < env < runtime settings in the database. */
   readonly settings: RuntimeConfig;
   readonly signer: UrlSigner;
+  /**
+   * Whether renders run in this process (#197). Not on an api instance of the
+   * database queue: workers render, so engine availability is theirs to check,
+   * when a render job starts, and this instance's own browser does not matter.
+   */
+  private readonly rendersHere: boolean;
   /** Licence activation state; renders are refused when it says so (D-028). */
   readonly licence: LicenceManager;
   readonly providerEnv: NodeJS.ProcessEnv;
@@ -516,6 +522,7 @@ export class RenderWeldService {
     const queueMode = config.queue?.mode ?? effectiveQueueMode(cfg.server.role, cfg.queue.driver);
     // Several instances must verify each other's signed links: derive the key from RENDERWELD_SECRET_KEY when it is set.
     this.signer = new UrlSigner(this.dataDir, queueMode === 'database' ? cfg.security.secretKey : undefined);
+    this.rendersHere = !(queueMode === 'database' && cfg.server.role === 'api');
     const workerId = config.queue?.workerId ?? defaultWorkerId();
     this.licence = createLicenceManager(this.settings, this.repos, {
       api: config.licence?.api,
@@ -923,6 +930,12 @@ export class RenderWeldService {
       server: { name: SERVER_NAME, title: PRODUCT_NAME, version: this.serverVersion, edition: this.settings.current.build.edition, mcpToolsStatus: 'experimental' },
       schemaVersion: SCHEMA_VERSION,
       supportedSchemaVersions: SUPPORTED_SCHEMA_VERSIONS,
+      // Where `engines[].available` is decided (#197): on an api instance of the database queue the workers render, so
+      // render_project does not check this instance's browser; a worker that cannot run an engine fails the job with
+      // engine_unavailable.
+      engineAvailability: this.rendersHere
+        ? { checkedOn: 'this-instance' as const, note: 'Renders run on this instance; engines[].available is checked before a render is queued.' }
+        : { checkedOn: 'workers' as const, note: 'This api instance queues renders for workers; engines[].available is only this instance\'s own view. Each worker checks its engines when a render starts, and a job whose engine it cannot run fails with engine_unavailable.' },
       engines: engines.map((e) => {
         const a = e.availability();
         return {
@@ -1395,6 +1408,23 @@ export class RenderWeldService {
     return this.validateManifest(manifest, id);
   }
 
+  /** The engines of these scenes that cannot render in this process, once each, with the first scene that uses it. */
+  private unavailableEngines(scenes: readonly { engine: string }[]): Array<{ index: number; engine: string; reason: string }> {
+    const out: Array<{ index: number; engine: string; reason: string }> = [];
+    const seen = new Set<string>();
+    scenes.forEach((s, index) => {
+      if (seen.has(s.engine)) return;
+      seen.add(s.engine);
+      try {
+        const a = this.registry.engine(s.engine).availability();
+        if (!a.ok) out.push({ index, engine: s.engine, reason: a.reason ?? 'unavailable' });
+      } catch {
+        // unknown engines are already reported by schema validation
+      }
+    });
+    return out;
+  }
+
   /** Checks that need the server: theme exists, backend usable, engines available, asset files present. */
   private async deepChecks(p: Project, projectId: string | null): Promise<{ errors: ValidationIssue[]; warnings: ValidationWarning[] }> {
     const errors: ValidationIssue[] = [];
@@ -1425,17 +1455,10 @@ export class RenderWeldService {
     } catch (e) {
       errors.push({ path: 'render.backend', message: (e as Error).message });
     }
-    const seen = new Set<string>();
-    p.scenes.forEach((s, i) => {
-      if (seen.has(s.engine)) return;
-      seen.add(s.engine);
-      try {
-        const a = this.registry.engine(s.engine).availability();
-        if (!a.ok) errors.push({ path: `scenes.${i}.engine`, message: `engine "${s.engine}" cannot render on this server: ${a.reason}` });
-      } catch {
-        // unknown engines are already reported by schema validation
-      }
-    });
+    // Engines need a browser where they render (#197): here, unless this is an api instance whose workers render. Its
+    // workers check when a render job starts (unavailableEngines), and the job fails with engine_unavailable.
+    if (this.rendersHere)
+      for (const { index, engine, reason } of this.unavailableEngines(p.scenes)) errors.push({ path: `scenes.${index}.engine`, message: `engine "${engine}" cannot render on this server: ${reason}` });
     // The burned caption font (#447): a project font asset, a bundled font or an installed family; else say what libass draws instead.
     const fontFamiliesInProject: string[] = [];
     for (const [i, a] of p.assets.entries()) {
@@ -2209,6 +2232,20 @@ export class RenderWeldService {
       return { ...(await this.getRender(p.runId)) };
     }
     const project = await this.projectAsRendered(p.projectId, p.version, p.variant);
+    // The engines must run on this worker (#197): an api instance queued the render without checking its own browser.
+    // Checked before fan-out, so the units of a fanned-out render (on workers of the same image) need no check of their own.
+    if (p.backend === 'local') {
+      const scenes = p.sceneIds?.length ? project.scenes.filter((s) => p.sceneIds!.includes(s.id)) : project.scenes;
+      const missing = this.unavailableEngines(scenes);
+      if (missing.length) {
+        throw new ApiError(
+          'engine_unavailable',
+          422,
+          `${missing.map((m) => `engine "${m.engine}" cannot render on worker ${this.jobs.workerId}: ${m.reason}`).join('; ')}. Workers render: install the engine's browser on every worker (RENDERWELD_CHROMIUM_PATH), or run the release image there`,
+          { engines: missing.map((m) => ({ engine: m.engine, reason: m.reason })), workerId: this.jobs.workerId }
+        );
+      }
+    }
     // Fan-out (D-097, render.fanOut): one unit per scene (scenes+chunks: per chunk of a long scene whose engine renders
     // frame ranges) on any worker, then one join. Database queue, local backend, full renders of two or more units
     // only; everything else renders on this worker as before.

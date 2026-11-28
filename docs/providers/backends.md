@@ -73,6 +73,12 @@ How the service uses it:
   engine's own `capabilities().frameRanges` (`EngineCapabilities`, reported
   per engine by `get_capabilities`) are both true. A skeleton keeps its single
   "not implemented" error.
+- Whether an engine can run (its browser) is checked where the `local`
+  backend renders (#197): before queueing on a server that renders itself,
+  and on the worker when the job starts on an api instance of the database
+  queue, which needs no browser of its own. A worker that cannot run an
+  engine fails the job with `engine_unavailable`
+  ([queue-and-scaling.md](queue-and-scaling.md)).
 - A new backend runs the contract suite: call `backendContract(name, {
   configured, unconfigured, checkSubmit })` from
   `packages/core/test/backend-contract.ts` in its own test file

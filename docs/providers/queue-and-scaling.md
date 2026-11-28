@@ -106,6 +106,17 @@ download links (so a link made on one api instance verifies on another, D-077).
 Runtime settings changed with `update_config` on one instance reach the others
 within 15 s.
 
+**Engines and browsers (#197).** Only the instances that render need a browser.
+An api instance of the database queue does not check its own engines before it
+queues a render or preview: the worker that claims the job checks the engines
+of the scenes it renders, and fails the job with `engine_unavailable` (the
+engine, the reason and the worker id) when one cannot run there, instead of
+failing later inside the engine. `get_capabilities` says which applies
+(`engineAvailability.checkedOn`: `this-instance` or `workers`). Give every
+worker the same engines (the release image has them all): a job is not handed
+to another worker when the one that claimed it cannot run its engine. A server
+with the `all` role checks its own engines before it queues, as before.
+
 **Least privilege.** The database user needs `SELECT, INSERT, UPDATE, DELETE`
 on the RenderWeld tables, plus DDL (`CREATE`, `ALTER`, `INDEX`, `REFERENCES`) for
 whoever runs the migrations (on start by default, or one `--migrate-only` step
@@ -1466,6 +1477,9 @@ and a job that dies while its worker shuts down is handed back, never failed
 | SCA-11 | `/metrics`: role gauge, `renderweld_jobs_queued`, bounded labels | server (PostgreSQL, MySQL) | pass 2026-11-21 |
 | SCA-12 | no secret key, API key or database password in any instance log | server (PostgreSQL, MySQL) | pass 2026-11-21 |
 | SCA-13 | webhooks (#66) with an api and two workers: `job.queued`, `job.started`, `job.succeeded` and `render.ready` delivered exactly once per job (distinct `webhook-id`s), although the api long-polled the jobs through the database | server (PostgreSQL, MySQL) | pass 2026-11-22 |
+| SCA-14 | an api instance with no browser (its engines unavailable) and a worker with one: validate, `render_project` and `preview_scene` are accepted and both jobs succeed on the worker; `get_capabilities` says `engineAvailability.checkedOn: workers` | server (PostgreSQL) | pass 2026-11-27 |
+| SCA-15 | an api instance and a worker, neither with a browser: the render is queued, and the worker fails it with `engine_unavailable`, naming the engine, the worker and `RENDERWELD_CHROMIUM_PATH` | server (PostgreSQL) | pass 2026-11-27 |
+| SCA-16 | a server with the `all` role and no browser still refuses the render before queueing (422, "cannot render on this server") and says `checkedOn: this-instance` | server | pass 2026-11-27 |
 | SCL-10 | Docker: worker on SQLite, worker on local storage and an unknown role refuse to start with a clear message (no password printed) | Docker | pass 2026-11-21 |
 | SCL-11 | Docker: workers answer 404 on `/v1` and `/mcp`, `/readyz` shows role and queue | Docker | pass 2026-11-21 |
 | SCL-12 | Docker: 6 renders over MCP via the api spread over both workers, one `running` event each in PostgreSQL, none claimed by the api, api metrics show no rendered frames; ffprobe of the MinIO-stored render | Docker | pass 2026-11-21 |
