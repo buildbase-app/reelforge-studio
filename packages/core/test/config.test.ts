@@ -316,6 +316,27 @@ describe('release build: licence settings fixed by the image (D-039)', () => {
     expect(() => parseBuildInfo({ edition: 'release', locked: {}, extra: 1 })).toThrow();
     expect(parseBuildInfo({ edition: 'dev' })).toMatchObject({ edition: 'dev', locked: {} });
   });
+
+  it('LICV-6 from 1.0.0 a release build must fix the BuildBase items of its major version (licence.itemIds, D-142)', () => {
+    const locked = { 'licence.mode': 'required', 'licence.serverUrl': 'https://api.console.buildbase.app', 'licence.orgId': '6b01478bb42d2c444e99fcd8' };
+    // 0.x: no items needed (nothing is sold yet); an empty list is accepted.
+    expect(parseBuildInfo({ edition: 'release', version: '0.1.0', locked }).locked['licence.itemIds']).toBeUndefined();
+    expect(parseBuildInfo({ edition: 'release', version: '0.1.0', locked: { ...locked, 'licence.itemIds': [] } }).locked['licence.itemIds']).toEqual([]);
+    for (const version of ['1.0.0', 'v1.0.0', '2.3.1-rc.1']) {
+      expect(() => parseBuildInfo({ edition: 'release', version, locked })).toThrow(/must fix "licence.itemIds" to the BuildBase items sold for RenderWeld \d/);
+      expect(() => parseBuildInfo({ edition: 'release', version, locked: { ...locked, 'licence.itemIds': [] } })).toThrow(/must fix "licence.itemIds"/);
+    }
+    const v1 = parseBuildInfo({ edition: 'release', version: 'v1.0.0', locked: { ...locked, 'licence.itemIds': ['itm_rw1_personal', 'itm_rw1_commercial'] } });
+    expect(v1.locked['licence.itemIds']).toEqual(['itm_rw1_personal', 'itm_rw1_commercial']);
+    expect(() => parseBuildInfo({ edition: 'release', version: '1.0.0', locked: { ...locked, 'licence.itemIds': ['not an id'] } })).toThrow(/a BuildBase item id/);
+    // Fixed by the build: the config file or env cannot widen the list.
+    const found = issues(() => resolveConfig({ env: { RENDERWELD_LICENCE_ITEM_IDS: 'itm_rw2_commercial' }, build: v1 }));
+    expect(found.map((i) => [i.key, i.source])).toEqual([['licence.itemIds', 'env']]);
+    expect(resolveConfig({ env: {}, build: v1 }).config.licence.itemIds).toEqual(['itm_rw1_personal', 'itm_rw1_commercial']);
+    // Dev builds: configurable, empty by default (any item).
+    expect(resolveConfig({ env: {} }).config.licence.itemIds).toEqual([]);
+    expect(resolveConfig({ env: { RENDERWELD_LICENCE_ITEM_IDS: 'itm_a,itm_b' } }).config.licence.itemIds).toEqual(['itm_a', 'itm_b']);
+  });
 });
 
 describe('SecretCipher (AES-256-GCM)', () => {
