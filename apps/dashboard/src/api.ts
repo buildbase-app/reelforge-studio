@@ -177,6 +177,7 @@ export interface ConfigEntry {
 
 export interface ConfigReport {
   edition: string;
+  customBuild?: true;
   configFile: string | null;
   secretKey: 'set' | 'not set';
   settings: ConfigEntry[];

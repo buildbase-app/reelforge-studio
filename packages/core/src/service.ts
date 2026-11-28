@@ -927,7 +927,7 @@ export class RenderWeldService {
     const engines = this.registry.listEngines();
     const sandboxOff = engines.filter((e) => e.browserSandbox?.() === false).map((e) => e.id);
     return {
-      server: { name: SERVER_NAME, title: PRODUCT_NAME, version: this.serverVersion, edition: this.settings.current.build.edition, mcpToolsStatus: 'experimental' },
+      server: { name: SERVER_NAME, title: PRODUCT_NAME, version: this.serverVersion, edition: this.settings.current.build.edition, ...(this.settings.current.build.custom ? { customBuild: true } : {}), mcpToolsStatus: 'experimental' },
       schemaVersion: SCHEMA_VERSION,
       supportedSchemaVersions: SUPPORTED_SCHEMA_VERSIONS,
       // Where `engines[].available` is decided (#197): on an api instance of the database queue the workers render, so

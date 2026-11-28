@@ -14,6 +14,8 @@ import {
   createMemoryRepositories,
   currentBuild,
   parseBuildInfo,
+  buildOrigin,
+  CUSTOM_BUILD_WARNING,
   readConfigFile,
   resolveConfig,
   setPath,
@@ -315,6 +317,18 @@ describe('release build: licence settings fixed by the image (D-039)', () => {
     expect(() => parseBuildInfo({ edition: 'dev', locked: { 'server.port': 1 } })).toThrow(/cannot be fixed by a build/);
     expect(() => parseBuildInfo({ edition: 'release', locked: {}, extra: 1 })).toThrow();
     expect(parseBuildInfo({ edition: 'dev' })).toMatchObject({ edition: 'dev', locked: {} });
+  });
+
+  it('a release build against another licence server is marked custom and says so (#539)', () => {
+    const locked = { 'licence.mode': 'required', 'licence.serverUrl': 'https://licence.example.test', 'licence.orgId': 'aaaaaaaaaaaaaaaaaaaaaaaa' };
+    const custom = parseBuildInfo({ edition: 'release', custom: true, version: '0.1.0', locked });
+    expect(custom).toMatchObject({ edition: 'release', custom: true });
+    expect(buildOrigin(custom)).toBe('custom release build 0.1.0');
+    expect(() => parseBuildInfo({ edition: 'dev', custom: true })).toThrow(/only a release build can be marked "custom"/);
+    // Every release protection stays: the licence settings are still fixed by the build.
+    expect(issues(() => resolveConfig({ env: { RENDERWELD_LICENCE_MODE: 'off' }, build: custom })).map((i) => i.key)).toEqual(['licence.mode']);
+    expect(resolveConfig({ env: {}, build: custom }).warnings).toContain(CUSTOM_BUILD_WARNING);
+    expect(resolveConfig({ env: {}, build: parseBuildInfo({ edition: 'release', locked }) }).warnings).not.toContain(CUSTOM_BUILD_WARNING);
   });
 
   it('LICV-6 from 1.0.0 a release build must fix the BuildBase items of its major version (licence.itemIds, D-142)', () => {
