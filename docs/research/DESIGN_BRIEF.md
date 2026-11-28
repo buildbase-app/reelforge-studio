@@ -195,7 +195,7 @@ Add a disclaimer: these products do different jobs (clipping vs generation). Com
 **Pricing page layout (top to bottom):**
 
 1. **Header:** "Pay once. Run it forever on your own hardware." (direction). If there is a real launch price, give its **end date**. No live scarcity counter.
-2. **Three tier cards from BuildBase items:** Solo / Studio / Agency. STATUS proposes $149 / $349 / $899; never hard-code these.
+2. **Three tier cards from BuildBase items:** Solo / Studio / Agency / Unlimited at $9 / $29 / $79 / $99 (D-141); never hard-code these.
    - Differentiate by **seats, client brands/projects allowed, update period (one year per Q4), support level**. Don't differentiate by features: every tier gets the same code, which matches the source-sale model and avoids crippleware.
    - Highlight Studio as the middle tier.
    - Put the price in the CTA ("Buy Studio – $X"), as supastarter does.

@@ -12,7 +12,7 @@ import { defaultTreeAdapter as ta, parse, parseFragment, serialize, type Default
  *   - comments, `<noscript>`, `<noembed>` and `<noframes>` are dropped, and
  *     attributes with unusual names are removed, so later tools that re-parse
  *     the document with another parser see the same structure;
- *   - ReelForge's head (charset, CSP, theme) is inserted as the first children
+ *   - RenderWeld's head (charset, CSP, theme) is inserted as the first children
  *     of the parsed `<head>`, and the serialized result is parsed again to
  *     check that the CSP is the first policy element and the only one.
  */

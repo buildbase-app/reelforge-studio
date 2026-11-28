@@ -2,7 +2,7 @@
  * Overload protection over REST and MCP (issue #155, D-103): the priority argument and its per-key maximum,
  * admission by estimated wait (429 queue_full with Retry-After and details), get_capabilities, and the queue-wait
  * histogram with bounded labels plus the Grafana panel and alert rules that use it. Runs on the database of
- * REELFORGE_TEST_DB (SQLite by default). Test ids PRS-nn (docs/providers/queue-and-scaling.md).
+ * RENDERWELD_TEST_DB (SQLite by default). Test ids PRS-nn (docs/providers/queue-and-scaling.md).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -63,7 +63,7 @@ beforeAll(async () => {
   dropDb = database.drop;
   server = await startServer(
     { dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' },
-    { registry, env: { ...database.env, REELFORGE_LICENCE_MODE: 'off', REELFORGE_METRICS_ALLOW_ANONYMOUS: 'true' }, quiet: true }
+    { registry, env: { ...database.env, RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_METRICS_ALLOW_ANONYMOUS: 'true' }, quiet: true }
   );
   admin = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   agent = (await server.service.keys.create('agent', ['read', 'write', 'render'])).key;
@@ -145,26 +145,22 @@ describe('priorities and admission over REST and MCP', () => {
     }
   }, 60_000);
 
-  it('PRS-03 reelforge_job_queue_wait_seconds: recorded per claim with job type and priority as its only labels; the Grafana panel and alert rules use it', async () => {
+  it('PRS-03 renderweld_job_queue_wait_seconds: recorded per claim with job type and priority as its only labels; the Grafana panel and alert rules use it', async () => {
     const r = await api('POST', '/v1/projects/sample-reel/preview', agent, { sceneId: 'hook' });
     expect((await api('GET', `/v1/jobs/${r.json.job.id}?wait=50`, agent)).json.status).toBe('succeeded');
     const text = (await api('GET', '/metrics', null)).text;
-    const samples = parsePrometheus(text).filter((s) => s.name.startsWith('reelforge_job_queue_wait_seconds'));
+    const samples = parsePrometheus(text).filter((s) => s.name.startsWith('renderweld_job_queue_wait_seconds'));
     expect(samples.length).toBeGreaterThan(0);
-    expect(text).toMatch(/# TYPE reelforge_job_queue_wait_seconds histogram/);
-    const count = samples.find((s) => s.name === 'reelforge_job_queue_wait_seconds_count' && s.labels.reelforge_job_type === 'preview' && s.labels.reelforge_job_priority === 'interactive');
+    expect(text).toMatch(/# TYPE renderweld_job_queue_wait_seconds histogram/);
+    const count = samples.find((s) => s.name === 'renderweld_job_queue_wait_seconds_count' && s.labels.renderweld_job_type === 'preview' && s.labels.renderweld_job_priority === 'interactive');
     expect(count?.value).toBeGreaterThanOrEqual(1);
-    // Bounded: no ids, keys, projects or workers; only these label names and values (each with its renderweld_* twin, #412).
-    const fresh = parsePrometheus(text).filter((s) => s.name.startsWith('renderweld_job_queue_wait_seconds'));
-    expect(fresh.length).toBe(samples.length);
-    for (const s of [...samples, ...fresh]) {
+    // Bounded: no ids, keys, projects or workers; only these label names and values.
+    for (const s of samples) {
       const names = Object.keys(s.labels).filter((l) => !l.startsWith('otel_scope_'));
-      const labels = ['reelforge_job_priority', 'reelforge_job_type', 'renderweld_job_priority', 'renderweld_job_type'];
+      const labels = ['renderweld_job_priority', 'renderweld_job_type'];
       expect(names.sort()).toEqual((s.name.endsWith('_bucket') ? ['le', ...labels] : labels).sort());
-      expect(['render', 'preview']).toContain(s.labels.reelforge_job_type);
-      expect(['interactive', 'standard', 'batch']).toContain(s.labels.reelforge_job_priority);
-      expect(s.labels.renderweld_job_type).toBe(s.labels.reelforge_job_type);
-      expect(s.labels.renderweld_job_priority).toBe(s.labels.reelforge_job_priority);
+      expect(['render', 'preview']).toContain(s.labels.renderweld_job_type);
+      expect(['interactive', 'standard', 'batch']).toContain(s.labels.renderweld_job_priority);
     }
     // The SLO thresholds are bucket boundaries, so the alert's quantiles are exact at them.
     const les = new Set(samples.filter((s) => s.name.endsWith('_bucket')).map((s) => s.labels.le));

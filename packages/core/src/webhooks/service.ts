@@ -156,9 +156,9 @@ function instruments(meter: Meter): Instruments {
   let i = instrumentCache.get(meter);
   if (!i) {
     i = {
-      deliveries: meter.createCounter('reelforge.webhook.deliveries', { description: 'Delivery attempts of outbound events, by channel and outcome (success, retry, dead).' }),
-      duration: meter.createHistogram('reelforge.webhook.delivery.duration', { unit: 's', description: 'Time one delivery attempt took, by channel.', advice: { explicitBucketBoundaries: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30] } }),
-      events: meter.createCounter('reelforge.webhook.events', { description: 'Outbound events emitted, by event type.' }),
+      deliveries: meter.createCounter('renderweld.webhook.deliveries', { description: 'Delivery attempts of outbound events, by channel and outcome (success, retry, dead).' }),
+      duration: meter.createHistogram('renderweld.webhook.delivery.duration', { unit: 's', description: 'Time one delivery attempt took, by channel.', advice: { explicitBucketBoundaries: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30] } }),
+      events: meter.createCounter('renderweld.webhook.events', { description: 'Outbound events emitted, by event type.' }),
     };
     instrumentCache.set(meter, i);
   }
@@ -219,14 +219,14 @@ export class WebhookService {
 
   private seal(name: string, plaintext: string): SealedValue {
     const cipher = this.opts.settings.cipher;
-    if (!cipher) throw new ApiError('secret_key_required', 409, `refusing to store webhook URLs and signing secrets without encryption: REELFORGE_SECRET_KEY is not set. ${SECRET_KEY_HELP}`);
+    if (!cipher) throw new ApiError('secret_key_required', 409, `refusing to store webhook URLs and signing secrets without encryption: RENDERWELD_SECRET_KEY is not set. ${SECRET_KEY_HELP}`);
     return { value: cipher.encrypt(name, plaintext), scheme: 'aes-256-gcm' };
   }
 
   private unseal(name: string, v: SealedValue): string {
     if (v.scheme === 'plain') return v.value;
     const cipher = this.opts.settings.cipher;
-    if (!cipher) throw new Error(`cannot decrypt ${name}: REELFORGE_SECRET_KEY is not set`);
+    if (!cipher) throw new Error(`cannot decrypt ${name}: RENDERWELD_SECRET_KEY is not set`);
     return cipher.decrypt(name, v.value);
   }
 
@@ -481,7 +481,7 @@ export class WebhookService {
     const p = (async () => {
       const matching = (await this.endpoints()).filter((e) => e.enabled && eventMatches(e.events, type));
       if (!matching.length) return;
-      instruments(this.telemetry.meter).events.add(1, { 'reelforge.event_type': type });
+      instruments(this.telemetry.meter).events.add(1, { 'renderweld.event_type': type });
       // A payload that costs reads (terminal render events: log excerpt, output size) is only built when someone listens.
       const event = this.envelope(type, typeof data === 'function' ? await data() : data, opts.dedupeKey);
       await this.repo.enqueue(matching.map((e) => this.delivery(e.id, event)));
@@ -738,10 +738,10 @@ export class WebhookService {
           result = await withSpan(
             this.telemetry.tracer,
             `webhook.deliver ${ep.type}`,
-            { 'reelforge.webhook.channel': ep.type, 'reelforge.webhook.event_type': d.eventType, 'reelforge.webhook.attempt': attemptNo, 'reelforge.webhook.provider': provider.id },
+            { 'renderweld.webhook.channel': ep.type, 'renderweld.webhook.event_type': d.eventType, 'renderweld.webhook.attempt': attemptNo, 'renderweld.webhook.provider': provider.id },
             async (span) => {
               const r = await provider.send({ endpoint: ep, url, secrets: sendSecrets, delivery: d, timeoutMs: this.cfg.timeoutSeconds * 1000, signal, policy: this.policy, email, fetch: this.opts.fetch ?? fetch, now: this.now, serverUrl: this.opts.publicUrl });
-              span.setAttribute('reelforge.webhook.outcome', r.outcome);
+              span.setAttribute('renderweld.webhook.outcome', r.outcome);
               if (r.status !== undefined) span.setAttribute('http.response.status_code', r.status);
               return r;
             },
@@ -797,8 +797,8 @@ export class WebhookService {
       return;
     }
     const m = instruments(this.telemetry.meter);
-    m.deliveries.add(1, { 'reelforge.channel': channel, 'reelforge.outcome': status === 'succeeded' ? 'success' : status === 'dead' ? 'dead' : 'retry' });
-    m.duration.record(attempt.durationMs / 1000, { 'reelforge.channel': channel });
+    m.deliveries.add(1, { 'renderweld.channel': channel, 'renderweld.outcome': status === 'succeeded' ? 'success' : status === 'dead' ? 'dead' : 'retry' });
+    m.duration.record(attempt.durationMs / 1000, { 'renderweld.channel': channel });
     if (status === 'dead' && ep) {
       this.warn(`dead:${ep.id}`, `webhook ${ep.id} ("${ep.name}", ${ep.type}): delivery ${d.id} of ${d.eventType} failed for good after ${attemptNo} attempt(s): ${lastError ?? 'error'}; send it again with resend_webhook`);
     }

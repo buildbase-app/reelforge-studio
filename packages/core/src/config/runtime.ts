@@ -48,7 +48,7 @@ export interface ConfigReport {
   /** `release` images fix the licence settings (source `build`); `dev` is a build from source. */
   edition: BuildInfo['edition'];
   configFile: string | null;
-  /** Whether REELFORGE_SECRET_KEY is set, i.e. secrets can be stored (encrypted). */
+  /** Whether RENDERWELD_SECRET_KEY is set, i.e. secrets can be stored (encrypted). */
   secretKey: 'set' | 'not set';
   settings: ConfigEntry[];
   warnings: string[];
@@ -72,7 +72,7 @@ export function redact(def: SettingDef, value: unknown): unknown {
 /** Where a start-up-only setting is set, for error messages. */
 export function whereToSet(def: SettingDef): string {
   const env = def.secret ? `${def.env} (or ${def.env}_FILE)` : def.env;
-  return `set it in the config file (REELFORGE_CONFIG, key "${def.key}") or the environment variable ${env}, then restart the server`;
+  return `set it in the config file (RENDERWELD_CONFIG, key "${def.key}") or the environment variable ${env}, then restart the server`;
 }
 
 /** A provider-backed secret (providers.<id>.<name>) is stored in ProviderSetting under its env name, shared with configure_provider. */
@@ -95,7 +95,7 @@ export function flattenPatch(patch: Record<string, unknown>, prefix = '', out: R
 /**
  * The effective configuration of a running server: file and environment
  * (resolved once at start) plus runtime settings stored in the database.
- * Secrets in the database are encrypted with REELFORGE_SECRET_KEY.
+ * Secrets in the database are encrypted with RENDERWELD_SECRET_KEY.
  *
  * It also holds provider settings set with configure_provider (any name a
  * provider declares), which share the ProviderSetting table with the
@@ -141,13 +141,13 @@ export class RuntimeConfig {
   private decode(name: string, stored: StoredValue): string {
     if (stored.scheme === PLAIN_SCHEME) return stored.value;
     if (stored.scheme !== ENCRYPTED_SCHEME) throw new SecretDecryptError(name, `unknown storage scheme "${stored.scheme}"`);
-    if (!this.cipher) throw new SecretDecryptError(name, 'REELFORGE_SECRET_KEY is not set');
+    if (!this.cipher) throw new SecretDecryptError(name, 'RENDERWELD_SECRET_KEY is not set');
     return this.cipher.decrypt(name, stored.value);
   }
 
   private encode(name: string, plaintext: string, secret: boolean): StoredValue {
     if (!secret) return { value: plaintext, scheme: PLAIN_SCHEME };
-    if (!this.cipher) throw new ApiError('secret_key_required', 409, `refusing to store ${name}: secrets are stored encrypted and REELFORGE_SECRET_KEY is not set. ${SECRET_KEY_HELP}`);
+    if (!this.cipher) throw new ApiError('secret_key_required', 409, `refusing to store ${name}: secrets are stored encrypted and RENDERWELD_SECRET_KEY is not set. ${SECRET_KEY_HELP}`);
     return { value: this.cipher.encrypt(name, plaintext), scheme: ENCRYPTED_SCHEME };
   }
 
@@ -186,12 +186,12 @@ export class RuntimeConfig {
         const reason = (e as Error).message;
         if (def) broken.set(def.key, reason);
         else broken.set(`provider:${name}`, reason);
-        warnings.push(`${reason}; the provider setting is ignored until the right REELFORGE_SECRET_KEY is set`);
+        warnings.push(`${reason}; the provider setting is ignored until the right RENDERWELD_SECRET_KEY is set`);
       }
     }
     if (!this.cipher) {
       const plain = [...providerMeta].filter(([, m]) => m.scheme === PLAIN_SCHEME).map(([n]) => n);
-      if (plain.length) warnings.push(`${plain.length} provider setting(s) are stored in plain text (${plain.join(', ')}); set REELFORGE_SECRET_KEY to encrypt them at rest`);
+      if (plain.length) warnings.push(`${plain.length} provider setting(s) are stored in plain text (${plain.join(', ')}); set RENDERWELD_SECRET_KEY to encrypt them at rest`);
     }
     // A runtime value that no longer validates (e.g. after an upgrade) must not stop the server: drop it and say so.
     let resolved: ResolvedConfig;
@@ -304,7 +304,7 @@ export class RuntimeConfig {
   /**
    * PATCH /v1/config: set (value) or clear (null) runtime settings, all or
    * nothing. Start-up-only keys, unknown keys, invalid values and secrets
-   * without REELFORGE_SECRET_KEY are refused with every problem listed.
+   * without RENDERWELD_SECRET_KEY are refused with every problem listed.
    */
   async update(patch: unknown, actorId?: string): Promise<{ changes: ConfigChange[]; settings: ConfigEntry[] }> {
     if (patch === null || typeof patch !== 'object' || Array.isArray(patch) || Object.keys(patch).length === 0) {
@@ -341,7 +341,7 @@ export class RuntimeConfig {
         continue;
       }
       if (def.secret && !this.cipher) {
-        issues.push({ key, code: 'secret_key_required', message: `refusing to store ${key}: secrets are stored encrypted and REELFORGE_SECRET_KEY is not set. ${SECRET_KEY_HELP}` });
+        issues.push({ key, code: 'secret_key_required', message: `refusing to store ${key}: secrets are stored encrypted and RENDERWELD_SECRET_KEY is not set. ${SECRET_KEY_HELP}` });
         continue;
       }
       next[key] = parsed.value;

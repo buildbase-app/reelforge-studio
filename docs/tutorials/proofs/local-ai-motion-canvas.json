@@ -35,7 +35,7 @@
   "poster": "local-ai-motion-canvas.jpg",
   "problems": [],
   "artefacts": "$TUTORIAL_OUT/local-ai/motion-canvas",
-  "prompt": "You are connected to a ReelForge video studio through the \"reelforge\" MCP server. Make a vertical reel (1080x1920, 30 fps) about three steps to plan a product demo: an 8-second reel with one scene using only the motion-canvas engine (template animated-explainer, three points). Use the project id \"tut-local-ai-motion-canvas\". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.",
+  "prompt": "You are connected to a RenderWeld video studio through the \"reelforge\" MCP server. Make a vertical reel (1080x1920, 30 fps) about three steps to plan a product demo: an 8-second reel with one scene using only the motion-canvas engine (template animated-explainer, three points). Use the project id \"tut-local-ai-motion-canvas\". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.",
   "llm": {
     "model": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
     "turns": 6,

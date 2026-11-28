@@ -7,7 +7,7 @@ import type {} from '../src/protocol';
  * that loads this module, then calls `window.__reelforgeRender(...)`.
  *
  * Motion Canvas only renders from its editor UI out of the box; this calls the
- * same `Renderer` class the editor uses, with the ReelForge capture exporter.
+ * same `Renderer` class the editor uses, with the RenderWeld capture exporter.
  */
 const projects: Record<string, () => Promise<{ default: Project }>> = {
   'animated-explainer': () => import('./animated-explainer/project?project'),

@@ -23,11 +23,10 @@ The tested path. One host, 4+ vCPU, 8+ GB RAM, Docker with Compose v2.
 ```bash
 git clone <your copy of the repository> renderweld && cd renderweld
 openssl rand -base64 32 > secret_key && chmod 444 secret_key      # keep a copy; stored secrets need it
-# docker-compose.yml reads the old REELFORGE_* names; the server accepts RENDERWELD_* too (RENAMED.md)
-export REELFORGE_SECRET_KEY=$(cat secret_key)
-export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+export RENDERWELD_SECRET_KEY=$(cat secret_key)
+export RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
 docker compose up -d                                  # SQLite + local files in the reelforge-data volume
-# with automatic HTTPS (Caddy): REELFORGE_DOMAIN=studio.example.com REELFORGE_PUBLIC_URL=https://studio.example.com docker compose --profile tls up -d
+# with automatic HTTPS (Caddy): RENDERWELD_DOMAIN=studio.example.com RENDERWELD_PUBLIC_URL=https://studio.example.com docker compose --profile tls up -d
 # with PostgreSQL in the same project: --profile postgres (DATABASE_URL as in DEPLOY.md)
 ```
 
@@ -144,7 +143,7 @@ primary_region = "fra"
   RENDERWELD_TRUST_PROXY = "true"
 
 [[mounts]]
-  source = "reelforge_data"
+  source = "renderweld_data"
   destination = "/data"
 
 [http_service]
@@ -158,7 +157,7 @@ primary_region = "fra"
 ```
 
 ```bash
-fly volumes create reelforge_data --size 50 --region fra
+fly volumes create renderweld_data --size 50 --region fra
 fly secrets set RENDERWELD_SECRET_KEY="$(openssl rand -base64 32)" RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
 fly deploy
 ```

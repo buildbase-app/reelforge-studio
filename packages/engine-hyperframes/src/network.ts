@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * HyperFrames' own "restricted page network" mode starts the browser with a
  * local capture proxy (`--proxy-server`, loopback not bypassed except for its
  * page server, QUIC off, WebRTC limited to proxied connections) and routes its
- * own asset downloads through the same proxy. ReelForge points that proxy's
+ * own asset downloads through the same proxy. RenderWeld points that proxy's
  * upstream at this sink, which refuses every request, and marks every address
  * as non-public, so nothing leaves the machine: not from the page, not from
  * the CLI. Each refused attempt is reported, and the engine fails the render
@@ -81,8 +81,8 @@ export const REFUSED_LINE = /\[CaptureProxy:REFUSED\]\s*class=([\w-]+)/;
  * is preloaded into the CLI and refuses every global fetch that leaves the
  * machine, before any DNS lookup or connection. These are the lines it prints.
  */
-export const FONT_REFUSED_LINE = /\[ReelForge:FONT_REFUSED\] host=(\S+)/;
-export const EGRESS_REFUSED_LINE = /\[ReelForge:EGRESS_REFUSED\] host=(\S+)/;
+export const FONT_REFUSED_LINE = /\[RenderWeld:FONT_REFUSED\] host=(\S+)/;
+export const EGRESS_REFUSED_LINE = /\[RenderWeld:EGRESS_REFUSED\] host=(\S+)/;
 
 /** file: URL of the fetch guard, for `--import`. */
 export function egressGuardUrl(): string {

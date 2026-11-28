@@ -9,7 +9,7 @@ import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 import { testDatabase } from './serverProcess';
 
 /**
- * #184 on the server's database (REELFORGE_TEST_DB=sqlite|postgres|mysql):
+ * #184 on the server's database (RENDERWELD_TEST_DB=sqlite|postgres|mysql):
  * - get_render after a restart (cold in-process index) reads the render's project from its job by run id: no
  *   project is read and storage is only touched under the owning project (no full scan);
  * - list_jobs with parentId lists one render's children, paged, with the filter bound into the cursor.
@@ -25,7 +25,7 @@ let adminKey: string;
 let runId: string;
 let dropDb: () => Promise<void> = async () => undefined;
 const registry = () => new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas'));
-const start = () => startServer({ dataDir, port: 0, host: '127.0.0.1' }, { registry: registry(), env: { ...env, REELFORGE_LICENCE_MODE: 'off' }, quiet: true });
+const start = () => startServer({ dataDir, port: 0, host: '127.0.0.1' }, { registry: registry(), env: { ...env, RENDERWELD_LICENCE_MODE: 'off' }, quiet: true });
 
 beforeAll(async () => {
   const database = await testDatabase(dir);

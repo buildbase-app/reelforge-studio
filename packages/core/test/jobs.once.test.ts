@@ -1,6 +1,6 @@
 /**
  * `worker --once` in the job runner (issue #150, D-100): JobRunner.runOnce()
- * on the in-memory repository. The same flows with real `reelforge worker
+ * on the in-memory repository. The same flows with real `renderweld worker
  * --once` processes on PostgreSQL and MySQL are in
  * apps/server/test/worker-once.processes.test.ts. Ids: BKD-nn in
  * docs/providers/backends.md.

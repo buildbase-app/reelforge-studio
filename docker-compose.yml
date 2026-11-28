@@ -1,11 +1,11 @@
-# ReelForge Studio on one host. See docs/DEPLOY.md.
+# RenderWeld on one host. See docs/DEPLOY.md.
 #
-#   export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)   # first admin key (optional)
+#   export RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)   # first admin key (optional)
 #   docker compose up -d --build
 #   # or, without a bootstrap key, create the first key with the CLI:
-#   docker compose exec reelforge reelforge keys create --name admin --scopes admin
+#   docker compose exec renderweld renderweld keys create --name admin --scopes admin
 #
-# With TLS (Caddy, automatic HTTPS): set REELFORGE_DOMAIN and
+# With TLS (Caddy, automatic HTTPS): set RENDERWELD_DOMAIN and
 #   docker compose --profile tls up -d --build
 #
 # Database: SQLite in the reelforge-data volume by default (nothing to set up).
@@ -24,21 +24,21 @@
 # seccomp profile deployment/seccomp/chrome.json (Docker's default plus the user
 # namespaces Chromium's sandbox needs), so html, hyperframes and motion-canvas
 # render with Chromium's sandbox on. Without that profile set
-# REELFORGE_CHROMIUM_NO_SANDBOX=1.
+# RENDERWELD_CHROMIUM_NO_SANDBOX=1.
 # Test profile (#66): Mailpit catches notification email (SMTP on mailpit:1025,
 # web UI and API on 127.0.0.1:8025). Point the studio at it:
-#   REELFORGE_SMTP_HOST=mailpit REELFORGE_SMTP_PORT=1025 REELFORGE_SMTP_SECURITY=none \
-#   REELFORGE_EMAIL_FROM=studio@example.com docker compose --profile test up -d --build
+#   RENDERWELD_SMTP_HOST=mailpit RENDERWELD_SMTP_PORT=1025 RENDERWELD_SMTP_SECURITY=none \
+#   RENDERWELD_EMAIL_FROM=studio@example.com docker compose --profile test up -d --build
 # POSTGRES_IMAGE / MYSQL_IMAGE pick a mirror of the official images, e.g.
 # mirror.gcr.io/library/postgres:17 or public.ecr.aws/docker/library/mysql:8.4.
 services:
-  reelforge:
+  renderweld:
     build:
       context: .
       args:
         # release (default): licence settings fixed by the image. dev: noncommercial development only (LICENSING.md).
-        REELFORGE_EDITION: ${REELFORGE_EDITION:-release}
-    image: ${REELFORGE_IMAGE:-reelforge-studio:latest}
+        RENDERWELD_EDITION: ${RENDERWELD_EDITION:-release}
+    image: ${RENDERWELD_IMAGE:-reelforge-studio:latest}
     restart: unless-stopped
     user: "10001:10001"
     read_only: true
@@ -50,30 +50,30 @@ services:
       - seccomp=./deployment/seccomp/chrome.json
     ports:
       # Loopback only by default; put a TLS proxy in front for remote agents.
-      - "127.0.0.1:${REELFORGE_PORT:-4321}:4321"
+      - "127.0.0.1:${RENDERWELD_PORT:-4321}:4321"
     environment:
       # rf_ followed by 20+ URL-safe characters; stored hashed on first start if no key exists.
-      REELFORGE_BOOTSTRAP_KEY: ${REELFORGE_BOOTSTRAP_KEY:-}
+      RENDERWELD_BOOTSTRAP_KEY: ${RENDERWELD_BOOTSTRAP_KEY:-}
       # Required by the release image (it does not start without it, #305): encrypts provider keys stored
       # in the database and seals the stored licence state.
-      # export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)   (and keep a copy)
-      REELFORGE_SECRET_KEY: ${REELFORGE_SECRET_KEY:?set REELFORGE_SECRET_KEY first (openssl rand -base64 32)}
+      # export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)   (and keep a copy)
+      RENDERWELD_SECRET_KEY: ${RENDERWELD_SECRET_KEY:?set RENDERWELD_SECRET_KEY first (openssl rand -base64 32)}
       # Optional config file (YAML/JSON, docs/CONFIG.md); mount it and point to it:
-      REELFORGE_CONFIG: ${REELFORGE_CONFIG:-}
-      REELFORGE_PUBLIC_URL: ${REELFORGE_PUBLIC_URL:-}
-      REELFORGE_ALLOWED_HOSTS: ${REELFORGE_ALLOWED_HOSTS:-}
-      REELFORGE_RENDER_CONCURRENCY: ${REELFORGE_RENDER_CONCURRENCY:-1}
+      RENDERWELD_CONFIG: ${RENDERWELD_CONFIG:-}
+      RENDERWELD_PUBLIC_URL: ${RENDERWELD_PUBLIC_URL:-}
+      RENDERWELD_ALLOWED_HOSTS: ${RENDERWELD_ALLOWED_HOSTS:-}
+      RENDERWELD_RENDER_CONCURRENCY: ${RENDERWELD_RENDER_CONCURRENCY:-1}
       # Chromium's own sandbox (needs the seccomp profile above). Remotion always runs without it.
-      REELFORGE_CHROMIUM_NO_SANDBOX: ${REELFORGE_CHROMIUM_NO_SANDBOX:-0}
+      RENDERWELD_CHROMIUM_NO_SANDBOX: ${RENDERWELD_CHROMIUM_NO_SANDBOX:-0}
       # Empty = SQLite at /data/reelforge.db. postgresql://... or mysql://... otherwise.
       DATABASE_URL: ${DATABASE_URL:-}
       # Optional providers / backends (leave empty to keep them off):
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       # Notification email over SMTP (docs/providers/webhooks-and-notifications.md); empty = off.
-      REELFORGE_SMTP_HOST: ${REELFORGE_SMTP_HOST:-}
-      REELFORGE_SMTP_PORT: ${REELFORGE_SMTP_PORT:-}
-      REELFORGE_SMTP_SECURITY: ${REELFORGE_SMTP_SECURITY:-}
-      REELFORGE_EMAIL_FROM: ${REELFORGE_EMAIL_FROM:-}
+      RENDERWELD_SMTP_HOST: ${RENDERWELD_SMTP_HOST:-}
+      RENDERWELD_SMTP_PORT: ${RENDERWELD_SMTP_PORT:-}
+      RENDERWELD_SMTP_SECURITY: ${RENDERWELD_SMTP_SECURITY:-}
+      RENDERWELD_EMAIL_FROM: ${RENDERWELD_EMAIL_FROM:-}
     volumes:
       - reelforge-data:/data
     # Chromium needs more shared memory than Docker's 64 MB default.
@@ -136,12 +136,12 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      REELFORGE_DOMAIN: ${REELFORGE_DOMAIN:-localhost}
+      RENDERWELD_DOMAIN: ${RENDERWELD_DOMAIN:-localhost}
     volumes:
       - ./deployment/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
     depends_on:
-      - reelforge
+      - renderweld
 
 volumes:
   reelforge-data:

@@ -8,7 +8,6 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { fakeEngine } from '../../../packages/core/test/helpers';
 import { BUDGET_GZIP_BYTES } from '../build';
 import { htmlReel, startStudio } from './harness';
-import { envValue } from '@renderweld/core';
 
 /**
  * The dashboard in a real browser against a real studio (fake engines, real
@@ -16,12 +15,12 @@ import { envValue } from '@renderweld/core';
  * key, read-only as a read key, axe-core with 0 violations in light and dark,
  * no CSP violation and no request to another origin.
  */
-const executablePath = envValue('REELFORGE_CHROMIUM_PATH');
+const executablePath = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(executablePath && existsSync(executablePath));
-const requireBrowser = envValue('REELFORGE_REQUIRE_BROWSER') === '1';
+const requireBrowser = process.env.RENDERWELD_REQUIRE_BROWSER === '1';
 const axeSource = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
 
-it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => expect(hasBrowser).toBe(true));
+it.runIf(requireBrowser)('RENDERWELD_REQUIRE_BROWSER=1: a browser must be configured', () => expect(hasBrowser).toBe(true));
 
 describe.runIf(hasBrowser)('dashboard in a browser', () => {
   let studio: Awaited<ReturnType<typeof startStudio>>;
@@ -323,6 +322,33 @@ describe.runIf(hasBrowser)('dashboard in a browser', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await context.close();
   }, 120_000);
+
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 360, height: 740 }]) {
+    it(`a render's page shows when it was first downloaded and when its files go (#487, ${viewport.width} px, no axe violations)`, async () => {
+      const { context, page, requests } = await open('light', viewport);
+      await signIn(page, studio.keys.read);
+      // The retention fields come from servers with #487; this one may predate it, so the answer gets them added.
+      const downloadedAt = new Date(Date.now() - 10 * 60_000).toISOString();
+      const deletesAt = new Date(Date.now() + 50 * 60_000).toISOString();
+      await page.route(
+        (u) => u.pathname === `/v1/renders/${ids.render}`,
+        async (route) => {
+          const res = await route.fetch();
+          const json = { ...(await res.json()), retention: { downloadedAt, deletesAt, deleteReason: 'deleted_after_download', deleteAfterDownloadMinutes: 60 } };
+          await route.fulfill({ response: res, json });
+        }
+      );
+      await page.goto(`${studio.url}/dashboard/#/renders/${ids.render}`);
+      const row = (label: string) => page.locator('dt', { hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd[1]');
+      await row('Deletion').waitFor();
+      expect(await row('First download').textContent()).not.toBe('Not yet');
+      expect(await row('Deletion').textContent()).toContain('· 60 min after the first download');
+      expect(await axe(page), `render with retention, ${viewport.width} px`).toEqual([]);
+      if (process.env.DASHBOARD_SHOTS) await page.screenshot({ path: join(process.env.DASHBOARD_SHOTS, `render-retention-${viewport.width}.png`), fullPage: true });
+      await checkClean(page, context, requests);
+      await context.close();
+    }, 60_000);
+  }
 
   it('a wrong key is refused with a message, and a 360 px screen has no axe violations', async () => {
     const { context, page } = await open('light', { width: 360, height: 740 });

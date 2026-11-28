@@ -13,13 +13,9 @@ import type { AttemptOutcome, ChannelType, EmailProviderId, WebhookDeliveryRecor
 
 /** Email settings (notifications.email.*); secrets are decrypted values. */
 
-/**
- * The notification email's message id header, under the new name and the old
- * one while the rename's aliases last (#412, docs/RENAMED.md): mail filters on
- * X-Reelforge-Message-Id keep working.
- */
+/** The notification email's message id header (mail filters can match on it). */
 export function messageIdHeaders(messageId: string): Record<string, string> {
-  return { 'X-Renderweld-Message-Id': messageId, 'X-Reelforge-Message-Id': messageId };
+  return { 'X-Renderweld-Message-Id': messageId };
 }
 
 export interface EmailSettings {
@@ -287,7 +283,7 @@ export const smtpProvider: NotificationProvider = {
     const abort = () => transport.close();
     ctx.signal.addEventListener('abort', abort, { once: true });
     try {
-      const info = await transport.sendMail({ from: m.from, to: m.to, subject: m.subject, text: m.text, messageId: `<${m.messageId}@reelforge.local>`, headers: messageIdHeaders(m.messageId) });
+      const info = await transport.sendMail({ from: m.from, to: m.to, subject: m.subject, text: m.text, messageId: `<${m.messageId}@renderweld.local>`, headers: messageIdHeaders(m.messageId) });
       const code = Number(/^(\d{3})/.exec(String(info.response ?? ''))?.[1] ?? 250);
       return { outcome: 'success', status: code };
     } catch (e) {

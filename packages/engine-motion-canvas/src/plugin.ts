@@ -4,7 +4,7 @@ import { TEMPLATES } from '@renderweld/project-schema';
 import { motionCanvasVersion, renderMotionCanvasScene, resolveBrowser } from './render';
 
 export interface MotionCanvasEngineOptions {
-  /** Chromium binary; defaults to REELFORGE_CHROMIUM_PATH, then Playwright's default. */
+  /** Chromium binary; defaults to RENDERWELD_CHROMIUM_PATH, then Playwright's default. */
   browserExecutable?: string;
 }
 

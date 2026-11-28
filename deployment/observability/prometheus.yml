@@ -1,14 +1,14 @@
-# Prometheus scrape config for ReelForge Studio (docs/providers/observability.md).
+# Prometheus scrape config for RenderWeld (docs/providers/observability.md).
 # The studio serves the Prometheus text format on GET /metrics of its normal port
 # (observability.metrics.exporter: prometheus, the default).
 global:
   scrape_interval: 30s
 scrape_configs:
-  - job_name: reelforge-studio
+  - job_name: renderweld
     metrics_path: /metrics
     static_configs:
-      - targets: ['reelforge:4321']   # host:port of the studio as Prometheus reaches it
-    # /metrics needs observability.metrics.bearerToken (REELFORGE_METRICS_TOKEN) by default:
+      - targets: ['renderweld:4321']   # host:port of the studio as Prometheus reaches it
+    # /metrics needs observability.metrics.bearerToken (RENDERWELD_METRICS_TOKEN) by default:
     authorization:
       type: Bearer
       credentials_file: /etc/prometheus/reelforge-metrics-token

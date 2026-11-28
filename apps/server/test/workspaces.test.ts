@@ -123,14 +123,14 @@ beforeAll(async () => {
       registry,
       env: {
         ...database.env,
-        REELFORGE_LICENCE_MODE: 'off',
-        REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
-        REELFORGE_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0',
-        REELFORGE_SECRET_KEY: 'workspaces-test-secret-key-0123456789',
-        REELFORGE_WEBHOOKS_ALLOW_HTTP: 'true',
-        REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
+        RENDERWELD_LICENCE_MODE: 'off',
+        RENDERWELD_RATE_LIMIT_PER_MINUTE: '0',
+        RENDERWELD_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0',
+        RENDERWELD_SECRET_KEY: 'workspaces-test-secret-key-0123456789',
+        RENDERWELD_WEBHOOKS_ALLOW_HTTP: 'true',
+        RENDERWELD_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
         // Every audit entry is also an audit.entry event (#66): B's endpoint must get only B's.
-        REELFORGE_AUDIT_SINKS: 'database,webhooks',
+        RENDERWELD_AUDIT_SINKS: 'database,webhooks',
       },
       quiet: true,
     }
@@ -183,6 +183,15 @@ beforeAll(async () => {
   }
   expect(outcome.length).toBeGreaterThan(0);
   a.renderEvent = outcome[0]!.eventId;
+  // Every delivery A's setup queued has settled, so a snapshot of A compares A's data, not how far the delivery
+  // worker has got: a job.* delivery still pending when a test takes its "before" could otherwise be delivered
+  // while B's requests run, and read as a change to A.
+  const unsettled = async () => (await aRepo.listDeliveries({})).filter((d) => d.status === 'pending' || d.status === 'delivering');
+  for (let i = 0; i < 50 && (await unsettled()).length; i++) {
+    await server.service.webhooks.flush();
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  expect(await unsettled()).toEqual([]);
 }, 120_000);
 
 afterAll(async () => {
@@ -351,7 +360,7 @@ describe('workspaces: cross-workspace denial (#304)', () => {
     // Resources and prompts read through the same scoped service.
     const listed = await client.listResources();
     expect(leaks(JSON.stringify(listed))).toBeNull();
-    await expect(client.readResource({ uri: `reelforge://projects/${a.project}` })).rejects.toThrow();
+    await expect(client.readResource({ uri: `renderweld://projects/${a.project}` })).rejects.toThrow();
     await expect(client.getPrompt({ name: 'review_reel', arguments: { projectId: a.project } })).rejects.toThrow();
     await client.close();
     expect(await snapshotA()).toBe(before);

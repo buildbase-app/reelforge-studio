@@ -11,8 +11,8 @@ Every client needs the same three things:
 
 - URL: `http://127.0.0.1:4321/mcp` (or `https://<your host>/mcp` behind TLS)
 - Header: `Authorization: Bearer rf_...` (a key with the `read,write,render` scopes)
-- For a host name other than `localhost`/`127.0.0.1`: `REELFORGE_PUBLIC_URL` or
-  `REELFORGE_ALLOWED_HOSTS` on the studio, or `/mcp` answers `403 forbidden_host`.
+- For a host name other than `localhost`/`127.0.0.1`: `RENDERWELD_PUBLIC_URL` or
+  `RENDERWELD_ALLOWED_HOSTS` on the studio, or `/mcp` answers `403 forbidden_host`.
 
 Once connected, give the client the prompt of the engine you want, e.g. from
 [Claude Code + Remotion](../claude-code/remotion.md#3-ask-for-the-reel), and
@@ -27,7 +27,7 @@ check the result as in step 4 there.
   "mcpServers": {
     "reelforge": {
       "url": "http://127.0.0.1:4321/mcp",
-      "headers": { "Authorization": "Bearer ${env:REELFORGE_API_KEY}" }
+      "headers": { "Authorization": "Bearer ${env:RENDERWELD_API_KEY}" }
     }
   }
 }
@@ -58,7 +58,7 @@ put the key itself in the file and keep the file out of version control.
 ```json
 {
   "inputs": [
-    { "type": "promptString", "id": "reelforge-key", "description": "ReelForge API key (rf_...)", "password": true }
+    { "type": "promptString", "id": "reelforge-key", "description": "RenderWeld API key (rf_...)", "password": true }
   ],
   "servers": {
     "reelforge": {

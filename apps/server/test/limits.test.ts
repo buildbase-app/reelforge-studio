@@ -81,7 +81,7 @@ beforeAll(async () => {
   dropDb = database.drop;
   server = await startServer(
     { dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' },
-    { registry, env: { ...database.env, REELFORGE_LICENCE_MODE: 'off', REELFORGE_METRICS_ALLOW_ANONYMOUS: 'true', REELFORGE_MAX_UPLOAD_BYTES: String(1024 * 1024) }, quiet: true }
+    { registry, env: { ...database.env, RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_METRICS_ALLOW_ANONYMOUS: 'true', RENDERWELD_MAX_UPLOAD_BYTES: String(1024 * 1024) }, quiet: true }
   );
   admin = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   agentA = (await server.service.keys.create('agent-a', ['read', 'write', 'render'])).key;
@@ -250,9 +250,9 @@ describe('limits over REST and MCP', () => {
   it('LIMS-06 /metrics counts rejections by reason (a fixed set of labels)', async () => {
     const r = await api('GET', '/metrics', null);
     expect(r.status).toBe(200);
-    const samples = parsePrometheus(r.text).filter((s) => s.name === 'reelforge_limits_rejections_total');
-    const by = Object.fromEntries(samples.map((s) => [s.labels.reelforge_limit_reason, s.value]));
+    const samples = parsePrometheus(r.text).filter((s) => s.name === 'renderweld_limits_rejections_total');
+    const by = Object.fromEntries(samples.map((s) => [s.labels.renderweld_limit_reason, s.value]));
     for (const reason of ['render_limit', 'jobs_per_key', 'queue_full', 'provider_runs_per_key', 'upload_too_large']) expect(by[reason]).toBeGreaterThanOrEqual(1);
-    for (const s of samples) expect(['render_limit', 'jobs_per_key', 'queue_full', 'queue_wait', 'render_quota', 'upload_too_large', 'provider_runs_per_key', 'provider_budget']).toContain(s.labels.reelforge_limit_reason);
+    for (const s of samples) expect(['render_limit', 'jobs_per_key', 'queue_full', 'queue_wait', 'render_quota', 'upload_too_large', 'provider_runs_per_key', 'provider_budget']).toContain(s.labels.renderweld_limit_reason);
   });
 });

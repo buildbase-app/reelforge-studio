@@ -7,7 +7,6 @@ import { resolveTools } from '@renderweld/media-pipeline';
 import { builtinTheme, type OutputSettings } from '@renderweld/project-schema';
 import { renderHtmlScene } from '../src/index';
 import { TEST_FONTS, inkRatio, readPicture } from '../../media-pipeline/test/media-fixtures';
-import { envValue } from '@renderweld/core';
 
 /**
  * #303: a project font asset is used by the theme in the html engine, and
@@ -16,7 +15,7 @@ import { envValue } from '@renderweld/core';
  * not load fails the render instead of falling back.
  */
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-html-fonts-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
