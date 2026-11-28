@@ -70,7 +70,8 @@ databases and running the studio next to the store site
   `nextCursor`); output download with Range.
 - **Manifest v0.2** (`packages/project-schema`): brief, theme, per-scene
   `durationSeconds` or `durationFrames`, voice/music/sfx, assets, captions
-  (stored, not rendered yet); v0.1 files are migrated automatically.
+  (burned in or as SRT/VTT/ASS sidecars, word highlight from voice timings;
+  docs/CAPTIONS.md); v0.1 files are migrated automatically.
 - **Engines**: Remotion (`kinetic-title`), Motion Canvas (`animated-explainer`,
   headless via its own Renderer), HTML (`html-title` or agent HTML/CSS, seeked
   per frame in a network-blocked sandbox), HyperFrames (`hyperframes-title` or
