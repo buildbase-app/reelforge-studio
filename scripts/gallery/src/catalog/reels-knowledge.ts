@@ -371,7 +371,7 @@ export const KNOWLEDGE: ReelSpec[] = [
     palette: 'default',
     featured: true,
     prompt:
-      'A tutorial reel for ReelForge users: how an agent applies a brand theme to a project in three steps (list themes, set theme, render), with code and a stepper. Default theme, 18 seconds.',
+      'A tutorial reel for RenderWeld users: how an agent applies a brand theme to a project in three steps (list themes, set theme, render), with code and a stepper. Default theme, 18 seconds.',
     scenes: [
       R(2.5, 'Your brand on every reel', 'Three MCP calls'),
       X('step', 3.5, { step: 1, of: 3, title: ['List the', 'themes'], text: 'Call *list_themes*', icon: 'layers' }),

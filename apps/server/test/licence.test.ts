@@ -59,7 +59,7 @@ beforeAll(async () => {
   mock = await startMockLicenceServer({ orgId: ORG, keys: [{ key: KEY, activationLimit: 1 }, { key: KEY_TEAM, activationLimit: 1 }] });
   const database = await testDatabase(dir);
   dropDb = database.drop;
-  env = { ...database.env, REELFORGE_SECRET_KEY: 'licence-server-test-secret-0123456789ab', REELFORGE_LICENCE_SERVER_URL: mock.url, REELFORGE_LICENCE_ORG_ID: ORG };
+  env = { ...database.env, RENDERWELD_SECRET_KEY: 'licence-server-test-secret-0123456789ab', RENDERWELD_LICENCE_SERVER_URL: mock.url, RENDERWELD_LICENCE_ORG_ID: ORG };
   server = await start(join(dir, 'data'));
   admin = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   reader = (await server.service.keys.create('reader', ['read', 'write', 'render'])).key;
@@ -92,7 +92,7 @@ describe('licence over REST and MCP (mock licence server)', () => {
     expect((await api('POST', '/v1/licence', { key: reader, body: { key: KEY } })).status).toBe(403);
     const r = await api('POST', '/v1/licence', { body: { key: KEY } });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ status: 'valid', renderAllowed: true, key: 'MOCKA-*****-*****-*****-*****', keySource: 'runtime', item: { title: 'ReelForge Studio (mock)' }, activations: { used: 1, limit: 1 } });
+    expect(r.body).toMatchObject({ status: 'valid', renderAllowed: true, key: 'MOCKA-*****-*****-*****-*****', keySource: 'runtime', item: { title: 'RenderWeld (mock)' }, activations: { used: 1, limit: 1 } });
     expect(JSON.stringify(r.body)).not.toContain('BCDEF');
     expect(mock.activations(KEY)).toEqual([r.body.instanceId]);
     // Privacy contract: only the key and the instance id, no credentials or extra headers.

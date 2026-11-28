@@ -28,7 +28,7 @@ These are ranked by what they cost us while we sell.
 
 ## 2. Name
 
-**RenderWeld**: one word, capital R and capital W. It replaces ReelForge, which tied the product to vertical reels; RenderWeld renders any size and welds the engines, voice, music and captions into one file (#408).
+**RenderWeld**: one word, capital R and capital W. It replaces RenderWeld, which tied the product to vertical reels; RenderWeld renders any size and welds the engines, voice, music and captions into one file (#408).
 
 | Rule | Right | Wrong |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ These are ranked by what they cost us while we sell.
 | "weld" as our name, "Weld", "RW" | The name is only RenderWeld | RenderWeld |
 | "revolutionary", "magic", "AI-powered", exclamation marks, emoji | Hype reads as AI-written copy | Say what it does, with a number |
 
-Old names keep working for customers during the rename (settings, CLI, MCP URIs, metrics, image name; see [RENAMED.md](RENAMED.md)). In new copy, write only RenderWeld; mention ReelForge only to say it was the old name.
+The old names (settings, CLI, MCP URIs, metrics) are no longer read ([RENAMED.md](RENAMED.md), D-140). In new copy, write only RenderWeld; mention ReelForge only to say it was the old name.
 
 ## 3. Brand mark
 

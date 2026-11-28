@@ -7,7 +7,7 @@ import {
   LicenceManager,
   LicenceServerError,
   PluginRegistry,
-  ReelforgeService,
+  RenderWeldService,
   createMemoryRepositories,
   maskLicenceKey,
   type LicenceAnswer,
@@ -24,13 +24,17 @@ const T0 = Date.parse('2026-11-21T12:00:00.000Z');
 
 /** A mock LicensesApi: one key store with BuildBase's semantics, plus switches for outages. */
 class MockApi implements LicenceApi {
-  keys = new Map<string, { status: string; limit: number | null; instances: Set<string> }>();
+  keys = new Map<string, { status: string; limit: number | null; instances: Set<string>; item?: { id: string; title: string } | null }>();
   calls: Array<{ op: string; key: string; instance?: string }> = [];
   offline = false;
   rateLimited = false;
   serverError = false;
-  constructor(keys: Array<{ key: string; limit?: number | null; status?: string; instances?: string[] }> = [{ key: KEY }]) {
-    for (const k of keys) this.keys.set(k.key, { status: k.status ?? 'active', limit: k.limit === undefined ? 1 : k.limit, instances: new Set(k.instances ?? []) });
+  constructor(keys: Array<{ key: string; limit?: number | null; status?: string; instances?: string[]; item?: { id: string; title: string } | null }> = [{ key: KEY }]) {
+    for (const k of keys) this.keys.set(k.key, { status: k.status ?? 'active', limit: k.limit === undefined ? 1 : k.limit, instances: new Set(k.instances ?? []), item: k.item });
+  }
+  /** The item a key was bought for (BuildBase answers it); `null`: an answer without an item. */
+  private item(k: { item?: { id: string; title: string } | null }) {
+    return k.item === undefined ? { item: { id: 'itm_1', title: 'RenderWeld' } } : k.item ? { item: k.item } : {};
   }
   private fail() {
     if (this.offline) throw new LicenceServerError('unreachable', 'licence server unreachable (ECONNREFUSED)');
@@ -47,7 +51,7 @@ class MockApi implements LicenceApi {
     if (!k) return { valid: false, reason: 'not_found' };
     if (k.status !== 'active') return { valid: false, reason: k.status, key: this.view(k) };
     if (instance && !k.instances.has(instance)) return { valid: false, reason: 'not_activated', key: this.view(k), instance: null };
-    return { valid: true, reason: null, key: this.view(k), item: { id: 'itm_1', title: 'ReelForge Studio' }, instance: instance ? { instance, activatedAt: new Date(T0).toISOString() } : null };
+    return { valid: true, reason: null, key: this.view(k), ...this.item(k), instance: instance ? { instance, activatedAt: new Date(T0).toISOString() } : null };
   }
   async activate(key: string, instance: string): Promise<LicenceAnswer> {
     this.calls.push({ op: 'activate', key, instance });
@@ -59,7 +63,7 @@ class MockApi implements LicenceApi {
       if (k.limit !== null && k.instances.size >= k.limit) return { valid: false, reason: 'limit_reached', key: this.view(k), instance: null };
       k.instances.add(instance);
     }
-    return { valid: true, reason: null, key: this.view(k), item: { id: 'itm_1', title: 'ReelForge Studio' }, instance: { instance, activatedAt: new Date(T0).toISOString() } };
+    return { valid: true, reason: null, key: this.view(k), ...this.item(k), instance: { instance, activatedAt: new Date(T0).toISOString() } };
   }
   async deactivate(key: string, instance: string): Promise<LicenceAnswer> {
     this.calls.push({ op: 'deactivate', key, instance });
@@ -80,7 +84,7 @@ function setup(opts: Partial<Omit<LicenceManagerOptions, 'key' | 'api'>> & { key
   const m = new LicenceManager({
     repo: repos.licence,
     api,
-    key: () => ({ value: keyRef.value, source: 'env (REELFORGE_LICENCE_KEY)' }),
+    key: () => ({ value: keyRef.value, source: 'env (RENDERWELD_LICENCE_KEY)' }),
     mode: opts.mode ?? 'required',
     graceDays: opts.graceDays ?? 14,
     licenceServer: { url: 'https://licence.example.test', orgId: 'org123456' },
@@ -88,6 +92,8 @@ function setup(opts: Partial<Omit<LicenceManagerOptions, 'key' | 'api'>> & { key
     timers: false,
     log: (level, line) => logs.push(`${level}: ${line}`),
     sealSecret: opts.sealSecret ?? 'licence-unit-seal-secret-0123456789abcdef',
+    itemIds: opts.itemIds,
+    version: opts.version,
   });
   return { m, api, repos, clock, keyRef, logs };
 }
@@ -121,8 +127,8 @@ describe('LicenceManager', () => {
     expect(m.report().status).toBe('checking');
     await m.assertRenderAllowed(); // waits for the running check
     const r = m.report();
-    expect(r).toMatchObject({ status: 'valid', reason: null, renderAllowed: true, key: 'ABCDE-*****-*****-*****-*****', keySource: 'env (REELFORGE_LICENCE_KEY)' });
-    expect(r).toMatchObject({ item: { id: 'itm_1', title: 'ReelForge Studio' }, activations: { used: 1, limit: 1 }, lastSuccessAt: new Date(T0).toISOString(), graceUntil: new Date(T0 + 14 * DAY).toISOString() });
+    expect(r).toMatchObject({ status: 'valid', reason: null, renderAllowed: true, key: 'ABCDE-*****-*****-*****-*****', keySource: 'env (RENDERWELD_LICENCE_KEY)' });
+    expect(r).toMatchObject({ item: { id: 'itm_1', title: 'RenderWeld' }, activations: { used: 1, limit: 1 }, lastSuccessAt: new Date(T0).toISOString(), graceUntil: new Date(T0 + 14 * DAY).toISOString() });
     expect(r.nextCheckAt).toBe(new Date(T0 + DAY).toISOString());
     expect(api.calls).toEqual([{ op: 'activate', key: KEY, instance: r.instanceId }]);
     expect(r.instanceId).toMatch(/^rf-[0-9a-f-]{36}$/);
@@ -341,6 +347,95 @@ describe('LicenceManager', () => {
   });
 });
 
+describe('a key covers one major version (licence.itemIds, D-142)', () => {
+  const V1 = { id: 'itm_rw1_commercial', title: 'RenderWeld 1 Commercial' };
+  const V1P = { id: 'itm_rw1_personal', title: 'RenderWeld 1 Personal' };
+  const V2 = { id: 'itm_rw2_commercial', title: 'RenderWeld 2 Commercial' };
+
+  it('LICV-1 a key bought for one of the listed items is valid, Personal and Commercial alike', async () => {
+    for (const item of [V1, V1P]) {
+      const { m, api } = setup({ api: new MockApi([{ key: KEY, item }]), itemIds: [V1.id, V1P.id], version: '1.4.0' });
+      await m.init();
+      const r = await m.check('start');
+      expect(r).toMatchObject({ status: 'valid', renderAllowed: true, item });
+      expect(api.calls.map((c) => c.op)).toEqual(['activate']);
+    }
+  });
+
+  it('LICV-2 a key for another major version is refused (wrong_version), renders stay refused, and its activation is given back', async () => {
+    const { m, api, logs } = setup({ api: new MockApi([{ key: KEY, item: V1 }]), itemIds: [V2.id], version: '2.0.0' });
+    await m.init();
+    const r = await m.check('start');
+    expect(r).toMatchObject({ status: 'invalid', reason: 'wrong_version', renderAllowed: false, activatedAt: null });
+    expect(r.message).toMatch(/bought for another RenderWeld version \(RenderWeld 1 Commercial\); this image is RenderWeld 2\.0\.0 and accepts keys for RenderWeld 2/);
+    expect(r.fix).toMatch(/buy a key for this version/);
+    // It took an activation to learn the item, then gave it back: the buyer's 1.x server keeps its slot.
+    expect(api.calls.map((c) => c.op)).toEqual(['activate', 'deactivate']);
+    expect(api.keys.get(KEY)!.instances.size).toBe(0);
+    const err = await m.assertRenderAllowed().catch((e) => e);
+    expect(err).toMatchObject({ code: 'licence_invalid', status: 403 });
+    expect(logs.join('\n')).toMatch(/wrong_version/);
+  });
+
+  it('LICV-3 an answer that names no item is refused while a list is set; with no list any item works (0.x images)', async () => {
+    const strict = setup({ api: new MockApi([{ key: KEY, item: null }]), itemIds: [V1.id], version: '1.0.0' });
+    await strict.m.init();
+    expect(await strict.m.check('start')).toMatchObject({ status: 'invalid', reason: 'wrong_version' });
+
+    for (const itemIds of [undefined, []]) {
+      const open = setup({ api: new MockApi([{ key: KEY, item: V2 }]), itemIds, version: '0.1.0' });
+      await open.m.init();
+      expect(await open.m.check('start')).toMatchObject({ status: 'valid', item: V2 });
+    }
+  });
+
+  it('LICV-4 upgrading to the next major version: the state a 1.x image stored is not valid on 2.0, also offline (no grace)', async () => {
+    const repos = createMemoryRepositories();
+    const clock = { t: T0 };
+    const api = new MockApi([{ key: KEY, item: V1 }]);
+    const v1 = setup({ api, repos, clock, itemIds: [V1.id], version: '1.9.0' });
+    await v1.m.init();
+    expect(await v1.m.check('start')).toMatchObject({ status: 'valid' });
+
+    // The 2.0 image starts on the same database; the licence server is not reachable.
+    api.offline = true;
+    clock.t += 60_000;
+    const v2 = setup({ api, repos, clock, itemIds: [V2.id], version: '2.0.0' });
+    await v2.m.init();
+    expect(v2.m.report()).toMatchObject({ status: 'invalid', reason: 'wrong_version', renderAllowed: false });
+    await v2.m.check('scheduled');
+    expect(v2.m.report()).toMatchObject({ status: 'invalid', renderAllowed: false });
+
+    // Online again: the daily validate still says "valid" for the key; the 2.0 image still refuses it and keeps no
+    // activation of its own. Going back to the 1.x image works.
+    api.offline = false;
+    clock.t += DAY;
+    expect(await v2.m.check('scheduled')).toMatchObject({ status: 'invalid', reason: 'wrong_version' });
+    const back = setup({ api, repos, clock, itemIds: [V1.id], version: '1.9.0' });
+    await back.m.init();
+    expect(await back.m.check('start')).toMatchObject({ status: 'valid' });
+  });
+
+  it('LICV-5 a valid stored answer edited to name an accepted item fails the seal: no valid state without the licence server', async () => {
+    const repos = createMemoryRepositories();
+    const { m } = setup({ api: new MockApi([{ key: KEY, item: V1 }]), repos, itemIds: [V2.id], version: '2.0.0' });
+    await m.init();
+    await m.check('start');
+    const row = (await repos.licence.get())!;
+    const answer = JSON.parse(JSON.stringify(row.answer)) as Record<string, unknown>;
+    answer.valid = true;
+    answer.reason = null;
+    answer.item = V2;
+    await repos.licence.save({ ...row, answer, lastSuccessAt: new Date(T0).toISOString() });
+    const offline = new MockApi([{ key: KEY, item: V1 }]);
+    offline.offline = true;
+    const again = setup({ api: offline, repos, itemIds: [V2.id], version: '2.0.0' });
+    await again.m.init();
+    expect(again.m.report()).toMatchObject({ renderAllowed: false });
+    expect(again.m.report().status).not.toBe('valid');
+  });
+});
+
 describe('BuildBaseLicenceClient (HTTP)', () => {
   type Call = { url: string; init: RequestInit };
   const client = (respond: (call: Call) => Response | Promise<Response>) => {
@@ -400,7 +495,7 @@ describe('BuildBaseLicenceClient (HTTP)', () => {
   });
 });
 
-describe('ReelforgeService with a licence', () => {
+describe('RenderWeldService with a licence', () => {
   const { dir, cleanup } = tempDir('reelforge-licence-svc-');
   afterAll(cleanup);
   const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
@@ -409,10 +504,10 @@ describe('ReelforgeService with a licence', () => {
     const api = new MockApi();
     const clock = { t: T0 };
     const registry = new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas'));
-    const svc = await ReelforgeService.create(registry, {
+    const svc = await RenderWeldService.create(registry, {
       repositories: createMemoryRepositories(),
       dataDir: join(dir, 'data'),
-      configSources: { env: { REELFORGE_SECRET_KEY: 'licence-test-secret-key-0123456789abcd' } },
+      configSources: { env: { RENDERWELD_SECRET_KEY: 'licence-test-secret-key-0123456789abcd' } },
       licence: { api, now: () => clock.t },
     });
     await svc.createProject(sample);
@@ -455,10 +550,10 @@ describe('ReelforgeService with a licence', () => {
 
   it('activate_licence without a key and none configured is a clear 400; update_config of licence.key activates in the background', async () => {
     const api = new MockApi();
-    const svc = await ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), {
+    const svc = await RenderWeldService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')), {
       repositories: createMemoryRepositories(),
       dataDir: join(dir, 'data2'),
-      configSources: { env: { REELFORGE_SECRET_KEY: 'licence-test-secret-key-0123456789abcd' } },
+      configSources: { env: { RENDERWELD_SECRET_KEY: 'licence-test-secret-key-0123456789abcd' } },
       licence: { api },
     });
     await expect(svc.activateLicence(undefined)).rejects.toMatchObject({ code: 'licence_key_missing', status: 400 });
@@ -496,7 +591,7 @@ describe('licence at scale: one check per deployment, workers never call', () =>
     const m = new LicenceManager({
       repo: shared.repos.licence,
       api: o.readOnly ? forbidden : shared.api,
-      key: () => ({ value: keyRef.value, source: 'env (REELFORGE_LICENCE_KEY)' }),
+      key: () => ({ value: keyRef.value, source: 'env (RENDERWELD_LICENCE_KEY)' }),
       mode: 'required',
       graceDays: 14,
       licenceServer: { url: 'https://licence.example.test', orgId: 'org123456' },
@@ -593,11 +688,11 @@ describe('licence at scale: one check per deployment, workers never call', () =>
     const a = c.apis[0]!;
     await a.m.init();
     await a.m.check('start', { claim: true });
-    // Another REELFORGE_SECRET_KEY than the api instances: the seal does not verify.
+    // Another RENDERWELD_SECRET_KEY than the api instances: the seal does not verify.
     const other = instance('worker-other', c, { readOnly: true, secret: 'a-different-secret-key-0123456789abcdef' });
     await other.m.init();
     expect(other.m.report()).toMatchObject({ status: 'invalid', reason: 'state_untrusted', renderAllowed: false });
-    expect(other.logs.some((l) => /^error: licence: the stored licence state failed its integrity check .*different REELFORGE_SECRET_KEY/.test(l))).toBe(true);
+    expect(other.logs.some((l) => /^error: licence: the stored licence state failed its integrity check .*different RENDERWELD_SECRET_KEY/.test(l))).toBe(true);
     // The database row edited by hand.
     const stored = (await c.repos.licence.get())!;
     await c.repos.licence.save({ ...stored, lastSuccessAt: '2099-01-01T00:00:00.000Z' });
@@ -722,12 +817,12 @@ describe('licence at scale: one check per deployment, workers never call', () =>
       const repos = createMemoryRepositories();
       const api = new MockApi();
       const clock = { t: Date.now() };
-      const env = { REELFORGE_SECRET_KEY: SECRET, REELFORGE_LICENCE_KEY: KEY, REELFORGE_STORAGE_LOCAL_SHARED: 'true' };
+      const env = { RENDERWELD_SECRET_KEY: SECRET, RENDERWELD_LICENCE_KEY: KEY, RENDERWELD_STORAGE_LOCAL_SHARED: 'true' };
       const mk = (role: 'api' | 'worker', workerId: string, licenceApi: LicenceApi) =>
-        ReelforgeService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas')), {
+        RenderWeldService.create(new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas')), {
           repositories: repos,
           dataDir: join(dir, 'data'),
-          configSources: { env: { ...env, REELFORGE_ROLE: role } },
+          configSources: { env: { ...env, RENDERWELD_ROLE: role } },
           licence: { api: licenceApi, now: () => clock.t, refreshMs: 50 },
           queue: { workerId, pollMs: 50, leaseMs: 4000, heartbeatMs: 300 },
           maintenance: false,

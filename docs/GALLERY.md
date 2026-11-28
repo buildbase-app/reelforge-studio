@@ -14,7 +14,7 @@ pnpm gallery upload            R2 bucket reelforge-media, immutable cache header
 pnpm gallery publish           BuildBase Collection "gallery" (Records API)  ──▶  store /gallery
 ```
 
-`<out>` is `$REELFORGE_GALLERY_OUT` (or `--out`), default `./gallery-out`
+`<out>` is `$RENDERWELD_GALLERY_OUT` (or `--out`), default `./gallery-out`
 (git-ignored). Renders never go into git; they go to R2.
 
 ## Reproduce every reel
@@ -23,7 +23,7 @@ pnpm gallery publish           BuildBase Collection "gallery" (Records API)  ─
 pnpm i
 export RENDERWELD_CHROMIUM_PATH=/path/to/chrome-headless-shell
 export RENDERWELD_CHROMIUM_NO_SANDBOX=1        # only in a container without user namespaces
-export REELFORGE_GALLERY_OUT=/tmp/gallery
+export RENDERWELD_GALLERY_OUT=/tmp/gallery
 pnpm gallery render                            # all 119; or: pnpm gallery render <slug> <slug>
 pnpm gallery check && pnpm gallery transcode
 ```
@@ -170,7 +170,7 @@ max-age=31536000, immutable` and its content type, plus each reel's manifest
 as `gallery/<slug>/manifest.<hash>.json`. Hashed keys never change, so the
 step skips what its ledger (`<out>/web/r2-uploaded.json`) says is uploaded and
 can be re-run. `<out>/web/urls.json` has every public URL under
-`REELFORGE_GALLERY_MEDIA_URL` (default `https://media.renderweld.com`,
+`RENDERWELD_GALLERY_MEDIA_URL` (default `https://media.renderweld.com`,
 the planned custom domain on the bucket).
 
 Behind an HTTPS proxy, run Node with `NODE_USE_ENV_PROXY=1` so `fetch` uses

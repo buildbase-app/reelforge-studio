@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { measureEbur128, probe, resolveTools, run } from '@renderweld/media-pipeline';
 import { parseProject } from '@renderweld/project-schema';
-import { AUDIO_DEFAULTS, PluginRegistry, ReelforgeService, createMemoryRepositories, resolveAudioPlan, sfxMaskingIssues, verifyAudio, type AudioManifest } from '../src/index';
+import { AUDIO_DEFAULTS, PluginRegistry, RenderWeldService, createMemoryRepositories, resolveAudioPlan, sfxMaskingIssues, verifyAudio, type AudioManifest } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
 
 // Renders through the service with the fake engines and synthetic audio (#301, #298): loudness after the final AAC
@@ -12,7 +12,7 @@ const { dir, cleanup } = tempDir('reelforge-audio-');
 afterAll(cleanup);
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
 const tools = resolveTools();
-let svc: ReelforgeService;
+let svc: RenderWeldService;
 
 async function wav(name: string, source: string, filter = 'anull') {
   const file = join(dir, name);
@@ -22,7 +22,7 @@ async function wav(name: string, source: string, filter = 'anull') {
 
 beforeAll(async () => {
   const registry = new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas'));
-  svc = await ReelforgeService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } } });
+  svc = await RenderWeldService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } } });
   await svc.createProject({ ...sample, projectId: 'mix' });
   const lic = { name: 'CC0-1.0', redistributable: true };
   // Loud on purpose, like today's renders: tones near full scale, a voice of band-limited noise bursts, a hit.

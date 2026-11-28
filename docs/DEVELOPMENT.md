@@ -401,7 +401,7 @@ runs `pnpm dev:all` and the site's `npm run dev:all` (or `npm run dev`) together
 The site gets `STUDIO_REPO_DIR` (the studio checkout; `npm run check:mcp-tools` and
 its refresh read the tool list there instead of GitHub) and `STUDIO_URL`. To refresh
 the site's tool list from the running studio, create a read key and run in the site:
-`REELFORGE_URL=http://127.0.0.1:4321 REELFORGE_KEY=rf_... node scripts/agents/refresh-mcp-tools.mjs --live`.
+`RENDERWELD_URL=http://127.0.0.1:4321 RENDERWELD_KEY=rf_... node scripts/agents/refresh-mcp-tools.mjs --live`.
 
 On Windows, run `both.sh` in WSL2 or Git Bash; otherwise run the two repos' commands
 in two terminals.
@@ -420,7 +420,6 @@ in two terminals.
 | `host "..." is not allowed; set RENDERWELD_PUBLIC_URL or RENDERWELD_ALLOWED_HOSTS` (403 `forbidden_host`) | you reach the studio by a name other than localhost/127.0.0.1 (a LAN IP, a tunnel) | `RENDERWELD_ALLOWED_HOSTS=myhost` or `RENDERWELD_PUBLIC_URL=https://...` |
 | `no browser: set RENDERWELD_CHROMIUM_PATH ...` | no Chrome Headless Shell | [Chromium](#chromium) |
 | `ffmpeg was not found ...` or `... cannot run the audio pipeline ...` | FFmpeg missing or minimal | [FFmpeg](#ffmpeg) |
-| `RENDERWELD_X and its old name REELFORGE_X are both set, with different values` | an old variable in your shell profile | remove the `REELFORGE_` one (`pnpm dev:all` already prefers your shell's value over `.env.local`) |
 | a weak-key refusal for `RENDERWELD_BOOTSTRAP_KEY` (`needs at least 32 random characters after rf_`) | a hand-typed key | `pnpm dev:setup --force`, or `rf_$(openssl rand -hex 24)` |
 | renders refused: licence `unlicensed` | licence mode `required` without a key | [licence](#licence) |
 | `--workers needs PostgreSQL or MySQL` | SQLite cannot share the queue between processes | `pnpm dev:setup --postgres` |
@@ -447,14 +446,10 @@ only (noncommercial, [LICENSING.md](../LICENSING.md)). Paths that need a licence
 
 ## The rename
 
-ReelForge Studio is now RenderWeld ([RENAMED.md](RENAMED.md)). Every `REELFORGE_*`
-variable has a `RENDERWELD_*` twin and both work; the scripts and this page use the
-new names. The package names (`@renderweld/*`), the repository name, the
-`reelforge.db` file and the `reelforge-whisper` program keep their old names for now.
-
-| Old | New |
-| --- | --- |
-| `RENDERWELD_*` settings | `RENDERWELD_*` |
-| `pnpm renderweld ...` | `pnpm renderweld ...` |
-| `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_TEST_DB` | `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_TEST_DB` |
-| `renderweld://` MCP resources | `renderweld://` |
+ReelForge Studio is now RenderWeld ([RENAMED.md](RENAMED.md)). The old names
+are no longer read (D-140): not the `REELFORGE_*` settings, the `reelforge` command or the `reelforge://` URIs.
+Use the `RENDERWELD_*` names. Internal names keep their
+old spelling: the repository, the `reelforge.db` file, the `reelforge-data`
+volume and the `reelforge-whisper` program. The test switches are
+`RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_REQUIRE_EGRESS`, `RENDERWELD_REQUIRE_STORAGE` and `RENDERWELD_TEST_DB`,
+and the image's version build argument is `RENDERWELD_VERSION`.

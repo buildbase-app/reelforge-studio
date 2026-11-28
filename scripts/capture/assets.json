@@ -6846,7 +6846,7 @@
       "assetId": "6b02b22434acc7ecedc8249f",
       "assetName": "rf-capture--studio--local--metrics--1280--dark--fold--5ceead41.webp",
       "bytes": 127730,
-      "caption": "Served when observability.metrics.exporter is prometheus, to callers with the bearer token (REELFORGE_METRICS_TOKEN, masked).",
+      "caption": "Served when observability.metrics.exporter is prometheus, to callers with the bearer token (RENDERWELD_METRICS_TOKEN, masked).",
       "capturedOn": "2026-11-22",
       "crop": "fold",
       "group": "studio",

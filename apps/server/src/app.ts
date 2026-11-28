@@ -16,7 +16,7 @@ import {
   type AuthContext,
   type FrameAt,
   type KeyOptions,
-  type ReelforgeService,
+  type RenderWeldService,
   type RequestContext,
   type Scope,
 } from '@renderweld/core';
@@ -41,7 +41,7 @@ import { publicReadiness, readiness } from './readiness';
 export type Env = { Variables: { auth: AuthContext; requestId: string } };
 
 export interface AppDeps {
-  service: ReelforgeService;
+  service: RenderWeldService;
   config: ServerConfig;
   /** Logs, metrics and traces (startServer makes one from the observability settings; default: metrics only, no log output). */
   observability?: Observability;
@@ -231,7 +231,7 @@ export function createApp(deps: AppDeps) {
           const lockout = guard.failure(ctx?.ip);
           if (lockout) obs.logger.log('warn', `auth: ${ctx?.ip} locked out for ${lockout}s after repeated failed authentications`, { request_id: ctx?.requestId });
         }
-        challenge(c, true, { error: v.error, description: v.description, ...(v.error === 'insufficient_scope' ? { scope: 'reelforge:read' } : {}) });
+        challenge(c, true, { error: v.error, description: v.description, ...(v.error === 'insufficient_scope' ? { scope: 'renderweld:read' } : {}) });
         return { response: c.json(errorBody(v.error, `access token refused: ${v.description}`), v.error === 'insufficient_scope' ? 403 : 401) };
       }
       // A blocked subject (#479) is refused before its token expires; the list is a runtime setting, read live.
@@ -435,7 +435,7 @@ export function createApp(deps: AppDeps) {
       return c.json(
         errorBody(
           'unauthorized',
-          '/metrics needs a token: set observability.metrics.bearerToken (REELFORGE_METRICS_TOKEN) and send "Authorization: Bearer <token>", or set observability.metrics.allowAnonymous (REELFORGE_METRICS_ALLOW_ANONYMOUS=true) for a scraper on a private network'
+          '/metrics needs a token: set observability.metrics.bearerToken (RENDERWELD_METRICS_TOKEN) and send "Authorization: Bearer <token>", or set observability.metrics.allowAnonymous (RENDERWELD_METRICS_ALLOW_ANONYMOUS=true) for a scraper on a private network'
         ),
         401
       );
@@ -474,7 +474,7 @@ export function createApp(deps: AppDeps) {
     // DNS-rebinding protection: the Host (and Origin, when a browser sends one) must be ours.
     const host = hostName(c.req.header('host'));
     if (!config.allowedHosts.includes(host)) {
-      return c.json(errorBody('forbidden_host', `host "${host}" is not allowed; set REELFORGE_PUBLIC_URL or REELFORGE_ALLOWED_HOSTS`), 403);
+      return c.json(errorBody('forbidden_host', `host "${host}" is not allowed; set RENDERWELD_PUBLIC_URL or RENDERWELD_ALLOWED_HOSTS`), 403);
     }
     const origin = c.req.header('origin');
     if (origin && !originAllowed(origin, c.req.header('host'), config)) {
@@ -924,7 +924,7 @@ function keyOptions(b: Record<string, unknown>): KeyOptions {
  * file as it arrives (stopped at limits.maxUploadBytes), the other fields
  * (projectId, assetId, license) are read as they come, before or after it.
  */
-async function multipartUpload(c: Context, service: ReelforgeService) {
+async function multipartUpload(c: Context, service: RenderWeldService) {
   const body = c.req.raw.body;
   if (!body) throw new ApiError('bad_request', 400, 'multipart upload needs a "file" field');
   let bb: busboy.Busboy;
@@ -935,7 +935,7 @@ async function multipartUpload(c: Context, service: ReelforgeService) {
   }
   const fields: Record<string, string> = {};
   const src = Readable.fromWeb(body as import('node:stream/web').ReadableStream<Uint8Array>);
-  let upload: ReturnType<ReelforgeService['uploadAssetStream']> | undefined;
+  let upload: ReturnType<RenderWeldService['uploadAssetStream']> | undefined;
   let fail!: (e: unknown) => void;
   const failed = new Promise<never>((_, reject) => (fail = reject));
   failed.catch(() => undefined);
@@ -985,7 +985,7 @@ function parseLicense(s: string) {
 }
 
 /** Stream a stored file through the server, with Range support (video players seek); works on every storage driver. */
-async function sendStored(c: Context, service: ReelforgeService, o: { key: string; contentType: string; bytes: number }, name: string) {
+async function sendStored(c: Context, service: RenderWeldService, o: { key: string; contentType: string; bytes: number }, name: string) {
   const size = o.bytes;
   const headers: Record<string, string> = {
     'Content-Type': o.contentType,

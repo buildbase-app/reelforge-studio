@@ -5,7 +5,7 @@
  * the render pages of the MOV and the GIF. Desktop 1440 px and mobile 390 px,
  * light and dark, device scale factor 2.
  *
- *   REELFORGE_CHROMIUM_PATH=... pnpm --filter @renderweld/dashboard screenshots:formats [outDir]
+ *   RENDERWELD_CHROMIUM_PATH=... pnpm --filter @renderweld/dashboard screenshots:formats [outDir]
  */
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -13,8 +13,8 @@ import { htmlEngine } from '@renderweld/engine-html';
 import { chromium, type Page } from 'playwright';
 import { startStudio } from '../test/harness';
 
-const executablePath = process.env.REELFORGE_CHROMIUM_PATH;
-if (!executablePath) throw new Error('set REELFORGE_CHROMIUM_PATH');
+const executablePath = process.env.RENDERWELD_CHROMIUM_PATH;
+if (!executablePath) throw new Error('set RENDERWELD_CHROMIUM_PATH');
 const out = resolve(process.argv[2] ?? join(import.meta.dirname, '..', '..', '..', 'docs', 'proofs', 'dashboard'));
 mkdirSync(out, { recursive: true });
 

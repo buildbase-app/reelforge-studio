@@ -59,10 +59,10 @@ RenderWeld store); commercial use needs a commercial licence.
 ${fence(
   'bash',
   `git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
 docker compose up -d --build                                 # 127.0.0.1:4321, hardened defaults
-docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>
-docker compose exec reelforge renderweld keys create --name agent --scopes read,write,render`
+docker compose exec renderweld renderweld licence activate <YOUR-LICENCE-KEY>
+docker compose exec renderweld renderweld keys create --name agent --scopes read,write,render`
 )}
 
 **B. From a checkout with pnpm (local development only).** \`pnpm dev\` sets
@@ -80,7 +80,7 @@ pnpm dev`
 
 Keep the printed key in an environment variable, not in files you commit:
 
-${fence('bash', `export RF=${RF}\nexport REELFORGE_API_KEY=rf_...      # the key printed above\nexport KEY=$REELFORGE_API_KEY`)}
+${fence('bash', `export RF=${RF}\nexport RENDERWELD_API_KEY=rf_...      # the key printed above\nexport KEY=$RENDERWELD_API_KEY`)}
 
 More: [DEPLOY.md](${rel}DEPLOY.md), [CONFIG.md](${rel}CONFIG.md), [licence](${rel}DEPLOY.md#licence).`;
 }
@@ -89,7 +89,7 @@ function commonTroubleshooting(): string {
   return `| Symptom | Cause and fix |
 | --- | --- |
 | \`401 unauthorized\` | Missing or wrong key. Send \`Authorization: Bearer rf_...\`; check it with \`curl -H "Authorization: Bearer $KEY" $RF/v1/capabilities\`. |
-| \`403 forbidden_host\` on \`/mcp\` | The Host header is not allowed (DNS-rebinding protection). Use \`127.0.0.1\`/\`localhost\`, or set \`REELFORGE_PUBLIC_URL\` / \`REELFORGE_ALLOWED_HOSTS\`. |
+| \`403 forbidden_host\` on \`/mcp\` | The Host header is not allowed (DNS-rebinding protection). Use \`127.0.0.1\`/\`localhost\`, or set \`RENDERWELD_PUBLIC_URL\` / \`RENDERWELD_ALLOWED_HOSTS\`. |
 | \`403 licence_required\` / \`licence_invalid\` on a render | Activate a licence key (\`renderweld licence activate <key>\`; Personal is free). \`RENDERWELD_LICENCE_MODE=off\` exists for local development from a checkout only. |
 | \`403 forbidden\` (scope) | The key lacks a scope: rendering needs \`render\`, creating projects \`write\`. Create a key with \`--scopes read,write,render\`. |
 | An engine shows \`available: false\` | \`RENDERWELD_CHROMIUM_PATH\` is unset or wrong (checkout), or the image is not the release image. \`get_capabilities\` says how to fix it. |
@@ -143,7 +143,7 @@ Test case: ${id} in [TEST_CASES.md](../TEST_CASES.md).`;
     '| | |',
     '| --- | --- |',
     `| Date | ${p.date.replace('T', ' ').replace(/\.\d+Z$/, ' UTC')} |`,
-    `| Studio | RenderWeld ${p.studioVersion}, commit \`${p.commit}\`, started from a checkout with \`REELFORGE_LICENCE_MODE=off\` (local development only) |`,
+    `| Studio | RenderWeld ${p.studioVersion}, commit \`${p.commit}\`, started from a checkout with \`RENDERWELD_LICENCE_MODE=off\` (local development only) |`,
     `| Reproduce | \`pnpm tutorials:prove ${agent} ${engine}\` |`,
     `| Command the proof ran | \`${p.command.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')}\` |`,
   ];
@@ -174,12 +174,12 @@ function claudeSteps(engine: CellEngine): string {
 
 Interactive use: add the server once (it is stored in your Claude Code config).
 
-${fence('bash', `claude mcp add --transport http reelforge ${RF}/mcp \\\n  --header "Authorization: Bearer $REELFORGE_API_KEY"\nclaude mcp list        # reelforge: ... - ✔ connected`)}
+${fence('bash', `claude mcp add --transport http reelforge ${RF}/mcp \\\n  --header "Authorization: Bearer $RENDERWELD_API_KEY"\nclaude mcp list        # reelforge: ... - ✔ connected`)}
 
 Headless use (what the proof runs): a config file passed with \`--mcp-config\`.
 Create it with mode 600; it holds the key ([template](../../../examples/tutorials/claude-mcp.json)):
 
-${fence('bash', `umask 077\nprintf '{"mcpServers":{"reelforge":{"type":"http","url":"%s/mcp","headers":{"Authorization":"Bearer %s"}}}}' "$RF" "$REELFORGE_API_KEY" > mcp.json`)}
+${fence('bash', `umask 077\nprintf '{"mcpServers":{"reelforge":{"type":"http","url":"%s/mcp","headers":{"Authorization":"Bearer %s"}}}}' "$RF" "$RENDERWELD_API_KEY" > mcp.json`)}
 
 ### 3. Ask for the reel
 
@@ -222,9 +222,9 @@ ${fence('bash', 'npm i -g @openai/codex\ncodex login            # or: export OPE
 Add the studio to \`~/.codex/config.toml\` ([template](../../../examples/tutorials/codex-config.toml)).
 The key stays in your environment, not in the file:
 
-${fence('toml', `[mcp_servers.reelforge]\nurl = "${RF}/mcp"\nbearer_token_env_var = "REELFORGE_API_KEY"`)}
+${fence('toml', `[mcp_servers.reelforge]\nurl = "${RF}/mcp"\nbearer_token_env_var = "RENDERWELD_API_KEY"`)}
 
-${fence('bash', 'export REELFORGE_API_KEY=rf_...\ncodex mcp list         # reelforge should be listed')}
+${fence('bash', 'export RENDERWELD_API_KEY=rf_...\ncodex mcp list         # reelforge should be listed')}
 
 ### 3. Ask for the reel
 
@@ -238,7 +238,7 @@ ${fence(
   'bash',
   `codex exec --json --skip-git-repo-check --sandbox read-only \\
   -c 'mcp_servers.reelforge.url="${RF}/mcp"' \\
-  -c 'mcp_servers.reelforge.bearer_token_env_var="REELFORGE_API_KEY"' \\
+  -c 'mcp_servers.reelforge.bearer_token_env_var="RENDERWELD_API_KEY"' \\
   -c 'approval_policy="never"' \\
   "$(cat prompt.txt)" > transcript.jsonl`
 )}
@@ -287,7 +287,7 @@ ${fence('json', readFileSync(join(REPO, m), 'utf8'))}
 
 ### 4. Run it
 
-${fence('bash', `REELFORGE_URL=$RF REELFORGE_API_KEY=$KEY node examples/tutorials/mcp-client.mjs ${m}`)}
+${fence('bash', `RENDERWELD_URL=$RF RENDERWELD_API_KEY=$KEY node examples/tutorials/mcp-client.mjs ${m}`)}
 
 It prints one line per tool call, the job progress, then the render (size,
 frames, duration, whether the poster image came back) and a \`RESULT {...}\`
@@ -355,7 +355,7 @@ Live progress instead of polling: \`curl -N -H "Authorization: Bearer $KEY" $RF/
 
 [\`examples/tutorials/rest-fetch.mjs\`](../../../examples/tutorials/rest-fetch.mjs) (Node 22, no dependencies) makes the same calls:
 
-${fence('bash', `REELFORGE_URL=$RF REELFORGE_API_KEY=$KEY node examples/tutorials/rest-fetch.mjs ${m} ${id} final.mp4`)}
+${fence('bash', `RENDERWELD_URL=$RF RENDERWELD_API_KEY=$KEY node examples/tutorials/rest-fetch.mjs ${m} ${id} final.mp4`)}
 
 ### Automation tools
 
@@ -404,7 +404,7 @@ ${fence('text', prompt)}
 
 ${fence(
   'bash',
-  `REELFORGE_URL=$RF REELFORGE_API_KEY=$KEY \\
+  `RENDERWELD_URL=$RF RENDERWELD_API_KEY=$KEY \\
 LOCAL_AGENT_MODULES=~/reelforge-local-ai \\
 LOCAL_AGENT_MODEL=~/reelforge-local-ai/Qwen3-4B-Instruct-2507-Q4_K_M.gguf \\
   node scripts/tutorials/local-agent.mjs "$(cat prompt.txt)"`
@@ -413,7 +413,7 @@ LOCAL_AGENT_MODEL=~/reelforge-local-ai/Qwen3-4B-Instruct-2507-Q4_K_M.gguf \\
 With **Ollama** or **llama.cpp's \`llama-server --jinja\`** instead (any
 OpenAI-compatible endpoint with tool calling; **documented, not proven**):
 
-${fence('bash', `LOCAL_AGENT_BACKEND=openai LOCAL_AGENT_BASE_URL=http://127.0.0.1:11434/v1 LOCAL_AGENT_MODEL=qwen2.5:7b-instruct \\\nREELFORGE_URL=$RF REELFORGE_API_KEY=$KEY node scripts/tutorials/local-agent.mjs "$(cat prompt.txt)"`)}
+${fence('bash', `LOCAL_AGENT_BACKEND=openai LOCAL_AGENT_BASE_URL=http://127.0.0.1:11434/v1 LOCAL_AGENT_MODEL=qwen2.5:7b-instruct \\\nRENDERWELD_URL=$RF RENDERWELD_API_KEY=$KEY node scripts/tutorials/local-agent.mjs "$(cat prompt.txt)"`)}
 
 ### 4. Download and check the reel
 
@@ -534,10 +534,10 @@ const AGENT_TROUBLE: Record<AgentId, string> = {
 | \`error_max_turns\` | The task needed more turns; raise \`--max-turns\` or make the prompt more specific (name the engine and template). |
 | The agent uses another server's tools | Add \`--strict-mcp-config\` so only \`--mcp-config\` servers load. |`,
   codex: `| \`codex mcp list\` does not show reelforge | The config file is not \`~/.codex/config.toml\` (or \`$CODEX_HOME/config.toml\`), or the TOML table name is wrong. |
-| The MCP server fails to start or times out | \`REELFORGE_API_KEY\` is not exported in the shell that runs Codex, or the studio is not reachable. |
+| The MCP server fails to start or times out | \`RENDERWELD_API_KEY\` is not exported in the shell that runs Codex, or the studio is not reachable. |
 | Tool calls wait for approval in \`exec\` | Set \`approval_policy = "never"\` for headless runs (VERIFY the key for your version). |`,
   'mcp-sdk': `| \`Cannot find package '@modelcontextprotocol/sdk'\` | Run the script from this repository, or \`npm i @modelcontextprotocol/sdk@1.32.2\` next to it. |
-| \`fetch failed\` / \`ECONNREFUSED\` | The studio is not running on \`REELFORGE_URL\`. |
+| \`fetch failed\` / \`ECONNREFUSED\` | The studio is not running on \`RENDERWELD_URL\`. |
 | A tool result has \`isError: true\` | The script prints the error body and stops; the \`code\` and \`details\` say what to fix. |`,
   rest: `| \`curl: (22) ... 4xx\` | \`-f\` makes curl fail on an HTTP error; run the call without \`-f\` to see the JSON error body. |
 | \`409 version_conflict\` | Another writer changed the project; read it again (\`GET /v1/projects/:id\`) and retry. |
@@ -621,11 +621,6 @@ proof: the same prompt or script, run against a real studio, with the output
 checked by ffprobe. A cell is ✅ only after such a run passed; everything else
 says why it is not proven.
 
-The proofs were recorded before ReelForge was renamed RenderWeld, so the
-prompts and commands keep the names those runs used: the MCP server entry is
-called \`reelforge\` (tools \`mcp__reelforge__*\`), and the example scripts read
-\`REELFORGE_URL\` and \`REELFORGE_API_KEY\`. Everything works under those names.
-They change when the cells are proved again (\`pnpm tutorials:prove\`).
 
 ${head}
 ${rows}
@@ -654,17 +649,17 @@ same MCP endpoint: [mcp-sdk/other-clients.md](mcp-sdk/other-clients.md)
    licence is free):
 
 ${indent(fence('bash', `git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)   # keep a copy
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)   # keep a copy
 docker compose up -d --build
-docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>`), 3)}
+docker compose exec renderweld renderweld licence activate <YOUR-LICENCE-KEY>`), 3)}
 
 2. **Create a key for your agent** (printed once):
 
-${indent(fence('bash', 'docker compose exec reelforge renderweld keys create --name claude --scopes read,write,render\nexport REELFORGE_API_KEY=rf_...'), 3)}
+${indent(fence('bash', 'docker compose exec renderweld renderweld keys create --name claude --scopes read,write,render\nexport RENDERWELD_API_KEY=rf_...'), 3)}
 
 3. **Connect Claude Code**:
 
-${indent(fence('bash', `claude mcp add --transport http reelforge ${RF}/mcp \\\n  --header "Authorization: Bearer $REELFORGE_API_KEY"`), 3)}
+${indent(fence('bash', `claude mcp add --transport http reelforge ${RF}/mcp \\\n  --header "Authorization: Bearer $RENDERWELD_API_KEY"`), 3)}
 
 4. **Ask for a reel**: start \`claude\` and paste the prompt from
    [Claude Code + HTML](claude-code/html.md#3-ask-for-the-reel). Claude creates
@@ -687,7 +682,7 @@ pnpm tutorials:docs                       # regenerate these pages from cells.ts
 )}
 
 The proof script starts a studio from the checkout (licence mode off: local
-development only) unless \`REELFORGE_URL\` and \`REELFORGE_API_KEY\` point at
+development only) unless \`RENDERWELD_URL\` and \`RENDERWELD_API_KEY\` point at
 one, runs the agent, then checks on its own over REST that the job
 succeeded, that the project uses the cell's engines, and that the MP4 has the
 right size, frame rate, decoded frame count, duration and codecs. Artefacts

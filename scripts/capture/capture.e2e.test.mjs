@@ -1,7 +1,7 @@
 // End to end: captures two pages from a local static server with the real
 // pages step (Chromium + ffmpeg), checks the WebP files, the manifest entries
 // and that a licence key and an email on the page were masked before the
-// capture. Skips without a browser or ffmpeg unless REELFORGE_REQUIRE_BROWSER=1.
+// capture. Skips without a browser or ffmpeg unless RENDERWELD_REQUIRE_BROWSER=1.
 // Run: pnpm test:capture
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -70,7 +70,7 @@ describe('capture e2e (local static server)', () => {
 
   const skip = (t) => {
     if (!browserProblem) return false;
-    if (process.env.REELFORGE_REQUIRE_BROWSER === '1') throw new Error(browserProblem);
+    if (process.env.RENDERWELD_REQUIRE_BROWSER === '1') throw new Error(browserProblem);
     t.skip(browserProblem);
     return true;
   };

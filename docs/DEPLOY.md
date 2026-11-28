@@ -109,8 +109,22 @@ the limit; the key is shown as its first group only.
   It sends only the key and a random instance id (docs/PRIVACY.md). **Behind
   an HTTPS proxy** set `HTTPS_PROXY=http://proxy:3128` **and**
   `NODE_USE_ENV_PROXY=1` (Node's built-in fetch ignores the proxy variables
-  without it; Node 22.21 or later, which the image has) and, for a
-  TLS-intercepting proxy, `NODE_EXTRA_CA_CERTS=/path/to/ca.pem`.
+  without it; Node 22.21 or later, which the image has). The release image
+  checks the licence through a CONNECT tunnel and trusts only the root
+  certificates built into Node.js for it (#108): a **TLS-intercepting proxy**
+  must let `api.console.buildbase.app` through without re-signing it
+  (`NODE_EXTRA_CA_CERTS` does not apply to the licence check; it still applies
+  to everything else).
+- **One major version per key.** A key covers the major version it was
+  bought for (D-142): a key for RenderWeld 1 works on every 1.x image and is
+  refused on 2.0 (`invalid`, reason `wrong_version`). The release image knows
+  which BuildBase items were sold for its major version (`licence.itemIds`,
+  fixed by the build from 1.0.0; build arg `LICENCE_ITEM_IDS`). The licence
+  server names the item a key was bought for, and a key for any other item is
+  refused; its activation is given back at once, so the buyer's server on the
+  older version keeps its slot. Upgrading to a new major version needs a key
+  for it; until then keep running the older image. 0.x images accept a key for
+  any item.
 - **Offline.** If the licence server cannot be reached, renders keep working
   for **14 days after the last successful check** (`grace`, with a warning in
   `get_capabilities`, `/v1/licence` and the log). After that they are refused
@@ -141,7 +155,7 @@ the limit; the key is shown as its first group only.
   tries to change them, and `update_config` refuses them
   (`build_locked_setting`). See "Release image and editions" below.
 - **Development and CI.** In a build from source (`pnpm dev`, which sets it,
-  or `--build-arg REELFORGE_EDITION=dev`) `RENDERWELD_LICENCE_MODE=off` lets
+  or `--build-arg RENDERWELD_EDITION=dev`) `RENDERWELD_LICENCE_MODE=off` lets
   renders run without a licence. That is for noncommercial development only
   (LICENSING.md); commercial use always needs a Commercial key.
 - **CLI and a running server.** `renderweld licence ...` works on the database
@@ -277,21 +291,20 @@ docker build --network host \
   -t reelforge-studio .
 ```
 
-`docker compose` (`docker-compose.yml` reads the old `REELFORGE_*` names from the
-shell and `.env`; the server accepts `RENDERWELD_*` too, see [RENAMED.md](RENAMED.md)):
+`docker compose` (`docker-compose.yml` reads these from the shell and `.env`):
 
 ```bash
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)      # required; keep a copy (stored secrets need it)
-export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)   # optional, see "The first key"
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)      # required; keep a copy (stored secrets need it)
+export RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)   # optional, see "The first key"
 docker compose up -d --build
-docker compose ps                                          # reelforge ... (healthy)
-# Tested here with a prebuilt image: REELFORGE_IMAGE=reelforge-studio:latest docker compose up -d --no-build
+docker compose ps                                          # renderweld ... (healthy)
+# Tested here with a prebuilt image: RENDERWELD_IMAGE=reelforge-studio:latest docker compose up -d --no-build
 ```
 
 ## Release image and editions
 
 `docker build .` builds the **release** image: the Dockerfile's default
-target with `REELFORGE_EDITION=release` (D-039). It writes
+target with `RENDERWELD_EDITION=release` (D-039). It writes
 `/app/packages/core/build-info.json` (root-owned, read-only), which fixes:
 
 | Setting | Value in the release image |
@@ -311,7 +324,7 @@ works as documented in docs/CONFIG.md.
 | Build | How | Licence settings |
 | --- | --- | --- |
 | Release (published) | `docker build .` | fixed: `required`, BuildBase production |
-| Dev image | `docker build --build-arg REELFORGE_EDITION=dev .` | configurable; `off` for noncommercial development only (LICENSING.md) |
+| Dev image | `docker build --build-arg RENDERWELD_EDITION=dev .` | configurable; `off` for noncommercial development only (LICENSING.md) |
 | Source image | `docker build --target dev .` (whole repo, dev dependencies, `pnpm dev`) | configurable, as `pnpm dev` |
 | Test build of the release edition | `--build-arg LICENCE_SERVER_URL=http://licence:8080 --build-arg LICENCE_ORG_ID=...-mocklice` (e2e/docker/run.sh) | fixed, pointing at the mock licence server |
 
@@ -321,13 +334,17 @@ the published image behave like a licensed product: turning the check off,
 pointing it at another server or changing the organisation needs a modified
 image or a build from source, not a config line. It does not stop someone who
 builds their own image, edits `build-info.json` in a derived image, patches
-the code, answers with a fake server behind DNS plus their own CA in
-`NODE_EXTRA_CA_CERTS` (BuildBase's answers are not signed yet; the request is
-drafted in docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md), or freezes the
-clock while the server is stopped. A release image whose `build-info.json` is
+the code, preloads code into Node.js (`NODE_OPTIONS=--require`), re-seals a
+forged licence state with their own `RENDERWELD_SECRET_KEY` (BuildBase's answers
+are not signed yet; the request is drafted in
+docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md), or freezes the clock while
+the server is stopped. A fake licence server behind DNS no longer works with
+the published image: its licence calls trust only Node's built-in root
+certificates, so `NODE_EXTRA_CA_CERTS`, `NODE_TLS_REJECT_UNAUTHORIZED=0` or a
+re-signing proxy cannot vouch for it (#108). A release image whose `build-info.json` is
 removed or replaced by a dev one refuses to start, and the stored licence state
 is sealed with a key derived from `RENDERWELD_SECRET_KEY`, so editing the
-database row does not work either (D-089, docs/security/HARDENING.md). Doing any of that for commercial use breaks
+database row without that key does not work either (D-089, docs/security/HARDENING.md). Doing any of that for commercial use breaks
 the licence (LICENSING.md, COMMERCIAL-LICENSE.md); the real protection is the
 licence terms plus updates and support for licensed keys only.
 
@@ -531,9 +548,9 @@ not run yet.)
    ```bash
    git clone <your copy of the repo> renderweld && cd renderweld
    cat > .env <<EOF
-   REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
-   REELFORGE_DOMAIN=studio.example.com
-   REELFORGE_PUBLIC_URL=https://studio.example.com
+   RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+   RENDERWELD_DOMAIN=studio.example.com
+   RENDERWELD_PUBLIC_URL=https://studio.example.com
    EOF
    docker compose --profile tls up -d --build
    ```

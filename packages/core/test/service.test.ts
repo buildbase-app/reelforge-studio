@@ -6,7 +6,7 @@ import {
   ElevenLabsTts,
   PluginRegistry,
   RemotionLambdaBackend,
-  ReelforgeService,
+  RenderWeldService,
   createMemoryRepositories,
   wordsFromAlignment,
 } from '../src/index';
@@ -16,7 +16,7 @@ const { dir, cleanup } = tempDir('reelforge-service-');
 afterAll(cleanup);
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
 
-let svc: ReelforgeService;
+let svc: RenderWeldService;
 let mockCalls = 0;
 const mockFetch: typeof fetch = async (url, init) => {
   mockCalls++;
@@ -45,10 +45,10 @@ beforeAll(async () => {
     .registerEngine(fakeEngine('motion-canvas', { delayPerFrameMs: 2 }))
     .registerProvider(new ElevenLabsTts({ ELEVENLABS_API_KEY: 'test-key' }))
     .registerBackend(new RemotionLambdaBackend({}));
-  svc = await ReelforgeService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), publicUrl: 'https://studio.example.com/', fetch: mockFetch, configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } } });
+  svc = await RenderWeldService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), publicUrl: 'https://studio.example.com/', fetch: mockFetch, configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } } });
 });
 
-describe('ReelforgeService', () => {
+describe('RenderWeldService', () => {
   it('reports capabilities honestly', () => {
     const c = svc.capabilities();
     expect(c.schemaVersion).toBe('0.2');

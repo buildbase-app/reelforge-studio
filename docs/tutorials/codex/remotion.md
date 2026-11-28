@@ -25,10 +25,10 @@ RenderWeld store); commercial use needs a commercial licence.
 
 ```bash
 git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
 docker compose up -d --build                                 # 127.0.0.1:4321, hardened defaults
-docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>
-docker compose exec reelforge renderweld keys create --name agent --scopes read,write,render
+docker compose exec renderweld renderweld licence activate <YOUR-LICENCE-KEY>
+docker compose exec renderweld renderweld keys create --name agent --scopes read,write,render
 ```
 
 **B. From a checkout with pnpm (local development only).** `pnpm dev` sets
@@ -47,8 +47,8 @@ Keep the printed key in an environment variable, not in files you commit:
 
 ```bash
 export RF=http://127.0.0.1:4321
-export REELFORGE_API_KEY=rf_...      # the key printed above
-export KEY=$REELFORGE_API_KEY
+export RENDERWELD_API_KEY=rf_...      # the key printed above
+export KEY=$RENDERWELD_API_KEY
 ```
 
 More: [DEPLOY.md](../../DEPLOY.md), [CONFIG.md](../../CONFIG.md), [licence](../../DEPLOY.md#licence).
@@ -69,11 +69,11 @@ The key stays in your environment, not in the file:
 ```toml
 [mcp_servers.reelforge]
 url = "http://127.0.0.1:4321/mcp"
-bearer_token_env_var = "REELFORGE_API_KEY"
+bearer_token_env_var = "RENDERWELD_API_KEY"
 ```
 
 ```bash
-export REELFORGE_API_KEY=rf_...
+export RENDERWELD_API_KEY=rf_...
 codex mcp list         # reelforge should be listed
 ```
 
@@ -82,7 +82,7 @@ codex mcp list         # reelforge should be listed
 The exact prompt:
 
 ```text
-You are connected to a ReelForge video studio through the "reelforge" MCP server. Make a vertical reel (1080x1920, 30 fps) about why short product videos beat long ones: an 8-second reel made of two 4-second scenes, both using only the remotion engine (template kinetic-title). Use the project id "tut-codex-remotion". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.
+You are connected to a RenderWeld video studio through the "reelforge" MCP server. Make a vertical reel (1080x1920, 30 fps) about why short product videos beat long ones: an 8-second reel made of two 4-second scenes, both using only the remotion engine (template kinetic-title). Use the project id "tut-codex-remotion". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.
 ```
 
 Interactive: run `codex` and paste it. Headless (what the proof script runs):
@@ -90,7 +90,7 @@ Interactive: run `codex` and paste it. Headless (what the proof script runs):
 ```bash
 codex exec --json --skip-git-repo-check --sandbox read-only \
   -c 'mcp_servers.reelforge.url="http://127.0.0.1:4321/mcp"' \
-  -c 'mcp_servers.reelforge.bearer_token_env_var="REELFORGE_API_KEY"' \
+  -c 'mcp_servers.reelforge.bearer_token_env_var="RENDERWELD_API_KEY"' \
   -c 'approval_policy="never"' \
   "$(cat prompt.txt)" > transcript.jsonl
 ```
@@ -134,7 +134,7 @@ Remotion (`kinetic-title`): 1.5 to 8 s per scene, headline up to 60 characters. 
 | Symptom | Cause and fix |
 | --- | --- |
 | `401 unauthorized` | Missing or wrong key. Send `Authorization: Bearer rf_...`; check it with `curl -H "Authorization: Bearer $KEY" $RF/v1/capabilities`. |
-| `403 forbidden_host` on `/mcp` | The Host header is not allowed (DNS-rebinding protection). Use `127.0.0.1`/`localhost`, or set `REELFORGE_PUBLIC_URL` / `REELFORGE_ALLOWED_HOSTS`. |
+| `403 forbidden_host` on `/mcp` | The Host header is not allowed (DNS-rebinding protection). Use `127.0.0.1`/`localhost`, or set `RENDERWELD_PUBLIC_URL` / `RENDERWELD_ALLOWED_HOSTS`. |
 | `403 licence_required` / `licence_invalid` on a render | Activate a licence key (`renderweld licence activate <key>`; Personal is free). `RENDERWELD_LICENCE_MODE=off` exists for local development from a checkout only. |
 | `403 forbidden` (scope) | The key lacks a scope: rendering needs `render`, creating projects `write`. Create a key with `--scopes read,write,render`. |
 | An engine shows `available: false` | `RENDERWELD_CHROMIUM_PATH` is unset or wrong (checkout), or the image is not the release image. `get_capabilities` says how to fix it. |
@@ -143,7 +143,7 @@ Remotion (`kinetic-title`): 1.5 to 8 s per scene, headline up to 60 characters. 
 | `render_failed` with a timeout on an html or hyperframes scene | One scene ran past `render.sceneTimeoutSeconds` (default 900 s). On a slow machine raise `RENDERWELD_RENDER_SCENE_TIMEOUT_SECONDS`. |
 | html, hyperframes or motion-canvas renders fail in Docker | The container needs the seccomp profile `deployment/seccomp/chrome.json` for Chromium's sandbox (`docker compose` sets it); see [DEPLOY.md](../../DEPLOY.md). |
 | `codex mcp list` does not show reelforge | The config file is not `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`), or the TOML table name is wrong. |
-| The MCP server fails to start or times out | `REELFORGE_API_KEY` is not exported in the shell that runs Codex, or the studio is not reachable. |
+| The MCP server fails to start or times out | `RENDERWELD_API_KEY` is not exported in the shell that runs Codex, or the studio is not reachable. |
 | Tool calls wait for approval in `exec` | Set `approval_policy = "never"` for headless runs (VERIFY the key for your version). |
 
 ## Proof

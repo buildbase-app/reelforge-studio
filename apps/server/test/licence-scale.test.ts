@@ -136,15 +136,15 @@ describe.skipIf(!kind)(`2 api + 3 worker servers on ${kind} (licence mode requir
         registry: () => new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas')),
         env: {
           DATABASE_URL: testDb.url,
-          REELFORGE_ROLE: role,
-          REELFORGE_SECRET_KEY: SECRET,
-          REELFORGE_LICENCE_KEY: KEY,
-          REELFORGE_LICENCE_ORG_ID: ORG,
-          REELFORGE_LICENCE_SERVER_URL: role === 'worker' ? trap.url : mock.url,
-          REELFORGE_STORAGE_LOCAL_SHARED: 'true',
-          REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
-          REELFORGE_WORKER_CONCURRENCY: '1',
-          REELFORGE_METRICS_TOKEN: METRICS_TOKEN,
+          RENDERWELD_ROLE: role,
+          RENDERWELD_SECRET_KEY: SECRET,
+          RENDERWELD_LICENCE_KEY: KEY,
+          RENDERWELD_LICENCE_ORG_ID: ORG,
+          RENDERWELD_LICENCE_SERVER_URL: role === 'worker' ? trap.url : mock.url,
+          RENDERWELD_STORAGE_LOCAL_SHARED: 'true',
+          RENDERWELD_RATE_LIMIT_PER_MINUTE: '0',
+          RENDERWELD_WORKER_CONCURRENCY: '1',
+          RENDERWELD_METRICS_TOKEN: METRICS_TOKEN,
         },
         licence: { now: () => clock.t, refreshMs: 100 },
         queue: { workerId: name, leaseMs: 4000, heartbeatMs: 300, pollMs: 100 },
@@ -227,7 +227,7 @@ describe.skipIf(!kind)(`2 api + 3 worker servers on ${kind} (licence mode requir
     // A worker logs this on its next claim attempt after it read the refusal: wait for it rather than sampling once.
     await until('a worker logs why it is not claiming', () => logs.some((l) => /^worker-\d: queue: not claiming jobs: the licence does not allow renders/.test(l)));
     const metrics = await (await fetch(`${workers[2]!.url}/metrics`, { headers: { authorization: `Bearer ${METRICS_TOKEN}` } })).text();
-    expect(metrics).toMatch(/reelforge_licence_state\{[^}]*"invalid"[^}]*\} 1/);
+    expect(metrics).toMatch(/renderweld_licence_state\{[^}]*"invalid"[^}]*\} 1/);
     // The key is active again (fresh activation): POST /v1/licence activates; the workers pick the job up.
     mock.addKey({ key: KEY, activationLimit: 1 });
     await fetch(`${apis[0]!.url}/v1/licence`, { method: 'POST', headers: { authorization: `Bearer ${admin}`, 'content-type': 'application/json' }, body: '{}' });

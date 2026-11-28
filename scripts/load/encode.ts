@@ -14,7 +14,7 @@
  *      measure the encoder's loss, not chroma subsampling). This FFmpeg has no libvmaf; LOAD_ENCODE_VMAF=1
  *      adds VMAF where it has.
  *
- *   REELFORGE_CHROMIUM_PATH=... pnpm load:encode
+ *   RENDERWELD_CHROMIUM_PATH=... pnpm load:encode
  *   LOAD_ENCODE_SIZES=1080x1920 LOAD_ENCODE_SECONDS=2 pnpm load:encode     # quick look
  *
  * Results: LOAD_OUT/<date>-encode.json and .md. Every temporary file is removed at the end.

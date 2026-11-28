@@ -25,10 +25,10 @@ RenderWeld store); commercial use needs a commercial licence.
 
 ```bash
 git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
 docker compose up -d --build                                 # 127.0.0.1:4321, hardened defaults
-docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>
-docker compose exec reelforge renderweld keys create --name agent --scopes read,write,render
+docker compose exec renderweld renderweld licence activate <YOUR-LICENCE-KEY>
+docker compose exec renderweld renderweld keys create --name agent --scopes read,write,render
 ```
 
 **B. From a checkout with pnpm (local development only).** `pnpm dev` sets
@@ -47,8 +47,8 @@ Keep the printed key in an environment variable, not in files you commit:
 
 ```bash
 export RF=http://127.0.0.1:4321
-export REELFORGE_API_KEY=rf_...      # the key printed above
-export KEY=$REELFORGE_API_KEY
+export RENDERWELD_API_KEY=rf_...      # the key printed above
+export KEY=$RENDERWELD_API_KEY
 ```
 
 More: [DEPLOY.md](../../DEPLOY.md), [CONFIG.md](../../CONFIG.md), [licence](../../DEPLOY.md#licence).
@@ -117,7 +117,7 @@ const { job } = JSON.parse((await client.callTool({ name: 'render_project', argu
 ### 4. Run it
 
 ```bash
-REELFORGE_URL=$RF REELFORGE_API_KEY=$KEY node examples/tutorials/mcp-client.mjs examples/tutorials/motion-canvas.json
+RENDERWELD_URL=$RF RENDERWELD_API_KEY=$KEY node examples/tutorials/mcp-client.mjs examples/tutorials/motion-canvas.json
 ```
 
 It prints one line per tool call, the job progress, then the render (size,
@@ -160,7 +160,7 @@ Motion Canvas (`animated-explainer`): 2 to 20 s, a title and 1 to 4 points (up t
 | Symptom | Cause and fix |
 | --- | --- |
 | `401 unauthorized` | Missing or wrong key. Send `Authorization: Bearer rf_...`; check it with `curl -H "Authorization: Bearer $KEY" $RF/v1/capabilities`. |
-| `403 forbidden_host` on `/mcp` | The Host header is not allowed (DNS-rebinding protection). Use `127.0.0.1`/`localhost`, or set `REELFORGE_PUBLIC_URL` / `REELFORGE_ALLOWED_HOSTS`. |
+| `403 forbidden_host` on `/mcp` | The Host header is not allowed (DNS-rebinding protection). Use `127.0.0.1`/`localhost`, or set `RENDERWELD_PUBLIC_URL` / `RENDERWELD_ALLOWED_HOSTS`. |
 | `403 licence_required` / `licence_invalid` on a render | Activate a licence key (`renderweld licence activate <key>`; Personal is free). `RENDERWELD_LICENCE_MODE=off` exists for local development from a checkout only. |
 | `403 forbidden` (scope) | The key lacks a scope: rendering needs `render`, creating projects `write`. Create a key with `--scopes read,write,render`. |
 | An engine shows `available: false` | `RENDERWELD_CHROMIUM_PATH` is unset or wrong (checkout), or the image is not the release image. `get_capabilities` says how to fix it. |
@@ -169,7 +169,7 @@ Motion Canvas (`animated-explainer`): 2 to 20 s, a title and 1 to 4 points (up t
 | `render_failed` with a timeout on an html or hyperframes scene | One scene ran past `render.sceneTimeoutSeconds` (default 900 s). On a slow machine raise `RENDERWELD_RENDER_SCENE_TIMEOUT_SECONDS`. |
 | html, hyperframes or motion-canvas renders fail in Docker | The container needs the seccomp profile `deployment/seccomp/chrome.json` for Chromium's sandbox (`docker compose` sets it); see [DEPLOY.md](../../DEPLOY.md). |
 | `Cannot find package '@modelcontextprotocol/sdk'` | Run the script from this repository, or `npm i @modelcontextprotocol/sdk@1.32.2` next to it. |
-| `fetch failed` / `ECONNREFUSED` | The studio is not running on `REELFORGE_URL`. |
+| `fetch failed` / `ECONNREFUSED` | The studio is not running on `RENDERWELD_URL`. |
 | A tool result has `isError: true` | The script prints the error body and stops; the `code` and `details` say what to fix. |
 
 ## Proof
@@ -179,7 +179,7 @@ Motion Canvas (`animated-explainer`): 2 to 20 s, a title and 1 to 4 points (up t
 | | |
 | --- | --- |
 | Date | 2026-11-21 19:41:23 UTC |
-| Studio | RenderWeld 0.1.0, commit `85d3333`, started from a checkout with `REELFORGE_LICENCE_MODE=off` (local development only) |
+| Studio | RenderWeld 0.1.0, commit `85d3333`, started from a checkout with `RENDERWELD_LICENCE_MODE=off` (local development only) |
 | Reproduce | `pnpm tutorials:prove mcp-sdk motion-canvas` |
 | Command the proof ran | `node examples/tutorials/mcp-client.mjs examples/tutorials/motion-canvas.json tut-mcp-sdk-motion-canvas` |
 | Project / job / render | `tut-mcp-sdk-motion-canvas` / `job_mwqtd3cd69d15c4006` / `run_mwqtd3cd4742f9eb2f` |

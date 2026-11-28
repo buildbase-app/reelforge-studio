@@ -134,8 +134,8 @@ if (pnpmV.status === 0) {
   fail('pnpm was not found', '`corepack enable` (ships with Node), or `npm install -g pnpm@' + wantPnpm + '`');
 }
 
-const ffmpegBin = process.env.RENDERWELD_FFMPEG_PATH || process.env.REELFORGE_FFMPEG_PATH || process.env.FFMPEG_PATH || 'ffmpeg';
-const ffprobeBin = process.env.RENDERWELD_FFPROBE_PATH || process.env.REELFORGE_FFPROBE_PATH || process.env.FFPROBE_PATH || 'ffprobe';
+const ffmpegBin = process.env.RENDERWELD_FFMPEG_PATH || process.env.FFMPEG_PATH || 'ffmpeg';
+const ffprobeBin = process.env.RENDERWELD_FFPROBE_PATH || process.env.FFPROBE_PATH || 'ffprobe';
 const ffmpegFix =
   process.platform === 'darwin' ? '`brew install ffmpeg`' : process.platform === 'win32' ? 'use WSL2 (docs/DEVELOPMENT.md#windows), or `winget install Gyan.FFmpeg`' : '`sudo apt install ffmpeg` (Debian/Ubuntu), `sudo dnf install ffmpeg` (Fedora with RPM Fusion)';
 const ff = run(ffmpegBin, ['-hide_banner', '-version']);

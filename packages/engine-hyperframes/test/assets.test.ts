@@ -7,7 +7,6 @@ import { resolveTools, type Tools } from '@renderweld/media-pipeline';
 import { builtinTheme, frameLayout, type OutputSettings } from '@renderweld/project-schema';
 import { renderHyperframesScene } from '../src/index';
 import { QUAD, colorDistance, makeNumberedClip, makeQuadImage, meanColor, readBars, readPicture } from '../../media-pipeline/test/media-fixtures';
-import { envValue } from '@renderweld/core';
 
 /**
  * #299: HyperFrames compositions use the project's images and videos. The
@@ -16,7 +15,7 @@ import { envValue } from '@renderweld/core';
  * sink stays in place (any request outside would fail the render).
  */
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-hf-assets-'));
 afterAll(() => {
