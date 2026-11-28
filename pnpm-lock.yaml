@@ -382,9 +382,6 @@ importers:
 
   packages/engine-remotion:
     dependencies:
-      '@remotion/renderer':
-        specifier: 4.0.545
-        version: 4.0.545(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@renderweld/core':
         specifier: workspace:*
         version: link:../core
@@ -394,6 +391,16 @@ importers:
       '@renderweld/project-schema':
         specifier: workspace:*
         version: link:../project-schema
+    devDependencies:
+      '@remotion/bundler':
+        specifier: 4.0.545
+        version: 4.0.545(@swc/helpers@0.5.24)(postcss@8.5.33)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@remotion/renderer':
+        specifier: 4.0.545
+        version: 4.0.545(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.3.0
       react:
         specifier: 19.2.3
         version: 19.2.3
@@ -403,13 +410,6 @@ importers:
       remotion:
         specifier: 4.0.545
         version: 4.0.545(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-    devDependencies:
-      '@remotion/bundler':
-        specifier: 4.0.545
-        version: 4.0.545(@swc/helpers@0.5.24)(postcss@8.5.33)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      '@types/react':
-        specifier: ^19.0.0
-        version: 19.3.0
 
   packages/media-pipeline:
     dependencies:

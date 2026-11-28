@@ -223,7 +223,8 @@ jobs:
 
   image:
     # The release image (Dockerfile default target), built natively per architecture:
-    # contents and secrets checks, Trivy (fixable HIGH/CRITICAL fail), CycloneDX SBOM,
+    # contents and secrets checks, the Remotion add-on (built and checked, never published),
+    # Trivy (fixable HIGH/CRITICAL fail), CycloneDX SBOM,
     # and the Docker e2e with the hardened run flags (release edition with the mock
     # licence server baked in; the published image differs in one layer, compared by
     # run.sh). amd64 runs the e2e on SQLite, PostgreSQL and MySQL; arm64 on SQLite.
@@ -274,6 +275,15 @@ jobs:
         run: scripts/image/check-contents.sh reelforge-studio:release
       - name: No secrets in layers, config or files
         run: scripts/image/check-secrets.sh reelforge-studio:release
+      - name: Remotion add-on on top of the release image (built, checked, never published or rendered)
+        # The release image ships no Remotion (#783); customers with their own Remotion licence build
+        # deployment/remotion/Dockerfile on top. Built with Docker's own builder, which sees the image
+        # loaded above. The check renders nothing and has no network, so nothing reaches remotion.pro.
+        run: |
+          docker buildx build --builder default -f deployment/remotion/Dockerfile \
+            --build-arg RENDERWELD_IMAGE=reelforge-studio:release -t reelforge-studio:remotion deployment/remotion
+          scripts/image/check-remotion-addon.sh reelforge-studio:remotion
+          docker image rm reelforge-studio:remotion
       - name: Cache the Trivy database
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

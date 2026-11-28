@@ -11,8 +11,7 @@ one MP4 with FFmpeg and checks it. No AI provider is required.
 > **Status: agent platform v0.1 (experimental).** Tested on Linux x64; the
 > release image is also built and tested on Linux arm64 in CI. MCP tool names
 > and manifest v0.2 may change before v1.0. Not production-hardened. What is
-> done, partial and missing: `docs/AGENT_PLATFORM.md` (STATUS) and
-> `docs/STATUS.md`.
+> done, partial and missing: `docs/AGENT_PLATFORM.md` (STATUS).
 
 ## Quick start (server first)
 
@@ -117,8 +116,8 @@ databases and running the studio next to the store site
   customers who want the Remotion engine install it themselves with their own
   Remotion licence (docs/public/install/remotion.md, D-143). Remotion is free
   for individuals and teams of up to 3 people; larger companies need a paid
-  Remotion licence. See `research/LICENSING_AND_COSTS.md`. The Remotion engine
-  is built with Remotion; Remotion has its own licence:
+  Remotion licence. See Remotion's licence terms on remotion.dev. The Remotion
+  engine is built with Remotion; Remotion has its own licence:
   <https://www.remotion.dev/docs/license/pricing>.
 - Motion Canvas is MIT; HyperFrames is Apache-2.0. FFmpeg is LGPL/GPL
   depending on the build (we use the system FFmpeg).

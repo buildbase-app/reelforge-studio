@@ -1,8 +1,7 @@
 # Showcase gallery
 
 119 short vertical reels made with RenderWeld, the pipeline that renders
-them, and how they reach the store's `/gallery` pages. Issue #43; plan in
-`docs/research/SITE_PLAN.md` §B.7.
+them, and how they reach the store's `/gallery` pages. Issue #43.
 
 ```
 scripts/gallery/src/catalog/   reel specs + scene designs (TypeScript)  ──pnpm gallery build──▶  examples/gallery/<slug>.json
