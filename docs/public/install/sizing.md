@@ -115,14 +115,9 @@ job claims a second with 10 to 200 workers.
 ## Measure your own machine
 
 The numbers above come from one machine. Your CPU model changes them, so measure
-before you size a fleet:
-
-```bash
-docker build --build-arg RENDERWELD_EDITION=dev -t renderweld:bench-dev .
-pnpm bench:docker                                # 1, 2 and 4 vCPU; about an hour
-BENCH_SIZES=8:16 pnpm bench:docker               # one size
-BENCH_WORKLOAD=h1080-60s pnpm bench:docker       # 60 s 1920x1080 videos
-```
+before you size a fleet. The benchmark runs from a source checkout of the
+repository (`pnpm bench:docker`, about an hour for 1, 2 and 4 vCPU); the
+repository's docs/DEVELOPMENT.md#benchmarks has the commands.
 
 It starts one container per step with `--cpus` and `--memory` (no swap), Chrome's
 sandbox under `deployment/seccomp/chrome.json` as in the Docker guide, renders real

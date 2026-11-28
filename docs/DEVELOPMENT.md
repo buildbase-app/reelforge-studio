@@ -24,7 +24,7 @@ This page covers every other case. Production installs use Docker
 - [Databases](#databases), [storage](#storage), [speech-to-text](#speech-to-text), [workers](#workers), [resetting local data](#resetting-local-data)
 - [Tests](#tests), [the dashboard](#the-dashboard), [docs generators](#docs-generators)
 - [Both repos: studio and site](#both-repos)
-- [A licence for local development](#licence), [the rename](#the-rename)
+- [A licence for local development](#licence), [benchmarks](#benchmarks), [the rename](#the-rename)
 
 ## What the two commands do
 
@@ -443,6 +443,27 @@ only (noncommercial, [LICENSING.md](../LICENSING.md)). Paths that need a licence
   `pnpm renderweld licence activate`. One key is one activation, so deactivate a
   dev instance (`pnpm renderweld licence deactivate`) before you reuse the key.
   How licensing works: [public/install/licence.md](public/install/licence.md).
+
+Builds other than the published release image, for contributors only (none of
+them is for customers, and `off` is for noncommercial development and CI):
+
+| Build | How | Licence settings |
+| --- | --- | --- |
+| Dev image | `docker build --build-arg RENDERWELD_EDITION=dev .` | configurable; `RENDERWELD_LICENCE_MODE=off` allowed |
+| Source image | `docker build --target dev .` (whole repo, dev dependencies, `pnpm dev`) | configurable, as `pnpm dev` |
+| Test build of the release edition | `--build-arg LICENCE_SERVER_URL=http://licence:8080 --build-arg LICENCE_ORG_ID=...-mocklice` (e2e/docker/run.sh) | fixed, pointing at the mock licence server |
+
+## Benchmarks
+
+Measure render throughput per container size on your own machine (results and
+method: [public/install/sizing.md](public/install/sizing.md)):
+
+```bash
+docker build --build-arg RENDERWELD_EDITION=dev -t renderweld:bench-dev .
+pnpm bench:docker                                # 1, 2 and 4 vCPU; about an hour
+BENCH_SIZES=8:16 pnpm bench:docker               # one size
+BENCH_WORKLOAD=h1080-60s pnpm bench:docker       # 60 s 1920x1080 videos
+```
 
 ## The rename
 
