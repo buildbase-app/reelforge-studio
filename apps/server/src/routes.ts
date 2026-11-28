@@ -137,7 +137,7 @@ export const REST_ROUTES: RouteEntry[] = [
 ];
 
 /** Routes outside /v1 that are infrastructure, not product capabilities. */
-export const INFRA_ROUTES = ['GET /healthz', 'GET /readyz', 'GET /metrics', 'GET /.well-known/mcp.json', 'ALL /mcp', 'GET /dashboard',
+export const INFRA_ROUTES = ['GET /healthz', 'GET /readyz', 'GET /metrics', 'GET /.well-known/mcp.json', 'ALL /mcp', 'GET /mcp', 'GET /dashboard',
   // OAuth protected-resource metadata for /mcp (RFC 9728, D-112): discovery, not a product capability.
   'GET /.well-known/oauth-protected-resource', 'GET /.well-known/oauth-protected-resource/mcp'];
 
