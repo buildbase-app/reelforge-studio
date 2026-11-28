@@ -75,15 +75,19 @@ describe('the renderweld command', () => {
     expect(worker.stderr).toMatch(/^usage: renderweld worker --once/m);
   }, 120_000);
 
-  it('the image labels say RenderWeld (#413)', () => {
+  it('the image labels say RenderWeld, its seller and both licences (#413, #779)', () => {
     const dockerfile = readFileSync(join(repo, 'Dockerfile'), 'utf8');
     const labels = Object.fromEntries([...dockerfile.matchAll(/^\s*(?:LABEL\s+)?([a-z.]+)="([^"]*)"/gm)].map((m) => [m[1], m[2]]));
     expect(labels).toMatchObject({
       'org.opencontainers.image.title': 'RenderWeld',
       'org.opencontainers.image.url': 'https://renderweld.com',
-      'org.opencontainers.image.vendor': 'RenderWeld',
+      // The seller, and both licences a buyer can hold (#779).
+      'org.opencontainers.image.vendor': 'Jagodana LLC',
+      'org.opencontainers.image.licenses': 'PolyForm-Noncommercial-1.0.0 OR LicenseRef-RenderWeld-Commercial',
       'app.renderweld.edition': '${RENDERWELD_EDITION}',
     });
+    // Both licences, the trademark policy and the guide to them ship in /app (#779).
+    expect(dockerfile).toMatch(/^COPY LICENSE\.md NOTICE COMMERCIAL-LICENSE\.md TRADEMARK\.md LICENSING\.md \/app\/$/m);
     expect(Object.keys(labels).filter((k) => k.includes('reelforge'))).toEqual([]);
     expect(labels['org.opencontainers.image.description']).toMatch(/^Self-hosted video rendering for AI agents/);
   });

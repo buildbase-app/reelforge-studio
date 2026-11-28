@@ -177,7 +177,9 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack 
 COPY --from=chrome /opt/chrome-headless-shell /opt/chrome-headless-shell
 COPY --from=prod-deps /prod /app
 COPY --from=build /out /app
-COPY LICENSE.md NOTICE /app/
+# The licences a buyer gets (PolyForm Noncommercial or the Commercial licence), the trademark
+# policy and the plain-language guide to both ship next to the code (#779).
+COPY LICENSE.md NOTICE COMMERCIAL-LICENSE.md TRADEMARK.md LICENSING.md /app/
 COPY LICENSES /app/LICENSES
 # `docker exec <container> renderweld keys create --name agent`, `renderweld migrate`, `renderweld licence status`.
 RUN ln -s /opt/chrome-headless-shell/chrome-headless-shell /usr/local/bin/chrome-headless-shell \
@@ -217,9 +219,9 @@ RUN set -e; \
 LABEL org.opencontainers.image.title="RenderWeld" \
       org.opencontainers.image.description="Self-hosted video rendering for AI agents (REST + MCP)" \
       org.opencontainers.image.url="https://renderweld.com" \
-      org.opencontainers.image.vendor="RenderWeld" \
+      org.opencontainers.image.vendor="Jagodana LLC" \
       org.opencontainers.image.source="https://github.com/buildbase-app/reelforge-studio" \
-      org.opencontainers.image.licenses="LicenseRef-PolyForm-Noncommercial-1.0.0" \
+      org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0 OR LicenseRef-RenderWeld-Commercial" \
       org.opencontainers.image.version="${RENDERWELD_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       app.renderweld.edition="${RENDERWELD_EDITION}"

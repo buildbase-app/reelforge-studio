@@ -30,7 +30,7 @@ check_present() { # description, extended regex
 
 echo "== $IMAGE: $(wc -l < "$LIST") files"
 check_absent "no repository docs, research, e2e, examples, scripts or CI config" \
-  '^app/(docs|research|e2e|examples|scripts|deployment|\.github|out|data)/|^app/(AGENTS|CLAUDE|README|LICENSING|COMMERCIAL-LICENSE|TRADEMARK|CONTRIBUTING)\.md$'
+  '^app/(docs|research|e2e|examples|scripts|deployment|\.github|out|data)/|^app/(AGENTS|CLAUDE|README|CONTRIBUTING)\.md$'
 check_absent "no test directories or test files of ours" '^app/(apps|packages)/[^/]+/test/|^app/(apps|packages)/.*\.test\.tsx?$'
 check_absent "no Prisma tooling (schemas, scripts, config)" '^app/packages/db/(prisma|scripts)/|^app/packages/db/prisma\.config\.ts$'
 check_absent "no source maps anywhere" '\.map$'
@@ -43,6 +43,9 @@ check_absent "no musl builds of native packages" '^app/node_modules/\.pnpm/[^/]*
 check_absent "no package managers (npm, npx, corepack, yarn, pnpm)" '^usr/local/(bin/(npm|npx|corepack|yarn|yarnpkg|pnpm)|lib/node_modules/(npm|corepack)/)|^pnpm/'
 check_absent "no .git, .env or npm credentials files" '(^|/)\.git/|(^|/)\.env(\.|$)|(^|/)\.npmrc$'
 check_present "LICENSE.md in the image" '^app/LICENSE\.md$'
+check_present "COMMERCIAL-LICENSE.md in the image (#779)" '^app/COMMERCIAL-LICENSE\.md$'
+check_present "TRADEMARK.md in the image" '^app/TRADEMARK\.md$'
+check_present "LICENSING.md in the image" '^app/LICENSING\.md$'
 check_present "NOTICE in the image" '^app/NOTICE$'
 check_present "LICENSES/THIRD_PARTY.md in the image" '^app/LICENSES/THIRD_PARTY\.md$'
 check_present "pre-built Motion Canvas bundle" '^app/packages/engine-motion-canvas/\.prebuilt/motion-canvas/\.source-hash$'
