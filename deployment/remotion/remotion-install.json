@@ -1,0 +1,13 @@
+{
+  "name": "renderweld-remotion-install",
+  "private": true,
+  "description": "Remotion for RenderWeld, installed by deployment/remotion/Dockerfile into /opt/remotion. Using Remotion needs your own Remotion licence (https://www.remotion.dev/license). The versions must match what RenderWeld is built against (REMOTION_VERSION in packages/engine-remotion/src/load.ts).",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@remotion/bundler": "4.0.545",
+    "@remotion/renderer": "4.0.545",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.545"
+  }
+}

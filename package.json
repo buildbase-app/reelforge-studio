@@ -16,6 +16,7 @@
     "spike": "tsx scripts/spike.ts",
     "gallery": "tsx scripts/gallery/src/cli.ts",
     "prebuild:engines": "tsx apps/server/src/prebuild.ts",
+    "prebuild:remotion": "tsx apps/server/src/prebuild.ts remotion",
     "check": "pnpm typecheck && pnpm test",
     "dev:setup": "node scripts/dev/setup.mjs",
     "setup": "node scripts/dev/setup.mjs",

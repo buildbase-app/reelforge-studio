@@ -205,7 +205,7 @@ pnpm reelforge licence status|activate|deactivate   # licence (docs/DEPLOY.md#li
 pnpm docs:config                         # regenerate docs/CONFIG.md after changing the config schema
 TEST_POSTGRES_URL=... TEST_MYSQL_URL=... pnpm --filter @reelforge/db test   # contract tests on every DB
 REELFORGE_TEST_DB=postgres pnpm --filter @reelforge/server test             # server e2e on PostgreSQL
-pnpm prebuild:engines                    # pre-build the Remotion/Motion Canvas bundles (the Dockerfile does this)
+pnpm prebuild:engines                    # pre-build the Remotion/Motion Canvas bundles (the image builds Motion Canvas only; D-143)
 docker build -t reelforge-studio:release .                  # release image (licence settings fixed, D-039)
 docker build --build-arg REELFORGE_EDITION=dev -t reelforge-studio:dev .   # same image, settings configurable
 scripts/image/check-contents.sh reelforge-studio:release    # files, size budget (D-042)
