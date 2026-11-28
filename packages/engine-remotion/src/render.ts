@@ -57,6 +57,8 @@ export interface RemotionRenderOptions {
   install?: RemotionInstall;
   /** The customer's Remotion licence key (engines.remotion.licenseKey), passed to renderMedia. */
   licenseKey?: string;
+  /** A preview or QA re-render: reported to Remotion as not production (`isProduction: false`). */
+  preview?: boolean;
 }
 
 export interface RemotionRenderResult {
@@ -277,7 +279,8 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
       chromiumOptions: { gl: 'swangle' },
       cancelSignal,
       logLevel: 'error',
-      ...(opts.licenseKey ? { licenseKey: opts.licenseKey } : {}),
+      // With a key Remotion reports a usage event per render; previews and QA re-renders count as not production.
+      ...(opts.licenseKey ? { licenseKey: opts.licenseKey, isProduction: !opts.preview } : {}),
       ...(range ? { frameRange: [range[0], range[1]] as [number, number] } : {}),
       onProgress: ({ renderedFrames }) => opts.onProgress?.(renderedFrames, frames),
     });

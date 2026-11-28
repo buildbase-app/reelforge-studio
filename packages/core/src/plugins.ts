@@ -38,6 +38,14 @@ export interface TemplateInfo {
   maxSeconds: number;
   themeTokens: readonly string[];
   propsSchema: Record<string, unknown>;
+  /** Whether its engine can render here right now (EnginePlugin.availability). */
+  available: boolean;
+  /** Why not, and how to fix it, when `available` is false. */
+  unavailableReason?: string;
+  /** What the template always needs beyond RenderWeld (EnginePlugin.requires), e.g. "Needs your own Remotion licence". */
+  requires?: string;
+  /** Templates of other engines to use instead when this one cannot render (EnginePlugin.alternatives). */
+  alternatives?: readonly string[];
 }
 
 export interface ResolvedAsset {
@@ -98,6 +106,11 @@ export interface EngineRenderContext {
    * their scenes.
    */
   textCheck?: boolean;
+  /**
+   * A draft render nobody delivers: a preview, or a QA re-render of a few frames. Engines whose licence counts
+   * renders (Remotion's `isProduction`) report it as not production. Unset for renders and fan-out units.
+   */
+  preview?: boolean;
 }
 
 /** What an engine can do beyond rendering a whole scene. */
@@ -145,6 +158,13 @@ export interface EnginePlugin {
   acceptsSource: boolean;
   /** Whether this engine can render on this machine right now (browser present, ...). */
   availability(): Availability;
+  /**
+   * What this engine's templates always need beyond RenderWeld, shown on each template in list_templates
+   * (e.g. "Needs your own Remotion licence"). Omit when nothing is needed.
+   */
+  requires?: string;
+  /** For each of its templates, templates of other engines that do the same job, suggested when it cannot render. */
+  alternatives?: Readonly<Record<string, readonly string[]>>;
   /**
    * Called once by the service with its settings, before the first availability() or render(), so an engine can
    * read its own `engines.*` settings and the build edition (they can change at runtime, so read them when needed).

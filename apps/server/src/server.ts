@@ -221,6 +221,18 @@ export async function startServer(
   if (pooled) logger.log('warn', pooled);
   if (db.readDisplayUrl) log(`database read replica: ${db.readDisplayUrl} (pool ${db.readPoolSize}); lists only: ${READ_REPLICA_READS.join(', ')}`);
   log(`storage: ${service.storage.driver.id} ${JSON.stringify(service.storage.driver.describe())}`);
+  // #783: in a release build Remotion renders only with the customer's own Remotion licence and install; say so once.
+  const remotionCfg = service.settings.current.config.engines.remotion;
+  if (service.settings.current.build.edition === 'release' && remotionCfg.enabled) {
+    let a: { ok: boolean; reason?: string } = { ok: false, reason: 'the Remotion engine is not registered' };
+    try {
+      a = service.registry.engine('remotion').availability();
+    } catch {
+      // not registered (a custom registry)
+    }
+    if (a.ok) log("Remotion engine on: licensed to your organisation under Remotion's licence; every render is reported to Remotion with your key (previews as not production)");
+    else logger.log('warn', `Remotion engine turned on but cannot render: ${a.reason}`);
+  }
   if (existsSync(join(config.dataDir, 'secrets.json'))) {
     logger.log('warn', `${join(config.dataDir, 'secrets.json')} (v0.1) still holds provider keys in plain text; they are in the database now${service.settings.cipher ? ' (encrypted)' : ''}: delete the file once you have checked them`);
   }

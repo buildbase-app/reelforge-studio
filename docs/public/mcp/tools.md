@@ -62,7 +62,7 @@ No arguments.
 
 **List scene templates**. Scope: `read`, read-only. REST: `GET /v1/templates`.
 
-Lists scene templates with their engine, description, supported duration range in seconds, the theme tokens they read, and the JSON Schema of their props. A scene uses { engine, template, props }. The html engine also accepts raw { html, css } instead of a template.
+Lists scene templates with their engine, description, supported duration range in seconds, the theme tokens they read, and the JSON Schema of their props. A scene uses { engine, template, props }. The html engine also accepts raw { html, css } instead of a template. `available` says whether the template can render on this server; when it is false, `unavailableReason` says why and `alternatives` names templates to use instead. `requires` names what a template always needs beyond RenderWeld (the Remotion templates: your own Remotion licence).
 
 | Argument | Type | Required | Description |
 | --- | --- | --- | --- |

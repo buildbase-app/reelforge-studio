@@ -4,7 +4,7 @@ import {
   type TemplateDefinition,
 } from '@renderweld/project-schema';
 import { ApiError } from './errors';
-import type { EnginePlugin, ProviderPlugin, RenderBackend, SpeechToTextPlugin, StorageDriver, TemplateInfo } from './plugins';
+import type { Availability, EnginePlugin, ProviderPlugin, RenderBackend, SpeechToTextPlugin, StorageDriver, TemplateInfo } from './plugins';
 
 /** Plugins registered at startup. Unknown ids are rejected with the installed list. */
 export class PluginRegistry {
@@ -97,7 +97,14 @@ export class PluginRegistry {
     const out: TemplateInfo[] = [];
     for (const e of this.engines.values()) {
       if (engine && e.id !== engine) continue;
+      let a: Availability;
+      try {
+        a = e.availability();
+      } catch (err) {
+        a = { ok: false, reason: (err as Error).message };
+      }
       for (const t of e.templates()) {
+        const alternatives = e.alternatives?.[t.id];
         out.push({
           id: t.id,
           engine: e.id,
@@ -106,6 +113,10 @@ export class PluginRegistry {
           maxSeconds: t.maxSeconds,
           themeTokens: t.themeTokens,
           propsSchema: templatePropsJsonSchema(t),
+          available: a.ok,
+          ...(a.ok ? {} : { unavailableReason: a.reason ?? 'not available on this server' }),
+          ...(e.requires ? { requires: e.requires } : {}),
+          ...(alternatives?.length ? { alternatives } : {}),
         });
       }
     }

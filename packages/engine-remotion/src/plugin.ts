@@ -50,6 +50,9 @@ export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
     useSettings(s) {
       settings = s;
     },
+    // RenderWeld ships no Remotion: customers install it with their own Remotion licence (#783, D-143).
+    requires: 'Needs your own Remotion licence',
+    alternatives: { 'kinetic-title': ['html-title'], 'remotion-layout': ['html-layout', 'hyperframes-layout'] },
     templates: () =>
       Object.entries(TEMPLATES)
         .filter(([, t]) => t.engine === 'remotion')
@@ -92,6 +95,7 @@ export function remotionEngine(opts: RemotionEngineOptions = {}): EnginePlugin {
         log: ctx.log,
         install: found.install,
         ...(key ? { licenseKey: key } : {}),
+        ...(ctx.preview ? { preview: true } : {}),
       });
       return { file: res.out, frames: res.frames, engineVersion: res.engineVersion, browserVersion: browserVersion(browser()), millis: res.millis };
     },

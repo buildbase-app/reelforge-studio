@@ -1458,7 +1458,20 @@ export class RenderWeldService {
     // Engines need a browser where they render (#197): here, unless this is an api instance whose workers render. Its
     // workers check when a render job starts (unavailableEngines), and the job fails with engine_unavailable.
     if (this.rendersHere)
-      for (const { index, engine, reason } of this.unavailableEngines(p.scenes)) errors.push({ path: `scenes.${index}.engine`, message: `engine "${engine}" cannot render on this server: ${reason}` });
+      for (const { index, engine, reason } of this.unavailableEngines(p.scenes)) {
+        // Templates of other engines that do the same job (#783: html-title for kinetic-title, ...), for each one used.
+        const alternatives = this.registry.engine(engine).alternatives;
+        const instead = [...new Set(p.scenes.filter((x) => x.engine === engine && x.template).map((x) => x.template!))]
+          .map((t) => {
+            const alt = alternatives?.[t];
+            return alt?.length ? `${alt.join(' or ')} instead of ${t}` : null;
+          })
+          .filter(Boolean);
+        errors.push({
+          path: `scenes.${index}.engine`,
+          message: `engine "${engine}" cannot render on this server: ${reason}${instead.length ? `. Use ${instead.join('; ')}` : ''}`,
+        });
+      }
     // The burned caption font (#447): a project font asset, a bundled font or an installed family; else say what libass draws instead.
     const fontFamiliesInProject: string[] = [];
     for (const [i, a] of p.assets.entries()) {

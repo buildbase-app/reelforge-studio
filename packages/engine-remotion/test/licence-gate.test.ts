@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { resolveConfig, type RuntimeConfig } from '@renderweld/core';
+import { TEMPLATES } from '@renderweld/project-schema';
 import { findRemotion, REMOTION_VERSION } from '../src/load';
 import { remotionEngine, remotionInstall } from '../src/plugin';
 
@@ -73,5 +74,13 @@ describe('Remotion licence gate (L30)', () => {
     engine.useSettings?.(settings('dev'));
     expect(engine.availability()).toEqual({ ok: true });
     expect(engine.version()).toBe(REMOTION_VERSION);
+  });
+
+  it('its templates say they need your own Remotion licence and name templates of other engines to use instead', () => {
+    const e = remotionEngine();
+    expect(e.requires).toBe('Needs your own Remotion licence');
+    const ids = e.templates().map((t) => t.id).sort();
+    expect(Object.keys(e.alternatives ?? {}).sort()).toEqual(ids);
+    for (const alts of Object.values(e.alternatives ?? {})) for (const a of alts) expect(TEMPLATES[a]?.engine).toMatch(/^(html|hyperframes)$/);
   });
 });

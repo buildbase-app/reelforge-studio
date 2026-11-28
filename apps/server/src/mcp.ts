@@ -162,7 +162,7 @@ export const TOOLS: ToolDef[] = [
     name: 'list_templates',
     title: 'List scene templates',
     description:
-      'Lists scene templates with their engine, description, supported duration range in seconds, the theme tokens they read, and the JSON Schema of their props. A scene uses { engine, template, props }. The html engine also accepts raw { html, css } instead of a template.',
+      'Lists scene templates with their engine, description, supported duration range in seconds, the theme tokens they read, and the JSON Schema of their props. A scene uses { engine, template, props }. The html engine also accepts raw { html, css } instead of a template. `available` says whether the template can render on this server; when it is false, `unavailableReason` says why and `alternatives` names templates to use instead. `requires` names what a template always needs beyond RenderWeld (the Remotion templates: your own Remotion licence).',
     scope: 'read',
     input: { engine: z.string().optional().describe('Only templates of this engine, e.g. "remotion".') },
     annotations: { readOnlyHint: true },
@@ -1356,7 +1356,7 @@ done with tools; there is no UI.
   "theme": "midnight",
   "output": { "width": 1080, "height": 1920, "fps": 30, "format": "mp4" },
   "scenes": [
-    { "id": "hook", "engine": "remotion", "template": "kinetic-title", "durationSeconds": 3,
+    { "id": "hook", "engine": "html", "template": "html-title", "durationSeconds": 3,
       "props": { "headline": "Make reels with agents", "subline": "Self-hosted" } },
     { "id": "steps", "engine": "motion-canvas", "template": "animated-explainer", "durationSeconds": 5,
       "props": { "title": "How it works", "points": ["Plan", "Render", "Post"] } },
@@ -1379,6 +1379,9 @@ av-sync, brand-consistency, review-and-qa.
 ## Rules of thumb
 - Open with a hook; about 3 words per second of on-screen text.
 - Use only engines with available: true; never invent templates or props.
+  A template with available: false says why (unavailableReason) and what to
+  use instead (alternatives). The Remotion engine is optional: its templates
+  need the operator's own Remotion licence (requires).
 - html/hyperframes scenes have no network: inline everything (data: URLs);
   CSS animations and the Web Animations API are seeked frame by frame. Theme
   tokens are CSS variables: --rf-bg, --rf-text, --rf-muted, --rf-accent,
@@ -1388,8 +1391,8 @@ av-sync, brand-consistency, review-and-qa.
   TikTok and Shorts; 1920x1080 for YouTube and the web; 1080x1080 or 1080x1350
   for feed posts; 3840x2160 for 4K). Built-in templates reflow for the aspect
   ratio; on tall frames they keep clear of the app's buttons and captions.
-- Layouts (templates html-layout, hyperframes-layout, remotion-layout and
-  motion-canvas-layout, all with the same props, so a scene can move between
+- Layouts (templates html-layout, hyperframes-layout, motion-canvas-layout
+  and the optional remotion-layout, all with the same props, so a scene can move between
   engines by changing only engine and template): split screen (2-4
   panes, side by side or stacked, ratios), picture-in-picture (corner, width
   and margin in units), grid (n x m, or chosen per frame) or full frame, each
@@ -1595,7 +1598,10 @@ function buildServer(service: RenderWeldService, auth: AuthContext, config: Serv
     async ({ brief, targetSeconds, platform }) => {
       // It lists templates and the workspace's themes, as list_templates and list_themes do: the same scope (#426).
       requireRead();
-      const templates = service.listTemplates().map((t) => `- ${t.engine}/${t.id} (${templateDurationLabel(t)}): ${t.description}`).join('\n');
+      const templates = service
+        .listTemplates()
+        .map((t) => `- ${t.engine}/${t.id} (${templateDurationLabel(t)}): ${t.description}${t.available ? '' : ` [not available here: ${t.unavailableReason}${t.alternatives?.length ? `; use ${t.alternatives.join(' or ')}` : ''}]`}`)
+        .join('\n');
       const themes = (await service.listThemes()).map((t) => `- ${t.id}: ${t.description ?? t.name}`).join('\n');
       return {
         messages: [
