@@ -148,7 +148,7 @@ A family that is none of these falls back to the closest installed family;
 
 Checked by `validate_project` (warnings with the cue's path) and recorded in the
 render manifest (`captions.qa`). Defaults from the Netflix Timed Text Style Guide
-(sources in research/SOURCES.md):
+(each rule's source and the date it was checked: [QA.md](QA.md#captions)):
 
 | Rule | Limit |
 | --- | --- |

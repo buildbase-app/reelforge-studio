@@ -1,23 +1,23 @@
 import { resolve } from 'node:path';
-import { loadConfigFile, renamedEnvName, resolveConfig, type ConfigSources, type ResolvedConfig } from '@renderweld/core';
+import { loadConfigFile, resolveConfig, type ConfigSources, type ResolvedConfig } from '@renderweld/core';
 import { StructuredLogger, secretValues, type StructuredLoggerOptions } from './observability/logger';
 
 /**
  * The server's view of the configuration. Every value comes from the one
  * schema in @renderweld/core (packages/core/src/config/schema.ts; reference:
- * docs/CONFIG.md): defaults < config file (RENDERWELD_CONFIG / REELFORGE_CONFIG) < environment.
+ * docs/CONFIG.md): defaults < config file (RENDERWELD_CONFIG) < environment.
  * Runtime settings from the database are applied on top once the database is
  * open (applyServerSettings).
  */
 export interface ServerConfig {
   dataDir: string;
-  /** database.url: REELFORGE_DATABASE_URL / DATABASE_URL (or _FILE); default file:<dataDir>/reelforge.db (SQLite). */
+  /** database.url: RENDERWELD_DATABASE_URL / DATABASE_URL (or _FILE); default file:<dataDir>/reelforge.db (SQLite). */
   databaseUrl: string;
-  /** database.readUrl: REELFORGE_DATABASE_READ_URL / DATABASE_READ_URL (or _FILE); a replica for lag-tolerant lists (D-104). */
+  /** database.readUrl: RENDERWELD_DATABASE_READ_URL / DATABASE_READ_URL (or _FILE); a replica for lag-tolerant lists (D-104). */
   databaseReadUrl?: string;
-  /** Apply pending migrations on start (REELFORGE_MIGRATE_ON_START, default on). */
+  /** Apply pending migrations on start (RENDERWELD_MIGRATE_ON_START, default on). */
   migrateOnStart: boolean;
-  /** How long to keep retrying the first database connection (REELFORGE_DB_CONNECT_TIMEOUT_SECONDS, default 30). */
+  /** How long to keep retrying the first database connection (RENDERWELD_DB_CONNECT_TIMEOUT_SECONDS, default 30). */
   dbConnectTimeoutSeconds: number;
   cacheDir?: string;
   host: string;
@@ -91,7 +91,7 @@ export function serverConfigFrom(resolved: ResolvedConfig, sources: ConfigSource
 }
 
 /**
- * Configuration from the config file (REELFORGE_CONFIG) and environment
+ * Configuration from the config file (RENDERWELD_CONFIG) and environment
  * variables (see docs/CONFIG.md). Throws ConfigError listing every problem.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -119,9 +119,9 @@ export function applyServerSettings(config: ServerConfig, resolved: ResolvedConf
 
 /**
  * Engines and the media pipeline read a few settings from process.env
- * (REELFORGE_CHROMIUM_PATH, FFMPEG_PATH, ...). Values from the config file or
- * any of the setting's names are exported under the name that code reads, and
- * its RENDERWELD_* twin (#412), so every reader sees the effective value.
+ * (RENDERWELD_CHROMIUM_PATH, FFMPEG_PATH, ...). Values from the config file or
+ * any of the setting's names are exported under the name that code reads, so
+ * every reader sees the effective value.
  */
 export function exportProcessEnv(resolved: ResolvedConfig, target: NodeJS.ProcessEnv = process.env): void {
   for (const s of resolved.settings.values()) {
@@ -129,8 +129,6 @@ export function exportProcessEnv(resolved: ResolvedConfig, target: NodeJS.Proces
     if (!name || s.source === 'default' || s.value === undefined) continue;
     const text = typeof s.value === 'boolean' ? (s.value ? '1' : '0') : String(s.value);
     target[name] = text;
-    const twin = renamedEnvName(name);
-    if (twin) target[twin] = text;
   }
 }
 

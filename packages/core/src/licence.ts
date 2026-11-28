@@ -1,9 +1,14 @@
 import { createHmac, hkdfSync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { hostname } from 'node:os';
+import { Duplex } from 'node:stream';
+import { connect as tlsConnect, rootCertificates } from 'node:tls';
 import { join } from 'node:path';
 import { ApiError } from './errors';
 import { userAgent } from './product';
+import { majorVersion } from './config/build';
 import type { RuntimeConfig } from './config/runtime';
 import type { LicenceRepository, LicenceStateRecord, Repositories } from './repositories';
 
@@ -101,7 +106,124 @@ export interface BuildBaseLicenceClientOptions {
   fetch?: typeof fetch;
   /** Refuse HTTP redirects, so the call never leaves serverUrl's host (release builds, D-039). */
   noRedirects?: boolean;
+  /**
+   * Trust only the root certificates built into Node.js for an https serverUrl
+   * (release builds, #108). Certificate authorities the operator adds
+   * (NODE_EXTRA_CA_CERTS, --use-openssl-ca, SSL_CERT_FILE, tls.setDefaultCACertificates)
+   * and NODE_TLS_REJECT_UNAUTHORIZED=0 are ignored, so pointing the licence
+   * server's name at another machine with a home-made certificate does not
+   * turn a made-up key into a valid licence. Not used when `fetch` is given.
+   */
+  builtInRootsOnly?: boolean;
 }
+
+/**
+ * A minimal fetch for the licence calls of a release build (#108): HTTPS that
+ * trusts only the given root certificates and always verifies the certificate
+ * and the host name. An explicit `ca` makes Node ignore NODE_EXTRA_CA_CERTS and
+ * the default store, and an explicit `rejectUnauthorized: true` wins over
+ * NODE_TLS_REJECT_UNAUTHORIZED. Redirects are never followed (they fail, like
+ * fetch's `redirect: "error"`). Plain http is refused.
+ *
+ * An egress proxy works as it does for Node's fetch (docs/DEPLOY.md#licence):
+ * with NODE_USE_ENV_PROXY=1 and HTTPS_PROXY (or https_proxy) set, and the host
+ * not in NO_PROXY, the call goes through an HTTP CONNECT tunnel and TLS still
+ * runs end to end with the licence server. A proxy that re-signs TLS cannot
+ * stand in for the licence server either: exempt its host from interception.
+ */
+export function httpsFetchTrusting(ca: readonly string[], env: NodeJS.ProcessEnv = process.env): typeof fetch {
+  const trusted = [...ca];
+  return (input, init = {}) =>
+    new Promise<Response>((resolveResponse, reject) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.protocol !== 'https:') {
+        reject(new TypeError(`licence server must use https (got ${url.protocol})`));
+        return;
+      }
+      const signal = init.signal ?? undefined;
+      if (signal?.aborted) {
+        reject(signal.reason ?? new Error('aborted'));
+        return;
+      }
+      const headers: Record<string, string> = {};
+      new Headers(init.headers).forEach((v, k) => (headers[k] = v));
+      const port = Number(url.port || 443);
+      const tlsOptions: PinnedTls = { ca: trusted, rejectUnauthorized: true, servername: url.hostname };
+      const proxy = proxyFor(url, env);
+      // Through a proxy: CONNECT, then TLS over the tunnel with the same pinned roots (no agent, our own socket).
+      const transport = proxy
+        ? { createConnection: (_: unknown, done: (err: Error | null, socket: Duplex) => void) => void tunnel(proxy, url.hostname, port, tlsOptions, done) }
+        : { ...tlsOptions, agent: false as const };
+      const req = httpsRequest(url, { method: init.method ?? 'GET', headers, ...transport }, (res) => {
+        const status = res.statusCode ?? 0;
+        if (status >= 300 && status < 400) {
+          res.resume();
+          reject(Object.assign(new TypeError('fetch failed'), { cause: { code: `redirect (HTTP ${status}) not followed` } }));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('error', reject);
+        res.on('end', () => {
+          const h = new Headers();
+          for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) for (const one of Array.isArray(v) ? v : [v]) h.append(k, one);
+          resolveResponse(new Response(status === 204 || status === 304 ? null : Buffer.concat(chunks), { status, statusText: res.statusMessage, headers: h }));
+        });
+      });
+      const onAbort = () => req.destroy(signal?.reason instanceof Error ? signal.reason : new Error('aborted'));
+      signal?.addEventListener('abort', onAbort, { once: true });
+      req.on('close', () => signal?.removeEventListener('abort', onAbort));
+      req.on('error', (e) => reject(Object.assign(new TypeError('fetch failed'), { cause: e })));
+      if (init.body !== undefined && init.body !== null) req.write(typeof init.body === 'string' ? init.body : Buffer.from(init.body as ArrayBuffer));
+      req.end();
+    });
+}
+
+/** The proxy for an https URL, as Node's fetch picks it with NODE_USE_ENV_PROXY=1; undefined for a direct connection. */
+export function proxyFor(url: URL, env: NodeJS.ProcessEnv = process.env): URL | undefined {
+  if (env.NODE_USE_ENV_PROXY !== '1') return undefined;
+  const raw = env.HTTPS_PROXY || env.https_proxy;
+  if (!raw) return undefined;
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const port = url.port || '443';
+  for (const entry of (env.NO_PROXY ?? env.no_proxy ?? '').split(/[\s,]+/)) {
+    const e = entry.trim().toLowerCase();
+    if (!e) continue;
+    if (e === '*') return undefined;
+    const [name, onlyPort] = e.startsWith('[') ? [e.slice(1, e.indexOf(']')), e.split(']:')[1]] : (e.split(':') as [string, string | undefined]);
+    if (onlyPort && onlyPort !== port) continue;
+    const bare = name.replace(/^\*?\./, '');
+    if (host === bare || host.endsWith(`.${bare}`)) return undefined;
+  }
+  const proxy = new URL(raw.includes('://') ? raw : `http://${raw}`);
+  if (proxy.protocol !== 'http:') throw new TypeError(`HTTPS_PROXY must be an http:// proxy for the licence check (got ${proxy.protocol})`);
+  return proxy;
+}
+
+/** An HTTP CONNECT tunnel to host:port through `proxy`, then TLS over it with `tlsOptions`. */
+type PinnedTls = { ca: string[]; rejectUnauthorized: true; servername: string };
+
+function tunnel(proxy: URL, host: string, port: number, tlsOptions: PinnedTls, done: (err: Error | null, socket: Duplex) => void) {
+  const target = `${host.includes(':') ? `[${host}]` : host}:${port}`;
+  const headers: Record<string, string> = { host: target };
+  if (proxy.username) headers['proxy-authorization'] = `Basic ${Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString('base64')}`;
+  const connectReq = httpRequest({ host: proxy.hostname.replace(/^\[|\]$/g, ''), port: Number(proxy.port || 80), method: 'CONNECT', path: target, headers, agent: false });
+  connectReq.once('connect', (res, socket) => {
+    if (res.statusCode !== 200) {
+      socket.destroy();
+      done(Object.assign(new Error(`proxy refused the tunnel (HTTP ${res.statusCode})`), { code: `PROXY_HTTP_${res.statusCode}` }), socket);
+      return;
+    }
+    const tls = tlsConnect({ ...tlsOptions, socket });
+    tls.once('secureConnect', () => done(null, tls));
+    tls.once('error', (e) => done(e, tls));
+  });
+  connectReq.once('error', (e) => done(e, connectReq.socket ?? new Duplex()));
+  connectReq.end();
+}
+
+/** httpsFetchTrusting(Node's built-in Mozilla root store, fixed when this Node.js was released): a release build's licence calls (#108). */
+export const builtInRootsFetch: typeof fetch = httpsFetchTrusting(rootCertificates);
 
 /**
  * The BuildBase licence API over HTTP: the same requests `LicensesApi` of
@@ -118,7 +240,7 @@ export class BuildBaseLicenceClient implements LicenceApi {
   constructor(opts: BuildBaseLicenceClientOptions) {
     this.redirect = opts.noRedirects ? 'error' : 'follow';
     this.base = `${opts.serverUrl.replace(/\/+$/, '')}/api/${opts.version ?? 'v1'}/licenses/${encodeURIComponent(opts.orgId)}`;
-    this.fetchImpl = opts.fetch ?? fetch;
+    this.fetchImpl = opts.fetch ?? (opts.builtInRootsOnly && /^https:/i.test(opts.serverUrl) ? builtInRootsFetch : fetch);
     this.timeoutMs = opts.timeoutMs ?? 15_000;
   }
 
@@ -255,12 +377,12 @@ interface Explained {
 
 const ACTIVATE_HOW = 'activate_licence (MCP), POST /v1/licence {"key": "..."} (REST) or `renderweld licence activate <key>`';
 
-function explain(reason: string, ctx: { host: string; graceDays: number; lastSuccessAt?: string; error?: string }): Explained {
+function explain(reason: string, ctx: { host: string; graceDays: number; lastSuccessAt?: string; error?: string; item?: string; version?: string }): Explained {
   switch (reason) {
     case 'no_key':
       return {
         message: 'No licence key is set.',
-        fix: `Set the key from your RenderWeld purchase with ${ACTIVATE_HOW} (stored encrypted; needs REELFORGE_SECRET_KEY), or REELFORGE_LICENCE_KEY / REELFORGE_LICENCE_KEY_FILE and restart.`,
+        fix: `Set the key from your RenderWeld purchase with ${ACTIVATE_HOW} (stored encrypted; needs RENDERWELD_SECRET_KEY), or RENDERWELD_LICENCE_KEY / RENDERWELD_LICENCE_KEY_FILE and restart.`,
       };
     case 'not_found':
       return { message: 'The licence server does not know this licence key.', fix: `Check the key in your RenderWeld purchase (store account, orders) and set it again with ${ACTIVATE_HOW}.` };
@@ -277,6 +399,13 @@ function explain(reason: string, ctx: { host: string; graceDays: number; lastSuc
       };
     case 'not_activated':
       return { message: 'This server holds no activation of the licence key.', fix: `Activate it with ${ACTIVATE_HOW}.` };
+    case 'wrong_version': {
+      const major = majorVersion(ctx.version);
+      return {
+        message: `This licence key was bought for another RenderWeld version${ctx.item ? ` (${ctx.item})` : ''}${major !== undefined ? `; this image is RenderWeld ${ctx.version} and accepts keys for RenderWeld ${major}` : ''}. A key covers one major version.`,
+        fix: `Run the RenderWeld version your key was bought for, or buy a key for this version (existing buyers may get an upgrade discount), then activate it with ${ACTIVATE_HOW}.`,
+      };
+    }
     case 'deactivated':
       return { message: 'This server gave its licence activation back (deactivate_licence).', fix: `Activate again with ${ACTIVATE_HOW}.` };
     case 'grace_expired':
@@ -297,7 +426,7 @@ function explain(reason: string, ctx: { host: string; graceDays: number; lastSuc
     case 'state_untrusted':
       return {
         message:
-          'The stored licence state failed its integrity check (it was changed outside RenderWeld, REELFORGE_SECRET_KEY changed, or it was written by an older version), so the offline grace period does not apply until the licence server confirms the licence.',
+          'The stored licence state failed its integrity check (it was changed outside RenderWeld, RENDERWELD_SECRET_KEY changed, or it was written by an older version), so the offline grace period does not apply until the licence server confirms the licence.',
         fix: `Allow outbound HTTPS to ${ctx.host}; the next successful check restores normal operation (POST /v1/licence or activate_licence checks at once).`,
       };
     case 'not_checked':
@@ -333,26 +462,26 @@ interface Seal {
  * source protected nothing.
  */
 export function licenceSealKey(secret: string, instanceId: string): Buffer {
-  if (!secret) throw new Error('the licence state seal needs a secret (REELFORGE_SECRET_KEY)');
+  if (!secret) throw new Error('the licence state seal needs a secret (RENDERWELD_SECRET_KEY)');
   return Buffer.from(hkdfSync('sha256', secret, instanceId, 'reelforge licence state seal v1', 32));
 }
 
-/** Where a dev build without REELFORGE_SECRET_KEY keeps its random seal secret. */
+/** Where a dev build without RENDERWELD_SECRET_KEY keeps its random seal secret. */
 export const LOCAL_SEAL_FILE = 'licence-seal.key';
 
 /**
  * The secret the stored licence state is sealed with (#305): security.secretKey
- * (REELFORGE_SECRET_KEY or _FILE). A release build refuses to start without it
+ * (RENDERWELD_SECRET_KEY or _FILE). A release build refuses to start without it
  * (secretKeyProblem); this throws as a last guard. A dev build without it uses a
  * random secret kept in `<dataDir>/licence-seal.key` (mode 0600, created on
  * first use), so a restart keeps trusting its own state; instances that share a
- * database then need the same REELFORGE_SECRET_KEY to trust each other's.
+ * database then need the same RENDERWELD_SECRET_KEY to trust each other's.
  * Without a data directory the secret lives only as long as the process.
  */
 export function licenceSealSecret(settings: RuntimeConfig, dataDir?: string): string {
   const key = settings.config.security.secretKey;
   if (key) return key;
-  if (settings.current.build.edition === 'release') throw new Error('the release edition needs REELFORGE_SECRET_KEY (or REELFORGE_SECRET_KEY_FILE) to seal the licence state');
+  if (settings.current.build.edition === 'release') throw new Error('the release edition needs RENDERWELD_SECRET_KEY (or RENDERWELD_SECRET_KEY_FILE) to seal the licence state');
   if (!dataDir) return randomBytes(32).toString('hex');
   const file = join(dataDir, LOCAL_SEAL_FILE);
   try {
@@ -439,6 +568,13 @@ export interface LicenceManagerOptions {
   mode: LicenceMode;
   graceDays: number;
   licenceServer: { url: string; orgId: string };
+  /**
+   * The BuildBase items whose keys this image accepts (licence.itemIds): the
+   * items sold for its major version (D-142). Empty or absent: any item.
+   */
+  itemIds?: readonly string[];
+  /** This image's version (build-info.json), for the wrong_version message. */
+  version?: string;
   /** Injectable clock (ms since epoch). */
   now?: () => number;
   checkIntervalMs?: number;
@@ -512,8 +648,8 @@ export class LicenceManager {
       this.log(
         'error',
         this.readOnly
-          ? 'licence: the stored licence state failed its integrity check (changed outside RenderWeld, or this worker has a different REELFORGE_SECRET_KEY than the api instances); this worker claims no render jobs until it reads a valid state.'
-          : 'licence: the stored licence state failed its integrity check (changed outside RenderWeld, REELFORGE_SECRET_KEY changed, or written by an older version); an online licence check is needed before renders are allowed again.'
+          ? 'licence: the stored licence state failed its integrity check (changed outside RenderWeld, or this worker has a different RENDERWELD_SECRET_KEY than the api instances); this worker claims no render jobs until it reads a valid state.'
+          : 'licence: the stored licence state failed its integrity check (changed outside RenderWeld, RENDERWELD_SECRET_KEY changed, or written by an older version); an online licence check is needed before renders are allowed again.'
       );
     }
     // Untrusted until a trusted state with an answer is read: this instance's or another instance's check (D-098).
@@ -729,7 +865,14 @@ export class LicenceManager {
     try {
       let answer = activate ? await this.opts.api.activate(key, s.instanceId) : await this.opts.api.validate(key, s.instanceId);
       // The activation was freed elsewhere (seller reset, store account): take a slot again.
-      if (!activate && !answer.valid && answer.reason === 'not_activated') answer = await this.opts.api.activate(key, s.instanceId);
+      const reactivated = !activate && !answer.valid && answer.reason === 'not_activated';
+      if (reactivated) answer = await this.opts.api.activate(key, s.instanceId);
+      if (answer.valid && !this.itemAccepted(answer.item)) {
+        // A key for another major version (D-142): give back the activation this check just took, so it does not
+        // hold one of the buyer's activations on an image that refuses it. Best effort; the refusal stands either way.
+        if (activate || reactivated) await this.opts.api.deactivate(key, s.instanceId).catch(() => undefined);
+        answer = { ...answer, valid: false, reason: 'wrong_version' };
+      }
       const at = this.now();
       s.answer = { ...sanitize(answer), checkedBy: this.name };
       s.lastCheckedAt = this.iso(at);
@@ -744,7 +887,7 @@ export class LicenceManager {
         // A fresh success is the reference time again (a clock that was wrong and got fixed).
         s.highWaterAt = this.iso(at);
       } else {
-        if (answer.reason === 'not_activated' || answer.reason === 'limit_reached' || answer.reason === 'not_found') delete s.activatedAt;
+        if (answer.reason === 'not_activated' || answer.reason === 'limit_reached' || answer.reason === 'not_found' || answer.reason === 'wrong_version') delete s.activatedAt;
         s.highWaterAt = this.iso(Math.max(at, s.highWaterAt ? Date.parse(s.highWaterAt) : 0));
       }
       this.failures = 0;
@@ -795,6 +938,17 @@ export class LicenceManager {
     this.log(level, `${line}${suffix}`);
   }
 
+  /**
+   * Whether a key bought for `item` works on this image (D-142): any item when
+   * licence.itemIds is empty, otherwise only the listed ones. An answer that
+   * names no item is refused while a list is set.
+   */
+  private itemAccepted(item: { id: string } | undefined): boolean {
+    const ids = this.opts.itemIds;
+    if (!ids || ids.length === 0) return true;
+    return Boolean(item && ids.includes(String(item.id)));
+  }
+
   /** The current status, from the stored state and the clock. */
   report(): LicenceReport {
     const s = this.state;
@@ -835,6 +989,10 @@ export class LicenceManager {
       // The licence server said no; being offline now does not change that.
       status = 'invalid';
       reason = answer.reason ?? 'refused';
+    } else if (answer && !this.itemAccepted(answer.item)) {
+      // A stored answer for a key of another major version (an upgraded image reading an older image's state, D-142).
+      status = 'invalid';
+      reason = 'wrong_version';
     } else if (lastSuccess === undefined) {
       if (lastError) {
         status = 'invalid';
@@ -857,7 +1015,9 @@ export class LicenceManager {
       status = lastError ? 'grace' : 'valid';
     }
 
-    const ex = reason ? explain(reason, { host, graceDays: this.opts.graceDays, lastSuccessAt: s.lastSuccessAt, error: lastError?.message }) : null;
+    const ex = reason
+      ? explain(reason, { host, graceDays: this.opts.graceDays, lastSuccessAt: s.lastSuccessAt, error: lastError?.message, item: answer?.item?.title, version: this.opts.version })
+      : null;
     const allowed = status === 'valid' || status === 'grace';
     let message = ex?.message ?? (status === 'checking' ? 'The licence is being checked.' : 'The licence is valid.');
     let warning: string | undefined;
@@ -986,15 +1146,24 @@ export function createLicenceManager(
   opts: Pick<LicenceManagerOptions, 'now' | 'checkIntervalMs' | 'timers' | 'log' | 'readOnly' | 'instanceName' | 'refreshMs'> & {
     api?: LicenceApi;
     fetch?: typeof fetch;
-    /** The data directory: where a dev build without REELFORGE_SECRET_KEY keeps its seal secret (licenceSealSecret). */
+    /** The data directory: where a dev build without RENDERWELD_SECRET_KEY keeps its seal secret (licenceSealSecret). */
     dataDir?: string;
   } = {}
 ): LicenceManager {
   const lc = settings.config.licence;
   return new LicenceManager({
     repo: repos.licence,
-    // A release build fixes serverUrl (source "build"); its calls also refuse redirects, so they only reach that host.
-    api: opts.api ?? new BuildBaseLicenceClient({ serverUrl: lc.serverUrl, orgId: lc.orgId, fetch: opts.fetch, noRedirects: settings.current.build.edition === 'release' }),
+    // A release build fixes serverUrl (source "build"); its calls also refuse redirects, so they only reach that host,
+    // and trust only Node's built-in root certificates, so a CA the operator adds cannot stand in for it (#108).
+    api:
+      opts.api ??
+      new BuildBaseLicenceClient({
+        serverUrl: lc.serverUrl,
+        orgId: lc.orgId,
+        fetch: opts.fetch,
+        noRedirects: settings.current.build.edition === 'release',
+        builtInRootsOnly: settings.current.build.edition === 'release',
+      }),
     key: () => {
       const st = settings.current.settings.get('licence.key');
       const value = typeof st?.value === 'string' ? st.value : undefined;
@@ -1003,6 +1172,8 @@ export function createLicenceManager(
     mode: lc.mode,
     graceDays: lc.offlineGraceDays,
     licenceServer: { url: lc.serverUrl, orgId: lc.orgId },
+    itemIds: lc.itemIds,
+    version: settings.current.build.version,
     now: opts.now,
     checkIntervalMs: opts.checkIntervalMs,
     timers: opts.timers,

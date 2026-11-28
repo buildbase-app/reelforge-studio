@@ -5,7 +5,7 @@ import type { StoredAsset } from './plugins';
 import type { WebhookRepository } from './webhooks/types';
 
 /**
- * Persistence contracts. ReelforgeService and the stores in this package
+ * Persistence contracts. RenderWeldService and the stores in this package
  * depend only on these interfaces; implementations live elsewhere:
  *
  *   - @renderweld/db       Prisma 7: SQLite (default), PostgreSQL, MySQL/MariaDB
@@ -443,7 +443,7 @@ export interface ThemeRepository {
 
 /**
  * A stored setting value. `scheme` says how `value` is stored: "plain", or
- * "aes-256-gcm" (SecretCipher in config/crypto.ts; REELFORGE_SECRET_KEY).
+ * "aes-256-gcm" (SecretCipher in config/crypto.ts; RENDERWELD_SECRET_KEY).
  * Repositories store both opaquely; encryption happens above them.
  */
 export interface StoredValue {
@@ -724,6 +724,12 @@ export interface WorkspaceLimits {
   retentionMaxAgeHours?: number;
   /** The newest N renders of each project the sweep always keeps, as `keepLastRendersPerProject`, never more than the instance's. */
   retentionKeepLast?: number;
+  /**
+   * Delete a render this many minutes after the first download of its output (#487), whatever its age and the
+   * keep-last. The grace lets a retry or a second device fetch it again. Downloads are seen by this server only, so
+   * the workspace's download links go through it, not through the bucket.
+   */
+  retentionDeleteAfterDownloadMinutes?: number;
 }
 
 export interface WorkspaceRecord {

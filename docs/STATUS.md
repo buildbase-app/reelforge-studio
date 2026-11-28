@@ -33,7 +33,7 @@ human merges (AGENTS.md, "Contribution rules for AI agents", enforced by the
 ## 3. What exists (verified)
 
 **Studio** (agent platform v0.1, #9, on `main`):
-REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->82<!-- /mcp-tool-count --> MCP tools, generated list in
+REST `/v1` + MCP `/mcp` server (<!-- mcp-tool-count -->83<!-- /mcp-tool-count --> MCP tools, generated list in
 [public/mcp/tools.md](public/mcp/tools.md); every REST route has one, checked by a parity test), API keys with scopes, manifest v0.2 with automatic
 v0.1 migration, four engines (Remotion, Motion Canvas, HTML, HyperFrames) with
 theme tokens, job runner, render pipeline with music/voice/sfx and ffprobe +
@@ -877,7 +877,7 @@ small licence-clean bundles (D-129).
 **Open and hard to reverse (do not decide by default):**
 1. Remotion licence for the source-sale model (#10): go/no-go, needs a written answer.
 2. EULA and rights granted to buyers; delivery channel (#11, #3).
-3. Pricing (proposal: Solo $149 / Studio $349 / Agency $899 launch, one year of updates, install services); prices live in BuildBase items, never hard-coded.
+3. Pricing decided (D-141): Solo $9, Studio $29, Agency $79, Unlimited $99, one-time, and lifetime for the major version bought (D-142: a 1.x key works on every 1.x release); the country bands are still open. Prices live in BuildBase items, never hard-coded.
 4. Legal entity, address, support email (#3).
 5. Manifest v0.2 and MCP tool names as a public contract: marked experimental until v1.0.
 

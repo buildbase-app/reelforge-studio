@@ -1,6 +1,6 @@
 ---
 title: "Store screenshots"
-description: "Every page of the ReelForge store at phone and desktop width, in light and dark, plus the signed-in pages after claiming and buying a licence on the test site. Licence keys and emails are masked."
+description: "Every page of the RenderWeld store at phone and desktop width, in light and dark, plus the signed-in pages after claiming and buying a licence on the test site. Licence keys and emails are masked."
 folder: screenshots
 slug: store-screenshots
 order: 1

@@ -65,7 +65,7 @@ as `asset://<id>`: uploaded, or imported from a URL with `add_asset_from_url`
 
 ## 3. Render checks, in order
 
-`ReelforgeService.renderProject` / `enqueueRender`
+`RenderWeldService.renderProject` / `enqueueRender`
 (`packages/core/src/service.ts`), all before a job exists:
 
 1. **Priority:** the requested class may not exceed the key's `maxPriority`

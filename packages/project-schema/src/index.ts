@@ -1,3 +1,4 @@
+import { readabilityWarnings } from './readability';
 import { z } from 'zod';
 import { migrate } from './migrate';
 import {
@@ -39,6 +40,7 @@ export * from './layout-dom';
 export * from './textqa';
 export * from './media';
 export * from './assetRefs';
+export * from './readability';
 export { projectV01, V01_SCHEMA_VERSION, type ProjectV01, type ProjectV01Input } from './v01';
 
 export interface ValidationIssue {
@@ -124,6 +126,7 @@ function collectWarnings(p: Project, captionsDefaultMode?: CaptionMode): Validat
     }
   });
   warnings.push(...captionWarnings(p, captionsDefaultMode));
+  warnings.push(...readabilityWarnings(p));
   if (p.audio.music?.ducking && !p.audio.voice) {
     warnings.push({ path: 'audio.music.ducking', message: 'ducking lowers the music under the voice, but there is no voice track' });
   }

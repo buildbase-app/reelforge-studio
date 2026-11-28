@@ -144,7 +144,7 @@ export async function importFilesystemV01(repos: Repositories, dataDir: string, 
   const newSettings = Object.fromEntries(Object.entries(secrets).filter(([k, v]) => typeof v === 'string' && !(k in haveSettings)));
   if (Object.keys(newSettings).length) {
     const at = (await stat(join(root, 'secrets.json'))).mtime.toISOString();
-    // Plain text, as v0.1 stored it; encrypted on the next start with REELFORGE_SECRET_KEY (RuntimeConfig.encryptPlaintext).
+    // Plain text, as v0.1 stored it; encrypted on the next start with RENDERWELD_SECRET_KEY (RuntimeConfig.encryptPlaintext).
     await repos.providerSettings.apply(Object.fromEntries(Object.entries(newSettings).map(([k, v]) => [k, { value: v, scheme: 'plain' }])), at);
     r.providerSettings = Object.keys(newSettings).length;
   }

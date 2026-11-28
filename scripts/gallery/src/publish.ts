@@ -267,7 +267,7 @@ export async function publishAll(outDir: string, opts: PublishOptions = {}): Pro
   const token = opts.token ?? process.env.BUILDBASE_API_TOKEN ?? (process.env.BUILDBASE_API_TOKEN_FILE ? readFileSync(process.env.BUILDBASE_API_TOKEN_FILE, 'utf8').trim() : '');
   if (!token) throw new Error('set BUILDBASE_API_TOKEN or BUILDBASE_API_TOKEN_FILE (an org API token of the environment to publish to)');
   const server = opts.server ?? process.env.BUILDBASE_SERVER_URL ?? 'https://api.console.buildbase.app';
-  const baseUrl = opts.baseUrl ?? process.env.REELFORGE_GALLERY_MEDIA_URL ?? 'https://media.reelforge.buildbase.app';
+  const baseUrl = opts.baseUrl ?? process.env.RENDERWELD_GALLERY_MEDIA_URL ?? 'https://media.reelforge.buildbase.app';
   const media = readMedia(outDir);
   const urls = existsSync(join(outDir, 'web', 'urls.json')) ? JSON.parse(readFileSync(join(outDir, 'web', 'urls.json'), 'utf8')) : { manifests: {} };
   const bb = new BuildBaseCollections(server, token, f);

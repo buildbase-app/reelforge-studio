@@ -36,7 +36,7 @@ beforeAll(async () => {
   const database = await testDatabase(dir);
   dropDb = database.drop;
   const registry = new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas', { fail: true }));
-  server = await startServer({ dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' }, { registry, env: { ...database.env, REELFORGE_LICENCE_MODE: 'off' }, quiet: true });
+  server = await startServer({ dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' }, { registry, env: { ...database.env, RENDERWELD_LICENCE_MODE: 'off' }, quiet: true });
   key = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   for (const [id, engine] of [['good-a', 'remotion'], ['good-b', 'remotion'], ['bad', 'motion-canvas']] as const) {
     expect((await rest('/v1/projects', { method: 'POST', body: JSON.stringify({ manifest: reel(id, engine) }) })).status).toBe(201);

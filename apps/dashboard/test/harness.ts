@@ -2,7 +2,7 @@ import { serve, type ServerType } from '@hono/node-server';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PluginRegistry, ReelforgeService, type EnginePlugin } from '@renderweld/core';
+import { PluginRegistry, RenderWeldService, type EnginePlugin } from '@renderweld/core';
 import { prepareDatabase } from '@renderweld/db';
 import { createApp, loadConfig } from '@renderweld/server';
 import { buildDashboard } from '../build';
@@ -16,17 +16,17 @@ export async function startStudio(engines: EnginePlugin[], opts: { dashboard?: b
   const dir = mkdtempSync(join(tmpdir(), 'reelforge-dashboard-'));
   const assets = join(dir, 'dashboard');
   const built = await buildDashboard(assets);
-  const env = { REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_DASHBOARD_ENABLED: String(opts.dashboard ?? true), ...opts.env };
+  const env = { RENDERWELD_DATA_DIR: join(dir, 'data'), RENDERWELD_DASHBOARD_ENABLED: String(opts.dashboard ?? true), ...opts.env };
   const config = { ...loadConfig(env), dashboardAssetsDir: assets };
   const { db } = await prepareDatabase({ url: config.databaseUrl, dataDir: config.dataDir });
   const registry = new PluginRegistry();
   for (const e of engines) registry.registerEngine(e);
   opts.register?.(registry);
-  const service = await ReelforgeService.create(registry, {
+  const service = await RenderWeldService.create(registry, {
     // The routing bundle, as the server uses (#304): workspace tools work and each key sees its own workspace.
     repositories: db.workspaceRepositories(),
     dataDir: config.dataDir,
-    configSources: { env: { ...env, REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { ...env, RENDERWELD_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', RENDERWELD_LICENCE_MODE: 'off' } },
   });
   const keys = {
     // Upgraded installs give admin keys the owner scope (#304); runtime settings and storage need it.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * A small local agent: an open-weight model on your own CPU drives ReelForge
+ * A small local agent: an open-weight model on your own CPU drives RenderWeld
  * Studio over MCP. No cloud model, no API key for the model.
  *
  *   1. The MCP SDK client connects to the studio and lists its tools.
@@ -16,7 +16,7 @@
  *     e.g. Ollama (http://127.0.0.1:11434/v1) or llama.cpp's llama-server --jinja.
  *
  * Environment:
- *   REELFORGE_URL, REELFORGE_API_KEY   the studio and a key (read,write,render)
+ *   RENDERWELD_URL, RENDERWELD_API_KEY   the studio and a key (read,write,render)
  *   LOCAL_AGENT_MODEL                  llama-cpp: path to the .gguf file; openai: the model name
  *   LOCAL_AGENT_MODULES                folder where `npm i node-llama-cpp` was run (llama-cpp backend)
  *   LOCAL_AGENT_BASE_URL               openai backend, default http://127.0.0.1:11434/v1
@@ -48,7 +48,7 @@ export const LOCAL_TOOLS = {
 /** Arguments the agent loop always sets, whatever the model sends. */
 export const FIXED_ARGS = { get_render_output: { includePoster: false }, get_job: { waitSeconds: 45 } };
 
-const SYSTEM_PROMPT = `You are a video production agent connected to a ReelForge studio through tools.
+const SYSTEM_PROMPT = `You are a video production agent connected to a RenderWeld studio through tools.
 Work step by step: call one tool, read its result, then decide the next call.
 A manifest looks like {"schemaVersion":"0.2","projectId":"...","title":"...","output":{"width":1080,"height":1920,"fps":30,"format":"mp4"},"scenes":[{"id":"intro","engine":"html","template":"html-title","durationSeconds":4,"props":{"headline":"..."}}]}.
 Scene props must match the template's props schema from list_templates. If a tool returns an error, fix the arguments and call it again.
@@ -166,9 +166,9 @@ async function connectMcp() {
   };
   const { Client } = await load('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await load('@modelcontextprotocol/sdk/client/streamableHttp.js');
-  const base = (process.env.REELFORGE_URL ?? 'http://127.0.0.1:4321').replace(/\/$/, '');
+  const base = (process.env.RENDERWELD_URL ?? 'http://127.0.0.1:4321').replace(/\/$/, '');
   const client = new Client({ name: 'reelforge-local-agent', version: '1.0.0' });
-  await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${process.env.REELFORGE_API_KEY}` } } }));
+  await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${process.env.RENDERWELD_API_KEY}` } } }));
   return client;
 }
 
@@ -314,8 +314,8 @@ async function runOpenAi(client, tools, prompt, state) {
 
 async function main() {
   const prompt = process.argv.slice(2).join(' ');
-  if (!prompt || !process.env.REELFORGE_API_KEY) {
-    console.error('usage: REELFORGE_API_KEY=rf_... LOCAL_AGENT_MODEL=... node scripts/tutorials/local-agent.mjs "<prompt>"');
+  if (!prompt || !process.env.RENDERWELD_API_KEY) {
+    console.error('usage: RENDERWELD_API_KEY=rf_... LOCAL_AGENT_MODEL=... node scripts/tutorials/local-agent.mjs "<prompt>"');
     process.exit(2);
   }
   const client = await connectMcp();

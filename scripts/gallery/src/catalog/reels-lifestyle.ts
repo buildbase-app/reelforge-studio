@@ -731,7 +731,7 @@ export const LIFESTYLE: ReelSpec[] = [
     featured: true,
     music: 'pulse',
     prompt:
-      'A showcase reel that uses all four ReelForge engines in one timeline: a Remotion title, a Motion Canvas list, an agent-written HTML scene and a HyperFrames generative globe, cut back to back. Default theme, 18 seconds.',
+      'A showcase reel that uses all four RenderWeld engines in one timeline: a Remotion title, a Motion Canvas list, an agent-written HTML scene and a HyperFrames generative globe, cut back to back. Default theme, 18 seconds.',
     scenes: [
       R(3, 'Four engines. One timeline', 'Remotion · Motion Canvas · HTML · HyperFrames'),
       MC(5, 'In this reel', ['This title: Remotion', 'This list: Motion Canvas', 'Next: HTML, then HyperFrames']),

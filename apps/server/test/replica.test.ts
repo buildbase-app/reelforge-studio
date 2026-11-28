@@ -10,20 +10,20 @@ import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 /**
  * Read replica and the worker pool default on the server (issue #152, D-104).
  * Ids REP-nn in docs/providers/queue-and-scaling.md#read-replica. The replica
- * cases need PostgreSQL or MySQL (REELFORGE_TEST_DB=postgres|mysql, or
+ * cases need PostgreSQL or MySQL (RENDERWELD_TEST_DB=postgres|mysql, or
  * TEST_POSTGRES_URL / TEST_MYSQL_URL set); the SQLite refusal runs always.
  */
 const { dir, cleanup } = tempDir('reelforge-replica-');
 afterAll(() => cleanup());
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
 const REPLICA_PASSWORD = 'R3plicaPassw0rdNotInLogs';
-const base = { REELFORGE_LICENCE_MODE: 'off', REELFORGE_SECRET_KEY: 'replica-test-secret-key-0123456789abcdef' };
+const base = { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_SECRET_KEY: 'replica-test-secret-key-0123456789abcdef' };
 
 describe('database.readUrl on SQLite', () => {
   it('REP-06 the server refuses to start with a read URL on SQLite, says why, and never prints the replica password', async () => {
     const err = await startServer(
       { dataDir: join(dir, 'sqlite'), port: 0, host: '127.0.0.1' },
-      { registry: new PluginRegistry(), env: { ...base, REELFORGE_DATABASE_READ_URL: `postgresql://rf:${REPLICA_PASSWORD}@127.0.0.1:1/rf` }, quiet: true }
+      { registry: new PluginRegistry(), env: { ...base, RENDERWELD_DATABASE_READ_URL: `postgresql://rf:${REPLICA_PASSWORD}@127.0.0.1:1/rf` }, quiet: true }
     ).catch((e: Error) => e);
     expect(String(err)).toMatch(/DATABASE_READ_URL \(database\.readUrl\) needs PostgreSQL or MySQL: SQLite is one local file/);
     expect(String(err)).not.toContain(REPLICA_PASSWORD);
@@ -52,7 +52,7 @@ describe.skipIf(!kind)(`read replica and worker pool on ${kind}`, () => {
       { dataDir: join(dir, 'shared'), port: 0, host: '127.0.0.1' },
       {
         registry: () => new PluginRegistry().registerEngine(e[0]!).registerEngine(e[1]!),
-        env: { ...base, DATABASE_URL: primary.url, REELFORGE_STORAGE_LOCAL_SHARED: 'true', ...env },
+        env: { ...base, DATABASE_URL: primary.url, RENDERWELD_STORAGE_LOCAL_SHARED: 'true', ...env },
         queue: { workerId: name, leaseMs: 4000, heartbeatMs: 300, pollMs: 100 },
         logWrite: (_l, line) => void logs.push(line),
       }
@@ -77,13 +77,13 @@ describe.skipIf(!kind)(`read replica and worker pool on ${kind}`, () => {
       u.searchParams.set('connection_limit', String(n));
       return u.toString();
     };
-    const w = await start('w-default', { REELFORGE_ROLE: 'worker' });
+    const w = await start('w-default', { RENDERWELD_ROLE: 'worker' });
     expect(w.db.poolSize).toBe(3);
-    const wUrl = await start('w-url', { REELFORGE_ROLE: 'worker', DATABASE_URL: withLimit(7) });
+    const wUrl = await start('w-url', { RENDERWELD_ROLE: 'worker', DATABASE_URL: withLimit(7) });
     expect(wUrl.db.poolSize).toBe(7);
-    const wOff = await start('w-off', { REELFORGE_ROLE: 'worker', REELFORGE_DB_WORKER_CONNECTION_LIMIT: '0' });
+    const wOff = await start('w-off', { RENDERWELD_ROLE: 'worker', RENDERWELD_DB_WORKER_CONNECTION_LIMIT: '0' });
     expect(wOff.db.poolSize).toBe(10);
-    const a = await start('api', { REELFORGE_ROLE: 'api' });
+    const a = await start('api', { RENDERWELD_ROLE: 'api' });
     expect(a.db.poolSize).toBe(10);
     expect(logs.some((l) => /database: (postgresql|mysql) .* \(pool 3\)/.test(l))).toBe(true);
     for (const s of servers.splice(0)) await s.close();
@@ -91,9 +91,9 @@ describe.skipIf(!kind)(`read replica and worker pool on ${kind}`, () => {
 
   it('REP-08 with a replica that has no tables, the write journey works (keys, quota, idempotency, rate limit, project writes, a database-queue render, settings, themes, audit); only the lists fail', async () => {
     const s = await start('all-1', {
-      REELFORGE_QUEUE_DRIVER: 'database',
-      REELFORGE_RATE_LIMIT_STORE: 'database',
-      REELFORGE_DATABASE_READ_URL: empty.url,
+      RENDERWELD_QUEUE_DRIVER: 'database',
+      RENDERWELD_RATE_LIMIT_STORE: 'database',
+      RENDERWELD_DATABASE_READ_URL: empty.url,
     });
     expect(s.db.readDisplayUrl).toBeTruthy();
     expect(logs.some((l) => l.includes('database read replica:') && l.includes('lists only: projects.page'))).toBe(true);

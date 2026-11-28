@@ -106,7 +106,7 @@ describe.skipIf(!pgUrl)('queue dispatch notify on PostgreSQL', () => {
     const a = notifyChannel(u.toString());
     u.searchParams.set('schema', 'tenant_b');
     expect(a).not.toBe(notifyChannel(u.toString()));
-    expect(notifyChannel(pgUrl!)).toBe('reelforge_jobs');
+    expect(notifyChannel(pgUrl!)).toBe('renderweld_jobs');
     expect(a.length).toBeLessThan(63);
   });
 

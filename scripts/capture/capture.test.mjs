@@ -244,7 +244,7 @@ describe('agent session fixture and terminal views', () => {
   });
   it('cleans terminal output and masks what it shows', () => {
     assert.equal(cleanOutput('\x1b[32mok\x1b[0m\nprogress 10%\rprogress 100%\n'), 'ok\nprogress 100%');
-    const html = terminalPage({ title: 't', blocks: [{ cmd: 'echo $REELFORGE_KEY', output: `rf_${'z'.repeat(30)} <b>` }] });
+    const html = terminalPage({ title: 't', blocks: [{ cmd: 'echo $RENDERWELD_KEY', output: `rf_${'z'.repeat(30)} <b>` }] });
     assert.ok(!html.includes('zzzzzzzzzz'));
     assert.ok(html.includes('&lt;b&gt;'));
   });

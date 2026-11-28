@@ -37,14 +37,14 @@
   "poster": "claude-code-html.jpg",
   "problems": [],
   "artefacts": "$TUTORIAL_OUT/claude-code/html",
-  "prompt": "You are connected to a ReelForge video studio through the \"reelforge\" MCP server. Make a vertical reel (1080x1920, 30 fps) about a launch announcement for a note-taking app: an 8-second reel made of two 4-second scenes, both using only the html engine (template html-title). Use the project id \"tut-claude-code-html\". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.",
+  "prompt": "You are connected to a RenderWeld video studio through the \"reelforge\" MCP server. Make a vertical reel (1080x1920, 30 fps) about a launch announcement for a note-taking app: an 8-second reel made of two 4-second scenes, both using only the html engine (template html-title). Use the project id \"tut-claude-code-html\". Check list_templates for the props, create the project, validate it, render it, call get_job with waitSeconds 45 until the job succeeds, then call get_render_output. Reply with the project id, job id, render id, duration and frame count. Use only the reelforge tools.",
   "llm": {
     "model": "claude-sonnet-5-5",
     "turns": 8,
     "durationMs": 84544,
     "costUsd": 0.11621250000000001,
     "isError": false,
-    "reply": "The 8-second reel is rendered, and the render's metadata, decode and duration checks all passed.\n\n- **Project id:** `tut-claude-code-html`\n- **Job id:** `job_mwqt218t46dcf0a919`\n- **Render id:** `run_mwqt218t4347ef0601`\n- **Duration:** 8 seconds\n- **Frame count:** 240 frames at 30 fps, 1080x1920\n\nThe reel has two 4-second scenes, both on the html engine with the `html-title` template:\n1. **intro:** \"Meet your new notes\", with the kicker \"Launching today\".\n2. **outro:** \"Get the app today\", with the kicker \"Available now\".\n\nThe poster frame is the first frame of the intro, so the headline looked dim there. I only looked at that one frame, not the rest of the video.\n\nDownload link, valid until 2026-11-21 20:34 UTC: `/v1/renders/run_mwqt218t4347ef0601/output?expires=1795293241&sig=<redacted>`. The server returned it as a relative path, so put your ReelForge server's address in front of it.",
+    "reply": "The 8-second reel is rendered, and the render's metadata, decode and duration checks all passed.\n\n- **Project id:** `tut-claude-code-html`\n- **Job id:** `job_mwqt218t46dcf0a919`\n- **Render id:** `run_mwqt218t4347ef0601`\n- **Duration:** 8 seconds\n- **Frame count:** 240 frames at 30 fps, 1080x1920\n\nThe reel has two 4-second scenes, both on the html engine with the `html-title` template:\n1. **intro:** \"Meet your new notes\", with the kicker \"Launching today\".\n2. **outro:** \"Get the app today\", with the kicker \"Available now\".\n\nThe poster frame is the first frame of the intro, so the headline looked dim there. I only looked at that one frame, not the rest of the video.\n\nDownload link, valid until 2026-11-21 20:34 UTC: `/v1/renders/run_mwqt218t4347ef0601/output?expires=1795293241&sig=<redacted>`. The server returned it as a relative path, so put your RenderWeld server's address in front of it.",
     "exitCode": 0
   }
 }
