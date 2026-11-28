@@ -2,7 +2,7 @@
 
 The capture pipeline cannot sign in to the BuildBase console (no agent signs in
 as the founder), so the console's configuration is published as code instead:
-[docs/public/install/buildbase-console-setup.md](public/install/buildbase-console-setup.md),
+`out/console/buildbase-console-setup.md` (not committed),
 regenerated with `pnpm capture --only console` (docs/CAPTURE.md). If a picture
 of a console screen is still wanted, these are the screens, in the
 **development** environment first (environment switcher at the top of the

@@ -2,16 +2,17 @@
 // Reads the development environment's configuration (blueprint exports given
 // with --blueprint, plus read-only GETs of the org API with the environment's
 // token when one is set), redacts it, and renders the readable page
-// docs/public/install/buildbase-console-setup.md. The redacted snapshot stays
-// in out/ (never committed).
+// out/console/buildbase-console-setup.md. The page and the redacted snapshot
+// stay in out/ (never committed): it describes the store's own back end, which
+// no customer needs.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { checkTokenEnvironment, readToken } from '../../docs/sync-buildbase.mjs';
 import { redactConfig, stableJson } from '../lib.mjs';
 import { REPO_ROOT } from '../run.mjs';
 
-export const CONSOLE_PAGE = 'docs/public/install/buildbase-console-setup.md';
+export const CONSOLE_PAGE = 'out/console/buildbase-console-setup.md';
 const ENV_KEY = 'fsyqdskf';
 /** Read-only org API routes the page is built from (GET only). */
 export const READS = {
@@ -217,6 +218,7 @@ export async function captureConsole(run) {
   const blueprint = redactConfig(mergeBlueprints(present.map((f) => JSON.parse(readFileSync(f, 'utf8')))));
   const live = redactConfig(await readLive(run));
   writeFileSync(join(run.out, 'console-snapshot.json'), stableJson({ blueprint, live }));
+  mkdirSync(dirname(join(REPO_ROOT, CONSOLE_PAGE)), { recursive: true });
   writeFileSync(join(REPO_ROOT, CONSOLE_PAGE), renderConsolePage({ blueprint, live, date: new Date().toISOString().slice(0, 10) }));
   run.log(`console: wrote ${CONSOLE_PAGE} from ${present.length} blueprint file(s) and ${Object.keys(live).length} live reads`);
 }
