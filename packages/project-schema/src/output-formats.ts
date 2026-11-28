@@ -7,7 +7,7 @@ import { z } from 'zod';
  * one. Licence and encoder notes: docs/public/manifest/formats.md#output-formats.
  *
  * HEVC/H.265 is deliberately absent: its patent pools license encoders in
- * products that are sold, and ReelForge is sold (D-123).
+ * products that are sold, and RenderWeld is sold (D-123).
  */
 export const OUTPUT_FORMATS = ['mp4', 'mov', 'webm', 'gif', 'png-sequence', 'm4a', 'wav'] as const;
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number];

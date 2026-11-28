@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ElevenLabsTts, PluginRegistry, RemotionLambdaBackend, ReelforgeService } from '@renderweld/core';
+import { ElevenLabsTts, PluginRegistry, RemotionLambdaBackend, RenderWeldService } from '@renderweld/core';
 import { prepareDatabase, type Database } from '@renderweld/db';
 import { createApp, loadConfig, type ServerConfig } from '../src/index';
 import { testDatabase } from './serverProcess';
@@ -19,7 +19,7 @@ afterAll(async () => {
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
 
 let app: ReturnType<typeof createApp>;
-let service: ReelforgeService;
+let service: RenderWeldService;
 let admin: string;
 let poller: string;
 let reader: string;
@@ -34,16 +34,16 @@ beforeAll(async () => {
     .registerEngine(fakeEngine('motion-canvas'))
     .registerProvider(new ElevenLabsTts(providerEnv))
     .registerBackend(new RemotionLambdaBackend({}));
-  config = { ...loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_PUBLIC_URL: 'https://studio.example.com' }), maxJsonBytes: 64 * 1024 };
+  config = { ...loadConfig({ RENDERWELD_DATA_DIR: join(dir, 'data'), RENDERWELD_PUBLIC_URL: 'https://studio.example.com' }), maxJsonBytes: 64 * 1024 };
   const database = await testDatabase(dir);
   dropDb = database.drop;
   db = (await prepareDatabase({ url: database.url ?? config.databaseUrl, dataDir: config.dataDir })).db;
-  service = await ReelforgeService.create(registry, {
+  service = await RenderWeldService.create(registry, {
     repositories: db.repositories(),
     dataDir: config.dataDir,
     publicUrl: config.publicUrl,
     providerEnv,
-    configSources: { env: { REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { RENDERWELD_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', RENDERWELD_LICENCE_MODE: 'off' } },
   });
   admin = (await service.keys.create('admin', ['admin', 'owner'])).key;
   reader = (await service.keys.create('reader', ['read'])).key;
@@ -85,7 +85,7 @@ describe('health and discovery', () => {
     expect(card.endpoint).toBe('https://studio.example.com/mcp');
     expect(card.tools.map((t: any) => t.name)).toContain('render_project');
     // The server card says RenderWeld and still lists the old name (#413).
-    expect(card).toMatchObject({ name: 'renderweld', title: 'RenderWeld', aliases: ['reelforge-studio'] });
+    expect(card).toMatchObject({ name: 'renderweld', title: 'RenderWeld' });
     expect(card.description).toMatch(/^Self-hosted video rendering for AI agents\./);
   });
 
@@ -150,7 +150,7 @@ describe('REST v1', () => {
     const caps = (await (await req('GET', '/v1/capabilities')).json()) as any;
     expect(caps.engines.map((e: any) => e.id)).toEqual(['remotion', 'motion-canvas']);
     // The product name (#413): RenderWeld, with the old server name as an alias.
-    expect(caps.server).toMatchObject({ name: 'renderweld', title: 'RenderWeld', aliases: ['reelforge-studio'], mcpToolsStatus: 'experimental' });
+    expect(caps.server).toMatchObject({ name: 'renderweld', title: 'RenderWeld', mcpToolsStatus: 'experimental' });
     const schema = (await (await req('GET', '/v1/schema/project')).json()) as any;
     expect(schema.type).toBe('object');
     const t = (await (await req('GET', '/v1/templates?engine=remotion')).json()) as any;
@@ -357,7 +357,7 @@ describe('REST v1', () => {
     expect(setText).not.toContain('sk_secret_value_123');
     expect(JSON.parse(setText)).toMatchObject({ configured: true, settings: [{ name: 'ELEVENLABS_API_KEY', set: true, source: 'api' }] });
     for (const path of ['/v1/providers', '/v1/capabilities']) expect(await (await req('GET', path)).text()).not.toContain('sk_secret_value_123');
-    // Stored in the database (ProviderSetting), encrypted with REELFORGE_SECRET_KEY.
+    // Stored in the database (ProviderSetting), encrypted with RENDERWELD_SECRET_KEY.
     const stored = (await service.repos.providerSettings.values()).ELEVENLABS_API_KEY!;
     expect(stored.scheme).toBe('aes-256-gcm');
     expect(stored.value).not.toContain('sk_secret_value_123');
@@ -377,13 +377,13 @@ describe('REST v1', () => {
     expect(cleared).toMatchObject({ configured: false, settings: [{ set: false, source: 'unset' }] });
   });
 
-  it('reads the bootstrap key from REELFORGE_BOOTSTRAP_KEY_FILE', async () => {
+  it('reads the bootstrap key from RENDERWELD_BOOTSTRAP_KEY_FILE', async () => {
     const { writeFileSync } = await import('node:fs');
     const f = join(dir, 'bootstrap.key');
     writeFileSync(f, 'rf_fromAfile_7Qx2Lm9Vb4Nc8Zr1Ty6Hp3Kw5Dj0Gs\n');
-    expect(loadConfig({ REELFORGE_BOOTSTRAP_KEY_FILE: f }).bootstrapKey).toBe('rf_fromAfile_7Qx2Lm9Vb4Nc8Zr1Ty6Hp3Kw5Dj0Gs');
-    expect(loadConfig({ REELFORGE_BOOTSTRAP_KEY: 'rf_envWins_8Rt3Yu6Io9Pa2Sd5Fg7Hj1Kl4Zx0Cv', REELFORGE_BOOTSTRAP_KEY_FILE: f }).bootstrapKey).toBe('rf_envWins_8Rt3Yu6Io9Pa2Sd5Fg7Hj1Kl4Zx0Cv');
-    expect(() => loadConfig({ REELFORGE_BOOTSTRAP_KEY_FILE: join(dir, 'missing') })).toThrow(/BOOTSTRAP_KEY_FILE/);
+    expect(loadConfig({ RENDERWELD_BOOTSTRAP_KEY_FILE: f }).bootstrapKey).toBe('rf_fromAfile_7Qx2Lm9Vb4Nc8Zr1Ty6Hp3Kw5Dj0Gs');
+    expect(loadConfig({ RENDERWELD_BOOTSTRAP_KEY: 'rf_envWins_8Rt3Yu6Io9Pa2Sd5Fg7Hj1Kl4Zx0Cv', RENDERWELD_BOOTSTRAP_KEY_FILE: f }).bootstrapKey).toBe('rf_envWins_8Rt3Yu6Io9Pa2Sd5Fg7Hj1Kl4Zx0Cv');
+    expect(() => loadConfig({ RENDERWELD_BOOTSTRAP_KEY_FILE: join(dir, 'missing') })).toThrow(/BOOTSTRAP_KEY_FILE/);
   });
 
   it('cancels a job', async () => {

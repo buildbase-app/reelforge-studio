@@ -16,16 +16,16 @@ import { transcodeOne } from '../src/transcode';
  * transcode with hashed names, R2 upload (dry run) and the BuildBase publish
  * (against an in-memory fake of the Records API).
  *
- * Needs a Chromium (REELFORGE_CHROMIUM_PATH); skips without one unless
- * REELFORGE_REQUIRE_BROWSER=1, which turns a missing browser into a failure.
+ * Needs a Chromium (RENDERWELD_CHROMIUM_PATH); skips without one unless
+ * RENDERWELD_REQUIRE_BROWSER=1, which turns a missing browser into a failure.
  */
-const browser = process.env.REELFORGE_CHROMIUM_PATH;
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
-const requireBrowser = process.env.REELFORGE_REQUIRE_BROWSER === '1';
+const requireBrowser = process.env.RENDERWELD_REQUIRE_BROWSER === '1';
 
 describe('browser requirement', () => {
-  it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
-    expect(hasBrowser, `REELFORGE_CHROMIUM_PATH=${browser ?? '(unset)'}`).toBe(true);
+  it.runIf(requireBrowser)('RENDERWELD_REQUIRE_BROWSER=1: a browser must be configured', () => {
+    expect(hasBrowser, `RENDERWELD_CHROMIUM_PATH=${browser ?? '(unset)'}`).toBe(true);
   });
 });
 
@@ -51,7 +51,7 @@ const reels: GalleryEntry[] = [
   }),
 ];
 
-describe.skipIf(!hasBrowser)('gallery pipeline end to end (needs REELFORGE_CHROMIUM_PATH)', () => {
+describe.skipIf(!hasBrowser)('gallery pipeline end to end (needs RENDERWELD_CHROMIUM_PATH)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'reelforge-gallery-e2e-'));
   const out = join(dir, 'out');
   let studio: LocalStudio;
@@ -63,7 +63,7 @@ describe.skipIf(!hasBrowser)('gallery pipeline end to end (needs REELFORGE_CHROM
       cacheDir: join(REPO, '.render-cache'),
       chromium: browser!,
       concurrency: 2,
-      noSandbox: process.env.REELFORGE_CHROMIUM_NO_SANDBOX === '1',
+      noSandbox: process.env.RENDERWELD_CHROMIUM_NO_SANDBOX === '1',
     });
     caller = await connectMcp(studio.url, studio.key);
   }, 180_000);

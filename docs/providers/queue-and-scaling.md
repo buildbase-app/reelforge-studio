@@ -122,9 +122,8 @@ scale e2e starts):
 
 ```bash
 export POSTGRES_PASSWORD=$(openssl rand -hex 16)
-# docker-compose.yml reads the old REELFORGE_* names; the server accepts RENDERWELD_* too (RENAMED.md)
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)
-export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)
+export RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
 export S3_BUCKET=my-renders S3_REGION=eu-central-1 S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=...
 docker compose -f deployment/compose/docker-compose.scale.yml up -d --scale worker=3
 ```
@@ -1254,7 +1253,7 @@ and [MySQL](https://docs.cloud.google.com/sql/docs/mysql/managed-connection-pool
 
 ## Read replica
 
-Decision D-104. `database.readUrl` (`REELFORGE_DATABASE_READ_URL`, alias `DATABASE_READ_URL`,
+Decision D-104. `database.readUrl` (`RENDERWELD_DATABASE_READ_URL`, alias `DATABASE_READ_URL`,
 or `..._FILE`) points at a read replica of `database.url` (a streaming replica, an Aurora
 reader, a Cloud SQL read replica, a MySQL replica). **Unset (the default): every query goes to
 `database.url`, as before.** Same kind as the primary; SQLite refuses it at start ("SQLite is

@@ -12,9 +12,8 @@ import { resourceFromAttributes, type Resource } from '@opentelemetry/resources'
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs';
 import { MeterProvider, MetricReader, type PushMetricExporter } from '@opentelemetry/sdk-metrics';
 import { BatchSpanProcessor, ParentBasedSampler, TraceIdRatioBasedSampler, TracerProvider } from '@opentelemetry/sdk-trace';
-import type { Config, LicenceStatus, ReelforgeService, Telemetry } from '@renderweld/core';
+import type { Config, LicenceStatus, RenderWeldService, Telemetry } from '@renderweld/core';
 import type { LogsExporter, StructuredLogger } from './logger';
-import { RenameSpanProcessor, twinResourceMetrics } from './rename';
 
 /**
  * Logs, metrics and traces with selectable exporters (issue #64, D-050..D-054).
@@ -139,7 +138,7 @@ class PushMetricReader extends MetricReader {
     const exporter = this.exporter;
     if (!exporter) return;
     const { resourceMetrics } = await this.collect();
-    await new Promise<void>((resolve) => exporter.export(twinResourceMetrics(resourceMetrics), () => resolve()));
+    await new Promise<void>((resolve) => exporter.export(resourceMetrics, () => resolve()));
   }
 
   protected async onForceFlush(): Promise<void> {
@@ -166,7 +165,7 @@ class SwitchTracer implements Tracer {
  * The Prometheus text serializer, with the unit suffix Prometheus expects for
  * seconds (`http_server_request_duration_seconds_bucket`), which the
  * OpenTelemetry serializer leaves out. Scope labels are dropped; target_info
- * carries service.name, service.version and reelforge.edition (and renderweld.edition).
+ * carries service.name, service.version and renderweld.edition.
  */
 function prometheusSerializer(): PrometheusSerializer {
   const serializer = new PrometheusSerializer(undefined, false, undefined, false, true);
@@ -218,7 +217,6 @@ export class Observability {
     this.resource = resourceFromAttributes({
       'service.name': settings.serviceName,
       'service.version': settings.serviceVersion,
-      'reelforge.edition': settings.edition,
       'renderweld.edition': settings.edition,
     });
     this.meterProvider = new MeterProvider({ resource: this.resource, readers: [this.pull, this.push] });
@@ -231,8 +229,8 @@ export class Observability {
       advice: { explicitBucketBoundaries: HTTP_BUCKETS },
     });
     this.meter
-      .createObservableGauge('reelforge.build.info', { description: 'Always 1; the labels carry the version and edition.' })
-      .addCallback((r) => r.observe(1, { 'service.version': settings.serviceVersion, 'reelforge.edition': settings.edition }));
+      .createObservableGauge('renderweld.build.info', { description: 'Always 1; the labels carry the version and edition.' })
+      .addCallback((r) => r.observe(1, { 'service.version': settings.serviceVersion, 'renderweld.edition': settings.edition }));
     this.apply(settings);
   }
 
@@ -319,8 +317,7 @@ export class Observability {
       this.tracerProvider = new TracerProvider({
         resource: this.resource,
         sampler: new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(s.sampleRatio) }),
-        // RenameSpanProcessor first: it adds the renderweld.* attribute twins before the batch processor takes the span (#412).
-        spanProcessors: [new RenameSpanProcessor(), new BatchSpanProcessor({ exporter, scheduledDelayMillis: 2000, exportTimeoutMillis: config.timeoutMillis + 1000 })],
+        spanProcessors: [new BatchSpanProcessor({ exporter, scheduledDelayMillis: 2000, exportTimeoutMillis: config.timeoutMillis + 1000 })],
       });
       this.currentTracer = this.tracerProvider.getTracer('reelforge', s.serviceVersion);
     }
@@ -349,12 +346,12 @@ export class Observability {
   }
 
   /** Gauges read from the running service: queue depth, running jobs, licence state. */
-  observe(service: ReelforgeService): void {
-    const queued = this.meter.createObservableGauge('reelforge.jobs.queued', { description: 'Jobs waiting for a render slot (queue depth; database queue: all instances, the scaling metric for workers).' });
-    const running = this.meter.createObservableGauge('reelforge.jobs.running', { description: 'Jobs running now.' });
-    const concurrency = this.meter.createObservableGauge('reelforge.jobs.concurrency', { description: 'Render slots (limits.renderConcurrency).' });
-    const licence = this.meter.createObservableGauge('reelforge.licence.state', { description: '1 for the current licence state, 0 for the others.' });
-    const role = this.meter.createObservableGauge('reelforge.server.role', { description: '1 for this instance\'s role (server.role: all, api, worker), 0 for the others.' });
+  observe(service: RenderWeldService): void {
+    const queued = this.meter.createObservableGauge('renderweld.jobs.queued', { description: 'Jobs waiting for a render slot (queue depth; database queue: all instances, the scaling metric for workers).' });
+    const running = this.meter.createObservableGauge('renderweld.jobs.running', { description: 'Jobs running now.' });
+    const concurrency = this.meter.createObservableGauge('renderweld.jobs.concurrency', { description: 'Render slots (limits.renderConcurrency).' });
+    const licence = this.meter.createObservableGauge('renderweld.licence.state', { description: '1 for the current licence state, 0 for the others.' });
+    const role = this.meter.createObservableGauge('renderweld.server.role', { description: '1 for this instance\'s role (server.role: all, api, worker), 0 for the others.' });
     // A failing read (a service that is shutting down) must not break the collection.
     const safe = (f: (r: ObservableResult) => void) => (r: ObservableResult) => {
       try {
@@ -368,11 +365,11 @@ export class Observability {
     const slots = safe((r) => r.observe(service.jobs.concurrency));
     const lic = safe((r) => {
       const status = service.getLicence().status;
-      for (const s of LICENCE_STATES) r.observe(s === status ? 1 : 0, { 'reelforge.licence.state': s });
+      for (const s of LICENCE_STATES) r.observe(s === status ? 1 : 0, { 'renderweld.licence.state': s });
     });
     const roles = safe((r) => {
       const current = service.settings.config.server.role;
-      for (const x of ['all', 'api', 'worker'] as const) r.observe(x === current ? 1 : 0, { 'reelforge.role': x });
+      for (const x of ['all', 'api', 'worker'] as const) r.observe(x === current ? 1 : 0, { 'renderweld.role': x });
     });
     queued.addCallback(jobs);
     running.addCallback(run);
@@ -392,8 +389,7 @@ export class Observability {
   async prometheus(): Promise<string> {
     const { resourceMetrics, errors } = await this.pull.collect();
     for (const e of errors) this.logger.log('warn', `collecting metrics: ${String(e)}`);
-    // Every reelforge_* metric also as renderweld_*, with the same labels (#412).
-    return this.serializer.serialize(twinResourceMetrics(resourceMetrics));
+    return this.serializer.serialize(resourceMetrics);
   }
 
   /** Flush and stop every exporter (shutdown). */

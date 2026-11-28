@@ -2,7 +2,7 @@
  * `pnpm formats:prove`: render every built-in template on its engine at real
  * sizes (16:9, 1:1, 4:5, 9:16 and a 4K smoke render), run the overflow check
  * on each clip and write one contact sheet per format plus report.json to
- * docs/proofs/formats/ (#287). Needs REELFORGE_CHROMIUM_PATH and FFmpeg.
+ * docs/proofs/formats/ (#287). Needs RENDERWELD_CHROMIUM_PATH and FFmpeg.
  *
  *   pnpm formats:prove [--out docs/proofs/formats] [--only html-title]
  *

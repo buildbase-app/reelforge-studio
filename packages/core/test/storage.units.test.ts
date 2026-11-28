@@ -219,13 +219,13 @@ describe('driver factory (STO-17)', () => {
   it('builds each driver from storage.* settings; the cloud SDK is only imported for the chosen driver', async () => {
     const base = resolveConfig({ env: {} }).config.storage;
     expect((await createStorageDriver(base, { dataDir: tmp.dir })).id).toBe('local');
-    const s3cfg = resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 's3', REELFORGE_S3_BUCKET: 'b', REELFORGE_S3_ENDPOINT: 'http://minio:9000', REELFORGE_S3_FORCE_PATH_STYLE: 'true' } }).config.storage;
+    const s3cfg = resolveConfig({ env: { RENDERWELD_STORAGE_DRIVER: 's3', RENDERWELD_S3_BUCKET: 'b', RENDERWELD_S3_ENDPOINT: 'http://minio:9000', RENDERWELD_S3_FORCE_PATH_STYLE: 'true' } }).config.storage;
     const d = await createStorageDriver(s3cfg, { dataDir: tmp.dir });
     expect(d.id).toBe('s3');
     expect(d.describe()).toMatchObject({ bucket: 'b', endpoint: 'http://minio:9000', forcePathStyle: true });
-    const az = resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 'azure', REELFORGE_AZURE_STORAGE_CONTAINER: 'c', AZURE_STORAGE_CONNECTION_STRING: 'DefaultEndpointsProtocol=https;AccountName=a;AccountKey=a2V5;EndpointSuffix=core.windows.net' } }).config.storage;
+    const az = resolveConfig({ env: { RENDERWELD_STORAGE_DRIVER: 'azure', RENDERWELD_AZURE_STORAGE_CONTAINER: 'c', AZURE_STORAGE_CONNECTION_STRING: 'DefaultEndpointsProtocol=https;AccountName=a;AccountKey=a2V5;EndpointSuffix=core.windows.net' } }).config.storage;
     expect((await createStorageDriver(az, { dataDir: tmp.dir })).id).toBe('azure');
-    const gcs = resolveConfig({ env: { REELFORGE_STORAGE_DRIVER: 'gcs', REELFORGE_GCS_BUCKET: 'b' } }).config.storage;
+    const gcs = resolveConfig({ env: { RENDERWELD_STORAGE_DRIVER: 'gcs', RENDERWELD_GCS_BUCKET: 'b' } }).config.storage;
     expect((await createStorageDriver(gcs, { dataDir: tmp.dir })).id).toBe('gcs');
     // A migration builds the target by name, whatever storage.driver says.
     expect((await createStorageDriver(base, { dataDir: tmp.dir, driver: 's3' }).catch((e: Error) => e)) as Error).toMatchObject({ message: expect.stringMatching(/bucket is required/) });

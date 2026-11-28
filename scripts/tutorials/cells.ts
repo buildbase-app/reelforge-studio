@@ -170,7 +170,7 @@ export function projectIdFor(agent: AgentId, engine: CellEngine): string {
 export function promptFor(agent: AgentId, engine: CellEngine): string {
   const e = ENGINE_INFO[engine];
   return [
-    `You are connected to a ReelForge video studio through the "reelforge" MCP server.`,
+    `You are connected to a RenderWeld video studio through the "reelforge" MCP server.`,
     `Make a vertical reel (1080x1920, 30 fps) about ${e.topic}: ${e.brief}.`,
     `Use the project id "${projectIdFor(agent, engine)}".`,
     `Check list_templates for the props, create the project, validate it, render it,`,

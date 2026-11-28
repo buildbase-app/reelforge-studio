@@ -1,5 +1,5 @@
 /**
- * Talking to a ReelForge Studio: start a local server for the gallery job (or
+ * Talking to a RenderWeld: start a local server for the gallery job (or
  * target a running one), and an MCP client that records every tool it calls,
  * so each reel's meta.json can say exactly which tools the "agent" used.
  */
@@ -86,14 +86,14 @@ export async function startLocalStudio(opts: { dataDir: string; cacheDir: string
   mkdirSync(opts.cacheDir, { recursive: true });
   const env = {
     ...process.env,
-    REELFORGE_DATA_DIR: opts.dataDir,
-    REELFORGE_CACHE_DIR: opts.cacheDir,
-    REELFORGE_LICENCE_MODE: 'off',
-    REELFORGE_CHROMIUM_PATH: opts.chromium,
-    REELFORGE_RENDER_CONCURRENCY: String(opts.concurrency),
-    REELFORGE_PORT: '0',
-    REELFORGE_HOST: '127.0.0.1',
-    ...(opts.noSandbox ? { REELFORGE_CHROMIUM_NO_SANDBOX: '1' } : {}),
+    RENDERWELD_DATA_DIR: opts.dataDir,
+    RENDERWELD_CACHE_DIR: opts.cacheDir,
+    RENDERWELD_LICENCE_MODE: 'off',
+    RENDERWELD_CHROMIUM_PATH: opts.chromium,
+    RENDERWELD_RENDER_CONCURRENCY: String(opts.concurrency),
+    RENDERWELD_PORT: '0',
+    RENDERWELD_HOST: '127.0.0.1',
+    ...(opts.noSandbox ? { RENDERWELD_CHROMIUM_NO_SANDBOX: '1' } : {}),
   };
   const k = spawnSync(TSX, ['apps/server/src/cli.ts', 'keys', 'create', '--name', `gallery-${Date.now()}`, '--scopes', 'read,write,render'], {
     cwd: REPO,

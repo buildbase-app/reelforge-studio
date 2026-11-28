@@ -100,10 +100,28 @@ loopback, and the font guard refuses Google Fonts before any DNS lookup
 (SECT-41..43, `packages/engine-hyperframes/test/egress.test.ts`); html, Remotion
 and Motion Canvas renders with a missing web font made 0 connections outside
 loopback under `strace` (2026-11-23). A dev-edition container with
-`--network none` rendered a four-engine project (DEPLOY.md). **Not yet built**:
-an end-to-end test that runs the whole server behind a recording egress proxy
-and fails on any host outside an allowlist (issue #291). Until then, the
-network-level checks below are how you verify it on your own installation.
+`--network none` rendered a four-engine project (DEPLOY.md).
+
+**The whole server, end to end** (`apps/server/test/egress.e2e.test.ts`, #291).
+The test starts the server as `pnpm start` does, under `strace -f`, so it covers
+the server and every process it starts (FFmpeg, Chromium, the engine CLIs). It
+drives a full journey over REST and MCP: a project across the four engines with
+uploaded music and burned captions, a preview, a render, the download, the
+dashboard, analytics and a storage cleanup. The licence is enforced as in the
+sold image, against a local mock of the licence server.
+
+The test fails on any connect() or send outside loopback, and on any DNS query.
+It also checks two things about the licence calls:
+
+- they went only to the configured licence server;
+- each carried only the key and an instance id.
+
+A control run of a process that connects to `192.0.2.1` proves the recorder
+catches a leak.
+
+It needs `strace` and a browser, and skips without them; its header says how to
+make a missing one fail the run instead. The network-level checks
+below are how you verify the same on your own installation.
 
 ## Offline
 

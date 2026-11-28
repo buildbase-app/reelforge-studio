@@ -308,7 +308,7 @@ export interface BackendContext {
  * - `pool`: workers that are already running claim jobs from the queue (this
  *   server, N `worker` containers, or `worker --once` containers a job platform starts);
  * - `launcher`: calls a platform API ("run task", "execute job") per queued unit; the
- *   started container runs `reelforge worker --once --job <id>`;
+ *   started container runs `renderweld worker --once --job <id>`;
  * - `managed`: a renderer someone else operates for one engine (Remotion Lambda),
  *   called by the worker that claimed the job.
  */

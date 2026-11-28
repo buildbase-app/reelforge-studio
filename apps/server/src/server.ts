@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
-import { OutboxRelay, PRODUCT_NAME, ReelforgeService, chromiumSandbox, createBrokerDispatch, effectiveQueueMode, isBrokerDispatch, secretKeyProblem, envValue, type PluginRegistry, type ServiceConfig } from '@renderweld/core';
+import { OutboxRelay, PRODUCT_NAME, RenderWeldService, chromiumSandbox, createBrokerDispatch, effectiveQueueMode, isBrokerDispatch, secretKeyProblem, type PluginRegistry, type ServiceConfig } from '@renderweld/core';
 import { createNotifyListener, defaultDatabaseUrl, notifyChannel, pooledSchemaWarning, prepareDatabase, READ_REPLICA_READS, type Database } from '@renderweld/db';
 import { createApp } from './app';
 import { applyServerSettings, createLogger, exportProcessEnv, loadConfig, type ServerConfig } from './config';
@@ -18,7 +18,7 @@ export const SERVER_VERSION = '0.1.0';
 export interface StartedServer {
   url: string;
   port: number;
-  service: ReelforgeService;
+  service: RenderWeldService;
   config: ServerConfig;
   db: Database;
   observability: Observability;
@@ -60,7 +60,7 @@ export async function startServer(
     config.databaseUrl = defaultDatabaseUrl(config.dataDir);
   }
   // Every reason not to start, together and before anything is created: more than one instance needs a shared
-  // database and shared storage (D-076), and a release build needs REELFORGE_SECRET_KEY (#305: no fixed fallback
+  // database and shared storage (D-076), and a release build needs RENDERWELD_SECRET_KEY (#305: no fixed fallback
   // for the licence-state seal).
   const scaling = scalingProblems(config.resolved, config.databaseUrl);
   const secretKey = secretKeyProblem(config.resolved);
@@ -75,8 +75,8 @@ export async function startServer(
   if (!chromiumSandbox()) {
     logger.log(
       'warn',
-      envValue('REELFORGE_CHROMIUM_NO_SANDBOX') === '1'
-        ? "REELFORGE_CHROMIUM_NO_SANDBOX=1: Chromium's own sandbox is OFF for every engine (explicit opt-out). Agent-supplied scenes then run in a renderer with the server's privileges; see docs/security/HARDENING.md"
+      process.env.RENDERWELD_CHROMIUM_NO_SANDBOX === '1'
+        ? "RENDERWELD_CHROMIUM_NO_SANDBOX=1: Chromium's own sandbox is OFF for every engine (explicit opt-out). Agent-supplied scenes then run in a renderer with the server's privileges; see docs/security/HARDENING.md"
         : "Chromium's own sandbox is OFF because the server runs as root; run as a non-root user (docs/security/HARDENING.md)"
     );
   }
@@ -135,10 +135,10 @@ export async function startServer(
   }
   // Providers read their keys from this object; keys set through the API are written into it.
   const providerEnv: NodeJS.ProcessEnv = { ...env };
-  let service: ReelforgeService;
+  let service: RenderWeldService;
   try {
     const registry = typeof opts.registry === 'function' ? opts.registry(providerEnv) : (opts.registry ?? createDefaultRegistry(providerEnv));
-    service = await ReelforgeService.create(registry, {
+    service = await RenderWeldService.create(registry, {
       repositories,
       providerEnv,
       dataDir: config.dataDir,
@@ -180,7 +180,7 @@ export async function startServer(
     logger.log('info', `configuration changed at runtime: ${keys.join(', ')}`);
   });
   if (await service.keys.bootstrap(config.bootstrapKey)) {
-    log('stored REELFORGE_BOOTSTRAP_KEY as admin key "bootstrap"');
+    log('stored RENDERWELD_BOOTSTRAP_KEY as admin key "bootstrap"');
   }
   const app = createApp({ service, config, observability: obs });
   const server: ServerType | null = opts.once
@@ -226,7 +226,7 @@ export async function startServer(
   }
   if (secretKey.warning) logger.log('warn', `${secretKey.warning} (see docs/CONFIG.md)`);
   if ((await service.keys.count()) === 0) {
-    log('no API keys yet: run `pnpm keys:create --name me` or set REELFORGE_BOOTSTRAP_KEY');
+    log('no API keys yet: run `pnpm keys:create --name me` or set RENDERWELD_BOOTSTRAP_KEY');
   }
   return {
     url,

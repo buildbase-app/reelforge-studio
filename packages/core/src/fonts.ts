@@ -301,7 +301,7 @@ export interface BundledFace {
 }
 
 /**
- * The default font set shipped with ReelForge (#303): OFL-1.1 variable fonts
+ * The default font set shipped with RenderWeld (#303): OFL-1.1 variable fonts
  * from the Fontsource packages, so themes that name them render the same on
  * every machine whatever is installed. Licences: docs/public/manifest/fonts.md.
  */

@@ -5,7 +5,7 @@
 > trademark policy and contributor agreement below are plain-language drafts
 > that a lawyer must review before launch. Nothing here is legal advice.
 
-ReelForge is **source-available**, not open source. You can read every line of
+RenderWeld is **source-available**, not open source. You can read every line of
 it. What you may do with it depends on how you use it.
 
 ## At a glance
@@ -13,10 +13,10 @@ it. What you may do with it depends on how you use it.
 | You want to... | You need |
 | --- | --- |
 | Read the code, learn from it, run it for yourself as a hobby, study, research or evaluation | Nothing to pay. Use it under the **PolyForm Noncommercial License 1.0.0** (`LICENSE.md`). The released image also asks for a free **Personal licence key**, claimed with a BuildBase account at <https://reelforge.buildbase.app/pricing> |
-| Make videos for anything that earns money: a monetised channel, client work, ads, a business, an agency, a product | A paid **ReelForge Commercial License** (one-time, per seat/server, sold at <https://reelforge.buildbase.app/pricing>) |
+| Make videos for anything that earns money: a monetised channel, client work, ads, a business, an agency, a product | A paid **RenderWeld Commercial License** (one-time, per seat/server, sold at <https://reelforge.buildbase.app/pricing>) |
 | Charities, schools, public research or government use, noncommercially | Free under PolyForm Noncommercial (see its "Noncommercial Organizations" section) |
-| Resell, rebrand, redistribute or offer ReelForge (or a modified copy) as a product or hosted service to others | **Not permitted** under either licence. Talk to us about a partner agreement |
-| Use the name "ReelForge" or its logo for your own fork or product | **Not permitted** (see `TRADEMARK.md`) |
+| Resell, rebrand, redistribute or offer RenderWeld (or a modified copy) as a product or hosted service to others | **Not permitted** under either licence. Talk to us about a partner agreement |
+| Use the name "RenderWeld" or its logo for your own fork or product | **Not permitted** (see `TRADEMARK.md`) |
 
 ## The pieces
 
@@ -24,8 +24,8 @@ it. What you may do with it depends on how you use it.
    for everyone. Noncommercial use only. Patent licence, 32-day cure period
    for violations, no warranty. Its text is unmodified, so anyone can rely on
    the standard wording.
-2. **ReelForge Commercial License (`COMMERCIAL-LICENSE.md`, draft).** Bought
-   through the ReelForge store on BuildBase. It grants commercial use on the
+2. **RenderWeld Commercial License (`COMMERCIAL-LICENSE.md`, draft).** Bought
+   through the RenderWeld store on BuildBase. It grants commercial use on the
    number of servers your licence key allows, and forbids redistribution,
    resale, offering a competing product or hosted service, and moving,
    disabling or circumventing the licence-key check.
@@ -40,7 +40,7 @@ it. What you may do with it depends on how you use it.
 5. **Contributions (`CONTRIBUTING.md`).** Contributors sign a contributor
    licence agreement so BuildBase can offer the code under both licences.
 6. **Third-party components** keep their own licences (`LICENSES/`).
-   **Remotion is not covered by either ReelForge licence:** companies of more
+   **Remotion is not covered by either RenderWeld licence:** companies of more
    than three people need their own Remotion company licence
    (<https://remotion.dev/license>).
 
@@ -56,7 +56,7 @@ commercial, or ask us.
 
 A licence protects the code and the brand. It does not stop someone from
 writing their own video tool from scratch. It does make copying, rebranding or
-reselling ReelForge's code unlawful, and gives BuildBase grounds to act
+reselling RenderWeld's code unlawful, and gives BuildBase grounds to act
 (takedown notices, enforcement). The licence key ties every legitimate install
 to a BuildBase account.
 

@@ -17,7 +17,7 @@ import {
   AssetStore,
   JobRunner,
   PluginRegistry,
-  ReelforgeService,
+  RenderWeldService,
   createMemoryRepositories,
   renderLimitViolations,
   resolveConfig,
@@ -75,8 +75,8 @@ describe('render limits', () => {
   });
 });
 
-describe('ReelforgeService limits', () => {
-  let svc: ReelforgeService;
+describe('RenderWeldService limits', () => {
+  let svc: RenderWeldService;
   let repos: Repositories;
   const provider = countingProvider();
 
@@ -86,7 +86,7 @@ describe('ReelforgeService limits', () => {
       .registerEngine(fakeEngine('remotion', { delayPerFrameMs: 40 }))
       .registerEngine(fakeEngine('motion-canvas', { delayPerFrameMs: 40 }))
       .registerProvider(provider);
-    svc = await ReelforgeService.create(registry, { repositories: repos, dataDir: join(dir, 'svc'), configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } } });
+    svc = await RenderWeldService.create(registry, { repositories: repos, dataDir: join(dir, 'svc'), configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } } });
     await svc.createProject(sample);
   });
   afterAll(async () => {

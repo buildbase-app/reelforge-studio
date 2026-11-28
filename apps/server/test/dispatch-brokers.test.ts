@@ -10,7 +10,7 @@ import { TcpProxy, createRedisTestUser, createSqsTestQueue } from '../../../pack
 /**
  * Broker dispatch (`queue.dispatch` `sqs` / `redis`; D-105, issue #158) in the
  * server: the start-up guard (always), and an api with a worker on PostgreSQL
- * or MySQL (REELFORGE_TEST_DB, or TEST_POSTGRES_URL / TEST_MYSQL_URL) per
+ * or MySQL (RENDERWELD_TEST_DB, or TEST_POSTGRES_URL / TEST_MYSQL_URL) per
  * broker that is configured: SQS on LocalStack (TEST_SQS_ENDPOINT) and Redis
  * (TEST_REDIS_URL). Renders woken through the broker within a second,
  * `/readyz` and metrics, the broker cut off and back (enqueue still accepted,
@@ -21,7 +21,7 @@ const { dir, cleanup } = tempDir('reelforge-dispatch-brokers-');
 afterAll(() => cleanup());
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
 const METRICS_TOKEN = 'dsp-metrics-token-0123456789abcdef0123456789';
-const base = { REELFORGE_LICENCE_MODE: 'off', REELFORGE_SECRET_KEY: 'dispatch-test-secret-key-0123456789abcdef', REELFORGE_METRICS_TOKEN: METRICS_TOKEN };
+const base = { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_SECRET_KEY: 'dispatch-test-secret-key-0123456789abcdef', RENDERWELD_METRICS_TOKEN: METRICS_TOKEN };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const SQS_SECRET = 'SqsS3cretAccessKeyValue0123456789abcd';
 const REDIS_PASSWORD = 'R3disS3cretPassw0rd0123456789';
@@ -30,9 +30,9 @@ describe('queue.dispatch sqs / redis start-up guard', () => {
   const start = (env: Record<string, string>) => startServer({ dataDir: join(dir, 'guard'), port: 0, host: '127.0.0.1' }, { registry: new PluginRegistry(), env: { ...base, ...env }, quiet: true });
 
   it('DSP-28 sqs without a queue URL and redis without a URL are refused, naming the setting; a bad Redis URL is refused by the schema', async () => {
-    await expect(start({ REELFORGE_QUEUE_DISPATCH: 'sqs', REELFORGE_QUEUE_DRIVER: 'database' })).rejects.toThrow(/queue.dispatch "sqs" needs queue.sqs.queueUrl \(REELFORGE_QUEUE_SQS_QUEUE_URL/);
-    await expect(start({ REELFORGE_QUEUE_DISPATCH: 'redis', REELFORGE_QUEUE_DRIVER: 'database' })).rejects.toThrow(/queue.dispatch "redis" needs queue.redis.url/);
-    await expect(start({ REELFORGE_QUEUE_DISPATCH: 'redis', REELFORGE_QUEUE_DRIVER: 'database', REELFORGE_QUEUE_REDIS_URL: 'http://redis:6379' })).rejects.toThrow(/redis:\/\/ or rediss:\/\//);
+    await expect(start({ RENDERWELD_QUEUE_DISPATCH: 'sqs', RENDERWELD_QUEUE_DRIVER: 'database' })).rejects.toThrow(/queue.dispatch "sqs" needs queue.sqs.queueUrl \(RENDERWELD_QUEUE_SQS_QUEUE_URL/);
+    await expect(start({ RENDERWELD_QUEUE_DISPATCH: 'redis', RENDERWELD_QUEUE_DRIVER: 'database' })).rejects.toThrow(/queue.dispatch "redis" needs queue.redis.url/);
+    await expect(start({ RENDERWELD_QUEUE_DISPATCH: 'redis', RENDERWELD_QUEUE_DRIVER: 'database', RENDERWELD_QUEUE_REDIS_URL: 'http://redis:6379' })).rejects.toThrow(/redis:\/\/ or rediss:\/\//);
   });
 });
 
@@ -53,14 +53,14 @@ describe.skipIf(!kind || !brokers.length).each(brokers)(`api + %s worker on ${ki
     ...base,
     ...brokerEnv,
     DATABASE_URL: testDb.url,
-    REELFORGE_ROLE: role,
-    REELFORGE_STORAGE_LOCAL_SHARED: 'true',
-    REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
-    REELFORGE_QUEUE_DISPATCH: driver,
+    RENDERWELD_ROLE: role,
+    RENDERWELD_STORAGE_LOCAL_SHARED: 'true',
+    RENDERWELD_RATE_LIMIT_PER_MINUTE: '0',
+    RENDERWELD_QUEUE_DISPATCH: driver,
     // A poll this slow could not explain a claim within a second: only the message can.
-    REELFORGE_QUEUE_POLL_INTERVAL_MS: '4000',
-    REELFORGE_QUEUE_POLL_MAX_INTERVAL_MS: '4000',
-    REELFORGE_QUEUE_DISPATCH_FALLBACK_SECONDS: '60',
+    RENDERWELD_QUEUE_POLL_INTERVAL_MS: '4000',
+    RENDERWELD_QUEUE_POLL_MAX_INTERVAL_MS: '4000',
+    RENDERWELD_QUEUE_DISPATCH_FALLBACK_SECONDS: '60',
   });
   const registry = () => new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas'));
   async function rest(server: StartedServer, method: string, path: string, body?: unknown) {
@@ -87,12 +87,12 @@ describe.skipIf(!kind || !brokers.length).each(brokers)(`api + %s worker on ${ki
       undo.push(() => q.drop());
       await proxy.up();
       brokerEnv = {
-        REELFORGE_QUEUE_SQS_QUEUE_URL: q.queueUrl,
-        REELFORGE_QUEUE_SQS_ENDPOINT: `http://127.0.0.1:${proxy.port}`,
-        REELFORGE_QUEUE_SQS_REGION: 'us-east-1',
-        REELFORGE_QUEUE_SQS_ACCESS_KEY_ID: 'test',
-        REELFORGE_QUEUE_SQS_SECRET_ACCESS_KEY: SQS_SECRET,
-        REELFORGE_QUEUE_SQS_VISIBILITY_TIMEOUT_SECONDS: '10',
+        RENDERWELD_QUEUE_SQS_QUEUE_URL: q.queueUrl,
+        RENDERWELD_QUEUE_SQS_ENDPOINT: `http://127.0.0.1:${proxy.port}`,
+        RENDERWELD_QUEUE_SQS_REGION: 'us-east-1',
+        RENDERWELD_QUEUE_SQS_ACCESS_KEY_ID: 'test',
+        RENDERWELD_QUEUE_SQS_SECRET_ACCESS_KEY: SQS_SECRET,
+        RENDERWELD_QUEUE_SQS_VISIBILITY_TIMEOUT_SECONDS: '10',
       };
     } else {
       const url = new URL(process.env.TEST_REDIS_URL!);
@@ -101,7 +101,7 @@ describe.skipIf(!kind || !brokers.length).each(brokers)(`api + %s worker on ${ki
       // A user with a password, so the test can show the password never reaches a log line.
       const u = await createRedisTestUser(REDIS_PASSWORD);
       undo.push(() => u.drop());
-      brokerEnv = { REELFORGE_QUEUE_REDIS_URL: `redis://${u.user}@127.0.0.1:${proxy.port}/0`, REELFORGE_QUEUE_REDIS_PASSWORD: REDIS_PASSWORD, REELFORGE_QUEUE_REDIS_STREAM: u.stream, REELFORGE_QUEUE_REDIS_CLAIM_IDLE_SECONDS: '10' };
+      brokerEnv = { RENDERWELD_QUEUE_REDIS_URL: `redis://${u.user}@127.0.0.1:${proxy.port}/0`, RENDERWELD_QUEUE_REDIS_PASSWORD: REDIS_PASSWORD, RENDERWELD_QUEUE_REDIS_STREAM: u.stream, RENDERWELD_QUEUE_REDIS_CLAIM_IDLE_SECONDS: '10' };
     }
     const opts = (name: string, role: string) => ({ registry, env: env(role), queue: { workerId: name, heartbeatMs: 500 }, logWrite: (_l: string, line: string) => void logs.push(line) });
     api = await startServer({ dataDir: data, port: 0, host: '127.0.0.1' }, opts('api-1', 'api'));
@@ -138,12 +138,12 @@ describe.skipIf(!kind || !brokers.length).each(brokers)(`api + %s worker on ${ki
     expect((await ready(api)).dependencies.dispatch).toMatchObject({ status: 'ok', required: false, driver, relay: { failing: false }, detail: expect.stringMatching(/publishes only/) });
     expect((await ready(api)).dependencies.dispatch.relay.published).toBeGreaterThanOrEqual(3);
     const text = await (await fetch(`${worker.url}/metrics`, { headers: { authorization: `Bearer ${METRICS_TOKEN}` } })).text();
-    expect(text).toMatch(new RegExp(`^reelforge_queue_dispatch_received_total\\{[^}]*reelforge_dispatch_driver="${driver}"[^}]*\\} [1-9]`, 'm'));
-    expect(text).toMatch(/^reelforge_queue_claims_total\{[^}]*reelforge_trigger="wake"[^}]*\} [1-9]/m);
+    expect(text).toMatch(new RegExp(`^renderweld_queue_dispatch_received_total\\{[^}]*renderweld_dispatch_driver="${driver}"[^}]*\\} [1-9]`, 'm'));
+    expect(text).toMatch(/^renderweld_queue_claims_total\{[^}]*renderweld_trigger="wake"[^}]*\} [1-9]/m);
     const apiText = await (await fetch(`${api.url}/metrics`, { headers: { authorization: `Bearer ${METRICS_TOKEN}` } })).text();
-    expect(apiText).toMatch(new RegExp(`^reelforge_queue_dispatch_published_total\\{[^}]*reelforge_dispatch_driver="${driver}"[^}]*reelforge_reason="outbox"[^}]*\\} [1-9]|^reelforge_queue_dispatch_published_total\\{[^}]*reelforge_reason="outbox"[^}]*reelforge_dispatch_driver="${driver}"[^}]*\\} [1-9]`, 'm'));
+    expect(apiText).toMatch(new RegExp(`^renderweld_queue_dispatch_published_total\\{[^}]*renderweld_dispatch_driver="${driver}"[^}]*renderweld_reason="outbox"[^}]*\\} [1-9]|^renderweld_queue_dispatch_published_total\\{[^}]*renderweld_reason="outbox"[^}]*renderweld_dispatch_driver="${driver}"[^}]*\\} [1-9]`, 'm'));
     // The outbox counts once: no second "enqueue" count for the same message.
-    expect(apiText).not.toMatch(/^reelforge_queue_dispatch_published_total\{[^}]*reelforge_reason="enqueue"/m);
+    expect(apiText).not.toMatch(/^renderweld_queue_dispatch_published_total\{[^}]*renderweld_reason="enqueue"/m);
     const labels = new Set([...text.matchAll(/="([^"]*)"/g), ...apiText.matchAll(/="([^"]*)"/g)].map((m) => m[1]));
     expect([...labels].some((l) => /^(job|run|prv|key|dsp)_[a-z0-9]{8,}/.test(l!))).toBe(false);
   });

@@ -6,17 +6,17 @@
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseProject } from '@renderweld/project-schema';
-import { H264_LEVEL_6_2, PluginRegistry, ReelforgeService, createMemoryRepositories, h264OutputProblems, outputSupportIssues, type EnginePlugin } from '../src/index';
+import { H264_LEVEL_6_2, PluginRegistry, RenderWeldService, createMemoryRepositories, h264OutputProblems, outputSupportIssues, type EnginePlugin } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
 
 const { dir, cleanup } = tempDir('reelforge-output-support-');
-let svc: ReelforgeService;
+let svc: RenderWeldService;
 // An engine that renders integer rates only and at most 1920 px on a side (a plugin declaring its limits).
 const limited: EnginePlugin = { ...fakeEngine('motion-canvas'), capabilities: () => ({ frameRanges: false, output: { frameRates: [24, 25, 30, 50, 60], maxDimension: 1920 } }) };
 const registry = () => new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(limited);
 
 beforeAll(async () => {
-  svc = await ReelforgeService.create(registry(), { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } } });
+  svc = await RenderWeldService.create(registry(), { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } } });
 });
 afterAll(async () => {
   await svc.jobs.shutdown(0);

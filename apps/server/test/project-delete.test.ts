@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService } from '@renderweld/core';
+import { PluginRegistry, RenderWeldService } from '@renderweld/core';
 import { prepareDatabase, type Database } from '@renderweld/db';
 import { createApp, loadConfig, type ServerConfig } from '../src/index';
 import { testDatabase } from './serverProcess';
@@ -18,7 +18,7 @@ afterAll(async () => {
 });
 
 let app: ReturnType<typeof createApp>;
-let service: ReelforgeService;
+let service: RenderWeldService;
 let admin: string;
 let poller: string;
 let config: ServerConfig;
@@ -27,15 +27,15 @@ beforeAll(async () => {
   const registry = new PluginRegistry()
     .registerEngine(fakeEngine('remotion'))
     .registerEngine(fakeEngine('motion-canvas'));
-  config = { ...loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_PUBLIC_URL: 'https://studio.example.com' }), maxJsonBytes: 64 * 1024 };
+  config = { ...loadConfig({ RENDERWELD_DATA_DIR: join(dir, 'data'), RENDERWELD_PUBLIC_URL: 'https://studio.example.com' }), maxJsonBytes: 64 * 1024 };
   const database = await testDatabase(dir);
   dropDb = database.drop;
   db = (await prepareDatabase({ url: database.url ?? config.databaseUrl, dataDir: config.dataDir })).db;
-  service = await ReelforgeService.create(registry, {
+  service = await RenderWeldService.create(registry, {
     repositories: db.repositories(),
     dataDir: config.dataDir,
     publicUrl: config.publicUrl,
-    configSources: { env: { REELFORGE_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { RENDERWELD_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', RENDERWELD_LICENCE_MODE: 'off' } },
   });
   admin = (await service.keys.create('admin', ['admin'])).key;
   // Polls with a key of its own and no per-minute limit (#345): a render that runs long on a loaded machine, polled
