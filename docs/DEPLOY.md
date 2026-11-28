@@ -45,7 +45,7 @@ The ones most deployments set:
 | `RENDERWELD_SECRET_KEY` (`_FILE`) | (none) | **Set it; the release image does not start without it** (#305). Encrypts provider keys and other secrets stored in the database (AES-256-GCM). `openssl rand -base64 32`. It also keys the seal of the stored licence state. Without it a dev build refuses to store secrets over the API. Back it up: stored secrets cannot be read without it |
 | `RENDERWELD_BOOTSTRAP_KEY` (`_FILE`) | (none) | First admin API key, stored hashed on first start if no key exists: `rf_` followed by at least 32 URL-safe characters with at least 8 distinct characters and 2.75 bits of entropy per character (`echo rf_$(openssl rand -hex 24)`); a weaker key stops the server at start |
 | `RENDERWELD_HOST`, `RENDERWELD_PORT` | `127.0.0.1` (`0.0.0.0` in Docker), `4321` | Bind address and port |
-| `RENDERWELD_PUBLIC_URL` | (none) | `https://studio.example.com`: output links; allowed as Host on `/mcp` |
+| `RENDERWELD_PUBLIC_URL` | (none) | `https://studio.example.com`: output links; allowed as Host on `/mcp`. Unset, links use the Host a client called when it is allowed (relative otherwise); set it behind a proxy that rewrites the Host |
 | `RENDERWELD_ALLOWED_HOSTS` | (none) | Extra host names accepted on `/mcp` (runtime-changeable) |
 | `RENDERWELD_RENDER_CONCURRENCY` | `1` | Renders at the same time (runtime-changeable) |
 | `ELEVENLABS_API_KEY` (`_FILE`) | (none) | ElevenLabs TTS; or set by an admin agent with `configure_provider` / `update_config` (`providers.elevenlabs.apiKey`), stored encrypted |

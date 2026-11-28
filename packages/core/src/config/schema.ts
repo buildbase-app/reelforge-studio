@@ -85,7 +85,8 @@ export const ConfigSchema = z.object({
       scope: 'startup',
       env: 'RENDERWELD_PUBLIC_URL',
       example: 'https://studio.example.com',
-      description: 'Public base URL: used in output links and allowed as Host on `/mcp`.',
+      description:
+        'Public base URL: used in output links and allowed as Host on `/mcp`. Without it, links in answers use the scheme and Host the request came in on when that Host is allowed (localhost or `server.allowedHosts`), and are relative otherwise.',
     }),
     allowedHosts: setting(z.array(hostName().transform((h) => h.toLowerCase())).max(100), {
       kind: 'list',
@@ -101,7 +102,7 @@ export const ConfigSchema = z.object({
       env: 'RENDERWELD_TRUST_PROXY',
       default: false,
       description:
-        'Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists. Only turn it on behind a proxy that sets that header.',
+        'Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists, and, when `server.publicUrl` is unset, the scheme of links from the last `X-Forwarded-Proto`. Only turn it on behind a proxy that sets those headers.',
     }),
     role: setting(z.enum(['all', 'api', 'worker']), {
       kind: 'enum',
