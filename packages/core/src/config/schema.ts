@@ -1384,6 +1384,42 @@ export const ConfigSchema = z.object({
       }),
     }),
   }),
+  engines: z.object({
+    remotion: z.object({
+      enabled: setting(z.boolean(), {
+        kind: 'boolean',
+        scope: 'runtime',
+        env: 'RENDERWELD_REMOTION_ENABLED',
+        default: false,
+        description:
+          'Turns on the Remotion engine (templates `kinetic-title` and `remotion-layout`). The release image ships no Remotion: you install it yourself with your own Remotion licence (docs/public/install/remotion.md). In the release edition Remotion renders are refused until this is `true`, `engines.remotion.licenceAccepted` is `remotion`, `engines.remotion.licenseKey` is set and Remotion is installed at `engines.remotion.home`. Development builds (personal testing and CI) use the workspace copy and need none of these.',
+      }),
+      licenceAccepted: setting(z.enum(['none', 'remotion']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'RENDERWELD_REMOTION_LICENCE_ACCEPTED',
+        default: 'none',
+        description:
+          'Set to `remotion` to confirm that you hold a Remotion licence that covers this use and accept Remotion\'s licence terms (https://www.remotion.dev/license). RenderWeld does not sell or include a Remotion licence.',
+      }),
+      licenseKey: setting(z.string().min(1).max(500).regex(/^[^\r\n]*$/, 'must be a single line').optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'RENDERWELD_REMOTION_LICENSE_KEY',
+        secret: true,
+        description:
+          'Your Remotion licence key, passed to Remotion with every render. Required in the release edition; there is no default. Stored encrypted when set at runtime.',
+      }),
+      home: setting(z.string().min(1), {
+        kind: 'path',
+        scope: 'startup',
+        env: 'RENDERWELD_REMOTION_HOME',
+        default: '/opt/remotion',
+        description:
+          'Where you installed Remotion (a folder with `node_modules/remotion` and `node_modules/@remotion/renderer`, version 4.0.545). Development builds fall back to the workspace copy when nothing is installed here.',
+      }),
+    }),
+  }),
   providers: z.object({
     elevenlabs: z.object({
       apiKey: setting(z.string().min(1).max(1000).regex(/^[^\r\n]*$/, 'must be a single line').optional(), {
