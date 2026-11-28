@@ -6,7 +6,7 @@ typecheck && RENDERWELD_REQUIRE_BROWSER=1 pnpm test`: unit tests, repository
 contract tests on SQLite, PostgreSQL and MySQL, MCP and REST journeys against a
 real server with the real engines, the Docker end-to-end suite on the release
 image). The evidence lives with each feature, not here: test cases and results
-in the STATUS table of docs/AGENT_PLATFORM.md (§10),
+in docs/STATUS.md §3, the STATUS table of docs/AGENT_PLATFORM.md (§10),
 docs/providers/*.md, docs/tutorials/TEST_CASES.md and docs/PERFORMANCE.md. An
 item below with no test there is still untested. Parts of this plan describe
 things the product does not have (a built-in planner, a UI): the agent plans

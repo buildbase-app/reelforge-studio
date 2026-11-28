@@ -8,7 +8,7 @@ import { weakKeyReason } from '../keyStrength';
  * object, with per-key metadata (environment variables, start-up only or
  * runtime-changeable, secret or not, default, description).
  *
- * Sources, lowest to highest precedence (decision D-029):
+ * Sources, lowest to highest precedence (docs/DECISIONS.md D-029):
  *   1. defaults (below)
  *   2. the config file (RENDERWELD_CONFIG: YAML or JSON, same nesting as here)
  *   3. environment variables (RENDERWELD_*, then aliases such as

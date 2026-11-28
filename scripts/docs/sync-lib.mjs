@@ -4,7 +4,7 @@
 // object. No network or file access of its own beyond what callers pass in, so
 // sync-buildbase.test.mjs runs it against an in-memory fake of the API.
 //
-// Decisions: D-080..D-082. How to run: docs/DOCS_PUBLISHING.md.
+// Decisions: docs/DECISIONS.md D-080..D-082. How to run: docs/DOCS_PUBLISHING.md.
 
 import { posix } from 'node:path';
 

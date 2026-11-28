@@ -3,7 +3,7 @@
 This page lists the security-relevant defaults of RenderWeld and the
 settings that change them. The changes in this version come from a private
 security review (findings SEC-01 to SEC-20; details are not published). The
-decisions are D-085 to D-089 and D-090 to D-092. To report a
+decisions are D-085 to D-089 and D-090 to D-092 in [DECISIONS.md](../DECISIONS.md). To report a
 problem, follow [SECURITY.md](../../SECURITY.md).
 
 ## Agent-supplied scenes (html, hyperframes)

@@ -466,7 +466,7 @@ teardown):
   and the time zone of every timestamp.
 
 Then write the results into `docs/performance/<date>-dedicated-<cloud>.md` (template below) and the
-raw JSON next to it, update `docs/SCALE.md` (measured instead of estimated),
+raw JSON next to it, update `docs/SCALE.md` (measured instead of estimated) and `docs/STATUS.md`,
 and comment the summary on #307. Never round a failure into a pass: a step that broke is reported
 with the first metric that broke.
 

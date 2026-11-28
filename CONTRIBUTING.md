@@ -123,8 +123,7 @@ name "ReelForge" and its logo are not licensed (see [TRADEMARK.md](TRADEMARK.md)
 ## 7. Development
 
 Read [AGENTS.md](AGENTS.md) ("Working in this repo") for the layout and
-conventions, and [docs/AGENT_PLATFORM.md](docs/AGENT_PLATFORM.md) (its STATUS
-table) for where things stand.
+conventions, and [docs/STATUS.md](docs/STATUS.md) for where things stand.
 
 ```bash
 pnpm install

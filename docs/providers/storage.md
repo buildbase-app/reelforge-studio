@@ -1,7 +1,7 @@
 # Storage providers
 
 Where RenderWeld keeps asset and render files (issue #27; decisions
-decisions D-065..D-069; every setting in
+D-065..D-069 in [DECISIONS.md](../DECISIONS.md); every setting in
 [CONFIG.md](../CONFIG.md#storage)). Metadata stays in the database; only the
 bytes move.
 
