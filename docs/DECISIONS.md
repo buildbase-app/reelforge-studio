@@ -3281,3 +3281,30 @@ version is the usual meaning for software sold once, and it pays for later major
 off completely, so a buyer could not even set up a new server on an old release; every future version (no income
 from later work). *Open:* whether a 2.0 image should still run a 1.x key in a reduced mode or refuse it; the upgrade
 discount for 1.x buyers. The first release sold is 1.0.0 (images are 0.1.0 today).
+
+### D-143 --- The official image ships no Remotion; customers add it with their own Remotion licence
+
+**Status:** DECIDED (owner, 2026-11-28, #783, plan Licensing L30; reversible). Number assigned at merge.\
+**Decision:** the release image carries no Remotion code: no `remotion` or `@remotion/*` package and no pre-built
+Remotion bundle, and `scripts/image/check-contents.sh` fails if one appears. All of Remotion is a devDependency of
+`@renderweld/engine-remotion`, and the engine loads it from `engines.remotion.home` (default `/opt/remotion`) at
+render time. A customer with their own Remotion licence builds `deployment/remotion/Dockerfile` on top of the
+official image: it installs the pinned versions in `remotion-install.json` (Remotion 4.0.545) into `/opt/remotion`
+and pre-builds the Remotion bundle there. CI builds that add-on in the image job as a test and never publishes it;
+the check renders nothing and has no network. In the release edition Remotion renders stay refused until
+`engines.remotion.enabled`, `licenceAccepted: remotion`, a `licenseKey` and the install are all in place.
+Development builds use the workspace copy with no key, since Remotion's licence is about public use, not personal
+testing (the owner's reading).
+*Compared with the log:* **D-040** said the `build` stage pre-builds both the Remotion and the Motion Canvas bundles
+and kept `@remotion/renderer` as a production dependency; now `build` pre-builds Motion Canvas only and Remotion
+leaves the production dependencies. D-040's rule that a container never runs a bundler still holds for both
+engines (the add-on image carries its own pre-built bundle). **D-027** sells a locked image and named the question
+of redistributing Remotion inside it as urgent (#10); this answers it by not redistributing Remotion at all.
+**D-020** (Chrome Headless Shell from Remotion's `ensureBrowser()` at build time) is unchanged here: the image keeps
+only the browser binary that step downloads, not Remotion's code.
+*Why:* shipping Remotion to every buyer would make RenderWeld a distributor of software that needs its own licence
+for business use.
+*Open:* the plan also moves the image's browser to Google's Chrome for Testing (`@puppeteer/browsers`), but Chrome
+for Testing has no linux/arm64 build and the image is built for arm64 too, so D-020 stays until the owner picks the
+arm64 browser; with a key set, Remotion reports a usage event to www.remotion.pro after each render, which the
+install guide (#783 part C) has to say.
