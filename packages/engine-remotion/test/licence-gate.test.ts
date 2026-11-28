@@ -53,9 +53,9 @@ describe('Remotion licence gate (L30)', () => {
     expect(reason(settings('release', { enabled: true }))).toMatch(/licence is not accepted/);
     expect(reason(settings('release', { enabled: true, licenceAccepted: 'remotion' }))).toMatch(/no Remotion licence key/);
     expect(reason(settings('release', { enabled: true, licenceAccepted: 'remotion', licenseKey: 'k' }))).toMatch(/not installed at \/nonexistent/);
-    expect(reason(settings('release', { enabled: true, licenceAccepted: 'remotion', licenseKey: 'k', home: fakeHome('4.0.1') }))).toMatch(
-      new RegExp(`4\\.0\\.1 is installed.*needs Remotion ${REMOTION_VERSION.replace(/\./g, '\\.')}`)
-    );
+    const wrongVersion = reason(settings('release', { enabled: true, licenceAccepted: 'remotion', licenseKey: 'k', home: fakeHome('4.0.1') }));
+    expect(wrongVersion).toContain('Remotion 4.0.1 is installed');
+    expect(wrongVersion).toContain(`needs Remotion ${REMOTION_VERSION}`);
     const ok = remotionInstall(settings('release', { enabled: true, licenceAccepted: 'remotion', licenseKey: 'k', home }));
     expect('install' in ok && ok.install).toMatchObject({ from: 'home', version: REMOTION_VERSION });
   });
