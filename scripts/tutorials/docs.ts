@@ -104,7 +104,7 @@ function engineNotes(engine: CellEngine): string {
     remotion: 'Remotion (`kinetic-title`): 1.5 to 8 s per scene, headline up to 60 characters. The first Remotion render bundles the composition and is slower; `pnpm prebuild:engines` (done in the Docker image) avoids that.',
     'motion-canvas': 'Motion Canvas (`animated-explainer`): 2 to 20 s, a title and 1 to 4 points (up to 90 characters each; long points wrap).',
     html: 'HTML (`html-title`): 1 to 12 s, headline up to 80 characters, optional kicker and subline. The html engine also takes raw `{ html, css }` instead of a template, and renders without network access (no remote scripts or resources).',
-    hyperframes: 'HyperFrames (`hyperframes-title`): 1 to 12 s, headline up to 80 characters and a subline, a GSAP timeline rendered by the local HyperFrames renderer. Scenes render without network access: a composition cannot load remote scripts, fonts or images (import assets into the studio first).',
+    hyperframes: 'HyperFrames (`hyperframes-title`): 1 to 12 s, headline up to 80 characters and a subline, CSS keyframes seeked by the local HyperFrames renderer (GSAP is not bundled). Scenes render without network access: a composition cannot load remote scripts, fonts or images (import assets into the studio first).',
     'multi-engine':
       'Multi-engine: every scene is rendered by its own engine at the same size and frame rate, then joined with hard cuts to the frame. Each scene keeps its template\'s duration range (Remotion at most 8 s, Motion Canvas at least 2 s).',
   };

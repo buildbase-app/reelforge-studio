@@ -5,7 +5,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { PipelineError, checkExpectation, framePsnr, frameStats, probe, resolveTools } from '@renderweld/media-pipeline';
 import { builtinTheme } from '@renderweld/project-schema';
 import type { OutputSettings, RenderScene as Scene } from '@renderweld/project-schema';
-import { remotionEngine, renderRemotionScene } from '../src/index';
+import { selectComposition } from '@remotion/renderer';
+import { bundleCompositions, remotionEngine, renderRemotionScene } from '../src/index';
 
 // Remotion downloads its own browser when none is configured; in CI we point
 // it at a preinstalled one so the test does not depend on network access.
@@ -79,6 +80,20 @@ describe.skipIf(!hasBrowser)('renderRemotionScene (needs RENDERWELD_CHROMIUM_PAT
     expect(err).toBeInstanceOf(PipelineError);
     expect((err as Error).message).toMatch(/not inside the scene's 60 frames/);
   }, 240_000);
+
+  it('ENG-REM-SUB a kinetic title without a subline gets no placeholder subline (#320)', async () => {
+    // Remotion merges a composition's defaultProps into the render's inputProps; Studio placeholder text must not.
+    const serveUrl = await bundleCompositions(cacheDir);
+    const composition = await selectComposition({
+      serveUrl,
+      id: 'kinetic-title',
+      inputProps: { headline: 'Only a headline', __output: { width: 360, height: 640, fps: 30, durationInFrames: 60 } },
+      browserExecutable: process.env.RENDERWELD_CHROMIUM_PATH ?? null,
+      logLevel: 'error',
+    });
+    expect(composition.props.headline).toBe('Only a headline');
+    expect(composition.props).not.toHaveProperty('subline');
+  }, 180_000);
 
   it('fails with a PipelineError naming the stage for an unknown composition', async () => {
     const err = await renderRemotionScene({
