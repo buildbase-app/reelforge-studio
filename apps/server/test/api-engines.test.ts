@@ -10,12 +10,12 @@ import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
  * Engine availability on an api instance (#197): workers render, so an api instance without a browser still queues
  * renders and previews, and a worker that cannot run an engine fails the job with engine_unavailable. A server with
  * the `all` role keeps checking its own engines before it queues. The cluster cases need PostgreSQL or MySQL
- * (REELFORGE_TEST_DB, TEST_POSTGRES_URL or TEST_MYSQL_URL). Ids: SCA-14..16 in docs/providers/queue-and-scaling.md.
+ * (RENDERWELD_TEST_DB, TEST_POSTGRES_URL or TEST_MYSQL_URL). Ids: SCA-14..16 in docs/providers/queue-and-scaling.md.
  */
 const { dir, cleanup } = tempDir('reelforge-api-engines-');
 afterAll(() => cleanup());
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
-const base = { REELFORGE_LICENCE_MODE: 'off', REELFORGE_SECRET_KEY: 'api-engines-test-secret-key-0123456789ab', REELFORGE_RATE_LIMIT_PER_MINUTE: '0' };
+const base = { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_SECRET_KEY: 'api-engines-test-secret-key-0123456789ab', RENDERWELD_RATE_LIMIT_PER_MINUTE: '0' };
 const NO_BROWSER = 'no Chrome Headless Shell found (set RENDERWELD_CHROMIUM_PATH)';
 
 /** The two engines of the sample reel; `browser: false` makes them report what an instance without a browser does. */
@@ -73,9 +73,9 @@ describe.skipIf(!kind)(`an api instance without a browser, on ${kind}`, () => {
     const db = await createTestDatabase(kind!, dir);
     dbs.push(db);
     const data = join(dir, name);
-    const env = { DATABASE_URL: db.url, REELFORGE_STORAGE_LOCAL_SHARED: 'true', REELFORGE_WORKER_CONCURRENCY: '1' };
-    const api = await start(`${name}-api`, { ...env, REELFORGE_ROLE: 'api' }, false, data);
-    await start(`${name}-worker`, { ...env, REELFORGE_ROLE: 'worker' }, workerHasBrowser, data);
+    const env = { DATABASE_URL: db.url, RENDERWELD_STORAGE_LOCAL_SHARED: 'true', RENDERWELD_WORKER_CONCURRENCY: '1' };
+    const api = await start(`${name}-api`, { ...env, RENDERWELD_ROLE: 'api' }, false, data);
+    await start(`${name}-worker`, { ...env, RENDERWELD_ROLE: 'worker' }, workerHasBrowser, data);
     const key = (await api.service.keys.create('admin', ['admin', 'owner'])).key;
     expect((await rest(api, key, 'POST', '/v1/projects', { manifest: { ...sample, projectId: 'p' } })).status).toBe(201);
     return { api, key };
