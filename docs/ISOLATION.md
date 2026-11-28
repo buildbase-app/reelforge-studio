@@ -152,8 +152,7 @@ on 443 at least once every 14 days, for example an HTTPS proxy that allows that
 one host (`HTTPS_PROXY=http://proxy:3128` **and** `NODE_USE_ENV_PROXY=1`;
 `NODE_EXTRA_CA_CERTS` for a TLS-inspecting proxy). A fully air-gapped release
 installation that never reaches the licence server is not supported today:
-there is no offline activation file yet (BuildBase's answers are not signed;
-see docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md).
+there is no offline activation file yet (BuildBase's answers are not signed).
 
 ## What the licence controls, and nothing else
 

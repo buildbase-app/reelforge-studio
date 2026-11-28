@@ -62,7 +62,7 @@ three (`pnpm test:guards` runs it locally).
 
 Before implementation, read: - `docs/PRODUCT_BRIEF.md` -
 `docs/DECISIONS.md` - `docs/ARCHITECTURE.md` - `docs/REQUIREMENTS.md` -
-`docs/TEST_PLAN.md` - `research/LICENSING_AND_COSTS.md`
+`docs/TEST_PLAN.md`
 
 If docs conflict, preserve explicit founder decisions and document the
 conflict rather than silently choosing.
@@ -98,7 +98,10 @@ conflict rather than silently choosing.
     date and source in `research/SOURCES.md`.
 -   Preserve command output or reproducible steps for important test
     findings.
--   Record material architecture decisions in `docs/DECISIONS.md`.
+-   Record each new material architecture decision in the pull request
+    description, dated, and compare it with `docs/DECISIONS.md`: name the `D-`
+    entry it follows, changes or replaces (or say it is new). The log stays as
+    the record of earlier decisions.
 
 ## 4. Engineering principles
 

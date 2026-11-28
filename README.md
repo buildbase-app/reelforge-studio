@@ -10,8 +10,7 @@ one MP4 with FFmpeg and checks it. No AI provider is required.
 > **Status: agent platform v0.1 (experimental).** Tested on Linux x64; the
 > release image is also built and tested on Linux arm64 in CI. MCP tool names
 > and manifest v0.2 may change before v1.0. Not production-hardened. What is
-> done, partial and missing: `docs/AGENT_PLATFORM.md` (STATUS) and
-> `docs/STATUS.md`.
+> done, partial and missing: `docs/AGENT_PLATFORM.md` (STATUS).
 
 ## Quick start (server first)
 
@@ -113,7 +112,7 @@ databases and running the studio next to the store site
 
 - **Remotion is not free for every company.** Free for individuals and teams of
   up to 3 people; larger companies need a paid Remotion license. Every user of
-  RenderWeld needs their own. See `research/LICENSING_AND_COSTS.md`.
+  RenderWeld needs their own. See Remotion's licence terms on remotion.dev.
 - Motion Canvas is MIT; HyperFrames is Apache-2.0. FFmpeg is LGPL/GPL
   depending on the build (we use the system FFmpeg).
 - No fonts, music or footage are bundled. Templates use system fonts.
