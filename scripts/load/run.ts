@@ -5,7 +5,7 @@
  *
  * Topology: PostgreSQL (container, pg_stat_statements on), optionally
  * PgBouncer in transaction mode in front of it, LOAD_API_INSTANCES api
- * processes (`REELFORGE_ROLE=api`, the server from source) with
+ * processes (`RENDERWELD_ROLE=api`, the server from source) with
  * `connection_limit=LOAD_API_POOL`, worker processes on the database queue.
  *
  *   (a) CRUD mix over REST: many keys, one hot key (default limit: 429s expected),
@@ -221,7 +221,7 @@ async function freshDatabase(name: string) {
   await p.db.close();
 }
 
-/** What PgBouncer transaction mode does to ReelForge, tried one by one (the finding is the point, not the speed). */
+/** What PgBouncer transaction mode does to RenderWeld, tried one by one (the finding is the point, not the speed). */
 async function probePgBouncer() {
   const out: Record<string, string> = {};
   const attempt = async (label: string, fn: () => Promise<void>) => {
@@ -323,27 +323,27 @@ async function stopChild(c: ChildProcess, ms = 20_000) {
 function serverEnv(dbUrl: string, dataDir: string, role: 'api' | 'worker', port: number): Record<string, string> {
   return {
     DATABASE_URL: dbUrl,
-    REELFORGE_ROLE: role,
-    REELFORGE_HOST: '127.0.0.1',
-    REELFORGE_PORT: String(port),
-    REELFORGE_DATA_DIR: dataDir,
-    REELFORGE_STORAGE_LOCAL_SHARED: 'true',
-    REELFORGE_LICENCE_MODE: 'off',
-    REELFORGE_BOOTSTRAP_KEY: ADMIN_KEY,
-    REELFORGE_SECRET_KEY: SECRET_KEY,
-    REELFORGE_MIGRATE_ON_START: 'false',
-    REELFORGE_LOG_LEVEL: 'warn',
+    RENDERWELD_ROLE: role,
+    RENDERWELD_HOST: '127.0.0.1',
+    RENDERWELD_PORT: String(port),
+    RENDERWELD_DATA_DIR: dataDir,
+    RENDERWELD_STORAGE_LOCAL_SHARED: 'true',
+    RENDERWELD_LICENCE_MODE: 'off',
+    RENDERWELD_BOOTSTRAP_KEY: ADMIN_KEY,
+    RENDERWELD_SECRET_KEY: SECRET_KEY,
+    RENDERWELD_MIGRATE_ON_START: 'false',
+    RENDERWELD_LOG_LEVEL: 'warn',
     // Every request of the load comes from this one address, so the per-address guard (#305, 1200 a minute per
     // instance by default) would answer almost all of it with 429 and the run would measure the guard, not the
     // service. Off here; the per-key limits under test still apply. LOAD_PRE_AUTH_PER_MINUTE puts it back.
-    REELFORGE_PRE_AUTH_RATE_LIMIT_PER_MINUTE: String(cfg.preAuthPerMinute),
-    REELFORGE_QUEUE_DISPATCH: cfg.dispatch,
-    REELFORGE_QUEUE_POLL_MAX_INTERVAL_MS: String(cfg.pollMaxMs),
+    RENDERWELD_PRE_AUTH_RATE_LIMIT_PER_MINUTE: String(cfg.preAuthPerMinute),
+    RENDERWELD_QUEUE_DISPATCH: cfg.dispatch,
+    RENDERWELD_QUEUE_POLL_MAX_INTERVAL_MS: String(cfg.pollMaxMs),
     // LISTEN needs a session: a worker behind PgBouncer listens on the server itself (database.directUrl).
-    ...(cfg.dispatch === 'notify' && dbUrl.includes(addr.bouncer) ? { REELFORGE_DATABASE_DIRECT_URL: dbUrl.replace(addr.bouncer, addr.pg).replace(/\?.*$/, '') } : {}),
+    ...(cfg.dispatch === 'notify' && dbUrl.includes(addr.bouncer) ? { RENDERWELD_DATABASE_DIRECT_URL: dbUrl.replace(addr.bouncer, addr.pg).replace(/\?.*$/, '') } : {}),
     // The job caps keep their defaults (database queue: 100 unfinished per key, no total cap). A total cap
     // (LOAD_MAX_QUEUED_JOBS > 0) makes every enqueue wait for one shared lock row (D-090, #180); measure it on purpose only.
-    ...(process.env.LOAD_MAX_QUEUED_JOBS ? { REELFORGE_MAX_QUEUED_JOBS: process.env.LOAD_MAX_QUEUED_JOBS } : {}),
+    ...(process.env.LOAD_MAX_QUEUED_JOBS ? { RENDERWELD_MAX_QUEUED_JOBS: process.env.LOAD_MAX_QUEUED_JOBS } : {}),
     // e.g. LOAD_SERVER_NODE_OPTIONS=--cpu-prof --cpu-prof-dir=out/load/prof: where an instance spends its CPU.
     ...(process.env.LOAD_SERVER_NODE_OPTIONS ? { NODE_OPTIONS: process.env.LOAD_SERVER_NODE_OPTIONS } : {}),
   };
@@ -739,7 +739,7 @@ async function scenarioC(pooler: string, workersN: number) {
 
 async function main() {
   // An api instance validates engine availability before it accepts a render (it never renders itself).
-  if (!process.env.REELFORGE_CHROMIUM_PATH) throw new Error('set REELFORGE_CHROMIUM_PATH (Chrome Headless Shell): api instances refuse renders without a browser, and the real reel needs one');
+  if (!process.env.RENDERWELD_CHROMIUM_PATH) throw new Error('set RENDERWELD_CHROMIUM_PATH (Chrome Headless Shell): api instances refuse renders without a browser, and the real reel needs one');
   mkdirSync(cfg.out, { recursive: true });
   const host = hostFingerprint();
   log(`profile ${cfg.profile}; ${host.vcpu} vCPU, ${host.ramGiB} GiB; load average ${host.loadAvgAtStart.join(' ')}; work dir ${work}`);

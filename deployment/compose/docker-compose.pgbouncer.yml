@@ -8,7 +8,7 @@
 # - api and workers connect to pgbouncer:6432; PostgreSQL sees at most
 #   DEFAULT_POOL_SIZE server connections (pgbouncer.env), however many workers run.
 # - migrations run once, on the direct port (postgres:5432), in the `migrate`
-#   service; api and workers start after it with REELFORGE_MIGRATE_ON_START=0.
+#   service; api and workers start after it with RENDERWELD_MIGRATE_ON_START=0.
 # - workers keep the worker role's small pool (database.workerConnectionLimit, 3);
 #   the api sets ?connection_limit=10.
 # Sizing: api instances x 10 + workers x 3 <= MAX_CLIENT_CONN (pgbouncer.env).
@@ -41,7 +41,7 @@ services:
 
   # Migrations on the direct port: PgBouncer is for the app's traffic.
   migrate:
-    image: ${REELFORGE_IMAGE:-ghcr.io/buildbase-app/reelforge-studio:latest}
+    image: ${RENDERWELD_IMAGE:-ghcr.io/buildbase-app/reelforge-studio:latest}
     user: "10001:10001"
     read_only: true
     tmpfs:
@@ -61,7 +61,7 @@ services:
   api:
     environment:
       DATABASE_URL: postgresql://reelforge:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@pgbouncer:6432/reelforge?connection_limit=10
-      REELFORGE_MIGRATE_ON_START: "0"
+      RENDERWELD_MIGRATE_ON_START: "0"
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -71,7 +71,7 @@ services:
   worker:
     environment:
       DATABASE_URL: postgresql://reelforge:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@pgbouncer:6432/reelforge
-      REELFORGE_MIGRATE_ON_START: "0"
+      RENDERWELD_MIGRATE_ON_START: "0"
     depends_on:
       pgbouncer:
         condition: service_healthy

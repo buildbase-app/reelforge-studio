@@ -2,10 +2,10 @@ import { createPublicKey, verify as verifySignature, type JsonWebKey, type KeyOb
 import type { AuthContext, Scope } from '@renderweld/core';
 
 /**
- * MCP authorization (#305, D-112): ReelForge as an OAuth 2.1 resource server
+ * MCP authorization (#305, D-112): RenderWeld as an OAuth 2.1 resource server
  * per the MCP authorization specification. An authorization server you run
  * (Keycloak, Auth0, Entra ID, Okta, ...) issues JWT access tokens; /mcp
- * accepts them next to API keys. ReelForge never issues tokens, never sees
+ * accepts them next to API keys. RenderWeld never issues tokens, never sees
  * user passwords and never passes a token on.
  *
  *   - Protected-resource metadata (RFC 9728) at
@@ -16,7 +16,7 @@ import type { AuthContext, Scope } from '@renderweld/core';
  *     audience (the MCP endpoint URL, RFC 8707), `exp` in the future.
  *   - Scopes: `renderweld:read`, `renderweld:write`, `renderweld:render`, `renderweld:approve`, `renderweld:admin` and
  *     `renderweld:owner` (and the old `reelforge:*` names, #413) in `scope` (space-separated)
- *     or `scp` (array) map to RenderWeld's scopes. `renderweld:owner` (or `reelforge:owner`) is
+ *     or `scp` (array) map to RenderWeld's scopes. `renderweld:owner` (or `renderweld:owner`) is
  *     the instance owner (configuration, licence, providers, storage, workspaces); only the
  *     operator's authorization server decides who gets it (#304).
  */
@@ -29,21 +29,16 @@ export interface OAuthSettings {
   jwksUrl?: string;
 }
 
-/** Token scopes: the RenderWeld names, then the old ReelForge names (accepted until phase 7, #416; docs/RENAMED.md). */
+/** Token scopes. */
 export const OAUTH_SCOPES: Record<string, Scope> = {
   'renderweld:read': 'read',
   'renderweld:write': 'write',
   'renderweld:render': 'render',
-  // Approve render plans (render.approval, #485); admin and owner imply it. No old ReelForge name: the scope is new.
+  // Approve render plans (render.approval, #485); admin and owner imply it.
   'renderweld:approve': 'approve',
   'renderweld:admin': 'admin',
   // The instance owner, like an owner key: tokens act in the default workspace (the owner's), D-125.
   'renderweld:owner': 'owner',
-  'reelforge:read': 'read',
-  'reelforge:write': 'write',
-  'reelforge:render': 'render',
-  'reelforge:admin': 'admin',
-  'reelforge:owner': 'owner',
 };
 
 export type OAuthResult = { ok: true; auth: AuthContext; subject: string; claims: Record<string, unknown> } | { ok: false; error: 'invalid_token' | 'insufficient_scope'; description: string };

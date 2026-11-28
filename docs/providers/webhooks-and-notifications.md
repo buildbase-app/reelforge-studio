@@ -147,8 +147,7 @@ Endpoints, by an admin agent over MCP (REST and CLI take the same fields):
 ```
 
 Mailpit for development: `docker compose --profile test up -d` and
-`REELFORGE_SMTP_HOST=mailpit REELFORGE_SMTP_PORT=1025 REELFORGE_SMTP_SECURITY=none`
-(`docker-compose.yml` passes these old names on; the server accepts `RENDERWELD_*` too)
+`RENDERWELD_SMTP_HOST=mailpit RENDERWELD_SMTP_PORT=1025 RENDERWELD_SMTP_SECURITY=none`
 (UI on http://127.0.0.1:8025).
 
 ## Verifying signatures
@@ -160,7 +159,7 @@ rotation). Use any Standard Webhooks library, e.g. Node:
 
 ```js
 import { Webhook } from 'standardwebhooks';
-const payload = new Webhook(process.env.REELFORGE_WEBHOOK_SECRET).verify(rawBody, req.headers); // throws if invalid or older than 5 min
+const payload = new Webhook(process.env.RENDERWELD_WEBHOOK_SECRET).verify(rawBody, req.headers); // throws if invalid or older than 5 min
 ```
 
 or by hand: `base64(HMAC-SHA256(key = base64decode(secret without "whsec_"), "<id>.<timestamp>.<raw body>"))`

@@ -16,7 +16,7 @@ import {
   type AuthContext,
   type FrameAt,
   type KeyOptions,
-  type ReelforgeService,
+  type RenderWeldService,
   type RequestContext,
   type Scope,
 } from '@renderweld/core';
@@ -41,7 +41,7 @@ import { publicReadiness, readiness } from './readiness';
 export type Env = { Variables: { auth: AuthContext; requestId: string } };
 
 export interface AppDeps {
-  service: ReelforgeService;
+  service: RenderWeldService;
   config: ServerConfig;
   /** Logs, metrics and traces (startServer makes one from the observability settings; default: metrics only, no log output). */
   observability?: Observability;
@@ -279,7 +279,7 @@ export function createApp(deps: AppDeps) {
           const lockout = guard.failure(ctx?.ip);
           if (lockout) obs.logger.log('warn', `auth: ${ctx?.ip} locked out for ${lockout}s after repeated failed authentications`, { request_id: ctx?.requestId });
         }
-        challenge(c, true, { error: v.error, description: v.description, ...(v.error === 'insufficient_scope' ? { scope: 'reelforge:read' } : {}) });
+        challenge(c, true, { error: v.error, description: v.description, ...(v.error === 'insufficient_scope' ? { scope: 'renderweld:read' } : {}) });
         return { response: c.json(errorBody(v.error, `access token refused: ${v.description}`), v.error === 'insufficient_scope' ? 403 : 401) };
       }
       // A blocked subject (#479) is refused before its token expires; the list is a runtime setting, read live.
@@ -486,7 +486,7 @@ export function createApp(deps: AppDeps) {
       return c.json(
         errorBody(
           'unauthorized',
-          '/metrics needs a token: set observability.metrics.bearerToken (REELFORGE_METRICS_TOKEN) and send "Authorization: Bearer <token>", or set observability.metrics.allowAnonymous (REELFORGE_METRICS_ALLOW_ANONYMOUS=true) for a scraper on a private network'
+          '/metrics needs a token: set observability.metrics.bearerToken (RENDERWELD_METRICS_TOKEN) and send "Authorization: Bearer <token>", or set observability.metrics.allowAnonymous (RENDERWELD_METRICS_ALLOW_ANONYMOUS=true) for a scraper on a private network'
         ),
         401
       );
@@ -525,7 +525,7 @@ export function createApp(deps: AppDeps) {
     // DNS-rebinding protection: the Host (and Origin, when a browser sends one) must be ours.
     const host = hostName(c.req.header('host'));
     if (!config.allowedHosts.includes(host)) {
-      return c.json(errorBody('forbidden_host', `host "${host}" is not allowed; set REELFORGE_PUBLIC_URL or REELFORGE_ALLOWED_HOSTS`), 403);
+      return c.json(errorBody('forbidden_host', `host "${host}" is not allowed; set RENDERWELD_PUBLIC_URL or RENDERWELD_ALLOWED_HOSTS`), 403);
     }
     const origin = c.req.header('origin');
     if (origin && !originAllowed(origin, c.req.header('host'), config)) {
@@ -794,7 +794,12 @@ export function createApp(deps: AppDeps) {
   v1.get('/renders/:id/output', need('read'), async (c) => {
     // Without ?file= the render's output, in whatever format it was rendered (#302).
     const o = await service.renderObject(c.req.param('id'), c.req.query('file'));
-    return sendStored(c, service, o, o.file.split('/').pop()!);
+    const res = await sendStored(c, service, o, o.file.split('/').pop()!);
+    // The first download of the output starts a workspace's delete-after-download grace (#487): a whole-file answer,
+    // or a range that reaches the last byte (players fetch the end last). A failed write must not fail the download.
+    const whole = res.status === 200 || (res.status === 206 && res.headers.get('content-range')?.startsWith('bytes ') && res.headers.get('content-range')!.endsWith(`-${o.bytes - 1}/${o.bytes}`));
+    if (c.req.method === 'GET' && whole) await service.markDownloaded(c.req.param('id'), o.file).catch(() => undefined);
+    return res;
   });
 
   v1.get('/assets', need('read'), async (c) => c.json(await service.listAssets({ projectId: c.req.query('projectId') }, page(c))));
@@ -892,6 +897,7 @@ export function createApp(deps: AppDeps) {
 
   // ---- workspaces (#304) -------------------------------------------------------------
   v1.get('/workspace', need('read'), async (c) => c.json(await service.getWorkspace()));
+  v1.patch('/workspace/retention', need('admin'), json, async (c) => c.json(await service.setWorkspaceRetention(await body(c), actor(c))));
   v1.get('/workspaces', need('owner'), async (c) => c.json(await service.listWorkspaces()));
   v1.post('/workspaces', need('owner'), json, async (c) => {
     const r = await service.createWorkspace(await body(c), actor(c));
@@ -969,7 +975,7 @@ function keyOptions(b: Record<string, unknown>): KeyOptions {
  * file as it arrives (stopped at limits.maxUploadBytes), the other fields
  * (projectId, assetId, license) are read as they come, before or after it.
  */
-async function multipartUpload(c: Context, service: ReelforgeService) {
+async function multipartUpload(c: Context, service: RenderWeldService) {
   const body = c.req.raw.body;
   if (!body) throw new ApiError('bad_request', 400, 'multipart upload needs a "file" field');
   let bb: busboy.Busboy;
@@ -980,7 +986,7 @@ async function multipartUpload(c: Context, service: ReelforgeService) {
   }
   const fields: Record<string, string> = {};
   const src = Readable.fromWeb(body as import('node:stream/web').ReadableStream<Uint8Array>);
-  let upload: ReturnType<ReelforgeService['uploadAssetStream']> | undefined;
+  let upload: ReturnType<RenderWeldService['uploadAssetStream']> | undefined;
   let fail!: (e: unknown) => void;
   const failed = new Promise<never>((_, reject) => (fail = reject));
   failed.catch(() => undefined);
@@ -1030,7 +1036,7 @@ function parseLicense(s: string) {
 }
 
 /** Stream a stored file through the server, with Range support (video players seek); works on every storage driver. */
-async function sendStored(c: Context, service: ReelforgeService, o: { key: string; contentType: string; bytes: number }, name: string) {
+async function sendStored(c: Context, service: RenderWeldService, o: { key: string; contentType: string; bytes: number }, name: string) {
   const size = o.bytes;
   const headers: Record<string, string> = {
     'Content-Type': o.contentType,

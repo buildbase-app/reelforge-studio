@@ -205,7 +205,7 @@ export const BUSINESS: ReelSpec[] = [
     featured: true,
     music: 'bright',
     prompt:
-      'App store promo for Pocket, a fictional budgeting app. Show the phone UI with balance and spending bars, floating feature chips, a savings stat and a download CTA. Default ReelForge theme, 15 seconds.',
+      'App store promo for Pocket, a fictional budgeting app. Show the phone UI with balance and spending bars, floating feature chips, a savings stat and a download CTA. Default RenderWeld theme, 15 seconds.',
     scenes: [
       R(2.5, 'Know where your money goes', 'Pocket, the calm budget app'),
       X('phone', 5.5, { app: 'Pocket', headline: 'Money, made calm', chips: ['Instant sync', 'Private', 'Insights', 'Goals'], screen: 'finance' }),

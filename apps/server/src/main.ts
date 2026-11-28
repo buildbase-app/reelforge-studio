@@ -31,7 +31,7 @@ if (process.argv.includes('--migrate-only')) {
 const env = { ...process.env };
 scrubSecretEnv(process.env);
 
-// `REELFORGE_WORKER_ONCE=1` (D-100): claim at most one job, render it and exit (job platforms).
+// `RENDERWELD_WORKER_ONCE=1` (D-100): claim at most one job, render it and exit (job platforms).
 if (loadConfig(env).resolved.config.server.workerOnce) {
   const code = await runWorkerOnce(env, onceArgs(process.argv.slice(2))).catch((e) => {
     console.error(`[renderweld] worker --once failed to start: ${(e as Error).message}`);

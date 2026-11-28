@@ -71,7 +71,7 @@ sandbox, so a lower bound).
 
 ## How to read it
 
-- **Renders at once** is the `limits.renderConcurrency` (`REELFORGE_RENDER_CONCURRENCY`)
+- **Renders at once** is the `limits.renderConcurrency` (`RENDERWELD_RENDER_CONCURRENCY`)
   that gave the most renders an hour with no failure. The default is 1.
 - **Renders an hour** is finished videos an hour with that many at once, from
   submit to downloadable file. A 60 s 1920x1080 video took about twice the CPU of
@@ -118,7 +118,7 @@ The numbers above come from one machine. Your CPU model changes them, so measure
 before you size a fleet:
 
 ```bash
-docker build --build-arg REELFORGE_EDITION=dev -t renderweld:bench-dev .
+docker build --build-arg RENDERWELD_EDITION=dev -t renderweld:bench-dev .
 pnpm bench:docker                                # 1, 2 and 4 vCPU; about an hour
 BENCH_SIZES=8:16 pnpm bench:docker               # one size
 BENCH_WORKLOAD=h1080-60s pnpm bench:docker       # 60 s 1920x1080 videos
@@ -130,7 +130,7 @@ videos with 1, 2, 3 ... at once until a render fails, the container runs out of
 memory or throughput stops rising by 5 %, then measures the API. Results go to
 `out/bench/<date>-docker/` (`summary.md` is the table above). Where the host blocks
 the user namespaces Chrome's sandbox needs, add
-`BENCH_ENV=REELFORGE_CHROMIUM_NO_SANDBOX=1`. `BENCH_NOTE="..."` adds a line about
+`BENCH_ENV=RENDERWELD_CHROMIUM_NO_SANDBOX=1`. `BENCH_NOTE="..."` adds a line about
 your host under the table (shared or dedicated, what else ran). If a container
 dies during a step (an out-of-memory kill of the server, for example), that step
 is recorded with its renders failed and the reason, and the run goes on with the

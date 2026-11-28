@@ -1230,7 +1230,7 @@
     "chroot"
    ],
    "action": "SCMP_ACT_ALLOW",
-   "comment": "ReelForge: Chromium's namespace sandbox (user, PID and network namespaces, then chroot) without CAP_SYS_ADMIN or CAP_SYS_CHROOT. Everything else is Docker's default profile (github.com/moby/profiles/seccomp v0.3.0)."
+   "comment": "RenderWeld: Chromium's namespace sandbox (user, PID and network namespaces, then chroot) without CAP_SYS_ADMIN or CAP_SYS_CHROOT. Everything else is Docker's default profile (github.com/moby/profiles/seccomp v0.3.0)."
   }
  ]
 }

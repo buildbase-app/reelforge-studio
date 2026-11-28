@@ -47,7 +47,7 @@ const runDir = (runId: string) => join(dir, 'data', 'projects', 'del-reel', 'ren
 beforeAll(async () => {
   const database = await testDatabase(dir);
   dropDb = database.drop;
-  server = await startServer({ dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' }, { registry: new PluginRegistry().registerEngine(fakeEngine('remotion')), env: { ...database.env, REELFORGE_LICENCE_MODE: 'off' }, quiet: true });
+  server = await startServer({ dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' }, { registry: new PluginRegistry().registerEngine(fakeEngine('remotion')), env: { ...database.env, RENDERWELD_LICENCE_MODE: 'off' }, quiet: true });
   admin = (await server.service.keys.create('admin', ['admin', 'owner'])).key;
   reader = (await server.service.keys.create('reader', ['read'])).key;
   expect((await rest('/v1/projects', admin, { method: 'POST', body: JSON.stringify({ manifest }) })).status).toBe(201);

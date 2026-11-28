@@ -8,7 +8,6 @@ import { assertDecodable, checkExpectation, frameStats, probe, resolveTools } fr
 import { tempDir } from '../../../packages/core/test/helpers';
 import { startMockLicenceServer, type MockLicenceServer } from '../../../e2e/mock-licence/server.mjs';
 import { cliCreateKey, startServerProcess, testDatabase, type ServerProcess } from './serverProcess';
-import { envValue } from '@renderweld/core';
 
 /**
  * The whole agent journey over MCP only, against a real server process
@@ -16,20 +15,20 @@ import { envValue } from '@renderweld/core';
  * MCP SDK client over Streamable HTTP with Bearer auth. Real engines render a
  * 1080x1920 MP4 that is downloaded and checked with ffprobe.
  *
- * Needs a Chromium (REELFORGE_CHROMIUM_PATH). Skips without one, unless
- * REELFORGE_REQUIRE_BROWSER=1 (CI), which turns a missing browser into a failure.
+ * Needs a Chromium (RENDERWELD_CHROMIUM_PATH). Skips without one, unless
+ * RENDERWELD_REQUIRE_BROWSER=1 (CI), which turns a missing browser into a failure.
  */
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
-const requireBrowser = envValue('REELFORGE_REQUIRE_BROWSER') === '1';
+const requireBrowser = process.env.RENDERWELD_REQUIRE_BROWSER === '1';
 
 describe('browser requirement', () => {
-  it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
-    expect(hasBrowser, `REELFORGE_CHROMIUM_PATH=${browser ?? '(unset)'} does not point at a browser`).toBe(true);
+  it.runIf(requireBrowser)('RENDERWELD_REQUIRE_BROWSER=1: a browser must be configured', () => {
+    expect(hasBrowser, `RENDERWELD_CHROMIUM_PATH=${browser ?? '(unset)'} does not point at a browser`).toBe(true);
   });
 });
 
-describe.skipIf(!hasBrowser)('agent journey over MCP against a real server process (needs REELFORGE_CHROMIUM_PATH)', () => {
+describe.skipIf(!hasBrowser)('agent journey over MCP against a real server process (needs RENDERWELD_CHROMIUM_PATH)', () => {
   const { dir, cleanup } = tempDir('reelforge-mcp-e2e-');
   const dataDir = join(dir, 'data');
   const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
@@ -48,13 +47,13 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
     readOnlyKey = cliCreateKey(dataDir, 'viewer', 'read', database.env);
     server = await startServerProcess({
       ...database.env,
-      REELFORGE_DATA_DIR: dataDir,
-      REELFORGE_CACHE_DIR: resolve(__dirname, '../../../.render-cache'),
-      REELFORGE_CHROMIUM_PATH: browser!,
-      REELFORGE_LICENCE_MODE: 'required',
-      REELFORGE_LICENCE_KEY: LICENCE_KEY,
-      REELFORGE_LICENCE_SERVER_URL: licenceServer.url,
-      REELFORGE_LICENCE_ORG_ID: 'e2eorg0000-mocklice',
+      RENDERWELD_DATA_DIR: dataDir,
+      RENDERWELD_CACHE_DIR: resolve(__dirname, '../../../.render-cache'),
+      RENDERWELD_CHROMIUM_PATH: browser!,
+      RENDERWELD_LICENCE_MODE: 'required',
+      RENDERWELD_LICENCE_KEY: LICENCE_KEY,
+      RENDERWELD_LICENCE_SERVER_URL: licenceServer.url,
+      RENDERWELD_LICENCE_ORG_ID: 'e2eorg0000-mocklice',
     });
   }, 120_000);
   afterAll(async () => {
@@ -80,10 +79,10 @@ describe.skipIf(!hasBrowser)('agent journey over MCP against a real server proce
     return r;
   }
 
-  it('licence from REELFORGE_LICENCE_KEY is activated on start (mode required); get_licence shows it masked', async () => {
+  it('licence from RENDERWELD_LICENCE_KEY is activated on start (mode required); get_licence shows it masked', async () => {
     const agent = await connect(key);
     const r = await ok(agent, 'get_licence', {});
-    expect(r.data).toMatchObject({ mode: 'required', key: 'E2EAA-*****-*****-*****-*****', keySource: 'env (REELFORGE_LICENCE_KEY)' });
+    expect(r.data).toMatchObject({ mode: 'required', key: 'E2EAA-*****-*****-*****-*****', keySource: 'env (RENDERWELD_LICENCE_KEY)' });
     // The start-up check runs in the background; render_project would wait for it, get_licence does not.
     if (r.data.status === 'checking') await new Promise((ok) => setTimeout(ok, 2000));
     expect((await ok(agent, 'get_licence', {})).data).toMatchObject({ status: 'valid', renderAllowed: true });

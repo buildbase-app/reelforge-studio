@@ -7,7 +7,7 @@
  *   azure   TEST_AZURE_CONNECTION_STRING (Azurite)
  *   gcs     TEST_GCS_ENDPOINT (fake-gcs-server)
  *
- * REELFORGE_REQUIRE_STORAGE=s3,azure,gcs turns a missing target into a failure instead of a skip.
+ * RENDERWELD_REQUIRE_STORAGE=s3,azure,gcs turns a missing target into a failure instead of a skip.
  */
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
@@ -28,13 +28,12 @@ import {
   renderPrefix,
   streamToBuffer,
   type StorageDriver,
-  envValue,
 } from '../src/index';
 import { tempDir } from './helpers';
 
 const tmp = tempDir('reelforge-storage-');
 afterAll(() => tmp.cleanup());
-const required = (envValue('REELFORGE_REQUIRE_STORAGE') ?? '').split(',').filter(Boolean);
+const required = (process.env.RENDERWELD_REQUIRE_STORAGE ?? '').split(',').filter(Boolean);
 const run = randomBytes(4).toString('hex');
 const MiB = 1024 * 1024;
 const SECRETS: string[] = [];
@@ -132,7 +131,7 @@ const targets: Target[] = [
 ];
 
 it('every required storage target is configured', () => {
-  for (const name of required) expect(targets.find((t) => t.name === name)?.available, `${name} required by REELFORGE_REQUIRE_STORAGE but not configured`).toBe(true);
+  for (const name of required) expect(targets.find((t) => t.name === name)?.available, `${name} required by RENDERWELD_REQUIRE_STORAGE but not configured`).toBe(true);
 });
 
 /** A driver whose chosen operations fail (to test atomic commits and resumable migrations). */
@@ -287,7 +286,7 @@ for (const target of targets) {
       await put('p2', 'run_b1', 'final.mp4');
       await put('p2', 'run_b1', RENDER_MANIFEST);
       await put('p1', '.tmp-run_crashed', 'final.mp4'); // an unfinished upload
-      const cfg = await settings({ REELFORGE_STORAGE_RETENTION_KEEP_LAST: '1', REELFORGE_STORAGE_RETENTION_RENDER_DAYS: '3' });
+      const cfg = await settings({ RENDERWELD_STORAGE_RETENTION_KEEP_LAST: '1', RENDERWELD_STORAGE_RETENTION_RENDER_DAYS: '3' });
       const manager = new StorageManager({
         factory: async () => driver,
         settings: cfg,

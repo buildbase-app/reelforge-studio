@@ -74,48 +74,48 @@ export function coreInstruments(meter: Meter): CoreInstruments {
   let i = cache.get(meter);
   if (!i) {
     i = {
-      jobsFinished: meter.createCounter('reelforge.jobs.finished', { description: 'Jobs that reached a final state, by type and status.' }),
-      jobDuration: meter.createHistogram('reelforge.job.duration', {
+      jobsFinished: meter.createCounter('renderweld.jobs.finished', { description: 'Jobs that reached a final state, by type and status.' }),
+      jobDuration: meter.createHistogram('renderweld.job.duration', {
         unit: 's',
         description: 'Run time of jobs from start to final state, by type and status.',
         advice: { explicitBucketBoundaries: SECONDS_BUCKETS },
       }),
-      sceneDuration: meter.createHistogram('reelforge.render.scene.duration', {
+      sceneDuration: meter.createHistogram('renderweld.render.scene.duration', {
         unit: 's',
         description: 'Time an engine took to render one scene, by engine and outcome.',
         advice: { explicitBucketBoundaries: SECONDS_BUCKETS },
       }),
-      framesRendered: meter.createCounter('reelforge.render.frames', { description: 'Frames rendered by the engines, by engine.' }),
-      renderFps: meter.createHistogram('reelforge.render.fps', {
+      framesRendered: meter.createCounter('renderweld.render.frames', { description: 'Frames rendered by the engines, by engine.' }),
+      renderFps: meter.createHistogram('renderweld.render.fps', {
         description: 'Frames per second of wall-clock time for each scene render, by engine.',
         advice: { explicitBucketBoundaries: FPS_BUCKETS },
       }),
-      providerCalls: meter.createCounter('reelforge.provider.calls', { description: 'Provider runs (TTS, ...), by provider and outcome (ok, cached, error).' }),
-      jobsRequeued: meter.createCounter('reelforge.jobs.requeued', { description: 'Database queue: jobs queued again, by reason (lease_expired: the worker stopped renewing its lease; released: a worker shut down).' }),
-      queueErrors: meter.createCounter('reelforge.queue.errors', { description: 'Database queue: failed queue operations (claim, heartbeat, recover), e.g. while the database is unreachable.' }),
-      limitRejections: meter.createCounter('reelforge.limits.rejections', {
+      providerCalls: meter.createCounter('renderweld.provider.calls', { description: 'Provider runs (TTS, ...), by provider and outcome (ok, cached, error).' }),
+      jobsRequeued: meter.createCounter('renderweld.jobs.requeued', { description: 'Database queue: jobs queued again, by reason (lease_expired: the worker stopped renewing its lease; released: a worker shut down).' }),
+      queueErrors: meter.createCounter('renderweld.queue.errors', { description: 'Database queue: failed queue operations (claim, heartbeat, recover), e.g. while the database is unreachable.' }),
+      limitRejections: meter.createCounter('renderweld.limits.rejections', {
         description:
           'Requests refused by a resource limit (D-090, D-091, D-103), by reason: render_limit, jobs_per_key, queue_full, queue_wait, render_quota, upload_too_large, provider_runs_per_key, provider_budget.',
       }),
-      queueWait: meter.createHistogram('reelforge.job.queue_wait', {
+      queueWait: meter.createHistogram('renderweld.job.queue_wait', {
         unit: 's',
         description:
           'Time from enqueue to the first claim of render and preview jobs, by type and priority (fan-out units and joins are not measured). Recorded by the instance that claims. SLO: p95 < 60 s for previews, < 300 s for renders.',
         advice: { explicitBucketBoundaries: QUEUE_WAIT_BUCKETS },
       }),
-      queueClaims: meter.createCounter('reelforge.queue.claims', {
+      queueClaims: meter.createCounter('renderweld.queue.claims', {
         description:
           'Database queue: claim attempts by trigger (poll: the idle poll; fallback: the dispatch fallback poll; wake: a dispatch message; local: this instance enqueued, a job finished or a lease was recovered) and result (job, empty).',
       }),
-      dispatchPublished: meter.createCounter('reelforge.queue.dispatch.published', {
+      dispatchPublished: meter.createCounter('renderweld.queue.dispatch.published', {
         description: 'Queue dispatch (D-105): ready messages published, by driver and reason (enqueue, requeue, release, fanout, join, outbox).',
       }),
-      dispatchPublishFailures: meter.createCounter('reelforge.queue.dispatch.publish_failures', { description: 'Queue dispatch: outbox publishes to a broker that failed and will be retried, by driver.' }),
-      dispatchReceived: meter.createCounter('reelforge.queue.dispatch.received', { description: 'Queue dispatch: messages received by this worker, by driver and kind (ready, claimed).' }),
-      dispatchDuplicates: meter.createCounter('reelforge.queue.dispatch.duplicates', {
+      dispatchPublishFailures: meter.createCounter('renderweld.queue.dispatch.publish_failures', { description: 'Queue dispatch: outbox publishes to a broker that failed and will be retried, by driver.' }),
+      dispatchReceived: meter.createCounter('renderweld.queue.dispatch.received', { description: 'Queue dispatch: messages received by this worker, by driver and kind (ready, claimed).' }),
+      dispatchDuplicates: meter.createCounter('renderweld.queue.dispatch.duplicates', {
         description: 'Queue dispatch: ready messages for a job id this worker was already about to claim (duplicates are no-ops), by driver.',
       }),
-      dispatchFallbackClaims: meter.createCounter('reelforge.queue.dispatch.fallback_claims', {
+      dispatchFallbackClaims: meter.createCounter('renderweld.queue.dispatch.fallback_claims', {
         description:
           'Queue dispatch: jobs claimed by the poll instead of a message, by driver and reason (fallback: the periodic fallback poll found work a message did not announce; degraded: the listener was disconnected).',
       }),

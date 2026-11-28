@@ -107,9 +107,9 @@ describe('audit sinks', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(calls[0]!.url).toBe('http://collector:4318/v1/logs');
     const rl = calls[0]!.body.resourceLogs[0];
-    expect(rl.resource.attributes).toContainEqual({ key: 'service.name', value: { stringValue: 'reelforge-studio' } });
+    expect(rl.resource.attributes).toContainEqual({ key: 'service.name', value: { stringValue: 'renderweld' } });
     const records = rl.scopeLogs[0].logRecords;
-    expect(rl.scopeLogs[0].scope.name).toBe('reelforge.audit');
+    expect(rl.scopeLogs[0].scope.name).toBe('renderweld.audit');
     expect(records).toHaveLength(2);
     expect(records[0]).toMatchObject({ timeUnixNano: String(Date.parse('2026-11-21T10:00:00.000Z') * 1e6), severityText: 'INFO', body: { stringValue: 'key.rotate' } });
     expect(records[0].attributes).toContainEqual({ key: 'client.address', value: { stringValue: '10.0.0.1' } });

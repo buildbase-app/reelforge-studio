@@ -21,7 +21,7 @@ let cfg = await get();
 const show = (k) => { const e = entry(cfg, k); return `${JSON.stringify(e.value)} (${e.source}${e.origin ? `: ${e.origin}` : ''})`; };
 if (PHASE === 'before') {
   check('get_config lists every setting with value and source', cfg.settings.length > 25 && cfg.settings.every((s) => 'value' in s && s.source), `${cfg.settings.length} settings, config file ${cfg.configFile}`);
-  check('secret key is set (REELFORGE_SECRET_KEY_FILE)', cfg.secretKey === 'set');
+  check('secret key is set (RENDERWELD_SECRET_KEY_FILE)', cfg.secretKey === 'set');
   check('limits.maxJsonBytes comes from the config file', entry(cfg, 'limits.maxJsonBytes').source === 'file', show('limits.maxJsonBytes'));
   check('server.allowedHosts comes from the environment', entry(cfg, 'server.allowedHosts').source === 'env', show('server.allowedHosts'));
   check('limits.rateLimitPerMinute starts at its default', entry(cfg, 'limits.rateLimitPerMinute').source === 'default', show('limits.rateLimitPerMinute'));
@@ -33,7 +33,7 @@ if (PHASE === 'before') {
   check('update_config stores the licence key (secret) without echoing it', !JSON.stringify(up).includes(LICENCE) && up.settings[1].atRest === 'aes-256-gcm');
   const refused = await raw('update_config', { settings: { 'server.port': 9999 } });
   const err = refused.isError ? JSON.parse(refused.text).error : {};
-  check('a start-up-only key is refused, naming where to set it', refused.isError && err.code === 'startup_only_setting' && /REELFORGE_PORT/.test(err.message) && /REELFORGE_CONFIG/.test(err.message), err.message);
+  check('a start-up-only key is refused, naming where to set it', refused.isError && err.code === 'startup_only_setting' && /RENDERWELD_PORT/.test(err.message) && /RENDERWELD_CONFIG/.test(err.message), err.message);
   cfg = await get();
   check('get_config shows the change', entry(cfg, 'limits.rateLimitPerMinute').value === 600, show('limits.rateLimitPerMinute'));
 

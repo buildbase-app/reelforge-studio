@@ -143,7 +143,7 @@ export class Database {
   async assertMigrated(): Promise<void> {
     const s = await this.status();
     if (s.pending.length) {
-      throw new Error(`the database schema is behind: ${s.pending.length} migration(s) pending (${s.pending.join(', ')}); run \`renderweld migrate\` (or start with REELFORGE_MIGRATE_ON_START=1)`);
+      throw new Error(`the database schema is behind: ${s.pending.length} migration(s) pending (${s.pending.join(', ')}); run \`renderweld migrate\` (or start with RENDERWELD_MIGRATE_ON_START=1)`);
     }
   }
 
@@ -305,7 +305,7 @@ export interface PrepareOptions {
   readUrl?: string;
   /** Pool size for URLs without ?connection_limit= (OpenDatabaseOptions). */
   defaultConnectionLimit?: number;
-  /** v0.1 data directory to import once (the server's REELFORGE_DATA_DIR). */
+  /** v0.1 data directory to import once (the server's RENDERWELD_DATA_DIR). */
   dataDir: string;
   /** Apply pending migrations (default true); otherwise refuse to start on an old schema. */
   migrate?: boolean;

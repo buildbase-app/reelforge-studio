@@ -360,7 +360,7 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
     });
 
     it('RuntimeConfig: stores runtime values and encrypted secrets that a second instance reads back', async () => {
-      const sources = { env: { REELFORGE_SECRET_KEY: 'k'.repeat(40), REELFORGE_RATE_LIMIT_PER_MINUTE: '50' } };
+      const sources = { env: { RENDERWELD_SECRET_KEY: 'k'.repeat(40), RENDERWELD_RATE_LIMIT_PER_MINUTE: '50' } };
       const a = new RuntimeConfig(repos, sources);
       await a.load();
       expect(a.config.limits.rateLimitPerMinute).toBe(50);
@@ -390,7 +390,7 @@ describe.each(targets)('repository contract: $name', ({ kind }) => {
       const full = {
         instanceId: 'rf-instance-a',
         keyHash: 'h'.repeat(64),
-        answer: { valid: true, reason: null, key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null }, item: { id: 'itm_1', title: 'ReelForge' }, instance: { instance: 'rf-instance-a', activatedAt: t0 } },
+        answer: { valid: true, reason: null, key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null }, item: { id: 'itm_1', title: 'RenderWeld' }, instance: { instance: 'rf-instance-a', activatedAt: t0 } },
         lastCheckedAt: later(10),
         lastSuccessAt: later(10),
         lastError: { kind: 'unreachable', message: 'connect ECONNREFUSED', at: later(9) },
