@@ -76,7 +76,10 @@ conflict rather than silently choosing.
     date and source in `research/SOURCES.md`.
 -   Preserve command output or reproducible steps for important test
     findings.
--   Record material architecture decisions in `docs/DECISIONS.md`.
+-   Record each new material architecture decision in the pull request
+    description, dated, and compare it with `docs/DECISIONS.md`: name the `D-`
+    entry it follows, changes or replaces (or say it is new). The log stays as
+    the record of earlier decisions.
 
 ## 4. Engineering principles
 
