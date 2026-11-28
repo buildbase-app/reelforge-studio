@@ -38,6 +38,25 @@ export function dateTime(iso: string | undefined): string {
   return Number.isNaN(d.getTime()) ? '–' : DATE_TIME.format(d);
 }
 
+/**
+ * A render's retention in words (#487): when it was first downloaded and when its files go. `deletesAt` is the
+ * earliest time the storage sweep may delete it; the sweep runs on a schedule, so a past time means "at the next one".
+ */
+export function retentionText(r: { downloadedAt: string | null; deletesAt: string | null; deleteReason?: string; deleteAfterDownloadMinutes?: number }, now = Date.now()): { downloaded: string; deletes: string } {
+  const downloaded = r.downloadedAt ? dateTime(r.downloadedAt) : 'Not yet';
+  if (!r.deletesAt) return { downloaded, deletes: 'None scheduled' };
+  const why =
+    r.deleteReason === 'deleted_after_download'
+      ? `${r.deleteAfterDownloadMinutes ?? '?'} min after the first download`
+      : r.deleteReason === 'older_than_workspace_retention'
+        ? "the workspace's retention"
+        : r.deleteReason === 'older_than_renderDays'
+          ? "the instance's retention"
+          : 'retention';
+  const when = Date.parse(r.deletesAt) <= now ? 'At the next storage sweep' : dateTime(r.deletesAt);
+  return { downloaded, deletes: `${when} · ${why}` };
+}
+
 /** 14:02:11 (local time). */
 export function clock(d: Date): string {
   return TIME.format(d);

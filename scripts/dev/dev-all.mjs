@@ -54,11 +54,9 @@ if (!existsSync(tsxCli)) {
   process.exit(1);
 }
 
-const { env, notes } = mergeEnv(parseEnvText(readFileSync(envFile, 'utf8')), process.env);
-for (const n of notes) console.log(`note: ${n}`);
+const env = mergeEnv(parseEnvText(readFileSync(envFile, 'utf8')), process.env);
 const setEnv = (name, value) => {
   env[`RENDERWELD_${name}`] = value;
-  delete env[`REELFORGE_${name}`];
 };
 if (opts.port) setEnv('PORT', opts.port);
 const port = Number(envValue(env, 'PORT') ?? STUDIO_PORT);
@@ -194,8 +192,6 @@ if (opts['mock-licence']) {
   setEnv('LICENCE_MODE', 'required');
   setEnv('LICENCE_SERVER_URL', `http://127.0.0.1:${mockPort}`);
   setEnv('LICENCE_KEY', key);
-  delete env.RENDERWELD_LICENSE_MODE;
-  delete env.REELFORGE_LICENSE_MODE;
 }
 
 // [api] and [worker]s.

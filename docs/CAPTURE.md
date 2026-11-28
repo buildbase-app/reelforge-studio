@@ -82,7 +82,7 @@ browser runs at a time; at most two encodes run beside it.
   `fixtures/contact-sheet-reel.json` (one scene per built-in template) with
   its progress; renders each session as a terminal page and makes a contact
   sheet per template from the render's clips. `docker compose up` is
-  captured when a studio image is present (`REELFORGE_IMAGE`, default
+  captured when a studio image is present (`RENDERWELD_IMAGE`, default
   `reelforge-studio:latest`); otherwise it is skipped and noted.
 - **console** (`steps/console.mjs`): merges the blueprint exports with
   read-only org API reads (sign-in methods and clients, hosted page, selling
@@ -99,7 +99,7 @@ emails (except allowed public ones) and tokens (`rf_…`, `sk_…`, `whsec_…`,
 bearer tokens, `sig=` of signed links) as they appear. Then `assertMasked`
 reads the text of every frame and input: if anything is left, the capture
 fails and a recording in progress is deleted. Terminal views and the agent
-fixture go through `maskText` too; commands show `$REELFORGE_KEY`, never a
+fixture go through `maskText` too; commands show `$RENDERWELD_KEY`, never a
 key.
 
 ## Where the files go

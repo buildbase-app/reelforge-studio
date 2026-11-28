@@ -1,6 +1,6 @@
 ---
 title: "Walkthrough videos"
-description: "Short recordings of whole processes in ReelForge: claiming a Personal licence, buying a Commercial licence, connecting Claude Code, and an agent making a reel over MCP."
+description: "Short recordings of whole processes in RenderWeld: claiming a Personal licence, buying a Commercial licence, connecting Claude Code, and an agent making a reel over MCP."
 folder: screenshots
 slug: walkthroughs
 order: 3

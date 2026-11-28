@@ -1,11 +1,11 @@
-# ReelForge Studio with more than one instance on one Docker host (issue #36,
+# RenderWeld with more than one instance on one Docker host (issue #36,
 # docs/providers/queue-and-scaling.md): one api instance (REST + MCP, never
 # renders), N workers (render from the database queue), PostgreSQL, and an
-# S3-compatible bucket. Same image, different REELFORGE_ROLE.
+# S3-compatible bucket. Same image, different RENDERWELD_ROLE.
 #
 #   export POSTGRES_PASSWORD=$(openssl rand -hex 16)
-#   export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)      # the same on every instance
-#   export REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
+#   export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)      # the same on every instance
+#   export RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)
 #   export S3_ENDPOINT=https://s3.eu-central-1.amazonaws.com S3_BUCKET=my-renders S3_REGION=eu-central-1
 #   export S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=...
 #   docker compose -f deployment/compose/docker-compose.scale.yml up -d --scale worker=3
@@ -13,7 +13,7 @@
 # The Docker e2e (SCALE=1 e2e/docker/run.sh) runs this topology against MinIO.
 # For production put the secrets in files (*_FILE) instead of the environment.
 x-reelforge: &reelforge
-  image: ${REELFORGE_IMAGE:-ghcr.io/buildbase-app/reelforge-studio:latest}
+  image: ${RENDERWELD_IMAGE:-ghcr.io/buildbase-app/reelforge-studio:latest}
   restart: unless-stopped
   user: "10001:10001"
   read_only: true
@@ -30,35 +30,35 @@ x-reelforge: &reelforge
       condition: service_healthy
 x-env: &env
   DATABASE_URL: postgresql://reelforge:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/reelforge
-  REELFORGE_SECRET_KEY: ${REELFORGE_SECRET_KEY:?set REELFORGE_SECRET_KEY}
-  REELFORGE_STORAGE_DRIVER: s3
-  REELFORGE_S3_ENDPOINT: ${S3_ENDPOINT:-}
-  REELFORGE_S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET}
-  REELFORGE_S3_REGION: ${S3_REGION:-us-east-1}
-  REELFORGE_S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
-  REELFORGE_S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
-  REELFORGE_S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
-  REELFORGE_CHROMIUM_NO_SANDBOX: "0"
+  RENDERWELD_SECRET_KEY: ${RENDERWELD_SECRET_KEY:?set RENDERWELD_SECRET_KEY}
+  RENDERWELD_STORAGE_DRIVER: s3
+  RENDERWELD_S3_ENDPOINT: ${S3_ENDPOINT:-}
+  RENDERWELD_S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET}
+  RENDERWELD_S3_REGION: ${S3_REGION:-us-east-1}
+  RENDERWELD_S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+  RENDERWELD_S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  RENDERWELD_S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  RENDERWELD_CHROMIUM_NO_SANDBOX: "0"
 
 services:
   api:
     <<: *reelforge
     environment:
       <<: *env
-      REELFORGE_ROLE: api
-      REELFORGE_BOOTSTRAP_KEY: ${REELFORGE_BOOTSTRAP_KEY:-}
-      REELFORGE_PUBLIC_URL: ${REELFORGE_PUBLIC_URL:-}
-      REELFORGE_ALLOWED_HOSTS: ${REELFORGE_ALLOWED_HOSTS:-api}
+      RENDERWELD_ROLE: api
+      RENDERWELD_BOOTSTRAP_KEY: ${RENDERWELD_BOOTSTRAP_KEY:-}
+      RENDERWELD_PUBLIC_URL: ${RENDERWELD_PUBLIC_URL:-}
+      RENDERWELD_ALLOWED_HOSTS: ${RENDERWELD_ALLOWED_HOSTS:-api}
     ports:
-      - "127.0.0.1:${REELFORGE_PORT:-4321}:4321"
+      - "127.0.0.1:${RENDERWELD_PORT:-4321}:4321"
 
   worker:
     <<: *reelforge
     environment:
       <<: *env
-      REELFORGE_ROLE: worker
-      REELFORGE_WORKER_CONCURRENCY: "1"
-      REELFORGE_QUEUE_SHUTDOWN_GRACE_SECONDS: "120"
+      RENDERWELD_ROLE: worker
+      RENDERWELD_WORKER_CONCURRENCY: "1"
+      RENDERWELD_QUEUE_SHUTDOWN_GRACE_SECONDS: "120"
     # Longer than the shutdown grace, so a stopping worker can finish or hand back its render.
     stop_grace_period: 150s
 

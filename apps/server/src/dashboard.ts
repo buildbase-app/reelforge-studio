@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ReelforgeService } from '@renderweld/core';
+import type { RenderWeldService } from '@renderweld/core';
 import type { Context, Hono } from 'hono';
 import { errorBody, hostName, type Env } from './app';
 import type { ServerConfig } from './config';
@@ -51,22 +51,22 @@ const TYPES: Record<string, string> = {
 /** Only the hashed files the build writes: no path separators, no dot segments. */
 const ASSET = /^assets\/([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.(js|css|svg|png|webmanifest))$/;
 
-function enabled(service: ReelforgeService, config: ServerConfig): boolean {
+function enabled(service: RenderWeldService, config: ServerConfig): boolean {
   // The live settings (PATCH /v1/config applies dashboard.enabled without a restart), else file + env.
   return service.settings?.current.config.dashboard.enabled ?? config.resolved.config.dashboard.enabled;
 }
 
-export function mountDashboard(app: Hono<Env>, service: ReelforgeService, config: ServerConfig): void {
+export function mountDashboard(app: Hono<Env>, service: RenderWeldService, config: ServerConfig): void {
   const dir = () => config.dashboardAssetsDir ?? DEFAULT_DASHBOARD_DIR;
 
   const gate = (c: Context<Env>): Response | null => {
     if (!enabled(service, config)) {
-      return c.json(errorBody('not_found', 'the dashboard is off: set dashboard.enabled (REELFORGE_DASHBOARD_ENABLED=true, or PATCH /v1/config)'), 404);
+      return c.json(errorBody('not_found', 'the dashboard is off: set dashboard.enabled (RENDERWELD_DASHBOARD_ENABLED=true, or PATCH /v1/config)'), 404);
     }
     // Same DNS-rebinding protection as /mcp: only our own host names.
     const host = hostName(c.req.header('host'));
     if (!config.allowedHosts.includes(host)) {
-      return c.json(errorBody('forbidden_host', `host "${host}" is not allowed; set REELFORGE_PUBLIC_URL or REELFORGE_ALLOWED_HOSTS`), 403);
+      return c.json(errorBody('forbidden_host', `host "${host}" is not allowed; set RENDERWELD_PUBLIC_URL or RENDERWELD_ALLOWED_HOSTS`), 403);
     }
     return null;
   };

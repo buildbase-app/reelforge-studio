@@ -62,6 +62,11 @@ describe('faster-whisper provider (fake programs)', () => {
     expect(env).toContain(`HF_HOME=${join(dir, 'hf')}`);
     expect(env).not.toContain('secret-value');
     await expect(s.transcribe({ file: 'voice.mp3', language: 'auto', settings: settings() }, ctx())).rejects.toMatchObject({ code: 'bad_request' });
+    // A glossary prompt (#486) is one "--initial-prompt=..." argument, so even one that starts with "-" stays a value.
+    await s.transcribe({ file: audio, language: 'en', settings: settings(), prompt: '--model huge, RenderWeld.' }, ctx());
+    const withPrompt = readFileSync(join(dir, 'fake-whisper.args'), 'utf8').trim().split('\n');
+    expect(withPrompt.at(-1)).toBe('--initial-prompt=--model huge, RenderWeld.');
+    expect(withPrompt.filter((a) => a === '--model')).toHaveLength(1);
   });
 
   it('stops a program that runs too long or prints too much, and reports failures without a shell', async () => {
@@ -92,7 +97,7 @@ describe('faster-whisper provider (fake programs)', () => {
 
 // ---- the real program (optional image layer, deployment/stt) ------------------------
 
-const realCommand = resolveCommand(process.env.REELFORGE_STT_COMMAND ?? 'reelforge-whisper');
+const realCommand = resolveCommand(process.env.RENDERWELD_STT_COMMAND ?? 'reelforge-whisper');
 const tools = resolveTools();
 const hasFlite = /\bflite\b/.test(spawnSync(tools.ffmpeg, ['-hide_banner', '-filters'], { encoding: 'utf8' }).stdout ?? '');
 
@@ -106,7 +111,7 @@ describe.skipIf(!realCommand || !hasFlite)('faster-whisper provider (the real pr
       {
         file: wav,
         language: 'auto',
-        settings: settings({ command: realCommand!, model: process.env.REELFORGE_STT_MODEL ?? 'small', ...(process.env.REELFORGE_STT_MODEL_DIR ? { modelDir: process.env.REELFORGE_STT_MODEL_DIR } : {}), timeoutSeconds: 300 }),
+        settings: settings({ command: realCommand!, model: process.env.RENDERWELD_STT_MODEL ?? 'small', ...(process.env.RENDERWELD_STT_MODEL_DIR ? { modelDir: process.env.RENDERWELD_STT_MODEL_DIR } : {}), timeoutSeconds: 300 }),
       },
       ctx()
     );

@@ -7,13 +7,13 @@ import { writeFileAtomic } from './fsutil';
  * HMAC signer for time-limited download links, so an agent can hand a plain
  * URL to a person or a tool that cannot send an Authorization header.
  * The key lives in <dataDir>/signing.key (mode 0600), created on first use,
- * or is derived from REELFORGE_SECRET_KEY for several instances (D-077).
+ * or is derived from RENDERWELD_SECRET_KEY for several instances (D-077).
  */
 export class UrlSigner {
   private key: Buffer | null = null;
 
   /**
-   * `sharedSecret` (REELFORGE_SECRET_KEY, set when several instances share the
+   * `sharedSecret` (RENDERWELD_SECRET_KEY, set when several instances share the
    * database queue): the key is derived from it, so every instance verifies
    * the links of the others. Otherwise a random key in <dataDir>/signing.key.
    */

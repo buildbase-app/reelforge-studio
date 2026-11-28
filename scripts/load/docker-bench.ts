@@ -12,7 +12,7 @@
  * cgroup), peak disk under /data and /tmp. The recommended setting for a size is the K with the best
  * throughput and no failure.
  *
- *   docker build --build-arg REELFORGE_EDITION=dev -t renderweld:bench-dev .   # licence settings not fixed
+ *   docker build --build-arg RENDERWELD_EDITION=dev -t renderweld:bench-dev .   # licence settings not fixed
  *   pnpm bench:docker                                      # 1:2,2:4,4:8 with 30 s 1080x1920 videos
  *   BENCH_SIZES=2:4 BENCH_WORKLOAD=h1080-60s pnpm bench:docker
  *   BENCH_SIZES=4:8 BENCH_CONCURRENCY=3 pnpm bench:docker  # one setting, no sweep
@@ -67,7 +67,7 @@ export function config(e: NodeJS.ProcessEnv = process.env) {
     shm: get('BENCH_SHM', '1g'),
     // As docs/public/install/docker.md runs it: Chrome's own sandbox under the seccomp profile that allows it.
     dockerArgs: get('BENCH_DOCKER_ARGS', '--security-opt seccomp=deployment/seccomp/chrome.json').split(' ').filter(Boolean),
-    // Extra REELFORGE_* settings, KEY=VALUE,KEY=VALUE (REELFORGE_CHROMIUM_NO_SANDBOX=1 where the host blocks user namespaces).
+    // Extra RENDERWELD_* settings, KEY=VALUE,KEY=VALUE (RENDERWELD_CHROMIUM_NO_SANDBOX=1 where the host blocks user namespaces).
     env: Object.fromEntries(get('BENCH_ENV', '').split(',').filter(Boolean).map((kv) => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)])),
     apiSeconds: Number(get('BENCH_API_SECONDS', '20')),
     apiParallel: Number(get('BENCH_API_PARALLEL', '32')),
@@ -152,22 +152,22 @@ function start(cfg: Config, size: Size, concurrency: number, extraEnv: Record<st
   const volume = `rwbench-${tag}`;
   const key = `rf_${randomBytes(24).toString('hex')}`;
   const envs: Record<string, string> = {
-    REELFORGE_HOST: '127.0.0.1',
-    REELFORGE_PORT: String(cfg.port),
-    REELFORGE_BOOTSTRAP_KEY: key,
-    REELFORGE_SECRET_KEY: randomBytes(24).toString('hex'),
-    REELFORGE_LICENCE_MODE: 'off',
-    REELFORGE_LOG_LEVEL: 'warn',
-    REELFORGE_RENDER_CONCURRENCY: String(concurrency),
-    REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
-    REELFORGE_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0',
+    RENDERWELD_HOST: '127.0.0.1',
+    RENDERWELD_PORT: String(cfg.port),
+    RENDERWELD_BOOTSTRAP_KEY: key,
+    RENDERWELD_SECRET_KEY: randomBytes(24).toString('hex'),
+    RENDERWELD_LICENCE_MODE: 'off',
+    RENDERWELD_LOG_LEVEL: 'warn',
+    RENDERWELD_RENDER_CONCURRENCY: String(concurrency),
+    RENDERWELD_RATE_LIMIT_PER_MINUTE: '0',
+    RENDERWELD_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0',
     ...cfg.env,
     ...extraEnv,
   };
   const mem = `${Math.round(size.memGiB * 1024)}m`;
   const args = ['run', '-d', '--name', name, '--network', 'host', '--cpus', String(size.cpus), '--memory', mem, '--memory-swap', mem, '--shm-size', cfg.shm, ...cfg.dockerArgs, '-v', `${volume}:/data`, ...Object.entries(envs).flatMap(([k, v]) => ['-e', `${k}=${v}`]), cfg.image];
   if (cfg.dryRun) {
-    console.log(`docker ${args.join(' ').replace(key, 'rf_…').replace(envs.REELFORGE_SECRET_KEY!, '…')}`);
+    console.log(`docker ${args.join(' ').replace(key, 'rf_…').replace(envs.RENDERWELD_SECRET_KEY!, '…')}`);
     return { name, id: 'dry', volume, url: `http://127.0.0.1:${cfg.port}`, key };
   }
   const id = docker(args);

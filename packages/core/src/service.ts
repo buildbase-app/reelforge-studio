@@ -45,12 +45,16 @@ import {
   type ValidationWarning,
   type ThemeTokens,
   safeAreaInsets,
+  applyGlossaryToTranscript,
+  glossaryPrompt,
+  restoreGlossaryTerms,
+  spokenText,
 } from '@renderweld/project-schema';
 import { BUNDLED_FONTS } from './fonts';
 import { CONTACT_SHEET_FILE, FRAMES_DEFAULT_WIDTH, FRAMES_MAX_WIDTH, FRAMES_MIN_WIDTH, framesCacheDir, framesImageWithinBudget, planFrames, sceneSpans, type ContactSheetManifest, type FramesRequest, type PlannedTile } from './frames';
 import type { VideoQaManifest } from './videoqa';
 import { audioChecks, type AudioManifest } from './audio';
-import { OLD_SERVER_NAMES, PRODUCT_NAME, SERVER_NAME } from './product';
+import { PRODUCT_NAME, SERVER_NAME } from './product';
 import { AssetStore, assetUsableBy, stageStream } from './assets';
 import { CAPTION_FILE_PATTERN, captionFileNames, captionFontChoice, captionFontList, captionsEtag, type CaptionManifest } from './captions';
 import { applyCaptionUpdate, getCaptionsInput, parseInput, projectCaptionsView, renderCaptionsView, transcribeInput, updateCaptionsInput, type ProjectCaptionsView, type RenderCaptionsView } from './captions-edit';
@@ -95,7 +99,7 @@ import { ProjectStore, isProjectId } from './store';
 import { isRowId, parsePageQuery, readPage } from './paging';
 import { createStorageDriver, type StorageFactory } from './storage/factory';
 import { contentTypeFor, PROJECTS_PREFIX, RENDER_MANIFEST, renderPrefix } from './storage/keys';
-import { StorageManager, type CleanupReport, type RetentionPolicy } from './storage/manager';
+import { StorageManager, renderDeletesAt, workspacePolicy, type CleanupReport, type RetentionPolicy, type WorkspaceRetention } from './storage/manager';
 import { ThemeStore } from './themes';
 import { NOOP_TELEMETRY, coreInstruments, withSpan, type Telemetry } from './telemetry';
 import { ClaimRate, DEFAULT_PRIORITY, PRIORITIES, defaultPriority, isPriority, lowerPriority, priorityRank, type JobPriority } from './priority';
@@ -228,7 +232,7 @@ export interface ProviderSetting {
   set: boolean;
   /** Where the value comes from; the value itself is never returned. `workspace`: the calling workspace's own (#480). */
   source: 'api' | 'env' | 'file' | 'build' | 'workspace' | 'unset';
-  /** A stored value that cannot be used (e.g. it cannot be decrypted with the current REELFORGE_SECRET_KEY). */
+  /** A stored value that cannot be used (e.g. it cannot be decrypted with the current RENDERWELD_SECRET_KEY). */
   error?: string;
 }
 
@@ -288,6 +292,8 @@ export interface RenderSummary {
   downloadUrlExpiresAt: string;
   /** "bucket": signed by the storage bucket (D-067); "server": a signed link to this server. */
   downloadVia: 'bucket' | 'server';
+  /** When the files go under the workspace's retention (#487). */
+  retention: RenderRetention;
   /** Present when the render had captions on (#300): whether they were burned in, the sidecar files and the quality check. */
   captions?: RenderCaptions;
   /** Where the files are: the storage driver and the render's key prefix in it (bucket and root: get_storage, admin). */
@@ -379,7 +385,7 @@ export interface UploadOptions {
 /** How long deleting a project waits for its cancelled renders to stop before removing its files (#419). */
 const DELETE_WAIT_MS = 15_000;
 
-export class ReelforgeService {
+export class RenderWeldService {
   readonly dataDir: string;
   readonly cacheDir: string;
   readonly projects: ProjectStore;
@@ -458,10 +464,7 @@ export class ReelforgeService {
       ...(isWorkspaceRouter(config.repositories)
         ? {
             workspaces: () => (config.repositories as WorkspaceRouter).workspaceIds(),
-            workspaceRetention: async (ws: string) => {
-              const l = (await (config.repositories as WorkspaceRouter).workspace(ws))?.limits;
-              return l && (l.retentionMaxAgeHours || l.retentionKeepLast) ? { maxAgeHours: l.retentionMaxAgeHours, keepLast: l.retentionKeepLast } : undefined;
-            },
+            workspaceRetention: (ws: string) => this.workspaceRetention(ws),
           }
         : {}),
       onSweep: (r) => this.auditCleanup(r, { actorType: 'system' }).then(() => undefined),
@@ -490,7 +493,11 @@ export class ReelforgeService {
       ? new WorkspaceAdmin({ repos: router, keys: this.keys, settings: this.settings, storage: this.storage, dataDir: this.dataDir, audit: (e) => this.audit(e), now: this.now, log: config.log })
       : null;
     this.serverVersion = config.serverVersion ?? '0.1.0';
-    this.publicUrl = (config.publicUrl ?? '').replace(/\/+$/, '');
+    // Trailing slashes trimmed by index, not by a regex, so a value of many slashes costs one pass.
+    const publicUrl = config.publicUrl ?? '';
+    let end = publicUrl.length;
+    while (end > 0 && publicUrl[end - 1] === '/') end--;
+    this.publicUrl = publicUrl.slice(0, end);
     this.fetchImpl = config.fetch ?? fetch;
     this.webhooks = new WebhookService({
       repo: this.repos.webhooks,
@@ -506,7 +513,7 @@ export class ReelforgeService {
     });
     const cfg = this.settings.current.config;
     const queueMode = config.queue?.mode ?? effectiveQueueMode(cfg.server.role, cfg.queue.driver);
-    // Several instances must verify each other's signed links: derive the key from REELFORGE_SECRET_KEY when it is set.
+    // Several instances must verify each other's signed links: derive the key from RENDERWELD_SECRET_KEY when it is set.
     this.signer = new UrlSigner(this.dataDir, queueMode === 'database' ? cfg.security.secretKey : undefined);
     const workerId = config.queue?.workerId ?? defaultWorkerId();
     this.licence = createLicenceManager(this.settings, this.repos, {
@@ -575,15 +582,15 @@ export class ReelforgeService {
     }
   }
 
-  static async create(registry: PluginRegistry, config: ServiceConfig): Promise<ReelforgeService> {
-    const s = new ReelforgeService(registry, config);
+  static async create(registry: PluginRegistry, config: ServiceConfig): Promise<RenderWeldService> {
+    const s = new RenderWeldService(registry, config);
     await mkdir(s.dataDir, { recursive: true });
     if (s.jobs.mode === 'inprocess') await s.jobs.init();
     await s.signer.init();
     await s.settings.load();
     const encrypted = await s.settings.encryptPlaintext();
     if (encrypted.length) {
-      config.log?.('info', `encrypted ${encrypted.length} stored secret(s) with REELFORGE_SECRET_KEY: ${encrypted.join(', ')}`);
+      config.log?.('info', `encrypted ${encrypted.length} stored secret(s) with RENDERWELD_SECRET_KEY: ${encrypted.join(', ')}`);
       await s.audit({ actorType: 'system', action: 'config.secrets.encrypt', data: { names: encrypted } });
     }
     const logged = new Set(config.loggedConfigWarnings ?? []);
@@ -673,7 +680,7 @@ export class ReelforgeService {
 
   /**
    * Maintenance: delete audit entries past audit.retentionDays and expired
-   * idempotency keys. Runs hourly; `reelforge audit sweep` runs it on demand.
+   * idempotency keys. Runs hourly; `renderweld audit sweep` runs it on demand.
    */
   async sweep(now = this.now()) {
     const auditDeleted = await this.auditLog.sweep(this.settings.current.config.audit.retentionDays, now);
@@ -912,8 +919,7 @@ export class ReelforgeService {
     const engines = this.registry.listEngines();
     const sandboxOff = engines.filter((e) => e.browserSandbox?.() === false).map((e) => e.id);
     return {
-      // `name` is the RenderWeld server name; `aliases` keeps the old one findable until phase 7 (#413, docs/RENAMED.md).
-      server: { name: SERVER_NAME, title: PRODUCT_NAME, aliases: [...OLD_SERVER_NAMES], version: this.serverVersion, edition: this.settings.current.build.edition, mcpToolsStatus: 'experimental' },
+      server: { name: SERVER_NAME, title: PRODUCT_NAME, version: this.serverVersion, edition: this.settings.current.build.edition, mcpToolsStatus: 'experimental' },
       schemaVersion: SCHEMA_VERSION,
       supportedSchemaVersions: SUPPORTED_SCHEMA_VERSIONS,
       engines: engines.map((e) => {
@@ -960,7 +966,7 @@ export class ReelforgeService {
                 `Chromium runs without its own sandbox for: ${sandboxOff.join(', ')}. The container (non-root, read-only, no capabilities) is the isolation boundary.` +
                 (sandboxOff.includes('remotion') ? ' Remotion always passes --no-sandbox.' : '') +
                 (sandboxOff.some((id) => id !== 'remotion')
-                  ? ' REELFORGE_CHROMIUM_NO_SANDBOX=1 is an explicit opt-out: to sandbox html, hyperframes and motion-canvas, unset it and run the container with the seccomp profile deployment/seccomp/chrome.json (docs/security/HARDENING.md).'
+                  ? ' RENDERWELD_CHROMIUM_NO_SANDBOX=1 is an explicit opt-out: to sandbox html, hyperframes and motion-canvas, unset it and run the container with the seccomp profile deployment/seccomp/chrome.json (docs/security/HARDENING.md).'
                   : ''),
             }
           : {}),
@@ -1048,7 +1054,7 @@ export class ReelforgeService {
    * and write one audit entry for the call (result "denied"). Never throws.
    */
   async recordLimitRejection(reason: LimitReason, data: Record<string, unknown> = {}) {
-    coreInstruments(this.telemetry.meter).limitRejections.add(1, { 'reelforge.limit.reason': reason });
+    coreInstruments(this.telemetry.meter).limitRejections.add(1, { 'renderweld.limit.reason': reason });
     const auth = currentRequest()?.auth;
     try {
       await this.audit({
@@ -1325,7 +1331,7 @@ export class ReelforgeService {
    * token must be one approve_render_plan made for this workspace, project and plan (version and options), not
    * expired and not used before; it is spent here, so a render is started once per approval.
    */
-  private async requireApproval(projectId: string, variant: unknown, token: unknown): Promise<Awaited<ReturnType<ReelforgeService['planRender']>> | undefined> {
+  private async requireApproval(projectId: string, variant: unknown, token: unknown): Promise<Awaited<ReturnType<RenderWeldService['planRender']>> | undefined> {
     const cfg = this.settings.current.config.render.approval;
     if (cfg.mode === 'off') return undefined;
     const plan = await this.planRender(projectId, { variant });
@@ -1492,7 +1498,7 @@ export class ReelforgeService {
         const scenes = next.scenes as unknown[];
         const index = opts.index === undefined ? scenes.length : Math.max(0, Math.min(scenes.length, opts.index));
         scenes.splice(index, 0, structuredClone(scene));
-        ReelforgeService.stripStartFrames(next);
+        RenderWeldService.stripStartFrames(next);
         const r = this.parseOrThrow(next);
         warnings = r.warnings;
         return r.project;
@@ -1523,7 +1529,7 @@ export class ReelforgeService {
         }
         // An engine change usually means new props.
         scenes[i] = applyMergePatch(scenes[i], p) as Record<string, unknown>;
-        ReelforgeService.stripStartFrames(next);
+        RenderWeldService.stripStartFrames(next);
         const r = this.parseOrThrow(next);
         warnings = r.warnings;
         return r.project;
@@ -1543,7 +1549,7 @@ export class ReelforgeService {
         if (i < 0) throw notFound('scene', sceneId, { scenes: scenes.map((s) => s.id) });
         if (scenes.length === 1) throw badRequest('a project needs at least one scene; add another before removing this one');
         scenes.splice(i, 1);
-        ReelforgeService.stripStartFrames(next);
+        RenderWeldService.stripStartFrames(next);
         return this.parseOrThrow(next).project;
       },
       expectedVersion
@@ -1562,7 +1568,7 @@ export class ReelforgeService {
         const next = structuredClone(current) as unknown as Record<string, unknown>;
         const byId = new Map((next.scenes as Array<Record<string, unknown>>).map((s) => [s.id as string, s]));
         next.scenes = order.map((o) => byId.get(o)!);
-        ReelforgeService.stripStartFrames(next);
+        RenderWeldService.stripStartFrames(next);
         return this.parseOrThrow(next).project;
       },
       expectedVersion
@@ -1746,7 +1752,9 @@ export class ReelforgeService {
     const language = t.language ?? s.language;
     const hash = createHash('sha256');
     await pipeline(createReadStream(file), hash);
-    const key = createHash('sha256').update(JSON.stringify([plugin.id, hash.digest('hex'), s.model, s.computeType, s.device, language])).digest('hex');
+    // The glossary's terms as the prompt (#486): a different glossary is a different transcription.
+    const prompt = glossaryPrompt(manifest.glossary);
+    const key = createHash('sha256').update(JSON.stringify([plugin.id, hash.digest('hex'), s.model, s.computeType, s.device, language, prompt ?? ''])).digest('hex');
     const cacheFile = join(this.cacheDir, 'stt', `${key}.json`);
     type Cached = { language: string | null; words: Array<{ text: string; start: number; end: number }>; durationSeconds?: number; engine: Record<string, string> };
     let result = existsSync(cacheFile) ? await readJson<Cached>(cacheFile).catch(() => null) : null;
@@ -1756,15 +1764,17 @@ export class ReelforgeService {
       this.sttRunning++;
       try {
         const logs: string[] = [];
-        result = await withSpan(this.telemetry.tracer, `stt.transcribe ${plugin.id}`, { 'reelforge.stt.provider': plugin.id }, () =>
-          plugin.transcribe({ file, language, settings: s }, { signal: AbortSignal.timeout((s.timeoutSeconds + 5) * 1000), log: (l) => logs.push(l) })
+        result = await withSpan(this.telemetry.tracer, `stt.transcribe ${plugin.id}`, { 'renderweld.stt.provider': plugin.id }, () =>
+          plugin.transcribe({ file, language, settings: s, ...(prompt ? { prompt } : {}) }, { signal: AbortSignal.timeout((s.timeoutSeconds + 5) * 1000), log: (l) => logs.push(l) })
         );
         await writeJsonAtomic(cacheFile, result);
       } finally {
         this.sttRunning--;
       }
     }
-    const words = voiceWords(result.words);
+    // Exact spellings from the glossary (#486): every term in any letter case and each listed alternative.
+    const glossed = applyGlossaryToTranscript(voiceWords(result.words), manifest.glossary);
+    const words = glossed.words;
     const detected = result.language && isLanguageTag(result.language) ? result.language : null;
     let manualCues = 0;
     const stored = await this.projects.update(
@@ -1793,6 +1803,8 @@ export class ReelforgeService {
       words: words.length,
       ...(result.durationSeconds !== undefined ? { durationSeconds: result.durationSeconds } : {}),
       cached,
+      // Each spelling the glossary corrected (#486), so the user can see what changed.
+      ...(glossed.replacements.length ? { glossaryReplacements: glossed.replacements } : {}),
       ...(manualCues ? { note: `captions.cues has ${manualCues} manual caption cue(s), which take precedence over the voice; call again with replaceCues: true to show the transcription` } : {}),
       ...(words.length ? {} : { note: 'no speech was recognised in the voice track' }),
       captions: view,
@@ -2478,6 +2490,7 @@ export class ReelforgeService {
       ...(poster ? { posterUrl: this.url(`${base}?file=poster.png`) } : {}),
       manifestUrl: this.url(`${base}?file=render-manifest.json`),
       ...(await this.downloadLink(projectId, runId, outFile)),
+      retention: await this.renderRetention(projectId, runId, m.createdAt),
       ...(captions ? { captions } : {}),
       ...(m.audio?.loudness && m.audio.track ? { audio: renderAudio(m.audio as AudioManifest) } : {}),
       ...(m.videoQa ? { videoQa: m.videoQa } : {}),
@@ -2486,13 +2499,60 @@ export class ReelforgeService {
     };
   }
 
+  /** A workspace's own retention, from its limits (#487); undefined when it has none. */
+  private async workspaceRetention(ws: string): Promise<WorkspaceRetention | undefined> {
+    if (!isWorkspaceRouter(this.config.repositories)) return undefined;
+    const l = (await this.config.repositories.workspace(ws))?.limits;
+    if (!l || !(l.retentionMaxAgeHours || l.retentionKeepLast || l.retentionDeleteAfterDownloadMinutes)) return undefined;
+    return {
+      ...(l.retentionMaxAgeHours ? { maxAgeHours: l.retentionMaxAgeHours } : {}),
+      ...(l.retentionKeepLast ? { keepLast: l.retentionKeepLast } : {}),
+      ...(l.retentionDeleteAfterDownloadMinutes ? { deleteAfterDownloadMinutes: l.retentionDeleteAfterDownloadMinutes } : {}),
+    };
+  }
+
+  /**
+   * Record the first download of a render's output (#487), for delete-after-download and for get_render_output's
+   * `retention.downloadedAt`. Called by the download route once the output is being sent; posters, manifests and
+   * caption files do not count. Remembered per process so range requests do not stat storage each time.
+   */
+  async markDownloaded(runId: string, file: string): Promise<void> {
+    if (!OUTPUT_FILE_PATTERN.test(file)) return;
+    const memo = `${currentWorkspaceId()}:${runId}`;
+    if (this.downloaded.has(memo)) return;
+    const { projectId } = await this.findRender(runId);
+    const at = await this.storage.renders.markDownloaded(projectId, runId, file, new Date(this.now()).toISOString());
+    if (!at) return;
+    if (this.downloaded.size > 10_000) this.downloaded.clear();
+    this.downloaded.add(memo);
+  }
+  private readonly downloaded = new Set<string>();
+
+  /** When the sweep will delete this render under its workspace's policy (#487), and when it was first downloaded. */
+  private async renderRetention(projectId: string, runId: string, createdAt: string): Promise<RenderRetention> {
+    const own = await this.workspaceRetention(currentWorkspaceId());
+    const policy = workspacePolicy(this.storage.policy(), own);
+    const downloadedAt = await this.storage.renders.downloadedAt(projectId, runId);
+    const due = renderDeletesAt(policy, { createdAt, downloadedAt });
+    return {
+      downloadedAt,
+      deletesAt: due?.at ?? null,
+      ...(due ? { deleteReason: due.reason } : {}),
+      ...(policy.deleteAfterDownloadMinutes ? { deleteAfterDownloadMinutes: policy.deleteAfterDownloadMinutes } : {}),
+      ...(policy.keepLastRendersPerProject > 0 ? { keepLast: policy.keepLastRendersPerProject } : {}),
+    };
+  }
+
   /**
    * downloadUrl for a render file: signed by the bucket when the driver can
    * and storage.downloads allows it, else a signed link to this server (D-067).
+   * A workspace that deletes renders after their first download gets server links (#487): only this server sees a
+   * download, so a bucket link would never start the grace.
    */
   private async downloadLink(projectId: string, runId: string, file = 'final.mp4') {
     const ttl = this.config.signedUrlTtlSeconds ?? 3600;
-    const url = await this.storage.bucketUrl(renderPrefix(projectId, runId) + file, ttl, { filename: file.split('/').pop(), contentType: contentTypeFor(file) });
+    const tracked = Boolean((await this.workspaceRetention(currentWorkspaceId()))?.deleteAfterDownloadMinutes);
+    const url = tracked ? null : await this.storage.bucketUrl(renderPrefix(projectId, runId) + file, ttl, { filename: file.split('/').pop(), contentType: contentTypeFor(file) });
     if (url) return { downloadUrl: url, downloadUrlExpiresAt: new Date(Date.now() + Math.min(ttl, 7 * 24 * 3600) * 1000).toISOString(), downloadVia: 'bucket' as const };
     return { ...this.signedDownload(runId, file, ttl), downloadVia: 'server' as const };
   }
@@ -2809,8 +2869,12 @@ export class ReelforgeService {
         issues: parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message })),
       });
     }
-    if (opts.projectId) await this.projects.get(opts.projectId);
-    const cacheKey = provider.cacheKey?.(parsed.data);
+    const glossary = opts.projectId ? (await this.projects.get(opts.projectId)).manifest.glossary : undefined;
+    // TTS reads each glossary term's `spoken` form (#486); the captions and the stored text keep the term.
+    const text = provider.kind === 'tts' ? (parsed.data as { text?: unknown }).text : undefined;
+    const spoken = typeof text === 'string' && glossary?.length ? spokenText(text, glossary) : null;
+    const callParams = spoken?.replaced ? { ...(parsed.data as object), text: spoken.text } : parsed.data;
+    const cacheKey = provider.cacheKey?.(callParams);
     // Per workspace (#304): a hit points at an asset of the caller's workspace.
     const cacheFile = cacheKey ? join(this.cacheDir, 'providers', workspaceKeyPrefix(currentWorkspaceId()), `${cacheKey}.json`) : null;
     let result: { asset: StoredAsset; data?: Record<string, unknown>; cached?: boolean } | undefined;
@@ -2819,7 +2883,7 @@ export class ReelforgeService {
       const asset = hit ? await this.assets.find(hit.assetId) : undefined;
       if (hit && asset) {
         result = { asset, data: hit.data, cached: true };
-        coreInstruments(this.telemetry.meter).providerCalls.add(1, { 'reelforge.provider': providerId, 'reelforge.provider.kind': provider.kind, 'reelforge.outcome': 'cached' });
+        coreInstruments(this.telemetry.meter).providerCalls.add(1, { 'renderweld.provider': providerId, 'renderweld.provider.kind': provider.kind, 'renderweld.outcome': 'cached' });
       }
     }
     if (!result) {
@@ -2838,10 +2902,10 @@ export class ReelforgeService {
       await this.reserveProviderRun(providerId);
       const controller = new AbortController();
       const calls = coreInstruments(this.telemetry.meter).providerCalls;
-      const attrs = { 'reelforge.provider': providerId, 'reelforge.provider.kind': provider.kind };
+      const attrs = { 'renderweld.provider': providerId, 'renderweld.provider.kind': provider.kind };
       try {
         result = await withSpan(this.telemetry.tracer, `provider.run ${providerId}`, attrs, () =>
-          provider.run(parsed.data, {
+          provider.run(callParams, {
             signal: controller.signal,
             log: () => undefined,
             putAsset: (input) => this.assets.put(input),
@@ -2850,10 +2914,10 @@ export class ReelforgeService {
           })
         );
       } catch (e) {
-        calls.add(1, { ...attrs, 'reelforge.outcome': 'error' });
+        calls.add(1, { ...attrs, 'renderweld.outcome': 'error' });
         throw e;
       }
-      calls.add(1, { ...attrs, 'reelforge.outcome': 'ok' });
+      calls.add(1, { ...attrs, 'renderweld.outcome': 'ok' });
       if (cacheFile) await writeJsonAtomic(cacheFile, { assetId: result.asset.id, data: result.data });
     }
     let projectAssetId: string | undefined;
@@ -2861,8 +2925,9 @@ export class ReelforgeService {
       projectAssetId = await this.attachToProject(opts.projectId, result.asset, opts.assetId ?? (provider.kind === 'tts' ? 'voice' : undefined));
       if (provider.kind === 'tts' && (opts.attachAs ?? 'voice') === 'voice') {
         const p = parsed.data as { text?: string; voiceId?: string };
-        // Word timestamps (ElevenLabs "with-timestamps") are kept on the voice track: captions are built from them (#300).
-        const words = voiceWords(result.data?.words);
+        // Word timestamps (ElevenLabs "with-timestamps") are kept on the voice track: captions are built from them (#300),
+        // with each `spoken` respelling turned back into its glossary term (#486).
+        const words = spoken?.replaced ? restoreGlossaryTerms(voiceWords(result.data?.words), glossary).words : voiceWords(result.data?.words);
         await this.projects.update(opts.projectId, (current) =>
           this.parseOrThrow({
             ...current,
@@ -3011,7 +3076,7 @@ export class ReelforgeService {
 
   /**
    * Set or clear provider settings (owner). Only the names the provider declares are accepted. Values are
-   * stored encrypted (REELFORGE_SECRET_KEY is required) and override the file and environment; clearing one
+   * stored encrypted (RENDERWELD_SECRET_KEY is required) and override the file and environment; clearing one
    * falls back to them. With `workspaceId` (not the default workspace), they are that workspace's own (#480),
    * as configure_workspace_provider sets them.
    */
@@ -3100,7 +3165,7 @@ export class ReelforgeService {
   /**
    * Set the licence key (optional: without one the configured key is checked
    * again) and activate it now. The key is stored as the encrypted runtime
-   * setting licence.key (needs REELFORGE_SECRET_KEY); audit-logged without it.
+   * setting licence.key (needs RENDERWELD_SECRET_KEY); audit-logged without it.
    */
   async activateLicence(key: unknown, actor?: Actor) {
     if (key !== undefined && key !== null) {
@@ -3241,6 +3306,10 @@ export class ReelforgeService {
   }
   restoreWorkspace(id: string, actor?: Actor) {
     return this.admin().restore(id, actor);
+  }
+  /** set_workspace_retention (#487): the caller's workspace, tighter only. */
+  setWorkspaceRetention(input: Record<string, unknown>, actor?: Actor) {
+    return this.admin().tightenRetention(input, actor);
   }
 
   /**
@@ -3421,4 +3490,15 @@ export interface RenderJobEstimate {
   renderSeconds: number | null;
   bytes: number | null;
   basis: 'measured' | 'partial' | 'none';
+}
+
+/** get_render_output's `retention` (#487): when the render was first downloaded and when the sweep may delete it. */
+export interface RenderRetention {
+  /** The first download of its output through this server; null: not downloaded yet. */
+  downloadedAt: string | null;
+  /** The earliest time the sweep may delete it (it runs every storage.retention.sweepIntervalMinutes); null: kept until deleted by hand. A keep-last can keep it longer. */
+  deletesAt: string | null;
+  deleteReason?: 'deleted_after_download' | 'older_than_workspace_retention' | 'older_than_renderDays';
+  deleteAfterDownloadMinutes?: number;
+  keepLast?: number;
 }

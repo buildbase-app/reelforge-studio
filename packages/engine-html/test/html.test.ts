@@ -6,12 +6,11 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PipelineError, checkExpectation, frameStats, probe, resolveTools } from '@renderweld/media-pipeline';
 import { builtinTheme, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
-import { CSP, buildDocument, chromiumSandbox, escapeHtml, htmlEngine, htmlTitle, renderHtmlScene } from '../src/index';
-import { envValue } from '@renderweld/core';
+import { CSP, buildDocument, chromiumSandbox, escapeHtml, htmlEngine, htmlSceneTimeoutMs, htmlTitle, renderHtmlScene } from '../src/index';
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
-const requireBrowser = envValue('REELFORGE_REQUIRE_BROWSER') === '1';
+const requireBrowser = process.env.RENDERWELD_REQUIRE_BROWSER === '1';
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-html-'));
 // Chrome can still be flushing its profile when the suite ends; retry ENOTEMPTY/EBUSY.
 afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
@@ -34,7 +33,7 @@ describe('document builder', () => {
     expect(htmlTitle({ headline: '<script>alert(1)</script>' }, 2).html).not.toContain('<script>');
   });
   it('keeps the Chromium sandbox on unless root or explicitly disabled', () => {
-    expect(chromiumSandbox({ REELFORGE_CHROMIUM_NO_SANDBOX: '1' })).toBe(false);
+    expect(chromiumSandbox({ RENDERWELD_CHROMIUM_NO_SANDBOX: '1' })).toBe(false);
     if (process.getuid?.() !== 0) expect(chromiumSandbox({})).toBe(true);
   });
   it('reports itself as a plugin with the html-title template', () => {
@@ -42,6 +41,21 @@ describe('document builder', () => {
     expect(e.id).toBe('html');
     expect(e.acceptsSource).toBe(true);
     expect(e.templates().map((t) => t.id)).toEqual(['html-title', 'html-layout']);
+  });
+});
+
+describe('scene timeout', () => {
+  it('is whole milliseconds at every size, so AbortSignal.timeout accepts it (4096x1716 failed every render)', () => {
+    const cap = 900_000;
+    for (const [frames, w, h] of [[72, 4096, 1716], [3, 2560, 1440], [30, 2560, 1080], [45, 1080, 1920], [30, 3840, 2160], [7, 1366, 768]] as const) {
+      const ms = htmlSceneTimeoutMs(frames, w, h, undefined, cap);
+      expect(Number.isInteger(ms), `${w}x${h}`).toBe(true);
+      expect(() => AbortSignal.timeout(ms)).not.toThrow();
+      // Never shorter than the time the formula gives.
+      expect(ms).toBeGreaterThanOrEqual(30_000 + frames * 1000 * Math.max(1, (w * h) / (1920 * 1080)) - 1e-6);
+    }
+    expect(htmlSceneTimeoutMs(10_000, 3840, 2160, undefined, cap)).toBe(cap);
+    expect(htmlSceneTimeoutMs(10, 1920, 1080, 12_345.6, cap)).toBe(12_346);
   });
 });
 
@@ -60,12 +74,12 @@ describe('security: document shell (SEC-01)', () => {
 });
 
 describe('browser requirement', () => {
-  it.runIf(requireBrowser)('REELFORGE_REQUIRE_BROWSER=1: a browser must be configured', () => {
+  it.runIf(requireBrowser)('RENDERWELD_REQUIRE_BROWSER=1: a browser must be configured', () => {
     expect(hasBrowser).toBe(true);
   });
 });
 
-describe.skipIf(!hasBrowser)('renderHtmlScene (needs REELFORGE_CHROMIUM_PATH)', () => {
+describe.skipIf(!hasBrowser)('renderHtmlScene (needs RENDERWELD_CHROMIUM_PATH)', () => {
   const tools = hasBrowser ? resolveTools() : (null as never);
 
   it('renders the built-in html-title template: exact frames, non-empty first frame', async () => {
@@ -79,6 +93,14 @@ describe.skipIf(!hasBrowser)('renderHtmlScene (needs REELFORGE_CHROMIUM_PATH)', 
     expect(checkExpectation(info, { width: 360, height: 640, fps: 30, frames: 45, audio: false })).toEqual([]);
     const first = await frameStats(tools.ffmpeg, out, 0);
     expect(first.yMax - first.yMin).toBeGreaterThan(40);
+  }, 120_000);
+
+  it('renders a size whose pixels are not a whole multiple of 1080p (2560x1440)', async () => {
+    const scene: RenderScene = { id: 'qhd', engine: 'html', template: 'html-title', durationFrames: 3, props: { headline: 'QHD' } };
+    const out = join(dir, 'qhd.mp4');
+    const res = await renderHtmlScene({ scene, output: { ...output, width: 2560, height: 1440 }, theme, out, ffmpeg: tools.ffmpeg });
+    expect(res.frames).toBe(3);
+    expect(checkExpectation(await probe(tools.ffprobe, out), { width: 2560, height: 1440, fps: 30, frames: 3, audio: false })).toEqual([]);
   }, 120_000);
 
   it('seeks CSS animations deterministically (frame N shows the animation at N/fps)', async () => {

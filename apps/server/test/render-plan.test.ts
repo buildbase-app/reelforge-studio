@@ -64,7 +64,7 @@ beforeAll(async () => {
     { dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' },
     {
       registry: new PluginRegistry().registerEngine(fakeEngine('remotion', { delayPerFrameMs: 2 })).registerEngine(fakeEngine('motion-canvas')),
-      env: { ...database.env, REELFORGE_LICENCE_MODE: 'off', REELFORGE_RATE_LIMIT_PER_MINUTE: '0', REELFORGE_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0' },
+      env: { ...database.env, RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_RATE_LIMIT_PER_MINUTE: '0', RENDERWELD_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0' },
       quiet: true,
     }
   );

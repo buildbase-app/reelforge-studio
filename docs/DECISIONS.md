@@ -3182,3 +3182,102 @@ Deletions show the reason `older_than_workspace_retention`. *Why:* a tenant with
 legal client) needs a short retention without imposing it on every tenant. *Not yet (#487):* zero retention
 (delete once the result is delivered), delete-after-first-download, and a workspace admin setting it without the
 owner. These need download and delivery tracking and are a follow-up.
+
+### D-137 --- Project glossary: the user's spellings and pronunciations, applied by exact match only
+
+**Status:** DECIDED (agent, 2026-11-25, #486; reversible). Number assigned at merge.\
+**Decision:** a project's manifest takes an optional `glossary` (up to 200 terms, each once, letter case ignored):
+`term` (the exact spelling), `spoken` (what the voice should say), `alternatives` (spellings speech-to-text tends to
+produce) and `doNotTranslate`. Speech-to-text gets the terms as its prompt (faster-whisper `initial_prompt`, passed as
+one `--initial-prompt=` argument so a term can never become an option) and its words are respelled where they match a
+term or an alternative as whole words; `transcribe_captions` reports each replacement. A voice made for a project reads
+each term's `spoken` form, while the stored text keeps the term and the returned word timings are turned back into it.
+Caption QA compares how often the script and the cues spell each term exactly and fails on a difference
+(`qa.glossary`). *Why:* brand and product names are the most visible caption errors, and only the user knows how their
+names are spelled and said. Exact matching keeps the studio from rewriting a real word. *Rejected:* fuzzy or phonetic
+matching (it rewrites ordinary words that sound alike); provider pronunciation dictionaries such as SSML phonemes or
+ElevenLabs dictionaries (each provider has its own format and not every one has any; plain spoken text works with
+all of them); translating with `doNotTranslate` (the studio translates nothing, so the flag is stored for the agent
+or translation tool).
+
+### D-138 --- Delete after download, seen by this server; workspace admins can only tighten retention
+
+**Status:** DECIDED (agent, 2026-11-25, #487; reversible). Number assigned at merge.\
+**Decision:** a workspace limit `retentionDeleteAfterDownloadMinutes` deletes a render that many minutes after the
+first download of its output, whatever its age and keep-last. A download is a whole-file answer, or a range reaching
+the last byte, from the output route with a key or a signed link. It writes `downloaded.json` beside the render, once;
+the object's time is the record, so it works on every storage driver and is deleted with the render. Such a
+workspace's download links go through this server, not the bucket, because only the server sees a download.
+`get_render_output` reports `retention.downloadedAt` and `deletesAt`. A workspace admin may tighten its own retention
+(`set_workspace_retention`), never loosen or clear it; the owner keeps that through `update_workspace`. *Why:* a
+tenant under a data policy needs "keep nothing once delivered", and an owner's retention may be a commitment that
+someone inside the workspace must not undo. *Rejected:* deleting when the completion webhook is delivered (the
+webhook tells the receiver where to fetch the file, so it would be gone); counting a bucket-signed link as a download
+when it is issued (an issued link is not a delivery); a separate store for the admin's own values, which would need a
+migration for little gain over tighten-only.
+
+### D-139 --- Readability warnings before a render: text under 12 px, and pane text under the WCAG contrast minimum
+
+**Status:** DECIDED (agent, 2026-11-26, #313 design gate; reversible). Number assigned at merge.\
+**Decision:** project validation warns when a built-in template would set body text under 12 px at the output size
+or any variant's size, and when a pane's own colour leaves its headline under 3:1 (large text) or its body under
+4.5:1 against the theme's text colours, or a lower third's text under 4.5:1 against its background (WCAG 2.2 SC
+1.4.3). Warnings, not errors. *Why:* rendering many sizes from one manifest showed a 728x90 banner with 5 px body
+text and white headlines on a near-white pane; both shipped silently. The 12 px floor is a studio default (below it
+words blur on a phone screen); the contrast numbers are WCAG's. *Rejected:* changing text colours automatically (it
+overrides a brand's choice without saying so); failing validation (some designs use a low-contrast word on purpose).
+
+### D-140 --- The old ReelForge names are removed, with no deprecation window; internal names stay
+
+**Status:** DECIDED (owner, 2026-11-27, #413 and #416; reversible). Number assigned at merge.\
+**Decision:** the compatibility layer of D-127 goes. The server, CLI and image read and serve only the RenderWeld
+names: `RENDERWELD_*` settings (no `REELFORGE_*` twin, no `REELFORGE_LICENSE_*` spelling), the `renderweld` command
+(no `reelforge` bin), `renderweld://` MCP URIs, `renderweld:*` OAuth scopes, `renderweld_*` metrics and
+`renderweld.*` attributes, the `X-Renderweld-Message-Id` header, `RenderWeld-*/1` user agents, the
+`app.renderweld.edition` label, the server name `renderweld` and the OpenTelemetry `service.name` default
+`renderweld` (a buyer sees it in their tracing tools). The compose service is `renderweld`, which the
+public site's install steps use. Names a buyer never types stay as they are: the repository and image names (the
+owner renames those), the SQLite file `reelforge.db`, the `reelforge-data` volume, Kubernetes objects, database
+users and the `reelforge-whisper` program. The contributor-only test switches and the image's version build
+argument move with CI to `RENDERWELD_REQUIRE_BROWSER`, `RENDERWELD_REQUIRE_EGRESS`, `RENDERWELD_REQUIRE_STORAGE`,
+`RENDERWELD_TEST_DB` and `RENDERWELD_VERSION`. *Why:* no buyer and no user ever ran the studio under the old names, so the window D-127
+promised protects no one and keeps two names on every surface; renaming internal names would move data for no
+reader. *Rejected:* keeping the aliases until a dated removal (nobody to protect); renaming every lowercase
+identifier too (data and deployment identity would move, and no buyer sees them).
+
+### D-141 --- Prices: Solo $9, Studio $29, Agency $79, Unlimited $99, one-time and lifetime; every image needs a key from a signed-in BuildBase account
+
+**Status:** DECIDED (owner, 2026-11-27, #91; reversible for new buyers). Number assigned at merge.\
+**Decision:** the Commercial licence sells once, as a lifetime licence, in four tiers by the number of servers it
+activates: **Solo $9** (1 server), **Studio $29** (3), **Agency $79** (10) and **Unlimited $99** (no server limit).
+Personal stays free for noncommercial use on 1 server. Prices are plain prices, not a "launch price" (a launch
+price needs a real end date under the contest rules in #91), and live only in the BuildBase items, never in code.
+Country discount codes (40 % or 60 % off, purchasing-power parity) apply to Studio, Agency and Unlimited; Solo is
+one price everywhere, since a 60 % code on $9 would leave less than the fixed card fee is worth. *Intent for the
+licence:* every running release image needs a licence key, each server takes one activation (D-098), and every key
+belongs to a signed-in BuildBase account, so the production store turns guest checkout off (#127). *Why:* buyers
+already pay for AI plans and their own server; RenderWeld should be the smallest line in that bill, priced against
+self-hosted tools sold once (Sendy $69, Remotion's Editor Starter $600 on 27 Nov 2026), not against hosted
+tools whose credits pay for their own cloud. $9 keeps $8.44 a sale after a US card fee of 2.9 % + 30 cents, against
+$4.56 at $5. *Rejected:* $49 / $149 / $399 and $149 / $349 / $899 (above what buyers who already pay for AI
+credits will add); $5 for Solo (needs about twice the buyers for the same income). *Open:* whether a BuildBase
+key can carry unlimited activations or Unlimited needs a high count (#127); which countries fall in each discount
+band. **Amended by D-142:** "lifetime" means every release of the major version bought (a 1.x key works on every
+1.x release).
+
+### D-142 --- A licence key covers one major version: a 1.x key works on every 1.x release, and 2.0 is a new purchase
+
+**Status:** DECIDED (owner, 2026-11-27, #91, #97; reversible for new buyers). Number assigned at merge.\
+**Decision:** each Commercial tier (D-141) is sold as an item for one major version, such as "RenderWeld 1".
+A key bought for it works, forever, on every release of that major version, and only on that major version: a
+release image accepts a key only when BuildBase says it was bought for an item of the image's own major version.
+2.0 is a new purchase, which a coupon can discount for people who bought 1.x.
+*Intent for the licence check:* BuildBase's answer to a licence check already names the item the key
+was bought for (`item` in `LicenceAnswer`), so the image needs no change at BuildBase; it needs the allowed items for
+its major version fixed at build time, beside the licence settings that D-039 already fixes. This is written as
+intent: the licence check does not compare items yet. *Why:* "lifetime" must say what a buyer gets; one major
+version is the usual meaning for software sold once, and it pays for later major versions without a subscription.
+*Rejected:* updates for a fixed time (such as a year): BuildBase's only date on a key, its expiry, switches the key
+off completely, so a buyer could not even set up a new server on an old release; every future version (no income
+from later work). *Open:* whether a 2.0 image should still run a 1.x key in a reduced mode or refuse it; the upgrade
+discount for 1.x buyers. The first release sold is 1.0.0 (images are 0.1.0 today).

@@ -19,7 +19,6 @@ import {
   stampMatches,
   type ResolvedAsset,
   type StagedSceneAssets,
-  envValue,
 } from '@renderweld/core';
 import type { Tools } from '@renderweld/media-pipeline';
 import {
@@ -58,7 +57,7 @@ export interface MotionCanvasRenderOptions {
   /** Directory for the built browser bundle. Reused between renders. */
   cacheDir: string;
   ffmpeg: string;
-  /** Chromium/Chrome binary. Falls back to REELFORGE_CHROMIUM_PATH, then Playwright's default. */
+  /** Chromium/Chrome binary. Falls back to RENDERWELD_CHROMIUM_PATH, then Playwright's default. */
   browserExecutable?: string;
   signal?: AbortSignal;
   onProgress?: (framesDone: number, framesTotal: number) => void;
@@ -105,7 +104,7 @@ export function resolveBrowser(
   env: NodeJS.ProcessEnv = process.env,
   fallback: () => string | undefined = safeDefaultPath
 ): string {
-  const candidates = [explicit, envValue('REELFORGE_CHROMIUM_PATH', env), fallback()].filter(
+  const candidates = [explicit, env.RENDERWELD_CHROMIUM_PATH, fallback()].filter(
     (p): p is string => Boolean(p)
   );
   const found = candidates.find((p) => existsSync(p));
@@ -329,7 +328,7 @@ export async function renderMotionCanvasScene(
     browser = await chromium.launch({
       executablePath: executable,
       headless: true,
-      // Chromium's own sandbox unless REELFORGE_CHROMIUM_NO_SANDBOX=1 or root (same rule as every engine).
+      // Chromium's own sandbox unless RENDERWELD_CHROMIUM_NO_SANDBOX=1 or root (same rule as every engine).
       chromiumSandbox: chromiumSandbox(),
       env: renderChildEnv(), // no server secrets in the browser's environment (D-086)
       args: ['--disable-dev-shm-usage', '--hide-scrollbars', '--mute-audio', '--disable-quic', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],

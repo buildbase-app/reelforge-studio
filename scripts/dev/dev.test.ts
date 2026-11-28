@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { weakKeyReason } from '../../packages/core/src/keyStrength';
-import { RENAMED_ENV } from '../../packages/core/src/config/rename';
+import { SETTINGS, envNames } from '../../packages/core/src/config/schema';
 import {
   compareVersions,
   envEntries,
@@ -95,7 +95,7 @@ describe('.env.local', () => {
       if (typeof x === 'string') continue;
       const [k] = x;
       if (k.startsWith('RENDERWELD_DEV_') || k.startsWith('TEST_')) continue; // dev compose and test variables
-      expect(RENAMED_ENV.map((r) => r.name), k).toContain(k);
+      expect(SETTINGS.flatMap(envNames), k).toContain(k);
     }
   });
 
@@ -142,15 +142,8 @@ describe('.env.local', () => {
 
 describe('dev:all environment', () => {
   it('the shell wins over the file', () => {
-    const { env } = mergeEnv({ RENDERWELD_PORT: '4321' }, { RENDERWELD_PORT: '5000' });
-    expect(env.RENDERWELD_PORT).toBe('5000');
-  });
-
-  it('an old REELFORGE_* name in the shell replaces the RENDERWELD_* twin instead of clashing', () => {
-    const { env, notes } = mergeEnv({ RENDERWELD_CHROMIUM_PATH: '/file' }, { REELFORGE_CHROMIUM_PATH: '/shell' });
-    expect(env.RENDERWELD_CHROMIUM_PATH).toBe('/shell');
-    expect(env.REELFORGE_CHROMIUM_PATH).toBeUndefined();
-    expect(notes).toHaveLength(1);
+    const env = mergeEnv({ RENDERWELD_PORT: '4321', RENDERWELD_HOST: '127.0.0.1' }, { RENDERWELD_PORT: '5000' });
+    expect(env).toMatchObject({ RENDERWELD_PORT: '5000', RENDERWELD_HOST: '127.0.0.1' });
   });
 });
 
@@ -170,7 +163,7 @@ describe('Chrome Headless Shell discovery', () => {
       path: join(pw, 'chromium_headless_shell-1243', 'chrome-headless-shell-linux64', 'chrome-headless-shell'),
       source: 'playwright',
     });
-    expect(findChromium({ env: { ...env, REELFORGE_CHROMIUM_PATH: join(dir, 'nope') }, platform: 'linux', home: dir, repoDir: dir })).toMatchObject({ path: null, missing: join(dir, 'nope') });
+    expect(findChromium({ env: { ...env, RENDERWELD_CHROMIUM_PATH: join(dir, 'nope') }, platform: 'linux', home: dir, repoDir: dir })).toMatchObject({ path: null, missing: join(dir, 'nope') });
   });
 
   it('knows each platform layout', () => {

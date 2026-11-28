@@ -60,7 +60,7 @@ export type Theme = Prisma.ThemeModel
  * Model ProviderSetting
  * Provider settings set through the API (e.g. ELEVENLABS_API_KEY). Values are
  * never returned by the API. `scheme` says how `value` is stored: "aes-256-gcm"
- * (REELFORGE_SECRET_KEY, D-031) or "plain" (v0.1 imports and rows written
+ * (RENDERWELD_SECRET_KEY, D-031) or "plain" (v0.1 imports and rows written
  * before encryption; encrypted at start once the key is set).
  */
 export type ProviderSetting = Prisma.ProviderSettingModel
@@ -119,7 +119,7 @@ export type SystemState = Prisma.SystemStateModel
  * Model WebhookEndpoint
  * An outbound event endpoint (#66, D-070): a signed webhook, a Slack/Discord/Teams
  * incoming webhook, or an email channel. url and the signing secrets are sealed
- * with the config cipher (REELFORGE_SECRET_KEY, AES-256-GCM); *Scheme says how.
+ * with the config cipher (RENDERWELD_SECRET_KEY, AES-256-GCM); *Scheme says how.
  */
 export type WebhookEndpoint = Prisma.WebhookEndpointModel
 /**

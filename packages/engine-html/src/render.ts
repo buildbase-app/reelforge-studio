@@ -18,7 +18,6 @@ import {
   type EnginePlugin,
   type ResolvedAsset,
   type StagedSceneAssets,
-  envValue,
 } from '@renderweld/core';
 import { PipelineError, startPngEncoder, type Tools } from '@renderweld/media-pipeline';
 import {
@@ -99,7 +98,7 @@ export function htmlEngineVersion(): string {
 export const chromiumSandbox = coreChromiumSandbox;
 
 export function resolveHtmlBrowser(explicit?: string): string {
-  const p = explicit ?? envValue('REELFORGE_CHROMIUM_PATH');
+  const p = explicit ?? process.env.RENDERWELD_CHROMIUM_PATH;
   if (p && existsSync(p)) return p;
   throw new PipelineError('setup', `No Chromium for the html engine: set RENDERWELD_CHROMIUM_PATH (tried ${p ?? '(unset)'})`);
 }
@@ -140,6 +139,17 @@ export function sceneSource(scene: RenderScene, durationSeconds: number, staged?
  * currentTime = frame / fps, take a PNG screenshot and pipe it to FFmpeg.
  * Deterministic: time never advances on its own.
  */
+/**
+ * How long one html scene may take: 30 s plus 1 s per frame at 1080p and less, more for larger frames (a 4K
+ * screenshot is four times the pixels), capped by render.sceneTimeoutSeconds. Whole milliseconds:
+ * AbortSignal.timeout refuses a fraction, and a size whose pixels are not a whole multiple of 1080p (4096x1716,
+ * 2560x1440) made one and failed every such render.
+ */
+export function htmlSceneTimeoutMs(frames: number, width: number, height: number, override?: number, capMs = sceneTimeoutCapMs()): number {
+  const perFrameMs = 1000 * Math.max(1, (width * height) / (1920 * 1080));
+  return Math.ceil(Math.min(override ?? 30_000 + frames * perFrameMs, capMs));
+}
+
 export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRenderResult> {
   const started = Date.now();
   const { scene, output } = opts;
@@ -232,9 +242,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
   }
 
   mkdirSync(dirname(opts.out), { recursive: true });
-  // 1 s per frame at 1080p and less, more for larger frames (a 4K screenshot is four times the pixels).
-  const perFrameMs = 1000 * Math.max(1, (output.width * output.height) / (1920 * 1080));
-  const timeoutMs = Math.min(opts.timeoutMs ?? 30_000 + frames * perFrameMs, sceneTimeoutCapMs());
+  const timeoutMs = htmlSceneTimeoutMs(frames, output.width, output.height, opts.timeoutMs);
   const timeout = AbortSignal.timeout(timeoutMs);
   // The page leaving its document (meta refresh, a link) fails the render (D-085).
   const navigation = new AbortController();
@@ -399,7 +407,7 @@ export async function renderHtmlScene(opts: HtmlRenderOptions): Promise<HtmlRend
         stage,
         'Chromium could not start its sandbox on this machine (e.g. Ubuntu 23.10+ restricts unprivileged user namespaces). ' +
           'Enable user namespaces for Chrome (see Chromium docs/security/apparmor-userns-restrictions.md), or run RenderWeld in a container ' +
-          'and set REELFORGE_CHROMIUM_NO_SANDBOX=1.',
+          'and set RENDERWELD_CHROMIUM_NO_SANDBOX=1.',
         msg.slice(0, 2000)
       );
     }
@@ -457,7 +465,7 @@ export function htmlEngine(opts: { browserExecutable?: string; timeoutMs?: numbe
         file: res.out,
         frames: res.frames,
         engineVersion: htmlEngineVersion(),
-        browserVersion: browserVersion(opts.browserExecutable ?? envValue('REELFORGE_CHROMIUM_PATH')) ?? res.browser,
+        browserVersion: browserVersion(opts.browserExecutable ?? process.env.RENDERWELD_CHROMIUM_PATH) ?? res.browser,
         millis: res.millis,
         ...(res.text ? { text: res.text } : {}),
       };

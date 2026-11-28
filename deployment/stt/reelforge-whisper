@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""reelforge-whisper: local speech-to-text for ReelForge Studio (issue #300, D-114).
+"""reelforge-whisper: local speech-to-text for RenderWeld (issue #300, D-114).
 
 Transcribes one audio or video file with faster-whisper and prints word
 timings as JSON on stdout:
@@ -36,6 +36,7 @@ def main(argv=None):
     p.add_argument("--compute-type", default="int8", choices=COMPUTE_TYPES)
     p.add_argument("--device", default="cpu", choices=["cpu", "cuda", "auto"])
     p.add_argument("--output", default="json", choices=["json"])
+    p.add_argument("--initial-prompt", default=None, help="words to expect, such as the project glossary's terms")
     a = p.parse_args(argv)
 
     from faster_whisper import WhisperModel, __version__
@@ -54,6 +55,7 @@ def main(argv=None):
             word_timestamps=True,
             vad_filter=True,
             condition_on_previous_text=False,
+            initial_prompt=a.initial_prompt or None,
         )
         words = []
         for segment in segments:

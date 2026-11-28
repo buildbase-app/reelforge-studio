@@ -1,16 +1,16 @@
 # syntax=docker/dockerfile:1.7
-# RenderWeld (formerly ReelForge Studio): REST + MCP server with every engine, FFmpeg and Chrome Headless Shell.
+# RenderWeld: REST + MCP server with every engine, FFmpeg and Chrome Headless Shell.
 #
 #   docker build -t reelforge-studio .                                 # release image (the default target)
-#   docker build --build-arg REELFORGE_EDITION=dev -t reelforge-studio:dev .   # same image, licence settings not fixed
+#   docker build --build-arg RENDERWELD_EDITION=dev -t reelforge-studio:dev .   # same image, licence settings not fixed
 #   docker build --target dev -t reelforge-studio:src .                # whole repo + dev dependencies (tests, pnpm dev)
 #
 #   docker run -p 127.0.0.1:4321:4321 -v reelforge-data:/data \
 #     --read-only --tmpfs /tmp:size=1g --shm-size=1g --cap-drop ALL --security-opt no-new-privileges \
 #     --security-opt seccomp=deployment/seccomp/chrome.json \
-#     -e REELFORGE_SECRET_KEY="$(openssl rand -base64 32)" \
-#     -e REELFORGE_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) reelforge-studio
-#   (the release image does not start without REELFORGE_SECRET_KEY or REELFORGE_SECRET_KEY_FILE; keep a copy)
+#     -e RENDERWELD_SECRET_KEY="$(openssl rand -base64 32)" \
+#     -e RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24) reelforge-studio
+#   (the release image does not start without RENDERWELD_SECRET_KEY or RENDERWELD_SECRET_KEY_FILE; keep a copy)
 #
 # See docs/DEPLOY.md ("Release image" and "Hardening"), docs/security/HARDENING.md,
 # D-039..D-043 and D-085..D-089.
@@ -32,7 +32,7 @@ ARG BASE_DIGEST=sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba
 # same BASE_DIGEST and DEBIAN_SNAPSHOT always install the same package versions. Security fixes
 # arrive by moving the date: bump it weekly (docs/DEPLOY.md, "Reproducible image"). The archive
 # is signed: apt checks every index against the base image's Debian keyring, over plain HTTP too.
-ARG DEBIAN_SNAPSHOT=20261127T000000Z
+ARG DEBIAN_SNAPSHOT=20261128T060000Z
 ARG DEBIAN_SNAPSHOT_URL=http://snapshot.debian.org/archive
 
 # ---- os: what the runtime needs from Debian ------------------------------------------
@@ -132,10 +132,10 @@ RUN mkdir /out \
 FROM deps AS dev
 COPY . .
 COPY --from=chrome /opt/chrome-headless-shell /opt/chrome-headless-shell
-ENV REELFORGE_CHROMIUM_PATH=/opt/chrome-headless-shell/chrome-headless-shell \
-    REELFORGE_CHROMIUM_NO_SANDBOX=1 \
-    REELFORGE_DATA_DIR=/data \
-    REELFORGE_HOST=0.0.0.0
+ENV RENDERWELD_CHROMIUM_PATH=/opt/chrome-headless-shell/chrome-headless-shell \
+    RENDERWELD_CHROMIUM_NO_SANDBOX=1 \
+    RENDERWELD_DATA_DIR=/data \
+    RENDERWELD_HOST=0.0.0.0
 EXPOSE 4321
 CMD ["pnpm", "dev"]
 
@@ -177,12 +177,10 @@ COPY --from=prod-deps /prod /app
 COPY --from=build /out /app
 COPY LICENSE.md NOTICE /app/
 COPY LICENSES /app/LICENSES
-# `docker exec <container> renderweld keys create --name agent`, `renderweld migrate`, `renderweld licence status`
-# (`reelforge` is the old name: same commands, plus a deprecation line on stderr).
+# `docker exec <container> renderweld keys create --name agent`, `renderweld migrate`, `renderweld licence status`.
 RUN ln -s /opt/chrome-headless-shell/chrome-headless-shell /usr/local/bin/chrome-headless-shell \
  && printf '#!/bin/sh\nexec /app/apps/server/node_modules/.bin/tsx /app/apps/server/src/cli.ts "$@"\n' > /usr/local/bin/renderweld \
- && printf '#!/bin/sh\nexec /app/apps/server/node_modules/.bin/tsx /app/apps/server/src/reelforge.ts "$@"\n' > /usr/local/bin/reelforge \
- && chmod 755 /usr/local/bin/renderweld /usr/local/bin/reelforge
+ && chmod 755 /usr/local/bin/renderweld
 
 # Edition (D-039). `release` (default) fixes licence.mode = required and the BuildBase
 # licence server and organisation in /app/packages/core/build-info.json: no config
@@ -192,15 +190,20 @@ RUN ln -s /opt/chrome-headless-shell/chrome-headless-shell /usr/local/bin/chrome
 # build-info.json is removed or replaced refuses to start (D-089). `dev` writes nothing: every setting stays configurable; licence.mode
 # "off" is for noncommercial development only (LICENSING.md). LICENCE_SERVER_URL /
 # LICENCE_ORG_ID are for test builds against a mock licence server (e2e/docker/run.sh).
-ARG REELFORGE_EDITION=release
+# LICENCE_ITEM_IDS (comma-separated) are the BuildBase items sold for this image's
+# major version: a key covers one major version (D-142), so a release image accepts
+# only keys bought for these items. Required from 1.0.0 (the build fails without it);
+# put the new major's items here when the major version changes.
+ARG RENDERWELD_EDITION=release
 ARG LICENCE_SERVER_URL=https://api.console.buildbase.app
 ARG LICENCE_ORG_ID=6b01478bb42d2c444e99fcd8
-ARG REELFORGE_VERSION=0.1.0
+ARG LICENCE_ITEM_IDS=
+ARG RENDERWELD_VERSION=0.1.0
 ARG VCS_REF=unknown
 RUN set -e; \
-    case "$REELFORGE_EDITION" in release|dev) ;; *) echo "REELFORGE_EDITION must be release or dev" >&2; exit 1 ;; esac; \
-    if [ "$REELFORGE_EDITION" = release ]; then \
-      node -e 'const e = process.env; process.stdout.write(JSON.stringify({ edition: "release", version: e.REELFORGE_VERSION, revision: e.VCS_REF, locked: { "licence.mode": "required", "licence.serverUrl": e.LICENCE_SERVER_URL, "licence.orgId": e.LICENCE_ORG_ID } }, null, 2) + "\n")' \
+    case "$RENDERWELD_EDITION" in release|dev) ;; *) echo "RENDERWELD_EDITION must be release or dev" >&2; exit 1 ;; esac; \
+    if [ "$RENDERWELD_EDITION" = release ]; then \
+      node -e 'const e = process.env; process.stdout.write(JSON.stringify({ edition: "release", version: e.RENDERWELD_VERSION, revision: e.VCS_REF, locked: { "licence.mode": "required", "licence.serverUrl": e.LICENCE_SERVER_URL, "licence.orgId": e.LICENCE_ORG_ID, "licence.itemIds": (e.LICENCE_ITEM_IDS || "").split(",").map((s) => s.trim()).filter(Boolean) } }, null, 2) + "\n")' \
         > /app/packages/core/build-info.json; \
       printf '%s\n' "/** Release image (written by the Dockerfile; D-089). */" "export const IMAGE_EDITION = 'release' as 'dev' | 'release';" \
         > /app/packages/core/src/config/image-edition.ts; \
@@ -208,32 +211,30 @@ RUN set -e; \
     chmod -R a+rX,go-w /app; \
     # The check needs a secret key in a release build (#305): a random one for this command only, never stored.
     RENDERWELD_SECRET_KEY="$(head -c 48 /dev/urandom | base64 | tr -d '\n')" RENDERWELD_DATA_DIR=/tmp/check renderweld config check >/dev/null; rm -rf /tmp/*
-# OCI labels name RenderWeld (#413). `source` follows the GitHub repository rename (#409); GitHub redirects
-# the old URL. app.reelforge.edition stays next to app.renderweld.edition until the aliases go (#416).
+# OCI labels name RenderWeld (#413). `source` is the GitHub repository.
 LABEL org.opencontainers.image.title="RenderWeld" \
       org.opencontainers.image.description="Self-hosted video rendering for AI agents (REST + MCP)" \
       org.opencontainers.image.url="https://renderweld.com" \
       org.opencontainers.image.vendor="RenderWeld" \
       org.opencontainers.image.source="https://github.com/buildbase-app/reelforge-studio" \
       org.opencontainers.image.licenses="LicenseRef-PolyForm-Noncommercial-1.0.0" \
-      org.opencontainers.image.version="${REELFORGE_VERSION}" \
+      org.opencontainers.image.version="${RENDERWELD_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      app.renderweld.edition="${REELFORGE_EDITION}" \
-      app.reelforge.edition="${REELFORGE_EDITION}"
+      app.renderweld.edition="${RENDERWELD_EDITION}"
 
 WORKDIR /app
 # Database: SQLite at /data/reelforge.db by default; DATABASE_URL (or DATABASE_URL_FILE)
-# selects PostgreSQL or MySQL/MariaDB. Migrations run on start (REELFORGE_MIGRATE_ON_START)
-# or with `reelforge migrate` / `--migrate-only`; no Prisma CLI or engine binary is used.
+# selects PostgreSQL or MySQL/MariaDB. Migrations run on start (RENDERWELD_MIGRATE_ON_START)
+# or with `renderweld migrate` / `--migrate-only`; no Prisma CLI or engine binary is used.
 # Chromium's own sandbox is ON (D-086): run the container with
 # --security-opt seccomp=deployment/seccomp/chrome.json, which allows the user
 # namespaces it needs (Docker's default profile blocks them; renders of html,
 # hyperframes and motion-canvas then fail with a clear error). Remotion always disables
-# it (D-041). REELFORGE_CHROMIUM_NO_SANDBOX=1 is an explicit, logged opt-out
+# it (D-041). RENDERWELD_CHROMIUM_NO_SANDBOX=1 is an explicit, logged opt-out
 # (docs/security/HARDENING.md).
 # Writable paths: /data (volume) and /tmp (tmpfs with --read-only); HOME is /tmp.
-# The image's defaults use the RENDERWELD_* names (#412) and are listed in RENDERWELD_IMAGE_DEFAULTS, so a value
-# set with either name, including an old REELFORGE_* one, replaces them instead of clashing (docs/RENAMED.md).
+# The image's defaults are listed in RENDERWELD_IMAGE_DEFAULTS, so a value set under any of a setting's
+# names (DATABASE_URL too) replaces them instead of clashing.
 ENV NODE_ENV=production \
     HOME=/tmp \
     XDG_CACHE_HOME=/tmp/.cache \
@@ -252,7 +253,7 @@ USER 10001:10001
 VOLUME ["/data"]
 EXPOSE 4321
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.REELFORGE_PORT||process.env.RENDERWELD_PORT||4321)+'/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.RENDERWELD_PORT||process.env.RENDERWELD_PORT||4321)+'/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
 ENTRYPOINT ["/usr/bin/tini", "--"]
 # `--migrate-only` after main.ts: apply migrations and exit (release step / init container).
 CMD ["apps/server/node_modules/.bin/tsx", "apps/server/src/main.ts"]

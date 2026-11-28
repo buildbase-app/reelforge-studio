@@ -64,9 +64,9 @@ KIND="$TOOLS/kind-$KIND_VERSION"
 k() { "$TOOLS/kubectl-$KUBECTL_VERSION" --context "kind-$CLUSTER" "$@"; }
 trap cleanup EXIT
 
-[ "${SKIP_BUILD:-}" = 1 ] || docker build ${BUILD_ARGS:-} ${BASE_IMAGE:+--build-arg BASE_IMAGE=$BASE_IMAGE} --build-arg REELFORGE_EDITION=release \
+[ "${SKIP_BUILD:-}" = 1 ] || docker build ${BUILD_ARGS:-} ${BASE_IMAGE:+--build-arg BASE_IMAGE=$BASE_IMAGE} --build-arg RENDERWELD_EDITION=release \
   --build-arg LICENCE_SERVER_URL=http://licence:8080 --build-arg LICENCE_ORG_ID=6b01478bb42d2c444e99fcd8-mocklice -t "$IMAGE" .
-echo "== image $IMAGE (edition $(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$IMAGE"), licence server: the in-cluster mock, test only)"
+echo "== image $IMAGE (edition $(docker image inspect -f '{{ index .Config.Labels "app.renderweld.edition" }}' "$IMAGE"), licence server: the in-cluster mock, test only)"
 if ! docker image inspect "$MINIO_IMAGE" >/dev/null 2>&1 && ! docker pull -q "$MINIO_IMAGE" >/dev/null 2>&1; then
   MINIO_IMAGE=reelforge-e2e/minio:source   # MinIO publishes no images any more (e2e/minio/build-image.sh)
   docker image inspect "$MINIO_IMAGE" >/dev/null 2>&1 || MINIO_IMAGE=$(e2e/minio/build-image.sh)

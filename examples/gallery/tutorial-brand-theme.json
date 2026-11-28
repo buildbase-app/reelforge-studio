@@ -2,14 +2,14 @@
   "gallery": {
     "slug": "tutorial-brand-theme",
     "title": "Tutorial: give a reel your brand",
-    "description": "A tutorial reel for ReelForge users: how an agent applies a brand theme to a project in three steps (list themes, set theme, render), with code and a stepper.",
+    "description": "A tutorial reel for RenderWeld users: how an agent applies a brand theme to a project in three steps (list themes, set theme, render), with code and a stepper.",
     "category": "Tutorial",
     "tags": [
       "tutorial",
       "reelforge",
       "themes"
     ],
-    "prompt": "A tutorial reel for ReelForge users: how an agent applies a brand theme to a project in three steps (list themes, set theme, render), with code and a stepper. Default theme, 18 seconds.",
+    "prompt": "A tutorial reel for RenderWeld users: how an agent applies a brand theme to a project in three steps (list themes, set theme, render), with code and a stepper. Default theme, 18 seconds.",
     "palette": "default",
     "theme": "default",
     "engines": [
@@ -26,7 +26,7 @@
     "title": "Tutorial: give a reel your brand",
     "brief": {
       "title": "Tutorial: give a reel your brand",
-      "goal": "A tutorial reel for ReelForge users: how an agent applies a brand theme to a project in three steps (list themes, set theme, render), with code and a stepper. Default theme, 18 seconds.",
+      "goal": "A tutorial reel for RenderWeld users: how an agent applies a brand theme to a project in three steps (list themes, set theme, render), with code and a stepper. Default theme, 18 seconds.",
       "platform": "instagram-reels",
       "language": "en",
       "targetSeconds": 18

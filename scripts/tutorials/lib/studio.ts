@@ -17,7 +17,7 @@ export interface Studio {
 export function createKey(dataDir: string, name: string, scopes = 'read,write,render'): string {
   const r = spawnSync(TSX, ['apps/server/src/cli.ts', 'keys', 'create', '--name', name, '--scopes', scopes], {
     cwd: REPO,
-    env: { ...process.env, REELFORGE_DATA_DIR: dataDir },
+    env: { ...process.env, RENDERWELD_DATA_DIR: dataDir },
     encoding: 'utf8',
     timeout: 120_000,
   });
@@ -28,26 +28,26 @@ export function createKey(dataDir: string, name: string, scopes = 'read,write,re
 }
 
 /**
- * Use the studio named by REELFORGE_URL + REELFORGE_API_KEY, or start one from
+ * Use the studio named by RENDERWELD_URL + RENDERWELD_API_KEY, or start one from
  * this checkout with a fresh data directory under `outDir`.
- * The started server runs with REELFORGE_LICENCE_MODE=off: local development only.
+ * The started server runs with RENDERWELD_LICENCE_MODE=off: local development only.
  */
 export async function useStudio(outDir: string): Promise<Studio> {
-  if (process.env.REELFORGE_URL && process.env.REELFORGE_API_KEY) {
-    return { url: process.env.REELFORGE_URL.replace(/\/$/, ''), key: process.env.REELFORGE_API_KEY, owned: false, stop: async () => undefined };
+  if (process.env.RENDERWELD_URL && process.env.RENDERWELD_API_KEY) {
+    return { url: process.env.RENDERWELD_URL.replace(/\/$/, ''), key: process.env.RENDERWELD_API_KEY, owned: false, stop: async () => undefined };
   }
-  const chromium = process.env.REELFORGE_CHROMIUM_PATH;
-  if (!chromium) throw new Error('set REELFORGE_CHROMIUM_PATH (Chrome Headless Shell), or point REELFORGE_URL and REELFORGE_API_KEY at a running studio');
+  const chromium = process.env.RENDERWELD_CHROMIUM_PATH;
+  if (!chromium) throw new Error('set RENDERWELD_CHROMIUM_PATH (Chrome Headless Shell), or point RENDERWELD_URL and RENDERWELD_API_KEY at a running studio');
   const dataDir = join(outDir, 'studio-data');
   mkdirSync(dataDir, { recursive: true });
-  const port = process.env.REELFORGE_TUTORIAL_PORT ?? '4352';
+  const port = process.env.RENDERWELD_TUTORIAL_PORT ?? '4352';
   const env = {
     ...process.env,
-    REELFORGE_DATA_DIR: dataDir,
-    REELFORGE_HOST: '127.0.0.1',
-    REELFORGE_PORT: port,
-    REELFORGE_LICENCE_MODE: 'off', // local development only; a real install activates a licence key
-    REELFORGE_CHROMIUM_NO_SANDBOX: process.env.REELFORGE_CHROMIUM_NO_SANDBOX ?? '1',
+    RENDERWELD_DATA_DIR: dataDir,
+    RENDERWELD_HOST: '127.0.0.1',
+    RENDERWELD_PORT: port,
+    RENDERWELD_LICENCE_MODE: 'off', // local development only; a real install activates a licence key
+    RENDERWELD_CHROMIUM_NO_SANDBOX: process.env.RENDERWELD_CHROMIUM_NO_SANDBOX ?? '1',
   };
   const key = createKey(dataDir, 'tutorial-proof');
   const child = spawn(TSX, ['scripts/tutorials/serve.ts'], { cwd: REPO, env, stdio: ['ignore', 'pipe', 'pipe'] });

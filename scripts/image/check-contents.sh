@@ -51,7 +51,7 @@ check_present "Chrome Headless Shell" '^opt/chrome-headless-shell/chrome-headles
 check_present "tini" '^usr/bin/tini$'
 check_present "ffmpeg and ffprobe" '^usr/bin/ffprobe$'
 
-edition=$(docker image inspect -f '{{ index .Config.Labels "app.reelforge.edition" }}' "$IMAGE")
+edition=$(docker image inspect -f '{{ index .Config.Labels "app.renderweld.edition" }}' "$IMAGE")
 if [ "$edition" = release ]; then
   check_present "release build: build-info.json fixes the licence settings" '^app/packages/core/build-info\.json$'
   info=$(docker run --rm --entrypoint cat "$IMAGE" /app/packages/core/build-info.json)

@@ -70,7 +70,7 @@ export const codex: Driver = async ({ studio, outDir, agent, engine }) => {
   if (version.status !== 0) throw new Error('the Codex CLI is not installed here: npm i -g @openai/codex, then run this again (an OpenAI API key is needed, as a proxy-injected secret or OPENAI_API_KEY)');
   const prompt = promptFor(agent, engine);
   const transcript = join(outDir, 'transcript.jsonl');
-  const env: NodeJS.ProcessEnv = { ...process.env, REELFORGE_API_KEY: studio.key };
+  const env: NodeJS.ProcessEnv = { ...process.env, RENDERWELD_API_KEY: studio.key };
   // A placeholder is enough when a proxy injects the real key; never write a real key here.
   if (!env.OPENAI_API_KEY && !env.CODEX_API_KEY) env.CODEX_API_KEY = env.OPENAI_API_KEY = 'sk-placeholder-injected-by-proxy';
   const model = process.env.TUTORIAL_CODEX_MODEL;
@@ -83,7 +83,7 @@ export const codex: Driver = async ({ studio, outDir, agent, engine }) => {
     '-c',
     `mcp_servers.reelforge.url="${studio.url}/mcp"`,
     '-c',
-    'mcp_servers.reelforge.bearer_token_env_var="REELFORGE_API_KEY"',
+    'mcp_servers.reelforge.bearer_token_env_var="RENDERWELD_API_KEY"',
     '-c',
     'approval_policy="never"',
     ...(model ? ['-m', model] : []),
@@ -94,7 +94,7 @@ export const codex: Driver = async ({ studio, outDir, agent, engine }) => {
   const lines = readFileSync(transcript, 'utf8');
   const { toolCalls, jobIds } = summarizeCodexJsonl(lines);
   return {
-    command: `codex exec --json --skip-git-repo-check --sandbox read-only -c mcp_servers.reelforge.url=... -c mcp_servers.reelforge.bearer_token_env_var="REELFORGE_API_KEY" -c approval_policy="never" "<prompt>"`,
+    command: `codex exec --json --skip-git-repo-check --sandbox read-only -c mcp_servers.reelforge.url=... -c mcp_servers.reelforge.bearer_token_env_var="RENDERWELD_API_KEY" -c approval_policy="never" "<prompt>"`,
     prompt,
     toolCalls,
     jobId: jobIds.at(-1) ?? null,

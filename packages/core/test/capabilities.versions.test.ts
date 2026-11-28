@@ -45,20 +45,20 @@ vi.mock('@renderweld/media-pipeline', async (importOriginal) => {
   };
 });
 
-const { PluginRegistry, ReelforgeService, createMemoryRepositories } = await import('../src/index');
+const { PluginRegistry, RenderWeldService, createMemoryRepositories } = await import('../src/index');
 const { fakeEngine, tempDir } = await import('./helpers');
 
 describe('get_capabilities tool versions (#319)', () => {
   const { dir, cleanup } = tempDir();
-  let svc: Awaited<ReturnType<typeof ReelforgeService.create>>;
+  let svc: Awaited<ReturnType<typeof RenderWeldService.create>>;
 
   beforeAll(async () => {
     const registry = new PluginRegistry();
     registry.registerEngine(fakeEngine('remotion'));
-    svc = await ReelforgeService.create(registry, {
+    svc = await RenderWeldService.create(registry, {
       repositories: createMemoryRepositories(),
       dataDir: join(dir, 'data'),
-      configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+      configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
       maintenance: false,
     });
   });
