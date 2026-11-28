@@ -25,10 +25,6 @@
   "internal-planning-file research/LICENSING_AND_COSTS.md",
   "internal-planning-file research/RESEARCH_FINDINGS.md",
   "internal-planning-file research/SOURCES.md",
-  "licence-off-in-customer-docs README.md",
-  "licence-off-in-customer-docs docs/public/install/from-source.md",
-  "licence-off-in-customer-docs docs/public/install/licence.md",
-  "test-card-in-customer-docs docs/public/install/buildbase-console-setup.md",
   "test-card-in-customer-docs docs/public/screenshots/store.md",
   "test-card-in-customer-docs docs/public/walkthroughs.md"
 ]
