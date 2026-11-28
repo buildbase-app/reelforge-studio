@@ -135,6 +135,8 @@ export interface SceneRenderInput extends Pick<RenderPipelineInput, 'runId' | 't
   alpha?: boolean;
   /** Ask the engine for text overflow samples (EngineRenderContext.textCheck). */
   textCheck?: boolean;
+  /** A draft nobody delivers: a preview or a QA re-render (EngineRenderContext.preview). */
+  preview?: boolean;
 }
 
 /**
@@ -194,6 +196,7 @@ export async function renderSceneClip(input: SceneRenderInput): Promise<SceneCli
         ...(range ? { frameRange: [range[0], range[1]] as const } : {}),
         ...(input.alpha ? { alpha: true } : {}),
         ...(input.textCheck ? { textCheck: true } : {}),
+        ...(input.preview ? { preview: true } : {}),
       })
   ).catch((e) => {
     metrics.sceneDuration.record((Date.now() - sceneStarted) / 1000, { ...engineAttrs, 'renderweld.outcome': 'error' });
@@ -283,6 +286,7 @@ export async function runRenderPipeline(input: RenderPipelineInput): Promise<Ren
           out,
           ...(spec.alpha ? { alpha: true } : {}),
           ...(textCheckOn(input.videoQa) ? { textCheck: true } : {}),
+          ...(input.kind === 'preview' ? { preview: true } : {}),
           workDir: join(tmp, 'work', scene.id),
           progress: (done, total) =>
             input.progress(stage, (0.85 * (framesBefore + Math.min(done, total))) / totalSceneFrames, `scene ${i + 1}/${scenes.length}: ${done}/${total} frames`),
@@ -375,6 +379,7 @@ async function checkSeek(f: { input: RenderPipelineInput; clips: SceneClip[]; ou
           workDir: join(dir, `work-${s.sceneId}-f${s.sceneFrame}`),
           progress: () => undefined,
           frameRange: [s.sceneFrame, s.sceneFrame],
+          preview: true, // a QA sample of one frame, never delivered
         });
         const [full, alone] = await Promise.all([
           frameGrid({ ffmpeg: input.tools.ffmpeg, input: f.video, frame: s.timelineFrame, fps, signal: input.signal }),

@@ -1430,8 +1430,20 @@ export class RenderWeldService {
       if (seen.has(s.engine)) return;
       seen.add(s.engine);
       try {
-        const a = this.registry.engine(s.engine).availability();
-        if (!a.ok) errors.push({ path: `scenes.${i}.engine`, message: `engine "${s.engine}" cannot render on this server: ${a.reason}` });
+        const engine = this.registry.engine(s.engine);
+        const a = engine.availability();
+        if (a.ok) return;
+        // Templates of other engines that do the same job (#783: html-title for kinetic-title, ...), for each one used.
+        const instead = [...new Set(p.scenes.filter((x) => x.engine === s.engine && x.template).map((x) => x.template!))]
+          .map((t) => {
+            const alt = engine.alternatives?.[t];
+            return alt?.length ? `${alt.join(' or ')} instead of ${t}` : null;
+          })
+          .filter(Boolean);
+        errors.push({
+          path: `scenes.${i}.engine`,
+          message: `engine "${s.engine}" cannot render on this server: ${a.reason}${instead.length ? `. Use ${instead.join('; ')}` : ''}`,
+        });
       } catch {
         // unknown engines are already reported by schema validation
       }
