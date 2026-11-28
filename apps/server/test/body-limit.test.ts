@@ -20,7 +20,7 @@ beforeAll(async () => {
   dropDb = database.drop;
   server = await startServer(
     { dataDir: join(dir, 'data'), port: 0, host: '127.0.0.1' },
-    { registry: new PluginRegistry().registerEngine(fakeEngine('remotion')), env: { ...database.env, REELFORGE_LICENCE_MODE: 'off', REELFORGE_MAX_JSON_BYTES: String(LIMIT), REELFORGE_RATE_LIMIT_PER_MINUTE: '0', REELFORGE_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0' }, quiet: true }
+    { registry: new PluginRegistry().registerEngine(fakeEngine('remotion')), env: { ...database.env, RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_MAX_JSON_BYTES: String(LIMIT), RENDERWELD_RATE_LIMIT_PER_MINUTE: '0', RENDERWELD_PRE_AUTH_RATE_LIMIT_PER_MINUTE: '0' }, quiet: true }
   );
   key = (await server.service.keys.create('agent', ['read', 'write', 'render'])).key;
 }, 120_000);
