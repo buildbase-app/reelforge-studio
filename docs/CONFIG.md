@@ -15,9 +15,8 @@ Precedence, lowest to highest (D-029):
 
 **Release images** (the published Docker image, D-039) fix `licence.mode` (`required`), `licence.serverUrl` and
 `licence.orgId` at build time: their source is **build**, and a config file, environment variable or
-`update_config` that tries to change them is refused (`build_locked_setting`). Builds from source (`pnpm dev`,
-`--build-arg RENDERWELD_EDITION=dev`) keep every setting configurable; `licence.mode: off` there is for
-noncommercial development only (LICENSING.md).
+`update_config` that tries to change them is refused (`build_locked_setting`). Development builds are
+described in docs/DEVELOPMENT.md.
 
 Scope **startup** settings are read once at start; changing them at runtime is refused with an error that says
 where to set them. `GET /v1/config` / MCP `get_config` show each effective value and its source; secrets show
@@ -44,9 +43,9 @@ logging:
 | --- | --- | --- | --- | --- | --- | --- |
 | `server.host` | `RENDERWELD_HOST` | string | `127.0.0.1` | startup |  | Bind address. Keep loopback unless a TLS proxy is in front (`0.0.0.0` in the Docker image). |
 | `server.port` | `RENDERWELD_PORT` | integer | `4321` | startup |  | TCP port (`0` picks a free one). |
-| `server.publicUrl` | `RENDERWELD_PUBLIC_URL` | url | (none) | startup |  | Public base URL: used in output links and allowed as Host on `/mcp`. Example: `https://studio.example.com`. |
+| `server.publicUrl` | `RENDERWELD_PUBLIC_URL` | url | (none) | startup |  | Public base URL: used in output links and allowed as Host on `/mcp`. Without it, links in answers use the scheme and Host the request came in on when that Host is allowed (localhost or `server.allowedHosts`), and are relative otherwise. Example: `https://studio.example.com`. |
 | `server.allowedHosts` | `RENDERWELD_ALLOWED_HOSTS` | list (comma-separated in env) | (empty) | runtime |  | Extra host names accepted on `/mcp` (DNS-rebinding protection), besides localhost and the public URL host. Comma-separated in the environment. Example: `reelforge,studio.internal`. |
-| `server.trustProxy` | `RENDERWELD_TRUST_PROXY` | boolean | `false` | runtime |  | Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists. Only turn it on behind a proxy that sets that header. |
+| `server.trustProxy` | `RENDERWELD_TRUST_PROXY` | boolean | `false` | runtime |  | Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists, and, when `server.publicUrl` is unset, the scheme of links from the last `X-Forwarded-Proto`. Only turn it on behind a proxy that sets those headers. |
 | `server.role` | `RENDERWELD_ROLE` | `all` \| `api` \| `worker` | `all` | startup |  | What this instance does (D-076). `all`: serve REST/MCP and render (one instance). `api`: serve REST/MCP and enqueue jobs, never render. `worker`: claim and render jobs from the database queue; serves only `/healthz`, `/readyz` and `/metrics`. `api` and `worker` need PostgreSQL or MySQL and remote storage (or `storage.localShared`); see docs/providers/queue-and-scaling.md. |
 | `server.workerConcurrency` | `RENDERWELD_WORKER_CONCURRENCY` | integer | `limits.renderConcurrency` | startup |  | Jobs one `worker` (or `all`) instance claims and renders at the same time. Unset: `limits.renderConcurrency` (which can then be changed at runtime). Scale out with more worker instances rather than a high value here. |
 | `server.workerOnce` | `RENDERWELD_WORKER_ONCE` | boolean | `false` | startup |  | Run as `renderweld worker --once` (D-100): claim at most one job, render it and exit (0 succeeded, cancelled or nothing queued; 1 failed; 75 handed back, lease lost, or the `--job` still queued; see docs/providers/backends.md). For job platforms that start one container per unit (KEDA ScaledJob, Azure Container Apps event jobs, AWS Batch, Cloud Run Jobs, ECS RunTask). Implies `server.role` `worker` (same database and storage rules); serves no HTTP. |
@@ -292,6 +291,15 @@ logging:
 | `render.backends.remotionLambda.region` | `RENDERWELD_REMOTION_LAMBDA_REGION`, `REMOTION_LAMBDA_REGION` | string | (none) | runtime |  | AWS region of your Remotion Lambda deployment (backend `remotion-lambda`, not implemented yet: configuration check only). |
 | `render.backends.remotionLambda.functionName` | `RENDERWELD_REMOTION_LAMBDA_FUNCTION_NAME`, `REMOTION_LAMBDA_FUNCTION_NAME` | string | (none) | runtime |  | Remotion Lambda function name. |
 | `render.backends.remotionLambda.serveUrl` | `RENDERWELD_REMOTION_LAMBDA_SERVE_URL`, `REMOTION_LAMBDA_SERVE_URL` | url | (none) | runtime |  | Remotion Lambda serve URL (the deployed site). |
+
+## engines
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `engines.remotion.enabled` | `RENDERWELD_REMOTION_ENABLED` | boolean | `false` | runtime |  | Turns on the Remotion engine (templates `kinetic-title` and `remotion-layout`). The release image ships no Remotion: you install it yourself with your own Remotion licence (docs/public/install/remotion.md). In the release edition Remotion renders are refused until this is `true`, `engines.remotion.licenceAccepted` is `remotion`, `engines.remotion.licenseKey` is set and Remotion is installed at `engines.remotion.home`. Development builds (personal testing and CI) use the workspace copy and need none of these. |
+| `engines.remotion.licenceAccepted` | `RENDERWELD_REMOTION_LICENCE_ACCEPTED` | `none` \| `remotion` | `none` | runtime |  | Set to `remotion` to confirm that you hold a Remotion licence that covers this use and accept Remotion's licence terms (https://www.remotion.dev/license). RenderWeld does not sell or include a Remotion licence. |
+| `engines.remotion.licenseKey` | `RENDERWELD_REMOTION_LICENSE_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Your private Remotion licence key (starts with `rm_sec_`), or `free-license` if you qualify for Remotion's free licence. Passed to Remotion with every render; Remotion then reports a usage event to www.remotion.pro after each render, so allow that host if your network restricts outbound traffic. Required in the release edition; there is no default. Stored encrypted when set at runtime. |
+| `engines.remotion.home` | `RENDERWELD_REMOTION_HOME` | path | `/opt/remotion` | startup |  | Where you installed Remotion (a folder with `node_modules/remotion` and `node_modules/@remotion/renderer`, version 4.0.545). Development builds fall back to the workspace copy when nothing is installed here. |
 
 ## providers
 

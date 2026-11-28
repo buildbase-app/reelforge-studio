@@ -85,7 +85,8 @@ export const ConfigSchema = z.object({
       scope: 'startup',
       env: 'RENDERWELD_PUBLIC_URL',
       example: 'https://studio.example.com',
-      description: 'Public base URL: used in output links and allowed as Host on `/mcp`.',
+      description:
+        'Public base URL: used in output links and allowed as Host on `/mcp`. Without it, links in answers use the scheme and Host the request came in on when that Host is allowed (localhost or `server.allowedHosts`), and are relative otherwise.',
     }),
     allowedHosts: setting(z.array(hostName().transform((h) => h.toLowerCase())).max(100), {
       kind: 'list',
@@ -101,7 +102,7 @@ export const ConfigSchema = z.object({
       env: 'RENDERWELD_TRUST_PROXY',
       default: false,
       description:
-        'Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists. Only turn it on behind a proxy that sets that header.',
+        'Take the client address from the last entry of `X-Forwarded-For` (set by your reverse proxy) instead of the TCP peer, for the audit log and per-key IP allowlists, and, when `server.publicUrl` is unset, the scheme of links from the last `X-Forwarded-Proto`. Only turn it on behind a proxy that sets those headers.',
     }),
     role: setting(z.enum(['all', 'api', 'worker']), {
       kind: 'enum',
@@ -1381,6 +1382,42 @@ export const ConfigSchema = z.object({
           providerEnv: 'REMOTION_LAMBDA_SERVE_URL',
           description: 'Remotion Lambda serve URL (the deployed site).',
         }),
+      }),
+    }),
+  }),
+  engines: z.object({
+    remotion: z.object({
+      enabled: setting(z.boolean(), {
+        kind: 'boolean',
+        scope: 'runtime',
+        env: 'RENDERWELD_REMOTION_ENABLED',
+        default: false,
+        description:
+          'Turns on the Remotion engine (templates `kinetic-title` and `remotion-layout`). The release image ships no Remotion: you install it yourself with your own Remotion licence (docs/public/install/remotion.md). In the release edition Remotion renders are refused until this is `true`, `engines.remotion.licenceAccepted` is `remotion`, `engines.remotion.licenseKey` is set and Remotion is installed at `engines.remotion.home`. Development builds (personal testing and CI) use the workspace copy and need none of these.',
+      }),
+      licenceAccepted: setting(z.enum(['none', 'remotion']), {
+        kind: 'enum',
+        scope: 'runtime',
+        env: 'RENDERWELD_REMOTION_LICENCE_ACCEPTED',
+        default: 'none',
+        description:
+          'Set to `remotion` to confirm that you hold a Remotion licence that covers this use and accept Remotion\'s licence terms (https://www.remotion.dev/license). RenderWeld does not sell or include a Remotion licence.',
+      }),
+      licenseKey: setting(z.string().min(1).max(500).regex(/^[^\r\n]*$/, 'must be a single line').optional(), {
+        kind: 'string',
+        scope: 'runtime',
+        env: 'RENDERWELD_REMOTION_LICENSE_KEY',
+        secret: true,
+        description:
+          'Your private Remotion licence key (starts with `rm_sec_`), or `free-license` if you qualify for Remotion\'s free licence. Passed to Remotion with every render; Remotion then reports a usage event to www.remotion.pro after each render, so allow that host if your network restricts outbound traffic. Required in the release edition; there is no default. Stored encrypted when set at runtime.',
+      }),
+      home: setting(z.string().min(1), {
+        kind: 'path',
+        scope: 'startup',
+        env: 'RENDERWELD_REMOTION_HOME',
+        default: '/opt/remotion',
+        description:
+          'Where you installed Remotion (a folder with `node_modules/remotion` and `node_modules/@remotion/renderer`, version 4.0.545). Development builds fall back to the workspace copy when nothing is installed here.',
       }),
     }),
   }),

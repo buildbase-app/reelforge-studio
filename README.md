@@ -10,8 +10,7 @@ one MP4 with FFmpeg and checks it. No AI provider is required.
 > **Status: agent platform v0.1 (experimental).** Tested on Linux x64; the
 > release image is also built and tested on Linux arm64 in CI. MCP tool names
 > and manifest v0.2 may change before v1.0. Not production-hardened. What is
-> done, partial and missing: `docs/AGENT_PLATFORM.md` (STATUS) and
-> `docs/STATUS.md`.
+> done, partial and missing: `docs/AGENT_PLATFORM.md` (STATUS).
 
 ## Quick start (server first)
 
@@ -70,7 +69,8 @@ databases and running the studio next to the store site
   `nextCursor`); output download with Range.
 - **Manifest v0.2** (`packages/project-schema`): brief, theme, per-scene
   `durationSeconds` or `durationFrames`, voice/music/sfx, assets, captions
-  (stored, not rendered yet); v0.1 files are migrated automatically.
+  (burned in or as SRT/VTT/ASS sidecars, word highlight from voice timings;
+  docs/CAPTIONS.md); v0.1 files are migrated automatically.
 - **Engines**: Remotion (`kinetic-title`), Motion Canvas (`animated-explainer`,
   headless via its own Renderer), HTML (`html-title` or agent HTML/CSS, seeked
   per frame in a network-blocked sandbox), HyperFrames (`hyperframes-title` or
@@ -86,8 +86,9 @@ databases and running the studio next to the store site
   key for noncommercial use or a paid Commercial key; only the key and a random
   instance id are sent; daily check, 14 days offline grace; one activation per
   deployment however many api and worker instances); without a valid licence
-  renders are refused and everything else works. `RENDERWELD_LICENCE_MODE=off` for development (`pnpm dev` sets it).
-  See docs/DEPLOY.md#licence.
+  renders are refused and everything else works. Runs on a free Personal key
+  for noncommercial use, or a Commercial key. See
+  [docs/public/install/licence.md](docs/public/install/licence.md).
 - **Data and settings**: metadata in SQLite (default), PostgreSQL or
   MySQL/MariaDB by `DATABASE_URL`; files on local disk, S3-compatible, Azure
   Blob or Google Cloud Storage; one configuration schema
@@ -111,7 +112,7 @@ databases and running the studio next to the store site
 
 - **Remotion is not free for every company.** Free for individuals and teams of
   up to 3 people; larger companies need a paid Remotion license. Every user of
-  RenderWeld needs their own. See `research/LICENSING_AND_COSTS.md`.
+  RenderWeld needs their own. See Remotion's licence terms on remotion.dev.
 - Motion Canvas is MIT; HyperFrames is Apache-2.0. FFmpeg is LGPL/GPL
   depending on the build (we use the system FFmpeg).
 - No fonts, music or footage are bundled. Templates use system fonts.
@@ -147,7 +148,7 @@ studio has no BuildBase SDK dependency; it calls BuildBase's HTTP API:
   `pnpm gallery publish` stores one record per demo reel in the `gallery`
   collection (`scripts/gallery/src/publish.ts`).
 - **[Blueprints](https://docs.buildbase.app/blueprints/overview)**: the
-  console setup page (`docs/public/install/buildbase-console-setup.md`) is
+  console setup page (`out/console/buildbase-console-setup.md`, not committed) is
   built from blueprint exports by `pnpm capture`
   (`scripts/capture/steps/console.mjs`).
 

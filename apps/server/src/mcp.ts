@@ -881,7 +881,7 @@ export const TOOLS: ToolDef[] = [
     name: 'get_licence',
     title: 'Get the licence status',
     description:
-      'Returns the licence status of this server: status "valid" (full use), "grace" (the licence server is unreachable; renders keep working until graceUntil), "invalid" (renders and previews are refused; reason, message and fix say why and what to do), "unlicensed" (no key) or "checking". Also: renderAllowed, last check and last success, item, activations used/limit, the key masked (first group only). Reading, listing and downloading always work. If renders are refused, tell the user the message and fix; activating needs the admin scope.',
+      'Returns the licence status of this server: status "valid" (full use), "grace" (the licence server is unreachable; renders keep working until graceUntil), "invalid" (renders and previews are refused; reason, message and fix say why and what to do), "unlicensed" (no key) or "checking". Also: renderAllowed, last check and last success, item, activations used/limit, the key masked (first group only). Reading, listing and downloading always work. If renders are refused, tell the user the message and fix; activating needs the owner scope.',
     scope: 'read',
     input: {},
     annotations: { readOnlyHint: true },

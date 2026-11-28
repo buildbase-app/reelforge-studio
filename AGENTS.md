@@ -36,11 +36,33 @@ apply to this project's own agents and to anyone else's. Full rules:
    one purpose; split larger work into several PRs on the same issue.
 9. **Commit attribution:** keep your tool's `Co-Authored-By:` trailer.
 
+### Release rules (until the first licence is sold, then kept)
+
+Milestone 1 ("first licence release") lists everything that must be fixed
+before the first licence sale; its tracking issue is #530. These rules stop
+those problems coming back. The `Release guards` CI step enforces the first
+three (`pnpm test:guards` runs it locally).
+
+10. **No internal plans in this repo.** No launch drafts, outreach or DM
+    templates, research notes, competitor analysis, costs, prospects or status
+    records. They belong in the private internal repo. This repo is
+    public.
+11. **Customer docs (`docs/public/`, `README.md`) are for buyers.** No
+    development-only licence switch, no test card numbers or test-store
+    addresses, and the RenderWeld name with `RENDERWELD_` settings only.
+12. **No licence, terms, refund or privacy wording goes live** until the
+    lawyer has signed it off. Build the code; keep the wording on a branch.
+13. **No real licence key, Remotion key or secret** in the code, docs, tests,
+    examples or a default setting. Use obvious placeholders.
+14. **Release work names its plan item.** Milestone 1 issues start with
+    `[M1] <plan ID>`; say the plan ID in the pull request. An item labelled
+    `blocked-on-owner` may be prepared on a branch, never merged early.
+
 ## 1. Read the product documents
 
 Before implementation, read: - `docs/PRODUCT_BRIEF.md` -
 `docs/DECISIONS.md` - `docs/ARCHITECTURE.md` - `docs/REQUIREMENTS.md` -
-`docs/TEST_PLAN.md` - `research/LICENSING_AND_COSTS.md`
+`docs/TEST_PLAN.md`
 
 If docs conflict, preserve explicit founder decisions and document the
 conflict rather than silently choosing.
@@ -76,7 +98,10 @@ conflict rather than silently choosing.
     date and source in `research/SOURCES.md`.
 -   Preserve command output or reproducible steps for important test
     findings.
--   Record material architecture decisions in `docs/DECISIONS.md`.
+-   Record each new material architecture decision in the pull request
+    description, dated, and compare it with `docs/DECISIONS.md`: name the `D-`
+    entry it follows, changes or replaces (or say it is new). The log stays as
+    the record of earlier decisions.
 
 ## 4. Engineering principles
 
@@ -183,7 +208,7 @@ pnpm reelforge licence status|activate|deactivate   # licence (docs/DEPLOY.md#li
 pnpm docs:config                         # regenerate docs/CONFIG.md after changing the config schema
 TEST_POSTGRES_URL=... TEST_MYSQL_URL=... pnpm --filter @reelforge/db test   # contract tests on every DB
 REELFORGE_TEST_DB=postgres pnpm --filter @reelforge/server test             # server e2e on PostgreSQL
-pnpm prebuild:engines                    # pre-build the Remotion/Motion Canvas bundles (the Dockerfile does this)
+pnpm prebuild:engines                    # pre-build the Remotion/Motion Canvas bundles (the image builds Motion Canvas only; D-143)
 docker build -t reelforge-studio:release .                  # release image (licence settings fixed, D-039)
 docker build --build-arg REELFORGE_EDITION=dev -t reelforge-studio:dev .   # same image, settings configurable
 scripts/image/check-contents.sh reelforge-studio:release    # files, size budget (D-042)

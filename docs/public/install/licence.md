@@ -16,7 +16,8 @@ decides how you may use it.
 | --- | --- |
 | Run it for yourself as a hobby, for study, research or evaluation | A free **Personal** key (PolyForm Noncommercial 1.0.0) |
 | Make videos for anything that earns money: a monetised channel, client work, ads, a business | A **Commercial** licence (one-time, per seat or server) |
-| Resell, rebrand or offer RenderWeld as a hosted service | Not permitted under either licence |
+| Share copies or forks, changed or not, for noncommercial use | Allowed under PolyForm Noncommercial, with `LICENSE.md` and `NOTICE` in each copy |
+| Sell it, host it as a service for others, or use the RenderWeld name for a fork | Not permitted |
 
 Both keys come from <https://renderweld.com/pricing> and are delivered
 through BuildBase. Remotion, one of the four engines, is not covered by either
@@ -36,11 +37,11 @@ Any one of these (each needs `RENDERWELD_SECRET_KEY` set, because the key is
 stored encrypted):
 
 ```bash
-# an admin agent over MCP:
+# an agent with an owner key, over MCP:
 #   activate_licence { "key": "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2" }
 
-# REST, with an admin key:
-curl -X POST -H "Authorization: Bearer $ADMIN_KEY" -H 'content-type: application/json' \
+# REST, with an owner key (an admin key gets 403 forbidden):
+curl -X POST -H "Authorization: Bearer $OWNER_KEY" -H 'content-type: application/json' \
   -d '{"key":"ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2"}' http://127.0.0.1:4321/v1/licence
 
 # the CLI in the container (a running server reads it after a restart):
@@ -66,8 +67,11 @@ ever shown as its first group.
   and **nothing else**: no hostname, no project, asset or usage data. The
   instance id is random (`rf-<UUID>`), created once and stored in the database.
 - Behind an HTTPS proxy set `HTTPS_PROXY=http://proxy:3128` **and**
-  `NODE_USE_ENV_PROXY=1`, plus `NODE_EXTRA_CA_CERTS=/path/to/ca.pem` for a
-  proxy that re-signs TLS.
+  `NODE_USE_ENV_PROXY=1`. The licence check trusts only the root certificates
+  built into Node.js, so a proxy that inspects or re-signs TLS must let
+  `api.console.buildbase.app` through untouched (a CONNECT tunnel without
+  re-signing). `NODE_EXTRA_CA_CERTS` does not help the licence check; it still
+  applies to the server's other connections, such as storage and providers.
 
 The complete list of connections the server can make is on
 [Privacy and network egress](/docs/privacy/network-egress).
@@ -88,9 +92,7 @@ moves it. For a new installation, free the old one first with
 then activate on the new server. A key over its activation limit answers
 `limit_reached`.
 
-## Development builds
+## Builds from source
 
-The published release image fixes the licence check on. A build from source for
-noncommercial development (`pnpm dev`, or
-`docker build --build-arg RENDERWELD_EDITION=dev .`) can set
-`RENDERWELD_LICENCE_MODE=off`. Commercial use always needs a Commercial key.
+A build from source needs a licence key, like the image. Commercial use always
+needs a Commercial key.

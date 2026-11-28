@@ -2,7 +2,7 @@
 # RenderWeld: REST + MCP server with every engine, FFmpeg and Chrome Headless Shell.
 #
 #   docker build -t reelforge-studio .                                 # release image (the default target)
-#   docker build --build-arg RENDERWELD_EDITION=dev -t reelforge-studio:dev .   # same image, licence settings not fixed
+#   Development builds: see docs/DEVELOPMENT.md.
 #   docker build --target dev -t reelforge-studio:src .                # whole repo + dev dependencies (tests, pnpm dev)
 #
 #   docker run -p 127.0.0.1:4321:4321 -v reelforge-data:/data \
@@ -112,9 +112,10 @@ FROM deps AS build
 COPY tsconfig.base.json tsconfig.json ./
 COPY apps ./apps
 COPY packages ./packages
-# Remotion (Webpack) and Motion Canvas (Vite) browser bundles, built once here so a
-# container never runs a bundler (apps/server/src/prebuild.ts).
-RUN pnpm prebuild:engines
+# The Motion Canvas (Vite) browser bundle, built once here so a container never runs a
+# bundler (apps/server/src/prebuild.ts). No Remotion: the image ships none, and customers
+# with their own Remotion licence build the add-on in deployment/remotion on top (#783).
+RUN pnpm exec tsx apps/server/src/prebuild.ts motion-canvas
 # The web dashboard (D-115): static files in apps/dashboard/dist, served at /dashboard
 # when dashboard.enabled is on. Only dist/ goes into the runtime tree.
 RUN pnpm --filter @renderweld/dashboard build
@@ -140,8 +141,9 @@ EXPOSE 4321
 CMD ["pnpm", "dev"]
 
 # ---- prod-deps: production dependencies only, pruned --------------------------------------
-# @remotion/bundler, Vite and the Motion Canvas build plugins are devDependencies
-# (only `build` uses them). Source maps, type declarations and changelogs go.
+# Vite and the Motion Canvas build plugins are devDependencies (only `build` uses them),
+# and so is all of Remotion: `chrome` uses it to fetch Chrome Headless Shell and the
+# release image carries none of it (#783). Source maps, type declarations and changelogs go.
 FROM deps AS prod-deps
 WORKDIR /prod
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -175,7 +177,9 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack 
 COPY --from=chrome /opt/chrome-headless-shell /opt/chrome-headless-shell
 COPY --from=prod-deps /prod /app
 COPY --from=build /out /app
-COPY LICENSE.md NOTICE /app/
+# The licences a buyer gets (PolyForm Noncommercial or the Commercial licence), the trademark
+# policy and the plain-language guide to both ship next to the code (#779).
+COPY LICENSE.md NOTICE COMMERCIAL-LICENSE.md TRADEMARK.md LICENSING.md /app/
 COPY LICENSES /app/LICENSES
 # `docker exec <container> renderweld keys create --name agent`, `renderweld migrate`, `renderweld licence status`.
 RUN ln -s /opt/chrome-headless-shell/chrome-headless-shell /usr/local/bin/chrome-headless-shell \
@@ -215,9 +219,9 @@ RUN set -e; \
 LABEL org.opencontainers.image.title="RenderWeld" \
       org.opencontainers.image.description="Self-hosted video rendering for AI agents (REST + MCP)" \
       org.opencontainers.image.url="https://renderweld.com" \
-      org.opencontainers.image.vendor="RenderWeld" \
+      org.opencontainers.image.vendor="Jagodana LLC" \
       org.opencontainers.image.source="https://github.com/buildbase-app/reelforge-studio" \
-      org.opencontainers.image.licenses="LicenseRef-PolyForm-Noncommercial-1.0.0" \
+      org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0 OR LicenseRef-RenderWeld-Commercial" \
       org.opencontainers.image.version="${RENDERWELD_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       app.renderweld.edition="${RENDERWELD_EDITION}"

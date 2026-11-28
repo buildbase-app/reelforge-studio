@@ -9,7 +9,7 @@
  * Names carry the first 12 hex digits of each file's sha256, so they can be
  * cached forever (`Cache-Control: public, max-age=31536000, immutable`).
  * <out>/web/media.json lists every file with its R2 key, size and hash.
- * Budgets (docs/research/SITE_PLAN.md B.6): 800 KB for a card clip up to 15 s,
+ * Budgets (site plan B.6): 800 KB for a card clip up to 15 s,
  * scaled with length above that (capped at 1.2 MB), 1.5 MB for featured
  * (hero) reels.
  */

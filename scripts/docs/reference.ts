@@ -5,7 +5,7 @@
  *   docs/public/mcp/tools.md          from TOOLS (apps/server/src/mcp.ts)
  *   docs/public/api/endpoints.md      from REST_ROUTES (apps/server/src/routes.ts)
  *   docs/public/manifest/templates.md from TEMPLATES (packages/project-schema)
- *   README.md, docs/STATUS.md, docs/AGENT_PLATFORM.md: only the MCP tool count
+ *   README.md, docs/AGENT_PLATFORM.md: only the MCP tool count
  *     between `<!-- mcp-tool-count -->` and `<!-- /mcp-tool-count -->`
  *
  *   pnpm docs:reference           write the files
@@ -317,7 +317,7 @@ export function renderTemplatesDoc(): string {
 export const TOOL_COUNT_MARKER = /<!-- mcp-tool-count -->[^<]*<!-- \/mcp-tool-count -->/g;
 
 /** Hand-written docs that state the tool count; each must hold at least one marker. */
-export const TOOL_COUNT_FILES = ['README.md', 'docs/STATUS.md', 'docs/AGENT_PLATFORM.md'];
+export const TOOL_COUNT_FILES = ['README.md', 'docs/AGENT_PLATFORM.md'];
 
 /** `text` with every tool-count marker set to the number of registered tools. */
 export function withToolCount(text: string, path = 'the file'): string {

@@ -67,21 +67,21 @@ curl -s http://127.0.0.1:4321/healthz
 ## 3. Create your first API keys
 
 ```bash
-docker compose exec renderweld renderweld keys create --name admin --scopes admin
+docker compose exec renderweld renderweld keys create --name owner --scopes owner
 docker compose exec renderweld renderweld keys create --name agent --scopes read,write,render
 ```
 
-Each command prints an `rf_...` key **once**. The `admin` key manages the
-server (licence, keys, configuration); give your agent the `agent` key, which can
-create projects and render but not change the server. The running server picks
+Each command prints an `rf_...` key **once**. The `owner` key manages the
+server (licence, keys, configuration); keep it to yourself. Give your agent the
+`agent` key, which can create projects and render but not change the server. The running server picks
 up new keys without a restart.
 
 ## 4. Activate your licence
 
 ```bash
-export ADMIN_KEY=rf_...        # the admin key from step 3
+export OWNER_KEY=rf_...        # the owner key from step 3
 curl -s -X POST http://127.0.0.1:4321/v1/licence \
-  -H "Authorization: Bearer $ADMIN_KEY" -H 'content-type: application/json' \
+  -H "Authorization: Bearer $OWNER_KEY" -H 'content-type: application/json' \
   -d '{"key":"YOUR-LICENCE-KEY"}'
 ```
 

@@ -37,10 +37,10 @@ cd reelforge-studio
 echo "RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)" >> .env   # keep a copy
 docker compose up -d --build
 docker compose ps                                                 # renderweld ... (healthy)
-docker compose exec renderweld renderweld keys create --name admin --scopes admin
+docker compose exec renderweld renderweld keys create --name owner --scopes owner
 ```
 
-Instead of the CLI you can set the first admin key before the first start:
+Instead of the CLI you can set the first owner key before the first start:
 `echo "RENDERWELD_BOOTSTRAP_KEY=rf_$(openssl rand -hex 24)" >> .env`. It is stored
 hashed when no key exists yet.
 
@@ -59,7 +59,7 @@ docker run -d --name reelforge -p 127.0.0.1:4321:4321 --shm-size=1g \
   -e RENDERWELD_SECRET_KEY="$(openssl rand -base64 32)" \
   -v reelforge-data:/data \
   reelforge-studio
-docker exec reelforge renderweld keys create --name admin --scopes admin
+docker exec reelforge renderweld keys create --name owner --scopes owner
 ```
 
 The container does not start without `RENDERWELD_SECRET_KEY`. Keep the value you pass: start the container with the

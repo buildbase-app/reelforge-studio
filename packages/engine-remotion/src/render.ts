@@ -3,19 +3,19 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer';
 import { PipelineError } from '@renderweld/media-pipeline';
-import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, type AssetServer, type ResolvedAsset } from '@renderweld/core';
+import { publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, type AssetServer, type ResolvedAsset } from '@renderweld/core';
 import type { Tools } from '@renderweld/media-pipeline';
+import { findRemotion, loadBundler, loadRenderer, type RemotionInstall } from './load';
 import { BUILTIN_THEMES, TEMPLATES, domThemeCss, fpsRational, fpsValue, framesToSeconds, layoutSceneDom, layoutSceneProps, mediaKey, mediaUrlAt, type OutputSettings, type RenderScene, type SceneMedia, type ThemeTokens } from '@renderweld/project-schema';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const compositionsDir = resolve(here, '../compositions');
 const entryPoint = join(compositionsDir, 'Root.tsx');
 /**
- * Bundle built at image build time (`apps/server/src/prebuild.ts`). Used when its
- * source hash matches, so a production container never runs Webpack and needs
- * no writable bundle directory.
+ * Bundle built by `apps/server/src/prebuild.ts remotion`: in the customer's Remotion add-on image
+ * (deployment/remotion/Dockerfile), or locally. Used when its source hash matches, so a production
+ * container never runs Webpack and needs no writable bundle directory. The official image has none (#783).
  */
 export const PREBUILT_REMOTION_DIR = resolve(here, '../.prebuilt/remotion');
 
@@ -53,6 +53,10 @@ export interface RemotionRenderOptions {
   /** Scratch directory (staged assets). Default: next to `out`. */
   workDir?: string;
   log?: (line: string) => void;
+  /** Where Remotion is installed (load.ts); default: the development checkout. */
+  install?: RemotionInstall;
+  /** The customer's Remotion licence key (engines.remotion.licenseKey), passed to renderMedia. */
+  licenseKey?: string;
 }
 
 export interface RemotionRenderResult {
@@ -63,13 +67,20 @@ export interface RemotionRenderResult {
   millis: number;
 }
 
-export function remotionVersion(): string {
-  return packageVersion('remotion', import.meta.url);
+/** The installed Remotion version: the customer's install at RENDERWELD_REMOTION_HOME, else the development checkout. */
+export function remotionVersion(install: RemotionInstall | null = findRemotion(process.env.RENDERWELD_REMOTION_HOME, true)): string {
+  return install?.version ?? 'not installed';
 }
 
-function sourceHash(): string {
+function requireInstall(install: RemotionInstall | undefined): RemotionInstall {
+  const found = install ?? findRemotion(process.env.RENDERWELD_REMOTION_HOME, true);
+  if (!found) throw new Error('Remotion is not installed (see docs/public/install/remotion.md)');
+  return found;
+}
+
+function sourceHash(install: RemotionInstall): string {
   const h = createHash('sha256');
-  h.update(remotionVersion());
+  h.update(install.version);
   const walk = (dir: string) => {
     for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const full = join(dir, e.name);
@@ -91,24 +102,25 @@ function sourceHash(): string {
 /**
  * The compositions bundled with Remotion's Webpack setup: the pre-built bundle
  * when it matches the sources, otherwise one built into cacheDir (cached by
- * source hash). `@remotion/bundler` (Webpack) is loaded only to build.
+ * source hash). `@remotion/bundler` (Webpack) is loaded from the same Remotion
+ * install, and only to build; it resolves `react` and `remotion` from there too.
  */
-export async function bundleCompositions(cacheDir: string, force = false): Promise<string> {
-  const hash = sourceHash();
+export async function bundleCompositions(cacheDir: string, install: RemotionInstall = requireInstall(undefined), force = false): Promise<string> {
+  const hash = sourceHash(install);
   if (!force && stampMatches(PREBUILT_REMOTION_DIR, hash)) return PREBUILT_REMOTION_DIR;
   const outDir = join(resolve(cacheDir), 'remotion');
   if (!force && stampMatches(outDir, hash)) return outDir;
   // Built next to outDir and renamed into place: another server process may be rendering from outDir right now.
-  return publishDirAtomically(outDir, hash, async (dir) => void (await buildCompositions(dir, hash)), { force });
+  return publishDirAtomically(outDir, hash, async (dir) => void (await buildCompositions(install, dir, hash)), { force });
 }
 
-/** Pre-build the bundle next to the package (image build time). Returns its directory. */
-export async function prebuildCompositions(): Promise<string> {
-  return buildCompositions(PREBUILT_REMOTION_DIR, sourceHash(), { sourceMaps: false });
+/** Pre-build the bundle next to the package (the Remotion add-on image, or locally). Returns its directory. */
+export async function prebuildCompositions(install: RemotionInstall = requireInstall(undefined)): Promise<string> {
+  return buildCompositions(install, PREBUILT_REMOTION_DIR, sourceHash(install), { sourceMaps: false });
 }
 
-async function buildCompositions(outDir: string, hash: string, opts: { sourceMaps?: boolean } = {}): Promise<string> {
-  const { bundle } = await import('@remotion/bundler');
+async function buildCompositions(install: RemotionInstall, outDir: string, hash: string, opts: { sourceMaps?: boolean } = {}): Promise<string> {
+  const { bundle } = await loadBundler(install);
   await bundle({
     entryPoint,
     outDir,
@@ -220,13 +232,21 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
     },
   };
 
-  const { cancelSignal, cancel } = makeCancelSignal();
+  let install: RemotionInstall;
+  let remotion: Awaited<ReturnType<typeof loadRenderer>>;
+  try {
+    install = requireInstall(opts.install);
+    remotion = await loadRenderer(install);
+  } catch (e) {
+    throw new PipelineError(stage, (e as Error).message);
+  }
+  const { cancelSignal, cancel } = remotion.makeCancelSignal();
   const onAbort = () => cancel();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
 
   try {
-    const serveUrl = await bundleCompositions(opts.cacheDir, opts.rebuild);
-    const composition = await selectComposition({
+    const serveUrl = await bundleCompositions(opts.cacheDir, install, opts.rebuild);
+    const composition = await remotion.selectComposition({
       serveUrl,
       id: scene.template!,
       inputProps,
@@ -242,7 +262,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
       throw new PipelineError(stage, 'composition metadata does not match the manifest');
     }
 
-    await renderMedia({
+    await remotion.renderMedia({
       serveUrl,
       composition,
       inputProps,
@@ -257,6 +277,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
       chromiumOptions: { gl: 'swangle' },
       cancelSignal,
       logLevel: 'error',
+      ...(opts.licenseKey ? { licenseKey: opts.licenseKey } : {}),
       ...(range ? { frameRange: [range[0], range[1]] as [number, number] } : {}),
       onProgress: ({ renderedFrames }) => opts.onProgress?.(renderedFrames, frames),
     });
@@ -265,7 +286,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
       out: opts.out,
       frames,
       engine: 'remotion',
-      engineVersion: remotionVersion(),
+      engineVersion: install.version,
       millis: Date.now() - started,
     };
   } catch (e) {

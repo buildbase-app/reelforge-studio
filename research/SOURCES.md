@@ -356,7 +356,7 @@ implementation or licensing decisions.
     pricing; PgBouncer features, Prisma 7 connection pool, node-postgres pool, RDS Proxy; SQS
     quotas, BullMQ, NATS JetStream, Azure Service Bus locks; gocardless/queue-shootout;
     FFmpeg concat demuxer; BuildBase rate limits and licence keys. Full list with URLs and
-    what each was used for: docs/research/RENDER_SCALE.md §13.
+    what each was used for: an internal research note.
 41. **Kubernetes + KEDA recipe and kind e2e** (read 2026-11-22, issue #153, D-101): KEDA 2.21
     docs from the keda-docs repository (keda.sh itself was not reachable from the sandbox):
     PostgreSQL scaler (`query`, `targetQueryValue`, `activationTargetQueryValue`, auth parameter
@@ -440,7 +440,7 @@ implementation or licensing decisions.
     `sha256:319f54e6...`), not against AWS.
 
 - **Affiliate and creator selling research (2026-11-23, epic #216).** Sources, each with the
-  date read, are listed in `docs/research/AFFILIATE_AND_SELLING.md` §12: BuildBase docs
+  date read, are listed in an internal research note: BuildBase docs
   (affiliates, selling, storefront guide, orders, items, item types, coupons, consent,
   blueprints), Stripe Connect pricing and controller properties, Stripe Tax and Billing pricing,
   Stripe 1099 docs, IRS 1099-K FAQ, EU VAT Art. 9a Reg. 282/2011, DAC7, DSA Art. 29, EDPB
@@ -589,7 +589,7 @@ implementation or licensing decisions.
   VERIFY.
 ## Platforms and changelogs review (2026-11-24, epic #285 track C)
 
-Read on **2026-11-24** for `docs/research/PLATFORMS-2026-11.md`. Dates in brackets are the
+Read on **2026-11-24** for an internal platforms research note. Dates in brackets are the
 vendor's own entry dates. **(secondary)** marks claims found only in third-party articles.
 Re-check before relying on any price, limit or date.
 
@@ -710,7 +710,7 @@ Re-check before relying on any price, limit or date.
   behaviour, marked VERIFY in the guides): DigitalOcean App Platform and Spaces, Railway, GKE
   Autopilot's node-file restrictions, Container Apps' seccomp and `/dev/shm`, Azure user delegation
   key scope, the ADOT and Google Cloud collector exporter names.
-- **OpenMotion comparison (2026-11-24, epic #285, docs/research/OPENMOTION-COMPARISON-2026-11.md).**
+- **OpenMotion comparison (2026-11-24, epic #285, internal note).**
   nexu-io/openmotion read at commit `543c5002f6eebea04744927073e3e7bb873e541c` from a shallow clone
   (https://github.com/nexu-io/openmotion, Apache-2.0; nothing run). Read: README, LICENSE, CHANGELOG,
   `docs/hyperframes.md`, `docs/mcp-phase1-tools.md`, `docs/motion-md.md`, `docs/motion-package-spec.md`,

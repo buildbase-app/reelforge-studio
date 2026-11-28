@@ -61,6 +61,12 @@ jobs:
           n=$(echo "$files" | grep -Evc '^(docs/|research/)|\.md$' || true)
           if [ "${n:-0}" -gt 0 ]; then code=true; else code=false; fi
           echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+      - name: Release guards (no internal plans, licence switch, test cards or old names in customer docs)
+        # Runs on docs-only changes too: most of what it catches is docs.
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        run: |
+          node --test scripts/guards/*.test.mjs
+          node scripts/guards/release-guards.mjs
 
   # ---------------------------------------------------------------- FAST tier
   test:
@@ -117,6 +123,13 @@ jobs:
       - name: Unit tests (schema, core, db, media pipeline, engines)
         if: matrix.suite == 'unit'
         run: pnpm -r --filter '!@renderweld/server' run test
+      - name: Customer download (renderweld.zip) builds and its compose file is valid
+        if: matrix.suite == 'unit'
+        run: |
+          pnpm test:release
+          node scripts/release/customer-bundle.mjs --image ghcr.io/buildbase-app/renderweld --version 0.0.0 --out "$RUNNER_TEMP/bundle"
+          mkdir -p "$RUNNER_TEMP/bundle/check" && cd "$RUNNER_TEMP/bundle/check" && unzip -q ../renderweld.zip
+          RENDERWELD_SECRET_KEY=check docker compose -f docker-compose.yml config -q
       - name: Server tests + MCP and REST end-to-end on SQLite (real server process, all engines)
         if: matrix.suite == 'server'
         run: pnpm --filter @renderweld/server run test
@@ -217,7 +230,8 @@ jobs:
 
   image:
     # The release image (Dockerfile default target), built natively per architecture:
-    # contents and secrets checks, Trivy (fixable HIGH/CRITICAL fail), CycloneDX SBOM,
+    # contents and secrets checks, the Remotion add-on (built and checked, never published),
+    # Trivy (fixable HIGH/CRITICAL fail), CycloneDX SBOM,
     # and the Docker e2e with the hardened run flags (release edition with the mock
     # licence server baked in; the published image differs in one layer, compared by
     # run.sh). amd64 runs the e2e on SQLite, PostgreSQL and MySQL; arm64 on SQLite.
@@ -268,6 +282,15 @@ jobs:
         run: scripts/image/check-contents.sh reelforge-studio:release
       - name: No secrets in layers, config or files
         run: scripts/image/check-secrets.sh reelforge-studio:release
+      - name: Remotion add-on on top of the release image (built, checked, never published or rendered)
+        # The release image ships no Remotion (#783); customers with their own Remotion licence build
+        # deployment/remotion/Dockerfile on top. Built with Docker's own builder, which sees the image
+        # loaded above. The check renders nothing and has no network, so nothing reaches remotion.pro.
+        run: |
+          docker buildx build --builder default -f deployment/remotion/Dockerfile \
+            --build-arg RENDERWELD_IMAGE=reelforge-studio:release -t reelforge-studio:remotion deployment/remotion
+          scripts/image/check-remotion-addon.sh reelforge-studio:remotion
+          docker image rm reelforge-studio:remotion
       - name: Cache the Trivy database
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -377,6 +400,31 @@ jobs:
           cosign sign --yes "$REF"
           cosign attest --yes --type cyclonedx --predicate sbom-amd64.cdx.json "$REF"
           echo "signed $REF" >> "$GITHUB_STEP_SUMMARY"
+
+  customer-bundle:
+    # v* tags only: renderweld.zip (docker-compose.yml pinned to this version,
+    # chrome.json, .env.example) attached to a DRAFT release. A maintainer checks
+    # it and publishes the release; nothing here makes it public.
+    needs: publish
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build renderweld.zip
+        run: |
+          node --test scripts/release/*.test.mjs
+          node scripts/release/customer-bundle.mjs --image "ghcr.io/${GITHUB_REPOSITORY,,}" --version "$GITHUB_REF_NAME" --out dist
+          mkdir -p dist/check && cd dist/check && unzip -q ../renderweld.zip
+          RENDERWELD_SECRET_KEY=check docker compose -f docker-compose.yml config -q
+      - name: Attach it to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "RenderWeld $GITHUB_REF_NAME" --notes "Customer download: renderweld.zip"
+          gh release upload "$GITHUB_REF_NAME" dist/renderweld.zip --clobber
 
   required:
     # The one CI check branch protection requires (#62): green when every job
