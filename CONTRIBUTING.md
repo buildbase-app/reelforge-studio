@@ -130,7 +130,8 @@ name "ReelForge" and its logo are not licensed (see [TRADEMARK.md](TRADEMARK.md)
 ## 7. Development
 
 Read [AGENTS.md](AGENTS.md) ("Working in this repo") for the layout and
-conventions, and [docs/STATUS.md](docs/STATUS.md) for where things stand.
+conventions, and [docs/AGENT_PLATFORM.md](docs/AGENT_PLATFORM.md) (its STATUS
+table) for where things stand.
 
 ```bash
 pnpm install
@@ -141,6 +142,11 @@ e2e/docker/run.sh                                           # Docker end-to-end 
 
 `pnpm dev` runs the server locally with the licence check off; that is for
 noncommercial development only (see LICENSING.md).
+
+The official image ships no Remotion (D-143). Development and CI use the
+workspace copy of Remotion for testing; nothing we publish may contain it. CI
+builds the customer's Remotion add-on (`deployment/remotion/Dockerfile`) only
+as a test (`scripts/image/check-remotion-addon.sh`) and never publishes it.
 
 ## 8. What happens to a non-compliant PR
 

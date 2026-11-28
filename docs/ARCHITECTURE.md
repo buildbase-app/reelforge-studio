@@ -7,7 +7,7 @@ server offering REST `/v1` and MCP `/mcp` over one service, where the agent
 plans the scenes and the server validates, renders with four engine plugins
 (Remotion, Motion Canvas, HTML, HyperFrames), assembles with FFmpeg and checks
 the output; no built-in planner and no web UI in v0.1. Where things stand:
-[STATUS.md](STATUS.md). Code layout: AGENTS.md, "Working in this repo".
+the STATUS table of [AGENT_PLATFORM.md](AGENT_PLATFORM.md). Code layout: AGENTS.md, "Working in this repo".
 
 ## 1. High-level flow
 
@@ -130,7 +130,6 @@ reelforge-studio/
 │   └── ROADMAP.md
 ├── research/
 │   ├── RESEARCH_FINDINGS.md
-│   ├── LICENSING_AND_COSTS.md
 │   └── SOURCES.md
 ├── apps/
 │   └── web/                    # local-first UI

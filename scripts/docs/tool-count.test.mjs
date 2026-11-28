@@ -3,7 +3,7 @@
 //
 // docs/public/mcp/tools.md is generated from the server's tool registry
 // (`pnpm docs:reference`, checked by apps/server/test/docs-reference.test.ts).
-// README.md, docs/STATUS.md and docs/AGENT_PLATFORM.md state the count only
+// README.md and docs/AGENT_PLATFORM.md state the count only
 // between `<!-- mcp-tool-count -->` markers, which `pnpm docs:reference` fills
 // in. This test fails when a marker drifts from the reference or when a count
 // is typed by hand outside a marker.
@@ -17,7 +17,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
 /** Keep in step with TOOL_COUNT_FILES in scripts/docs/reference.ts. */
-const FILES = ['README.md', 'docs/STATUS.md', 'docs/AGENT_PLATFORM.md'];
+const FILES = ['README.md', 'docs/AGENT_PLATFORM.md'];
 const MARKER = /<!-- mcp-tool-count -->([^<]*)<!-- \/mcp-tool-count -->/g;
 /** Ways a total was typed by hand before ("46 MCP tools", "51 tools in total", "All 24 + 22 extras"); not section numbers ("§7 MCP tools"). */
 const HAND_TYPED = /(?<!§)\b\d+ MCP tools\b|\b\d+ tools in total\b|\b\d+ \+ \d+ extras\b/g;
