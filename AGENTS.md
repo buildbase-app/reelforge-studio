@@ -44,8 +44,8 @@ those problems coming back. The `Release guards` CI step enforces the first
 three (`pnpm test:guards` runs it locally).
 
 10. **No internal plans in this repo.** No launch drafts, outreach or DM
-    templates, research notes, competitor analysis, costs, prospects, status
-    or decision logs. They belong in the private internal repo. This repo is
+    templates, research notes, competitor analysis, costs, prospects or status
+    records. They belong in the private internal repo. This repo is
     public.
 11. **Customer docs (`docs/public/`, `README.md`) are for buyers.** No
     development-only licence switch, no test card numbers or test-store

@@ -7,7 +7,7 @@
         "^docs/launch/",
         "^docs/research/",
         "^research/[^/]+\\.md$",
-        "(^|/)(COMPETITIVE_ANALYSIS|LICENSING_AND_COSTS|BRAND_AND_PRODUCTION|REELFORGE_PLAN|SITE_PLAN|STATUS|DECISIONS|UTM)\\.md$",
+        "(^|/)(COMPETITIVE_ANALYSIS|LICENSING_AND_COSTS|BRAND_AND_PRODUCTION|REELFORGE_PLAN|SITE_PLAN|STATUS|UTM)\\.md$",
         "(^|/)[^/]*([Oo]utbound|[Pp]rospect|[Oo]utreach|[Gg]o-?[Nn]o-?[Gg]o|[Ww]aitlist-email)[^/]*\\.md$"
       ]
     },
