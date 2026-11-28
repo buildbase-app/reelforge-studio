@@ -17,6 +17,8 @@ Branch: `<type>/<short-description>` (or `claude/…`, `codex/…` for AI agents
 
 Closes #
 
+Plan ID (Milestone 1 work only, for example `Content V1`): 
+
 ## How was this tested
 
 <!-- Commands you ran and what you saw. Screenshots or a short video for UI changes. -->
