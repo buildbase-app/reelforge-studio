@@ -147,7 +147,7 @@ studio has no BuildBase SDK dependency; it calls BuildBase's HTTP API:
   `pnpm gallery publish` stores one record per demo reel in the `gallery`
   collection (`scripts/gallery/src/publish.ts`).
 - **[Blueprints](https://docs.buildbase.app/blueprints/overview)**: the
-  console setup page (`docs/public/install/buildbase-console-setup.md`) is
+  console setup page (`out/console/buildbase-console-setup.md`, not committed) is
   built from blueprint exports by `pnpm capture`
   (`scripts/capture/steps/console.mjs`).
 

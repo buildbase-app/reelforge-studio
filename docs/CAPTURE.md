@@ -10,7 +10,7 @@ four published pages:
 | [docs/public/screenshots/store.md](public/screenshots/store.md) | Every store page at 390 and 1440 px, light and dark (test site), signed-in flows and pages, production for comparison |
 | [docs/public/screenshots/studio.md](public/screenshots/studio.md) | Terminal sessions (API key, server start, `claude mcp add`, `/readyz`, `/metrics`, a render with progress), template contact sheets, the agent-session replay |
 | [docs/public/walkthroughs.md](public/walkthroughs.md) | The walkthrough videos with their steps and what each proves |
-| [docs/public/install/buildbase-console-setup.md](public/install/buildbase-console-setup.md) | The BuildBase configuration as code, secrets redacted; screens to photograph by hand: [CONSOLE_SCREENSHOTS.md](CONSOLE_SCREENSHOTS.md) |
+| `out/console/buildbase-console-setup.md` (not committed) | The BuildBase configuration as code, secrets redacted; screens to photograph by hand: [CONSOLE_SCREENSHOTS.md](CONSOLE_SCREENSHOTS.md) |
 
 The pages are generated from `scripts/capture/assets.json` (and the console
 page from the environment's configuration): do not edit them, run the capture.
@@ -25,7 +25,7 @@ pnpm capture --dry-run                                 # the plan; nothing captu
 pnpm capture --only pages --upload                     # store pages on both sites, then upload
 pnpm capture --only flows,videos --store-dir ../reelforge-selling-public-site --reel final.mp4 --upload
 pnpm capture --only studio --upload                    # local studio from this checkout
-pnpm capture --only console                            # docs/public/install/buildbase-console-setup.md
+pnpm capture --only console                            # out/console/buildbase-console-setup.md
 pnpm docs:sync --env fsyqdskf                          # publish the pages to BuildBase Docs (docs/DOCS_PUBLISHING.md)
 ```
 
