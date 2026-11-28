@@ -36,6 +36,28 @@ apply to this project's own agents and to anyone else's. Full rules:
    one purpose; split larger work into several PRs on the same issue.
 9. **Commit attribution:** keep your tool's `Co-Authored-By:` trailer.
 
+### Release rules (until the first licence is sold, then kept)
+
+Milestone 1 ("first licence release") lists everything that must be fixed
+before the first licence sale; its tracking issue is #530. These rules stop
+those problems coming back. The `Release guards` CI step enforces the first
+three (`pnpm test:guards` runs it locally).
+
+10. **No internal plans in this repo.** No launch drafts, outreach or DM
+    templates, research notes, competitor analysis, costs, prospects, status
+    or decision logs. They belong in the private internal repo. This repo is
+    public.
+11. **Customer docs (`docs/public/`, `README.md`) are for buyers.** No
+    development-only licence switch, no test card numbers or test-store
+    addresses, and the RenderWeld name with `RENDERWELD_` settings only.
+12. **No licence, terms, refund or privacy wording goes live** until the
+    lawyer has signed it off. Build the code; keep the wording on a branch.
+13. **No real licence key, Remotion key or secret** in the code, docs, tests,
+    examples or a default setting. Use obvious placeholders.
+14. **Release work names its plan item.** Milestone 1 issues start with
+    `[M1] <plan ID>`; say the plan ID in the pull request. An item labelled
+    `blocked-on-owner` may be prepared on a branch, never merged early.
+
 ## 1. Read the product documents
 
 Before implementation, read: - `docs/PRODUCT_BRIEF.md` -

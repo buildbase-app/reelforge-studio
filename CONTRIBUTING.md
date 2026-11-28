@@ -17,6 +17,13 @@ a checklist you must follow on every task.
   issue forms (bug report, feature request, or task). For features, wait until
   a maintainer agrees on the approach (label `status: accepted` or a comment)
   before writing code. This saves your time.
+- **No plans, costs, prospects or launch drafts in this repo.** It is public.
+  Internal planning lives in a private repo. Customer docs (`docs/public/`,
+  `README.md`) never show the development-only licence switch, test card
+  numbers or the old ReelForge name. CI's release guards check this.
+- **Release work:** issues in the "Milestone 1: first licence release"
+  milestone (tracking issue #530) carry a plan ID like `[M1] Content V1`.
+  Name it in your pull request.
 - Be kind. We follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## 2. Branches

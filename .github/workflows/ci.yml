@@ -61,6 +61,12 @@ jobs:
           n=$(echo "$files" | grep -Evc '^(docs/|research/)|\.md$' || true)
           if [ "${n:-0}" -gt 0 ]; then code=true; else code=false; fi
           echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+      - name: Release guards (no internal plans, licence switch, test cards or old names in customer docs)
+        # Runs on docs-only changes too: most of what it catches is docs.
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        run: |
+          node --test scripts/guards/*.test.mjs
+          node scripts/guards/release-guards.mjs
 
   # ---------------------------------------------------------------- FAST tier
   test:
