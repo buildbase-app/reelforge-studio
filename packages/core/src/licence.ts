@@ -394,7 +394,7 @@ function explain(reason: string, ctx: { host: string; graceDays: number; lastSuc
       return { message: 'The licence is not valid yet (its start date is in the future).', fix: 'Wait until the start date, or contact RenderWeld support.' };
     case 'limit_reached':
       return {
-        message: 'The licence key is already active on as many servers as it allows.',
+        message: 'The licence key is already active on as many deployments as it allows.',
         fix: `Free an activation: run deactivate_licence (DELETE /v1/licence, \`renderweld licence deactivate\`) on the server that holds it, or release it in your store account; then activate again here with ${ACTIVATE_HOW}.`,
       };
     case 'not_activated':
