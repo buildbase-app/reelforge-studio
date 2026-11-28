@@ -57,9 +57,13 @@ describe.each(targets)('overload protection contract: $name', ({ kind }) => {
     await db?.close();
     await testDb?.drop();
   });
+  // Cancels what the case before left queued: after PRI-12 that is over 1,100 jobs, and one at a time took longer than
+  // vitest's 10 s hook timeout on MySQL under load (#267). In parallel batches, like `insert`, with the case timeout.
   beforeEach(async () => {
-    for (const j of await repos.jobs.listUnfinished()) await repos.jobs.transition({ ...j, status: 'cancelled', finishedAt: iso(NOW) }, iso(NOW));
-  });
+    const unfinished = await repos.jobs.listUnfinished();
+    for (let i = 0; i < unfinished.length; i += 50)
+      await Promise.all(unfinished.slice(i, i + 50).map((j) => repos.jobs.transition({ ...j, status: 'cancelled', finishedAt: iso(NOW) }, iso(NOW))));
+  }, 60_000);
 
   const insert = async (jobs: JobRecord[]) => {
     for (let i = 0; i < jobs.length; i += 50) await Promise.all(jobs.slice(i, i + 50).map((j) => repos.jobs.insert(j, j.createdAt)));
