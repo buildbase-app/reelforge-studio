@@ -250,6 +250,10 @@ export function createApp(deps: AppDeps) {
   });
   app.notFound((c) => c.json(errorBody('not_found', `no route for ${c.req.method} ${c.req.path}`), 404));
 
+  // /mcp is stateless Streamable HTTP with no server-to-client stream, so GET is 405 (the MCP spec's answer for that).
+  // An empty 200 stream made idle SDK clients reconnect about once a second, each time spending a rate-limit token
+  // (#403). Answered before telemetry, auth and rate limiting: it does no work and reveals nothing.
+  app.get('/mcp', (c) => c.json(errorBody('method_not_allowed', 'this MCP server has no GET stream; send JSON-RPC requests with POST'), 405, { Allow: 'POST' }));
   app.use('*', httpTelemetry(obs));
   app.use('*', async (c, next) => {
     // Request context for the audit log and quotas (D-055): request id, client address, user agent.
