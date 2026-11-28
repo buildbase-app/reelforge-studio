@@ -455,6 +455,7 @@ export class RenderWeldService {
     this.providerEnv = config.providerEnv ?? { ...process.env };
     this.baseEnv = { ...this.providerEnv };
     this.settings = new RuntimeConfig(this.repos, config.configSources ?? { env: { ...this.providerEnv } }, config.log);
+    for (const e of registry.listEngines()) e.useSettings?.(this.settings);
     this.storage = new StorageManager({
       factory: config.storage?.factory ?? createStorageDriver,
       settings: this.settings,

@@ -1,0 +1,41 @@
+{
+  "rules": [
+    {
+      "id": "internal-planning-file",
+      "message": "internal plans, costs, prospects, research and launch drafts don't belong in this public repo. Keep them in the private internal repo.",
+      "paths": [
+        "^docs/launch/",
+        "^docs/research/",
+        "^research/[^/]+\\.md$",
+        "(^|/)(COMPETITIVE_ANALYSIS|LICENSING_AND_COSTS|BRAND_AND_PRODUCTION|REELFORGE_PLAN|SITE_PLAN|STATUS|UTM)\\.md$",
+        "(^|/)[^/]*([Oo]utbound|[Pp]rospect|[Oo]utreach|[Gg]o-?[Nn]o-?[Gg]o|[Ww]aitlist-email)[^/]*\\.md$"
+      ]
+    },
+    {
+      "id": "licence-off-in-customer-docs",
+      "message": "the development-only licence switch must not appear in customer docs. Keep it in CONTRIBUTING.md and docs/DEVELOPMENT.md.",
+      "paths": [
+        "^docs/public/",
+        "^README\\.md$"
+      ],
+      "pattern": "LICEN[CS]E_MODE\\s*[=:]\\s*[\"'`]?off"
+    },
+    {
+      "id": "test-card-in-customer-docs",
+      "message": "test card numbers and test-store details must not appear in customer docs.",
+      "paths": [
+        "^docs/public/",
+        "^README\\.md$"
+      ],
+      "pattern": "4242[ -]?4242[ -]?4242[ -]?4242|dev\\.renderweld\\.com|reelforge-dev\\.buildbase\\.app"
+    },
+    {
+      "id": "old-name-in-customer-docs",
+      "message": "customer docs use the RenderWeld name and RENDERWELD_ settings, not ReelForge or REELFORGE_.",
+      "paths": [
+        "^docs/public/"
+      ],
+      "pattern": "ReelForge|REELFORGE_|reelforge\\.(com|app|dev)"
+    }
+  ]
+}

@@ -79,7 +79,6 @@ export function clientIp(c: Context, trustProxy: boolean): string | undefined {
   }
 }
 
-/** Strip the port and brackets from a Host header value. */
 /**
  * The base URL a request came in on, for absolute links when server.publicUrl is unset (#405): only for a Host
  * that is one of server.allowedHosts (the same check as /mcp's DNS-rebinding guard), so a forged Host never
@@ -110,6 +109,55 @@ export function requestBaseUrl(
   return parsed.origin;
 }
 
+/** The request's declared Content-Length, or 0 when absent or not a number. */
+function declaredLength(c: Context): number {
+  const n = Number(c.req.header('content-length') ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** At most this much of a refused body is read and thrown away, so the client gets to read the 413 (#404). */
+export const REFUSED_BODY_DRAIN_BYTES = 4 * 1024 * 1024;
+/** ... and for at most this long, so a slow sender cannot hold the connection. */
+export const REFUSED_BODY_DRAIN_MS = 2000;
+
+/**
+ * Refuse a body whose declared length is over a limit (#404). Answering at once and closing while the client still
+ * sends resets the connection, and most clients (Node fetch, curl, proxies) then report "other side closed" instead
+ * of the 413. So the body is read and discarded first, chunk by chunk and never stored, up to
+ * REFUSED_BODY_DRAIN_BYTES or REFUSED_BODY_DRAIN_MS; then the answer goes out with `Connection: close`.
+ */
+async function refuseDeclared(c: Context, answer: () => Response | Promise<Response>): Promise<Response> {
+  const stream = c.req.raw.body;
+  if (stream) {
+    const reader = stream.getReader();
+    const deadline = Date.now() + REFUSED_BODY_DRAIN_MS;
+    let read = 0;
+    try {
+      while (read < Math.min(declaredLength(c), REFUSED_BODY_DRAIN_BYTES)) {
+        const left = deadline - Date.now();
+        if (left <= 0) break;
+        let timer: NodeJS.Timeout | undefined;
+        const chunk = await Promise.race([
+          reader.read(),
+          new Promise<null>((resolve) => {
+            timer = setTimeout(() => resolve(null), left);
+          }),
+        ]).finally(() => clearTimeout(timer));
+        if (!chunk || chunk.done) break;
+        read += chunk.value.byteLength;
+      }
+    } catch {
+      // The client gave up; the answer below is still the right one.
+    } finally {
+      void reader.cancel().catch(() => undefined);
+    }
+  }
+  const res = await answer();
+  res.headers.set('Connection', 'close');
+  return res;
+}
+
+/** Strip the port and brackets from a Host header value. */
 export function hostName(hostHeader: string | undefined): string {
   if (!hostHeader) return '';
   const h = hostHeader.trim().toLowerCase();
@@ -384,8 +432,11 @@ export function createApp(deps: AppDeps) {
       await next();
     };
 
-  const json: MiddlewareHandler<Env> = (c, next) =>
-    bodyLimit({ maxSize: config.maxJsonBytes, onError: (c) => c.json(errorBody('too_large', `JSON body larger than ${config.maxJsonBytes} bytes`), 413) })(c, next);
+  const json: MiddlewareHandler<Env> = async (c, next) => {
+    const tooLarge = () => c.json(errorBody('too_large', `JSON body larger than ${config.maxJsonBytes} bytes`, { limit: 'limits.maxJsonBytes', max: config.maxJsonBytes }), 413);
+    if (declaredLength(c) > config.maxJsonBytes) return refuseDeclared(c, tooLarge);
+    return bodyLimit({ maxSize: config.maxJsonBytes, onError: tooLarge })(c, next);
+  };
   // Multipart uploads are never buffered (hono's bodyLimit would hold a chunked body in memory): a declared
   // Content-Length above the limit is refused at once, and the file part is streamed to a temporary file
   // that stops at limits.maxUploadBytes (D-090). Anything else (JSON {url}) gets the JSON limit.
@@ -395,7 +446,7 @@ export function createApp(deps: AppDeps) {
     const max = service.assets.limits.maxBytes;
     if (declared > max + 64 * 1024) {
       await service.recordLimitRejection('upload_too_large', { limit: 'limits.maxUploadBytes', max });
-      return c.json(errorBody('too_large', `upload larger than ${max} bytes (limits.maxUploadBytes)`, { limit: 'limits.maxUploadBytes', max }), 413);
+      return refuseDeclared(c, () => c.json(errorBody('too_large', `upload larger than ${max} bytes (limits.maxUploadBytes)`, { limit: 'limits.maxUploadBytes', max }), 413));
     }
     await next();
   };

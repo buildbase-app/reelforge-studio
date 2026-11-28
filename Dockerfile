@@ -2,7 +2,7 @@
 # RenderWeld: REST + MCP server with every engine, FFmpeg and Chrome Headless Shell.
 #
 #   docker build -t reelforge-studio .                                 # release image (the default target)
-#   docker build --build-arg RENDERWELD_EDITION=dev -t reelforge-studio:dev .   # same image, licence settings not fixed
+#   Development builds: see docs/DEVELOPMENT.md.
 #   docker build --target dev -t reelforge-studio:src .                # whole repo + dev dependencies (tests, pnpm dev)
 #
 #   docker run -p 127.0.0.1:4321:4321 -v reelforge-data:/data \
