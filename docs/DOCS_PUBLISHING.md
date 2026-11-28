@@ -97,40 +97,14 @@ repository.` when a run wrote nothing.
   but could not be placed is tagged `source-repo` and `source-archived`, so
   nothing is left anonymous; the next run continues.
 
-## CI (for the maintainers to add)
+## CI
 
-`.github/` is maintainer-only, so the workflow is described here, not added:
-
-```yaml
-# .github/workflows/docs-publish.yml (sketch)
-on:
-  push:
-    branches: [main]
-    tags: ['v*']
-    paths: ['docs/public/**', 'docs/PRIVACY.md', 'docs/CONFIG.md', 'docs/providers/**', 'scripts/docs/**']
-  workflow_dispatch:
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    concurrency: { group: docs-publish, cancel-in-progress: false }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - run: node --test scripts/docs/*.test.mjs
-      - name: Development environment
-        run: node scripts/docs/sync-buildbase.mjs --env fsyqdskf
-        env:
-          BUILDBASE_API_TOKEN: ${{ secrets.BUILDBASE_DOCS_TOKEN_DEV }}
-          BUILDBASE_ORG_ID: 6b01478bb42d2c444e99fcd8
-      - name: Production (main and tags only)
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-        run: node scripts/docs/sync-buildbase.mjs --env production
-        env:
-          BUILDBASE_API_TOKEN: ${{ secrets.BUILDBASE_DOCS_TOKEN_PROD }}
-          BUILDBASE_ORG_ID: 6b01478bb42d2c444e99fcd8
-```
+`.github/workflows/docs-publish.yml` publishes to the production environment on
+every version tag (`v*`), so the docs match the released image (#613). It can
+also be run by hand ("Run workflow"), with "dry run" on by default, which lists
+the planned changes and writes nothing; use that for the first publish. It runs
+the docs tests first and fails before changing anything when the repository
+secret `BUILDBASE_DOCS_TOKEN_PROD` is not set.
 
 The job needs no `pnpm install`: the sync is plain Node 22 with no
 dependencies. Pull requests can run `--dry-run` against the development
