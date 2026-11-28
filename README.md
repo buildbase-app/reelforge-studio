@@ -111,7 +111,7 @@ databases and running the studio next to the store site
 
 - **Remotion is not free for every company.** Free for individuals and teams of
   up to 3 people; larger companies need a paid Remotion license. Every user of
-  RenderWeld needs their own. See `research/LICENSING_AND_COSTS.md`.
+  RenderWeld needs their own. See Remotion's licence terms on remotion.dev.
 - Motion Canvas is MIT; HyperFrames is Apache-2.0. FFmpeg is LGPL/GPL
   depending on the build (we use the system FFmpeg).
 - No fonts, music or footage are bundled. Templates use system fonts.

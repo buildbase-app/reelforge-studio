@@ -698,7 +698,7 @@ checks, so a restart with the clock set back gets no grace.
 image with `off`, edit `build-info.json` in a derived image, or answer from a
 fake server behind DNS plus their own CA in `NODE_EXTRA_CA_CERTS` (answers are
 still unsigned; request drafted in
-`docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md`, not filed). TLS pinning
+an internal request, not filed). TLS pinning
 to bundled roots was not added: it would only close the last of these, while
 breaking TLS-intercepting corporate proxies. The lock makes the published
 image behave like a licensed product; the licence terms are the protection.
@@ -1411,7 +1411,7 @@ step as `build-info.json`; release code without that file, or with a dev one,
 refuses to start instead of becoming the dev edition. (4) None of this stops
 an operator who changes code or knows the secret key; the goal is that a
 bypass needs a code change. Signed BuildBase answers remain the real fix
-(docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md). (5) `security.bootstrapKey`
+(an internal request to BuildBase). (5) `security.bootstrapKey`
 needs 32+ random URL-safe characters after `rf_` (8+ distinct, 2.75+ bits per
 character; checked in the schema and in `KeyStore.bootstrap`). (6) The URL
 importer's guard also refuses `::/96`, SIIT, `64:ff9b:1::/48`, `2001::/23`
@@ -1654,7 +1654,7 @@ Founder request (2026-11-22): rendering and the CRUD path must scale on the buye
 infrastructure without limit (like Remotion Lambda / Cloud Run, or anything self-hosted),
 one organisation licence must cover any number of workers, and nothing may pause or
 overload when many videos render at once. Research, sources, provider matrix, capacity
-math and spike results: [docs/research/RENDER_SCALE.md](research/RENDER_SCALE.md). These
+math and spike results: an internal research note. These
 are proposals for the work in the "Render at any scale" epic #149; each becomes DECIDED when its
 issue lands with tests.
 
@@ -1741,7 +1741,7 @@ long renders and lets renders fit time-capped platforms (Lambda: 15 min per Remo
 
 **Status:** DECIDED (2026-11-22, issue #154; the founder asked for one organisation licence to
 scale without limit, which is the maintainer go-ahead for the licence code). Refines D-036/D-037.\
-Measured (RENDER_SCALE.md §12): 1 api + 3/19/49 workers on one database take exactly one
+Measured (render-at-scale research): 1 api + 3/19/49 workers on one database take exactly one
 BuildBase activation (one instance id per database); a second database is a second activation
 (`limit_reached` at limit 1); but every process calls the licence server at start and daily (50
 processes = 50 calls), which grows with autoscaling churn. **Model:** a deployment = the set of
@@ -3012,7 +3012,7 @@ and welds four engines, voice, music and captions into one file. No software, vi
 name (web search 2026-11-24). *Rejected:* keeping ReelForge (wrong promise once every format renders); a hand-drawn
 asset set (sizes drift; one script reproduces every file byte for byte). **Open:** the trademark search for
 "RENDERWELD" and "RENDER WELD" in classes 9 and 42 (#409, founder). Reference:
-[BRAND_AND_PRODUCTION.md](BRAND_AND_PRODUCTION.md), [brand/BRAND.md](brand/BRAND.md).
+[brand/BRAND.md](brand/BRAND.md).
 
 ### D-131 --- Public surfaces say RenderWeld; old names stay as aliases (server name, OAuth scopes, user agents, image label)
 

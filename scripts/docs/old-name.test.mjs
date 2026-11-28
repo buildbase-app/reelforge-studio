@@ -70,7 +70,7 @@ const RULES = [
 ];
 
 /** The brand rules list the wrong spellings on purpose. */
-const SPELLING_RULES = /^docs\/BRAND_AND_PRODUCTION\.md$|^docs\/brand\//;
+const SPELLING_RULES = /^docs\/brand\//;
 
 /** Every offending line of one file's text: "path:line: rule: text". */
 export function findOldNames(path, text) {
@@ -109,7 +109,7 @@ describe('the docs say RenderWeld (#415)', () => {
   });
 
   it('records keep their wording and say so at the top', () => {
-    for (const p of ['docs/DECISIONS.md', 'docs/STATUS.md', ...readdirSync(join(root, 'docs/research')).map((f) => `docs/research/${f}`)]) {
+    for (const p of ['docs/DECISIONS.md', 'docs/STATUS.md']) {
       if (!p.endsWith('.md')) continue;
       const head = read(p).split('\n').slice(0, 12).join('\n');
       assert.match(head, /ReelForge is now RenderWeld|now called RenderWeld/, `${p}: add the rename note at the top`);

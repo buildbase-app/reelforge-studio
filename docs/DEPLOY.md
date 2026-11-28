@@ -336,8 +336,7 @@ image or a build from source, not a config line. It does not stop someone who
 builds their own image, edits `build-info.json` in a derived image, patches
 the code, preloads code into Node.js (`NODE_OPTIONS=--require`), re-seals a
 forged licence state with their own `RENDERWELD_SECRET_KEY` (BuildBase's answers
-are not signed yet; the request is drafted in
-docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md), or freezes the clock while
+are not signed yet), or freezes the clock while
 the server is stopped. A fake licence server behind DNS no longer works with
 the published image: its licence calls trust only Node's built-in root
 certificates, so `NODE_EXTRA_CA_CERTS`, `NODE_TLS_REJECT_UNAUTHORIZED=0` or a

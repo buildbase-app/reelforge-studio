@@ -1,7 +1,7 @@
 # Performance: load test results
 
 Measured numbers for the scaled topology (api instances + workers + PostgreSQL), issue #151.
-They replace the estimates of [RENDER_SCALE §10](research/RENDER_SCALE.md#10-capacity-math-and-what-infinite-means)
+They replace the earlier capacity estimates
 once the dedicated run below exists.
 
 > **Read this first.** Every number on this page so far is a **lower bound, shared sandbox
@@ -263,7 +263,7 @@ listed, in its order; 7 to 10 are what the run found besides.
 5. **Progress writes:** throttled to 2/s per running job, as estimated. With ~25 renders running
    the `Job` table took **76 row writes/s** (progress, claims, finishes) and `JobEvent` 42/s:
    small next to CRUD here. At 1 000 concurrent renders that is ~2 000 writes/s
-   (RENDER_SCALE §6.2), not measured here.
+   (an estimate from the render-at-scale research), not measured here.
 6. **Connections:** direct, every worker process holds its own pool: 200 workers with
    `connection_limit=2` = **401 connections**, and the idle DB CPU above is partly the cost of
    those backends. Through PgBouncer the server side stayed at **≤ 22** with the same claim
@@ -567,7 +567,7 @@ Nothing broke [^s]. Specifically:
 | Prepared statements | Prisma 7's pg adapter (node-postgres) works with `max_prepared_statements=0` and `=200`: it does not depend on named prepared statements surviving between transactions |
 | Advisory locks | the migrator's `pg_advisory_xact_lock` (transaction-scoped) works through PgBouncer: migrations ran through it on a fresh database. The load test still migrates on the direct port, as #152 recommends |
 | `SKIP LOCKED` claims | claims are one transaction each: 2 000 queries from 20 concurrent clients (insert + claim + fenced finish) through PgBouncer, then the full (b) and (c) scenarios: every job exactly once |
-| Non-default schema (`?schema=`, sent as `options=-c search_path=...`) | **accepted by PgBouncer 1.26.1** without `ignore_startup_parameters`; migrations landed in the schema, and 200 queries from that client interleaved with 200 from a default-schema client on the same server pool each saw their own `current_schema()`. RENDER_SCALE §6.1 expected a refusal; older PgBouncer versions were not tried. Corrected by #152 (the `search_path` is not kept under concurrency), safe since #191 (every raw statement names its schema; see above) |
+| Non-default schema (`?schema=`, sent as `options=-c search_path=...`) | **accepted by PgBouncer 1.26.1** without `ignore_startup_parameters`; migrations landed in the schema, and 200 queries from that client interleaved with 200 from a default-schema client on the same server pool each saw their own `current_schema()`. The render-at-scale research expected a refusal; older PgBouncer versions were not tried. Corrected by #152 (the `search_path` is not kept under concurrency), safe since #191 (every raw statement names its schema; see above) |
 | Session features | RenderWeld uses no session `SET` or session advisory locks. `queue.dispatch: notify` (#158) uses `LISTEN` on one direct session connection per worker (`database.directUrl`): through PgBouncer 1.26.1 in transaction mode `LISTEN` is accepted but its notifications never arrive, which the worker's delivery check catches at start (NTF-04); `NOTIFY` inside the job transactions works through PgBouncer |
 | Throughput | within the noise of this box: full mix 285 vs 297 req/s, steady 681 vs 757, claims at 200 workers 187 vs 219 |
 | Connections | server side ≤ 22 (pool 20 + the sampler) against 401 direct at 200 workers; idle DB CPU at 200 workers 17 % vs 47 % |
@@ -616,7 +616,7 @@ pnpm load
 ```
 
 Suggested machine: 16+ vCPU, 64 GB RAM, local NVMe, Docker. Commit the generated `.md` tables
-into this page under a new dated heading and the `.json` next to it, and update RENDER_SCALE §10.
+into this page under a new dated heading and the `.json` next to it.
 By default the script runs everything on one host, PostgreSQL in a container. For the realistic
 production shape, PostgreSQL on its own machine (a managed database or a dedicated VM), point it at
 that server (#421). The role needs `CREATEDB`; the `rfload_*` databases are made there and dropped at

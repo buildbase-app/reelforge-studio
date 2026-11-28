@@ -234,8 +234,7 @@ licence terms), not a database edit or a configuration line.
   a setting.
 - **Not covered:** someone who patches the code, builds their own image, knows
   `RENDERWELD_SECRET_KEY` and writes a valid seal, or runs a fake licence server
-  with their own CA. BuildBase's answers are not signed yet (see
-  docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md). The licence terms are the
+  with their own CA. BuildBase's answers are not signed yet. The licence terms are the
   real protection.
 
 ## Tests

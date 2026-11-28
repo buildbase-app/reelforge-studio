@@ -130,7 +130,6 @@ reelforge-studio/
 │   └── ROADMAP.md
 ├── research/
 │   ├── RESEARCH_FINDINGS.md
-│   ├── LICENSING_AND_COSTS.md
 │   └── SOURCES.md
 ├── apps/
 │   └── web/                    # local-first UI

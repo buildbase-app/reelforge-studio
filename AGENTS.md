@@ -40,7 +40,7 @@ apply to this project's own agents and to anyone else's. Full rules:
 
 Before implementation, read: - `docs/PRODUCT_BRIEF.md` -
 `docs/DECISIONS.md` - `docs/ARCHITECTURE.md` - `docs/REQUIREMENTS.md` -
-`docs/TEST_PLAN.md` - `research/LICENSING_AND_COSTS.md`
+`docs/TEST_PLAN.md`
 
 If docs conflict, preserve explicit founder decisions and document the
 conflict rather than silently choosing.

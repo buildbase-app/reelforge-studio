@@ -1,5 +1,5 @@
 /**
- * Spike (docs/research/RENDER_SCALE.md §4): throughput of the database job queue
+ * Spike (render-at-scale research): throughput of the database job queue
  * (D-075: SELECT ... FOR UPDATE SKIP LOCKED + lease, fenced finish) with many concurrent
  * workers on ONE PostgreSQL/MySQL database. Uses the real Prisma repositories.
  *
