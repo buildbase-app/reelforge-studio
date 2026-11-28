@@ -3,10 +3,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { makeCancelSignal, renderMedia, selectComposition } from '@remotion/renderer';
 import { PipelineError } from '@renderweld/media-pipeline';
-import { packageVersion, publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, type AssetServer, type ResolvedAsset } from '@renderweld/core';
+import { publishDirAtomically, sceneAssetUses, stageSceneAssets, stampMatches, startAssetServer, type AssetServer, type ResolvedAsset } from '@renderweld/core';
 import type { Tools } from '@renderweld/media-pipeline';
+import { findRemotion, loadRenderer, type RemotionInstall } from './load';
 import { BUILTIN_THEMES, TEMPLATES, domThemeCss, fpsRational, fpsValue, framesToSeconds, layoutSceneDom, layoutSceneProps, mediaKey, mediaUrlAt, type OutputSettings, type RenderScene, type SceneMedia, type ThemeTokens } from '@renderweld/project-schema';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -53,6 +53,10 @@ export interface RemotionRenderOptions {
   /** Scratch directory (staged assets). Default: next to `out`. */
   workDir?: string;
   log?: (line: string) => void;
+  /** Where Remotion is installed (load.ts); default: the development checkout. */
+  install?: RemotionInstall;
+  /** The customer's Remotion licence key (engines.remotion.licenseKey), passed to renderMedia. */
+  licenseKey?: string;
 }
 
 export interface RemotionRenderResult {
@@ -63,8 +67,15 @@ export interface RemotionRenderResult {
   millis: number;
 }
 
-export function remotionVersion(): string {
-  return packageVersion('remotion', import.meta.url);
+/** The installed Remotion version: the customer's install at RENDERWELD_REMOTION_HOME, else the development checkout. */
+export function remotionVersion(install: RemotionInstall | null = findRemotion(process.env.RENDERWELD_REMOTION_HOME, true)): string {
+  return install?.version ?? 'not installed';
+}
+
+function requireInstall(install: RemotionInstall | undefined): RemotionInstall {
+  const found = install ?? findRemotion(process.env.RENDERWELD_REMOTION_HOME, true);
+  if (!found) throw new Error('Remotion is not installed (see docs/public/install/remotion.md)');
+  return found;
 }
 
 function sourceHash(): string {
@@ -220,13 +231,21 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
     },
   };
 
-  const { cancelSignal, cancel } = makeCancelSignal();
+  let install: RemotionInstall;
+  let remotion: Awaited<ReturnType<typeof loadRenderer>>;
+  try {
+    install = requireInstall(opts.install);
+    remotion = await loadRenderer(install);
+  } catch (e) {
+    throw new PipelineError(stage, (e as Error).message);
+  }
+  const { cancelSignal, cancel } = remotion.makeCancelSignal();
   const onAbort = () => cancel();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
 
   try {
     const serveUrl = await bundleCompositions(opts.cacheDir, opts.rebuild);
-    const composition = await selectComposition({
+    const composition = await remotion.selectComposition({
       serveUrl,
       id: scene.template!,
       inputProps,
@@ -242,7 +261,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
       throw new PipelineError(stage, 'composition metadata does not match the manifest');
     }
 
-    await renderMedia({
+    await remotion.renderMedia({
       serveUrl,
       composition,
       inputProps,
@@ -257,6 +276,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
       chromiumOptions: { gl: 'swangle' },
       cancelSignal,
       logLevel: 'error',
+      ...(opts.licenseKey ? { licenseKey: opts.licenseKey } : {}),
       ...(range ? { frameRange: [range[0], range[1]] as [number, number] } : {}),
       onProgress: ({ renderedFrames }) => opts.onProgress?.(renderedFrames, frames),
     });
@@ -265,7 +285,7 @@ export async function renderRemotionScene(opts: RemotionRenderOptions): Promise<
       out: opts.out,
       frames,
       engine: 'remotion',
-      engineVersion: remotionVersion(),
+      engineVersion: install.version,
       millis: Date.now() - started,
     };
   } catch (e) {
