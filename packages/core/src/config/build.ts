@@ -14,7 +14,8 @@ import { SETTINGS_BY_KEY } from './schema';
  *     for noncommercial development only (LICENSING.md).
  *   - `release`: the published image. The Dockerfile writes `build-info.json`
  *     next to this package and fixes the licence settings in it
- *     (`licence.mode: required`, the BuildBase `serverUrl` and `orgId`). A config
+ *     (`licence.mode: required`, the BuildBase `serverUrl` and `orgId`, and from
+ *     1.0.0 the `itemIds` sold for its major version). A config
  *     file, env variable or `update_config` that tries to change them is refused,
  *     and `get_config` shows their source as `build`.
  *
@@ -38,7 +39,16 @@ export const DEV_BUILD: BuildInfo = Object.freeze({ edition: 'dev', locked: Obje
 export const BUILD_INFO_FILE = resolve(dirname(fileURLToPath(import.meta.url)), '../../build-info.json');
 
 /** Only start-up settings of the licence group may be fixed by a build. */
-export const LOCKABLE_SETTINGS: readonly string[] = ['licence.mode', 'licence.serverUrl', 'licence.orgId'];
+export const LOCKABLE_SETTINGS: readonly string[] = ['licence.mode', 'licence.serverUrl', 'licence.orgId', 'licence.itemIds'];
+
+/** Settings every release build must fix (`licence.itemIds` only from 1.0.0, see parseBuildInfo). */
+const REQUIRED_LOCKS: readonly string[] = ['licence.mode', 'licence.serverUrl', 'licence.orgId'];
+
+/** "1.4.2", "v2.0.0-rc.1" → 1, 2; undefined when the version is not semver-like. */
+export function majorVersion(version: string | undefined): number | undefined {
+  const m = version?.trim().match(/^v?(\d+)\.\d+/);
+  return m ? Number(m[1]) : undefined;
+}
 
 const BuildInfoSchema = z
   .object({
@@ -67,8 +77,14 @@ export function parseBuildInfo(data: unknown, origin = 'build-info.json'): Build
     else locked[key] = v.data;
   }
   if (r.data.edition === 'release') {
-    for (const key of LOCKABLE_SETTINGS) if (!(key in locked)) problems.push(`a release build must fix "${key}"`);
+    for (const key of REQUIRED_LOCKS) if (!(key in locked)) problems.push(`a release build must fix "${key}"`);
     if (locked['licence.mode'] !== undefined && locked['licence.mode'] !== 'required') problems.push('a release build must fix "licence.mode" to "required"');
+    // A key covers one major version (D-142): from 1.0.0 a release image accepts only the items sold for its major version.
+    const major = majorVersion(r.data.version);
+    const items = locked['licence.itemIds'];
+    if (major !== undefined && major >= 1 && !(Array.isArray(items) && items.length > 0)) {
+      problems.push(`a release build of version ${r.data.version} must fix "licence.itemIds" to the BuildBase items sold for RenderWeld ${major} (build arg LICENCE_ITEM_IDS)`);
+    }
   }
   if (problems.length) throw new Error(`${origin}: ${problems.join('; ')}`);
   return Object.freeze({ ...r.data, locked: Object.freeze(locked) });

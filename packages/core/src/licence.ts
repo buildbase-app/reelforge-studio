@@ -8,6 +8,7 @@ import { connect as tlsConnect, rootCertificates } from 'node:tls';
 import { join } from 'node:path';
 import { ApiError } from './errors';
 import { userAgent } from './product';
+import { majorVersion } from './config/build';
 import type { RuntimeConfig } from './config/runtime';
 import type { LicenceRepository, LicenceStateRecord, Repositories } from './repositories';
 
@@ -376,7 +377,7 @@ interface Explained {
 
 const ACTIVATE_HOW = 'activate_licence (MCP), POST /v1/licence {"key": "..."} (REST) or `renderweld licence activate <key>`';
 
-function explain(reason: string, ctx: { host: string; graceDays: number; lastSuccessAt?: string; error?: string }): Explained {
+function explain(reason: string, ctx: { host: string; graceDays: number; lastSuccessAt?: string; error?: string; item?: string; version?: string }): Explained {
   switch (reason) {
     case 'no_key':
       return {
@@ -398,6 +399,13 @@ function explain(reason: string, ctx: { host: string; graceDays: number; lastSuc
       };
     case 'not_activated':
       return { message: 'This server holds no activation of the licence key.', fix: `Activate it with ${ACTIVATE_HOW}.` };
+    case 'wrong_version': {
+      const major = majorVersion(ctx.version);
+      return {
+        message: `This licence key was bought for another RenderWeld version${ctx.item ? ` (${ctx.item})` : ''}${major !== undefined ? `; this image is RenderWeld ${ctx.version} and accepts keys for RenderWeld ${major}` : ''}. A key covers one major version.`,
+        fix: `Run the RenderWeld version your key was bought for, or buy a key for this version (existing buyers may get an upgrade discount), then activate it with ${ACTIVATE_HOW}.`,
+      };
+    }
     case 'deactivated':
       return { message: 'This server gave its licence activation back (deactivate_licence).', fix: `Activate again with ${ACTIVATE_HOW}.` };
     case 'grace_expired':
@@ -560,6 +568,13 @@ export interface LicenceManagerOptions {
   mode: LicenceMode;
   graceDays: number;
   licenceServer: { url: string; orgId: string };
+  /**
+   * The BuildBase items whose keys this image accepts (licence.itemIds): the
+   * items sold for its major version (D-142). Empty or absent: any item.
+   */
+  itemIds?: readonly string[];
+  /** This image's version (build-info.json), for the wrong_version message. */
+  version?: string;
   /** Injectable clock (ms since epoch). */
   now?: () => number;
   checkIntervalMs?: number;
@@ -850,7 +865,14 @@ export class LicenceManager {
     try {
       let answer = activate ? await this.opts.api.activate(key, s.instanceId) : await this.opts.api.validate(key, s.instanceId);
       // The activation was freed elsewhere (seller reset, store account): take a slot again.
-      if (!activate && !answer.valid && answer.reason === 'not_activated') answer = await this.opts.api.activate(key, s.instanceId);
+      const reactivated = !activate && !answer.valid && answer.reason === 'not_activated';
+      if (reactivated) answer = await this.opts.api.activate(key, s.instanceId);
+      if (answer.valid && !this.itemAccepted(answer.item)) {
+        // A key for another major version (D-142): give back the activation this check just took, so it does not
+        // hold one of the buyer's activations on an image that refuses it. Best effort; the refusal stands either way.
+        if (activate || reactivated) await this.opts.api.deactivate(key, s.instanceId).catch(() => undefined);
+        answer = { ...answer, valid: false, reason: 'wrong_version' };
+      }
       const at = this.now();
       s.answer = { ...sanitize(answer), checkedBy: this.name };
       s.lastCheckedAt = this.iso(at);
@@ -865,7 +887,7 @@ export class LicenceManager {
         // A fresh success is the reference time again (a clock that was wrong and got fixed).
         s.highWaterAt = this.iso(at);
       } else {
-        if (answer.reason === 'not_activated' || answer.reason === 'limit_reached' || answer.reason === 'not_found') delete s.activatedAt;
+        if (answer.reason === 'not_activated' || answer.reason === 'limit_reached' || answer.reason === 'not_found' || answer.reason === 'wrong_version') delete s.activatedAt;
         s.highWaterAt = this.iso(Math.max(at, s.highWaterAt ? Date.parse(s.highWaterAt) : 0));
       }
       this.failures = 0;
@@ -916,6 +938,17 @@ export class LicenceManager {
     this.log(level, `${line}${suffix}`);
   }
 
+  /**
+   * Whether a key bought for `item` works on this image (D-142): any item when
+   * licence.itemIds is empty, otherwise only the listed ones. An answer that
+   * names no item is refused while a list is set.
+   */
+  private itemAccepted(item: { id: string } | undefined): boolean {
+    const ids = this.opts.itemIds;
+    if (!ids || ids.length === 0) return true;
+    return Boolean(item && ids.includes(String(item.id)));
+  }
+
   /** The current status, from the stored state and the clock. */
   report(): LicenceReport {
     const s = this.state;
@@ -956,6 +989,10 @@ export class LicenceManager {
       // The licence server said no; being offline now does not change that.
       status = 'invalid';
       reason = answer.reason ?? 'refused';
+    } else if (answer && !this.itemAccepted(answer.item)) {
+      // A stored answer for a key of another major version (an upgraded image reading an older image's state, D-142).
+      status = 'invalid';
+      reason = 'wrong_version';
     } else if (lastSuccess === undefined) {
       if (lastError) {
         status = 'invalid';
@@ -978,7 +1015,9 @@ export class LicenceManager {
       status = lastError ? 'grace' : 'valid';
     }
 
-    const ex = reason ? explain(reason, { host, graceDays: this.opts.graceDays, lastSuccessAt: s.lastSuccessAt, error: lastError?.message }) : null;
+    const ex = reason
+      ? explain(reason, { host, graceDays: this.opts.graceDays, lastSuccessAt: s.lastSuccessAt, error: lastError?.message, item: answer?.item?.title, version: this.opts.version })
+      : null;
     const allowed = status === 'valid' || status === 'grace';
     let message = ex?.message ?? (status === 'checking' ? 'The licence is being checked.' : 'The licence is valid.');
     let warning: string | undefined;
@@ -1133,6 +1172,8 @@ export function createLicenceManager(
     mode: lc.mode,
     graceDays: lc.offlineGraceDays,
     licenceServer: { url: lc.serverUrl, orgId: lc.orgId },
+    itemIds: lc.itemIds,
+    version: settings.current.build.version,
     now: opts.now,
     checkIntervalMs: opts.checkIntervalMs,
     timers: opts.timers,

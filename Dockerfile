@@ -190,15 +190,20 @@ RUN ln -s /opt/chrome-headless-shell/chrome-headless-shell /usr/local/bin/chrome
 # build-info.json is removed or replaced refuses to start (D-089). `dev` writes nothing: every setting stays configurable; licence.mode
 # "off" is for noncommercial development only (LICENSING.md). LICENCE_SERVER_URL /
 # LICENCE_ORG_ID are for test builds against a mock licence server (e2e/docker/run.sh).
+# LICENCE_ITEM_IDS (comma-separated) are the BuildBase items sold for this image's
+# major version: a key covers one major version (D-142), so a release image accepts
+# only keys bought for these items. Required from 1.0.0 (the build fails without it);
+# put the new major's items here when the major version changes.
 ARG RENDERWELD_EDITION=release
 ARG LICENCE_SERVER_URL=https://api.console.buildbase.app
 ARG LICENCE_ORG_ID=6b01478bb42d2c444e99fcd8
+ARG LICENCE_ITEM_IDS=
 ARG RENDERWELD_VERSION=0.1.0
 ARG VCS_REF=unknown
 RUN set -e; \
     case "$RENDERWELD_EDITION" in release|dev) ;; *) echo "RENDERWELD_EDITION must be release or dev" >&2; exit 1 ;; esac; \
     if [ "$RENDERWELD_EDITION" = release ]; then \
-      node -e 'const e = process.env; process.stdout.write(JSON.stringify({ edition: "release", version: e.RENDERWELD_VERSION, revision: e.VCS_REF, locked: { "licence.mode": "required", "licence.serverUrl": e.LICENCE_SERVER_URL, "licence.orgId": e.LICENCE_ORG_ID } }, null, 2) + "\n")' \
+      node -e 'const e = process.env; process.stdout.write(JSON.stringify({ edition: "release", version: e.RENDERWELD_VERSION, revision: e.VCS_REF, locked: { "licence.mode": "required", "licence.serverUrl": e.LICENCE_SERVER_URL, "licence.orgId": e.LICENCE_ORG_ID, "licence.itemIds": (e.LICENCE_ITEM_IDS || "").split(",").map((s) => s.trim()).filter(Boolean) } }, null, 2) + "\n")' \
         > /app/packages/core/build-info.json; \
       printf '%s\n' "/** Release image (written by the Dockerfile; D-089). */" "export const IMAGE_EDITION = 'release' as 'dev' | 'release';" \
         > /app/packages/core/src/config/image-edition.ts; \
