@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService } from '@renderweld/core';
+import { PluginRegistry, RenderWeldService } from '@renderweld/core';
 import { prepareDatabase, type Database } from '@renderweld/db';
 import { createApp, loadConfig, type ServerConfig } from '../src/index';
 import { requestBaseUrl } from '../src/app';
@@ -15,21 +15,21 @@ const { dir, cleanup } = tempDir('renderweld-links-');
 const sample = JSON.parse(readFileSync(new URL('../../../examples/sample-reel.json', import.meta.url), 'utf8'));
 let db: Database;
 let dropDb: () => Promise<void> = async () => undefined;
-let service: ReelforgeService;
+let service: RenderWeldService;
 let app: ReturnType<typeof createApp>;
 let admin: string;
 
 beforeAll(async () => {
   const registry = new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas'));
-  const config: ServerConfig = loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data') });
+  const config: ServerConfig = loadConfig({ RENDERWELD_DATA_DIR: join(dir, 'data') });
   expect(config.publicUrl).toBeUndefined();
   const database = await testDatabase(dir);
   dropDb = database.drop;
   db = (await prepareDatabase({ url: database.url ?? config.databaseUrl, dataDir: config.dataDir })).db;
-  service = await ReelforgeService.create(registry, {
+  service = await RenderWeldService.create(registry, {
     repositories: db.repositories(),
     dataDir: config.dataDir,
-    configSources: { env: { REELFORGE_SECRET_KEY: 'links-test-secret-key-0123456789-abcdef', REELFORGE_LICENCE_MODE: 'off', REELFORGE_TRUST_PROXY: 'true' } },
+    configSources: { env: { RENDERWELD_SECRET_KEY: 'links-test-secret-key-0123456789-abcdef', RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_TRUST_PROXY: 'true' } },
   });
   admin = (await service.keys.create('admin', ['admin', 'owner'])).key;
   app = createApp({ service, config });
