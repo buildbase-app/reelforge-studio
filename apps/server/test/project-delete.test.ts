@@ -20,6 +20,7 @@ afterAll(async () => {
 let app: ReturnType<typeof createApp>;
 let service: RenderWeldService;
 let admin: string;
+let poller: string;
 let config: ServerConfig;
 
 beforeAll(async () => {
@@ -37,6 +38,9 @@ beforeAll(async () => {
     configSources: { env: { RENDERWELD_SECRET_KEY: 'test-secret-key-0123456789-abcdefghij', RENDERWELD_LICENCE_MODE: 'off' } },
   });
   admin = (await service.keys.create('admin', ['admin'])).key;
+  // Polls with a key of its own and no per-minute limit (#345): a render that runs long on a loaded machine, polled
+  // every 100 ms, spent the admin key's 300/min, and later cases got 429.
+  poller = (await service.keys.create('poller', ['read'], { rateLimitPerMinute: 0 })).key;
   app = createApp({ service, config });
 });
 
@@ -55,7 +59,7 @@ function req(method: string, path: string, opts: { key?: string | null; body?: u
 
 async function pollJob(id: string) {
   for (let i = 0; i < 600; i++) {
-    const job = (await (await req('GET', `/v1/jobs/${id}`)).json()) as { status: string; result?: any; error?: any };
+    const job = (await (await req('GET', `/v1/jobs/${id}`, { key: poller })).json()) as { status: string; result?: any; error?: any };
     if (['succeeded', 'failed', 'cancelled'].includes(job.status)) return job;
     await new Promise((r) => setTimeout(r, 100));
   }

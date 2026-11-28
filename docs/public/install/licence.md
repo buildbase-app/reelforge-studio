@@ -36,11 +36,11 @@ Any one of these (each needs `RENDERWELD_SECRET_KEY` set, because the key is
 stored encrypted):
 
 ```bash
-# an admin agent over MCP:
+# an agent with an owner key, over MCP:
 #   activate_licence { "key": "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2" }
 
-# REST, with an admin key:
-curl -X POST -H "Authorization: Bearer $ADMIN_KEY" -H 'content-type: application/json' \
+# REST, with an owner key (an admin key gets 403 forbidden):
+curl -X POST -H "Authorization: Bearer $OWNER_KEY" -H 'content-type: application/json' \
   -d '{"key":"ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2"}' http://127.0.0.1:4321/v1/licence
 
 # the CLI in the container (a running server reads it after a restart):
@@ -66,8 +66,11 @@ ever shown as its first group.
   and **nothing else**: no hostname, no project, asset or usage data. The
   instance id is random (`rf-<UUID>`), created once and stored in the database.
 - Behind an HTTPS proxy set `HTTPS_PROXY=http://proxy:3128` **and**
-  `NODE_USE_ENV_PROXY=1`, plus `NODE_EXTRA_CA_CERTS=/path/to/ca.pem` for a
-  proxy that re-signs TLS.
+  `NODE_USE_ENV_PROXY=1`. The licence check trusts only the root certificates
+  built into Node.js, so a proxy that inspects or re-signs TLS must let
+  `api.console.buildbase.app` through untouched (a CONNECT tunnel without
+  re-signing). `NODE_EXTRA_CA_CERTS` does not help the licence check; it still
+  applies to the server's other connections, such as storage and providers.
 
 The complete list of connections the server can make is on
 [Privacy and network egress](/docs/privacy/network-egress).

@@ -1,5 +1,5 @@
 /**
- * Spike (render-at-scale research, docs/research/RENDER_SCALE.md §5): do one `api` and
+ * Spike (render-at-scale research): do one `api` and
  * N `worker` processes on ONE PostgreSQL database take ONE licence activation?
  *
  * Each "instance" is a separate OS process (this file with ROLE=instance) with its own

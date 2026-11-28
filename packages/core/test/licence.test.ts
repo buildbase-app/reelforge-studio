@@ -152,6 +152,8 @@ describe('LicenceManager', () => {
     const r = await m.check('start');
     expect(r).toMatchObject({ status: 'invalid', reason: 'limit_reached', renderAllowed: false, activations: { used: 1, limit: 1 } });
     expect(r.fix).toMatch(/deactivate_licence/);
+    // The licence counts deployments, not servers (one deployment can run many instances).
+    expect(r.message).toBe('The licence key is already active on as many deployments as it allows.');
     await expect(m.assertRenderAllowed()).rejects.toMatchObject({ code: 'licence_invalid', details: { licence: { reason: 'limit_reached' } } });
     // Freed elsewhere: the next check activates.
     api.keys.get(KEY)!.instances.clear();

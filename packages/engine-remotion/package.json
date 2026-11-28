@@ -14,14 +14,14 @@
   "dependencies": {
     "@renderweld/core": "workspace:*",
     "@renderweld/media-pipeline": "workspace:*",
-    "@renderweld/project-schema": "workspace:*",
-    "@remotion/renderer": "4.0.545",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "remotion": "4.0.545"
+    "@renderweld/project-schema": "workspace:*"
   },
   "devDependencies": {
     "@remotion/bundler": "4.0.545",
-    "@types/react": "^19.0.0"
+    "@remotion/renderer": "4.0.545",
+    "@types/react": "^19.0.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.545"
   }
 }

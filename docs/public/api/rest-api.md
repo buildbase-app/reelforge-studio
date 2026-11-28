@@ -48,17 +48,22 @@ Manifest problems are reported all at once, each with its path in the manifest.
 
 | Status | Codes |
 | --- | --- |
-| 400 | `bad_request`, `unknown_engine`, `unknown_backend`, `url_not_allowed`, `licence_key_missing` |
-| 401 | `unauthorized`, `key_expired`, `key_revoked` |
+| 400 | `bad_request`, `unknown_engine`, `unknown_backend`, `url_not_allowed`, `licence_key_missing`, `provider_not_per_workspace` (a provider whose settings the instance shares only), `batch_too_large` (a JSON-RPC batch on `/mcp` over the cap) |
+| 401 | `unauthorized`, `key_expired`, `key_revoked`, `invalid_token` (an OAuth access token on `/mcp` that was refused) |
 | 402 | `cost_acknowledgement_required` (a paid provider call without `acknowledgeCost: true`) |
-| 403 | `forbidden` (missing scope), `forbidden_host` and `forbidden_origin` (on `/mcp`), `ip_not_allowed`, `licence_required`, `licence_invalid`, `priority_not_allowed` |
-| 404 | `not_found`, `unknown_provider` |
-| 409 | `conflict`, `version_conflict`, `idempotency_in_progress`, `job_not_finished`, `builtin_theme`, `provider_not_configured`, `backend_not_configured`, `secret_key_required`, `key_revoked`, `build_locked_setting`, `startup_only_setting` (a setting read only at start; set it in the environment and restart) |
+| 403 | `forbidden` (missing scope), `forbidden_host` and `forbidden_origin` (on `/mcp`), `ip_not_allowed`, `licence_required`, `licence_invalid`, `priority_not_allowed`, `workspace_suspended` |
+| 404 | `not_found`, `unknown_provider`, `unknown_stt_provider` |
+| 409 | `conflict`, `version_conflict`, `idempotency_in_progress`, `job_not_finished`, `builtin_theme`, `provider_not_configured`, `backend_not_configured`, `secret_key_required`, `key_revoked`, `build_locked_setting`, `startup_only_setting` (a setting read only at start; set it in the environment and restart), `licence_read_only`, `captions_conflict`, `no_voice_track`, `stt_unavailable`, `approval_required`, `approval_invalid`, `approval_used`, `plan_changed`, `plan_invalid` (render approval and plans) |
 | 413 | `too_large` (`details.limit` names the limit, `details.max` its bytes; the server closes the connection after this answer) |
-| 422 | `invalid_manifest`, `validation_failed`, `invalid_params`, `idempotency_conflict`, `asset_missing`, `asset_not_imported`, `invalid_setting` (an unknown setting or a bad value; nothing was changed), `unsupported_output` (a size, frame rate or format this server or engine cannot render), `render_limit_exceeded` (over the server's render limits; `details` lists each one) |
-| 429 | `rate_limited` (with `Retry-After`), `quota_exceeded`, `too_many_jobs`, `queue_full` (with `Retry-After`) |
-| 501 | `not_implemented` |
-| 502, 504 | `fetch_failed`, `provider_failed` |
+| 415 | `unsupported_media_type` |
+| 422 | `invalid_manifest`, `validation_failed`, `invalid_params`, `idempotency_conflict`, `asset_missing`, `asset_not_imported`, `asset_not_in_project`, `asset_outside_project`, `invalid_captions`, `invalid_setting` (an unknown setting or a bad value; nothing was changed), `unsupported_output` (a size, frame rate or format this server or engine cannot render), `render_limit_exceeded` (over the server's render limits; `details` lists each one), `engine_unavailable` (a render whose engine this worker cannot run; `details.engines` names each one and why) |
+| 429 | `rate_limited` (with `Retry-After`), `quota_exceeded`, `too_many_jobs`, `queue_full` (with `Retry-After`), `workspace_quota_exceeded`, `provider_limit_exceeded`, `provider_budget_exhausted`, `stt_busy`, `licence_server_unavailable` (the licence server's rate limit) |
+| 499 | `stt_cancelled` (a transcription stopped by its caller) |
+| 500 | `internal` |
+| 501 | `not_implemented`, `not_supported` |
+| 502, 504 | `fetch_failed`, `provider_failed`, `stt_failed` (502), `stt_timeout` (504) |
+| 503 | `shutting_down`, `licence_server_unavailable`, `dashboard_not_built` |
+| 507 | `storage_limit_exceeded` |
 
 ## Idempotency keys
 

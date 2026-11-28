@@ -137,14 +137,12 @@ chmod 777 "$WORK/out" "$WORK/otel"
 cp e2e/otel/collector.yaml "$WORK/config/collector.yaml"; chmod 644 "$WORK/config/collector.yaml"
 cp "$WORK/secret/metricstoken" "$WORK/config/metrics-token"; chmod 644 "$WORK/config/metrics-token"
 cp e2e/docker/*.mjs e2e/webhooks/receiver.mjs examples/sample-reel.json "$WORK/client/"
-# The release edition renders with Remotion only with the customer's own Remotion licence and install (#783), which this
-# run doesn't have: the sample's Remotion scene becomes a Motion Canvas one, and journey.mjs checks the refusal instead.
-if [ "$EDITION" = release ]; then
-  cp examples/sample-reel.json "$WORK/client/sample-reel-remotion.json"
-  node -e 'const fs=require("fs");const f=process.argv[1];const m=JSON.parse(fs.readFileSync(f,"utf8"));
-    for (const s of m.scenes) if (s.engine==="remotion") { const p=s.props; Object.assign(s,{engine:"motion-canvas",template:"animated-explainer",props:{title:p.headline,points:[p.subline],accent:p.accent,background:p.background}}); }
-    fs.writeFileSync(f,JSON.stringify(m,null,2))' "$WORK/client/sample-reel.json"
-fi
+# The image ships no Remotion (#783): customers with their own Remotion licence add it (deployment/remotion), and this run
+# doesn't. The sample's Remotion scene becomes a Motion Canvas one, and journey.mjs checks the refusal instead.
+cp examples/sample-reel.json "$WORK/client/sample-reel-remotion.json"
+node -e 'const fs=require("fs");const f=process.argv[1];const m=JSON.parse(fs.readFileSync(f,"utf8"));
+  for (const s of m.scenes) if (s.engine==="remotion") { const p=s.props; Object.assign(s,{engine:"motion-canvas",template:"animated-explainer",props:{title:p.headline,points:[p.subline],accent:p.accent,background:p.background}}); }
+  fs.writeFileSync(f,JSON.stringify(m,null,2))' "$WORK/client/sample-reel.json"
 cp e2e/mock-licence/server.mjs "$WORK/mock/"; chmod -R a+rX "$WORK/mock"
 (cd "$WORK/client" && npm init -y >/dev/null && npm i -q --no-audit --no-fund @modelcontextprotocol/sdk@1.32.2 standardwebhooks@1.3.0 $([ "$STORAGE" = s3 ] && echo @aws-sdk/client-s3@3.1164.0) >/dev/null)
 

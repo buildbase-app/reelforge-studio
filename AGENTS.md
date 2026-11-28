@@ -62,7 +62,7 @@ three (`pnpm test:guards` runs it locally).
 
 Before implementation, read: - `docs/PRODUCT_BRIEF.md` -
 `docs/DECISIONS.md` - `docs/ARCHITECTURE.md` - `docs/REQUIREMENTS.md` -
-`docs/TEST_PLAN.md` - `research/LICENSING_AND_COSTS.md`
+`docs/TEST_PLAN.md`
 
 If docs conflict, preserve explicit founder decisions and document the
 conflict rather than silently choosing.
@@ -98,7 +98,10 @@ conflict rather than silently choosing.
     date and source in `research/SOURCES.md`.
 -   Preserve command output or reproducible steps for important test
     findings.
--   Record material architecture decisions in `docs/DECISIONS.md`.
+-   Record each new material architecture decision in the pull request
+    description, dated, and compare it with `docs/DECISIONS.md`: name the `D-`
+    entry it follows, changes or replaces (or say it is new). The log stays as
+    the record of earlier decisions.
 
 ## 4. Engineering principles
 
@@ -205,7 +208,7 @@ pnpm reelforge licence status|activate|deactivate   # licence (docs/DEPLOY.md#li
 pnpm docs:config                         # regenerate docs/CONFIG.md after changing the config schema
 TEST_POSTGRES_URL=... TEST_MYSQL_URL=... pnpm --filter @reelforge/db test   # contract tests on every DB
 REELFORGE_TEST_DB=postgres pnpm --filter @reelforge/server test             # server e2e on PostgreSQL
-pnpm prebuild:engines                    # pre-build the Remotion/Motion Canvas bundles (the Dockerfile does this)
+pnpm prebuild:engines                    # pre-build the Remotion/Motion Canvas bundles (the image builds Motion Canvas only; D-143)
 docker build -t reelforge-studio:release .                  # release image (licence settings fixed, D-039)
 docker build --build-arg REELFORGE_EDITION=dev -t reelforge-studio:dev .   # same image, settings configurable
 scripts/image/check-contents.sh reelforge-studio:release    # files, size budget (D-042)

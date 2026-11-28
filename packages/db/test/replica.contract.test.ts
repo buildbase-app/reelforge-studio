@@ -235,7 +235,9 @@ describe.each(servers)('read replica on %s', (kind) => {
       await two.close();
       await replicaSide.close();
     }
-  });
+    // Two pools and about twenty statements: ~1 s in CI, but well over vitest's 5 s default on a loaded machine, where a
+    // timed-out case kept running and its pools were still open during REP-05's connection count (#267).
+  }, 60_000);
 
   it('REP-05 the pool: a default size for URLs without connection_limit (the worker role), the URL wins, and the database sees at most that many connections', async () => {
     const tag = `rfpool${randomBytes(4).toString('hex')}`;

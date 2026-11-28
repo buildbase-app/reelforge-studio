@@ -1,6 +1,6 @@
 # RenderWeld brand
 
-**Status:** the name RenderWeld is decided (#408, founder, 2026-11-24). The mark and asset set are approved (#410, 2026-11-24: the founder asked us to decide and proceed). This file is the full brand standard; [`docs/BRAND_AND_PRODUCTION.md`](../BRAND_AND_PRODUCTION.md) summarises it and holds the domain, DNS and email rules. It follows the palette decision (#247).
+**Status:** the name RenderWeld is decided (#408, founder, 2026-11-24). The mark and asset set are approved (#410, 2026-11-24: the founder asked us to decide and proceed). This file is the full brand standard. It follows the palette decision (#247).
 
 **Tagline:** "Agents write the manifest. RenderWeld renders the video."
 Use it unchanged everywhere a line of copy is needed. Don't pair it with a second slogan.
