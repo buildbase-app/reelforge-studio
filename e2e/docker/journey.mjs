@@ -13,6 +13,18 @@ const call = async (name, args = {}) => {
 const step = (s) => console.log(`✔ ${s}`);
 const caps = await call('get_capabilities'); step(`capabilities: engines=${JSON.stringify(caps.engines?.map?.((e) => e.id ?? e) ?? caps.engines)}`);
 const themes = await call('list_themes'); step(`themes: ${themes.themes.map((x) => x.id).join(',')}`);
+{
+  // #783: the image ships no Remotion. The release edition refuses Remotion until the customer has turned it on, accepted
+  // Remotion's licence, set a key and installed it; a dev-edition image refuses it because nothing is installed.
+  const release = process.env.EDITION === 'release';
+  const r = JSON.parse(readFileSync('sample-reel-remotion.json', 'utf8')); r.projectId = 'e2e-remotion-' + Date.now().toString(36);
+  await call('create_project', { manifest: r });
+  const rv = await call('validate_project', { projectId: r.projectId });
+  const msg = JSON.stringify(rv.errors ?? rv);
+  const why = release ? 'Remotion is off: it needs your own Remotion licence' : 'Remotion is not installed';
+  if ((rv.ok ?? rv.valid) !== false || !msg.includes(`engine \\"remotion\\" cannot render on this server: ${why}`)) throw new Error(`${process.env.EDITION} edition: expected the Remotion scene to be refused, got ${msg.slice(0, 400)}`);
+  step(release ? 'release edition: a Remotion scene is refused until the customer brings their own Remotion licence' : 'dev edition: a Remotion scene is refused (the image ships no Remotion)');
+}
 const m = JSON.parse(readFileSync(process.env.SAMPLE ?? 'sample.json', 'utf8')); m.projectId = 'e2e-docker-' + Date.now().toString(36); m.title = 'Docker E2E';
 const p = await call('create_project', { manifest: m }); step(`create_project ${m.projectId} (v0.1 migrated → ${p.manifest?.schemaVersion ?? p.schemaVersion})`);
 await call('add_scene', { projectId: m.projectId, scene: { id: 'html', engine: 'html', template: 'html-title', durationFrames: 75, props: { headline: 'HTML engine', subline: 'From Docker' } } }); step('add_scene html-title (2.5 s)');

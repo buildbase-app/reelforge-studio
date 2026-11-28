@@ -183,6 +183,15 @@ beforeAll(async () => {
   }
   expect(outcome.length).toBeGreaterThan(0);
   a.renderEvent = outcome[0]!.eventId;
+  // Every delivery A's setup queued has settled, so a snapshot of A compares A's data, not how far the delivery
+  // worker has got: a job.* delivery still pending when a test takes its "before" could otherwise be delivered
+  // while B's requests run, and read as a change to A.
+  const unsettled = async () => (await aRepo.listDeliveries({})).filter((d) => d.status === 'pending' || d.status === 'delivering');
+  for (let i = 0; i < 50 && (await unsettled()).length; i++) {
+    await server.service.webhooks.flush();
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  expect(await unsettled()).toEqual([]);
 }, 120_000);
 
 afterAll(async () => {

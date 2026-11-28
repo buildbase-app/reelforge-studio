@@ -11,6 +11,7 @@ import type {
   ThemeTokens,
 } from '@renderweld/project-schema';
 import type { z } from 'zod';
+import type { RuntimeConfig } from './config/runtime';
 import type { EngineOutputSupport } from './output-support';
 
 /**
@@ -144,6 +145,11 @@ export interface EnginePlugin {
   acceptsSource: boolean;
   /** Whether this engine can render on this machine right now (browser present, ...). */
   availability(): Availability;
+  /**
+   * Called once by the service with its settings, before the first availability() or render(), so an engine can
+   * read its own `engines.*` settings and the build edition (they can change at runtime, so read them when needed).
+   */
+  useSettings?(settings: RuntimeConfig): void;
   /** Whether this engine's Chromium runs with its own sandbox (omit for engines without a browser). */
   browserSandbox?(): boolean;
   /** What it can do beyond whole scenes; omitted: no frame ranges. */

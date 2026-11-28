@@ -26,7 +26,7 @@ listed on the [REST API overview](/docs/api/rest-api#errors).
 | --- | --- |
 | `401 unauthorized` | The `Authorization: Bearer rf_...` header is missing or the key is wrong. Keys are shown once; create a new one with `renderweld keys create` |
 | `401 key_expired` / `key_revoked` | The key's expiry passed or it was revoked. `get_key` shows its status; extend it with `update_key { expiresAt }` or create a new key |
-| `403 forbidden` ... `lacks the "admin" scope` | The key does not have the scope the call needs. Use an admin key for keys, configuration and licence calls |
+| `403 forbidden` ... `lacks the "admin" scope` (or `"owner"`) | The key does not have the scope the call needs. Use an admin key for keys and configuration, and an owner key for licence calls (activate, deactivate) |
 | `403 forbidden_host` on `/mcp` | You reach the server by a host name it does not know. Set `RENDERWELD_PUBLIC_URL` (or add the name to `RENDERWELD_ALLOWED_HOSTS`) |
 | `403 ip_not_allowed` | The key has an IP allowlist and the request came from elsewhere. Behind a reverse proxy, set `server.trustProxy: true` so the real client address is used |
 | `429 rate_limited` | Too many requests for this key: wait the `Retry-After` seconds, or raise `limits.rateLimitPerMinute` |

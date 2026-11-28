@@ -54,7 +54,7 @@ Manifest problems are reported all at once, each with its path in the manifest.
 | 403 | `forbidden` (missing scope), `forbidden_host` and `forbidden_origin` (on `/mcp`), `ip_not_allowed`, `licence_required`, `licence_invalid`, `priority_not_allowed` |
 | 404 | `not_found`, `unknown_provider` |
 | 409 | `conflict`, `version_conflict`, `idempotency_in_progress`, `job_not_finished`, `builtin_theme`, `provider_not_configured`, `backend_not_configured`, `secret_key_required`, `key_revoked`, `build_locked_setting`, `startup_only_setting` (a setting read only at start; set it in the environment and restart) |
-| 413 | `too_large` |
+| 413 | `too_large` (`details.limit` names the limit, `details.max` its bytes; the server closes the connection after this answer) |
 | 422 | `invalid_manifest`, `validation_failed`, `invalid_params`, `idempotency_conflict`, `asset_missing`, `asset_not_imported`, `invalid_setting` (an unknown setting or a bad value; nothing was changed), `unsupported_output` (a size, frame rate or format this server or engine cannot render), `render_limit_exceeded` (over the server's render limits; `details` lists each one) |
 | 429 | `rate_limited` (with `Retry-After`), `quota_exceeded`, `too_many_jobs`, `queue_full` (with `Retry-After`) |
 | 501 | `not_implemented` |

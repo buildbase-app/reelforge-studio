@@ -14,8 +14,7 @@
     { "path": "manifest", "name": "Manifest" },
     { "path": "cookbook", "name": "Cookbook" },
     { "path": "privacy", "name": "Privacy" },
-    { "path": "troubleshooting", "name": "Troubleshooting" },
-    { "path": "screenshots", "name": "Screenshots and videos" }
+    { "path": "troubleshooting", "name": "Troubleshooting" }
   ],
   "docs": [
     "docs/public/start/quick-start.md",
@@ -24,7 +23,6 @@
     "docs/public/install/docker.md",
     "docs/public/install/sizing.md",
     "docs/public/install/licence.md",
-    "docs/public/install/from-source.md",
     {
       "file": "docs/CONFIG.md",
       "folder": "install",
@@ -35,12 +33,6 @@
       "tags": ["install", "reference"]
     },
     "docs/public/install/dashboard.md",
-    "docs/public/install/buildbase-console-setup.md",
-    "docs/cloud/overview.md",
-    "docs/cloud/aws.md",
-    "docs/cloud/google-cloud.md",
-    "docs/cloud/azure.md",
-    "docs/cloud/other-platforms.md",
     "docs/public/api/rest-api.md",
     "docs/public/api/endpoints.md",
     "docs/public/mcp/mcp-server.md",
@@ -89,9 +81,6 @@
       "tags": ["privacy", "security"]
     },
     "docs/ISOLATION.md",
-    "docs/public/troubleshooting/common-problems.md",
-    "docs/public/screenshots/store.md",
-    "docs/public/screenshots/studio.md",
-    "docs/public/walkthroughs.md"
+    "docs/public/troubleshooting/common-problems.md"
   ]
 }

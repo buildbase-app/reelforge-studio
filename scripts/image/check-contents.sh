@@ -7,7 +7,7 @@
 #
 # Fails when the runtime image carries the repository's tests, docs, e2e or
 # tooling, source maps, build-only dependencies (bundlers, test runner) or
-# package managers; or misses the licence files, the pre-built engine bundles,
+# package managers, or Remotion (#783); or misses the licence files, the pre-built Motion Canvas bundle,
 # the built dashboard, tini, Chrome or the release build's build-info.json. Prints the size.
 set -euo pipefail
 IMAGE=${1:?usage: check-contents.sh IMAGE}
@@ -37,13 +37,14 @@ check_absent "no source maps anywhere" '\.map$'
 check_absent "no type declarations in node_modules" '^app/node_modules/.*\.d\.[cm]?ts$'
 check_absent "no build-only dependencies (bundlers, test runner, Remotion Studio)" \
   '^app/node_modules/\.pnpm/(@remotion\+bundler|@remotion\+studio|webpack|@rspack|vite|vitest|@motion-canvas\+vite-plugin|@motion-canvas\+ui|@motion-canvas\+2d|mathjax-full|rollup)@'
+check_absent "no Remotion (customers install it with their own Remotion licence: deployment/remotion, #783)" \
+  '^app/node_modules/\.pnpm/(remotion|@remotion\+[^@/]+)@|^app/packages/engine-remotion/\.prebuilt/|^opt/remotion/'
 check_absent "no musl builds of native packages" '^app/node_modules/\.pnpm/[^/]*musl[^/]*/'
 check_absent "no package managers (npm, npx, corepack, yarn, pnpm)" '^usr/local/(bin/(npm|npx|corepack|yarn|yarnpkg|pnpm)|lib/node_modules/(npm|corepack)/)|^pnpm/'
 check_absent "no .git, .env or npm credentials files" '(^|/)\.git/|(^|/)\.env(\.|$)|(^|/)\.npmrc$'
 check_present "LICENSE.md in the image" '^app/LICENSE\.md$'
 check_present "NOTICE in the image" '^app/NOTICE$'
 check_present "LICENSES/THIRD_PARTY.md in the image" '^app/LICENSES/THIRD_PARTY\.md$'
-check_present "pre-built Remotion bundle" '^app/packages/engine-remotion/\.prebuilt/remotion/\.source-hash$'
 check_present "pre-built Motion Canvas bundle" '^app/packages/engine-motion-canvas/\.prebuilt/motion-canvas/\.source-hash$'
 check_present "built dashboard (D-115)" '^app/apps/dashboard/dist/index\.html$'
 check_absent "no dashboard sources or build script (only dist/)" '^app/apps/dashboard/(src|scripts)/|^app/apps/dashboard/build\.ts$'

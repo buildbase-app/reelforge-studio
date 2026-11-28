@@ -17,6 +17,13 @@ a checklist you must follow on every task.
   issue forms (bug report, feature request, or task). For features, wait until
   a maintainer agrees on the approach (label `status: accepted` or a comment)
   before writing code. This saves your time.
+- **No plans, costs, prospects or launch drafts in this repo.** It is public.
+  Internal planning lives in a private repo. Customer docs (`docs/public/`,
+  `README.md`) never show the development-only licence switch, test card
+  numbers or the old ReelForge name. CI's release guards check this.
+- **Release work:** issues in the "Milestone 1: first licence release"
+  milestone (tracking issue #530) carry a plan ID like `[M1] Content V1`.
+  Name it in your pull request.
 - Be kind. We follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## 2. Branches
@@ -123,7 +130,8 @@ name "ReelForge" and its logo are not licensed (see [TRADEMARK.md](TRADEMARK.md)
 ## 7. Development
 
 Read [AGENTS.md](AGENTS.md) ("Working in this repo") for the layout and
-conventions, and [docs/STATUS.md](docs/STATUS.md) for where things stand.
+conventions, and [docs/AGENT_PLATFORM.md](docs/AGENT_PLATFORM.md) (its STATUS
+table) for where things stand.
 
 ```bash
 pnpm install
@@ -134,6 +142,11 @@ e2e/docker/run.sh                                           # Docker end-to-end 
 
 `pnpm dev` runs the server locally with the licence check off; that is for
 noncommercial development only (see LICENSING.md).
+
+The official image ships no Remotion (D-143). Development and CI use the
+workspace copy of Remotion for testing; nothing we publish may contain it. CI
+builds the customer's Remotion add-on (`deployment/remotion/Dockerfile`) only
+as a test (`scripts/image/check-remotion-addon.sh`) and never publishes it.
 
 ## 8. What happens to a non-compliant PR
 

@@ -154,10 +154,8 @@ the limit; the key is shown as its first group only.
   source `build`). It refuses to start when the config file or environment
   tries to change them, and `update_config` refuses them
   (`build_locked_setting`). See "Release image and editions" below.
-- **Development and CI.** In a build from source (`pnpm dev`, which sets it,
-  or `--build-arg RENDERWELD_EDITION=dev`) `RENDERWELD_LICENCE_MODE=off` lets
-  renders run without a licence. That is for noncommercial development only
-  (LICENSING.md); commercial use always needs a Commercial key.
+- **Development builds** are described in docs/DEVELOPMENT.md#licence. Every
+  install, development or not, needs a licence key to render.
 - **CLI and a running server.** `renderweld licence ...` works on the database
   directly; a running server reads a key stored by the CLI after a restart
   (use the API to change a running server).
@@ -324,9 +322,9 @@ works as documented in docs/CONFIG.md.
 | Build | How | Licence settings |
 | --- | --- | --- |
 | Release (published) | `docker build .` | fixed: `required`, BuildBase production |
-| Dev image | `docker build --build-arg RENDERWELD_EDITION=dev .` | configurable; `off` for noncommercial development only (LICENSING.md) |
-| Source image | `docker build --target dev .` (whole repo, dev dependencies, `pnpm dev`) | configurable, as `pnpm dev` |
-| Test build of the release edition | `--build-arg LICENCE_SERVER_URL=http://licence:8080 --build-arg LICENCE_ORG_ID=...-mocklice` (e2e/docker/run.sh) | fixed, pointing at the mock licence server |
+
+Contributor builds (development and test images) are listed in
+docs/DEVELOPMENT.md#licence.
 
 **What this does and does not stop (honest limits, D-038/D-039).** The code
 is source-available, so anyone can read how the check works. The lock makes
@@ -336,8 +334,7 @@ image or a build from source, not a config line. It does not stop someone who
 builds their own image, edits `build-info.json` in a derived image, patches
 the code, preloads code into Node.js (`NODE_OPTIONS=--require`), re-seals a
 forged licence state with their own `RENDERWELD_SECRET_KEY` (BuildBase's answers
-are not signed yet; the request is drafted in
-docs/research/BUILDBASE_SIGNED_LICENCE_REQUEST.md), or freezes the clock while
+are not signed yet), or freezes the clock while
 the server is stopped. A fake licence server behind DNS no longer works with
 the published image: its licence calls trust only Node's built-in root
 certificates, so `NODE_EXTRA_CA_CERTS`, `NODE_TLS_REJECT_UNAUTHORIZED=0` or a

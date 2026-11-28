@@ -36,11 +36,11 @@ Any one of these (each needs `RENDERWELD_SECRET_KEY` set, because the key is
 stored encrypted):
 
 ```bash
-# an admin agent over MCP:
+# an agent with an owner key, over MCP:
 #   activate_licence { "key": "ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2" }
 
-# REST, with an admin key:
-curl -X POST -H "Authorization: Bearer $ADMIN_KEY" -H 'content-type: application/json' \
+# REST, with an owner key (an admin key gets 403 forbidden):
+curl -X POST -H "Authorization: Bearer $OWNER_KEY" -H 'content-type: application/json' \
   -d '{"key":"ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2"}' http://127.0.0.1:4321/v1/licence
 
 # the CLI in the container (a running server reads it after a restart):
@@ -88,9 +88,7 @@ moves it. For a new installation, free the old one first with
 then activate on the new server. A key over its activation limit answers
 `limit_reached`.
 
-## Development builds
+## Builds from source
 
-The published release image fixes the licence check on. A build from source for
-noncommercial development (`pnpm dev`, or
-`docker build --build-arg RENDERWELD_EDITION=dev .`) can set
-`RENDERWELD_LICENCE_MODE=off`. Commercial use always needs a Commercial key.
+A build from source needs a licence key, like the image. Commercial use always
+needs a Commercial key.

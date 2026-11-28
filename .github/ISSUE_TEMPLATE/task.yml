@@ -3,6 +3,21 @@ description: A planned piece of work with acceptance criteria. Used by maintaine
 title: '[area] '
 labels: ['status: backlog']
 body:
+  - type: input
+    id: plan
+    attributes: { label: Plan ID, description: 'For Milestone 1 work, the plan item, e.g. "Content V1". Leave empty otherwise.' }
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options: ['Blocker (before the first licence sale)', High, Medium, Low, Wording fix]
+    validations: { required: true }
+  - type: dropdown
+    id: owner
+    attributes:
+      label: Can it be built now?
+      options: ['Yes, buildable now', 'No, it waits on the owner (login, signature, money or decision)']
+    validations: { required: true }
   - type: textarea
     id: goal
     attributes: { label: Goal, description: 'One or two sentences: the outcome, not the steps.' }

@@ -12,6 +12,10 @@ REPO=${1:?usage: apply-repo-settings.sh OWNER/REPO CHECK [CHECK...]}; shift
 [ $# -ge 1 ] || { echo "give at least one required check, e.g. pr-policy"; exit 2; }
 command -v gh >/dev/null || { echo "install the GitHub CLI: https://cli.github.com"; exit 2; }
 say() { printf '\n== %s\n' "$*"; }
+# A setting that fails is reported and counted, and the script exits non-zero at the end,
+# so a run never looks clean when a protection is missing.
+FAILED=()
+failed() { printf '   ✘ %s\n' "$*" >&2; FAILED+=("$*"); }
 
 say "Repository settings: squash merge only, PR title as commit, delete merged branches"
 gh api -X PATCH "repos/$REPO" --silent \
@@ -21,19 +25,19 @@ gh api -X PATCH "repos/$REPO" --silent \
   -F has_wiki=false
 
 say "Security: secret scanning + push protection, Dependabot alerts and fixes, private vulnerability reporting, CodeQL"
-gh api -X PATCH "repos/$REPO" --silent --input - <<'JSON' || echo "   (some security features need GitHub Advanced Security on private repos; public repos get them free)"
+gh api -X PATCH "repos/$REPO" --silent --input - <<'JSON' || failed "secret scanning, push protection or Dependabot security updates (private repos need GitHub Advanced Security)"
 { "security_and_analysis": {
     "secret_scanning": { "status": "enabled" },
     "secret_scanning_push_protection": { "status": "enabled" },
     "dependabot_security_updates": { "status": "enabled" } } }
 JSON
-gh api -X PUT "repos/$REPO/vulnerability-alerts" --silent || true
-gh api -X PUT "repos/$REPO/private-vulnerability-reporting" --silent || true
-gh api -X PATCH "repos/$REPO/code-scanning/default-setup" --silent -f state=configured -f query_suite=default || echo "   (CodeQL default setup: enable it under Settings → Code security if this failed)"
+gh api -X PUT "repos/$REPO/vulnerability-alerts" --silent || failed "Dependabot alerts"
+gh api -X PUT "repos/$REPO/private-vulnerability-reporting" --silent || failed "private vulnerability reporting"
+gh api -X PATCH "repos/$REPO/code-scanning/default-setup" --silent -f state=configured -f query_suite=default || failed "CodeQL default setup (enable it under Settings → Code security)"
 
 say "Actions: read-only default token, workflows cannot approve PRs, outside contributors need approval to run workflows"
 gh api -X PUT "repos/$REPO/actions/permissions/workflow" --silent -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false
-gh api -X PUT "repos/$REPO/actions/permissions/fork-pr-contributor-approval" --silent -f approval_policy=all_external_contributors || true
+gh api -X PUT "repos/$REPO/actions/permissions/fork-pr-contributor-approval" --silent -f approval_policy=all_external_contributors || failed "approval for outside contributors to run workflows"
 
 say "Labels used by the PR policy and issue forms"
 for l in "policy: needs-changes|b60205|Fails the PR policy; see the pr-policy comment" "stale|cfd3d7|No activity" \
@@ -92,4 +96,9 @@ upsert_ruleset "release tags" "$(cat <<'JSON'
 JSON
 )"
 
+if [ ${#FAILED[@]} -gt 0 ]; then
+  printf '\n%s setting(s) failed:\n' "${#FAILED[@]}" >&2
+  printf '  - %s\n' "${FAILED[@]}" >&2
+  exit 1
+fi
 say "Done. Check: https://github.com/$REPO/settings/rules"
