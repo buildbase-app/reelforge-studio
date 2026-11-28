@@ -3300,11 +3300,11 @@ and kept `@remotion/renderer` as a production dependency; now `build` pre-builds
 leaves the production dependencies. D-040's rule that a container never runs a bundler still holds for both
 engines (the add-on image carries its own pre-built bundle). **D-027** sells a locked image and named the question
 of redistributing Remotion inside it as urgent (#10); this answers it by not redistributing Remotion at all.
-**D-020** (Chrome Headless Shell from Remotion's `ensureBrowser()` at build time) is unchanged here: the image keeps
-only the browser binary that step downloads, not Remotion's code.
+**D-020** (Chrome Headless Shell from Remotion's `ensureBrowser()` at build time) stays, for amd64 and arm64 alike:
+the image keeps only the browser binary that step downloads, not Remotion's code, and every engine renders with
+the same Chrome on both architectures. The plan's switch to Google's Chrome for Testing (`@puppeteer/browsers`) was
+not taken, because Chrome for Testing has no linux/arm64 build and the image is built for arm64 too.
 *Why:* shipping Remotion to every buyer would make RenderWeld a distributor of software that needs its own licence
 for business use.
-*Open:* the plan also moves the image's browser to Google's Chrome for Testing (`@puppeteer/browsers`), but Chrome
-for Testing has no linux/arm64 build and the image is built for arm64 too, so D-020 stays until the owner picks the
-arm64 browser; with a key set, Remotion reports a usage event to www.remotion.pro after each render, which the
-install guide (#783 part C) has to say.
+*Open:* with a key set, Remotion reports a usage event to www.remotion.pro after each render, which the install
+guide (#783 part C) has to say.
