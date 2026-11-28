@@ -40,7 +40,7 @@ OTLP provider can point; they have not been run against the vendors.
 
 | Key | Env | Default | Runtime |
 | --- | --- | --- | --- |
-| `observability.serviceName` | `RENDERWELD_OTEL_SERVICE_NAME`, `OTEL_SERVICE_NAME` | `reelforge-studio` | no (start-up) |
+| `observability.serviceName` | `RENDERWELD_OTEL_SERVICE_NAME`, `OTEL_SERVICE_NAME` | `renderweld` | no (start-up) |
 | `observability.logs.exporter` | `RENDERWELD_LOGS_EXPORTER` | `stdout` (`pretty` if `logging.format: text`) | yes |
 | `observability.metrics.exporter` | `RENDERWELD_METRICS_EXPORTER` | `prometheus` | yes |
 | `observability.metrics.bearerToken` (secret) | `RENDERWELD_METRICS_TOKEN` (+ `_FILE`) | unset (`/metrics` answers 401) | yes |
@@ -76,7 +76,7 @@ or over REST: `curl -X PATCH -H "Authorization: Bearer $ADMIN_KEY" -H 'content-t
 One JSON object per line on stdout (warnings and errors on stderr):
 
 ```json
-{"time":"2026-11-21T16:51:13.465Z","level":"info","msg":"GET /v1/projects 200","service":"reelforge-studio","request_id":"abc-1","key_id":"key_mwqna7uy421d28ac61","method":"GET","route":"/v1/projects","status":200,"duration_ms":8,"trace_id":"4bf9...","span_id":"00f0..."}
+{"time":"2026-11-21T16:51:13.465Z","level":"info","msg":"GET /v1/projects 200","service":"renderweld","request_id":"abc-1","key_id":"key_mwqna7uy421d28ac61","method":"GET","route":"/v1/projects","status":200,"duration_ms":8,"trace_id":"4bf9...","span_id":"00f0..."}
 ```
 
 - One access line per request: `request_id` (your `X-Request-Id` when it is
@@ -149,8 +149,8 @@ admission control (`limits.maxEstimatedWaitSeconds`, docs/providers/queue-and-sc
 histogram_quantile(0.95, sum by (le, renderweld_job_type, renderweld_job_priority) (rate(renderweld_job_queue_wait_seconds_bucket[15m])))
 ```
 
-Alert rules: `deployment/observability/alerts.yml` (`ReelforgePreviewQueueWaitSLO`
-p95 > 60 s for 10 min, `ReelforgeRenderQueueWaitSLO` p95 > 300 s for 15 min);
+Alert rules: `deployment/observability/alerts.yml` (`RenderweldPreviewQueueWaitSLO`
+p95 > 60 s for 10 min, `RenderweldRenderQueueWaitSLO` p95 > 300 s for 15 min);
 add it to `rule_files:` in `prometheus.yml`. It passes `promtool check rules`
 and the unit test `promtool test rules alerts.test.yml` (Prometheus v3.7.3; run
 by `e2e/docker/run.sh`). The Grafana dashboard has the panel "Queue wait p95 by
@@ -187,10 +187,10 @@ Resource attributes: `service.name`, `service.version`, `renderweld.edition`.
 
 ```yaml
 scrape_configs:
-  - job_name: reelforge-studio
+  - job_name: renderweld
     metrics_path: /metrics
     static_configs:
-      - targets: ['reelforge:4321']
+      - targets: ['renderweld:4321']
     # observability.metrics.bearerToken (RENDERWELD_METRICS_TOKEN):
     authorization: { type: Bearer, credentials_file: /etc/prometheus/reelforge-metrics-token }
 ```

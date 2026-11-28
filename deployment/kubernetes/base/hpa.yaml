@@ -1,8 +1,8 @@
-# api: CPU. worker: CPU and the queue depth. reelforge_jobs_queued is the
+# api: CPU. worker: CPU and the queue depth. renderweld_jobs_queued is the
 # cluster-wide number of queued jobs (every instance reports the same value),
 # so it is an External metric: with prometheus-adapter, the rule in
 # docs/providers/queue-and-scaling.md#autoscaling exposes
-# max(reelforge_jobs_queued) to the HPA. Without the adapter the worker HPA
+# max(renderweld_jobs_queued) to the HPA. Without the adapter the worker HPA
 # scales on CPU only (the External metric shows <unknown>).
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -32,9 +32,9 @@ spec:
     - type: External
       external:
         metric:
-          name: reelforge_jobs_queued
+          name: renderweld_jobs_queued
           selector: { matchLabels: { namespace: reelforge } }
-        # One more worker per queued job (each worker renders REELFORGE_WORKER_CONCURRENCY at a time).
+        # One more worker per queued job (each worker renders RENDERWELD_WORKER_CONCURRENCY at a time).
         target: { type: AverageValue, averageValue: "1" }
   behavior:
     scaleUp:

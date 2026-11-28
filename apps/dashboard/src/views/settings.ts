@@ -220,7 +220,7 @@ export const configView: View = (ctx, main) => {
       const g = e.key.split('.')[0]!;
       groups.set(g, [...(groups.get(g) ?? []), e]);
     }
-    const filter = h('input', { id: 'cfg-filter', type: 'search', placeholder: 'limits, REELFORGE_PORT, webhook', autocomplete: 'off', spellcheck: 'false' });
+    const filter = h('input', { id: 'cfg-filter', type: 'search', placeholder: 'limits, RENDERWELD_PORT, webhook', autocomplete: 'off', spellcheck: 'false' });
     const sections = [...groups.entries()].map(([g, entries]) => {
       const list = h('ul', { class: 'settings-list' }, entries.map((e) => row(e)));
       const changed = entries.filter((e) => e.source !== 'default').length;

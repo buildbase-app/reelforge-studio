@@ -12,7 +12,7 @@ import type { DatabaseKind } from './url';
  * pooled connections never switch database); SQLite is one local file.
  */
 
-/** A PostgreSQL schema name ReelForge accepts in `?schema=` (url.ts): a plain, unquoted identifier. */
+/** A PostgreSQL schema name RenderWeld accepts in `?schema=` (url.ts): a plain, unquoted identifier. */
 export const PG_SCHEMA_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 /** The schema without `?schema=`: Prisma's own default, so raw SQL and model queries agree. */
 export const DEFAULT_PG_SCHEMA = 'public';

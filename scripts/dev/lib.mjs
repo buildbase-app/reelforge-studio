@@ -104,7 +104,7 @@ const quote = (v) => (/^[A-Za-z0-9_./:@+=,-]*$/.test(v) ? v : v.includes("'") ? 
 export function envEntries(opts = {}) {
   const port = opts.port ?? STUDIO_PORT;
   const e = [
-    '# Server (docs/CONFIG.md lists every setting; RENDERWELD_* is the new name of REELFORGE_*)',
+    '# Server (docs/CONFIG.md lists every setting; RENDERWELD_* is the new name of RENDERWELD_*)',
     ['RENDERWELD_HOST', '127.0.0.1'],
     ['RENDERWELD_PORT', String(port)],
     ['RENDERWELD_DATA_DIR', './.data'],
@@ -225,30 +225,14 @@ export function planEnvFile(existing, entries, { force = false, date = new Date(
 /** Settings whose differing value is worth a warning (the generated secrets differ every run by design). */
 const WATCHED = new Set(['RENDERWELD_DATABASE_URL', 'RENDERWELD_STORAGE_DRIVER', 'RENDERWELD_PORT', 'RENDERWELD_CHROMIUM_PATH']);
 
-/**
- * The environment for the dev processes: the file's settings, then the shell's (the shell wins).
- * A shell value under an old REELFORGE_* name replaces the file's RENDERWELD_* twin instead of
- * clashing with it (the server refuses to start when both names hold different values).
- * Returns { env, notes }.
- */
+/** The environment for the dev processes: the file's settings, then the shell's (the shell wins). */
 export function mergeEnv(fileVars, shellEnv) {
-  const env = { ...fileVars, ...shellEnv };
-  const notes = [];
-  for (const k of Object.keys(fileVars)) {
-    if (!k.startsWith('RENDERWELD_')) continue;
-    const old = `REELFORGE_${k.slice('RENDERWELD_'.length)}`;
-    if (old in shellEnv && !(k in shellEnv)) {
-      if (shellEnv[old] !== fileVars[k]) notes.push(`${old} from your shell replaces ${k} from .env.local`);
-      env[k] = shellEnv[old];
-      delete env[old];
-    }
-  }
-  return { env, notes };
+  return { ...fileVars, ...shellEnv };
 }
 
-/** A value from an environment under its new or old name. */
+/** A setting's value from an environment, by its name without the RENDERWELD_ prefix. */
 export function envValue(env, name) {
-  return env[`RENDERWELD_${name}`] ?? env[`REELFORGE_${name}`];
+  return env[`RENDERWELD_${name}`];
 }
 
 // ---------- Chrome Headless Shell ----------
@@ -271,7 +255,7 @@ export function headlessShellExe(platform = process.platform, arch = process.arc
 }
 
 /**
- * Find a Chrome Headless Shell: the configured path (RENDERWELD_ / REELFORGE_CHROMIUM_PATH),
+ * Find a Chrome Headless Shell: the configured path (RENDERWELD_ / RENDERWELD_CHROMIUM_PATH),
  * then Playwright's installs (newest revision first), then Remotion's (`npx remotion browser ensure`).
  * Returns { path, source } or null.
  */

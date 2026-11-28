@@ -4,7 +4,7 @@
  * light and dark, device scale factor 2.
  *
  * What is real and what is seeded:
- *   - real: today's renders (the real html engine, needs REELFORGE_CHROMIUM_PATH),
+ *   - real: today's renders (the real html engine, needs RENDERWELD_CHROMIUM_PATH),
  *     one real failure (render.timeoutSeconds set to 2 s for a 12 s reel), scene
  *     timings from their manifests, storage used, webhook deliveries to two local
  *     receivers (one answers 204, one 500), API keys and the audit log;
@@ -12,7 +12,7 @@
  *     database (params.seededHistory: true) so the chart has a history. They
  *     have no renders behind them, so they add nothing to the engine timings.
  *
- *   REELFORGE_CHROMIUM_PATH=... pnpm --filter @renderweld/dashboard screenshots:admin [outDir]
+ *   RENDERWELD_CHROMIUM_PATH=... pnpm --filter @renderweld/dashboard screenshots:admin [outDir]
  */
 import { mkdirSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -22,8 +22,8 @@ import { htmlEngine } from '@renderweld/engine-html';
 import { chromium, type Page } from 'playwright';
 import { htmlReel, startStudio } from '../test/harness';
 
-const executablePath = process.env.REELFORGE_CHROMIUM_PATH;
-if (!executablePath) throw new Error('set REELFORGE_CHROMIUM_PATH');
+const executablePath = process.env.RENDERWELD_CHROMIUM_PATH;
+if (!executablePath) throw new Error('set RENDERWELD_CHROMIUM_PATH');
 const out = resolve(process.argv[2] ?? join(import.meta.dirname, '..', '..', '..', 'docs', 'proofs', 'dashboard'));
 mkdirSync(out, { recursive: true });
 
@@ -45,7 +45,7 @@ const broken = await receiver(500);
 const studio = await startStudio([htmlEngine()], {
   // The provider the server ships with (apps/server/src/registry.ts), not configured: no key, no calls.
   register: (r) => r.registerProvider(new ElevenLabsTts({})),
-  env: { REELFORGE_WEBHOOKS_ALLOW_HTTP: 'true', REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true', REELFORGE_WEBHOOKS_MAX_ATTEMPTS: '2' },
+  env: { RENDERWELD_WEBHOOKS_ALLOW_HTTP: 'true', RENDERWELD_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true', RENDERWELD_WEBHOOKS_MAX_ATTEMPTS: '2' },
 });
 const { call, waitFor, service } = studio;
 const must = async (r: Promise<{ status: number; json: any }>, what: string) => {

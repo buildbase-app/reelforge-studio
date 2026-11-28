@@ -65,8 +65,8 @@ let receiver: Server;
 let rxUrl = '';
 
 const licenceApi: LicenceApi = {
-  validate: async (): Promise<LicenceAnswer> => ({ valid: true, reason: null, key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null }, item: { id: 'itm', title: 'ReelForge Studio' }, instance: null }),
-  activate: async (_k, instance): Promise<LicenceAnswer> => ({ valid: true, reason: null, key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null }, item: { id: 'itm', title: 'ReelForge Studio' }, instance: { instance, activatedAt: new Date().toISOString() } }),
+  validate: async (): Promise<LicenceAnswer> => ({ valid: true, reason: null, key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null }, item: { id: 'itm', title: 'RenderWeld' }, instance: null }),
+  activate: async (_k, instance): Promise<LicenceAnswer> => ({ valid: true, reason: null, key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null }, item: { id: 'itm', title: 'RenderWeld' }, instance: { instance, activatedAt: new Date().toISOString() } }),
   deactivate: async (): Promise<LicenceAnswer> => ({ valid: false, reason: 'not_activated', instance: null }),
 };
 
@@ -130,11 +130,11 @@ beforeAll(async () => {
   dropDb = database.drop;
   const env = {
     ...database.env,
-    REELFORGE_SECRET_KEY: SECRET_KEY,
-    REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
-    REELFORGE_WEBHOOKS_ALLOW_HTTP: 'true',
-    REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
-    REELFORGE_WEBHOOKS_RETRY_BASE_SECONDS: '1',
+    RENDERWELD_SECRET_KEY: SECRET_KEY,
+    RENDERWELD_RATE_LIMIT_PER_MINUTE: '0',
+    RENDERWELD_WEBHOOKS_ALLOW_HTTP: 'true',
+    RENDERWELD_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
+    RENDERWELD_WEBHOOKS_RETRY_BASE_SECONDS: '1',
   };
   const quiet = () => undefined;
   vi.spyOn(console, 'log').mockImplementation(quiet);

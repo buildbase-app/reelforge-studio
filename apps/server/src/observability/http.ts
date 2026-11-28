@@ -39,7 +39,7 @@ export function httpTelemetry(obs: Observability): MiddlewareHandler {
     const requestId = given && REQUEST_ID.test(given) ? given : randomUUID();
     const method = c.req.method;
     const parent = propagator.extract(ROOT_CONTEXT, c.req.raw.headers, headerGetter);
-    const span = obs.tracer.startSpan(method, { kind: SpanKind.SERVER, attributes: { 'http.request.method': method, 'url.path': c.req.path, 'reelforge.request_id': requestId } }, parent);
+    const span = obs.tracer.startSpan(method, { kind: SpanKind.SERVER, attributes: { 'http.request.method': method, 'url.path': c.req.path, 'renderweld.request_id': requestId } }, parent);
     c.set('requestId' as never, requestId as never);
     c.header('X-Request-Id', requestId);
     try {
@@ -57,7 +57,7 @@ export function httpTelemetry(obs: Observability): MiddlewareHandler {
       span.updateName(`${method} ${route}`);
       span.setAttribute('http.route', route);
       span.setAttribute('http.response.status_code', status);
-      if (keyId) span.setAttribute('reelforge.key_id', keyId);
+      if (keyId) span.setAttribute('renderweld.key_id', keyId);
       if (status >= 500) span.setStatus({ code: SpanStatusCode.ERROR });
       obs.httpDuration.record(seconds, { 'http.request.method': method, 'http.route': route, 'http.response.status_code': status });
       const level = status >= 500 ? 'warn' : QUIET.has(c.req.path) ? 'debug' : 'info';

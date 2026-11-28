@@ -37,22 +37,20 @@ anything that earns money).
 ```bash
 git clone https://github.com/buildbase-app/reelforge-studio.git
 cd reelforge-studio
-echo "REELFORGE_SECRET_KEY=$(openssl rand -base64 32)" >> .env
+echo "RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)" >> .env
 ```
 
-`docker compose` reads `.env` from this folder. `REELFORGE_SECRET_KEY` encrypts
+`docker compose` reads `.env` from this folder. `RENDERWELD_SECRET_KEY` encrypts
 the secrets the server stores in its database (your licence key, provider keys);
 the server does not start without it.
 Keep a copy somewhere safe: stored secrets cannot be read without it. `.env` is
 ignored by git.
-`docker-compose.yml` still reads the old `REELFORGE_*` names from `.env`; the
-server accepts `RENDERWELD_*` too ([Renamed from ReelForge](../install/renamed-from-reelforge.md)).
 
 ## 2. Start the server
 
 ```bash
 docker compose up -d --build
-docker compose ps        # wait until the reelforge service shows (healthy)
+docker compose ps        # wait until the renderweld service shows (healthy)
 ```
 
 The first build downloads the base image, FFmpeg, fonts and Chrome Headless
@@ -69,8 +67,8 @@ curl -s http://127.0.0.1:4321/healthz
 ## 3. Create your first API keys
 
 ```bash
-docker compose exec reelforge renderweld keys create --name admin --scopes admin
-docker compose exec reelforge renderweld keys create --name agent --scopes read,write,render
+docker compose exec renderweld renderweld keys create --name admin --scopes admin
+docker compose exec renderweld renderweld keys create --name agent --scopes read,write,render
 ```
 
 Each command prints an `rf_...` key **once**. The `admin` key manages the

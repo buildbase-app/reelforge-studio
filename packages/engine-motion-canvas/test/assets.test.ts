@@ -7,7 +7,6 @@ import { resolveTools, type Tools } from '@renderweld/media-pipeline';
 import { builtinTheme, frameLayout, type OutputSettings, type RenderScene } from '@renderweld/project-schema';
 import { renderMotionCanvasScene } from '../src/index';
 import { QUAD, colorDistance, makeNumberedClip, makeQuadImage, meanColor, readBars, readPicture } from '../../media-pipeline/test/media-fixtures';
-import { envValue } from '@renderweld/core';
 
 /**
  * #299: animated-explainer shows a background video and a logo from the
@@ -15,7 +14,7 @@ import { envValue } from '@renderweld/core';
  * server's per-render token path).
  */
 
-const browser = envValue('REELFORGE_CHROMIUM_PATH');
+const browser = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(browser && existsSync(browser));
 const dir = mkdtempSync(join(tmpdir(), 'reelforge-mc-assets-'));
 const cacheDir = resolve(__dirname, '../../../.render-cache');

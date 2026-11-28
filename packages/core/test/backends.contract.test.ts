@@ -12,7 +12,7 @@ import {
   PluginRegistry,
   REMOTION_LAMBDA_ENV,
   RemotionLambdaBackend,
-  ReelforgeService,
+  RenderWeldService,
   createMemoryRepositories,
   estimateUnits,
   type BackendCapabilities,
@@ -60,7 +60,7 @@ describe('render backends v2 in the service', () => {
       .registerEngine(fakeEngine('motion-canvas'))
       .registerBackend(new RemotionLambdaBackend({}))
       .registerBackend(new NarrowBackend());
-    return ReelforgeService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, `d${Math.random()}`), configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } }, maintenance: false, webhooks: { worker: false } });
+    return RenderWeldService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, `d${Math.random()}`), configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } }, maintenance: false, webhooks: { worker: false } });
   }
 
   it('BKD-07 get_capabilities reports kind and capabilities of every backend; implemented stays honest', async () => {

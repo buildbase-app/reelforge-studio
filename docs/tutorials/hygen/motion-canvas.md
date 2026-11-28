@@ -25,10 +25,10 @@ RenderWeld store); commercial use needs a commercial licence.
 
 ```bash
 git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
-export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
+export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)       # keep a copy: it encrypts stored secrets
 docker compose up -d --build                                 # 127.0.0.1:4321, hardened defaults
-docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>
-docker compose exec reelforge renderweld keys create --name agent --scopes read,write,render
+docker compose exec renderweld renderweld licence activate <YOUR-LICENCE-KEY>
+docker compose exec renderweld renderweld keys create --name agent --scopes read,write,render
 ```
 
 **B. From a checkout with pnpm (local development only).** `pnpm dev` sets
@@ -47,8 +47,8 @@ Keep the printed key in an environment variable, not in files you commit:
 
 ```bash
 export RF=http://127.0.0.1:4321
-export REELFORGE_API_KEY=rf_...      # the key printed above
-export KEY=$REELFORGE_API_KEY
+export RENDERWELD_API_KEY=rf_...      # the key printed above
+export KEY=$RENDERWELD_API_KEY
 ```
 
 More: [DEPLOY.md](../../DEPLOY.md), [CONFIG.md](../../CONFIG.md), [licence](../../DEPLOY.md#licence).
@@ -186,7 +186,7 @@ Motion Canvas (`animated-explainer`): 2 to 20 s, a title and 1 to 4 points (up t
 | Symptom | Cause and fix |
 | --- | --- |
 | `401 unauthorized` | Missing or wrong key. Send `Authorization: Bearer rf_...`; check it with `curl -H "Authorization: Bearer $KEY" $RF/v1/capabilities`. |
-| `403 forbidden_host` on `/mcp` | The Host header is not allowed (DNS-rebinding protection). Use `127.0.0.1`/`localhost`, or set `REELFORGE_PUBLIC_URL` / `REELFORGE_ALLOWED_HOSTS`. |
+| `403 forbidden_host` on `/mcp` | The Host header is not allowed (DNS-rebinding protection). Use `127.0.0.1`/`localhost`, or set `RENDERWELD_PUBLIC_URL` / `RENDERWELD_ALLOWED_HOSTS`. |
 | `403 licence_required` / `licence_invalid` on a render | Activate a licence key (`renderweld licence activate <key>`; Personal is free). `RENDERWELD_LICENCE_MODE=off` exists for local development from a checkout only. |
 | `403 forbidden` (scope) | The key lacks a scope: rendering needs `render`, creating projects `write`. Create a key with `--scopes read,write,render`. |
 | An engine shows `available: false` | `RENDERWELD_CHROMIUM_PATH` is unset or wrong (checkout), or the image is not the release image. `get_capabilities` says how to fix it. |
@@ -205,7 +205,7 @@ Motion Canvas (`animated-explainer`): 2 to 20 s, a title and 1 to 4 points (up t
 | | |
 | --- | --- |
 | Date | 2026-11-23 10:06:45 UTC |
-| Studio | RenderWeld 0.1.0, commit `9fcc722`, started from a checkout with `REELFORGE_LICENCE_MODE=off` (local development only) |
+| Studio | RenderWeld 0.1.0, commit `9fcc722`, started from a checkout with `RENDERWELD_LICENCE_MODE=off` (local development only) |
 | Reproduce | `pnpm tutorials:prove hygen motion-canvas` |
 | Command the proof ran | `HYGEN_TMPLS=examples/hygen/_templates pnpm exec hygen reel animated-explainer --name tut-hygen-motion-canvas --title 'Tutorial: Motion Canvas engine' --headline 'Three steps to a reel' --points 'Describe the reel\|Let the agent build the scenes\|Render and download' --out reel.json && examples/tutorials/rest.sh reel.json tut-hygen-motion-canvas final.mp4` |
 | Project / job / render | `tut-hygen-motion-canvas` / `job_mwt3pspi6c828f3bb1` / `run_mwt3pspia36ba55a3a` |

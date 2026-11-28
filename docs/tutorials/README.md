@@ -8,11 +8,6 @@ proof: the same prompt or script, run against a real studio, with the output
 checked by ffprobe. A cell is ✅ only after such a run passed; everything else
 says why it is not proven.
 
-The proofs were recorded before ReelForge was renamed RenderWeld, so the
-prompts and commands keep the names those runs used: the MCP server entry is
-called `reelforge` (tools `mcp__reelforge__*`), and the example scripts read
-`REELFORGE_URL` and `REELFORGE_API_KEY`. Everything works under those names.
-They change when the cells are proved again (`pnpm tutorials:prove`).
 
 | Agent | Remotion | Motion Canvas | HTML | HyperFrames | Multi-engine |
 | --- | --- | --- | --- | --- | --- |
@@ -48,23 +43,23 @@ same MCP endpoint: [mcp-sdk/other-clients.md](mcp-sdk/other-clients.md)
 
    ```bash
    git clone https://github.com/buildbase-app/reelforge-studio && cd reelforge-studio
-   export REELFORGE_SECRET_KEY=$(openssl rand -base64 32)   # keep a copy
+   export RENDERWELD_SECRET_KEY=$(openssl rand -base64 32)   # keep a copy
    docker compose up -d --build
-   docker compose exec reelforge renderweld licence activate <YOUR-LICENCE-KEY>
+   docker compose exec renderweld renderweld licence activate <YOUR-LICENCE-KEY>
    ```
 
 2. **Create a key for your agent** (printed once):
 
    ```bash
-   docker compose exec reelforge renderweld keys create --name claude --scopes read,write,render
-   export REELFORGE_API_KEY=rf_...
+   docker compose exec renderweld renderweld keys create --name claude --scopes read,write,render
+   export RENDERWELD_API_KEY=rf_...
    ```
 
 3. **Connect Claude Code**:
 
    ```bash
    claude mcp add --transport http reelforge http://127.0.0.1:4321/mcp \
-     --header "Authorization: Bearer $REELFORGE_API_KEY"
+     --header "Authorization: Bearer $RENDERWELD_API_KEY"
    ```
 
 4. **Ask for a reel**: start `claude` and paste the prompt from
@@ -87,7 +82,7 @@ pnpm tutorials:docs                       # regenerate these pages from cells.ts
 ```
 
 The proof script starts a studio from the checkout (licence mode off: local
-development only) unless `REELFORGE_URL` and `REELFORGE_API_KEY` point at
+development only) unless `RENDERWELD_URL` and `RENDERWELD_API_KEY` point at
 one, runs the agent, then checks on its own over REST that the job
 succeeded, that the project uses the cell's engines, and that the MP4 has the
 right size, frame rate, decoded frame count, duration and codecs. Artefacts

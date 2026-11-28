@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "The self-hosted web dashboard of ReelForge Studio (#292, D-115): static files the server serves at /dashboard; a client of the public REST API only.",
+  "description": "The self-hosted web dashboard of RenderWeld (#292, D-115): static files the server serves at /dashboard; a client of the public REST API only.",
   "type": "module",
   "exports": {
     "./build": "./build.ts"

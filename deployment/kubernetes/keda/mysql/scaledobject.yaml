@@ -1,7 +1,7 @@
 # MySQL variant of ../scaledobject.yaml (same pool, same behaviour; KEDA's MySQL scaler).
 # Workers on the queue depth: desired pods = ceil(query / targetQueryValue).
 # The query counts the jobs of the database queue that need a worker (queued)
-# or hold one (running), divided by REELFORGE_WORKER_CONCURRENCY (1 in
+# or hold one (running), divided by RENDERWELD_WORKER_CONCURRENCY (1 in
 # worker.yaml: change the divisor with it). Counting running jobs keeps a busy
 # pool from being scaled in under its renders; a scale-in still picks pods at
 # random, and a removed busy worker hands its job back (D-077), so scale-in is

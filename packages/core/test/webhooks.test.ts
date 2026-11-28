@@ -105,11 +105,11 @@ async function harness(env: Record<string, string> = {}, opts: { repos?: Reposit
   const repos = opts.repos ?? createMemoryRepositories();
   const settings = new RuntimeConfig(repos, {
     env: {
-      REELFORGE_SECRET_KEY: SECRET_KEY,
-      REELFORGE_WEBHOOKS_ALLOW_HTTP: 'true',
-      REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
-      REELFORGE_WEBHOOKS_RETRY_BASE_SECONDS: '10',
-      REELFORGE_WEBHOOKS_TIMEOUT_SECONDS: '2',
+      RENDERWELD_SECRET_KEY: SECRET_KEY,
+      RENDERWELD_WEBHOOKS_ALLOW_HTTP: 'true',
+      RENDERWELD_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
+      RENDERWELD_WEBHOOKS_RETRY_BASE_SECONDS: '10',
+      RENDERWELD_WEBHOOKS_TIMEOUT_SECONDS: '2',
       ...env,
     },
   });
@@ -264,7 +264,7 @@ describe('SSRF guard (WHK-03)', () => {
   });
 
   it('a private target is refused at delivery even when it was saved earlier (setting turned off after a restart)', async () => {
-    const x = await h({ REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'false', REELFORGE_WEBHOOKS_ALLOW_HTTP: 'true' });
+    const x = await h({ RENDERWELD_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'false', RENDERWELD_WEBHOOKS_ALLOW_HTTP: 'true' });
     const at = new Date().toISOString();
     const ep: WebhookEndpointRecord = { id: 'whk_old', name: 'old', type: 'webhook', url: { value: rx.on('/ssrf', [200]), scheme: 'plain' }, events: ['*'], enabled: true, secret: { value: newSigningSecret(), scheme: 'plain' }, createdAt: at, updatedAt: at };
     await x.repos.webhooks.insertEndpoint(ep);
@@ -277,7 +277,7 @@ describe('SSRF guard (WHK-03)', () => {
   });
 
   it('create_webhook refuses private targets unless the start-up setting allows them', async () => {
-    const x = await h({ REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'false', REELFORGE_WEBHOOKS_ALLOW_HTTP: 'false' });
+    const x = await h({ RENDERWELD_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'false', RENDERWELD_WEBHOOKS_ALLOW_HTTP: 'false' });
     await expect(x.svc.create({ name: 'a', url: 'https://127.0.0.1/h', events: ['*'] })).rejects.toMatchObject({ code: 'url_not_allowed' });
     await expect(x.svc.create({ name: 'a', url: 'http://example.com/h', events: ['*'] })).rejects.toMatchObject({ code: 'url_not_allowed' });
     await expect(x.settings.update({ 'webhooks.allowPrivateNetworks': true })).rejects.toMatchObject({ code: 'startup_only_setting' });
@@ -303,7 +303,7 @@ describe('delivery through the outbox', () => {
     expect(hit.headers['webhook-id']).toBe(d.messageId);
     expect(hit.headers['content-type']).toBe('application/json');
     // The RenderWeld product token first, the old one after it for receivers that filter on it (#413).
-    expect(hit.headers['user-agent']).toBe('RenderWeld-Webhooks/1 ReelForge-Studio-Webhooks/1');
+    expect(hit.headers['user-agent']).toBe('RenderWeld-Webhooks/1');
     const wh = new Webhook(secret!);
     // The official library checks the timestamp against the real clock; the harness clock is fixed, so check with ours too.
     expect(() => verifySignature(secret!, hit.headers as Record<string, string>, hit.body, { now: x.clock.t })).not.toThrow();
@@ -349,7 +349,7 @@ describe('delivery through the outbox', () => {
   });
 
   it('WHK-05b backoff doubles, is capped, and stays within ±20 % jitter', async () => {
-    const x = await h({ REELFORGE_WEBHOOKS_RETRY_BASE_SECONDS: '30', REELFORGE_WEBHOOKS_RETRY_MAX_DELAY_SECONDS: '14400' }, { start: false });
+    const x = await h({ RENDERWELD_WEBHOOKS_RETRY_BASE_SECONDS: '30', RENDERWELD_WEBHOOKS_RETRY_MAX_DELAY_SECONDS: '14400' }, { start: false });
     expect([1, 2, 3, 4].map((n) => x.svc.backoffMs(n, undefined, () => 0.5))).toEqual([30_000, 60_000, 120_000, 240_000]);
     expect(x.svc.backoffMs(20, undefined, () => 0.5)).toBe(14_400_000);
     expect(x.svc.backoffMs(1, undefined, () => 0)).toBe(24_000);
@@ -375,7 +375,7 @@ describe('delivery through the outbox', () => {
   });
 
   it('WHK-07 dead letter after maxAttempts; replay sends it again with the same webhook-id and payload', async () => {
-    const x = await h({ REELFORGE_WEBHOOKS_MAX_ATTEMPTS: '2' });
+    const x = await h({ RENDERWELD_WEBHOOKS_MAX_ATTEMPTS: '2' });
     const statuses = [503, 503, 200];
     const url = rx.on('/dead', statuses);
     const { webhook } = await x.svc.create({ name: 'dead', url, events: ['config.changed'] });
@@ -405,7 +405,7 @@ describe('delivery through the outbox', () => {
   });
 
   it('WHK-08 a hanging receiver times out after webhooks.timeoutSeconds and is retried', async () => {
-    const x = await h({ REELFORGE_WEBHOOKS_TIMEOUT_SECONDS: '1' });
+    const x = await h({ RENDERWELD_WEBHOOKS_TIMEOUT_SECONDS: '1' });
     const url = rx.on('/hang', () => undefined);
     const { webhook } = await x.svc.create({ name: 'hang', url, events: ['*'] });
     const started = Date.now();
@@ -567,19 +567,19 @@ describe('delivery through the outbox', () => {
     expect(x.logs.some((l) => l.includes('could not be queued: database is down'))).toBe(true);
   });
 
-  it('WHK-16 validation: bad events, missing url, email without recipients, no REELFORGE_SECRET_KEY', async () => {
+  it('WHK-16 validation: bad events, missing url, email without recipients, no RENDERWELD_SECRET_KEY', async () => {
     const x = await h();
     await expect(x.svc.create({ name: 'a', url: `${rx.url}/x`, events: ['job.finished'] })).rejects.toMatchObject({ code: 'bad_request' });
     await expect(x.svc.create({ name: 'a', events: ['*'] })).rejects.toMatchObject({ code: 'bad_request' });
     await expect(x.svc.create({ name: 'a', type: 'email', email: { provider: 'smtp', to: [] }, events: ['*'] })).rejects.toMatchObject({ code: 'bad_request' });
     await expect(x.svc.create({ name: 'a', type: 'email', email: { provider: 'smtp', to: ['not-an-address'] }, events: ['*'] })).rejects.toMatchObject({ code: 'bad_request' });
     await expect(x.svc.create({ name: 'a', url: `${rx.url}/x`, events: ['*'], extra: 1 })).rejects.toMatchObject({ code: 'bad_request' });
-    const y = await h({ REELFORGE_SECRET_KEY: '' });
+    const y = await h({ RENDERWELD_SECRET_KEY: '' });
     await expect(y.svc.create({ name: 'a', url: `${rx.url}/x`, events: ['*'] })).rejects.toMatchObject({ code: 'secret_key_required', status: 409 });
   });
 
   it('WHK-17 deleting an endpoint abandons its pending deliveries; retention removes old finished deliveries with their attempts (append-only otherwise)', async () => {
-    const x = await h({ REELFORGE_WEBHOOKS_DELIVERY_RETENTION_DAYS: '30' }, { start: false });
+    const x = await h({ RENDERWELD_WEBHOOKS_DELIVERY_RETENTION_DAYS: '30' }, { start: false });
     const { webhook } = await x.svc.create({ name: 'gone', url: `${rx.url}/x`, events: ['*'] });
     x.svc.emit('key.created', { keyId: 'k' });
     await x.svc.flush();
@@ -636,7 +636,7 @@ const CREDS = { resend: 're_test_key_0123456789', postmark: 'pm-token-0123456789
 
 function emailSettings(base: string, over: Partial<EmailSettings> = {}): EmailSettings {
   return {
-    from: 'ReelForge <studio@example.com>',
+    from: 'RenderWeld <studio@example.com>',
     smtp: { host: '127.0.0.1', port: smtpPort, security: 'none', user: smtpAuth.user, password: smtpAuth.pass },
     resend: { apiKey: CREDS.resend, baseUrl: `${base}/resend` },
     postmark: { serverToken: CREDS.postmark, baseUrl: `${base}/postmark`, messageStream: 'outbound' },
@@ -708,25 +708,24 @@ const PROVIDER_CASES: ProviderCase[] = [
   httpCase('email:resend', 'email', '/resend/emails', (hit) => {
     expect(hit.headers.authorization).toBe(`Bearer ${CREDS.resend}`);
     expect(hit.headers['idempotency-key']).toBe('msg_contract');
-    expect(hit.headers['user-agent']).toBe('RenderWeld-Notifications/1 ReelForge-Studio-Notifications/1');
-    expect(JSON.parse(hit.body)).toMatchObject({ from: 'ReelForge <studio@example.com>', to: ['ops@example.com'], subject: expect.stringContaining('failed') });
-    // The message id header under the new and the old name (#412).
-    expect(JSON.parse(hit.body).headers).toEqual({ 'X-Renderweld-Message-Id': 'msg_contract', 'X-Reelforge-Message-Id': 'msg_contract' });
+    expect(hit.headers['user-agent']).toBe('RenderWeld-Notifications/1');
+    expect(JSON.parse(hit.body)).toMatchObject({ from: 'RenderWeld <studio@example.com>', to: ['ops@example.com'], subject: expect.stringContaining('failed') });
+    expect(JSON.parse(hit.body).headers).toEqual({ 'X-Renderweld-Message-Id': 'msg_contract' });
   }, { provider: 'resend', to: ['ops@example.com'] }),
   httpCase('email:postmark', 'email', '/postmark/email', (hit) => {
     expect(hit.headers['x-postmark-server-token']).toBe(CREDS.postmark);
-    expect(JSON.parse(hit.body)).toMatchObject({ From: 'ReelForge <studio@example.com>', To: 'ops@example.com', MessageStream: 'outbound', TextBody: expect.stringContaining('render_failed') });
-    expect(JSON.parse(hit.body).Headers).toEqual([{ Name: 'X-Renderweld-Message-Id', Value: 'msg_contract' }, { Name: 'X-Reelforge-Message-Id', Value: 'msg_contract' }]);
+    expect(JSON.parse(hit.body)).toMatchObject({ From: 'RenderWeld <studio@example.com>', To: 'ops@example.com', MessageStream: 'outbound', TextBody: expect.stringContaining('render_failed') });
+    expect(JSON.parse(hit.body).Headers).toEqual([{ Name: 'X-Renderweld-Message-Id', Value: 'msg_contract' }]);
   }, { provider: 'postmark', to: ['ops@example.com'] }),
   httpCase('email:sendgrid', 'email', '/sendgrid/v3/mail/send', (hit) => {
     expect(hit.headers.authorization).toBe(`Bearer ${CREDS.sendgrid}`);
-    expect(JSON.parse(hit.body)).toMatchObject({ personalizations: [{ to: [{ email: 'ops@example.com' }] }], from: { email: 'ReelForge <studio@example.com>' }, content: [{ type: 'text/plain' }] });
-    expect(JSON.parse(hit.body).headers).toEqual({ 'X-Renderweld-Message-Id': 'msg_contract', 'X-Reelforge-Message-Id': 'msg_contract' });
+    expect(JSON.parse(hit.body)).toMatchObject({ personalizations: [{ to: [{ email: 'ops@example.com' }] }], from: { email: 'RenderWeld <studio@example.com>' }, content: [{ type: 'text/plain' }] });
+    expect(JSON.parse(hit.body).headers).toEqual({ 'X-Renderweld-Message-Id': 'msg_contract' });
   }, { provider: 'sendgrid', to: ['ops@example.com'] }),
   httpCase('email:ses', 'email', '/ses/v2/email/outbound-emails', (hit) => {
     expect(hit.headers.authorization).toMatch(new RegExp(`^AWS4-HMAC-SHA256 Credential=${CREDS.sesId}/\\d{8}/eu-west-1/ses/aws4_request`));
-    expect(JSON.parse(hit.body)).toMatchObject({ FromEmailAddress: 'ReelForge <studio@example.com>', Destination: { ToAddresses: ['ops@example.com'] }, Content: { Simple: { Body: { Text: { Data: expect.stringContaining('render_failed') } } } } });
-    expect(JSON.parse(hit.body).Content.Simple.Headers).toEqual([{ Name: 'X-Renderweld-Message-Id', Value: 'msg_contract' }, { Name: 'X-Reelforge-Message-Id', Value: 'msg_contract' }]);
+    expect(JSON.parse(hit.body)).toMatchObject({ FromEmailAddress: 'RenderWeld <studio@example.com>', Destination: { ToAddresses: ['ops@example.com'] }, Content: { Simple: { Body: { Text: { Data: expect.stringContaining('render_failed') } } } } });
+    expect(JSON.parse(hit.body).Content.Simple.Headers).toEqual([{ Name: 'X-Renderweld-Message-Id', Value: 'msg_contract' }]);
   }, { provider: 'ses', to: ['ops@example.com'] }),
   {
     id: 'email:smtp',
@@ -742,9 +741,8 @@ const PROVIDER_CASES: ProviderCase[] = [
       const m = smtpMail.at(-1)!;
       expect(m.to).toEqual(['ops@example.com']);
       expect(m.from).toBe('studio@example.com');
-      expect(m.data).toContain('Message-ID: <msg_contract@reelforge.local>');
+      expect(m.data).toContain('Message-ID: <msg_contract@renderweld.local>');
       expect(m.data).toMatch(/X-Renderweld-Message-Id: msg_contract/i);
-      expect(m.data).toMatch(/X-Reelforge-Message-Id: msg_contract/i);
       expect(m.data).toContain('render_failed');
     },
   },
@@ -804,7 +802,7 @@ describe.each(PROVIDER_CASES)('notification provider contract: $id (NTF-01..09)'
 
 describe('email through the outbox (NTF-10)', () => {
   it('an email channel whose provider is not configured is retried with what to set; once set, it is delivered', async () => {
-    const x = await h({ REELFORGE_SMTP_HOST: '127.0.0.1', REELFORGE_SMTP_PORT: String(smtpPort), REELFORGE_SMTP_SECURITY: 'none', REELFORGE_SMTP_USER: smtpAuth.user, REELFORGE_SMTP_PASSWORD: smtpAuth.pass });
+    const x = await h({ RENDERWELD_SMTP_HOST: '127.0.0.1', RENDERWELD_SMTP_PORT: String(smtpPort), RENDERWELD_SMTP_SECURITY: 'none', RENDERWELD_SMTP_USER: smtpAuth.user, RENDERWELD_SMTP_PASSWORD: smtpAuth.pass });
     smtpMode = 'ok';
     const { webhook } = await x.svc.create({ name: 'ops mail', type: 'email', email: { provider: 'smtp', to: ['ops@example.com'] }, events: ['licence.state_changed'] });
     expect(webhook.provider).toMatchObject({ id: 'email:smtp', configured: false, missing: 'notifications.email.from' });
@@ -868,7 +866,7 @@ describe('webhooks for operations (#306)', () => {
   });
 
   it('WHK-42 retries for up to webhooks.retryWindowHours: the last attempt lands on the end of the window, then the delivery is dead with the reason', async () => {
-    const x = await h({ REELFORGE_WEBHOOKS_RETRY_WINDOW_HOURS: '1' });
+    const x = await h({ RENDERWELD_WEBHOOKS_RETRY_WINDOW_HOURS: '1' });
     const { webhook } = await x.svc.create({ name: 'down', url: rx.on('/window', [503]), events: ['*'] });
     x.svc.emit('key.created', { keyId: 'k1' });
     const d = await onlyDelivery(x, webhook.id);

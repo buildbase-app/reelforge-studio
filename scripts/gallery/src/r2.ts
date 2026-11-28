@@ -114,7 +114,7 @@ export interface UploadOptions {
 export async function uploadAll(outDir: string, opts: UploadOptions = {}): Promise<{ uploaded: number; skipped: number; bucket: string }> {
   const log = opts.log ?? console.log;
   const bucket = opts.bucket ?? 'reelforge-media';
-  const baseUrl = (opts.baseUrl ?? process.env.REELFORGE_GALLERY_MEDIA_URL ?? 'https://media.reelforge.buildbase.app').replace(/\/$/, '');
+  const baseUrl = (opts.baseUrl ?? process.env.RENDERWELD_GALLERY_MEDIA_URL ?? 'https://media.reelforge.buildbase.app').replace(/\/$/, '');
   const { items, manifests } = uploadItems(outDir, opts.examplesDir ?? join(import.meta.dirname, '../../../examples/gallery'));
   const ledgerFile = join(outDir, 'web', 'r2-uploaded.json');
   const ledger: Record<string, string> = existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, 'utf8')) : {};

@@ -4,7 +4,6 @@ import { parse as parseYaml } from 'yaml';
 import type { z } from 'zod';
 import { buildOrigin, currentBuild, type BuildInfo } from './build';
 import { SECRET_KEY_HELP } from './crypto';
-import { isLegacyEnvName, isNewEnvName, readRenamedEnv, renameConflictMessage, renameWarning } from './rename';
 import { ConfigSchema, FileConfigSchema, SETTINGS, SETTINGS_BY_KEY, envNames, getPath, setPath, type Config, type SettingDef } from './schema';
 
 /** `build`: fixed by a release image (D-039); nothing else can change it. */
@@ -32,7 +31,7 @@ export function formatIssue(i: ConfigIssue): string {
   return `${where}: ${i.message}`;
 }
 
-/** The config file named by REELFORGE_CONFIG, parsed (YAML or JSON). */
+/** The config file named by RENDERWELD_CONFIG, parsed (YAML or JSON). */
 export interface ConfigFile {
   path: string;
   data: unknown;
@@ -45,7 +44,7 @@ export function readConfigFile(path: string): ConfigFile {
   try {
     text = readFileSync(abs, 'utf8');
   } catch (e) {
-    throw new ConfigError([{ key: '', source: 'file', origin: abs, message: `cannot read the config file (REELFORGE_CONFIG): ${(e as NodeJS.ErrnoException).code ?? (e as Error).message}` }]);
+    throw new ConfigError([{ key: '', source: 'file', origin: abs, message: `cannot read the config file (RENDERWELD_CONFIG): ${(e as NodeJS.ErrnoException).code ?? (e as Error).message}` }]);
   }
   const ext = extname(abs).toLowerCase();
   try {
@@ -59,16 +58,10 @@ export function readConfigFile(path: string): ConfigFile {
   }
 }
 
-/** The config file path: RENDERWELD_CONFIG, or its old name REELFORGE_CONFIG (both naming different files is refused). */
-function configPath(env: NodeJS.ProcessEnv) {
-  return readRenamedEnv(env, 'REELFORGE_CONFIG', (a, b) => resolve(a) === resolve(b));
-}
-
-/** RENDERWELD_CONFIG (or REELFORGE_CONFIG), read and parsed; undefined when not set. Throws ConfigError. */
+/** RENDERWELD_CONFIG, read and parsed; undefined when not set (empty counts as unset). Throws ConfigError. */
 export function loadConfigFile(env: NodeJS.ProcessEnv): ConfigFile | undefined {
-  const p = configPath(env);
-  if (p.conflict) throw new ConfigError([{ key: '', source: 'file', origin: p.origin, message: p.conflict }]);
-  return p.value ? readConfigFile(p.value) : undefined;
+  const path = env.RENDERWELD_CONFIG?.trim();
+  return path ? readConfigFile(path) : undefined;
 }
 
 interface LayerValue {
@@ -124,9 +117,8 @@ function fromEnvText(def: SettingDef, text: string, origin: string, issues: Conf
  * The Docker image sets its defaults (data directory, host, port, browser)
  * under the RENDERWELD_* names and lists them, as `NAME=value` separated by
  * spaces, in RENDERWELD_IMAGE_DEFAULTS. Such a value ranks below any value the
- * operator sets for the same setting, under either name, so `-e REELFORGE_PORT=8080`
- * still works on the image (with the rename warning) instead of clashing with
- * the image's RENDERWELD_PORT.
+ * operator sets for the same setting, under any of its names, so
+ * `-e DATABASE_URL=...` still wins over an image default for that setting.
  */
 export const IMAGE_DEFAULTS_ENV = 'RENDERWELD_IMAGE_DEFAULTS';
 
@@ -141,11 +133,8 @@ function parseImageDefaults(text: string | undefined): Map<string, string> {
 
 /**
  * The environment layer: for each setting, the first of its names that is set
- * (RENDERWELD_* before the old REELFORGE_* names before other aliases; for
- * secrets NAME before NAME_FILE). Empty variables count as unset (Compose
- * passes `${X:-}` as ""). Rename rules (#412): an old name alone works with
- * one warning per variable; old and new names with different values are an
- * error.
+ * (RENDERWELD_* before other aliases; for secrets NAME before NAME_FILE).
+ * Empty variables count as unset (Compose passes `${X:-}` as "").
  */
 function envLayer(env: NodeJS.ProcessEnv, issues: ConfigIssue[], warnings: string[]): Map<string, LayerValue> {
   const out = new Map<string, LayerValue>();
@@ -170,28 +159,13 @@ function envLayer(env: NodeJS.ProcessEnv, issues: ConfigIssue[], warnings: strin
     // A value the Docker image sets as its default (RENDERWELD_IMAGE_DEFAULTS) gives way to any value the operator set.
     const operator = found.filter((f) => imageDefaults.get(f.origin) !== f.text);
     if (operator.length) found.splice(0, found.length, ...operator);
-    const fresh = found.find((f) => isNewEnvName(f.name));
-    const old = found.filter((f) => isLegacyEnvName(f.name));
-    if (fresh) {
-      const clash = old.filter((o) => o.text !== fresh.text);
-      for (const o of clash) issues.push({ key: def.key, source: 'env', origin: `${fresh.origin}, ${o.origin}`, message: renameConflictMessage(fresh.origin, o.origin) });
-      if (clash.length) continue;
-    } else {
-      for (const o of old) warnings.push(renameWarning(o.origin));
-    }
-    // An old name that repeats the new name's value is not a second, different source.
-    const used = fresh ? found.filter((f) => !isLegacyEnvName(f.name)) : found;
-    const [first, ...rest] = used as [(typeof used)[number], ...typeof used];
-    if (rest.some((r) => r.text !== first.text)) warnings.push(`${used.map((f) => f.origin).join(', ')} are all set for ${def.key} with different values; using ${first.origin}`);
+    const [first, ...rest] = found as [(typeof found)[number], ...typeof found];
+    if (rest.some((r) => r.text !== first.text)) warnings.push(`${found.map((f) => f.origin).join(', ')} are all set for ${def.key} with different values; using ${first.origin}`);
     const raw = fromEnvText(def, first.text, first.origin, issues);
     if (raw === undefined) continue;
     const v = validateLeaf(def, raw, 'env', first.origin, issues);
     if (v) out.set(def.key, v);
   }
-  // Read outside the schema at start-up: the config file path (loadConfigFile).
-  const config = configPath(env);
-  if (config.conflict) issues.push({ key: '', source: 'env', origin: config.origin, message: config.conflict });
-  else if (config.legacy) warnings.push(renameWarning('REELFORGE_CONFIG'));
   return out;
 }
 
@@ -339,14 +313,14 @@ function storageIssues(settings: Map<string, ResolvedSetting>): ConfigIssue[] {
     out.push({ key, source: s?.source ?? 'default', origin: s?.origin, message });
   };
   const driver = v('storage.driver');
-  if (driver === 's3' && !v('storage.s3.bucket')) issue('storage.s3.bucket', 'storage.driver is "s3": set storage.s3.bucket (REELFORGE_S3_BUCKET)');
+  if (driver === 's3' && !v('storage.s3.bucket')) issue('storage.s3.bucket', 'storage.driver is "s3": set storage.s3.bucket (RENDERWELD_S3_BUCKET)');
   if (driver === 'azure') {
-    if (!v('storage.azure.container')) issue('storage.azure.container', 'storage.driver is "azure": set storage.azure.container (REELFORGE_AZURE_STORAGE_CONTAINER)');
+    if (!v('storage.azure.container')) issue('storage.azure.container', 'storage.driver is "azure": set storage.azure.container (RENDERWELD_AZURE_STORAGE_CONTAINER)');
     if (!v('storage.azure.connectionString') && !v('storage.azure.accountUrl')) {
       issue('storage.azure.accountUrl', 'storage.driver is "azure": set storage.azure.connectionString, or storage.azure.accountUrl to use managed identity');
     }
   }
-  if (driver === 'gcs' && !v('storage.gcs.bucket')) issue('storage.gcs.bucket', 'storage.driver is "gcs": set storage.gcs.bucket (REELFORGE_GCS_BUCKET)');
+  if (driver === 'gcs' && !v('storage.gcs.bucket')) issue('storage.gcs.bucket', 'storage.driver is "gcs": set storage.gcs.bucket (RENDERWELD_GCS_BUCKET)');
   for (const key of ['storage.s3.endpoint', 'storage.s3.publicEndpoint', 'storage.azure.accountUrl', 'storage.gcs.apiEndpoint']) {
     const url = v(key);
     if (typeof url === 'string') {
@@ -362,7 +336,7 @@ function storageIssues(settings: Map<string, ResolvedSetting>): ConfigIssue[] {
   }
   // MCP OAuth (D-112): a token must name this server, so an issuer needs an audience (or the public URL it defaults from).
   if (v('security.oauth.issuer') && !v('security.oauth.audience') && !v('server.publicUrl')) {
-    issue('security.oauth.audience', 'security.oauth.issuer is set: set security.oauth.audience (REELFORGE_MCP_OAUTH_AUDIENCE) to this server\'s MCP URL, or server.publicUrl');
+    issue('security.oauth.audience', 'security.oauth.issuer is set: set security.oauth.audience (RENDERWELD_MCP_OAUTH_AUDIENCE) to this server\'s MCP URL, or server.publicUrl');
   }
   return out;
 }
@@ -398,7 +372,7 @@ function isInternalHost(host: string): boolean {
 }
 
 /**
- * REELFORGE_SECRET_KEY at start-up (#305). The release edition refuses to start
+ * RENDERWELD_SECRET_KEY at start-up (#305). The release edition refuses to start
  * without it: it seals the stored licence state (D-089) and encrypts stored
  * secrets, and a fixed fallback would protect nothing. A dev build only warns:
  * its licence-state seal then uses a random key in the data directory.
@@ -406,10 +380,10 @@ function isInternalHost(host: string): boolean {
 export function secretKeyProblem(resolved: Pick<ResolvedConfig, 'config' | 'build'>): { error?: string; warning?: string } {
   if (resolved.config.security.secretKey) return {};
   if (resolved.build.edition === 'release') {
-    return { error: `REELFORGE_SECRET_KEY is not set: the release edition does not start without it (it seals the stored licence state and encrypts stored secrets). ${SECRET_KEY_HELP}` };
+    return { error: `RENDERWELD_SECRET_KEY is not set: the release edition does not start without it (it seals the stored licence state and encrypts stored secrets). ${SECRET_KEY_HELP}` };
   }
   return {
     warning:
-      'REELFORGE_SECRET_KEY is not set: provider keys and other secrets cannot be stored through the API, and the licence state is sealed with a random key in <dataDir>/licence-seal.key (instances that share a database need the same REELFORGE_SECRET_KEY). A release build refuses to start without it.',
+      'RENDERWELD_SECRET_KEY is not set: provider keys and other secrets cannot be stored through the API, and the licence state is sealed with a random key in <dataDir>/licence-seal.key (instances that share a database need the same RENDERWELD_SECRET_KEY). A release build refuses to start without it.',
   };
 }
