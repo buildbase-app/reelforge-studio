@@ -16,10 +16,18 @@ interface RenderInput {
 
 // Props are validated by @renderweld/project-schema before a render starts, so
 // the composition does not declare a Remotion (zod 3) schema of its own.
-const KineticTitleEntry: React.FC<Record<string, unknown>> = ({ __output: _ignored, __theme, __platform, __assets, __fonts, ...props }) => (
+// Remotion merges a composition's defaultProps into every render's inputProps, so placeholder text there would
+// show in customer videos whenever a scene leaves an optional prop out (#320). The placeholder is used only by
+// Remotion Studio previews, which have no render request (`__output`).
+const KINETIC_TITLE_PREVIEW: KineticTitleProps = {
+  headline: 'Make Reels on your own machine',
+  subline: 'Two engines. One timeline.',
+};
+
+const KineticTitleEntry: React.FC<Record<string, unknown>> = ({ __output, __theme, __platform, __assets, __fonts, ...props }) => (
   <FontGate fonts={(__fonts as FontFaceSpec[] | undefined) ?? []}>
     <KineticTitle
-      {...(props as unknown as KineticTitleProps)}
+      {...(__output ? (props as unknown as KineticTitleProps) : { ...KINETIC_TITLE_PREVIEW, ...(props as Partial<KineticTitleProps>) })}
       theme={(__theme as ThemeTokens | undefined) ?? undefined}
       platform={typeof __platform === 'string' ? __platform : undefined}
       assets={(__assets as Record<string, SceneMedia> | undefined) ?? {}}
@@ -48,12 +56,7 @@ export const Root: React.FC = () => (
       height={1920}
       fps={30}
       durationInFrames={90}
-      defaultProps={
-        {
-          headline: 'Make Reels on your own machine',
-          subline: 'Two engines. One timeline.',
-        } satisfies KineticTitleProps as Record<string, unknown>
-      }
+      defaultProps={{}}
       calculateMetadata={metadata}
     />
     <Composition id="remotion-layout" component={LayoutEntry} width={1920} height={1080} fps={30} durationInFrames={60} defaultProps={{}} calculateMetadata={metadata} />

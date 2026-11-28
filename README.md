@@ -70,7 +70,8 @@ databases and running the studio next to the store site
   `nextCursor`); output download with Range.
 - **Manifest v0.2** (`packages/project-schema`): brief, theme, per-scene
   `durationSeconds` or `durationFrames`, voice/music/sfx, assets, captions
-  (stored, not rendered yet); v0.1 files are migrated automatically.
+  (burned in or as SRT/VTT/ASS sidecars, word highlight from voice timings;
+  docs/CAPTIONS.md); v0.1 files are migrated automatically.
 - **Engines**: Remotion (`kinetic-title`), Motion Canvas (`animated-explainer`,
   headless via its own Renderer), HTML (`html-title` or agent HTML/CSS, seeked
   per frame in a network-blocked sandbox), HyperFrames (`hyperframes-title` or
@@ -86,8 +87,9 @@ databases and running the studio next to the store site
   key for noncommercial use or a paid Commercial key; only the key and a random
   instance id are sent; daily check, 14 days offline grace; one activation per
   deployment however many api and worker instances); without a valid licence
-  renders are refused and everything else works. `RENDERWELD_LICENCE_MODE=off` for development (`pnpm dev` sets it).
-  See docs/DEPLOY.md#licence.
+  renders are refused and everything else works. Runs on a free Personal key
+  for noncommercial use, or a Commercial key. See
+  [docs/public/install/licence.md](docs/public/install/licence.md).
 - **Data and settings**: metadata in SQLite (default), PostgreSQL or
   MySQL/MariaDB by `DATABASE_URL`; files on local disk, S3-compatible, Azure
   Blob or Google Cloud Storage; one configuration schema
@@ -147,7 +149,7 @@ studio has no BuildBase SDK dependency; it calls BuildBase's HTTP API:
   `pnpm gallery publish` stores one record per demo reel in the `gallery`
   collection (`scripts/gallery/src/publish.ts`).
 - **[Blueprints](https://docs.buildbase.app/blueprints/overview)**: the
-  console setup page (`docs/public/install/buildbase-console-setup.md`) is
+  console setup page (`out/console/buildbase-console-setup.md`, not committed) is
   built from blueprint exports by `pnpm capture`
   (`scripts/capture/steps/console.mjs`).
 

@@ -54,7 +54,7 @@ Manifest problems are reported all at once, each with its path in the manifest.
 | 403 | `forbidden` (missing scope), `forbidden_host` and `forbidden_origin` (on `/mcp`), `ip_not_allowed`, `licence_required`, `licence_invalid`, `priority_not_allowed`, `workspace_suspended` |
 | 404 | `not_found`, `unknown_provider`, `unknown_stt_provider` |
 | 409 | `conflict`, `version_conflict`, `idempotency_in_progress`, `job_not_finished`, `builtin_theme`, `provider_not_configured`, `backend_not_configured`, `secret_key_required`, `key_revoked`, `build_locked_setting`, `startup_only_setting` (a setting read only at start; set it in the environment and restart), `licence_read_only`, `captions_conflict`, `no_voice_track`, `stt_unavailable`, `approval_required`, `approval_invalid`, `approval_used`, `plan_changed`, `plan_invalid` (render approval and plans) |
-| 413 | `too_large` |
+| 413 | `too_large` (`details.limit` names the limit, `details.max` its bytes; the server closes the connection after this answer) |
 | 415 | `unsupported_media_type` |
 | 422 | `invalid_manifest`, `validation_failed`, `invalid_params`, `idempotency_conflict`, `asset_missing`, `asset_not_imported`, `asset_not_in_project`, `asset_outside_project`, `invalid_captions`, `invalid_setting` (an unknown setting or a bad value; nothing was changed), `unsupported_output` (a size, frame rate or format this server or engine cannot render), `render_limit_exceeded` (over the server's render limits; `details` lists each one) |
 | 429 | `rate_limited` (with `Retry-After`), `quota_exceeded`, `too_many_jobs`, `queue_full` (with `Retry-After`), `workspace_quota_exceeded`, `provider_limit_exceeded`, `provider_budget_exhausted`, `stt_busy`, `licence_server_unavailable` (the licence server's rate limit) |

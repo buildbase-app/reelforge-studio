@@ -207,7 +207,7 @@ export const TEMPLATES = {
   'hyperframes-title': {
     engine: 'hyperframes',
     description:
-      'Headline and subline as a HyperFrames composition (GSAP timeline), rendered locally by the HyperFrames renderer. 1-12 s.' + MEDIA_NOTE,
+      'Headline and subline as a HyperFrames composition (CSS keyframes seeked by the HyperFrames runtime; no GSAP), rendered locally by the HyperFrames renderer. 1-12 s.' + MEDIA_NOTE,
     props: hyperframesTitleProps,
     minSeconds: 1,
     maxSeconds: 12,

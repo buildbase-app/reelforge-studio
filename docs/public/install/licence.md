@@ -88,9 +88,7 @@ moves it. For a new installation, free the old one first with
 then activate on the new server. A key over its activation limit answers
 `limit_reached`.
 
-## Development builds
+## Builds from source
 
-The published release image fixes the licence check on. A build from source for
-noncommercial development (`pnpm dev`, or
-`docker build --build-arg RENDERWELD_EDITION=dev .`) can set
-`RENDERWELD_LICENCE_MODE=off`. Commercial use always needs a Commercial key.
+A build from source needs a licence key, like the image. Commercial use always
+needs a Commercial key.

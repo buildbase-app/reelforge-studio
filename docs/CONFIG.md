@@ -15,9 +15,8 @@ Precedence, lowest to highest (D-029):
 
 **Release images** (the published Docker image, D-039) fix `licence.mode` (`required`), `licence.serverUrl` and
 `licence.orgId` at build time: their source is **build**, and a config file, environment variable or
-`update_config` that tries to change them is refused (`build_locked_setting`). Builds from source (`pnpm dev`,
-`--build-arg RENDERWELD_EDITION=dev`) keep every setting configurable; `licence.mode: off` there is for
-noncommercial development only (LICENSING.md).
+`update_config` that tries to change them is refused (`build_locked_setting`). Development builds are
+described in docs/DEVELOPMENT.md.
 
 Scope **startup** settings are read once at start; changing them at runtime is refused with an error that says
 where to set them. `GET /v1/config` / MCP `get_config` show each effective value and its source; secrets show
@@ -292,6 +291,15 @@ logging:
 | `render.backends.remotionLambda.region` | `RENDERWELD_REMOTION_LAMBDA_REGION`, `REMOTION_LAMBDA_REGION` | string | (none) | runtime |  | AWS region of your Remotion Lambda deployment (backend `remotion-lambda`, not implemented yet: configuration check only). |
 | `render.backends.remotionLambda.functionName` | `RENDERWELD_REMOTION_LAMBDA_FUNCTION_NAME`, `REMOTION_LAMBDA_FUNCTION_NAME` | string | (none) | runtime |  | Remotion Lambda function name. |
 | `render.backends.remotionLambda.serveUrl` | `RENDERWELD_REMOTION_LAMBDA_SERVE_URL`, `REMOTION_LAMBDA_SERVE_URL` | url | (none) | runtime |  | Remotion Lambda serve URL (the deployed site). |
+
+## engines
+
+| Key | Env | Type | Default | Scope | Secret | Description |
+| --- | --- | --- | --- | --- | --- | --- |
+| `engines.remotion.enabled` | `RENDERWELD_REMOTION_ENABLED` | boolean | `false` | runtime |  | Turns on the Remotion engine (templates `kinetic-title` and `remotion-layout`). The release image ships no Remotion: you install it yourself with your own Remotion licence (docs/public/install/remotion.md). In the release edition Remotion renders are refused until this is `true`, `engines.remotion.licenceAccepted` is `remotion`, `engines.remotion.licenseKey` is set and Remotion is installed at `engines.remotion.home`. Development builds (personal testing and CI) use the workspace copy and need none of these. |
+| `engines.remotion.licenceAccepted` | `RENDERWELD_REMOTION_LICENCE_ACCEPTED` | `none` \| `remotion` | `none` | runtime |  | Set to `remotion` to confirm that you hold a Remotion licence that covers this use and accept Remotion's licence terms (https://www.remotion.dev/license). RenderWeld does not sell or include a Remotion licence. |
+| `engines.remotion.licenseKey` | `RENDERWELD_REMOTION_LICENSE_KEY` (each also as `_FILE`) | string | (none) | runtime | yes | Your private Remotion licence key (starts with `rm_sec_`), or `free-license` if you qualify for Remotion's free licence. Passed to Remotion with every render; Remotion then reports a usage event to www.remotion.pro after each render, so allow that host if your network restricts outbound traffic. Required in the release edition; there is no default. Stored encrypted when set at runtime. |
+| `engines.remotion.home` | `RENDERWELD_REMOTION_HOME` | path | `/opt/remotion` | startup |  | Where you installed Remotion (a folder with `node_modules/remotion` and `node_modules/@remotion/renderer`, version 4.0.545). Development builds fall back to the workspace copy when nothing is installed here. |
 
 ## providers
 
