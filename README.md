@@ -117,7 +117,9 @@ databases and running the studio next to the store site
   customers who want the Remotion engine install it themselves with their own
   Remotion licence (docs/public/install/remotion.md, D-143). Remotion is free
   for individuals and teams of up to 3 people; larger companies need a paid
-  Remotion licence. See `research/LICENSING_AND_COSTS.md`.
+  Remotion licence. See `research/LICENSING_AND_COSTS.md`. The Remotion engine
+  is built with Remotion; Remotion has its own licence:
+  <https://www.remotion.dev/docs/license/pricing>.
 - Motion Canvas is MIT; HyperFrames is Apache-2.0. FFmpeg is LGPL/GPL
   depending on the build (we use the system FFmpeg).
 - No fonts, music or footage are bundled. Templates use system fonts.

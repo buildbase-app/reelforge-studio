@@ -16,6 +16,9 @@ install Remotion yourself and set your own Remotion licence. Every other engine
 `html-title`, `html-layout` and `hyperframes-layout` do the same jobs as the
 two Remotion templates.
 
+Built with Remotion. Remotion has its own licence:
+<https://www.remotion.dev/docs/license/pricing>.
+
 RenderWeld does not sell or include a Remotion licence, and your RenderWeld
 licence does not cover Remotion. Your use of Remotion, its fees and its
 reporting are between you and Remotion.
