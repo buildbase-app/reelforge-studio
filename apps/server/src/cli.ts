@@ -448,7 +448,7 @@ function configCheck(argv: string[]): void {
   }
   console.log(`configuration is valid${config.sources.file ? ` (config file ${config.sources.file.path})` : ' (no config file; RENDERWELD_CONFIG is not set)'}`);
   console.log(`  ${Object.entries(counts).map(([k, v]) => `${v} from ${k}`).join(', ')}`);
-  console.log(`  edition: ${config.resolved.build.edition}${config.resolved.build.edition === 'release' ? ' (licence.mode, licence.serverUrl, licence.orgId and licence.itemIds are fixed by the build)' : ''}`);
+  console.log(`  edition: ${config.resolved.build.custom ? 'custom ' : ''}${config.resolved.build.edition}${config.resolved.build.edition === 'release' ? ' (licence.mode, licence.serverUrl, licence.orgId and licence.itemIds are fixed by the build)' : ''}`);
   // Which variable supplied each value from the environment (a RENDERWELD_* name or an alias such as DATABASE_URL).
   for (const s of config.resolved.settings.values()) {
     if (s.source !== 'env' || !s.origin) continue;
@@ -458,7 +458,7 @@ function configCheck(argv: string[]): void {
 }
 
 function printReport(r: ConfigReport, note?: string) {
-  console.log(`edition: ${r.edition}    config file: ${r.configFile ?? '(none)'}    secret key: ${r.secretKey}${note ? `    ${note}` : ''}`);
+  console.log(`edition: ${r.customBuild ? 'custom ' : ''}${r.edition}    config file: ${r.configFile ?? '(none)'}    secret key: ${r.secretKey}${note ? `    ${note}` : ''}`);
   const width = Math.max(...r.settings.map((s) => s.key.length));
   for (const s of r.settings) {
     const where = s.source === 'default' ? 'default' : `${s.source}${s.origin && s.origin !== 'database' ? `: ${s.origin}` : ''}`;

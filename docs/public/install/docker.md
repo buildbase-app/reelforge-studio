@@ -79,7 +79,11 @@ goes to the `/data` volume.
 
 `docker build .` builds the **release** edition: the licence check is fixed on
 (`licence.mode: required`, BuildBase as the licence server). Rendering needs a
-licence key; see [Licence](/docs/install/licence).
+licence key; see [Licence](/docs/install/licence). A build that points the licence
+check at another server or organisation (the `LICENCE_SERVER_URL` and
+`LICENCE_ORG_ID` build arguments, meant for tests) is marked **custom**:
+`get_config` and `get_capabilities` report `customBuild: true` with a warning that it
+is not an official RenderWeld image.
 
 Building needs network access to Docker Hub (or a mirror through
 `--build-arg BASE_IMAGE=...`), `deb.debian.org`, `registry.npmjs.org` and

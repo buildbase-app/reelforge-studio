@@ -75,6 +75,17 @@ describe('the renderweld command', () => {
     expect(worker.stderr).toMatch(/^usage: renderweld worker --once/m);
   }, 120_000);
 
+  it('a release build with another licence server or organisation is marked custom (#539)', () => {
+    const dockerfile = readFileSync(join(repo, 'Dockerfile'), 'utf8');
+    const arg = (name: string) => dockerfile.match(new RegExp(`^ARG ${name}=(\\S+)$`, 'm'))?.[1];
+    const official = (name: string) => dockerfile.match(new RegExp(`OFFICIAL_${name}=(\\S+)`))?.[1];
+    // The official values the build compares against are the build arguments' defaults.
+    expect(official('LICENCE_SERVER_URL')).toBe(arg('LICENCE_SERVER_URL'));
+    expect(official('LICENCE_ORG_ID')).toBe(arg('LICENCE_ORG_ID'));
+    expect(arg('LICENCE_SERVER_URL')).toBeTruthy();
+    expect(dockerfile).toMatch(/\.\.\.\(custom \? \{ custom: true \} : \{\}\)/);
+  });
+
   it('the image labels say RenderWeld, its seller and both licences (#413, #779)', () => {
     const dockerfile = readFileSync(join(repo, 'Dockerfile'), 'utf8');
     const labels = Object.fromEntries([...dockerfile.matchAll(/^\s*(?:LABEL\s+)?([a-z.]+)="([^"]*)"/gm)].map((m) => [m[1], m[2]]));

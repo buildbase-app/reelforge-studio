@@ -247,7 +247,7 @@ export const configView: View = (ctx, main) => {
       h(
         'dl',
         { class: 'facts facts-row' },
-        h('div', null, h('dt', null, 'Edition'), h('dd', null, report.edition)),
+        h('div', null, h('dt', null, 'Edition'), h('dd', null, report.customBuild ? `${report.edition} (custom build, not an official image)` : report.edition)),
         h('div', null, h('dt', null, 'Config file'), h('dd', { class: 'mono break' }, report.configFile ?? 'None')),
         h('div', null, h('dt', null, 'Secret key'), h('dd', null, report.secretKey === 'set' ? 'Set: secrets can be stored here' : 'Not set: secrets come from the environment only'))
       ),

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { z } from 'zod';
-import { buildOrigin, currentBuild, type BuildInfo } from './build';
+import { buildOrigin, currentBuild, CUSTOM_BUILD_WARNING, type BuildInfo } from './build';
 import { SECRET_KEY_HELP } from './crypto';
 import { ConfigSchema, FileConfigSchema, SETTINGS, SETTINGS_BY_KEY, envNames, getPath, setPath, type Config, type SettingDef } from './schema';
 
@@ -294,6 +294,7 @@ export function resolveConfig(input: ResolveInput): ResolvedConfig {
       })
     );
   }
+  if (build.custom) warnings.push(CUSTOM_BUILD_WARNING);
   return { config: parsed.data, settings, file: input.file, warnings, build };
 }
 

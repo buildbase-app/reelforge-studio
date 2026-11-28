@@ -47,6 +47,8 @@ export interface ConfigEntry {
 export interface ConfigReport {
   /** `release` images fix the licence settings (source `build`); `dev` is a build from source. */
   edition: BuildInfo['edition'];
+  /** A release build against another licence server or organisation than the official image's (#539). */
+  customBuild?: true;
   configFile: string | null;
   /** Whether RENDERWELD_SECRET_KEY is set, i.e. secrets can be stored (encrypted). */
   secretKey: 'set' | 'not set';
@@ -294,6 +296,7 @@ export class RuntimeConfig {
     const settings = SETTINGS.filter((d) => !opts.prefix || d.key === opts.prefix || d.key.startsWith(`${opts.prefix}.`)).map((d) => this.entry(this.resolved.settings.get(d.key)!));
     return {
       edition: this.resolved.build.edition,
+      ...(this.resolved.build.custom ? { customBuild: true as const } : {}),
       configFile: this.sources.file?.path ?? null,
       secretKey: this.cipher ? 'set' : 'not set',
       settings,

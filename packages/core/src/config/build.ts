@@ -19,6 +19,13 @@ import { SETTINGS_BY_KEY } from './schema';
  *     file, env variable or `update_config` that tries to change them is refused,
  *     and `get_config` shows their source as `build`.
  *
+ * A release build whose licence server or organisation differs from the
+ * official image's (`Dockerfile` build arguments LICENCE_SERVER_URL and
+ * LICENCE_ORG_ID) is marked `custom` (#539): it keeps every release
+ * protection, but `get_config`, `get_capabilities` and `renderweld config check`
+ * say that it is not an official RenderWeld image, because anyone can build an
+ * image that checks keys against their own server.
+ *
  * The file sits at a fixed path inside the image (root-owned, read-only for the
  * server user); no environment variable can point elsewhere.
  */
@@ -31,6 +38,8 @@ export interface BuildInfo {
   version?: string;
   revision?: string;
   createdAt?: string;
+  /** A release build against another licence server or organisation than the official image's (#539). */
+  custom?: boolean;
 }
 
 export const DEV_BUILD: BuildInfo = Object.freeze({ edition: 'dev', locked: Object.freeze({}) }) as BuildInfo;
@@ -57,6 +66,7 @@ const BuildInfoSchema = z
     version: z.string().max(100).optional(),
     revision: z.string().max(100).optional(),
     createdAt: z.string().max(100).optional(),
+    custom: z.boolean().optional(),
   })
   .strict();
 
@@ -86,6 +96,7 @@ export function parseBuildInfo(data: unknown, origin = 'build-info.json'): Build
       problems.push(`a release build of version ${r.data.version} must fix "licence.itemIds" to the BuildBase items sold for RenderWeld ${major} (build arg LICENCE_ITEM_IDS)`);
     }
   }
+  if (r.data.custom !== undefined && r.data.edition !== 'release') problems.push('only a release build can be marked "custom"');
   if (problems.length) throw new Error(`${origin}: ${problems.join('; ')}`);
   return Object.freeze({ ...r.data, locked: Object.freeze(locked) });
 }
@@ -122,5 +133,9 @@ export function currentBuild(): BuildInfo {
 
 /** "release build" / "dev build", for `origin` in get_config. */
 export function buildOrigin(build: BuildInfo): string {
-  return `${build.edition} build${build.version ? ` ${build.version}` : ''}`;
+  return `${build.custom ? 'custom ' : ''}${build.edition} build${build.version ? ` ${build.version}` : ''}`;
 }
+
+/** The warning a custom release build carries in get_config and `renderweld config check` (#539). */
+export const CUSTOM_BUILD_WARNING =
+  'this image was built with a licence server or organisation other than the official RenderWeld image\'s, so it is not an official RenderWeld image; licence keys are checked against that server';
