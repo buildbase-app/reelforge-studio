@@ -2,7 +2,7 @@
 
 One RenderWeld install can host several teams, clients or customers. Each one gets a **workspace**. Its
 projects, versions, renders, assets, themes, jobs, API keys, webhooks, deliveries, audit log and idempotency keys
-are invisible to every other workspace (#304, decisions D-124 and D-125 in [DECISIONS.md](DECISIONS.md)).
+are invisible to every other workspace (#304, decisions D-124 and D-125).
 
 An install that never creates a workspace has one, `default`, and works exactly as before.
 

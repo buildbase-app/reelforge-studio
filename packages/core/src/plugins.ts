@@ -384,7 +384,7 @@ export interface ByteRange {
 }
 
 /**
- * Byte storage for assets and render outputs (docs/DECISIONS.md D-065).
+ * Byte storage for assets and render outputs (decision D-065).
  * Keys are safe relative paths with forward slashes, the same layout on every
  * driver: `assets/<assetId>/file.<ext>` and
  * `projects/<projectId>/renders/<runId>/<file>`. Prefixes passed to `list`

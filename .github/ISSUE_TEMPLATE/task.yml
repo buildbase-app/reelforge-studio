@@ -17,4 +17,4 @@ body:
     validations: { required: true }
   - type: textarea
     id: notes
-    attributes: { label: Notes, description: 'Dependencies, risks, links, decisions (DECISIONS.md numbers).' }
+    attributes: { label: Notes, description: 'Dependencies, risks, links, decisions (D- numbers).' }

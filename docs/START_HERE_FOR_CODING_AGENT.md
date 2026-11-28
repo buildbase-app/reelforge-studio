@@ -29,7 +29,7 @@ under `docs/` and `research/` before coding.
 5.  Do not implement autonomous multi-agent generation yet.
 6.  Add reproducible test commands and record real results. Never state
     tests passed unless you ran them.
-7.  Update `docs/DECISIONS.md` with any new decisions and date them.
+7.  Write any new decision, dated, in the pull request description.
 8.  Report files changed, commands run, results, unresolved risks, and
     exact next steps.
 

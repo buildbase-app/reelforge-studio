@@ -39,7 +39,7 @@ apply to this project's own agents and to anyone else's. Full rules:
 ## 1. Read the product documents
 
 Before implementation, read: - `docs/PRODUCT_BRIEF.md` -
-`docs/DECISIONS.md` - `docs/ARCHITECTURE.md` - `docs/REQUIREMENTS.md` -
+`docs/ARCHITECTURE.md` - `docs/REQUIREMENTS.md` -
 `docs/TEST_PLAN.md`
 
 If docs conflict, preserve explicit founder decisions and document the
@@ -76,7 +76,9 @@ conflict rather than silently choosing.
     date and source in `research/SOURCES.md`.
 -   Preserve command output or reproducible steps for important test
     findings.
--   Record material architecture decisions in `docs/DECISIONS.md`.
+-   Record material architecture decisions in the pull request description;
+    the maintainers keep the decision log (the `D-` numbers in code comments)
+    privately.
 
 ## 4. Engineering principles
 

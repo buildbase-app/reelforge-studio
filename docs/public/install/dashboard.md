@@ -34,7 +34,7 @@ What it shows today:
 A read key sees jobs, renders and analytics, and an endpoint's delivery log.
 Key management, webhook actions and the audit log need the `admin` scope; the
 configuration and provider settings need the instance-level `owner` scope
-(D-124 in [DECISIONS.md](../../DECISIONS.md)). The page shows no edit control
+(decision D-124). The page shows no edit control
 to other keys, and the server refuses the call anyway. Every figure is the
 key's own workspace's.
 
