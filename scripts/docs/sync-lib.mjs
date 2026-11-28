@@ -246,7 +246,7 @@ export function buildDesiredDocs(manifest, readFile) {
   const published = new Map(items.map((it) => [posix.normalize(it.file), it.path]));
   const footer = (file) =>
     repoUrl
-      ? `\n\n---\n\nPublished from [\`${file}\`](${repoUrl}/${encodeURI(file)}) in the ReelForge Studio repository.\n`
+      ? `\n\n---\n\nPublished from [\`${file}\`](${repoUrl}/${encodeURI(file)}) in the RenderWeld repository.\n`
       : '\n';
   const docs = items.map((it) => {
     const linked = rewriteLinks(stripCommentLines(it.body), { sourceFile: it.file, published, sitePrefix, repoUrl });

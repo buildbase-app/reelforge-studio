@@ -10,7 +10,7 @@ import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkExpectation, probe, resolveTools } from '@renderweld/media-pipeline';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories, createStorageDriver, streamToBuffer, type StorageDriver, type StorageFactory } from '../src/index';
+import { PluginRegistry, RenderWeldService, createMemoryRepositories, createStorageDriver, streamToBuffer, type StorageDriver, type StorageFactory } from '../src/index';
 import { fakeEngine, makeTone, memoryStorage, tempDir } from './helpers';
 
 const { dir, cleanup } = tempDir('reelforge-storage-service-');
@@ -20,26 +20,26 @@ const run = randomBytes(3).toString('hex');
 const SECRET_KEY = 'storage-test-secret-key-0123456789abcdef';
 const s3Env = process.env.TEST_S3_ENDPOINT
   ? {
-      REELFORGE_STORAGE_DRIVER: 's3',
-      REELFORGE_S3_ENDPOINT: process.env.TEST_S3_ENDPOINT,
-      REELFORGE_S3_BUCKET: process.env.TEST_S3_BUCKET ?? 'reelforge-test',
-      REELFORGE_S3_FORCE_PATH_STYLE: 'true',
-      REELFORGE_S3_PREFIX: `service-${run}`,
-      REELFORGE_S3_ACCESS_KEY_ID: process.env.TEST_S3_ACCESS_KEY_ID!,
-      REELFORGE_S3_SECRET_ACCESS_KEY: process.env.TEST_S3_SECRET_ACCESS_KEY!,
+      RENDERWELD_STORAGE_DRIVER: 's3',
+      RENDERWELD_S3_ENDPOINT: process.env.TEST_S3_ENDPOINT,
+      RENDERWELD_S3_BUCKET: process.env.TEST_S3_BUCKET ?? 'reelforge-test',
+      RENDERWELD_S3_FORCE_PATH_STYLE: 'true',
+      RENDERWELD_S3_PREFIX: `service-${run}`,
+      RENDERWELD_S3_ACCESS_KEY_ID: process.env.TEST_S3_ACCESS_KEY_ID!,
+      RENDERWELD_S3_SECRET_ACCESS_KEY: process.env.TEST_S3_SECRET_ACCESS_KEY!,
     }
   : null;
 const azureEnv = process.env.TEST_AZURE_CONNECTION_STRING
-  ? { REELFORGE_STORAGE_DRIVER: 'azure', REELFORGE_AZURE_STORAGE_CONTAINER: 'reelforge-test', REELFORGE_AZURE_STORAGE_CONNECTION_STRING: process.env.TEST_AZURE_CONNECTION_STRING, REELFORGE_AZURE_STORAGE_PREFIX: `service-${run}` }
+  ? { RENDERWELD_STORAGE_DRIVER: 'azure', RENDERWELD_AZURE_STORAGE_CONTAINER: 'reelforge-test', RENDERWELD_AZURE_STORAGE_CONNECTION_STRING: process.env.TEST_AZURE_CONNECTION_STRING, RENDERWELD_AZURE_STORAGE_PREFIX: `service-${run}` }
   : null;
 const gcsEnv = process.env.TEST_GCS_ENDPOINT
   ? {
-      REELFORGE_STORAGE_DRIVER: 'gcs',
-      REELFORGE_GCS_BUCKET: 'reelforge-test',
-      REELFORGE_GCS_API_ENDPOINT: process.env.TEST_GCS_ENDPOINT,
-      REELFORGE_GCS_PROJECT_ID: 'reelforge-test',
-      REELFORGE_GCS_PREFIX: `service-${run}`,
-      REELFORGE_GCS_CREDENTIALS_JSON: JSON.stringify({
+      RENDERWELD_STORAGE_DRIVER: 'gcs',
+      RENDERWELD_GCS_BUCKET: 'reelforge-test',
+      RENDERWELD_GCS_API_ENDPOINT: process.env.TEST_GCS_ENDPOINT,
+      RENDERWELD_GCS_PROJECT_ID: 'reelforge-test',
+      RENDERWELD_GCS_PREFIX: `service-${run}`,
+      RENDERWELD_GCS_CREDENTIALS_JSON: JSON.stringify({
         type: 'service_account',
         project_id: 'reelforge-test',
         client_email: 'test@reelforge-test.iam.gserviceaccount.com',
@@ -52,13 +52,13 @@ beforeAll(async () => {
   // The emulators' bucket / container (the contract suite creates them too).
   if (azureEnv) {
     const { BlobServiceClient } = await import('@azure/storage-blob');
-    await BlobServiceClient.fromConnectionString(azureEnv.REELFORGE_AZURE_STORAGE_CONNECTION_STRING).getContainerClient('reelforge-test').createIfNotExists();
+    await BlobServiceClient.fromConnectionString(azureEnv.RENDERWELD_AZURE_STORAGE_CONNECTION_STRING).getContainerClient('reelforge-test').createIfNotExists();
   }
-  if (gcsEnv) await fetch(`${gcsEnv.REELFORGE_GCS_API_ENDPOINT}/storage/v1/b?project=reelforge-test`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'reelforge-test' }) });
+  if (gcsEnv) await fetch(`${gcsEnv.RENDERWELD_GCS_API_ENDPOINT}/storage/v1/b?project=reelforge-test`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'reelforge-test' }) });
   if (s3Env) {
     const sdk = await import('@aws-sdk/client-s3');
-    const c = new sdk.S3Client({ endpoint: s3Env.REELFORGE_S3_ENDPOINT, region: 'us-east-1', forcePathStyle: true, credentials: { accessKeyId: s3Env.REELFORGE_S3_ACCESS_KEY_ID, secretAccessKey: s3Env.REELFORGE_S3_SECRET_ACCESS_KEY } });
-    await c.send(new sdk.CreateBucketCommand({ Bucket: s3Env.REELFORGE_S3_BUCKET })).catch(() => undefined);
+    const c = new sdk.S3Client({ endpoint: s3Env.RENDERWELD_S3_ENDPOINT, region: 'us-east-1', forcePathStyle: true, credentials: { accessKeyId: s3Env.RENDERWELD_S3_ACCESS_KEY_ID, secretAccessKey: s3Env.RENDERWELD_S3_SECRET_ACCESS_KEY } });
+    await c.send(new sdk.CreateBucketCommand({ Bucket: s3Env.RENDERWELD_S3_BUCKET })).catch(() => undefined);
   }
 });
 
@@ -83,17 +83,17 @@ const variants: Array<{ name: string; available: boolean; env: Record<string, st
 
 for (const v of variants) {
   describe.skipIf(!v.available)(`service on ${v.name} storage`, () => {
-    let svc: ReelforgeService;
+    let svc: RenderWeldService;
     let driver: () => StorageDriver;
     const logs: string[] = [];
     const data = join(dir, v.name.split(' ')[0]!);
     beforeAll(async () => {
       const f = v.factory?.();
-      svc = await ReelforgeService.create(registry(), {
+      svc = await RenderWeldService.create(registry(), {
         repositories: createMemoryRepositories(),
         dataDir: data,
         publicUrl: 'https://studio.example.com',
-        configSources: { env: { REELFORGE_LICENCE_MODE: 'off', REELFORGE_SECRET_KEY: SECRET_KEY, ...v.env } },
+        configSources: { env: { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_SECRET_KEY: SECRET_KEY, ...v.env } },
         storage: { factory: f?.factory ?? createStorageDriver, sweep: false },
         log: (_l, line) => logs.push(line),
       });
@@ -166,8 +166,8 @@ for (const v of variants) {
 
     it('STO-24 no credentials in logs, get_storage or get_config', async () => {
       const text = JSON.stringify([logs, await svc.getStorage(), svc.getConfig({ prefix: 'storage' })]);
-      if (s3Env) expect(text).not.toContain(s3Env.REELFORGE_S3_SECRET_ACCESS_KEY);
-      if (azureEnv) expect(text).not.toContain(/AccountKey=([^;]+)/.exec(azureEnv.REELFORGE_AZURE_STORAGE_CONNECTION_STRING)![1]!);
+      if (s3Env) expect(text).not.toContain(s3Env.RENDERWELD_S3_SECRET_ACCESS_KEY);
+      if (azureEnv) expect(text).not.toContain(/AccountKey=([^;]+)/.exec(azureEnv.RENDERWELD_AZURE_STORAGE_CONNECTION_STRING)![1]!);
       if (gcsEnv) expect(text).not.toContain('PRIVATE KEY');
       expect(text).not.toContain(SECRET_KEY);
     });
@@ -178,10 +178,10 @@ describe('storage through the service: atomic commit, runtime credentials, endpo
   it('STO-21 a failed upload fails the job and leaves no partial render in the bucket', async () => {
     let failing = true;
     const d = memoryStorage({ failOn: (op, key) => failing && op === 'copy' && key.endsWith('render-manifest.json') });
-    const svc = await ReelforgeService.create(registry(), {
+    const svc = await RenderWeldService.create(registry(), {
       repositories: createMemoryRepositories(),
       dataDir: join(dir, 'atomic'),
-      configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+      configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
       storage: { factory: async () => d as unknown as StorageDriver, sweep: false },
     });
     await svc.createProject({ ...sample, projectId: 'atomic' });
@@ -196,10 +196,10 @@ describe('storage through the service: atomic commit, runtime credentials, endpo
   it('STO-26 credentials are runtime settings: stored encrypted, applied without a restart; endpoints cannot be changed over the API', async () => {
     let builds = 0;
     const repos = createMemoryRepositories();
-    const svc = await ReelforgeService.create(registry(), {
+    const svc = await RenderWeldService.create(registry(), {
       repositories: repos,
       dataDir: join(dir, 'creds'),
-      configSources: { env: { REELFORGE_LICENCE_MODE: 'off', REELFORGE_SECRET_KEY: SECRET_KEY } },
+      configSources: { env: { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_SECRET_KEY: SECRET_KEY } },
       storage: {
         factory: async () => {
           builds++;
@@ -221,13 +221,36 @@ describe('storage through the service: atomic commit, runtime credentials, endpo
     await expect(svc.updateConfig({ 'storage.driver': 's3' })).rejects.toMatchObject({ code: 'startup_only_setting' });
   });
 
+  it('STO-28 a render the retention sweep deletes leaves no local copy of a remote file behind (#487)', async () => {
+    const d = memoryStorage();
+    const svc = await RenderWeldService.create(registry(), {
+      repositories: createMemoryRepositories(),
+      dataDir: join(dir, 'sweep-cache'),
+      configSources: { env: { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_STORAGE_RETENTION_KEEP_LAST: '1' } },
+      storage: { factory: async () => d as unknown as StorageDriver, sweep: false },
+    });
+    for (const r of ['run_c1', 'run_c2']) {
+      await d.put(`projects/p/renders/${r}/final.mp4`, Buffer.from(r));
+      await d.put(`projects/p/renders/${r}/render-manifest.json`, Buffer.from('{}'));
+    }
+    // An engine, FFmpeg or a download fetched both outputs to the local cache.
+    const old = await svc.storage.localFile('projects/p/renders/run_c1/final.mp4');
+    const kept = await svc.storage.localFile('projects/p/renders/run_c2/final.mp4');
+    expect(existsSync(old) && existsSync(kept)).toBe(true);
+    const r = await svc.storage.sweep();
+    expect(r?.renders.map((x) => x.renderId)).toEqual(['run_c1']);
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(kept)).toBe(true);
+    expect((await d.list('projects/p/renders/run_c1/')).length).toBe(0);
+  });
+
   it('STO-27 the scheduled sweep applies the policy and is audit-logged as the system', async () => {
     const d = memoryStorage();
     const repos = createMemoryRepositories();
-    const svc = await ReelforgeService.create(registry(), {
+    const svc = await RenderWeldService.create(registry(), {
       repositories: repos,
       dataDir: join(dir, 'sweep'),
-      configSources: { env: { REELFORGE_LICENCE_MODE: 'off', REELFORGE_STORAGE_RETENTION_KEEP_LAST: '1' } },
+      configSources: { env: { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_STORAGE_RETENTION_KEEP_LAST: '1' } },
       storage: { factory: async () => d as unknown as StorageDriver, sweep: false },
     });
     for (const r of ['run_s1', 'run_s2']) {
@@ -238,5 +261,17 @@ describe('storage through the service: atomic commit, runtime credentials, endpo
     expect(r?.renders.map((x) => x.renderId)).toEqual(['run_s1']);
     expect((await repos.audit.list({ limit: 10 })).find((a) => a.action === 'storage.cleanup')).toMatchObject({ actorType: 'system' });
     expect((await svc.getStorage()).lastSweep).toMatchObject({ deletedObjects: 2 });
+    // While the sweeper runs, get_storage says when it runs next (#487); stopped, it says nothing.
+    expect((await svc.getStorage()).retention.nextSweepAt).toBeNull();
+    const before = Date.now();
+    svc.storage.startSweeper();
+    try {
+      const next = Date.parse((await svc.getStorage()).retention.nextSweepAt!);
+      const every = svc.getConfig({ prefix: 'storage.retention.sweepIntervalMinutes' }).settings[0]!.value as number;
+      expect(next - before).toBeGreaterThan(0);
+      expect(next - before).toBeLessThanOrEqual(every * 60_000 + 1000);
+    } finally {
+      svc.storage.stopSweeper();
+    }
   });
 });

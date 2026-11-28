@@ -5,7 +5,7 @@
 // progress, and `docker compose up` when a studio image is available. The
 // render of fixtures/contact-sheet-reel.json (one scene per built-in
 // template) gives a contact sheet per template and engine. Keys and tokens
-// never leave the process: commands show `$REELFORGE_KEY`, and every view
+// never leave the process: commands show `$RENDERWELD_KEY`, and every view
 // is masked before it is saved.
 
 import { execFile, spawn } from 'node:child_process';
@@ -65,7 +65,7 @@ async function saveView(run, page, work, slug, view) {
 }
 
 function chromiumPath() {
-  if (process.env.REELFORGE_CHROMIUM_PATH) return process.env.REELFORGE_CHROMIUM_PATH;
+  if (process.env.RENDERWELD_CHROMIUM_PATH) return process.env.RENDERWELD_CHROMIUM_PATH;
   try {
     return require('playwright').chromium.executablePath();
   } catch {
@@ -85,27 +85,27 @@ export async function captureStudio(run) {
   const api = `http://127.0.0.1:${PORT}`;
   const env = {
     ...process.env,
-    REELFORGE_DATA_DIR: dataDir,
-    REELFORGE_PORT: String(PORT),
-    REELFORGE_LICENCE_MODE: 'off',
-    REELFORGE_LOGS_EXPORTER: 'pretty',
-    REELFORGE_METRICS_EXPORTER: 'prometheus',
-    REELFORGE_METRICS_TOKEN: randomBytes(18).toString('base64url'),
-    REELFORGE_CHROMIUM_PATH: chromiumPath(),
+    RENDERWELD_DATA_DIR: dataDir,
+    RENDERWELD_PORT: String(PORT),
+    RENDERWELD_LICENCE_MODE: 'off',
+    RENDERWELD_LOGS_EXPORTER: 'pretty',
+    RENDERWELD_METRICS_EXPORTER: 'prometheus',
+    RENDERWELD_METRICS_TOKEN: randomBytes(18).toString('base64url'),
+    RENDERWELD_CHROMIUM_PATH: chromiumPath(),
     API: api,
     NO_PROXY: '127.0.0.1,localhost',
     no_proxy: '127.0.0.1,localhost',
     FORCE_COLOR: '0',
     NO_COLOR: '1',
   };
-  const meta = `ReelForge Studio from source · licence mode off (local development) · ${new Date().toISOString().slice(0, 10)}`;
+  const meta = `RenderWeld from source · licence mode off (local development) · ${new Date().toISOString().slice(0, 10)}`;
 
   // 1. An API key (printed once; it stays in this process).
-  const created = await sh('pnpm --silent reelforge keys create --name docs-capture --scopes read,write,render,admin,owner', env, { cwd: REPO_ROOT });
+  const created = await sh('pnpm --silent renderweld keys create --name docs-capture --scopes read,write,render,admin,owner', env, { cwd: REPO_ROOT });
   const key = /rf_[A-Za-z0-9_-]{40,}/.exec(created.output)?.[0];
   if (!key) throw new Error(`keys create printed no key: ${cleanOutput(created.output).slice(0, 200).replace(/rf_\S+/g, 'rf_…')}`);
-  env.REELFORGE_KEY = key;
-  const listed = await sh('pnpm --silent reelforge keys list', env, { cwd: REPO_ROOT });
+  env.RENDERWELD_KEY = key;
+  const listed = await sh('pnpm --silent renderweld keys list', env, { cwd: REPO_ROOT });
 
   // 2. The server.
   // A server left over from another run would answer instead (with another database): refuse.
@@ -136,7 +136,7 @@ export async function captureStudio(run) {
 
     // 3. Claude Code: add the MCP server and list it (in a throwaway HOME, so no real config changes).
     const claudeEnv = { ...env, HOME: join(work, 'home') };
-    const add = await sh(`claude mcp add --transport http reelforge ${api}/mcp --header "Authorization: Bearer $REELFORGE_KEY"`, claudeEnv, { timeout: 60_000 });
+    const add = await sh(`claude mcp add --transport http reelforge ${api}/mcp --header "Authorization: Bearer $RENDERWELD_KEY"`, claudeEnv, { timeout: 60_000 });
     const list = await sh('claude mcp list', claudeEnv, { timeout: 90_000 });
     if (add.failed || list.failed) run.note('claude mcp add/list failed: the view shows the error as printed');
     await saveView(run, page, work, 'claude-mcp-add', {
@@ -149,38 +149,38 @@ export async function captureStudio(run) {
     // 4. Health and metrics.
     // Anonymous /readyz only says ok or not (#146); an admin key gets the details.
     const readyAnon = await sh('curl -s "$API/readyz" | jq -c .', env);
-    const ready = await sh('curl -s -H "Authorization: Bearer $REELFORGE_KEY" "$API/readyz" | jq .', env);
-    const metrics = await sh(`curl -s -H "Authorization: Bearer $REELFORGE_METRICS_TOKEN" "$API/metrics" | grep -E '^(# HELP|# TYPE)? ?(reelforge|process_resident|nodejs_version)' | head -32`, env);
+    const ready = await sh('curl -s -H "Authorization: Bearer $RENDERWELD_KEY" "$API/readyz" | jq .', env);
+    const metrics = await sh(`curl -s -H "Authorization: Bearer $RENDERWELD_METRICS_TOKEN" "$API/metrics" | grep -E '^(# HELP|# TYPE)? ?(reelforge|process_resident|nodejs_version)' | head -32`, env);
     await saveView(run, page, work, 'readyz', { title: 'Readiness: /readyz', meta, blocks: [readyAnon, ready], caption: 'A load balancer or Docker health check reads the short answer; an admin key gets every check.' });
-    await saveView(run, page, work, 'metrics', { title: 'Prometheus metrics: /metrics', meta, blocks: [metrics], caption: 'Served when observability.metrics.exporter is prometheus, to callers with the bearer token (REELFORGE_METRICS_TOKEN, masked).' });
+    await saveView(run, page, work, 'metrics', { title: 'Prometheus metrics: /metrics', meta, blocks: [metrics], caption: 'Served when observability.metrics.exporter is prometheus, to callers with the bearer token (RENDERWELD_METRICS_TOKEN, masked).' });
 
     // 5. A render job with its progress (REST, long-poll), one scene per built-in template.
     copyFileSync(join(REPO_ROOT, 'scripts/capture/fixtures/contact-sheet-reel.json'), join(work, 'templates-reel.json'));
     const renderEnv = { ...env };
     const steps = [
-      await sh(`curl -s "$API/v1/projects" -H "Authorization: Bearer $REELFORGE_KEY" -H 'content-type: application/json' -d @templates-reel.json | jq -c '{project: .meta.id, version: .meta.version, scenes: (.manifest.scenes | length)}'`, renderEnv, { cwd: work }),
-      await sh(`curl -s -X POST "$API/v1/projects/docs-capture-templates/validate" -H "Authorization: Bearer $REELFORGE_KEY" | jq -c '{ok, summary}'`, renderEnv),
+      await sh(`curl -s "$API/v1/projects" -H "Authorization: Bearer $RENDERWELD_KEY" -H 'content-type: application/json' -d @templates-reel.json | jq -c '{project: .meta.id, version: .meta.version, scenes: (.manifest.scenes | length)}'`, renderEnv, { cwd: work }),
+      await sh(`curl -s -X POST "$API/v1/projects/docs-capture-templates/validate" -H "Authorization: Bearer $RENDERWELD_KEY" | jq -c '{ok, summary}'`, renderEnv),
     ];
-    const start = await sh(`curl -s -X POST "$API/v1/projects/docs-capture-templates/renders" -H "Authorization: Bearer $REELFORGE_KEY" -H 'content-type: application/json' -d '{}' | jq -r .job.id`, renderEnv);
+    const start = await sh(`curl -s -X POST "$API/v1/projects/docs-capture-templates/renders" -H "Authorization: Bearer $RENDERWELD_KEY" -H 'content-type: application/json' -d '{}' | jq -r .job.id`, renderEnv);
     const job = start.output.trim();
     renderEnv.JOB = job;
-    steps.push({ cmd: `JOB=$(curl -s -X POST "$API/v1/projects/docs-capture-templates/renders" -H "Authorization: Bearer $REELFORGE_KEY" -d '{}' | jq -r .job.id); echo $JOB`, output: job });
+    steps.push({ cmd: `JOB=$(curl -s -X POST "$API/v1/projects/docs-capture-templates/renders" -H "Authorization: Bearer $RENDERWELD_KEY" -d '{}' | jq -r .job.id); echo $JOB`, output: job });
     const poll = await sh(
-      `P=; while :; do J=$(curl -s "$API/v1/jobs/$JOB?wait=8" -H "Authorization: Bearer $REELFORGE_KEY"); L=$(echo "$J" | jq -r '"\\(.status)  \\((.progress.fraction // 0) * 100 | floor)%  \\(.progress.stage // "")"'); [ "$L" != "$P" ] && echo "$L"; P=$L; case $(echo "$J" | jq -r .status) in succeeded|failed|cancelled) break;; esac; done`,
+      `P=; while :; do J=$(curl -s "$API/v1/jobs/$JOB?wait=8" -H "Authorization: Bearer $RENDERWELD_KEY"); L=$(echo "$J" | jq -r '"\\(.status)  \\((.progress.fraction // 0) * 100 | floor)%  \\(.progress.stage // "")"'); [ "$L" != "$P" ] && echo "$L"; P=$L; case $(echo "$J" | jq -r .status) in succeeded|failed|cancelled) break;; esac; done`,
       renderEnv,
       { timeout: 900_000 }
     );
     steps.push(poll);
-    const done = await sh(`curl -s "$API/v1/jobs/$JOB" -H "Authorization: Bearer $REELFORGE_KEY" | jq -c '.result | {renderId, durationSeconds, frames, width, height, fps}'`, renderEnv);
+    const done = await sh(`curl -s "$API/v1/jobs/$JOB" -H "Authorization: Bearer $RENDERWELD_KEY" | jq -c '.result | {renderId, durationSeconds, frames, width, height, fps}'`, renderEnv);
     steps.push(done);
     await saveView(run, page, work, 'render-progress', { title: 'A render job and its progress', meta, blocks: steps, caption: 'POST /v1/projects, validate, render, then GET /v1/jobs/{id}?wait= (long-poll) until it succeeds: every scene is rendered by its engine, then assembled and checked.' });
     if (!/succeeded/.test(poll.output)) run.note('the studio render did not succeed: no contact sheets');
     else await templateSheets(run, dataDir, done.output);
 
     // 6. docker compose up, when an image is there (the release image needs a build or registry access).
-    const image = process.env.REELFORGE_IMAGE ?? 'reelforge-studio:latest';
+    const image = process.env.RENDERWELD_IMAGE ?? 'reelforge-studio:latest';
     const have = await sh(`docker image inspect ${image} --format '{{.Id}}'`, env);
-    if (have.failed) run.skip('studio view docker-compose-up', `no ${image} image here (build it with docker compose build, or set REELFORGE_IMAGE)`);
+    if (have.failed) run.skip('studio view docker-compose-up', `no ${image} image here (build it with docker compose build, or set RENDERWELD_IMAGE)`);
     else await composeView(run, page, work, env, image, meta);
     await ctx.close();
   } finally {
@@ -221,11 +221,11 @@ async function templateSheets(run, dataDir, resultLine) {
 }
 
 async function composeView(run, page, work, env, image, meta) {
-  const composeEnv = { ...env, REELFORGE_IMAGE: image, REELFORGE_BOOTSTRAP_KEY: env.REELFORGE_KEY, COMPOSE_PROJECT_NAME: 'rfcapture' };
+  const composeEnv = { ...env, RENDERWELD_IMAGE: image, RENDERWELD_BOOTSTRAP_KEY: env.RENDERWELD_KEY, COMPOSE_PROJECT_NAME: 'rfcapture' };
   const up = await sh('docker compose up -d --no-build', composeEnv, { cwd: REPO_ROOT, timeout: 300_000 });
   await new Promise((r) => setTimeout(r, 8000));
   const ps = await sh('docker compose ps --format "table {{.Service}}\\t{{.State}}\\t{{.Status}}\\t{{.Ports}}"', composeEnv, { cwd: REPO_ROOT });
-  const logs = await sh('docker compose logs reelforge --no-log-prefix | head -20', composeEnv, { cwd: REPO_ROOT });
+  const logs = await sh('docker compose logs renderweld --no-log-prefix | head -20', composeEnv, { cwd: REPO_ROOT });
   await sh('docker compose down -v', composeEnv, { cwd: REPO_ROOT, timeout: 120_000 });
   await saveView(run, page, work, 'docker-compose-up', { title: 'docker compose up', meta: `${image} · ${meta}`, blocks: [up, ps, logs], caption: 'The hardened compose file: read-only root, no capabilities, non-root user, seccomp profile.' });
 }

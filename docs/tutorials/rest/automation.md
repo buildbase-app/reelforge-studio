@@ -9,9 +9,9 @@
 
 - **Reachability.** Cloud-hosted n8n, Make and Zapier call your studio from the
   internet: put it behind TLS (see [DEPLOY.md](../../DEPLOY.md)), set
-  `REELFORGE_PUBLIC_URL`, and use a dedicated key with only the scopes the
+  `RENDERWELD_PUBLIC_URL`, and use a dedicated key with only the scopes the
   workflow needs, a rate limit and, if the tool publishes its egress IPs, an IP
-  allowlist (`reelforge keys create --name n8n --scopes read,write,render --rate-limit 30`
+  allowlist (`renderweld keys create --name n8n --scopes read,write,render --rate-limit 30`
   and the key options in [CONNECT_AGENTS.md](../../CONNECT_AGENTS.md)).
   Self-hosted n8n on the same network can use the internal URL.
 - **Auth.** Every request sends the header `Authorization: Bearer rf_...`.

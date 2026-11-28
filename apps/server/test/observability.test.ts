@@ -38,7 +38,7 @@ async function start(env: NodeJS.ProcessEnv = {}) {
     { dataDir, port: 0, host: '127.0.0.1' },
     {
       registry,
-      env: { REELFORGE_LICENCE_MODE: 'off', REELFORGE_SECRET_KEY: SECRET_KEY, REELFORGE_BOOTSTRAP_KEY: BOOTSTRAP, ELEVENLABS_API_KEY: ELEVEN, ...db.env, ...env },
+      env: { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_SECRET_KEY: SECRET_KEY, RENDERWELD_BOOTSTRAP_KEY: BOOTSTRAP, ELEVENLABS_API_KEY: ELEVEN, ...db.env, ...env },
       logWrite: (level, line) => lines.push({ level, line }),
       licence: { start: false },
     }
@@ -130,9 +130,9 @@ describe('logger and redaction (unit)', () => {
     const resolved = resolveConfig({
       env: {
         DATABASE_URL: 'postgresql://rf:Pa55word-xyz@db:5432/rf',
-        REELFORGE_OTLP_HEADERS: `x-honeycomb-team=${OTLP_TOKEN},authorization=Basic QWxhZGRpbjpvcGVu`,
-        REELFORGE_METRICS_TOKEN: 'metrics-token-0123456789',
-        REELFORGE_DATA_DIR: dir,
+        RENDERWELD_OTLP_HEADERS: `x-honeycomb-team=${OTLP_TOKEN},authorization=Basic QWxhZGRpbjpvcGVu`,
+        RENDERWELD_METRICS_TOKEN: 'metrics-token-0123456789',
+        RENDERWELD_DATA_DIR: dir,
       },
     });
     const values = secretValues(resolved, { ELEVENLABS_API_KEY: ELEVEN, REMOTION_LAMBDA_REGION: 'us-east-1' });
@@ -145,7 +145,7 @@ describe('logger and redaction (unit)', () => {
 describe('Prometheus metrics, JSON access logs and /readyz (default exporters)', () => {
   let s: Awaited<ReturnType<typeof start>>;
   beforeAll(async () => {
-    s = await start({ REELFORGE_METRICS_TOKEN: METRICS });
+    s = await start({ RENDERWELD_METRICS_TOKEN: METRICS });
     await renderSample(s.server);
   }, 120_000);
   afterAll(() => s?.server.close());
@@ -176,38 +176,30 @@ describe('Prometheus metrics, JSON access logs and /readyz (default exporters)',
     const find = (name: string, labels: Record<string, string> = {}) => samples.filter((x) => x.name === name && Object.entries(labels).every(([k, v]) => x.labels[k] === v));
     expect(find('http_server_request_duration_seconds_count', { http_route: '/v1/projects', http_request_method: 'GET', http_response_status_code: '200' })[0]?.value).toBeGreaterThanOrEqual(1);
     expect(find('http_server_request_duration_seconds_bucket', { http_route: '/v1/projects', le: '+Inf' }).length).toBeGreaterThan(0);
-    expect(find('reelforge_jobs_finished_total', { reelforge_job_type: 'render', reelforge_job_status: 'succeeded' })[0]?.value).toBe(1);
-    expect(find('reelforge_job_duration_seconds_count', { reelforge_job_type: 'render' })[0]?.value).toBe(1);
-    expect(find('reelforge_render_frames_total', { reelforge_engine: 'remotion' })[0]?.value).toBeGreaterThan(0);
-    expect(find('reelforge_render_frames_total', { reelforge_engine: 'motion-canvas' })[0]?.value).toBeGreaterThan(0);
-    expect(find('reelforge_render_scene_duration_seconds_count', { reelforge_engine: 'remotion', reelforge_outcome: 'ok' })[0]?.value).toBe(1);
-    expect(find('reelforge_render_fps_count', { reelforge_engine: 'remotion' })[0]?.value).toBe(1);
-    expect(find('reelforge_jobs_queued')[0]?.value).toBe(0);
-    expect(find('reelforge_jobs_running')[0]?.value).toBe(0);
-    expect(find('reelforge_jobs_concurrency')[0]?.value).toBe(1);
-    expect(find('reelforge_licence_state').map((x) => x.labels.reelforge_licence_state).sort()).toEqual(['checking', 'grace', 'invalid', 'unlicensed', 'valid']);
-    expect(find('reelforge_licence_state').reduce((a, x) => a + x.value, 0)).toBe(1);
-    expect(find('reelforge_build_info', { reelforge_edition: 'dev' })[0]?.value).toBe(1);
-    expect(find('target_info', { service_name: 'reelforge-studio' }).length).toBe(1);
+    expect(find('renderweld_jobs_finished_total', { renderweld_job_type: 'render', renderweld_job_status: 'succeeded' })[0]?.value).toBe(1);
+    expect(find('renderweld_job_duration_seconds_count', { renderweld_job_type: 'render' })[0]?.value).toBe(1);
+    expect(find('renderweld_render_frames_total', { renderweld_engine: 'remotion' })[0]?.value).toBeGreaterThan(0);
+    expect(find('renderweld_render_frames_total', { renderweld_engine: 'motion-canvas' })[0]?.value).toBeGreaterThan(0);
+    expect(find('renderweld_render_scene_duration_seconds_count', { renderweld_engine: 'remotion', renderweld_outcome: 'ok' })[0]?.value).toBe(1);
+    expect(find('renderweld_render_fps_count', { renderweld_engine: 'remotion' })[0]?.value).toBe(1);
+    expect(find('renderweld_jobs_queued')[0]?.value).toBe(0);
+    expect(find('renderweld_jobs_running')[0]?.value).toBe(0);
+    expect(find('renderweld_jobs_concurrency')[0]?.value).toBe(1);
+    expect(find('renderweld_licence_state').map((x) => x.labels.renderweld_licence_state).sort()).toEqual(['checking', 'grace', 'invalid', 'unlicensed', 'valid']);
+    expect(find('renderweld_licence_state').reduce((a, x) => a + x.value, 0)).toBe(1);
+    expect(find('renderweld_build_info', { renderweld_edition: 'dev' })[0]?.value).toBe(1);
+    expect(find('target_info', { service_name: 'renderweld' }).length).toBe(1);
   });
 
-  it('OBS-18 rename (#412): every reelforge_* metric is also served as renderweld_* with identical labels and values', async () => {
+  it('OBS-18 names (#413): every metric and label of ours is renderweld_*, none reelforge_*', async () => {
     const r = await api(s.server, 'GET', '/metrics', { key: METRICS });
     const samples = parsePrometheus(r.text);
-    const id = (name: string, labels: Record<string, string>, value: number) => JSON.stringify([name, Object.entries(labels).sort(), value]);
-    const old = samples.filter((x) => x.name.startsWith('reelforge_'));
-    const fresh = samples.filter((x) => x.name.startsWith('renderweld_'));
-    expect(old.length).toBeGreaterThan(20);
-    expect(new Set(fresh.map((x) => id(x.name, x.labels, x.value)))).toEqual(new Set(old.map((x) => id(x.name.replace(/^reelforge_/, 'renderweld_'), x.labels, x.value))));
-    // Every reelforge_* label has its renderweld_* twin with the same value, on both names.
-    for (const x of [...old, ...fresh]) {
-      for (const [k, v] of Object.entries(x.labels)) if (k.startsWith('reelforge_')) expect(x.labels[k.replace(/^reelforge_/, 'renderweld_')], `${x.name} ${k}`).toBe(v);
-    }
-    const metrics = new Set(old.map((x) => x.name.replace(/_(bucket|count|sum)$/, '')));
-    expect(metrics.size).toBeGreaterThanOrEqual(10);
+    const ours = samples.filter((x) => x.name.startsWith('renderweld_'));
+    expect(new Set(ours.map((x) => x.name.replace(/_(bucket|count|sum)$/, ''))).size).toBeGreaterThanOrEqual(10);
+    expect(samples.filter((x) => /reelforge/i.test(x.name) || Object.keys(x.labels).some((k) => /reelforge/i.test(k)))).toEqual([]);
     expect(samples.find((x) => x.name === 'renderweld_jobs_finished_total' && x.labels.renderweld_job_type === 'render' && x.labels.renderweld_job_status === 'succeeded')?.value).toBe(1);
-    expect(samples.find((x) => x.name === 'target_info')?.labels).toMatchObject({ reelforge_edition: 'dev', renderweld_edition: 'dev' });
-    // Metrics that are not ours keep one name.
+    expect(samples.find((x) => x.name === 'target_info')?.labels).toMatchObject({ renderweld_edition: 'dev' });
+    // Metrics that are not ours carry no product name.
     expect(samples.some((x) => x.name.startsWith('renderweld_http'))).toBe(false);
   });
 
@@ -287,12 +279,12 @@ describe('OTLP export to a receiver (traces, logs, metrics)', () => {
   beforeAll(async () => {
     rx = await startOtlpReceiver();
     s = await start({
-      REELFORGE_OTLP_ENDPOINT: rx.url,
-      REELFORGE_OTLP_PROTOCOL: 'http/json',
-      REELFORGE_OTLP_HEADERS: `x-honeycomb-team=${OTLP_TOKEN}`,
-      REELFORGE_LOGS_EXPORTER: 'otlp',
-      REELFORGE_METRICS_EXPORTER: 'otlp',
-      REELFORGE_OTEL_SERVICE_NAME: 'studio-under-test',
+      RENDERWELD_OTLP_ENDPOINT: rx.url,
+      RENDERWELD_OTLP_PROTOCOL: 'http/json',
+      RENDERWELD_OTLP_HEADERS: `x-honeycomb-team=${OTLP_TOKEN}`,
+      RENDERWELD_LOGS_EXPORTER: 'otlp',
+      RENDERWELD_METRICS_EXPORTER: 'otlp',
+      RENDERWELD_OTEL_SERVICE_NAME: 'studio-under-test',
     });
     await renderSample(s.server, { traceparent: `00-${parentTrace}-00f067aa0ba902b7-01` });
     await api(s.server, 'GET', '/v1/projects');
@@ -309,10 +301,10 @@ describe('OTLP export to a receiver (traces, logs, metrics)', () => {
     expect(http.traceId).toBe(parentTrace);
     expect(http.parentSpanId).toBe('00f067aa0ba902b7');
     expect(http.attributes).toMatchObject({ 'http.route': '/v1/projects/:id/renders', 'http.response.status_code': 202, 'http.request.method': 'POST' });
-    expect(String(http.attributes['reelforge.key_id'])).toMatch(/^key_/);
+    expect(String(http.attributes['renderweld.key_id'])).toMatch(/^key_/);
     const job = byName('job render')[0]!;
     expect(job.parentSpanId).toBe(http.spanId);
-    expect(job.attributes['reelforge.job.status']).toBe('succeeded');
+    expect(job.attributes['renderweld.job.status']).toBe('succeeded');
     const engines = spans.filter((x) => x.name.startsWith('engine.render '));
     expect(engines.map((e) => e.name).sort()).toEqual(['engine.render motion-canvas', 'engine.render remotion']);
     for (const e of engines) expect(e.parentSpanId).toBe(job.spanId);
@@ -321,13 +313,9 @@ describe('OTLP export to a receiver (traces, logs, metrics)', () => {
       expect(f.length, name).toBeGreaterThan(0);
       for (const x of f) expect(x.traceId).toBe(parentTrace);
     }
-    expect(rx.resourceAttributes()).toMatchObject({ 'service.name': 'studio-under-test', 'service.version': '0.1.0', 'reelforge.edition': 'dev', 'renderweld.edition': 'dev' });
-    // Rename (#412): every reelforge.* span attribute has a renderweld.* twin with the same value.
-    expect(http.attributes['renderweld.key_id']).toBe(http.attributes['reelforge.key_id']);
-    expect(job.attributes['renderweld.job.status']).toBe('succeeded');
-    for (const span of spans) {
-      for (const [k, v] of Object.entries(span.attributes)) if (k.startsWith('reelforge.')) expect(span.attributes[`renderweld.${k.slice(10)}`], `${span.name} ${k}`).toEqual(v);
-    }
+    expect(rx.resourceAttributes()).toMatchObject({ 'service.name': 'studio-under-test', 'service.version': '0.1.0', 'renderweld.edition': 'dev' });
+    // No attribute of ours under the old name (#413).
+    for (const span of spans) expect(Object.keys(span.attributes).filter((k) => /reelforge/i.test(k)), span.name).toEqual([]);
   });
 
   it('OBS-08 logs over OTLP: records with severity, attributes and trace ids; still JSON on stdout', () => {
@@ -342,7 +330,7 @@ describe('OTLP export to a receiver (traces, logs, metrics)', () => {
 
   it('OBS-09 metrics pushed over OTLP (last push on shutdown)', () => {
     const names = rx.metricNames();
-    expect(names).toEqual(expect.arrayContaining(['http.server.request.duration', 'reelforge.jobs.finished', 'reelforge.render.frames', 'reelforge.jobs.queued', 'reelforge.licence.state']));
+    expect(names).toEqual(expect.arrayContaining(['http.server.request.duration', 'renderweld.jobs.finished', 'renderweld.render.frames', 'renderweld.jobs.queued', 'renderweld.licence.state']));
     // Rename (#412): pushed under both names.
     for (const n of names.filter((x) => x.startsWith('reelforge.'))) expect(names, n).toContain(`renderweld.${n.slice(10)}`);
     expect(names).toEqual(expect.arrayContaining(['renderweld.jobs.finished', 'renderweld.render.frames', 'renderweld.jobs.queued', 'renderweld.licence.state']));
@@ -379,14 +367,14 @@ describe('runtime switching and failing receivers', () => {
     const cfg = await api(s.server, 'GET', '/v1/config?prefix=observability.tracing');
     expect(cfg.body.settings.find((x: any) => x.key === 'observability.tracing.exporter').value).toBe('otlp');
     await api(s.server, 'GET', '/v1/projects', { headers: { 'x-request-id': 'obs-10' } });
-    await until(() => rx.spans().find((x) => x.attributes['reelforge.request_id'] === 'obs-10'), 'span after enabling tracing');
+    await until(() => rx.spans().find((x) => x.attributes['renderweld.request_id'] === 'obs-10'), 'span after enabling tracing');
     await api(s.server, 'PATCH', '/v1/config', { body: { settings: { 'observability.tracing.exporter': 'off' } } });
     await new Promise((r) => setTimeout(r, 500));
     const before = rx.spans().length;
     await api(s.server, 'GET', '/v1/projects', { headers: { 'x-request-id': 'obs-10-off' } });
     await new Promise((r) => setTimeout(r, 3000));
     expect(rx.spans().length).toBe(before);
-    expect(rx.spans().some((x) => x.attributes['reelforge.request_id'] === 'obs-10-off')).toBe(false);
+    expect(rx.spans().some((x) => x.attributes['renderweld.request_id'] === 'obs-10-off')).toBe(false);
   }, 30_000);
 
   it('OBS-11 receiver down: requests keep working; /readyz stays 200 and reports the failing export; one warning in the log', async () => {
@@ -444,7 +432,7 @@ describe('runtime switching and failing receivers', () => {
 
 describe('exporter selected but not configured', () => {
   it('OBS-17 an OTLP exporter without an endpoint: the server starts and serves, the log says why nothing is exported, /readyz says not_configured', async () => {
-    const s = await start({ REELFORGE_LOGS_EXPORTER: 'otlp', REELFORGE_METRICS_EXPORTER: 'otlp' });
+    const s = await start({ RENDERWELD_LOGS_EXPORTER: 'otlp', RENDERWELD_METRICS_EXPORTER: 'otlp' });
     try {
       expect((await api(s.server, 'GET', '/v1/projects')).status).toBe(200);
       expect(s.json().some((l) => l.level === 'warn' && /observability\.logs\.exporter, observability\.metrics\.exporter are "otlp" but observability\.otlp\.endpoint is not set/.test(l.msg))).toBe(true);
@@ -459,16 +447,16 @@ describe('exporter selected but not configured', () => {
 });
 
 describe('settings (config schema)', () => {
-  const base = { REELFORGE_DATA_DIR: dir };
+  const base = { RENDERWELD_DATA_DIR: dir };
   it('OBS-16 defaults, env names, OTEL_* aliases and computed defaults', () => {
     const d = resolveConfig({ env: base }).config.observability;
-    expect(d).toMatchObject({ serviceName: 'reelforge-studio', logs: { exporter: 'stdout' }, metrics: { exporter: 'prometheus', exportIntervalSeconds: 60 }, tracing: { exporter: 'off', sampleRatio: 1 }, otlp: { protocol: 'http/protobuf', timeoutSeconds: 10 } });
-    const o = resolveConfig({ env: { ...base, OTEL_EXPORTER_OTLP_ENDPOINT: 'http://collector:4318/', OTEL_SERVICE_NAME: 'studio-a', REELFORGE_TRACING_SAMPLE_RATIO: '0.25' } }).config.observability;
+    expect(d).toMatchObject({ serviceName: 'renderweld', logs: { exporter: 'stdout' }, metrics: { exporter: 'prometheus', exportIntervalSeconds: 60 }, tracing: { exporter: 'off', sampleRatio: 1 }, otlp: { protocol: 'http/protobuf', timeoutSeconds: 10 } });
+    const o = resolveConfig({ env: { ...base, OTEL_EXPORTER_OTLP_ENDPOINT: 'http://collector:4318/', OTEL_SERVICE_NAME: 'studio-a', RENDERWELD_TRACING_SAMPLE_RATIO: '0.25' } }).config.observability;
     expect(o.otlp.endpoint).toBe('http://collector:4318');
     expect(o.tracing).toEqual({ exporter: 'otlp', sampleRatio: 0.25 });
     expect(o.serviceName).toBe('studio-a');
-    expect(resolveConfig({ env: { ...base, REELFORGE_LOG_FORMAT: 'text' } }).config.observability.logs.exporter).toBe('pretty');
-    expect(resolveConfig({ env: { ...base, REELFORGE_LOG_FORMAT: 'text', REELFORGE_LOGS_EXPORTER: 'stdout' } }).config.observability.logs.exporter).toBe('stdout');
+    expect(resolveConfig({ env: { ...base, RENDERWELD_LOG_FORMAT: 'text' } }).config.observability.logs.exporter).toBe('pretty');
+    expect(resolveConfig({ env: { ...base, RENDERWELD_LOG_FORMAT: 'text', RENDERWELD_LOGS_EXPORTER: 'stdout' } }).config.observability.logs.exporter).toBe('stdout');
   });
 
   it('OBS-16 invalid values are refused with the variable name and no secret', () => {
@@ -481,11 +469,11 @@ describe('settings (config schema)', () => {
       throw new Error('accepted');
     };
     expect(bad({ OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc' })).toMatch(/OTEL_EXPORTER_OTLP_PROTOCOL/);
-    expect(bad({ REELFORGE_TRACING_SAMPLE_RATIO: '2' })).toMatch(/REELFORGE_TRACING_SAMPLE_RATIO/);
-    expect(bad({ REELFORGE_TRACING_SAMPLE_RATIO: 'half' })).toMatch(/must be a number/);
-    const m = bad({ REELFORGE_OTLP_HEADERS: 'no-equals-sign-secretvalue' });
-    expect(m).toMatch(/REELFORGE_OTLP_HEADERS/);
+    expect(bad({ RENDERWELD_TRACING_SAMPLE_RATIO: '2' })).toMatch(/RENDERWELD_TRACING_SAMPLE_RATIO/);
+    expect(bad({ RENDERWELD_TRACING_SAMPLE_RATIO: 'half' })).toMatch(/must be a number/);
+    const m = bad({ RENDERWELD_OTLP_HEADERS: 'no-equals-sign-secretvalue' });
+    expect(m).toMatch(/RENDERWELD_OTLP_HEADERS/);
     expect(m).not.toContain('secretvalue');
-    expect(bad({ REELFORGE_METRICS_TOKEN: 'short' })).toMatch(/at least 16/);
+    expect(bad({ RENDERWELD_METRICS_TOKEN: 'short' })).toMatch(/at least 16/);
   });
 });

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "ReelForge: self-hosted, AI-assisted short-form video studio (Remotion + Motion Canvas).",
+  "description": "RenderWeld: self-hosted, AI-assisted short-form video studio (Remotion + Motion Canvas).",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22"
@@ -21,7 +21,7 @@
     "setup": "node scripts/dev/setup.mjs",
     "dev:all": "node scripts/dev/dev-all.mjs",
     "test:dev": "vitest run --dir scripts/dev",
-    "dev": "REELFORGE_LICENCE_MODE=${REELFORGE_LICENCE_MODE:-off} REELFORGE_LOGS_EXPORTER=${REELFORGE_LOGS_EXPORTER:-pretty} tsx watch --clear-screen=false apps/server/src/main.ts",
+    "dev": "RENDERWELD_LICENCE_MODE=${RENDERWELD_LICENCE_MODE:-off} RENDERWELD_LOGS_EXPORTER=${RENDERWELD_LOGS_EXPORTER:-pretty} tsx watch --clear-screen=false apps/server/src/main.ts",
     "start": "tsx apps/server/src/main.ts",
     "keys:create": "tsx apps/server/src/cli.ts keys create",
     "renderweld": "tsx apps/server/src/cli.ts",

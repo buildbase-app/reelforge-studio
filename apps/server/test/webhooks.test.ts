@@ -44,8 +44,8 @@ let receiver: Server;
 let rxUrl = '';
 
 const licenceApi: LicenceApi = {
-  validate: async (): Promise<LicenceAnswer> => ({ valid: true, reason: null, key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null }, item: { id: 'itm', title: 'ReelForge Studio' }, instance: null }),
-  activate: async (_k, instance): Promise<LicenceAnswer> => ({ valid: true, reason: null, key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null }, item: { id: 'itm', title: 'ReelForge Studio' }, instance: { instance, activatedAt: new Date().toISOString() } }),
+  validate: async (): Promise<LicenceAnswer> => ({ valid: true, reason: null, key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null }, item: { id: 'itm', title: 'RenderWeld' }, instance: null }),
+  activate: async (_k, instance): Promise<LicenceAnswer> => ({ valid: true, reason: null, key: { status: 'active', activations: 1, activationLimit: 1, expiresAt: null }, item: { id: 'itm', title: 'RenderWeld' }, instance: { instance, activatedAt: new Date().toISOString() } }),
   deactivate: async (): Promise<LicenceAnswer> => ({ valid: false, reason: 'not_activated', instance: null }),
 };
 
@@ -111,13 +111,13 @@ beforeAll(async () => {
   dropDb = database.drop;
   env = {
     ...database.env,
-    REELFORGE_SECRET_KEY: SECRET_KEY,
-    REELFORGE_METRICS_TOKEN: 'webhooks-metrics-token-0123456789', // /metrics needs a token by default (D-088)
-    REELFORGE_RATE_LIMIT_PER_MINUTE: '0',
-    REELFORGE_WEBHOOKS_ALLOW_HTTP: 'true',
-    REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
-    REELFORGE_WEBHOOKS_RETRY_BASE_SECONDS: '1',
-    REELFORGE_WEBHOOKS_MAX_ATTEMPTS: '3',
+    RENDERWELD_SECRET_KEY: SECRET_KEY,
+    RENDERWELD_METRICS_TOKEN: 'webhooks-metrics-token-0123456789', // /metrics needs a token by default (D-088)
+    RENDERWELD_RATE_LIMIT_PER_MINUTE: '0',
+    RENDERWELD_WEBHOOKS_ALLOW_HTTP: 'true',
+    RENDERWELD_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true',
+    RENDERWELD_WEBHOOKS_RETRY_BASE_SECONDS: '1',
+    RENDERWELD_WEBHOOKS_MAX_ATTEMPTS: '3',
   };
   const keep = (...a: unknown[]) => void logs.push(a.map(String).join(' '));
   vi.spyOn(console, 'log').mockImplementation(keep);
@@ -306,16 +306,16 @@ describe('webhooks over REST and MCP (WHK-20..)', () => {
     const r = await fetch(`${server.url}/metrics`, { headers: { authorization: 'Bearer webhooks-metrics-token-0123456789' } });
     if (r.status === 404) return; // metrics exporter off in this configuration
     const text = await r.text();
-    expect(text).toMatch(/reelforge_webhook_deliveries_total\{[^}]*reelforge_channel="webhook"[^}]*reelforge_outcome="success"/);
-    expect(text).toMatch(/reelforge_webhook_deliveries_total\{[^}]*reelforge_outcome="dead"/);
-    expect(text).toMatch(/reelforge_webhook_events_total\{[^}]*reelforge_event_type="render.ready"/);
-    const webhookLines = text.split('\n').filter((l) => l.startsWith('reelforge_webhook'));
+    expect(text).toMatch(/renderweld_webhook_deliveries_total\{[^}]*renderweld_channel="webhook"[^}]*renderweld_outcome="success"/);
+    expect(text).toMatch(/renderweld_webhook_deliveries_total\{[^}]*renderweld_outcome="dead"/);
+    expect(text).toMatch(/renderweld_webhook_events_total\{[^}]*renderweld_event_type="render.ready"/);
+    const webhookLines = text.split('\n').filter((l) => l.startsWith('renderweld_webhook'));
     expect(webhookLines.join('\n')).not.toMatch(/whk_|dlv_|msg_|evt_/);
   });
 
   it('WHK-30 CLI: create (secret printed once), list, test (queued, delivered by the running server), deliveries, rotate, delete; audited as cli', () => {
     const cli = (args: string[]) => {
-      const r = spawnSync(join(repo, 'node_modules/.bin/tsx'), ['apps/server/src/cli.ts', ...args], { cwd: repo, env: { ...process.env, ...env, REELFORGE_DATA_DIR: join(dir, 'data') }, encoding: 'utf8', timeout: 60_000 });
+      const r = spawnSync(join(repo, 'node_modules/.bin/tsx'), ['apps/server/src/cli.ts', ...args], { cwd: repo, env: { ...process.env, ...env, RENDERWELD_DATA_DIR: join(dir, 'data') }, encoding: 'utf8', timeout: 60_000 });
       if (r.status !== 0) throw new Error(`${args.join(' ')} failed: ${r.stderr}${r.stdout}`);
       return r.stdout;
     };

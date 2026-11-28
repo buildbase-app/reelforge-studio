@@ -36,7 +36,7 @@ describe('docker sizing benchmark', () => {
     expect(() => parseSizes('2')).toThrow(/vCPUs:GiB/);
     expect(() => parseSizes('2:0')).toThrow(/vCPUs:GiB/);
     expect(config({}).sizes).toEqual([{ cpus: 1, memGiB: 2 }, { cpus: 2, memGiB: 4 }, { cpus: 4, memGiB: 8 }]);
-    expect(config({ BENCH_ENV: 'REELFORGE_CHROMIUM_NO_SANDBOX=1,A=b=c' }).env).toEqual({ REELFORGE_CHROMIUM_NO_SANDBOX: '1', A: 'b=c' });
+    expect(config({ BENCH_ENV: 'RENDERWELD_CHROMIUM_NO_SANDBOX=1,A=b=c' }).env).toEqual({ RENDERWELD_CHROMIUM_NO_SANDBOX: '1', A: 'b=c' });
     expect(config({}).dockerArgs).toEqual(['--security-opt', 'seccomp=deployment/seccomp/chrome.json']);
     expect(config({}).concurrency).toEqual([]);
     expect(config({ BENCH_CONCURRENCY: '1,3' }).concurrency).toEqual([1, 3]);

@@ -20,7 +20,7 @@ Every agent talks to **your** server with an API key you create.
 Create a key with only the scopes the agent needs:
 
 ```bash
-docker compose exec reelforge renderweld keys create --name claude --scopes read,write,render
+docker compose exec renderweld renderweld keys create --name claude --scopes read,write,render
 ```
 
 **Tested:** the official MCP TypeScript SDK client over Streamable HTTP with a
@@ -89,12 +89,12 @@ bundled or tested.
 
 The server binds to `127.0.0.1` by default. For an agent on another machine, put
 a TLS proxy in front (the compose file has a Caddy profile:
-`REELFORGE_DOMAIN=studio.example.com docker compose --profile tls up -d --build`)
-and set `REELFORGE_PUBLIC_URL=https://studio.example.com`.
+`RENDERWELD_DOMAIN=studio.example.com docker compose --profile tls up -d --build`)
+and set `RENDERWELD_PUBLIC_URL=https://studio.example.com`.
 
 `/mcp` accepts only the host names `localhost`, `127.0.0.1`, `::1`, the host of
-`REELFORGE_PUBLIC_URL` and those in `REELFORGE_ALLOWED_HOSTS` (protection against
-DNS rebinding). A `403 forbidden_host` means: set `REELFORGE_PUBLIC_URL`.
+`RENDERWELD_PUBLIC_URL` and those in `RENDERWELD_ALLOWED_HOSTS` (protection against
+DNS rebinding). A `403 forbidden_host` means: set `RENDERWELD_PUBLIC_URL`.
 
 ## An agent with no other docs
 

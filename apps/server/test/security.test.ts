@@ -4,32 +4,32 @@
  */
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService, chromiumSandbox, createMemoryRepositories } from '@renderweld/core';
+import { PluginRegistry, RenderWeldService, chromiumSandbox, createMemoryRepositories } from '@renderweld/core';
 import { Redactor, createApp, loadConfig, originAllowed } from '../src/index';
 import { fakeEngine, tempDir } from '../../../packages/core/test/helpers';
 
 const { dir, cleanup } = tempDir('reelforge-security-');
 afterAll(cleanup);
 
-let service: ReelforgeService;
+let service: RenderWeldService;
 let admin: string;
 let agent: string;
 const apps: Record<string, ReturnType<typeof createApp>> = {};
 
 beforeAll(async () => {
   const registry = new PluginRegistry().registerEngine({ ...fakeEngine('remotion'), browserSandbox: () => false }).registerEngine({ ...fakeEngine('html'), browserSandbox: () => chromiumSandbox() });
-  const base = loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_PUBLIC_URL: 'https://studio.example.com' });
-  service = await ReelforgeService.create(registry, {
+  const base = loadConfig({ RENDERWELD_DATA_DIR: join(dir, 'data'), RENDERWELD_PUBLIC_URL: 'https://studio.example.com' });
+  service = await RenderWeldService.create(registry, {
     repositories: createMemoryRepositories(),
     dataDir: base.dataDir,
-    configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
   });
   admin = (await service.keys.create('admin', ['admin', 'owner'])).key;
   agent = (await service.keys.create('agent', ['read', 'write', 'render'])).key;
   apps.default = createApp({ service, config: base });
-  apps.anonymous = createApp({ service, config: loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_METRICS_ALLOW_ANONYMOUS: 'true' }) });
-  apps.token = createApp({ service, config: loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data'), REELFORGE_METRICS_TOKEN: 'metrics-token-sect-0123456789' }) });
-  apps.local = createApp({ service, config: loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data') }) });
+  apps.anonymous = createApp({ service, config: loadConfig({ RENDERWELD_DATA_DIR: join(dir, 'data'), RENDERWELD_METRICS_ALLOW_ANONYMOUS: 'true' }) });
+  apps.token = createApp({ service, config: loadConfig({ RENDERWELD_DATA_DIR: join(dir, 'data'), RENDERWELD_METRICS_TOKEN: 'metrics-token-sect-0123456789' }) });
+  apps.local = createApp({ service, config: loadConfig({ RENDERWELD_DATA_DIR: join(dir, 'data') }) });
 });
 afterAll(() => service?.jobs.flush());
 
@@ -75,15 +75,15 @@ describe('security: /readyz detail only for admins (SEC-06)', () => {
     expect(full.dependencies.ffmpeg.version).toMatch(/ffmpeg version/);
     expect(full.security.chromiumSandbox).toMatchObject({ remotion: false });
     expect(full.security.warnings.join('\n')).toMatch(/Remotion always starts Chromium without its sandbox/);
-    const saved = process.env.REELFORGE_CHROMIUM_NO_SANDBOX;
-    process.env.REELFORGE_CHROMIUM_NO_SANDBOX = '1';
+    const saved = process.env.RENDERWELD_CHROMIUM_NO_SANDBOX;
+    process.env.RENDERWELD_CHROMIUM_NO_SANDBOX = '1';
     try {
       const off = (await (await req('default', '/readyz', { key: admin })).json()) as any;
-      expect(off.security.warnings.join('\n')).toMatch(/REELFORGE_CHROMIUM_NO_SANDBOX=1.*explicit opt-out/);
+      expect(off.security.warnings.join('\n')).toMatch(/RENDERWELD_CHROMIUM_NO_SANDBOX=1.*explicit opt-out/);
       expect(service.capabilities().security.warning).toMatch(/explicit opt-out/);
     } finally {
-      if (saved === undefined) delete process.env.REELFORGE_CHROMIUM_NO_SANDBOX;
-      else process.env.REELFORGE_CHROMIUM_NO_SANDBOX = saved;
+      if (saved === undefined) delete process.env.RENDERWELD_CHROMIUM_NO_SANDBOX;
+      else process.env.RENDERWELD_CHROMIUM_NO_SANDBOX = saved;
     }
   });
 });

@@ -6,7 +6,7 @@ import type { CaptionCue } from '@renderweld/project-schema';
 import {
   FasterWhisperStt,
   PluginRegistry,
-  ReelforgeService,
+  RenderWeldService,
   createMemoryRepositories,
   type SpeechToTextPlugin,
   type SttRequest,
@@ -60,7 +60,7 @@ async function regionStats(file: string, frame: number, r: { x: number; y: numbe
   return { yMax: Number(/lavfi\.signalstats\.YMAX=([0-9.]+)/.exec(stdout)![1]) };
 }
 
-let svc: ReelforgeService;
+let svc: RenderWeldService;
 const stt = new FakeStt();
 
 beforeAll(async () => {
@@ -70,11 +70,11 @@ beforeAll(async () => {
     .registerEngine(fakeEngine('motion-canvas'))
     .registerStt(stt)
     .registerStt(new FasterWhisperStt({ env: { PATH: '' } }));
-  svc = await ReelforgeService.create(registry, {
+  svc = await RenderWeldService.create(registry, {
     repositories: createMemoryRepositories(),
     dataDir: join(dir, 'data'),
     publicUrl: 'https://studio.example.com/',
-    configSources: { env: { REELFORGE_LICENCE_MODE: 'off', REELFORGE_STT_PROVIDER: 'fake-stt' } },
+    configSources: { env: { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_STT_PROVIDER: 'fake-stt' } },
   });
   await svc.createProject({ ...sample, projectId: 'cap2', output: { ...sample.output, width: 540, height: 960 } });
 });

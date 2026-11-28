@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { textRunTracker, textSampleStep, type ClipTextCheck, type RenderScene } from '@renderweld/project-schema';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories, textCheckOn, textQa, videoQaIssues, VIDEO_QA_DEFAULTS, type EnginePlugin, type VideoQaManifest } from '../src/index';
+import { PluginRegistry, RenderWeldService, createMemoryRepositories, textCheckOn, textQa, videoQaIssues, VIDEO_QA_DEFAULTS, type EnginePlugin, type VideoQaManifest } from '../src/index';
 import { fakeEngine, tempDir } from './helpers';
 
 /**
@@ -68,7 +68,7 @@ describe('text runs', () => {
 });
 
 describe('renders', () => {
-  let svc: ReelforgeService;
+  let svc: RenderWeldService;
   const asked: Array<[string, boolean]> = [];
   /** A fake DOM engine: when asked, scene "wide" reports text running off the frame from frame 7 to its end. */
   const sampling = (e: EnginePlugin): EnginePlugin => ({
@@ -91,7 +91,7 @@ describe('renders', () => {
 
   beforeAll(async () => {
     const registry = new PluginRegistry().registerEngine(sampling(fakeEngine('remotion', { frameRanges: true }))).registerEngine(fakeEngine('motion-canvas'));
-    svc = await ReelforgeService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), configSources: { env: { REELFORGE_LICENCE_MODE: 'off', REELFORGE_RENDER_QA_SEEK_FRAMES: '0' } } });
+    svc = await RenderWeldService.create(registry, { repositories: createMemoryRepositories(), dataDir: join(dir, 'data'), configSources: { env: { RENDERWELD_LICENCE_MODE: 'off', RENDERWELD_RENDER_QA_SEEK_FRAMES: '0' } } });
     const project = (projectId: string, scenes: unknown[]) => ({ schemaVersion: '0.1', projectId, title: projectId, output: { width: 320, height: 568, fps: 30, format: 'mp4' }, audio: { musicTrack: null, voiceTrack: null }, assets: [], scenes });
     await svc.createProject(project('clean', [scene('hook', 'remotion', 45), scene('body', 'remotion', 45)]));
     await svc.createProject(project('overflow', [scene('hook', 'remotion', 45), scene('mc', 'motion-canvas', 60), scene('wide', 'remotion', 60)]));

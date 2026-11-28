@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { envValue } from '@renderweld/core';
 import { Database } from './database';
 import type { DatabaseKind } from './url';
 
@@ -21,13 +20,13 @@ export function availableTestDatabases(env: NodeJS.ProcessEnv = process.env): Da
   return ['sqlite', ...(env.TEST_POSTGRES_URL ? ['postgresql' as const] : []), ...(env.TEST_MYSQL_URL ? ['mysql' as const] : [])];
 }
 
-/** REELFORGE_TEST_DB=sqlite|postgres|mysql: which database the server tests use (default sqlite). */
+/** RENDERWELD_TEST_DB=sqlite|postgres|mysql: which database the server tests use (default sqlite). */
 export function serverTestDatabaseKind(env: NodeJS.ProcessEnv = process.env): DatabaseKind {
-  const v = (envValue('REELFORGE_TEST_DB', env) ?? 'sqlite').toLowerCase();
+  const v = (env.RENDERWELD_TEST_DB ?? 'sqlite').toLowerCase();
   if (v === 'postgres' || v === 'postgresql') return 'postgresql';
   if (v === 'mysql' || v === 'mariadb') return 'mysql';
   if (v === 'sqlite') return 'sqlite';
-  throw new Error(`REELFORGE_TEST_DB must be sqlite, postgres or mysql (got "${v}")`);
+  throw new Error(`RENDERWELD_TEST_DB must be sqlite, postgres or mysql (got "${v}")`);
 }
 
 export async function createTestDatabase(kind: DatabaseKind, tmpDir: string, env: NodeJS.ProcessEnv = process.env): Promise<TestDatabase> {

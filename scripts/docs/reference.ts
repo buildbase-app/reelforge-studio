@@ -68,7 +68,7 @@ export const TOOL_GROUPS: Array<{ title: string; intro: string; tools: string[] 
   {
     title: 'Workspaces',
     intro: 'Every key belongs to one workspace and sees only its projects, assets, themes, jobs, renders, keys, webhooks and audit log (#304, docs/WORKSPACES.md). Managing workspaces needs the instance-level owner scope.',
-    tools: ['get_workspace', 'list_workspaces', 'create_workspace', 'update_workspace', 'delete_workspace', 'restore_workspace'],
+    tools: ['get_workspace', 'set_workspace_retention', 'list_workspaces', 'create_workspace', 'update_workspace', 'delete_workspace', 'restore_workspace'],
   },
   {
     title: 'Licence',

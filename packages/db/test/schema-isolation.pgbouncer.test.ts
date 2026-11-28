@@ -1,5 +1,5 @@
 /**
- * Two ReelForge schemas behind one PgBouncer pool in transaction mode (#191,
+ * Two RenderWeld schemas behind one PgBouncer pool in transaction mode (#191,
  * PGB-04/05 in docs/providers/queue-and-scaling.md). Needs TEST_POSTGRES_URL
  * (the PostgreSQL server, direct) and TEST_PGBOUNCER_URL (PgBouncer in
  * transaction mode in front of the same server and database; the image and
@@ -63,7 +63,7 @@ interface Tenant {
 }
 
 /**
- * `migrate`: where the migrations run: through PgBouncer, both schemas at once (REELFORGE_MIGRATE_ON_START=1
+ * `migrate`: where the migrations run: through PgBouncer, both schemas at once (RENDERWELD_MIGRATE_ON_START=1
  * behind the pooler), or on the direct port first (the documented recipe), so only the app's traffic is pooled.
  */
 async function twoSchemas(id: string, migrate: 'bouncer' | 'direct') {

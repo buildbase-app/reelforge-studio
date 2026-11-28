@@ -8,7 +8,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PluginRegistry, ReelforgeService, createMemoryRepositories, type StorageDriver } from '@renderweld/core';
+import { PluginRegistry, RenderWeldService, createMemoryRepositories, type StorageDriver } from '@renderweld/core';
 import { createApp, loadConfig, startServer } from '../src/index';
 import { fakeEngine, memoryStorage, tempDir } from '../../../packages/core/test/helpers';
 
@@ -21,18 +21,18 @@ const mem = memoryStorage();
 const driver = Object.assign(Object.create(mem) as StorageDriver, {
   health: async () => (healthy ? { ok: true } : { ok: false, message: 'bucket "reelforge" is not reachable (HTTP 404): NotFound' }),
 });
-let service: ReelforgeService;
+let service: RenderWeldService;
 let app: ReturnType<typeof createApp>;
 let admin: string;
 let reader: string;
 
 beforeAll(async () => {
   const registry = new PluginRegistry().registerEngine(fakeEngine('remotion')).registerEngine(fakeEngine('motion-canvas'));
-  const config = loadConfig({ REELFORGE_DATA_DIR: join(dir, 'data') });
-  service = await ReelforgeService.create(registry, {
+  const config = loadConfig({ RENDERWELD_DATA_DIR: join(dir, 'data') });
+  service = await RenderWeldService.create(registry, {
     repositories: createMemoryRepositories(),
     dataDir: config.dataDir,
-    configSources: { env: { REELFORGE_LICENCE_MODE: 'off' } },
+    configSources: { env: { RENDERWELD_LICENCE_MODE: 'off' } },
     storage: { factory: async () => driver, sweep: false },
   });
   admin = (await service.keys.create('admin', ['admin', 'owner'])).key;
@@ -127,15 +127,15 @@ describe('STO-24 no storage credentials in the server log', () => {
         {
           registry: new PluginRegistry(),
           env: {
-            REELFORGE_LICENCE_MODE: 'off',
-            REELFORGE_STORAGE_DRIVER: 's3',
-            REELFORGE_S3_BUCKET: 'reelforge',
-            REELFORGE_S3_ENDPOINT: `http://127.0.0.1:${(stub.address() as AddressInfo).port}`,
-            REELFORGE_S3_FORCE_PATH_STYLE: 'true',
-            REELFORGE_S3_ACCESS_KEY_ID: 'AKIASTO24EXAMPLE',
-            REELFORGE_S3_SECRET_ACCESS_KEY: secret,
-            REELFORGE_STORAGE_MAX_ATTEMPTS: '1',
-            REELFORGE_BOOTSTRAP_KEY: STO24_ADMIN,
+            RENDERWELD_LICENCE_MODE: 'off',
+            RENDERWELD_STORAGE_DRIVER: 's3',
+            RENDERWELD_S3_BUCKET: 'reelforge',
+            RENDERWELD_S3_ENDPOINT: `http://127.0.0.1:${(stub.address() as AddressInfo).port}`,
+            RENDERWELD_S3_FORCE_PATH_STYLE: 'true',
+            RENDERWELD_S3_ACCESS_KEY_ID: 'AKIASTO24EXAMPLE',
+            RENDERWELD_S3_SECRET_ACCESS_KEY: secret,
+            RENDERWELD_STORAGE_MAX_ATTEMPTS: '1',
+            RENDERWELD_BOOTSTRAP_KEY: STO24_ADMIN,
           },
           storage: { sweep: false },
           logWrite: (_level, line) => void lines.push(line),

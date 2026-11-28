@@ -1,7 +1,7 @@
 {
-  "title": "ReelForge Studio",
-  "uid": "reelforge-studio",
-  "description": "HTTP, jobs, renders, providers and licence of ReelForge Studio (docs/providers/observability.md). Metrics from GET /metrics (Prometheus) or OTLP via an OpenTelemetry Collector with its Prometheus exporter.",
+  "title": "RenderWeld",
+  "uid": "renderweld",
+  "description": "HTTP, jobs, renders, providers and licence of RenderWeld (docs/providers/observability.md). Metrics from GET /metrics (Prometheus) or OTLP via an OpenTelemetry Collector with its Prometheus exporter.",
   "tags": [
     "reelforge"
   ],

@@ -1,5 +1,5 @@
 /**
- * `reelforge worker --once` with fake engines (worker-once.processes.test.ts):
+ * `renderweld worker --once` with fake engines (worker-once.processes.test.ts):
  * the same runWorkerOnce() the CLI and main.ts call, so start-up, the role
  * guard, the claim, signals and exit statuses are the real ones; only the
  * engines are fakes (no browser). FAKE_DELAY_PER_FRAME_MS slows them down,

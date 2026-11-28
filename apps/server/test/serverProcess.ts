@@ -7,7 +7,7 @@ const repo = resolve(__dirname, '../../..');
 const tsx = join(repo, 'node_modules/.bin/tsx');
 
 /**
- * The database a server test runs against: REELFORGE_TEST_DB=sqlite (default:
+ * The database a server test runs against: RENDERWELD_TEST_DB=sqlite (default:
  * the SQLite file in the data directory), postgres (TEST_POSTGRES_URL) or
  * mysql (TEST_MYSQL_URL), each a fresh empty database.
  */
@@ -21,7 +21,7 @@ export async function testDatabase(dir: string): Promise<{ env: Record<string, s
 export function cliCreateKey(dataDir: string, name: string, scopes: string, env: Record<string, string> = {}): string {
   const r = spawnSync(tsx, ['apps/server/src/cli.ts', 'keys', 'create', '--name', name, '--scopes', scopes], {
     cwd: repo,
-    env: { ...process.env, REELFORGE_DATA_DIR: dataDir, ...env },
+    env: { ...process.env, RENDERWELD_DATA_DIR: dataDir, ...env },
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -42,7 +42,7 @@ export interface ServerProcess {
 export async function startServerProcess(env: Record<string, string>): Promise<ServerProcess> {
   const child = spawn(tsx, ['apps/server/src/main.ts'], {
     cwd: repo,
-    env: { ...process.env, REELFORGE_PORT: '0', REELFORGE_HOST: '127.0.0.1', ...env },
+    env: { ...process.env, RENDERWELD_PORT: '0', RENDERWELD_HOST: '127.0.0.1', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';

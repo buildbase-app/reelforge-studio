@@ -4,7 +4,7 @@
  * and 4K, and write one
  * contact sheet per primitive (a row per engine, the settled frame of each
  * size, the content safe area outlined) plus report.json to
- * docs/proofs/layouts/. Needs REELFORGE_CHROMIUM_PATH and FFmpeg.
+ * docs/proofs/layouts/. Needs RENDERWELD_CHROMIUM_PATH and FFmpeg.
  *
  *   pnpm formats:prove-layouts [--out docs/proofs/layouts] [--only split] [--engine html] [--format 16x9]
  *

@@ -45,25 +45,25 @@ if (PHASE === 'on') {
   writeFileSync('/out/obs.json', JSON.stringify({ jobId, projectId: m.projectId }));
 } else if (PHASE === 'check') {
   const { jobId } = JSON.parse(readFileSync('/out/obs.json', 'utf8'));
-  const found = await until(() => { const s = spans(); const job = s.find((x) => x.name === 'job preview' && x.attributes['reelforge.job.id'] === jobId); return job && s.some((x) => x.name === 'ffmpeg poster' && x.traceId === job.traceId) ? { s, job } : null; });
+  const found = await until(() => { const s = spans(); const job = s.find((x) => x.name === 'job preview' && x.attributes['renderweld.job.id'] === jobId); return job && s.some((x) => x.name === 'ffmpeg poster' && x.traceId === job.traceId) ? { s, job } : null; });
   check('the collector received the job span and its FFmpeg spans', Boolean(found));
   if (found) {
     const { s, job } = found;
     const parent = s.find((x) => x.spanId === job.parentSpanId);
     check('job span → parent is the HTTP span of the MCP request', parent?.name === 'POST /mcp' && parent.attributes['http.route'] === '/mcp' && parent.kind === 2, `${parent?.name} kind=${parent?.kind}`);
-    check('HTTP span has request id, key id (not the key) and status 200', /^key_|^bootstrap/.test(String(parent?.attributes['reelforge.key_id'])) && parent?.attributes['http.response.status_code'] === 200 && Boolean(parent?.attributes['reelforge.request_id']));
+    check('HTTP span has request id, key id (not the key) and status 200', /^key_|^bootstrap/.test(String(parent?.attributes['renderweld.key_id'])) && parent?.attributes['http.response.status_code'] === 200 && Boolean(parent?.attributes['renderweld.request_id']));
     const engine = s.find((x) => x.name === 'engine.render html' && x.traceId === job.traceId);
     check('engine.render html is a child of the job span', engine?.parentSpanId === job.spanId, JSON.stringify(engine?.attributes ?? {}).slice(0, 200));
     const ff = ['ffprobe clip', 'ffmpeg assemble', 'ffprobe output', 'ffmpeg decode check', 'ffmpeg poster'].map((n) => [n, s.find((x) => x.name === n && x.traceId === job.traceId)]);
     check('FFmpeg steps are spans in the same trace', ff.every(([, x]) => x?.parentSpanId === job.spanId), ff.map(([n, x]) => `${n}:${x ? 'ok' : 'missing'}`).join(', '));
-    check('resource attributes: service.name, service.version, edition', job.resource['service.name'] === 'reelforge-studio' && Boolean(job.resource['service.version']) && job.resource['reelforge.edition'] === EDITION, JSON.stringify(job.resource));
+    check('resource attributes: service.name, service.version, edition', job.resource['service.name'] === 'renderweld' && Boolean(job.resource['service.version']) && job.resource['renderweld.edition'] === EDITION, JSON.stringify(job.resource));
     console.log(`   trace ${job.traceId}: ${s.filter((x) => x.traceId === job.traceId).length} spans`);
   }
   // (The update_config call that switched OTLP on started before tracing was on: its own log record has no trace id.)
   const logOk = await until(() => logs().find((l) => l.body === 'POST /mcp 200' && l.attributes.route === '/mcp' && l.attributes.request_id && l.traceId));
   check('the collector received OTLP log records (access log with request id, route, status, trace id)', Boolean(logOk && logOk.traceId), logOk ? JSON.stringify({ body: logOk.body, severity: logOk.severityText, key_id: logOk.attributes.key_id, trace: logOk.traceId }) : '');
-  const scraped = await until(() => { const n = metricNames(); return [...n].some((x) => x.startsWith('http_server_request_duration')) && [...n].some((x) => x.startsWith('reelforge_jobs_finished')) ? n : null; });
-  check('the collector\'s Prometheus receiver scraped /metrics (http_server_request_duration*, reelforge_jobs_finished*)', Boolean(scraped), scraped ? [...scraped].filter((x) => /^(http_|reelforge_)/.test(x)).slice(0, 8).join(', ') : '');
+  const scraped = await until(() => { const n = metricNames(); return [...n].some((x) => x.startsWith('http_server_request_duration')) && [...n].some((x) => x.startsWith('renderweld_jobs_finished')) ? n : null; });
+  check('the collector\'s Prometheus receiver scraped /metrics (http_server_request_duration*, renderweld_jobs_finished*)', Boolean(scraped), scraped ? [...scraped].filter((x) => /^(http_|reelforge_)/.test(x)).slice(0, 8).join(', ') : '');
   const all = ['traces', 'logs', 'metrics'].map((f) => existsSync(`/otel/${f}.jsonl`) ? readFileSync(`/otel/${f}.jsonl`, 'utf8') : '').join('');
   check('no API key in anything the collector received', !all.includes(KEY), `${all.length} bytes`);
   const r = await readyz();
@@ -73,8 +73,8 @@ if (PHASE === 'on') {
   const m = await metrics();
   check('/metrics answers 404 once metrics are pushed over OTLP', m.status === 404);
   await call('list_projects');
-  const pushed = await until(() => { const n = metricNames(); return n.has('reelforge.jobs.finished') && n.has('http.server.request.duration') ? n : null; });
-  check('the collector received OTLP metrics (reelforge.jobs.finished, http.server.request.duration, reelforge.licence.state)', Boolean(pushed?.has('reelforge.licence.state')), pushed ? [...pushed].filter((x) => x.includes('.')).join(', ') : '');
+  const pushed = await until(() => { const n = metricNames(); return n.has('renderweld.jobs.finished') && n.has('http.server.request.duration') ? n : null; });
+  check('the collector received OTLP metrics (renderweld.jobs.finished, http.server.request.duration, renderweld.licence.state)', Boolean(pushed?.has('renderweld.licence.state')), pushed ? [...pushed].filter((x) => x.includes('.')).join(', ') : '');
 } else if (PHASE === 'down') {
   let ok = 0; for (let i = 0; i < 5; i++) { await call('list_projects'); ok++; }
   check('with the collector stopped, MCP calls keep working', ok === 5);

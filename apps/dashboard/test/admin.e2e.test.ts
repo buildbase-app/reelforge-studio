@@ -15,7 +15,7 @@ import { htmlReel, startStudio } from './harness';
  * edits. axe-core 0 violations in light and dark and at 360 px; no CSP
  * violation, no request to another origin, the key never in a URL.
  */
-const executablePath = process.env.REELFORGE_CHROMIUM_PATH;
+const executablePath = process.env.RENDERWELD_CHROMIUM_PATH;
 const hasBrowser = Boolean(executablePath && existsSync(executablePath));
 const axeSource = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
 
@@ -32,7 +32,7 @@ describe.runIf(hasBrowser)('dashboard part 2 in a browser', () => {
     await new Promise<void>((ok) => receiver.listen(0, '127.0.0.1', ok));
     const addr = receiver.address();
     const port = typeof addr === 'object' && addr ? addr.port : 0;
-    studio = await startStudio([fakeEngine('html'), fakeEngine('remotion', { fail: true })], { env: { REELFORGE_WEBHOOKS_ALLOW_HTTP: 'true', REELFORGE_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true' } });
+    studio = await startStudio([fakeEngine('html'), fakeEngine('remotion', { fail: true })], { env: { RENDERWELD_WEBHOOKS_ALLOW_HTTP: 'true', RENDERWELD_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: 'true' } });
     const { call, waitFor } = studio;
     const hook = await call('POST', '/v1/webhooks', { name: 'Render alerts', url: `http://127.0.0.1:${port}/hook`, events: ['job.*'] });
     expect(hook.status).toBe(201);
