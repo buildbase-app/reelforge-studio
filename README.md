@@ -87,8 +87,9 @@ databases and running the studio next to the store site
   key for noncommercial use or a paid Commercial key; only the key and a random
   instance id are sent; daily check, 14 days offline grace; one activation per
   deployment however many api and worker instances); without a valid licence
-  renders are refused and everything else works. `RENDERWELD_LICENCE_MODE=off` for development (`pnpm dev` sets it).
-  See docs/DEPLOY.md#licence.
+  renders are refused and everything else works. Runs on a free Personal key
+  for noncommercial use, or a Commercial key. See
+  [docs/public/install/licence.md](docs/public/install/licence.md).
 - **Data and settings**: metadata in SQLite (default), PostgreSQL or
   MySQL/MariaDB by `DATABASE_URL`; files on local disk, S3-compatible, Azure
   Blob or Google Cloud Storage; one configuration schema

@@ -38,8 +38,8 @@ pnpm keys:create --name me          # prints an rf_... key once
 pnpm dev                            # REST http://127.0.0.1:4321/v1, MCP http://127.0.0.1:4321/mcp
 ```
 
-`pnpm dev` restarts on code changes and sets `RENDERWELD_LICENCE_MODE=off`, which
-is for noncommercial development only. `pnpm start` runs without watching.
+`pnpm dev` restarts on code changes; `pnpm start` runs without watching. A build
+from source needs a licence key, like the image.
 Data goes to `./data` (`RENDERWELD_DATA_DIR`).
 
 ## Useful commands
