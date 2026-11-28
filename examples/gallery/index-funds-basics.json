@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "index-funds-basics",
     "title": "Index funds in 15 seconds",
-    "description": "A plain-language explainer on index funds: what they are, why fees matter (live chart), and a reminder that this is education, not advice.",
+    "description": "A plain-language explainer on index funds: what they are, why fees matter (live chart), and a reminder that this is education, not advice. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Finance tip",
     "tags": [
       "finance",

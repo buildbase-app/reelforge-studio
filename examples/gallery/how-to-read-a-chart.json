@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "how-to-read-a-chart",
     "title": "How to read a line chart",
-    "description": "A data literacy explainer: how to read a line chart honestly.",
+    "description": "A data literacy explainer: how to read a line chart honestly. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Explainer",
     "tags": [
       "education",

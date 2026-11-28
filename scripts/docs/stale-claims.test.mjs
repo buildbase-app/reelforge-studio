@@ -42,3 +42,16 @@ describe('stale claims (#390)', () => {
     assert.doesNotMatch(read('README.md'), /not rendered yet/i);
   });
 });
+
+// The official image ships no Remotion (#783, D-143): customer docs must not say it does.
+describe('stale claims (#783)', () => {
+  const STALE = [/pre-built Remotion/i, /four-engine 1080x1920 render/i, /Remotion, one of the four engines/i];
+  it('no public doc says the official image includes Remotion', () => {
+    const hits = markdown('docs/public').filter((path) => STALE.some((re) => re.test(read(path))));
+    assert.deepEqual(hits, [], 'the official image has no Remotion: see docs/public/install/remotion.md');
+  });
+
+  it('the Remotion install page is published', () => {
+    assert.match(read('docs/public/manifest.json'), /"docs\/public\/install\/remotion\.md"/);
+  });
+});

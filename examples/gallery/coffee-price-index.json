@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "coffee-price-index",
     "title": "Coffee price index",
-    "description": "A quick data reel: the price of a flat white at a fictional café over eight years, as a line chart with a counting price and a tip at the end.",
+    "description": "A quick data reel: the price of a flat white at a fictional café over eight years, as a line chart with a counting price and a tip at the end. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Data story",
     "tags": [
       "data",

@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "tutorial-brand-theme",
     "title": "Tutorial: give a reel your brand",
-    "description": "A tutorial reel for RenderWeld users: how an agent applies a brand theme to a project in three steps (list themes, set theme, render), with code and a stepper.",
+    "description": "A tutorial reel for RenderWeld users: how an agent applies a brand theme to a project in three steps (list themes, set theme, render), with code and a stepper. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Tutorial",
     "tags": [
       "tutorial",

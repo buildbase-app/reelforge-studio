@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "manual-vs-agent-editing",
     "title": "Manual vs agent editing",
-    "description": "Compare editing short videos by hand with letting an agent write the scene manifest and render it.",
+    "description": "Compare editing short videos by hand with letting an agent write the scene manifest and render it. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Comparison",
     "tags": [
       "comparison",

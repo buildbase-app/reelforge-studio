@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "community-garden-signup",
     "title": "Community garden sign-up",
-    "description": "A community reel for a fictional neighbourhood garden: hero line, plots-left stat, what you get checklist, and outro.",
+    "description": "A community reel for a fictional neighbourhood garden: hero line, plots-left stat, what you get checklist, and outro. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Wellbeing",
     "tags": [
       "community",

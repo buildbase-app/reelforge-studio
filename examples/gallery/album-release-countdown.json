@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "album-release-countdown",
     "title": "Album release countdown",
-    "description": "A release countdown for \"Afterglow\", a fictional album by the fictional band Low Tide: silk-line intro, tracklist timeline, countdown, and outro.",
+    "description": "A release countdown for \"Afterglow\", a fictional album by the fictional band Low Tide: silk-line intro, tracklist timeline, countdown, and outro. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Event",
     "tags": [
       "event",

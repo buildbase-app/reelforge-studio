@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "default-theme-showcase",
     "title": "Default theme showcase",
-    "description": "Showcase the built-in Default theme with each engine's built-in template: Remotion kinetic title, Motion Canvas explainer, HTML title and HyperFrames title, then a silk outro.",
+    "description": "Showcase the built-in Default theme with each engine's built-in template: Remotion kinetic title, Motion Canvas explainer, HTML title and HyperFrames title, then a silk outro. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Generative",
     "tags": [
       "themes",

@@ -173,7 +173,10 @@ export function buildEntry(spec: ReelSpec): GalleryEntry {
     gallery: {
       slug: spec.slug,
       title: spec.title,
-      description: spec.description ?? spec.prompt.split(/(?<=\.)\s/)[0]!.slice(0, 200),
+      // The official image has no Remotion (#783): say so on every example that needs it.
+      description:
+        (spec.description ?? spec.prompt.split(/(?<=\.)\s/)[0]!.slice(0, 200)) +
+        (engines.includes('remotion') ? ' Uses the optional Remotion engine, which needs your own Remotion licence.' : ''),
       category: spec.category,
       tags: spec.tags,
       prompt: spec.prompt,

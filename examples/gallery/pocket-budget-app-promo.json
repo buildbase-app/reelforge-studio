@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "pocket-budget-app-promo",
     "title": "Pocket budget app",
-    "description": "App store promo for Pocket, a fictional budgeting app.",
+    "description": "App store promo for Pocket, a fictional budgeting app. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "App promo",
     "tags": [
       "app",

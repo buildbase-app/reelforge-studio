@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "how-solar-panels-work",
     "title": "How solar panels work",
-    "description": "An educational explainer: how a solar panel turns light into electricity, in four plain steps, with a hook and a calm line-art outro.",
+    "description": "An educational explainer: how a solar panel turns light into electricity, in four plain steps, with a hook and a calm line-art outro. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Explainer",
     "tags": [
       "education",

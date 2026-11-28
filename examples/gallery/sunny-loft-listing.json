@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "sunny-loft-listing",
     "title": "Sunny loft listing",
-    "description": "A real estate listing reel for a fictional two-bed loft: hook, floor plan drawing with price and specs, a feature grid, and a viewing CTA.",
+    "description": "A real estate listing reel for a fictional two-bed loft: hook, floor plan drawing with price and specs, a feature grid, and a viewing CTA. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Real estate",
     "tags": [
       "real-estate",

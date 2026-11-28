@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "studio-apartment-rent",
     "title": "Studio for rent",
-    "description": "A rental listing reel for a fictional city studio: price card per month, floor plan, and an apply CTA.",
+    "description": "A rental listing reel for a fictional city studio: price card per month, floor plan, and an apply CTA. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Real estate",
     "tags": [
       "real-estate",

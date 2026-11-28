@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "midnight-theme-showcase",
     "title": "Midnight theme showcase",
-    "description": "Showcase the built-in Midnight theme across engines: a Remotion title, a built-in HTML title, a HyperFrames title, and a silk-line scene.",
+    "description": "Showcase the built-in Midnight theme across engines: a Remotion title, a built-in HTML title, a HyperFrames title, and a silk-line scene. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Generative",
     "tags": [
       "themes",

@@ -101,7 +101,7 @@ function commonTroubleshooting(): string {
 
 function engineNotes(engine: CellEngine): string {
   const notes: Record<CellEngine, string> = {
-    remotion: 'Remotion (`kinetic-title`): 1.5 to 8 s per scene, headline up to 60 characters. The first Remotion render bundles the composition and is slower; `pnpm prebuild:engines` (done in the Docker image) avoids that.',
+    remotion: 'Remotion (`kinetic-title`): 1.5 to 8 s per scene, headline up to 60 characters. Remotion is optional and not in the official image; its add-on image pre-builds the composition. In a checkout the first Remotion render bundles it and is slower; `pnpm prebuild:engines` avoids that.',
     'motion-canvas': 'Motion Canvas (`animated-explainer`): 2 to 20 s, a title and 1 to 4 points (up to 90 characters each; long points wrap).',
     html: 'HTML (`html-title`): 1 to 12 s, headline up to 80 characters, optional kicker and subline. The html engine also takes raw `{ html, css }` instead of a template, and renders without network access (no remote scripts or resources).',
     hyperframes: 'HyperFrames (`hyperframes-title`): 1 to 12 s, headline up to 80 characters and a subline, CSS keyframes seeked by the local HyperFrames renderer (GSAP is not bundled). Scenes render without network access: a composition cannot load remote scripts, fonts or images (import assets into the studio first).',
@@ -574,7 +574,11 @@ Matrix and other combinations: [tutorials README](../README.md).
 ## Prerequisites
 
 - A running RenderWeld and an API key with the \`read,write,render\` scopes (step 1).
-- A licence key for a real install (the Personal licence is free), or \`RENDERWELD_LICENCE_MODE=off\` from a checkout for local development only.
+- A licence key for a real install (the Personal licence is free), or \`RENDERWELD_LICENCE_MODE=off\` from a checkout for local development only.${
+    e.engines.includes('remotion')
+      ? `\n- Needs the optional Remotion engine and your own Remotion licence: the official image does not include Remotion, so in Docker build the add-on image and turn the engine on first ([Add the Remotion engine](../../public/install/remotion.md)). A checkout's development build uses its own copy for personal testing.`
+      : ''
+  }
 ${PREREQS[agent]}
 
 ## Steps

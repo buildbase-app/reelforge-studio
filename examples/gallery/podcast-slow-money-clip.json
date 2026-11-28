@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "podcast-slow-money-clip",
     "title": "Slow Money podcast clip",
-    "description": "A clip from the fictional podcast \"Slow Money\": captions word by word over a waveform, then a key takeaway title.",
+    "description": "A clip from the fictional podcast \"Slow Money\": captions word by word over a waveform, then a key takeaway title. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Podcast clip",
     "tags": [
       "podcast",

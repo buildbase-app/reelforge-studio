@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "dashboard-redesign",
     "title": "Dashboard redesign",
-    "description": "Show a fictional analytics dashboard redesign as a before/after wipe, then the improvements as a checklist.",
+    "description": "Show a fictional analytics dashboard redesign as a before/after wipe, then the improvements as a checklist. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Before & after",
     "tags": [
       "before-after",

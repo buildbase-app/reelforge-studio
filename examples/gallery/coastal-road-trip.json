@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "coastal-road-trip",
     "title": "Five-day coastal road trip",
-    "description": "A travel reel for a fictional five-day coastal road trip: hook, the route drawing on a stylised map with stops, a day-by-day timeline, and an outro.",
+    "description": "A travel reel for a fictional five-day coastal road trip: hook, the route drawing on a stylised map with stops, a day-by-day timeline, and an outro. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Travel",
     "tags": [
       "travel",

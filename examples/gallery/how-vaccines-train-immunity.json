@@ -2,7 +2,7 @@
   "gallery": {
     "slug": "how-vaccines-train-immunity",
     "title": "How the immune system learns",
-    "description": "A friendly biology explainer on how the immune system learns to recognise germs, in three steps, using a timeline.",
+    "description": "A friendly biology explainer on how the immune system learns to recognise germs, in three steps, using a timeline. Uses the optional Remotion engine, which needs your own Remotion licence.",
     "category": "Explainer",
     "tags": [
       "education",
